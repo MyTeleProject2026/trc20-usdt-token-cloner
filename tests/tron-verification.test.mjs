@@ -58,3 +58,15 @@ test('rejects missing solidified block metadata', () => {
   data.receipt = { ...receipt, blockNumber: 0 }
   assert.equal(verifySolidifiedTrc20Transfer(data).reason, 'receipt-has-no-solidified-block')
 })
+
+test('rejects a top-level failed solidified execution result', () => {
+  const data = input()
+  data.receipt = { ...receipt, result: 'FAILED' }
+  assert.equal(verifySolidifiedTrc20Transfer(data).reason, 'contract-execution-not-successful')
+})
+
+test('rejects a failed contract result in the solidified transaction body', () => {
+  const data = input()
+  data.transaction = { ...transaction, ret: [{ contractRet: 'REVERT' }] }
+  assert.equal(verifySolidifiedTrc20Transfer(data).reason, 'transaction-contract-execution-not-successful')
+})
