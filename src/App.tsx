@@ -417,14 +417,21 @@ export default function App() {
         setVerifyResult({ txId: verifyTxId.trim(), confirmed: false, receipt: 'Pending or not found in solidified blocks yet', error: null })
         return
       }
+      const contractType = tx.raw_data?.contract?.[0]?.type || ''
       const deployment = tx.raw_data?.contract?.[0]?.parameter?.value?.new_contract
-      const receipt = info.receipt?.result || info.result?.[0]?.contractRet || 'Unavailable'
-      const confirmed = Number.isInteger(info.blockNumber) && receipt === 'SUCCESS'
+      const txExecution = tx.ret?.[0]?.contractRet || ''
+      const receiptExecution = info.receipt?.result || ''
+      const execution = receiptExecution || txExecution || info.result || 'Pending or unavailable'
+      const isSmartContractCall = contractType === 'TriggerSmartContract'
+      const confirmed = Number.isInteger(info.blockNumber) &&
+        (isSmartContractCall
+          ? info.result !== 'FAILED' && receiptExecution === 'SUCCESS'
+          : txExecution === 'SUCCESS' || (!txExecution && info.result === 'SUCCESS'))
       setVerifyResult({
         txId: tx.txID,
         contractAddress: info.contract_address || deployment?.contract_address || null,
         blockNumber: info.blockNumber,
-        receipt,
+        receipt: execution,
         confirmed,
         error: null,
       })
