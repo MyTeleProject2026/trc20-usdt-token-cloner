@@ -1,0 +1,40 @@
+name: Refresh npm lockfile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - .github/workflows/refresh-lockfile.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Regenerate lockfile without running package scripts
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Open lockfile update pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/refresh-npm-lockfile
+          delete-branch: true
+          commit-message: "chore: regenerate npm lockfile"
+          title: "chore: regenerate npm lockfile"
+          body: |
+            Regenerates package-lock.json from package.json using npm with install scripts disabled.
+            This synchronizes declared dependencies, including TronWeb and solc, before merge.
+          add-paths: package-lock.json
