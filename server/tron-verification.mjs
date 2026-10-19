@@ -6,7 +6,7 @@ function normalizeAddress(value) {
   if (typeof value !== 'string') return null
   const hex = value.replace(/^0x/i, '')
   if (!HEX_ADDRESS.test(hex)) return null
-  return hex.replace(/^41/i, '').toLowerCase()
+  return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase()
 }
 
 function topicAddress(value) {
