@@ -53,6 +53,7 @@ export default function App() {
   const [trxTransferring, setTrxTransferring] = useState(false)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
+  const [walletConnected, setWalletConnected] = useState(false)
   const [showPrivateKey, setShowPrivateKey] = useState(false)
   const [accountData, setAccountData] = useState<any>(null)
   const [transactionHistory, setTransactionHistory] = useState<any[]>([])
@@ -93,6 +94,38 @@ export default function App() {
     navigator.clipboard.writeText(text)
     setCopied(id)
     setTimeout(() => setCopied(null), 2000)
+  }
+
+  // Connect to TronLink. The wallet retains the private key and asks for approval
+  // for every state-changing transaction.
+  const getInjectedTronWeb = async () => {
+    const provider = (window as any).tron
+    if (!provider) throw new Error('TronLink was not detected. Open this site in a browser with TronLink installed.')
+    if (typeof provider.request === 'function') {
+      await provider.request({ method: 'eth_requestAccounts' })
+    }
+    const tronWeb = provider.tronWeb
+    if (!tronWeb || !tronWeb.defaultAddress?.base58) throw new Error('TronLink did not provide an authorized account. Unlock the wallet and approve connection.')
+    return tronWeb
+  }
+
+  const handleConnectWallet = async () => {
+    try {
+      const tronWeb = await getInjectedTronWeb()
+      const address = tronWeb.defaultAddress.base58
+      const host = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
+      const isShasta = host.includes('shasta')
+      if ((network === 'shasta' && !isShasta) || (network === 'mainnet' && (isShasta || host.includes('nile')))) {
+        throw new Error(`TronLink is connected to a different network than the selected ${network === 'shasta' ? 'Shasta Testnet' : 'Mainnet'}. Switch networks in TronLink, then reconnect.`)
+      }
+      setWalletAddress(address)
+      setQueryAddress(address)
+      setWalletConnected(true)
+      setActionMessage({ type: 'success', text: `TronLink connected: ${address}. Review every transaction in the wallet before approving.` })
+    } catch (err: any) {
+      setWalletConnected(false)
+      setActionMessage({ type: 'error', text: err?.message || 'Could not connect to TronLink.' })
+    }
   }
 
   const handleGenerateWallet = async () => {
@@ -258,24 +291,28 @@ export default function App() {
   }
 
   const handleTransfer = async () => {
-    if (network !== 'shasta') {
-      setActionMessage({ type: 'error', text: 'Token transfers are restricted to Shasta Testnet in this testing workspace. No Mainnet transfer is enabled.' })
-      return
-    }
-    if (!contractAddress || !recipientAddress || !transferAmount || !privateKey) {
-      setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, amount, and your wallet private key. The key is used only in this browser and is never sent to the backend.' })
+    if (!contractAddress || !recipientAddress || !transferAmount) {
+      setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, and amount.' })
       return
     }
     setTransferring(true)
     setActionMessage(null)
     try {
-      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
+      const tronWeb = await getInjectedTronWeb()
+      const fullNodeHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
+      const isShastaWallet = fullNodeHost.includes('shasta')
+      if ((network === 'shasta' && !isShastaWallet) || (network === 'mainnet' && (isShastaWallet || fullNodeHost.includes('nile')))) {
+        throw new Error('Selected network does not match the network currently active in TronLink. Switch TronLink network and reconnect before sending.')
+      }
       if (!tronWeb.isAddress(contractAddress) || !tronWeb.isAddress(recipientAddress)) {
         throw new Error('Enter valid TRON Base58 addresses for the token contract and recipient.')
       }
+      const officialMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+      if (network === 'mainnet' && contractAddress.trim() !== officialMainnetUsdt) {
+        throw new Error('Mainnet token transfers in this workflow are restricted to the official TRON USDT contract. Custom tokens are not official USDT.')
+      }
       const sender = tronWeb.defaultAddress.base58
-      if (!sender) throw new Error('The private key could not be converted to a TRON address.')
+      if (!sender) throw new Error('TronLink has no authorized sender address.')
       setWalletAddress(sender)
       const contract = await tronWeb.contract().at(contractAddress.trim())
       const decimals = Number(await contract.decimals().call())
@@ -304,18 +341,19 @@ export default function App() {
 
   // Native Shasta TRX transfer. TRX is the network coin, not a TRC-20 contract.
   const handleNativeTrxTransfer = async () => {
-    if (network !== 'shasta') {
-      setActionMessage({ type: 'error', text: 'Native TRX transfers are restricted to Shasta Testnet in this workspace.' })
-      return
-    }
-    if (!privateKey.trim() || !recipientAddress.trim() || !trxAmount.trim()) {
-      setActionMessage({ type: 'error', text: 'Enter your local wallet private key, a receiver address, and a TRX amount. The key is used in this browser only.' })
+    if (!recipientAddress.trim() || !trxAmount.trim()) {
+      setActionMessage({ type: 'error', text: 'Enter a receiver address and a TRX amount.' })
       return
     }
     setTrxTransferring(true)
     setActionMessage(null)
     try {
-      const tronWeb = new TronWeb({ fullHost: 'https://api.shasta.trongrid.io', privateKey: privateKey.trim() })
+      const tronWeb = await getInjectedTronWeb()
+      const fullNodeHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
+      const isShastaWallet = fullNodeHost.includes('shasta')
+      if ((network === 'shasta' && !isShastaWallet) || (network === 'mainnet' && (isShastaWallet || fullNodeHost.includes('nile')))) {
+        throw new Error('Selected network does not match the network currently active in TronLink. Switch TronLink network and reconnect before sending.')
+      }
       if (!tronWeb.isAddress(recipientAddress.trim())) throw new Error('Enter a valid TRON Base58 receiver address.')
       const amount = tronWeb.toBigNumber(trxAmount.trim())
       if (!amount.isFinite() || amount.lte(0) || amount.decimalPlaces() > 6) {
@@ -325,15 +363,18 @@ export default function App() {
       const sender = tronWeb.defaultAddress.base58
       if (!sender) throw new Error('Could not derive the sender address from the supplied private key.')
       setWalletAddress(sender)
-      const result: any = await tronWeb.trx.sendTransaction(recipientAddress.trim(), sun)
-      if (!result?.result || !result?.txid) {
-        throw new Error(result?.message ? String(result.message) : 'The Shasta node did not accept the transaction. Check testnet TRX for fees.')
+      const transaction = await tronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
+      const signed: any = await tronWeb.trx.sign(transaction)
+      const result: any = await tronWeb.trx.sendRawTransaction(signed)
+      const txid = signed?.txID || result?.txid || transaction?.txID
+      if (!result?.result || !txid) {
+        throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not accept the signed transaction. Check balance and network fees.')
       }
       setActionMessage({
         type: 'success',
-        text: `Native Shasta TRX transfer broadcast from ${sender}. Transaction ID: ${result.txid}. Confirm it on Shasta TRONSCAN, then query the receiver address to verify its balance.`,
+        text: `Native ${network === 'shasta' ? 'Shasta testnet' : 'Mainnet'} TRX transfer broadcast from ${sender}. Transaction ID: ${txid}. This is submitted, not yet confirmed. Verify the solidified receipt and receiver balance before treating it as final.`,
       })
-      setVerifyTxId(result.txid)
+      setVerifyTxId(txid)
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err?.message || 'Native TRX transfer failed. Check the Shasta network, address, and testnet balance.' })
     } finally {
@@ -402,12 +443,15 @@ export default function App() {
                 </span>
               </div>
               <p className="text-xs text-tertiary">
-                Create and manage independent TRC-20 tokens, inspect on-chain balances, and sign transfers locally
+                Inspect on-chain balances and send genuine TRX or approved TRC-20 transfers with wallet confirmation. Testnet assets are not Mainnet funds.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-md">
+            <button type="button" onClick={handleConnectWallet} className="rounded-lg border border-secondary bg-secondary px-md py-xs text-xs font-semibold text-primary hover:bg-primary">
+              {walletConnected && walletAddress ? `TronLink: ${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}` : 'Connect TronLink'}
+            </button>
             {tronBlock?.blockNumber && (
               <div className="hidden sm:inline-flex items-center gap-xs rounded-full border border-secondary bg-secondary px-md py-xxs text-xs">
                 <span className="text-tertiary">Tron Block:</span>
@@ -429,11 +473,10 @@ export default function App() {
               </button>
               <button
                 type="button"
-                disabled
-                title="Mainnet transactions are disabled in this Shasta test workspace"
-                className="rounded-md px-md py-xs text-xs font-semibold text-tertiary opacity-50 cursor-not-allowed"
+                onClick={() => setNetwork('mainnet')}
+                className={`rounded-md px-md py-xs text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${network === 'mainnet' ? 'bg-primary text-primary shadow-xs' : 'text-tertiary hover:text-secondary'}`}
               >
-                Mainnet Disabled
+                Mainnet
               </button>
             </div>
           </div>
