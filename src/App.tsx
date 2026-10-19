@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { TronWeb } from 'tronweb'
+import { tokenArtifact } from './generated/IndependentTRC20'
 import {
   Coins,
   Send,
@@ -88,38 +89,37 @@ export default function App() {
     setDeploying(true)
     setDeployResult(null)
     try {
-      const res = await fetch(`${API_BASE}/api/tron/deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: tokenName,
-          symbol: tokenSymbol,
-          decimals: Number(tokenDecimals),
-          totalSupply: Number(initialSupply),
-          recipient
-        })
-      })
-      const data = await res.json()
-      if (data.success && data.result) {
-        setDeployResult({
-          success: true,
-          txId: data.result.txId,
-          contractAddress: data.result.contractAddress
-        })
-      } else {
-        setDeployResult({
-          success: false,
-          error: data.error,
-          message: data.message,
-          preparedPayload: data.preparedPayload
-        })
+      if (!privateKey.trim()) throw new Error('Enter your wallet private key in the local-signing field. It is used only in this browser and is never sent to the backend.')
+      if (!recipient.trim()) throw new Error('Enter the address that should receive the initial supply.')
+      if (!/^[1-9][0-9]*$/.test(initialSupply)) throw new Error('Initial supply must be a positive whole-token integer.')
+      if (Number(tokenDecimals) !== 18) throw new Error('This VTRC contract template uses 18 decimals.')
+      if (/tether/i.test(tokenName) || tokenSymbol.trim().toUpperCase() === 'USDT') {
+        throw new Error('This project deploys an independent token. Use its own identity, such as TRC20 / VTRC, not Tether / USDT.')
       }
-    } catch (err: any) {
-      setDeployResult({
-        success: false,
-        error: 'client-error',
-        message: err.message
+      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+      const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
+      if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Base58 recipient address.')
+      const contract = await tronWeb.contract().new({
+        abi: tokenArtifact.abi as any,
+        bytecode: tokenArtifact.bytecode,
+        feeLimit: 1_000_000_000,
+        callValue: 0,
+        userFeePercentage: 100,
+        originEnergyLimit: 10_000_000,
+        parameters: [initialSupply, recipient.trim()],
       })
+      const contractAddress = (contract as any).address
+      const txId = (contract as any).transaction?.txID || (contract as any).transaction?.txid || ''
+      if (!contractAddress) throw new Error('The deployment request returned no contract address. Check the transaction and network explorer.')
+      setDeployResult({
+        success: true,
+        txId,
+        contractAddress,
+        message: 'Contract deployment submitted. Confirm the transaction on the selected TRON network before relying on the address.',
+      })
+      setContractAddress(contractAddress)
+    } catch (err: any) {
+      setDeployResult({ success: false, error: 'deployment-failed', message: err?.message || 'Deployment failed. Check the network, wallet funds, and fee limit.' })
     } finally {
       setDeploying(false)
     }
@@ -342,9 +342,9 @@ export default function App() {
             <section className="lg:col-span-2 rounded-xl border border-secondary bg-primary p-xl shadow-xs space-y-xl">
               <div className="flex items-center justify-between border-b border-secondary pb-md">
                 <div>
-                  <h2 className="text-heading-xs font-semibold text-primary">Deploy TRC-20 USDT Token Clone</h2>
+                  <h2 className="text-heading-xs font-semibold text-primary">Deploy Independent TRC-20 Token</h2>
                   <p className="text-xs text-tertiary mt-xxs">
-                    Deploys an official-equivalent Tether USD TRC-20 contract with 6 decimals directly to Tron.
+                    Deploys your own fixed-supply TRC-20 contract. Default identity: TRC20 (VTRC), 18 decimals. Not official Tether USDT.
                   </p>
                 </div>
                 {/* Badge recipe */}
@@ -363,7 +363,7 @@ export default function App() {
                     onChange={(e) => setTokenName(e.target.value)}
                     className="rounded-md bg-primary px-lg py-sm text-sm text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
                   />
-                  <p className="text-xs text-tertiary">Official: Tether USD</p>
+                  <p className="text-xs text-tertiary">Independent token name</p>
                 </div>
 
                 <div className="flex flex-col gap-sm">
@@ -374,7 +374,7 @@ export default function App() {
                     onChange={(e) => setTokenSymbol(e.target.value)}
                     className="rounded-md bg-primary px-lg py-sm text-sm text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
                   />
-                  <p className="text-xs text-tertiary">Official: USDT</p>
+                  <p className="text-xs text-tertiary">Use a distinct token symbol</p>
                 </div>
 
                 <div className="flex flex-col gap-sm">
@@ -385,7 +385,7 @@ export default function App() {
                     onChange={(e) => setTokenDecimals(e.target.value)}
                     className="rounded-md bg-primary px-lg py-sm text-sm text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
                   />
-                  <p className="text-xs text-tertiary">Standard for TRC-20 USDT is 6 decimals</p>
+                  <p className="text-xs text-tertiary">This contract template is fixed at 18 decimals</p>
                 </div>
 
                 <div className="flex flex-col gap-sm">
@@ -396,7 +396,7 @@ export default function App() {
                     onChange={(e) => setInitialSupply(e.target.value)}
                     className="rounded-md bg-primary px-lg py-sm text-sm text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
                   />
-                  <p className="text-xs text-tertiary">1,000,000,000 USDT</p>
+                  <p className="text-xs text-tertiary">1,000,000 VTRC</p>
                 </div>
 
                 <div className="sm:col-span-2 flex flex-col gap-sm">
@@ -409,6 +409,18 @@ export default function App() {
                   />
                   <p className="text-xs text-tertiary">Receives 100% of the initial supply upon deployment</p>
                 </div>
+                <div className="sm:col-span-2 flex flex-col gap-sm">
+                  <label className="text-sm font-medium text-secondary">Wallet Private Key (browser-local signing)</label>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value)}
+                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    placeholder="Private key for your own wallet"
+                  />
+                  <p className="text-xs text-tertiary">Used only by this browser for signing. It is not submitted to the backend. Do not enter a key for a wallet containing valuable funds unless you understand the risks.</p>
+                </div>
               </div>
 
               {/* Alert recipe: neutral informational callout */}
@@ -417,7 +429,7 @@ export default function App() {
                 <div>
                   <p className="text-sm font-semibold text-primary">Tron Network Signing</p>
                   <p className="mt-xxs text-sm text-tertiary">
-                    Transactions to Tron require execution signing. Add <code className="text-brand-primary font-mono font-medium">TRON_PRIVATE_KEY</code> to your server environment variables for automated broadcasting, or inspect the generated payload below.
+                    Your wallet signs the deployment in this browser. The private key is not sent to the backend or stored by Render. Keep a secure backup and never use a wallet holding funds you cannot afford to risk.
                   </p>
                 </div>
               </div>
@@ -438,7 +450,7 @@ export default function App() {
                   ) : (
                     <>
                       <Zap className="size-4 shrink-0 text-primary-on-brand" />
-                      Deploy USDT Clone Token
+                      Deploy VTRC Token
                     </>
                   )}
                 </button>
