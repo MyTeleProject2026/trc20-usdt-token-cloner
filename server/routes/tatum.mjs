@@ -15,6 +15,15 @@ router.get('/status', async (_req, res) => {
   }
 })
 
+
+// Read-only sponsor status. This endpoint deliberately cannot initiate transfers.
+// It stays disabled until a real provider adapter, sponsor funding, and testnet
+// verification have been implemented and reviewed.
+router.get('/tron/sponsorship/status', async (_req, res) => {
+  const { getSponsorshipStatus } = await import('../sponsorship-status.mjs')
+  res.json({ success: true, sponsorship: getSponsorshipStatus() })
+})
+
 router.get('/tron/info', async (_req, res) => {
   try {
     const data = await tatumFetch('/v3/tron/info')
