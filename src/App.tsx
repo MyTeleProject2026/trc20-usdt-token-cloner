@@ -63,11 +63,17 @@ export default function App() {
   const fetchStatus = async () => {
     try {
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const tronWeb = new TronWeb({ fullHost })
-      const block: any = await tronWeb.trx.getCurrentBlock()
-      const raw = block?.block_header?.raw_data
-      setTronBlock({ blockNumber: raw?.number, hash: block?.blockID })
-      setApiStatus('connected')
+      const [blockResult, providerResult] = await Promise.allSettled([
+        new TronWeb({ fullHost }).trx.getCurrentBlock(),
+        fetch(`${API_BASE}/api/status`).then((response) => response.json()),
+      ])
+      if (blockResult.status === 'fulfilled') {
+        const block: any = blockResult.value
+        const raw = block?.block_header?.raw_data
+        setTronBlock({ blockNumber: raw?.number, hash: block?.blockID })
+      }
+      if (providerResult.status === 'fulfilled') setApiStatus(providerResult.value?.status || 'connected')
+      else setApiStatus('connected')
     } catch {
       setApiStatus('error')
     }
@@ -133,10 +139,20 @@ export default function App() {
     setActionMessage(null)
     try {
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const response = await fetch(`${fullHost}/v1/accounts/${encodeURIComponent(queryAddress.trim())}`)
-      if (!response.ok) throw new Error(`TRON provider returned HTTP ${response.status}`)
-      const payload = await response.json()
-      const account = payload?.data?.[0] || {}
+      let account: any = null
+      try {
+        const providerResponse = await fetch(`${API_BASE}/api/tron/account/${encodeURIComponent(queryAddress.trim())}`)
+        const providerPayload = await providerResponse.json()
+        if (providerResponse.ok && providerPayload?.success && providerPayload.data) account = providerPayload.data
+      } catch {
+        // Fall back to the public TRON endpoint if the configured provider is unavailable.
+      }
+      if (!account) {
+        const response = await fetch(`${fullHost}/v1/accounts/${encodeURIComponent(queryAddress.trim())}`)
+        if (!response.ok) throw new Error(`TRON provider returned HTTP ${response.status}`)
+        const payload = await response.json()
+        account = payload?.data?.[0] || {}
+      }
       const historyResponse = await fetch(`${fullHost}/v1/accounts/${encodeURIComponent(queryAddress.trim())}/transactions/trc20?limit=20&only_confirmed=true`)
       if (historyResponse.ok) {
         const historyPayload = await historyResponse.json()
@@ -146,7 +162,12 @@ export default function App() {
       }
       const rawTokens = account.trc20 || []
       const trc20 = Array.isArray(rawTokens)
-        ? rawTokens.flatMap((entry: any) => Object.entries(entry || {}).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) })))
+        ? rawTokens.flatMap((entry: any) => {
+            if (entry?.contractAddress || entry?.contract_address) {
+              return [{ contractAddress: entry.contractAddress || entry.contract_address, balance: String(entry.balance ?? entry.tokenBalance ?? entry.amount ?? '0') }]
+            }
+            return Object.entries(entry || {}).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) }))
+          })
         : Object.entries(rawTokens).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) }))
       setAccountData({
         address: account.address || queryAddress.trim(),
@@ -312,7 +333,7 @@ export default function App() {
             <div>
               <p className="text-sm font-semibold text-utility-warning-600">Tatum API key not detected</p>
               <p className="mt-xxs text-sm text-tertiary">
-                Blockchain reads and deployments require a Tatum API key. Add <code className="font-mono text-primary font-medium">TATUM_API_KEY</code> in your workspace settings to execute live calls.
+                The app can read the public TRON network directly. Add <code className="font-mono text-primary font-medium">TATUM_API_KEY</code> to enable the optional Tatum-backed API routes.
               </p>
             </div>
           </div>
@@ -330,7 +351,7 @@ export default function App() {
             }`}
           >
             <Zap className="size-4 shrink-0 text-fg-brand-primary" />
-            1. Deploy & Clone USDT
+            1. Deploy VTRC Token
           </button>
           <button
             type="button"
