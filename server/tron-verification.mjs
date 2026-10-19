@@ -34,9 +34,11 @@ export function verifySolidifiedTrc20Transfer({
   const fail = (reason) => ({ verified: false, reason })
   if (typeof expectedTxId !== 'string' || !TX_ID.test(expectedTxId)) return fail('invalid-expected-transaction-id')
   if (!transaction || String(transaction.txID || '').toLowerCase() !== expectedTxId.toLowerCase()) return fail('solidified-transaction-not-found-or-id-mismatch')
+  const contractResults = Array.isArray(transaction.ret) ? transaction.ret : []
+  if (contractResults.some((entry) => entry?.contractRet && entry.contractRet !== 'SUCCESS')) return fail('transaction-contract-execution-not-successful')
   if (!receipt || String(receipt.id || '').toLowerCase() !== expectedTxId.toLowerCase()) return fail('solidified-receipt-not-found-or-id-mismatch')
   if (!Number.isFinite(Number(receipt.blockNumber)) || Number(receipt.blockNumber) <= 0) return fail('receipt-has-no-solidified-block')
-  if (receipt.receipt?.result !== 'SUCCESS') return fail('contract-execution-not-successful')
+  if (receipt.result === 'FAILED' || receipt.receipt?.result !== 'SUCCESS') return fail('contract-execution-not-successful')
   const contract = normalizeAddress(tokenContractAddress)
   const from = normalizeAddress(fromAddress)
   const to = normalizeAddress(toAddress)
