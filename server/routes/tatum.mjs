@@ -72,7 +72,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
     return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a positive integer string in the token smallest unit.' })
   }
-  const normalizeHexAddress = (value) => String(value).replace(/^0x/i, '').replace(/^41/i, '').toLowerCase()
+  const normalizeHexAddress = (value) => { const hex = String(value).replace(/^0x/i, ''); return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase() }
   const approvedContracts = (process.env.TRON_VERIFIED_TOKEN_CONTRACTS || '')
     .split(',')
     .map((value) => value.trim())
