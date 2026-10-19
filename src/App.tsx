@@ -1108,24 +1108,39 @@ export default function App() {
 
               {verifyResult && (
                 <div className="mt-xl">
-                  {verifyResult.contractAddress ? (
-                    /* Alert recipe: success */
-                    <div className="flex gap-lg rounded-xl bg-utility-success-50 p-xl">
+                  <div className={`flex gap-lg rounded-xl p-xl ${verifyResult.confirmed ? 'bg-utility-success-50' : 'bg-secondary'}`}>
+                    {verifyResult.confirmed ? (
                       <CheckCircle2 className="mt-xxs size-5 shrink-0 text-utility-success-600" aria-hidden="true" />
-                      <div className="w-full">
-                        <p className="text-sm font-semibold text-utility-success-600">Contract Confirmed on Tron!</p>
-                        <div className="mt-sm flex justify-between items-center rounded-md bg-primary p-sm text-xs font-mono border border-primary">
-                          <span className="text-tertiary">Contract Address:</span>
-                          <span className="font-bold text-primary">{verifyResult.contractAddress}</span>
+                    ) : (
+                      <AlertCircle className="mt-xxs size-5 shrink-0 text-utility-warning-600" aria-hidden="true" />
+                    )}
+                    <div className="w-full min-w-0">
+                      <p className="text-sm font-semibold text-primary">
+                        {verifyResult.error || (verifyResult.confirmed ? 'Transaction solidified and execution succeeded' : 'Not yet confirmed as successful')}
+                      </p>
+                      {verifyResult.txId && (
+                        <div className="mt-sm break-all rounded-md bg-primary p-sm text-xs font-mono border border-primary">
+                          <span className="text-tertiary">Transaction ID: </span>{verifyResult.txId}
+                        </div>
+                      )}
+                      <div className="mt-sm grid grid-cols-1 sm:grid-cols-2 gap-sm text-xs">
+                        <div className="rounded-md bg-primary p-sm border border-primary">
+                          <span className="text-tertiary">Receipt: </span>{verifyResult.receipt || 'Pending or unavailable'}
+                        </div>
+                        <div className="rounded-md bg-primary p-sm border border-primary">
+                          <span className="text-tertiary">Block: </span>{verifyResult.blockNumber ?? 'Not solidified yet'}
                         </div>
                       </div>
+                      {verifyResult.contractAddress && (
+                        <div className="mt-sm break-all rounded-md bg-primary p-sm text-xs font-mono border border-primary">
+                          <span className="text-tertiary">Contract Address: </span>{verifyResult.contractAddress}
+                        </div>
+                      )}
+                      {verifyResult.confirmed && (
+                        <p className="mt-sm text-xs text-utility-success-700">The transaction is in a solidified block and the execution receipt reports SUCCESS. Confirm the expected recipient and amount separately.</p>
+                      )}
                     </div>
-                  ) : (
-                    <div className="text-xs text-secondary bg-secondary p-md rounded-lg">
-                      <span className="font-medium text-primary">Result: </span>
-                      {verifyResult.error || 'No contract deployment found for this transaction ID.'}
-                    </div>
-                  )}
+                  </div>
                 </div>
               )}
             </section>
