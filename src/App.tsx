@@ -61,15 +61,12 @@ export default function App() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/status`)
-      const data = await res.json()
-      setApiStatus(data.status)
-
-      const tronRes = await fetch(`${API_BASE}/api/tron/info`)
-      const tronData = await tronRes.json()
-      if (tronData.success && tronData.data) {
-        setTronBlock(tronData.data)
-      }
+      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+      const tronWeb = new TronWeb({ fullHost })
+      const block: any = await tronWeb.trx.getCurrentBlock()
+      const raw = block?.block_header?.raw_data
+      setTronBlock({ blockNumber: raw?.number, hash: block?.blockID })
+      setApiStatus('connected')
     } catch {
       setApiStatus('error')
     }
@@ -77,7 +74,7 @@ export default function App() {
 
   useEffect(() => {
     fetchStatus()
-  }, [])
+  }, [network])
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -126,19 +123,31 @@ export default function App() {
   }
 
   const handleQueryAccount = async () => {
-    if (!queryAddress) return
+    if (!queryAddress.trim()) {
+      setActionMessage({ type: 'error', text: 'Enter a TRON address to query.' })
+      return
+    }
     setLoadingDetails(true)
     setAccountData(null)
+    setActionMessage(null)
     try {
-      const res = await fetch(`${API_BASE}/api/tron/account/${encodeURIComponent(queryAddress)}`)
-      const data = await res.json()
-      if (data.success) {
-        setAccountData(data.data)
-      } else {
-        setActionMessage({ type: 'error', text: data.message || 'Failed to fetch Tron account data' })
-      }
+      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+      const response = await fetch(`${fullHost}/v1/accounts/${encodeURIComponent(queryAddress.trim())}`)
+      if (!response.ok) throw new Error(`TRON provider returned HTTP ${response.status}`)
+      const payload = await response.json()
+      const account = payload?.data?.[0] || {}
+      const rawTokens = account.trc20 || []
+      const trc20 = Array.isArray(rawTokens)
+        ? rawTokens.flatMap((entry: any) => Object.entries(entry || {}).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) })))
+        : Object.entries(rawTokens).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) }))
+      setAccountData({
+        address: account.address || queryAddress.trim(),
+        balance: Number(account.balance || 0),
+        bandwidth: Number(account.free_net_usage || 0) + Number(account.net_usage || 0),
+        trc20,
+      })
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err.message })
+      setActionMessage({ type: 'error', text: err?.message || 'Failed to fetch account data from TRON.' })
     } finally {
       setLoadingDetails(false)
     }
@@ -185,19 +194,37 @@ export default function App() {
   }
 
   const handleVerifyTx = async () => {
-    if (!verifyTxId) return
+    if (!verifyTxId.trim()) return
     setVerifying(true)
     setVerifyResult(null)
     try {
-      const res = await fetch(`${API_BASE}/api/tron/contract-by-tx/${encodeURIComponent(verifyTxId)}`)
-      const data = await res.json()
-      if (data.success) {
-        setVerifyResult(data.data)
-      } else {
-        setVerifyResult({ error: data.message || 'Contract not found for transaction' })
-      }
+      if (!/^[0-9a-fA-F]{64}$/.test(verifyTxId.trim())) throw new Error('Transaction ID must be 64 hexadecimal characters.')
+      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+      const [txResponse, infoResponse] = await Promise.all([
+        fetch(`${fullHost}/wallet/gettransactionbyid`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: verifyTxId.trim() }),
+        }),
+        fetch(`${fullHost}/wallet/gettransactioninfobyid`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: verifyTxId.trim() }),
+        }),
+      ])
+      if (!txResponse.ok || !infoResponse.ok) throw new Error('TRON provider could not verify this transaction.')
+      const [tx, info] = await Promise.all([txResponse.json(), infoResponse.json()])
+      if (!tx?.txID) throw new Error('Transaction was not found on the selected network.')
+      const deployment = tx.raw_data?.contract?.[0]?.parameter?.value?.new_contract
+      setVerifyResult({
+        txId: tx.txID,
+        contractAddress: info.contract_address || deployment?.contract_address || null,
+        blockNumber: info.blockNumber,
+        receipt: info.receipt?.result || info.result?.[0]?.contractRet || 'Pending or unavailable',
+        error: null,
+      })
     } catch (err: any) {
-      setVerifyResult({ error: err.message })
+      setVerifyResult({ error: err?.message || 'Transaction verification failed.' })
     } finally {
       setVerifying(false)
     }
