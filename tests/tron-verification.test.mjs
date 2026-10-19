@@ -70,3 +70,22 @@ test('rejects a failed contract result in the solidified transaction body', () =
   data.transaction = { ...transaction, ret: [{ contractRet: 'REVERT' }] }
   assert.equal(verifySolidifiedTrc20Transfer(data).reason, 'transaction-contract-execution-not-successful')
 })
+
+test('preserves valid 20-byte addresses that begin with the hex digits 41', () => {
+  const contract20 = '41' + '1'.repeat(38)
+  const from20 = '41' + '2'.repeat(38)
+  const to20 = '41' + '3'.repeat(38)
+  const data = input()
+  data.tokenContractAddress = contract20
+  data.fromAddress = from20
+  data.toAddress = to20
+  data.receipt = {
+    ...receipt,
+    log: [{
+      ...receipt.log[0],
+      address: contract20,
+      topics: [receipt.log[0].topics[0], from20.padStart(64, '0'), to20.padStart(64, '0')],
+    }],
+  }
+  assert.equal(verifySolidifiedTrc20Transfer(data).verified, true)
+})
