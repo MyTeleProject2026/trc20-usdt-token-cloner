@@ -111,6 +111,10 @@ export default function App() {
 
 
   const handleDeploy = async () => {
+    if (network !== 'shasta') {
+      setDeployResult({ success: false, error: 'testnet-only', message: 'Token deployment is restricted to Shasta Testnet in this testing workspace. No Mainnet deployment is enabled.' })
+      return
+    }
     setDeploying(true)
     setDeployResult(null)
     try {
@@ -245,6 +249,10 @@ export default function App() {
   }
 
   const handleTransfer = async () => {
+    if (network !== 'shasta') {
+      setActionMessage({ type: 'error', text: 'Token transfers are restricted to Shasta Testnet in this testing workspace. No Mainnet transfer is enabled.' })
+      return
+    }
     if (!contractAddress || !recipientAddress || !transferAmount || !privateKey) {
       setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, amount, and your wallet private key. The key is used only in this browser and is never sent to the backend.' })
       return
@@ -373,14 +381,11 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setNetwork('mainnet')}
-                className={`rounded-md px-md py-xs text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${
-                  network === 'mainnet'
-                    ? 'bg-primary text-primary shadow-xs'
-                    : 'text-tertiary hover:text-secondary'
-                }`}
+                disabled
+                title="Mainnet transactions are disabled in this Shasta test workspace"
+                className="rounded-md px-md py-xs text-xs font-semibold text-tertiary opacity-50 cursor-not-allowed"
               >
-                Tron Mainnet
+                Mainnet Disabled
               </button>
             </div>
           </div>
