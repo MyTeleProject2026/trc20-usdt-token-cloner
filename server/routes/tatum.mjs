@@ -58,6 +58,65 @@ router.get('/tron/contract-by-tx/:hash', async (req, res) => {
   }
 })
 
+
+// Read-only verification against TRON's solidified chain. This endpoint never
+// signs, broadcasts, credits balances, or trusts an indexer as final proof.
+router.get('/tron/verify-transfer/:hash', async (req, res) => {
+  const hash = req.params.hash
+  const { contract, from, to, amountSun } = req.query
+  if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id' })
+  const hexAddress = /^(?:41)?[0-9a-fA-F]{40}$/
+  if (![contract, from, to].every((value) => typeof value === 'string' && hexAddress.test(value))) {
+    return res.status(400).json({ success: false, error: 'invalid-address', message: 'contract, from, and to must be 20-byte hex addresses, optionally prefixed with 41.' })
+  }
+  if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun)) {
+    return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a non-negative integer string in the token smallest unit.' })
+  }
+  const base = (process.env.TRON_SOLIDITY_API_URL || 'https://api.trongrid.io').replace(/\/$/, '')
+  let parsedBase
+  try { parsedBase = new URL(base) } catch { return res.status(503).json({ success: false, error: 'invalid-solidility-provider-config' }) }
+  const allowedHosts = new Set(['api.trongrid.io', 'api.shasta.trongrid.io', 'nile.trongrid.io'])
+  if (parsedBase.protocol !== 'https:' || !allowedHosts.has(parsedBase.hostname)) {
+    return res.status(503).json({ success: false, error: 'invalid-solidility-provider-config', message: 'TRON_SOLIDITY_API_URL must be an approved HTTPS TRONGrid endpoint.' })
+  }
+  const headers = { 'content-type': 'application/json' }
+  if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+  const querySolidified = async (path) => {
+    const response = await fetch(base + path, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ value: hash, visible: false }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) throw new Error('solidified-provider-http-' + response.status)
+    return response.json()
+  }
+  try {
+    const transaction = await querySolidified('/walletsolidity/gettransactionbyid')
+    if (!transaction || transaction.txID?.toLowerCase() !== hash.toLowerCase()) {
+      return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidification', message: 'No matching transaction body is available from solidified state yet. Retry with the same transaction ID.' })
+    }
+    const receipt = await querySolidified('/walletsolidity/gettransactioninfobyid')
+    if (!receipt || receipt.id?.toLowerCase() !== hash.toLowerCase()) {
+      return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidified-receipt', message: 'The transaction body is solidified, but its receipt is not available yet. Retry with the same transaction ID.' })
+    }
+    const { verifySolidifiedTrc20Transfer } = await import('../tron-verification.mjs')
+    const result = verifySolidifiedTrc20Transfer({
+      transaction,
+      receipt,
+      expectedTxId: hash,
+      tokenContractAddress: contract,
+      fromAddress: from,
+      toAddress: to,
+      amountSun,
+    })
+    if (!result.verified) return res.status(200).json({ success: true, ...result, status: 'not-verified' })
+    return res.json({ success: true, status: 'verified-on-chain', ...result })
+  } catch (err) {
+    return res.status(502).json({ success: false, error: 'solidified-provider-request-failed', message: 'Could not verify the solidified transaction with the configured TRON provider.' })
+  }
+})
+
 // Contract deployment is performed by the user's local wallet in the frontend.
 // The server intentionally never accepts or stores a wallet private key.
 router.post('/tron/deploy', (req, res) => {
