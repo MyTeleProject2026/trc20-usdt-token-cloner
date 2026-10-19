@@ -162,12 +162,16 @@ export default function App() {
     try {
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
       let account: any = null
-      try {
-        const providerResponse = await fetch(`${API_BASE}/api/tron/account/${encodeURIComponent(queryAddress.trim())}`)
-        const providerPayload = await providerResponse.json()
-        if (providerResponse.ok && providerPayload?.success && providerPayload.data) account = providerPayload.data
-      } catch {
-        // Fall back to the public TRON endpoint if the configured provider is unavailable.
+      // Tatum's configured TRON account endpoint is mainnet-oriented. Do not let
+      // its response override the selected Shasta testnet account.
+      if (network === 'mainnet') {
+        try {
+          const providerResponse = await fetch(`${API_BASE}/api/tron/account/${encodeURIComponent(queryAddress.trim())}`)
+          const providerPayload = await providerResponse.json()
+          if (providerResponse.ok && providerPayload?.success && providerPayload.data) account = providerPayload.data
+        } catch {
+          // Fall back to the selected public TRON endpoint if the provider is unavailable.
+        }
       }
       if (!account) {
         const response = await fetch(`${fullHost}/v1/accounts/${encodeURIComponent(queryAddress.trim())}`)
