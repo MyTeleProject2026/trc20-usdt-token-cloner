@@ -124,6 +124,7 @@ export default function App() {
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
       const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
       if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Base58 recipient address.')
+      setWalletAddress(tronWeb.defaultAddress.base58 || '')
       const contract = await tronWeb.contract().new({
         abi: tokenArtifact.abi as any,
         bytecode: tokenArtifact.bytecode,
@@ -218,6 +219,7 @@ export default function App() {
       }
       const sender = tronWeb.defaultAddress.base58
       if (!sender) throw new Error('The private key could not be converted to a TRON address.')
+      setWalletAddress(sender)
       const contract = await tronWeb.contract().at(contractAddress.trim())
       const decimals = Number(await contract.decimals().call())
       if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) {
@@ -749,14 +751,19 @@ export default function App() {
                     <button type="button" onClick={handleGenerateWallet} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Generate wallet</button>
                   </div>
                   <input
-                    type="password"
+                    type={showPrivateKey ? "text" : "password"}
                     autoComplete="off"
                     value={privateKey}
                     onChange={(e) => setPrivateKey(e.target.value)}
                     className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
                     placeholder="Enter your own wallet private key"
                   />
-                  <p className="text-xs text-tertiary">Signing runs in this browser. Never paste a key you cannot safely expose, and never use a wallet holding funds you cannot afford to risk. The key is not sent to the backend.</p>
+                  <div className="flex flex-wrap items-center gap-sm">
+                    <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
+                    {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
+                  </div>
+                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Current local wallet: {walletAddress}</p>}
+                  <p className="text-xs text-tertiary">Signing runs locally in this browser. The key is not sent to the backend. Back it up securely; it is not saved after you close or reload the app.</p>
                 </div>
 
                 <div className="flex flex-col gap-sm">
