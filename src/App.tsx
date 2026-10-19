@@ -507,7 +507,7 @@ export default function App() {
             }`}
           >
             <ShieldCheck className="size-4 shrink-0 text-fg-brand-primary" />
-            3. On-chain Verification
+            5. On-chain Verification
           </button>
           <button
             type="button"
@@ -519,7 +519,7 @@ export default function App() {
             }`}
           >
             <Code2 className="size-4 shrink-0 text-fg-brand-primary" />
-            4. Solidity Source Code & Spec
+            6. Solidity Source Code & Spec
           </button>
         </div>
 
