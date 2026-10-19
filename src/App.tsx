@@ -93,8 +93,8 @@ export default function App() {
       if (!recipient.trim()) throw new Error('Enter the address that should receive the initial supply.')
       if (!/^[1-9][0-9]*$/.test(initialSupply)) throw new Error('Initial supply must be a positive whole-token integer.')
       if (Number(tokenDecimals) !== 18) throw new Error('This VTRC contract template uses 18 decimals.')
-      if (/tether/i.test(tokenName) || tokenSymbol.trim().toUpperCase() === 'USDT') {
-        throw new Error('This project deploys an independent token. Use its own identity, such as TRC20 / VTRC, not Tether / USDT.')
+      if (tokenName.trim() !== 'TRC20' || tokenSymbol.trim() !== 'VTRC') {
+        throw new Error('This deployment template is intentionally fixed to its independent identity: TRC20 / VTRC. It cannot be used to impersonate official Tether USDT.')
       }
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
       const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
@@ -106,7 +106,7 @@ export default function App() {
         callValue: 0,
         userFeePercentage: 100,
         originEnergyLimit: 10_000_000,
-        parameters: [initialSupply, recipient.trim()],
+        parameters: [tokenName.trim(), tokenSymbol.trim(), initialSupply, recipient.trim()],
       })
       const contractAddress = (contract as any).address
       const txId = (contract as any).transaction?.txID || (contract as any).transaction?.txid || ''
