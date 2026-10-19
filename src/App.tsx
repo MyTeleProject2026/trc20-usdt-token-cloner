@@ -319,9 +319,15 @@ export default function App() {
       if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) {
         throw new Error('The token contract returned an unsupported decimals value.')
       }
-      const amount = Number(transferAmount)
-      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Transfer amount must be greater than zero.')
-      const rawAmount = tronWeb.toBigNumber(transferAmount).times(tronWeb.toBigNumber(10).pow(decimals)).toFixed(0)
+      const normalizedAmount = transferAmount.trim()
+      if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(normalizedAmount)) {
+        throw new Error('Enter a plain decimal token amount without signs or exponent notation.')
+      }
+      const fractionalDigits = normalizedAmount.includes('.') ? normalizedAmount.split('.')[1].length : 0
+      if (fractionalDigits > decimals) throw new Error(`This token supports at most ${decimals} decimal places.`)
+      const amount = tronWeb.toBigNumber(normalizedAmount)
+      if (!amount.isFinite() || amount.lte(0)) throw new Error('Transfer amount must be greater than zero.')
+      const rawAmount = amount.times(tronWeb.toBigNumber(10).pow(decimals)).toFixed(0)
       const txId = await contract.transfer(recipientAddress.trim(), rawAmount).send({
         feeLimit: 100_000_000,
         callValue: 0,
@@ -360,8 +366,11 @@ export default function App() {
         throw new Error('TRX amount must be positive and may have at most 6 decimal places.')
       }
       const sun = amount.times(1_000_000).toFixed(0)
+      if (!Number.isSafeInteger(Number(sun))) {
+        throw new Error('This TRX amount exceeds the safe transaction-builder range. Send a smaller amount.')
+      }
       const sender = tronWeb.defaultAddress.base58
-      if (!sender) throw new Error('Could not derive the sender address from the supplied private key.')
+      if (!sender) throw new Error('TronLink has no authorized sender address.')
       setWalletAddress(sender)
       const transaction = await tronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
       const signed: any = await tronWeb.trx.sign(transaction)
@@ -389,13 +398,14 @@ export default function App() {
     try {
       if (!/^[0-9a-fA-F]{64}$/.test(verifyTxId.trim())) throw new Error('Transaction ID must be 64 hexadecimal characters.')
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+      // Query solidified endpoints so a mempool/broadcast response is never presented as final.
       const [txResponse, infoResponse] = await Promise.all([
-        fetch(`${fullHost}/wallet/gettransactionbyid`, {
+        fetch(`${fullHost}/walletsolidity/gettransactionbyid`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: verifyTxId.trim() }),
         }),
-        fetch(`${fullHost}/wallet/gettransactioninfobyid`, {
+        fetch(`${fullHost}/walletsolidity/gettransactioninfobyid`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: verifyTxId.trim() }),
@@ -403,13 +413,19 @@ export default function App() {
       ])
       if (!txResponse.ok || !infoResponse.ok) throw new Error('TRON provider could not verify this transaction.')
       const [tx, info] = await Promise.all([txResponse.json(), infoResponse.json()])
-      if (!tx?.txID) throw new Error('Transaction was not found on the selected network.')
+      if (!tx?.txID) {
+        setVerifyResult({ txId: verifyTxId.trim(), confirmed: false, receipt: 'Pending or not found in solidified blocks yet', error: null })
+        return
+      }
       const deployment = tx.raw_data?.contract?.[0]?.parameter?.value?.new_contract
+      const receipt = info.receipt?.result || info.result?.[0]?.contractRet || 'Unavailable'
+      const confirmed = Number.isInteger(info.blockNumber) && receipt === 'SUCCESS'
       setVerifyResult({
         txId: tx.txID,
         contractAddress: info.contract_address || deployment?.contract_address || null,
         blockNumber: info.blockNumber,
-        receipt: info.receipt?.result || info.result?.[0]?.contractRet || 'Pending or unavailable',
+        receipt,
+        confirmed,
         error: null,
       })
     } catch (err: any) {
