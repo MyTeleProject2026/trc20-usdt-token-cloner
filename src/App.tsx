@@ -334,9 +334,12 @@ export default function App() {
         shouldPollResponse: true,
       })
       const transactionId = typeof txId === 'string' ? txId : (txId as any)?.txid || (txId as any)?.transaction?.txID || JSON.stringify(txId)
+      // Pre-fill the on-chain verifier for a real transaction hash. A wallet's
+      // broadcast response is only submission; confirmation is checked separately.
+      if (/^[0-9a-fA-F]{64}$/.test(transactionId)) setVerifyTxId(transactionId)
       setActionMessage({
         type: 'success',
-        text: `Transfer submitted from ${sender}. Transaction: ${transactionId}. Verify confirmation on TRONSCAN before treating it as final.`,
+        text: `Transfer submitted from ${sender}. Transaction: ${transactionId}. The transaction ID has been added to Verify; confirm its solidified receipt before treating it as final.`,
       })
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err?.message || 'Transfer failed. Check network, address, token balance, and TRX for fees.' })
