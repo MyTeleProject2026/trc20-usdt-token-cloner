@@ -46,7 +46,7 @@ export function verifySolidifiedTrc20Transfer({
   let amount
   try {
     amount = BigInt(amountSun)
-    if (amount < 0n) return fail('invalid-expected-amount')
+    if (amount <= 0n) return fail('invalid-expected-amount')
   } catch {
     return fail('invalid-expected-amount')
   }
