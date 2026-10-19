@@ -36,5 +36,5 @@ jobs:
           title: "chore: regenerate npm lockfile"
           body: |
             Regenerates package-lock.json from package.json using npm with install scripts disabled.
-            This synchronizes declared dependencies, including TronWeb and solc, before merge.
+            This synchronizes declared dependencies, including TronWeb and solc, so clean npm ci installs can be validated.
           add-paths: package-lock.json
