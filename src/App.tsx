@@ -50,6 +50,7 @@ export default function App() {
   const [transferAmount, setTransferAmount] = useState('1')
   const [privateKey, setPrivateKey] = useState('')
   const [accountData, setAccountData] = useState<any>(null)
+  const [transactionHistory, setTransactionHistory] = useState<any[]>([])
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [transferring, setTransferring] = useState(false)
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -136,6 +137,13 @@ export default function App() {
       if (!response.ok) throw new Error(`TRON provider returned HTTP ${response.status}`)
       const payload = await response.json()
       const account = payload?.data?.[0] || {}
+      const historyResponse = await fetch(`${fullHost}/v1/accounts/${encodeURIComponent(queryAddress.trim())}/transactions/trc20?limit=20&only_confirmed=true`)
+      if (historyResponse.ok) {
+        const historyPayload = await historyResponse.json()
+        setTransactionHistory(Array.isArray(historyPayload?.data) ? historyPayload.data : [])
+      } else {
+        setTransactionHistory([])
+      }
       const rawTokens = account.trc20 || []
       const trc20 = Array.isArray(rawTokens)
         ? rawTokens.flatMap((entry: any) => Object.entries(entry || {}).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) })))
@@ -646,6 +654,31 @@ export default function App() {
                       </div>
                     ) : (
                       <p className="text-xs text-tertiary italic">No TRC-20 tokens recorded for this address.</p>
+                    )}
+                  </div>
+                  <div className="border-t border-secondary pt-sm mt-sm">
+                    <span className="text-xs font-semibold text-primary block mb-xs">Recent Confirmed TRC-20 Transfers</span>
+                    {transactionHistory.length > 0 ? (
+                      <div className="space-y-xs">
+                        {transactionHistory.map((tx: any, idx: number) => {
+                          const decimals = Number(tx.token_info?.decimals || 0)
+                          const amount = Number(tx.value || 0) / Math.pow(10, decimals)
+                          const time = tx.block_timestamp ? new Date(tx.block_timestamp).toLocaleString() : 'Time unavailable'
+                          const outgoing = String(tx.from || '').toLowerCase() === String(accountData.address || '').toLowerCase()
+                          return (
+                            <div key={tx.transaction_id || idx} className="rounded-md border border-primary bg-primary p-sm text-xs">
+                              <div className="flex items-center justify-between gap-sm">
+                                <span className={outgoing ? 'font-semibold text-utility-error-600' : 'font-semibold text-utility-success-600'}>{outgoing ? 'Sent' : 'Received'} {amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} {tx.token_info?.symbol || 'TRC-20'}</span>
+                                <span className="text-tertiary">{time}</span>
+                              </div>
+                              <div className="mt-xs truncate font-mono text-tertiary">Tx: {tx.transaction_id || 'Unavailable'}</div>
+                              <a className="mt-xs inline-block text-brand-primary underline" href={`https://${network === 'shasta' ? 'shasta.' : ''}tronscan.org/#/transaction/${tx.transaction_id}`} target="_blank" rel="noreferrer">View on TRONSCAN</a>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-tertiary italic">No confirmed TRC-20 transfer records returned for this address.</p>
                     )}
                   </div>
                 </div>
