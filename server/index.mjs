@@ -1,61 +1,69 @@
-// Must stay first — ESM runs every import before the body, so a setGlobalDispatcher()
-// call further down lands after ./routes/* have made their module-scope calls.
 import './proxy-bootstrap.mjs'
-// Second, before any ./routes/* read the key at module load: this applies
-// /creds/creds.json onto process.env, so `process.env.TATUM_API_KEY` is set on
-// the controller path (which delivers the key as a file, not an env var) and
-// stays live across the rotation push. A no-op where the key is already in env.
 import './credentials-store.mjs'
 import express from 'express'
-import { createServer as createHttpServer } from 'http'
-import { createServer as createViteServer } from 'vite'
-import react from '@vitejs/plugin-react'
-import { fileURLToPath } from 'url'
-import path from 'path'
+import { createServer as createHttpServer } from 'node:http'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
-
-// Run from the project root. The preview-sidecar starts this server with CWD=/,
-// but tooling that resolves paths from the CWD — notably Tailwind's `content`
-// globs — must see the project files, or it silently generates no utilities
-// (unstyled preview). `vite build` already runs from here; this makes dev match.
 process.chdir(root)
 
 const app = express()
-app.use(express.json())
+app.disable('x-powered-by')
+app.use(express.json({ limit: '32kb' }))
 
-// Redact the Tatum API key from every response before it leaves the process.
+const allowedOrigins = new Set(
+  (process.env.FRONTEND_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+)
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (origin && allowedOrigins.size && !allowedOrigins.has(origin)) {
+    return res.status(403).json({ success: false, error: 'origin-not-allowed' })
+  }
+  if (origin && (!allowedOrigins.size || allowedOrigins.has(origin))) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+  }
+  if (req.method === 'OPTIONS') return res.status(204).end()
+  next()
+})
+
 app.use(credentialGuard)
+app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'tron-token-studio-api' }))
+app.get('/', (_req, res) => res.json({ service: 'TRON Token Studio API', health: '/health' }))
+app.use('/api', tatumRoutes)
 
-app.use('/api/tatum', tatumRoutes)
-
-const server = createHttpServer(app)
-
-// All Vite config is inline — no vite.config.js needed, no temp files written.
-// cacheDir points to /tmp so dep pre-bundling works on read-only node_modules mounts.
-const vite = await createViteServer({
-  root,
-  configFile: false,
-  cacheDir: '/tmp/vite',
-  plugins: [react()],
-  server: {
-    middlewareMode: true,
-    hmr: { server },
-    // Allow any Host — the preview is served on a per-project subdomain this file
-    // cannot know. Must be the boolean `true` or an array; the string 'all' is
-    // iterated per-character and silently blocks everything (no warning, no error).
-    // NB: Vite's 403 body says to add the host to vite.config.js — that does not apply
-    // here, `configFile: false` means any vite.config.js is silently ignored.
-    allowedHosts: true,
-  },
-  appType: 'spa',
-})
-app.use(vite.middlewares)
-
-const port = process.env.PORT ?? 3000
-server.listen(port, () => {
-  console.log(`preview-sidecar listening on :${port}`)
-})
+if (process.env.NODE_ENV !== 'production') {
+  const [{ createServer: createViteServer }, { default: react }] = await Promise.all([
+    import('vite'),
+    import('@vitejs/plugin-react'),
+  ])
+  const server = createHttpServer(app)
+  const vite = await createViteServer({
+    root,
+    configFile: false,
+    cacheDir: '/tmp/vite',
+    plugins: [react()],
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+      allowedHosts: true,
+    },
+    appType: 'spa',
+  })
+  app.use(vite.middlewares)
+  const port = Number(process.env.PORT || 3000)
+  server.listen(port, '0.0.0.0', () => console.log(`development server listening on :${port}`))
+} else {
+  app.use((req, res) => res.status(404).json({ success: false, error: 'not-found' }))
+  const port = Number(process.env.PORT || 10000)
+  app.listen(port, '0.0.0.0', () => console.log(`TRON Token Studio API listening on :${port}`))
+}
