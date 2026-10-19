@@ -16,7 +16,7 @@ import {
   Key
 } from 'lucide-react'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
@@ -840,39 +840,43 @@ pragma solidity ^0.8.20;
 
 /**
  * @title Independent TRC-20 token
- * @dev Separate asset. Not affiliated with, backed by, or redeemable as Tether USDT.
- * Configure name, symbol, decimals, and initial supply for your own project.
+ * @notice Independent asset, not official Tether USDT.
+ * @dev Fixed supply, 18 decimals, no owner mint function.
  */
-interface ITRC20 {
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function transfer(address recipient, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-}
-
-contract IndependentTRC20 is ITRC20 {
-    string public name = "TRC20";
-    string public symbol = "VTRC";
-    uint8 public decimals = 18;
+contract IndependentTRC20 {
+    string public name;
+    string public symbol;
+    uint8 public constant decimals = 18;
     uint256 private _totalSupply;
-    address public owner;
+    address public immutable owner;
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
-    constructor(uint256 initialSupply, address recipient) {
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    constructor(string memory tokenName, string memory tokenSymbol, uint256 initialWholeTokenSupply, address recipient) {
+        require(keccak256(bytes(tokenName)) == keccak256(bytes("TRC20")), "name must be TRC20");
+        require(keccak256(bytes(tokenSymbol)) == keccak256(bytes("VTRC")), "symbol must be VTRC");
+        require(initialWholeTokenSupply > 0, "supply must be positive");
         require(recipient != address(0), "zero recipient");
         owner = msg.sender;
-        _totalSupply = initialSupply * 10 ** uint256(decimals);
+        name = tokenName;
+        symbol = tokenSymbol;
+        uint256 scale = 10 ** uint256(decimals);
+        require(initialWholeTokenSupply <= type(uint256).max / scale, "supply overflow");
+        _totalSupply = initialWholeTokenSupply * scale;
         _balances[recipient] = _totalSupply;
         emit Transfer(address(0), recipient, _totalSupply);
     }
-    function totalSupply() public view override returns (uint256) { return _totalSupply; }
-    function balanceOf(address account) public view override returns (uint256) { return _balances[account]; }
-    function transfer(address recipient, uint256 amount) public override returns (bool) {
+
+    function totalSupply() external view returns (uint256) { return _totalSupply; }
+    function balanceOf(address account) external view returns (uint256) { return _balances[account]; }
+    function allowance(address tokenOwner, address spender) external view returns (uint256) {
+        return _allowances[tokenOwner][spender];
+    }
+
+    function transfer(address recipient, uint256 amount) external returns (bool) {
         require(recipient != address(0), "zero recipient");
         require(_balances[msg.sender] >= amount, "insufficient balance");
         _balances[msg.sender] -= amount;
@@ -880,15 +884,15 @@ contract IndependentTRC20 is ITRC20 {
         emit Transfer(msg.sender, recipient, amount);
         return true;
     }
-    function allowance(address accountOwner, address spender) public view override returns (uint256) {
-        return _allowances[accountOwner][spender];
-    }
-    function approve(address spender, uint256 amount) public override returns (bool) {
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        require(spender != address(0), "zero spender");
         _allowances[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
-    function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
+
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool) {
         require(recipient != address(0), "zero recipient");
         require(_balances[sender] >= amount, "insufficient balance");
         require(_allowances[sender][msg.sender] >= amount, "allowance exceeded");
