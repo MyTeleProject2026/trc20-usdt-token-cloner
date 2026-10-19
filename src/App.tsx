@@ -306,7 +306,7 @@ export default function App() {
                 <h1 className="text-heading-sm font-semibold text-primary">TRON Token Studio</h1>
                 {/* Badge component recipe */}
                 <span className="inline-flex items-center gap-xs rounded-full border border-utility-success-200 bg-utility-success-50 px-md py-xxs text-xs font-medium text-utility-success-700">
-                  Tron Gateway Active
+                  {tronBlock?.blockNumber ? 'TRON RPC Connected' : 'Checking TRON RPC'}
                 </span>
               </div>
               <p className="text-xs text-tertiary">
