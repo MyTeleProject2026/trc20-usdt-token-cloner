@@ -69,8 +69,8 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   if (![contract, from, to].every((value) => typeof value === 'string' && hexAddress.test(value))) {
     return res.status(400).json({ success: false, error: 'invalid-address', message: 'contract, from, and to must be 20-byte hex addresses, optionally prefixed with 41.' })
   }
-  if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun)) {
-    return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a non-negative integer string in the token smallest unit.' })
+  if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
+    return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a positive integer string in the token smallest unit.' })
   }
   const normalizeHexAddress = (value) => String(value).replace(/^0x/i, '').replace(/^41/i, '').toLowerCase()
   const approvedContracts = (process.env.TRON_VERIFIED_TOKEN_CONTRACTS || '')
@@ -86,10 +86,10 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   }
   const base = (process.env.TRON_SOLIDITY_API_URL || 'https://api.trongrid.io').replace(/\/$/, '')
   let parsedBase
-  try { parsedBase = new URL(base) } catch { return res.status(503).json({ success: false, error: 'invalid-solidility-provider-config' }) }
+  try { parsedBase = new URL(base) } catch { return res.status(503).json({ success: false, error: 'invalid-solidity-provider-config' }) }
   const allowedHosts = new Set(['api.trongrid.io', 'api.shasta.trongrid.io', 'nile.trongrid.io'])
   if (parsedBase.protocol !== 'https:' || !allowedHosts.has(parsedBase.hostname)) {
-    return res.status(503).json({ success: false, error: 'invalid-solidility-provider-config', message: 'TRON_SOLIDITY_API_URL must be an approved HTTPS TRONGrid endpoint.' })
+    return res.status(503).json({ success: false, error: 'invalid-solidity-provider-config', message: 'TRON_SOLIDITY_API_URL must be an approved HTTPS TRONGrid endpoint.' })
   }
   const headers = { 'content-type': 'application/json' }
   if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
