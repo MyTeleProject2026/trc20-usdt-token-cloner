@@ -473,7 +473,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setNetwork('mainnet')}
+                onClick={() => { setNetwork('mainnet'); setContractAddress('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t') }}
                 className={`rounded-md px-md py-xs text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${network === 'mainnet' ? 'bg-primary text-primary shadow-xs' : 'text-tertiary hover:text-secondary'}`}
               >
                 Mainnet
