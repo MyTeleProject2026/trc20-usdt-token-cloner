@@ -2,145 +2,71 @@ import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
 
 const router = Router()
+const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const txPattern = /^[0-9a-fA-F]{64}$/
 
-// Health check — a present key says nothing about egress, so make a real request.
 router.get('/status', async (_req, res) => {
   if (!process.env.TATUM_API_KEY) return res.json({ status: 'no-api-key' })
   try {
-    await fetch(tatumApiBase(), { signal: AbortSignal.timeout(8000) })
-    res.json({ status: 'connected' })
-  } catch (error) {
-    res.json({ status: 'egress-failed', error: error.message })
+    const response = await fetch(tatumApiBase(), { signal: AbortSignal.timeout(8000), headers: { 'x-api-key': process.env.TATUM_API_KEY } })
+    res.json({ status: response.ok ? 'connected' : 'provider-response', providerStatus: response.status })
+  } catch {
+    res.json({ status: 'egress-failed' })
   }
 })
 
-// Current Tron blockchain block info (live connectivity test)
 router.get('/tron/info', async (_req, res) => {
   try {
     const data = await tatumFetch('/v3/tron/info')
     res.json({ success: true, data })
   } catch (err) {
-    if (err instanceof MissingApiKeyError) {
-      return res.status(400).json({ success: false, error: 'missing-api-key', message: 'Tatum API Key is not configured' })
-    }
-    res.status(500).json({ success: false, error: err.message })
+    if (err instanceof MissingApiKeyError) return res.status(503).json({ success: false, error: 'missing-api-key', message: 'Set TATUM_API_KEY in Render environment variables.' })
+    res.status(502).json({ success: false, error: 'provider-request-failed', message: err.message })
   }
 })
 
-// Deploy TRC-20 Token to Tron network
-router.post('/tron/deploy', async (req, res) => {
-  try {
-    const { name, symbol, decimals, totalSupply, recipient } = req.body
-
-    // Check for configured Tron signing key
-    const signingKey = process.env.TRON_PRIVATE_KEY
-    if (!signingKey) {
-      return res.status(400).json({
-        success: false,
-        error: 'missing-signing-key',
-        message: 'No TRON_PRIVATE_KEY configured in server environment. Add TRON_PRIVATE_KEY as workspace secret for real on-chain automated broadcasting.',
-        preparedPayload: {
-          name: name || 'Tether USD',
-          symbol: symbol || 'USDT',
-          decimals: Number(decimals) || 6,
-          totalSupply: Number(totalSupply) || 1000000000,
-          recipient: recipient || 'TYMwiDu22V6XG3yk6W9cTVBz48okKLRczh',
-          note: 'Payload is validated and ready for signing on Tron'
-        }
-      })
-    }
-
-    const payload = {
-      name: name || 'Tether USD',
-      symbol: symbol || 'USDT',
-      decimals: Number(decimals) || 6,
-      totalSupply: Number(totalSupply) || 1000000000,
-      recipient: recipient || 'TYMwiDu22V6XG3yk6W9cTVBz48okKLRczh',
-      fromPrivateKey: signingKey
-    }
-
-    const result = await tatumFetch('/v3/tron/trc20/deploy', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    })
-
-    res.json({ success: true, result })
-  } catch (err) {
-    if (err instanceof MissingApiKeyError) {
-      return res.status(400).json({ success: false, error: 'missing-api-key', message: 'Tatum API Key is not configured' })
-    }
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
-// Get TRON Account details and TRC-20 balances
 router.get('/tron/account/:address', async (req, res) => {
+  const address = req.params.address
+  if (!addressPattern.test(address)) return res.status(400).json({ success: false, error: 'invalid-address', message: 'Use a valid TRON Base58 address.' })
   try {
-    const { address } = req.params
     const data = await tatumFetch(`/v3/tron/account/${encodeURIComponent(address)}`)
     res.json({ success: true, data })
   } catch (err) {
-    if (err instanceof MissingApiKeyError) {
-      return res.status(400).json({ success: false, error: 'missing-api-key', message: 'Tatum API Key is not configured' })
-    }
-    res.status(500).json({ success: false, error: err.message })
+    if (err instanceof MissingApiKeyError) return res.status(503).json({ success: false, error: 'missing-api-key', message: 'Set TATUM_API_KEY in Render environment variables.' })
+    res.status(502).json({ success: false, error: 'provider-request-failed', message: err.message })
   }
 })
 
-// Verify Smart Contract deployment address by transaction hash
 router.get('/tron/contract-by-tx/:hash', async (req, res) => {
+  const hash = req.params.hash
+  if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id', message: 'Transaction ID must be 64 hexadecimal characters.' })
   try {
-    const { hash } = req.params
     const data = await tatumFetch(`/v3/blockchain/sc/address/TRON/${encodeURIComponent(hash)}`)
     res.json({ success: true, data })
   } catch (err) {
-    if (err instanceof MissingApiKeyError) {
-      return res.status(400).json({ success: false, error: 'missing-api-key', message: 'Tatum API Key is not configured' })
-    }
-    res.status(500).json({ success: false, error: err.message })
+    if (err instanceof MissingApiKeyError) return res.status(503).json({ success: false, error: 'missing-api-key', message: 'Set TATUM_API_KEY in Render environment variables.' })
+    res.status(502).json({ success: false, error: 'provider-request-failed', message: err.message })
   }
 })
 
-// Transfer TRC-20 Tokens
-router.post('/tron/transfer', async (req, res) => {
-  try {
-    const { tokenAddress, to, amount, feeLimit } = req.body
-
-    const signingKey = process.env.TRON_PRIVATE_KEY
-    if (!signingKey) {
-      return res.status(400).json({
-        success: false,
-        error: 'missing-signing-key',
-        message: 'No TRON_PRIVATE_KEY configured in server environment. Add TRON_PRIVATE_KEY as workspace secret to broadcast real TRC-20 transfers.',
-        preparedPayload: {
-          tokenAddress,
-          to,
-          amount: String(amount),
-          feeLimit: Number(feeLimit) || 10
-        }
-      })
-    }
-
-    const payload = {
-      fromPrivateKey: signingKey,
-      tokenAddress,
-      to,
-      amount: String(amount),
-      feeLimit: Number(feeLimit) || 10
-    }
-
-    const result = await tatumFetch('/v3/tron/trc20/transaction', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    })
-
-    res.json({ success: true, result })
-  } catch (err) {
-    if (err instanceof MissingApiKeyError) {
-      return res.status(400).json({ success: false, error: 'missing-api-key', message: 'Tatum API Key is not configured' })
-    }
-    res.status(500).json({ success: false, error: err.message })
+// Contract deployment is performed by the user's local wallet in the frontend.
+// The server intentionally never accepts or stores a wallet private key.
+router.post('/tron/deploy', (req, res) => {
+  const { name, symbol, decimals, totalSupply, recipient } = req.body || {}
+  if (/tether/i.test(String(name || '')) || String(symbol || '').trim().toUpperCase() === 'USDT') {
+    return res.status(400).json({ success: false, error: 'reserved-token-identity', message: 'Use a distinct token identity. This app deploys an independent TRC-20 asset, not official Tether USDT.' })
   }
+  if (Number(decimals) !== 18 || !Number.isSafeInteger(Number(totalSupply)) || Number(totalSupply) <= 0 || !addressPattern.test(String(recipient || ''))) {
+    return res.status(400).json({ success: false, error: 'invalid-token-parameters', message: 'Provide a positive whole-token supply, an 18-decimal configuration, and a valid TRON recipient address.' })
+  }
+  return res.status(409).json({ success: false, error: 'local-wallet-signing-required', message: 'Token deployment is signed directly in the browser. Do not submit wallet private keys to the API.' })
 })
+
+// The browser signs transfers locally and broadcasts directly to the selected TRON node.
+router.post('/tron/transfer', (_req, res) => res.status(409).json({
+  success: false,
+  error: 'local-wallet-signing-required',
+  message: 'Transfers must be signed locally by the token owner. This API never accepts private keys or signs transactions for users.',
+}))
 
 export default router
