@@ -7,8 +7,8 @@ pragma solidity ^0.8.20;
  * @dev Fixed 18-decimal supply, minted once to the deployment recipient.
  */
 contract IndependentTRC20 {
-    string public name = "TRC20";
-    string public symbol = "VTRC";
+    string public name;
+    string public symbol;
     uint8 public constant decimals = 18;
     uint256 private _totalSupply;
     address public immutable owner;
@@ -18,10 +18,14 @@ contract IndependentTRC20 {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
-    constructor(uint256 initialWholeTokenSupply, address recipient) {
+    constructor(string memory tokenName, string memory tokenSymbol, uint256 initialWholeTokenSupply, address recipient) {
+        require(keccak256(bytes(tokenName)) == keccak256(bytes("TRC20")), "name must be TRC20");
+        require(keccak256(bytes(tokenSymbol)) == keccak256(bytes("VTRC")), "symbol must be VTRC");
         require(initialWholeTokenSupply > 0, "supply must be positive");
         require(recipient != address(0), "zero recipient");
         owner = msg.sender;
+        name = tokenName;
+        symbol = tokenSymbol;
         uint256 scale = 10 ** uint256(decimals);
         require(initialWholeTokenSupply <= type(uint256).max / scale, "supply overflow");
         _totalSupply = initialWholeTokenSupply * scale;
