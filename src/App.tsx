@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { TronWeb } from 'tronweb'
 import { tokenArtifact } from './generated/IndependentTRC20'
+import TransferSimulator from './TransferSimulator'
 import {
   Coins,
   Send,
@@ -20,7 +21,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
-  const [activeTab, setActiveTab] = useState<'deploy' | 'interact' | 'trx' | 'verify' | 'contract'>('deploy')
+  const [activeTab, setActiveTab] = useState<'deploy' | 'interact' | 'trx' | 'simulation' | 'verify' | 'contract'>('deploy')
   const [copied, setCopied] = useState<string | null>(null)
 
   // System status
@@ -487,6 +488,14 @@ export default function App() {
           >
             <Send className="size-4 shrink-0 text-fg-brand-primary" />
             3. Native TRX Transfer
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('simulation')}
+            className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${activeTab === 'simulation' ? 'border-brand text-brand-primary' : 'border-transparent text-tertiary hover:text-secondary'}`}
+          >
+            <Send className="size-4 shrink-0 text-fg-brand-primary" />
+            4. Transfer Simulator
           </button>
           <button
             type="button"
@@ -996,6 +1005,9 @@ export default function App() {
             </aside>
           </div>
         )}
+
+        {/* Clearly labeled local-only simulation. No chain transaction is sent. */}
+        {activeTab === 'simulation' && <TransferSimulator />}
 
         {/* Tab 3: Verification */}
         {activeTab === 'verify' && (
