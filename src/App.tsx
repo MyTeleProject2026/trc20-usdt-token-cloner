@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { TronWeb } from 'tronweb'
 import {
   Coins,
   Send,
@@ -14,6 +15,8 @@ import {
   Key
 } from 'lucide-react'
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\\/+$/, '')
+
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
   const [activeTab, setActiveTab] = useState<'deploy' | 'interact' | 'verify' | 'contract'>('deploy')
@@ -24,11 +27,11 @@ export default function App() {
   const [tronBlock, setTronBlock] = useState<{ blockNumber?: number; hash?: string } | null>(null)
 
   // Deploy state
-  const [tokenName, setTokenName] = useState('Tether USD')
-  const [tokenSymbol, setTokenSymbol] = useState('USDT')
-  const [tokenDecimals, setTokenDecimals] = useState('6')
-  const [initialSupply, setInitialSupply] = useState('1000000000')
-  const [recipient, setRecipient] = useState('TYMwiDu22V6XG3yk6W9cTVBz48okKLRczh')
+  const [tokenName, setTokenName] = useState('TRC20')
+  const [tokenSymbol, setTokenSymbol] = useState('VTRC')
+  const [tokenDecimals, setTokenDecimals] = useState('18')
+  const [initialSupply, setInitialSupply] = useState('1000000')
+  const [recipient, setRecipient] = useState('')
   const [deploying, setDeploying] = useState(false)
   const [deployResult, setDeployResult] = useState<{
     success?: boolean
@@ -40,10 +43,11 @@ export default function App() {
   } | null>(null)
 
   // Interact state
-  const [contractAddress, setContractAddress] = useState('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t')
-  const [queryAddress, setQueryAddress] = useState('TYMwiDu22V6XG3yk6W9cTVBz48okKLRczh')
+  const [contractAddress, setContractAddress] = useState('')
+  const [queryAddress, setQueryAddress] = useState('')
   const [recipientAddress, setRecipientAddress] = useState('')
-  const [transferAmount, setTransferAmount] = useState('100')
+  const [transferAmount, setTransferAmount] = useState('1')
+  const [privateKey, setPrivateKey] = useState('')
   const [accountData, setAccountData] = useState<any>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [transferring, setTransferring] = useState(false)
@@ -56,11 +60,11 @@ export default function App() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/status')
+      const res = await fetch(`${API_BASE}/api/status`)
       const data = await res.json()
       setApiStatus(data.status)
 
-      const tronRes = await fetch('/api/tron/info')
+      const tronRes = await fetch(`${API_BASE}/api/tron/info`)
       const tronData = await tronRes.json()
       if (tronData.success && tronData.data) {
         setTronBlock(tronData.data)
@@ -84,7 +88,7 @@ export default function App() {
     setDeploying(true)
     setDeployResult(null)
     try {
-      const res = await fetch('/api/tron/deploy', {
+      const res = await fetch(`${API_BASE}/api/tron/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -126,7 +130,7 @@ export default function App() {
     setLoadingDetails(true)
     setAccountData(null)
     try {
-      const res = await fetch(`/api/tron/account/${encodeURIComponent(queryAddress)}`)
+      const res = await fetch(`${API_BASE}/api/tron/account/${encodeURIComponent(queryAddress)}`)
       const data = await res.json()
       if (data.success) {
         setAccountData(data.data)
@@ -141,34 +145,40 @@ export default function App() {
   }
 
   const handleTransfer = async () => {
-    if (!contractAddress || !recipientAddress || !transferAmount) return
+    if (!contractAddress || !recipientAddress || !transferAmount || !privateKey) {
+      setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, amount, and your wallet private key. The key is used only in this browser and is never sent to the backend.' })
+      return
+    }
     setTransferring(true)
     setActionMessage(null)
     try {
-      const res = await fetch('/api/tron/transfer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tokenAddress: contractAddress,
-          to: recipientAddress,
-          amount: transferAmount,
-          feeLimit: 10
-        })
-      })
-      const data = await res.json()
-      if (data.success) {
-        setActionMessage({
-          type: 'success',
-          text: `Transfer successfully broadcasted! TxID: ${data.result?.txId || 'Confirmed'}`
-        })
-      } else {
-        setActionMessage({
-          type: 'error',
-          text: data.message || 'Transfer failed'
-        })
+      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+      const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
+      if (!tronWeb.isAddress(contractAddress) || !tronWeb.isAddress(recipientAddress)) {
+        throw new Error('Enter valid TRON Base58 addresses for the token contract and recipient.')
       }
+      const sender = tronWeb.defaultAddress.base58
+      if (!sender) throw new Error('The private key could not be converted to a TRON address.')
+      const contract = await tronWeb.contract().at(contractAddress.trim())
+      const decimals = Number(await contract.decimals().call())
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) {
+        throw new Error('The token contract returned an unsupported decimals value.')
+      }
+      const amount = Number(transferAmount)
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Transfer amount must be greater than zero.')
+      const rawAmount = tronWeb.toBigNumber(transferAmount).times(tronWeb.toBigNumber(10).pow(decimals)).toFixed(0)
+      const txId = await contract.transfer(recipientAddress.trim(), rawAmount).send({
+        feeLimit: 100_000_000,
+        callValue: 0,
+        shouldPollResponse: true,
+      })
+      const transactionId = typeof txId === 'string' ? txId : (txId as any)?.txid || (txId as any)?.transaction?.txID || JSON.stringify(txId)
+      setActionMessage({
+        type: 'success',
+        text: `Transfer submitted from ${sender}. Transaction: ${transactionId}. Verify confirmation on TRONSCAN before treating it as final.`,
+      })
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err.message })
+      setActionMessage({ type: 'error', text: err?.message || 'Transfer failed. Check network, address, token balance, and TRX for fees.' })
     } finally {
       setTransferring(false)
     }
@@ -179,7 +189,7 @@ export default function App() {
     setVerifying(true)
     setVerifyResult(null)
     try {
-      const res = await fetch(`/api/tron/contract-by-tx/${encodeURIComponent(verifyTxId)}`)
+      const res = await fetch(`${API_BASE}/api/tron/contract-by-tx/${encodeURIComponent(verifyTxId)}`)
       const data = await res.json()
       if (data.success) {
         setVerifyResult(data.data)
@@ -210,14 +220,14 @@ export default function App() {
             </span>
             <div>
               <div className="flex items-center gap-sm">
-                <h1 className="text-heading-sm font-semibold text-primary">Tron TRC-20 USDT Engine</h1>
+                <h1 className="text-heading-sm font-semibold text-primary">TRON Token Studio</h1>
                 {/* Badge component recipe */}
                 <span className="inline-flex items-center gap-xs rounded-full border border-utility-success-200 bg-utility-success-50 px-md py-xxs text-xs font-medium text-utility-success-700">
                   Tron Gateway Active
                 </span>
               </div>
               <p className="text-xs text-tertiary">
-                Clone, deploy, operate, and verify Tether USD (TRC-20) smart contracts on Tron blockchain
+                Create and manage independent TRC-20 tokens, inspect on-chain balances, and sign transfers locally
               </p>
             </div>
           </div>
@@ -607,10 +617,23 @@ export default function App() {
             <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs">
               <h2 className="text-heading-xs font-semibold text-primary mb-sm">Transfer TRC-20 Tokens</h2>
               <p className="text-xs text-tertiary mb-lg">
-                Execute or simulate a compliant TRC-20 transfer operation on Tron.
+                Sign a real TRC-20 transfer in this browser. Your private key is not sent to the backend.
               </p>
 
               <div className="space-y-md">
+                <div className="flex flex-col gap-sm">
+                  <label className="text-sm font-medium text-secondary">Wallet Private Key (local signing only)</label>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value)}
+                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    placeholder="Enter your own wallet private key"
+                  />
+                  <p className="text-xs text-tertiary">Signing runs in this browser. Never paste a key you cannot safely expose, and never use a wallet holding funds you cannot afford to risk. The key is not sent to the backend.</p>
+                </div>
+
                 <div className="flex flex-col gap-sm">
                   <label className="text-sm font-medium text-secondary">TRC-20 Contract Address</label>
                   <input
@@ -618,7 +641,7 @@ export default function App() {
                     value={contractAddress}
                     onChange={(e) => setContractAddress(e.target.value)}
                     className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    placeholder="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+                    placeholder="Your token contract address"
                   />
                 </div>
 
@@ -634,7 +657,7 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-col gap-sm">
-                  <label className="text-sm font-medium text-secondary">Transfer Amount (USDT)</label>
+                  <label className="text-sm font-medium text-secondary">Transfer Amount (token units)</label>
                   <input
                     type="number"
                     value={transferAmount}
@@ -757,10 +780,10 @@ export default function App() {
                 <div className="rounded-lg bg-secondary p-md">
                   <div className="flex items-center gap-xs font-semibold text-xs text-primary mb-xs">
                     <CheckCircle2 className="size-4 shrink-0 text-fg-success-primary" />
-                    6 Decimals Alignment
+                    Token Precision
                   </div>
                   <p className="text-xs text-tertiary">
-                    Calibrated specifically for USDT 6 decimals standard across all Tron decentralized exchanges and centralized bridges.
+                    Decimals are token-specific. This project defaults to 18 decimals for its independent VTRC token.
                   </p>
                 </div>
                 <div className="rounded-lg bg-secondary p-md">
@@ -782,9 +805,9 @@ export default function App() {
           <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs">
             <div className="flex items-center justify-between mb-md">
               <div>
-                <h2 className="text-heading-xs font-semibold text-primary">TRC-20 USDT Solidity Smart Contract Code</h2>
+                <h2 className="text-heading-xs font-semibold text-primary">Independent TRC-20 Solidity Contract Template</h2>
                 <p className="text-xs text-tertiary">
-                  TVM-compatible smart contract source matching Tether USD (TRC-20) architecture.
+                  Standard TRC-20 interface template for your own separately identified token.
                 </p>
               </div>
               {/* Button recipe: secondary */}
@@ -804,9 +827,9 @@ export default function App() {
 pragma solidity ^0.8.20;
 
 /**
- * @title Tether USD (TRC-20 Clone)
- * @dev Fully compliant TRC-20 implementation matching Tether USDT specifications on Tron.
- * Supports TVM bytecode execution, 6 decimals precision, and standard event emission.
+ * @title Independent TRC-20 token
+ * @dev Separate asset. Not affiliated with, backed by, or redeemable as Tether USDT.
+ * Configure name, symbol, decimals, and initial supply for your own project.
  */
 interface ITRC20 {
     function totalSupply() external view returns (uint256);
@@ -815,65 +838,48 @@ interface ITRC20 {
     function allowance(address owner, address spender) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
-contract TetherUSD_TRC20 is ITRC20 {
-    string public name = "Tether USD";
-    string public symbol = "USDT";
-    uint8 public decimals = 6;
+contract IndependentTRC20 is ITRC20 {
+    string public name = "TRC20";
+    string public symbol = "VTRC";
+    uint8 public decimals = 18;
     uint256 private _totalSupply;
     address public owner;
-
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only contract owner can invoke");
-        _;
-    }
-
     constructor(uint256 initialSupply, address recipient) {
+        require(recipient != address(0), "zero recipient");
         owner = msg.sender;
         _totalSupply = initialSupply * 10 ** uint256(decimals);
         _balances[recipient] = _totalSupply;
         emit Transfer(address(0), recipient, _totalSupply);
     }
-
-    function totalSupply() public view override returns (uint256) {
-        return _totalSupply;
-    }
-
-    function balanceOf(address account) public view override returns (uint256) {
-        return _balances[account];
-    }
-
+    function totalSupply() public view override returns (uint256) { return _totalSupply; }
+    function balanceOf(address account) public view override returns (uint256) { return _balances[account]; }
     function transfer(address recipient, uint256 amount) public override returns (bool) {
-        require(recipient != address(0), "TRC20: transfer to zero address");
-        require(_balances[msg.sender] >= amount, "TRC20: transfer amount exceeds balance");
-
+        require(recipient != address(0), "zero recipient");
+        require(_balances[msg.sender] >= amount, "insufficient balance");
         _balances[msg.sender] -= amount;
         _balances[recipient] += amount;
         emit Transfer(msg.sender, recipient, amount);
         return true;
     }
-
     function allowance(address accountOwner, address spender) public view override returns (uint256) {
         return _allowances[accountOwner][spender];
     }
-
     function approve(address spender, uint256 amount) public override returns (bool) {
         _allowances[msg.sender][spender] = amount;
         emit Approval(msg.sender, spender, amount);
         return true;
     }
-
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
-        require(_balances[sender] >= amount, "TRC20: transfer amount exceeds balance");
-        require(_allowances[sender][msg.sender] >= amount, "TRC20: transfer amount exceeds allowance");
-
+        require(recipient != address(0), "zero recipient");
+        require(_balances[sender] >= amount, "insufficient balance");
+        require(_allowances[sender][msg.sender] >= amount, "allowance exceeded");
         _allowances[sender][msg.sender] -= amount;
         _balances[sender] -= amount;
         _balances[recipient] += amount;
