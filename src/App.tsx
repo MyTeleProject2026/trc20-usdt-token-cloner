@@ -82,6 +82,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    setTronBlock(null)
     fetchStatus()
   }, [network])
 
@@ -158,6 +159,11 @@ export default function App() {
   const handleQueryAccount = async () => {
     if (!queryAddress.trim()) {
       setActionMessage({ type: 'error', text: 'Enter a TRON address to query.' })
+      return
+    }
+    const selectedHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
+    if (!new TronWeb({ fullHost: selectedHost }).isAddress(queryAddress.trim())) {
+      setActionMessage({ type: 'error', text: 'Enter a valid TRON address. TRC-20 transfers work with valid TRON addresses, but a receiver platform must support Shasta and this specific token contract to display or credit it.' })
       return
     }
     setLoadingDetails(true)
@@ -665,7 +671,7 @@ export default function App() {
                   </li>
                   <li className="flex items-center gap-xs">
                     <CheckCircle2 className="size-4 shrink-0 text-fg-success-primary" />
-                    <span>Exact 6 decimal precision</span>
+                    <span>18 decimal precision for the independent VTRC token</span>
                   </li>
                   <li className="flex items-center gap-xs">
                     <CheckCircle2 className="size-4 shrink-0 text-fg-success-primary" />
