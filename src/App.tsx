@@ -20,7 +20,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
-  const [activeTab, setActiveTab] = useState<'deploy' | 'interact' | 'verify' | 'contract'>('deploy')
+  const [activeTab, setActiveTab] = useState<'deploy' | 'interact' | 'trx' | 'verify' | 'contract'>('deploy')
   const [copied, setCopied] = useState<string | null>(null)
 
   // System status
@@ -48,6 +48,8 @@ export default function App() {
   const [queryAddress, setQueryAddress] = useState('')
   const [recipientAddress, setRecipientAddress] = useState('')
   const [transferAmount, setTransferAmount] = useState('1')
+  const [trxAmount, setTrxAmount] = useState('1')
+  const [trxTransferring, setTrxTransferring] = useState(false)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [showPrivateKey, setShowPrivateKey] = useState(false)
@@ -299,6 +301,45 @@ export default function App() {
     }
   }
 
+  // Native Shasta TRX transfer. TRX is the network coin, not a TRC-20 contract.
+  const handleNativeTrxTransfer = async () => {
+    if (network !== 'shasta') {
+      setActionMessage({ type: 'error', text: 'Native TRX transfers are restricted to Shasta Testnet in this workspace.' })
+      return
+    }
+    if (!privateKey.trim() || !recipientAddress.trim() || !trxAmount.trim()) {
+      setActionMessage({ type: 'error', text: 'Enter your local wallet private key, a receiver address, and a TRX amount. The key is used in this browser only.' })
+      return
+    }
+    setTrxTransferring(true)
+    setActionMessage(null)
+    try {
+      const tronWeb = new TronWeb({ fullHost: 'https://api.shasta.trongrid.io', privateKey: privateKey.trim() })
+      if (!tronWeb.isAddress(recipientAddress.trim())) throw new Error('Enter a valid TRON Base58 receiver address.')
+      const amount = tronWeb.toBigNumber(trxAmount.trim())
+      if (!amount.isFinite() || amount.lte(0) || amount.decimalPlaces() > 6) {
+        throw new Error('TRX amount must be positive and may have at most 6 decimal places.')
+      }
+      const sun = amount.times(1_000_000).toFixed(0)
+      const sender = tronWeb.defaultAddress.base58
+      if (!sender) throw new Error('Could not derive the sender address from the supplied private key.')
+      setWalletAddress(sender)
+      const result: any = await tronWeb.trx.sendTransaction(recipientAddress.trim(), sun)
+      if (!result?.result || !result?.txid) {
+        throw new Error(result?.message ? String(result.message) : 'The Shasta node did not accept the transaction. Check testnet TRX for fees.')
+      }
+      setActionMessage({
+        type: 'success',
+        text: `Native Shasta TRX transfer broadcast from ${sender}. Transaction ID: ${result.txid}. Confirm it on Shasta TRONSCAN, then query the receiver address to verify its balance.`,
+      })
+      setVerifyTxId(result.txid)
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message || 'Native TRX transfer failed. Check the Shasta network, address, and testnet balance.' })
+    } finally {
+      setTrxTransferring(false)
+    }
+  }
+
   const handleVerifyTx = async () => {
     if (!verifyTxId.trim()) return
     setVerifying(true)
@@ -438,6 +479,14 @@ export default function App() {
           >
             <Coins className="size-4 shrink-0 text-fg-brand-primary" />
             2. Token Holdings & Balances
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('trx')}
+            className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${activeTab === 'trx' ? 'border-brand text-brand-primary' : 'border-transparent text-tertiary hover:text-secondary'}`}
+          >
+            <Send className="size-4 shrink-0 text-fg-brand-primary" />
+            3. Native TRX Transfer
           </button>
           <button
             type="button"
@@ -883,6 +932,68 @@ export default function App() {
                 )}
               </div>
             </section>
+          </div>
+        )}
+
+        {/* Native TRX is the network coin, not a TRC-20 contract token. */}
+        {activeTab === 'trx' && (
+          <div className="grid grid-cols-1 gap-xl lg:grid-cols-3">
+            <section className="lg:col-span-2 rounded-xl border border-secondary bg-primary p-xl shadow-xs space-y-xl">
+              <div className="border-b border-secondary pb-md">
+                <h2 className="text-heading-xs font-semibold text-primary">Native TRX Testnet Transfer</h2>
+                <p className="mt-xxs text-xs text-tertiary">
+                  Send native TRX on Shasta testnet. This does not mint TRX or create a token contract.
+                  Testnet coins have no mainnet or exchange deposit value.
+                </p>
+              </div>
+              <div className="rounded-lg border border-secondary bg-secondary p-lg">
+                <p className="text-sm font-semibold text-primary">1. Prepare a test wallet</p>
+                <p className="mt-xs text-xs text-tertiary">Generate a wallet on the Deploy tab or use a test wallet you control. Obtain Shasta test TRX from a testnet faucet to pay network fees. Never paste a wallet holding valuable mainnet funds.</p>
+                <p className="mt-md text-sm font-semibold text-primary">2. Enter the receiver and amount</p>
+              </div>
+              <div className="grid grid-cols-1 gap-lg sm:grid-cols-2">
+                <div className="flex flex-col gap-sm sm:col-span-2">
+                  <label className="text-sm font-medium text-secondary">Receiver TRON Address</label>
+                  <input type="text" value={recipientAddress} onChange={(e) => setRecipientAddress(e.target.value)} placeholder="T..." className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring" />
+                </div>
+                <div className="flex flex-col gap-sm">
+                  <label className="text-sm font-medium text-secondary">Amount (TRX)</label>
+                  <input type="number" min="0.000001" step="0.000001" value={trxAmount} onChange={(e) => setTrxAmount(e.target.value)} className="rounded-md bg-primary px-lg py-sm text-sm text-primary border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring" />
+                  <p className="text-xs text-tertiary">Up to 6 decimal places. Converted to SUN before signing.</p>
+                </div>
+                <div className="flex flex-col justify-end gap-sm">
+                  <button type="button" onClick={handleGenerateWallet} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary">Generate local test wallet</button>
+                  {walletAddress && <p className="break-all text-xs font-mono text-secondary">Sender: {walletAddress}</p>}
+                </div>
+              </div>
+              <div className="rounded-xl border border-secondary bg-primary p-lg">
+                <label className="mb-sm block text-sm font-medium text-secondary">Sender Private Key (local signing only)</label>
+                <input type={showPrivateKey ? 'text' : 'password'} autoComplete="off" value={privateKey} onChange={(e) => setPrivateKey(e.target.value)} placeholder="Private key for a test wallet you control" className="w-full rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring" />
+                <div className="mt-sm flex flex-wrap gap-sm">
+                  <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
+                  {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
+                </div>
+                <p className="mt-sm text-xs text-tertiary">Signing occurs in this browser. The key is not sent to the Render API. Use a dedicated test wallet only.</p>
+              </div>
+              <div className="flex flex-wrap gap-sm">
+                <button type="button" onClick={handleNativeTrxTransfer} disabled={trxTransferring} className="inline-flex items-center gap-sm rounded-lg border border-transparent bg-brand-solid px-lg py-sm text-sm font-semibold text-primary-on-brand disabled:opacity-50">
+                  {trxTransferring ? <RefreshCw className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {trxTransferring ? 'Broadcasting TRX...' : 'Send Native Shasta TRX'}
+                </button>
+                <button type="button" onClick={() => { setQueryAddress(recipientAddress); setActiveTab('interact') }} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-secondary">Query receiver balance</button>
+              </div>
+              {actionMessage && <div className={`rounded-xl p-lg text-sm ${actionMessage.type === 'success' ? 'bg-utility-success-50 text-utility-success-700' : 'bg-utility-brand-50 text-brand-primary'}`}>{actionMessage.text}</div>}
+            </section>
+            <aside className="rounded-xl border border-secondary bg-primary p-xl space-y-md">
+              <h3 className="text-sm font-semibold text-primary">What this verifies</h3>
+              <ul className="space-y-sm text-xs text-tertiary list-disc pl-lg">
+                <li>Native TRX transaction construction and local signing</li>
+                <li>Broadcast to the Shasta testnet node</li>
+                <li>Transaction ID available for on-chain verification</li>
+                <li>Receiver account balance after network confirmation</li>
+              </ul>
+              <p className="text-xs text-tertiary">This cannot produce mainnet TRX, bypass exchange deposit rules, or guarantee third-party token auto-listing.</p>
+            </aside>
           </div>
         )}
 
