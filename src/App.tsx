@@ -190,11 +190,47 @@ export default function App() {
       const trc20 = Array.isArray(rawTokens)
         ? rawTokens.flatMap((entry: any) => {
             if (entry?.contractAddress || entry?.contract_address) {
-              return [{ contractAddress: entry.contractAddress || entry.contract_address, balance: String(entry.balance ?? entry.tokenBalance ?? entry.amount ?? '0') }]
+              return [{ contractAddress: entry.contractAddress || entry.contract_address, balance: String(entry.balance ?? entry.tokenBalance ?? entry.amount ?? '0'), symbol: entry.symbol || '' }]
             }
-            return Object.entries(entry || {}).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) }))
+            return Object.entries(entry || {}).map(([tokenContract, balance]) => ({ contractAddress: tokenContract, balance: String(balance), symbol: '' }))
           })
-        : Object.entries(rawTokens).map(([contractAddress, balance]) => ({ contractAddress, balance: String(balance) }))
+        : Object.entries(rawTokens).map(([tokenContract, balance]) => ({ contractAddress: tokenContract, balance: String(balance), symbol: '' }))
+
+      // Query the selected token contract directly as well as the account index.
+      // This makes balances for a newly deployed/custom Shasta token visible even
+      // when a public account indexer has not listed that token yet.
+      if (contractAddress.trim() && new TronWeb({ fullHost }).isAddress(contractAddress.trim())) {
+        try {
+          const readOnlyTronWeb = new TronWeb({ fullHost })
+          const tokenContract: any = await readOnlyTronWeb.contract().at(contractAddress.trim())
+          const [rawBalance, decimalsValue, symbolValue] = await Promise.all([
+            tokenContract.balanceOf(queryAddress.trim()).call(),
+            tokenContract.decimals().call(),
+            tokenContract.symbol().call().catch(() => 'TOKEN'),
+          ])
+          const decimals = Number(decimalsValue)
+          if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) {
+            throw new Error('Token contract returned an unsupported decimals value.')
+          }
+          const formattedBalance = readOnlyTronWeb.toBigNumber(String(rawBalance))
+            .dividedBy(readOnlyTronWeb.toBigNumber(10).pow(decimals))
+            .toFixed(Math.min(decimals, 8))
+          const existingIndex = trc20.findIndex((item: any) =>
+            String(item.contractAddress).toLowerCase() === contractAddress.trim().toLowerCase()
+          )
+          const directBalance = {
+            contractAddress: contractAddress.trim(),
+            balance: formattedBalance,
+            symbol: String(symbolValue || 'TOKEN'),
+            source: 'contract',
+          }
+          if (existingIndex >= 0) trc20[existingIndex] = directBalance
+          else trc20.unshift(directBalance)
+        } catch (tokenError: any) {
+          // Keep the account's indexed holdings available if this contract is not
+          // deployed on the selected network or does not expose TRC-20 methods.
+        }
+      }
       setAccountData({
         address: account.address || queryAddress.trim(),
         balance: Number(account.balance || 0),
@@ -704,7 +740,7 @@ export default function App() {
                         {accountData.trc20.map((token: any, idx: number) => (
                           <div key={idx} className="flex justify-between items-center bg-primary p-xs rounded-md text-xs border border-primary">
                             <span className="font-mono text-tertiary truncate max-w-[180px]">{token.contractAddress}</span>
-                            <span className="font-semibold text-brand-primary">{token.balance} Units</span>
+                            <span className="font-semibold text-brand-primary">{token.balance} {token.symbol || "Units"}</span>
                           </div>
                         ))}
                       </div>
