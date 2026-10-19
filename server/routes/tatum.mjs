@@ -72,6 +72,18 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun)) {
     return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a non-negative integer string in the token smallest unit.' })
   }
+  const normalizeHexAddress = (value) => String(value).replace(/^0x/i, '').replace(/^41/i, '').toLowerCase()
+  const approvedContracts = (process.env.TRON_VERIFIED_TOKEN_CONTRACTS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => hexAddress.test(value))
+    .map(normalizeHexAddress)
+  if (!approvedContracts.length) {
+    return res.status(503).json({ success: false, error: 'verified-token-allowlist-not-configured', message: 'Configure TRON_VERIFIED_TOKEN_CONTRACTS with reviewed contract addresses before verifying token transfers.' })
+  }
+  if (!approvedContracts.includes(normalizeHexAddress(contract))) {
+    return res.status(403).json({ success: false, error: 'token-contract-not-allowlisted', message: 'This token contract is not on the server-approved verification list.' })
+  }
   const base = (process.env.TRON_SOLIDITY_API_URL || 'https://api.trongrid.io').replace(/\/$/, '')
   let parsedBase
   try { parsedBase = new URL(base) } catch { return res.status(503).json({ success: false, error: 'invalid-solidility-provider-config' }) }
