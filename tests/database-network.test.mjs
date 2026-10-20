@@ -92,6 +92,7 @@ test('builds a parameterized network-scoped upsert and preserves exact base-unit
   assert.equal(query.values[6], 'verified-on-chain')
   assert.equal(query.values[7], 123)
   assert.equal(query.values[8], JSON.stringify({ blockNumber: 123 }))
+  assert.equal(query.values[9], 0)
 })
 
 test('upsert builder rejects unsupported networks and invalid precision before SQL execution', () => {
@@ -157,3 +158,13 @@ test('does not coerce missing, null, fractional, or negative block numbers into 
     result: { blockNumber: 123 },
   }).values[7], 123)
 })
+
+
+test('uses exact event log index as transfer identity and validates it', () => {
+  const base = { network: 'mainnet', transactionHash: 'd'.repeat(64), tokenContract: 'contract', fromAddress: 'sender', toAddress: 'receiver', amountBaseUnits: '25', status: 'verified-on-chain', result: { blockNumber: 321, logIndex: 2 } };
+  const query = buildTransferVerificationUpsert(base);
+  assert.match(query.text, /UNIQUE|ON CONFLICT \\(network, transaction_hash, token_contract, log_index\\)/);
+  assert.equal(query.values[9], 2);
+  assert.equal(buildTransferVerificationUpsert({ ...base, logIndex: 1 }).values[9], 1);
+  assert.equal(buildTransferVerificationUpsert({ ...base, logIndex: -1 }).values[9], 2);
+});
