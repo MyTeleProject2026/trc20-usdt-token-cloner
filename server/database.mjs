@@ -170,7 +170,11 @@ export function buildTransferVerificationUpsert(input) {
          THEN ${schema}.transfer_verifications.amount_base_units
          ELSE EXCLUDED.amount_base_units
        END,
-       block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
+       block_number=CASE
+         WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
+         THEN ${schema}.transfer_verifications.block_number
+         ELSE COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number)
+       END,
        result=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
          THEN ${schema}.transfer_verifications.result
