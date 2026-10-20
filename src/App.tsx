@@ -51,6 +51,8 @@ export default function App() {
   const [transferAmount, setTransferAmount] = useState('1')
   const [trxAmount, setTrxAmount] = useState('1')
   const [trxTransferring, setTrxTransferring] = useState(false)
+  const [nativeBalanceLoading, setNativeBalanceLoading] = useState(false)
+  const [nativeBalanceResult, setNativeBalanceResult] = useState<any>(null)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [walletConnected, setWalletConnected] = useState(false)
@@ -345,6 +347,28 @@ export default function App() {
       setActionMessage({ type: 'error', text: err?.message || 'Transfer failed. Check network, address, token balance, and TRX for fees.' })
     } finally {
       setTransferring(false)
+    }
+  }
+
+  const handleQueryNativeBalance = async () => {
+    if (!recipientAddress.trim()) {
+      setActionMessage({ type: 'error', text: 'Enter the receiver address before checking its native TRX balance.' })
+      return
+    }
+    setNativeBalanceLoading(true)
+    setNativeBalanceResult(null)
+    try {
+      const url = API_BASE + '/api/tron/native-balance?network=' + encodeURIComponent(network) + '&address=' + encodeURIComponent(recipientAddress.trim())
+      const response = await fetch(url)
+      const payload = await response.json()
+      if (!response.ok || !payload?.success) throw new Error(payload?.message || 'Could not read receiver balance from solidified chain state.')
+      setNativeBalanceResult(payload)
+      setActionMessage({ type: 'success', text: 'Receiver native balance read from ' + network + ' solidified state.' })
+    } catch (err: any) {
+      setNativeBalanceResult(null)
+      setActionMessage({ type: 'error', text: err?.message || 'Receiver native balance query failed.' })
+    } finally {
+      setNativeBalanceLoading(false)
     }
   }
 
@@ -1072,8 +1096,9 @@ export default function App() {
                   {trxTransferring ? <RefreshCw className="size-4 animate-spin" /> : <Send className="size-4" />}
                   {trxTransferring ? 'Broadcasting TRX...' : 'Send Native Shasta TRX'}
                 </button>
-                <button type="button" onClick={() => { setQueryAddress(recipientAddress); setActiveTab('interact') }} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-secondary">Query receiver balance</button>
+                <button type="button" onClick={handleQueryNativeBalance} disabled={nativeBalanceLoading} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-secondary disabled:opacity-50">{nativeBalanceLoading ? 'Reading solidified balance…' : 'Verify receiver TRX balance'}</button>
               </div>
+              {nativeBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Receiver solidified native balance</p><p className="text-2xl font-semibold text-brand-primary">{nativeBalanceResult.balanceTRX} TRX</p><p className="text-xs text-tertiary">Network: {nativeBalanceResult.network} · Address: {nativeBalanceResult.address}</p><p className="text-xs text-tertiary">Balance: {nativeBalanceResult.balanceSun} SUN · Account exists: {nativeBalanceResult.accountExists ? 'yes' : 'not yet indexed/created'}</p><p className="text-xs text-tertiary">This is native TRX only. It is not a TRC-20 token balance and does not confirm exchange deposit credit.</p></div>}
               {actionMessage && <div className={`rounded-xl p-lg text-sm ${actionMessage.type === 'success' ? 'bg-utility-success-50 text-utility-success-700' : 'bg-utility-brand-50 text-brand-primary'}`}>{actionMessage.text}</div>}
             </section>
             <aside className="rounded-xl border border-secondary bg-primary p-xl space-y-md">
