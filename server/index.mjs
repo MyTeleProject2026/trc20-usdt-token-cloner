@@ -5,6 +5,7 @@ import { createServer as createHttpServer } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
+import nativeTronRoutes from './routes/native-tron.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { initializeDatabase, getDatabaseStatus } from './database.mjs'
@@ -47,6 +48,7 @@ app.get('/api/storage/status', async (_req, res) => {
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
 })
 app.use('/api', tatumRoutes)
+app.use('/api/tron', nativeTronRoutes)
 
 if (process.env.DATABASE_URL) {
   try {
