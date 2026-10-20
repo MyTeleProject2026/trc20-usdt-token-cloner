@@ -1077,7 +1077,6 @@ export default function App() {
                   <p className="text-xs text-tertiary">Up to 6 decimal places. Converted to SUN before signing.</p>
                 </div>
                 <div className="flex flex-col justify-end gap-sm">
-                  <button type="button" onClick={handleGenerateWallet} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary">Generate local test wallet</button>
                   {walletAddress && <p className="break-all text-xs font-mono text-secondary">Sender: {walletAddress}</p>}
                 </div>
               </div>
@@ -1101,8 +1100,8 @@ export default function App() {
             <aside className="rounded-xl border border-secondary bg-primary p-xl space-y-md">
               <h3 className="text-sm font-semibold text-primary">What this verifies</h3>
               <ul className="space-y-sm text-xs text-tertiary list-disc pl-lg">
-                <li>Native TRX transaction construction and local signing</li>
-                <li>Broadcast to the Shasta testnet node</li>
+                <li>Native TRX transaction authorization in TronLink</li>
+                <li>Broadcast to the selected {network === 'shasta' ? 'Shasta testnet' : 'Mainnet'} node</li>
                 <li>Transaction ID available for on-chain verification</li>
                 <li>Receiver account balance after network confirmation</li>
               </ul>
