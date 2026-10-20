@@ -114,6 +114,7 @@ export async function recordTransferVerification(input) {
   if (!db) return { persisted: false, reason: 'database-not-configured' }
   await initializeDatabase()
   const result = input.result && typeof input.result === 'object' ? input.result : {}
+  const network = ['mainnet', 'shasta', 'nile'].includes(input.network) ? input.network : 'mainnet'
   const status = ['verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error'].includes(input.status)
     ? input.status
     : 'not-verified'
@@ -123,12 +124,15 @@ export async function recordTransferVerification(input) {
   await db.query(
     `INSERT INTO ${schema}.transfer_verifications
       (network, transaction_hash, token_contract, from_address, to_address, amount_base_units, verification_status, block_number, result)
-     VALUES ('TRON',$1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
      ON CONFLICT (network, transaction_hash, token_contract) DO UPDATE SET
        verification_status=EXCLUDED.verification_status,
+       from_address=EXCLUDED.from_address,
+       to_address=EXCLUDED.to_address,
+       amount_base_units=EXCLUDED.amount_base_units,
        block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
        result=EXCLUDED.result`,
-    [input.transactionHash.toLowerCase(), input.tokenContract, input.fromAddress, input.toAddress, input.amountBaseUnits, status, block, JSON.stringify(result)],
+    [network, input.transactionHash.toLowerCase(), input.tokenContract, input.fromAddress, input.toAddress, input.amountBaseUnits, status, block, JSON.stringify(result)],
   )
   return { persisted: true }
 }
