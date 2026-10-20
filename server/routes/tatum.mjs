@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
 import { recordTransferVerification } from '../database.mjs'
-import { canTransitionTransferStatus } from '../transfer-lifecycle.mjs'
+import { canTransitionTransferStatus, buildSolidifiedTransferEvidence } from '../transfer-lifecycle.mjs'
 
 const router = Router()
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -157,7 +157,6 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
     return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a positive integer string in the token smallest unit.' })
   }
-  const normalizeHexAddress = (value) => { const hex = String(value).replace(/^0x/i, ''); return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase() }
   const approvedContracts = (process.env.TRON_VERIFIED_TOKEN_CONTRACTS || '')
     .split(',')
     .map((value) => value.trim())
@@ -209,15 +208,9 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
     }
     // Defense in depth: only allow the lifecycle to advance when the result returned
     // by the solidified verifier matches every expected transfer field.
-    const lifecycleEvidence = {
-      finalized: Number.isInteger(result.blockNumber) && result.blockNumber > 0,
-      receiptSuccess: result.verified === true,
-      networkMatches: Object.hasOwn(networkHosts, network) && base === networkHosts[network],
-      contractMatches: normalizeHexAddress(result.tokenContractAddress) === normalizeHexAddress(contract),
-      senderMatches: normalizeHexAddress(result.fromAddress) === normalizeHexAddress(from),
-      receiverMatches: normalizeHexAddress(result.toAddress) === normalizeHexAddress(to),
-      amountMatches: typeof result.amountSun === 'string' && BigInt(result.amountSun) === BigInt(amountSun),
-    };
+    const lifecycleEvidence = buildSolidifiedTransferEvidence({
+      result, network, networkHosts, contract, from, to, amountSun,
+    });
     if (!canTransitionTransferStatus('awaiting-finality', 'verified-on-chain', lifecycleEvidence)) {
       await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result: { verified: false, reason: 'lifecycle-evidence-gate-failed' } });
       return res.status(502).json({ success: false, verified: false, status: 'not-verified', error: 'verification-invariant-failed', message: 'The verified result did not satisfy all lifecycle evidence checks.' });
