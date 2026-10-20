@@ -2,14 +2,13 @@
 
 The API exposes a read-only verification endpoint:
 
-`GET /api/tron/verify-transfer/:txId?contract=<hex>&from=<hex>&to=<hex>&amountSun=<integer>`
+`GET /api/tron/verify-transfer/:txId?network=shasta&contract=<hex>&from=<hex>&to=<hex>&amountSun=<integer>`
 
-All addresses must be hex encoded (20-byte hex, optionally prefixed with `41`). `amountSun` is the exact integer in the token's smallest unit. The endpoint queries the configured TRONGrid Solidity endpoints for the solidified transaction body and receipt, then validates the successful execution result and matching `Transfer(address,address,uint256)` event.
+The `network` parameter is required in new clients and accepts `mainnet`, `shasta`, or `nile` (omitted values retain the legacy Mainnet default). The endpoint always queries the matching network's fixed official TRONGrid SolidityNode; it does not use a globally configured endpoint that could silently verify a testnet transaction against Mainnet. All addresses must be hex encoded (20-byte hex, optionally prefixed with `41`). `amountSun` is the exact integer in the token's smallest unit. The endpoint queries the configured TRONGrid Solidity endpoints for the solidified transaction body and receipt, then validates the successful execution result and matching `Transfer(address,address,uint256)` event.
 
 ## Required Render environment
 
 - `TRON_VERIFIED_TOKEN_CONTRACTS`: comma-separated list of reviewed token contract addresses in hex format. If absent or empty, the endpoint fails closed with HTTP 503.
-- `TRON_SOLIDITY_API_URL`: optional approved HTTPS TRONGrid endpoint. Defaults to `https://api.trongrid.io`; only the approved TRONGrid hosts are accepted.
 - `TRONGRID_API_KEY`: optional TRONGrid API key. Keep it only in backend environment variables.
 
 Do not add a token to the allowlist until its contract identity and behavior have been independently reviewed. The allowlist prevents the endpoint from claiming verification for an arbitrary contract that emits a Transfer-shaped event. A successful result means the event matched on the solidified chain for the configured contract; it does not independently certify that a token is official Tether USDT or that a token has economic value.
