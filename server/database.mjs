@@ -140,6 +140,7 @@ export async function recordTransferVerification(input) {
     || !fromAddress
     || !toAddress
     || !/^[0-9]+$/.test(amountBaseUnits)
+    || amountBaseUnits.length > 78
     || !/[1-9]/.test(amountBaseUnits)) {
     return { persisted: false, reason: 'invalid-record' }
   }
