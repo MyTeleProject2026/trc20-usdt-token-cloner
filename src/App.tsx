@@ -105,6 +105,16 @@ export default function App() {
 
   // Connect to TronLink. The wallet retains the private key and asks for approval
   // for every state-changing transaction.
+  const assertSelectedTronLinkNetwork = (tronWeb: any) => {
+    const host = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
+    if (network === 'shasta' && !host.includes('shasta')) {
+      throw new Error('Safety check: TronLink must be connected to the Shasta testnet node for a Shasta transaction.')
+    }
+    if (network === 'mainnet' && (!host.includes('api.trongrid.io') || host.includes('shasta') || host.includes('nile'))) {
+      throw new Error('Safety check: Mainnet sending requires TronLink connected to the recognized TRON Mainnet node. Unknown/custom network endpoints are blocked in this workflow.')
+    }
+  }
+
   const getInjectedTronWeb = async () => {
     const provider = (window as any).tron
     if (!provider) throw new Error('TronLink was not detected. Open this site in a browser with TronLink installed.')
@@ -120,11 +130,7 @@ export default function App() {
     try {
       const tronWeb = await getInjectedTronWeb()
       const address = tronWeb.defaultAddress.base58
-      const host = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
-      const isShasta = host.includes('shasta')
-      if ((network === 'shasta' && !isShasta) || (network === 'mainnet' && (isShasta || host.includes('nile')))) {
-        throw new Error(`TronLink is connected to a different network than the selected ${network === 'shasta' ? 'Shasta Testnet' : 'Mainnet'}. Switch networks in TronLink, then reconnect.`)
-      }
+      assertSelectedTronLinkNetwork(tronWeb)
       setWalletAddress(address)
       setQueryAddress(address)
       setWalletConnected(true)
@@ -306,11 +312,7 @@ export default function App() {
     setActionMessage(null)
     try {
       const tronWeb = await getInjectedTronWeb()
-      const fullNodeHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
-      const isShastaWallet = fullNodeHost.includes('shasta')
-      if ((network === 'shasta' && !isShastaWallet) || (network === 'mainnet' && (isShastaWallet || fullNodeHost.includes('nile')))) {
-        throw new Error('Selected network does not match the network currently active in TronLink. Switch TronLink network and reconnect before sending.')
-      }
+      assertSelectedTronLinkNetwork(tronWeb)
       if (!tronWeb.isAddress(contractAddress) || !tronWeb.isAddress(recipientAddress)) {
         throw new Error('Enter valid TRON Base58 addresses for the token contract and recipient.')
       }
@@ -335,6 +337,14 @@ export default function App() {
       const amount = tronWeb.toBigNumber(normalizedAmount)
       if (!amount.isFinite() || amount.lte(0)) throw new Error('Transfer amount must be greater than zero.')
       const rawAmount = amount.times(tronWeb.toBigNumber(10).pow(decimals)).toFixed(0)
+      const senderBalance = BigInt(String(await contract.balanceOf(sender).call()))
+      if (senderBalance < BigInt(rawAmount)) throw new Error('Sender token balance is insufficient for this transfer.')
+      const tokenSymbolValue = String(await contract.symbol().call().catch(() => 'TRC-20'))
+      const confirmation = 'Confirm TRC-20 transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (test assets only)' : 'TRON MAINNET (real funds)') + '\nToken: ' + tokenSymbolValue + '\nContract: ' + contractAddress.trim() + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + normalizedAmount + ' (token decimals: ' + decimals + ')\n\nOnly proceed if the receiver supports this exact token and network. Exchange deposit credit is not guaranteed. Continue to TronLink approval?'
+      if (!window.confirm(confirmation)) {
+        setActionMessage({ type: 'error', text: 'Token transfer cancelled before signing.' })
+        return
+      }
       const txId = await contract.transfer(recipientAddress.trim(), rawAmount).send({
         feeLimit: 100_000_000,
         callValue: 0,
