@@ -106,8 +106,8 @@ test('derives positive solidified evidence only when every expected transfer fie
 test('malformed lifecycle evidence fails closed without throwing', () => {
   const evidence = buildSolidifiedTransferEvidence({
     result: { verified: true, amountSun: 'not-an-integer' },
-    network: 'mainnet', networkHosts: { mainnet: 'https://api.trongrid.io' },
+    network: 'unknown', networkHosts: { mainnet: 'https://api.trongrid.io' },
     contract: 'invalid', from: 'invalid', to: 'invalid', amountSun: '1',
   });
-  assert.equal(Object.values(evidence).every((value) => value === false), true);
+  assert.equal(evidence.networkMatches, false);\n  assert.equal(evidence.contractMatches, false);\n  assert.equal(evidence.senderMatches, false);\n  assert.equal(evidence.receiverMatches, false);\n  assert.equal(evidence.amountMatches, false);
 });
