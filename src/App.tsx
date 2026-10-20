@@ -56,6 +56,8 @@ export default function App() {
   const [nativeTransferRecord, setNativeTransferRecord] = useState<any>(null)
   const [nativeVerifyLoading, setNativeVerifyLoading] = useState(false)
   const [nativeVerifyResult, setNativeVerifyResult] = useState<any>(null)
+  const [tokenBalanceLoading, setTokenBalanceLoading] = useState(false)
+  const [tokenBalanceResult, setTokenBalanceResult] = useState<any>(null)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [walletConnected, setWalletConnected] = useState(false)
@@ -350,6 +352,28 @@ export default function App() {
       setActionMessage({ type: 'error', text: err?.message || 'Transfer failed. Check network, address, token balance, and TRX for fees.' })
     } finally {
       setTransferring(false)
+    }
+  }
+
+  const handleQueryTokenBalance = async () => {
+    if (!contractAddress.trim() || !recipientAddress.trim()) {
+      setActionMessage({ type: 'error', text: 'Enter the TRC-20 contract and receiver address before checking token balance.' })
+      return
+    }
+    setTokenBalanceLoading(true)
+    setTokenBalanceResult(null)
+    try {
+      const params = new URLSearchParams({ network, contract: contractAddress.trim(), address: recipientAddress.trim() })
+      const response = await fetch(API_BASE + '/api/tron/token-balance?' + params.toString())
+      const payload = await response.json()
+      if (!response.ok || !payload?.success) throw new Error(payload?.message || 'Could not read token balance from solidified chain state.')
+      setTokenBalanceResult(payload)
+      setActionMessage({ type: 'success', text: 'Token balance read from solidified ' + network + ' state for this exact contract.' })
+    } catch (err: any) {
+      setTokenBalanceResult(null)
+      setActionMessage({ type: 'error', text: err?.message || 'Token balance query failed.' })
+    } finally {
+      setTokenBalanceLoading(false)
     }
   }
 
@@ -1045,6 +1069,9 @@ export default function App() {
                     className="rounded-md bg-primary px-lg py-sm text-sm text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
                   />
                 </div>
+
+                <button type="button" onClick={handleQueryTokenBalance} disabled={tokenBalanceLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{tokenBalanceLoading ? 'Reading token balance…' : 'Verify receiver token balance'}</button>
+                {tokenBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Solidified receiver token balance</p><p className="break-all text-xs text-tertiary">Network: {tokenBalanceResult.network}</p><p className="break-all text-xs text-tertiary">Contract: {tokenBalanceResult.tokenContract}</p><p className="break-all text-xs text-tertiary">Receiver: {tokenBalanceResult.receiverAddress}</p><p className="text-sm font-semibold text-primary">Raw balance: {tokenBalanceResult.balanceBaseUnits}</p><p className="text-xs text-tertiary">Decimals: {tokenBalanceResult.decimals}. This is the balance of this exact contract only; it does not prove exchange deposit credit or that the token is official USDT.</p></div>}
 
                 {/* Button recipe: primary */}
                 <button
