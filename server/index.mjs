@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import { credentialGuard } from './credential-guard.mjs'
+import { securityHeaders } from './security-headers.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
@@ -13,6 +14,7 @@ process.chdir(root)
 
 const app = express()
 app.disable('x-powered-by')
+app.use(securityHeaders)
 app.use(express.json({ limit: '32kb' }))
 
 const allowedOrigins = new Set(
