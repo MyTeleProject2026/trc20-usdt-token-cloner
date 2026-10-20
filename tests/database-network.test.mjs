@@ -127,6 +127,11 @@ test('keeps user-controlled fields in SQL parameters and downgrades invalid stat
   assert.equal(query.values[7], null)
   assert.match(query.text, /verification_status='verified-on-chain'/)
   assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.result/)
+  assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.verification_status/)
+  assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.from_address/)
+  assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.to_address/)
+  assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.amount_base_units/)
+  assert.doesNotMatch(query.text, /verification_status='verified-on-chain'\s+AND EXCLUDED\.verification_status/)
 })
 
 test('does not coerce missing, null, fractional, or negative block numbers into a real block', () => {
