@@ -79,10 +79,12 @@ router.get('/tron/token-balance', async (req, res) => {
     const contractHex = tronWeb.address.toHex(contract).replace(/^41/i, '');
     const addressHex = tronWeb.address.toHex(address).replace(/^41/i, '');
     const ownerHex = tronWeb.address.toHex(address);
+    const headers = { 'content-type': 'application/json' };
+    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY;
     const readConstant = async (selector, parameter = '') => {
       const response = await fetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({
           owner_address: ownerHex,
           contract_address: '41' + contractHex,
