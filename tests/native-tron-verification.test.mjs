@@ -75,3 +75,13 @@ test('native transfer verifies expected sender, receiver and exact SUN amount ag
   assert.match(app, /Verify sender, receiver & amount/)
   assert.match(app, /Solidified native TRX transaction matches sender, receiver and exact amount/)
 })
+
+
+test('wallet transfers fail closed for unknown mainnet endpoints and confirm token details before signing', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /assertSelectedTronLinkNetwork/)
+  assert.match(app, /Unknown\/custom network endpoints are blocked/)
+  assert.match(app, /const senderBalance = BigInt\(String\(await contract\.balanceOf\(sender\)\.call\(\)\)\)/)
+  assert.match(app, /window\.confirm\(confirmation\)/)
+  assert.match(app, /Exchange deposit credit is not guaranteed/)
+})
