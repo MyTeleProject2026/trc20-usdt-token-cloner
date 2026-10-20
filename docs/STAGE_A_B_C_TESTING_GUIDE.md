@@ -26,6 +26,23 @@ GET /api/tron/token-balance?network=shasta&contract=<TOKEN_CONTRACT_T_ADDRESS>&a
 
 Use `network=mainnet`, `shasta`, or `nile`; use the token contract and receiver address for that exact network. The endpoint queries `walletsolidity/triggerconstantcontract` and returns `balanceBaseUnits` as an integer string and the token's on-chain `decimals`. Convert for display with decimal-safe arithmetic; do not parse the base-unit string as a JavaScript Number. This endpoint is read-only and does not submit transactions or mark an exchange deposit as credited.
 
+
+### Native TRX transfer verification
+
+Native TRX transfers are not TRC-20 token transfers. The backend also exposes a read-only native transfer verifier:
+
+```http
+GET /api/tron/verify-native-transfer/<64_HEX_TX_ID>?network=shasta
+```
+
+You may optionally supply all three expected values to require a match:
+
+```http
+GET /api/tron/verify-native-transfer/<64_HEX_TX_ID>?network=shasta&from=<SENDER_T_ADDRESS>&to=<RECEIVER_T_ADDRESS>&amountSun=<INTEGER_SUN>
+```
+
+Use the exact Base58 sender and receiver addresses and the amount in sun (1 TRX = 1,000,000 sun). If expected values are omitted, the response still reports the actual sender, receiver, and amount; compare them with your intended transfer before accepting it. A `verified: true` result requires the transaction body and receipt from the selected network's solidified node, a native `TransferContract`, and successful execution. A 202 response means wait and retry the same transaction ID. This endpoint does not sign, broadcast, or resend anything, and does not verify VTRC or exchange credit.
+
 ### Transaction verification endpoint
 
 ```http
