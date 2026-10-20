@@ -511,6 +511,19 @@ export default function App() {
 
       {/* Main Container */}
       <main className="mx-auto max-w-7xl px-xl py-2xl">
+        <aside role="status" className="mb-xl rounded-xl border border-secondary bg-secondary p-lg">
+          <p className="text-sm font-semibold text-primary">
+            {network === 'shasta' ? 'Shasta Testnet — test assets only' : 'TRON Mainnet — real assets and network costs'}
+          </p>
+          <p className="mt-xs text-xs text-secondary">
+            {network === 'shasta'
+              ? 'Shasta TRX and test tokens cannot become mainnet USDT or be credited by mainnet exchanges. Use this network for testing only.'
+              : 'Mainnet USDT transfers use the official TRON USDT contract. TronLink must authorize each transfer; the sender or an independently verified sponsor must cover required network resources.'}
+          </p>
+          <p className="mt-xs text-xs text-tertiary">
+            Fee sponsorship is currently not integrated. Do not assume the project pays fees or that a successful on-chain deposit guarantees an exchange will credit it.
+          </p>
+        </aside>
         {/* Alert component recipe */}
         {apiStatus === 'no-api-key' && (
           <div className="mb-xl flex gap-lg rounded-xl bg-utility-warning-50 p-xl">
