@@ -62,3 +62,42 @@ export function assertTransferStatusTransition(from, to, evidence = {}) {
   }
   return to;
 }
+
+
+function normalizeHexAddress(value) {
+  if (typeof value !== 'string') return null;
+  const hex = value.replace(/^0x/i, '');
+  if (!/^(?:41)?[0-9a-f]{40}$/i.test(hex)) return null;
+  return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase();
+}
+
+/**
+ * Derive lifecycle evidence from the solidified verifier result and the
+ * request's expected values. Invalid inputs fail closed rather than throwing.
+ */
+export function buildSolidifiedTransferEvidence({ result, network, networkHosts, contract, from, to, amountSun }) {
+  let amountMatches = false;
+  try {
+    amountMatches = typeof result?.amountSun === 'string'
+      && /^[0-9]+$/.test(result.amountSun)
+      && typeof amountSun === 'string'
+      && /^[0-9]+$/.test(amountSun)
+      && BigInt(result.amountSun) === BigInt(amountSun);
+  } catch {
+    amountMatches = false;
+  }
+  return {
+    finalized: Number.isInteger(result?.blockNumber) && result.blockNumber > 0,
+    receiptSuccess: result?.verified === true,
+    networkMatches: typeof network === 'string'
+      && !!networkHosts
+      && Object.hasOwn(networkHosts, network),
+    contractMatches: normalizeHexAddress(result?.tokenContractAddress) !== null
+      && normalizeHexAddress(result?.tokenContractAddress) === normalizeHexAddress(contract),
+    senderMatches: normalizeHexAddress(result?.fromAddress) !== null
+      && normalizeHexAddress(result?.fromAddress) === normalizeHexAddress(from),
+    receiverMatches: normalizeHexAddress(result?.toAddress) !== null
+      && normalizeHexAddress(result?.toAddress) === normalizeHexAddress(to),
+    amountMatches,
+  };
+}
