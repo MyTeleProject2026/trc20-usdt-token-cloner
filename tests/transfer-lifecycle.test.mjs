@@ -101,6 +101,11 @@ test('derives positive solidified evidence only when every expected transfer fie
   assert.equal(buildSolidifiedTransferEvidence({ ...expected, network: 'unknown' }).networkMatches, false);
   assert.equal(buildSolidifiedTransferEvidence({ ...expected, to: '41' + '4'.repeat(40) }).receiverMatches, false);
   assert.equal(buildSolidifiedTransferEvidence({ ...expected, result: { ...result, blockNumber: 0 } }).finalized, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, result: { ...result, verified: false } }).receiptSuccess, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, result: { ...result, tokenContractAddress: '41' + '4'.repeat(40) } }).contractMatches, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, result: { ...result, fromAddress: '41' + '4'.repeat(40) } }).senderMatches, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, result: { ...result, amountSun: '-1' } }).amountMatches, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, networkHosts: {} }).networkMatches, false);
 });
 
 test('malformed lifecycle evidence fails closed without throwing', () => {
