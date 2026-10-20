@@ -9,6 +9,54 @@ const networks = {
 }
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
+// Keep SUN conversion exact; native balances can exceed Number's safe integer range.
+const formatSun = (value) => {
+  const sun = BigInt(value)
+  const whole = sun / 1_000_000n
+  const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
+}
+
+// Read a receiver's native TRX balance from the selected network's solidified state.
+router.get('/native-balance', async (req, res) => {
+  const { network, address } = req.query
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  if (typeof address !== 'string' || !addressPattern.test(address)) {
+    return res.status(400).json({ success: false, error: 'invalid-address', message: 'Provide a valid TRON Base58 receiver address.' })
+  }
+  try {
+    const { TronWeb } = await import('tronweb')
+    const tronWeb = new TronWeb({ fullHost: networks[network] })
+    if (!tronWeb.isAddress(address)) return res.status(400).json({ success: false, error: 'invalid-address' })
+    const headers = { 'content-type': 'application/json' }
+    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+    const response = await fetch(networks[network] + '/walletsolidity/getaccount', {
+      method: 'POST', headers,
+      body: JSON.stringify({ address: tronWeb.address.toHex(address), visible: false }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) throw new Error('solidified-provider-unavailable')
+    const account = await response.json()
+    const balanceSun = String(account?.balance ?? 0)
+    if (!/^[0-9]+$/.test(balanceSun)) throw new Error('invalid-solidified-balance')
+    return res.json({
+      success: true,
+      status: 'solidified-native-balance-read',
+      network,
+      address,
+      accountExists: Boolean(account?.address),
+      balanceSun,
+      balanceTRX: formatSun(balanceSun),
+      source: 'TRON SolidityNode getaccount',
+      note: 'This is native TRX on the selected network only. It does not query TRC20 tokens or confirm exchange deposit credit.',
+    })
+  } catch {
+    return res.status(502).json({ success: false, error: 'solidified-native-balance-read-failed', message: 'Could not read native TRX balance from the selected network solidified state.' })
+  }
+})
+
 // Read-only verification for native TRX transfers. Both the transaction body
 // and receipt must be visible from the selected network's solidified node.
 router.get('/verify-native-transfer/:hash', async (req, res) => {
@@ -105,7 +153,7 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
       from: senderAddress,
       to: receiverAddress,
       amountSun: actualAmountSun,
-      amountTRX: actualAmountSun === null ? null : (Number(actualAmountSun) / 1_000_000).toString(),
+      amountTRX: actualAmountSun === null ? null : formatSun(actualAmountSun),
       contractResult,
       checks,
       source: 'TRON SolidityNode transaction body and receipt',
