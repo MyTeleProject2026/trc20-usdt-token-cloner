@@ -525,6 +525,16 @@ export default function App() {
     }
   }
 
+  const formatTokenUnits = (baseUnits: string, decimals: number) => {
+    try {
+      const value = BigInt(baseUnits)
+      const scale = 10n ** BigInt(decimals)
+      const whole = value / scale
+      const fraction = (value % scale).toString().padStart(decimals, '0').replace(/0+$/, '')
+      return fraction ? whole.toString() + '.' + fraction : whole.toString()
+    } catch { return baseUnits }
+  }
+
   const formatSunToTrx = (sun: number) => {
     if (!sun) return '0'
     return (sun / 1000000).toLocaleString()
@@ -1071,7 +1081,7 @@ export default function App() {
                 </div>
 
                 <button type="button" onClick={handleQueryTokenBalance} disabled={tokenBalanceLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{tokenBalanceLoading ? 'Reading token balance…' : 'Verify receiver token balance'}</button>
-                {tokenBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Solidified receiver token balance</p><p className="break-all text-xs text-tertiary">Network: {tokenBalanceResult.network}</p><p className="break-all text-xs text-tertiary">Contract: {tokenBalanceResult.tokenContract}</p><p className="break-all text-xs text-tertiary">Receiver: {tokenBalanceResult.receiverAddress}</p><p className="text-sm font-semibold text-primary">Raw balance: {tokenBalanceResult.balanceBaseUnits}</p><p className="text-xs text-tertiary">Decimals: {tokenBalanceResult.decimals}. This is the balance of this exact contract only; it does not prove exchange deposit credit or that the token is official USDT.</p></div>}
+                {tokenBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Solidified receiver token balance</p><p className="break-all text-xs text-tertiary">Network: {tokenBalanceResult.network}</p><p className="break-all text-xs text-tertiary">Contract: {tokenBalanceResult.tokenContract}</p><p className="break-all text-xs text-tertiary">Receiver: {tokenBalanceResult.receiverAddress}</p><p className="text-lg font-semibold text-primary">Balance: {formatTokenUnits(tokenBalanceResult.balanceBaseUnits, tokenBalanceResult.decimals)} tokens</p><p className="text-xs text-tertiary">Raw units: {tokenBalanceResult.balanceBaseUnits} · Decimals: {tokenBalanceResult.decimals}. This is the balance of this exact contract only; it does not prove exchange deposit credit or that the token is official USDT.</p></div>}
 
                 {/* Button recipe: primary */}
                 <button
