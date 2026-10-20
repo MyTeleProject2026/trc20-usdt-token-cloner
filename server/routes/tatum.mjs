@@ -141,8 +141,10 @@ router.get('/tron/contract-by-tx/:hash', async (req, res) => {
 // signs, broadcasts, credits balances, or trusts an indexer as final proof.
 router.get('/tron/verify-transfer/:hash', async (req, res) => {
   const hash = req.params.hash
-  const { contract, from, to, amountSun } = req.query
+  const { contract, from, to, amountSun, network = 'mainnet' } = req.query
   if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id' })
+  const networkHosts = { mainnet: 'https://api.trongrid.io', shasta: 'https://api.shasta.trongrid.io', nile: 'https://nile.trongrid.io' }
+  if (typeof network !== 'string' || !Object.hasOwn(networkHosts, network)) return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
   const hexAddress = /^(?:41)?[0-9a-fA-F]{40}$/
   if (![contract, from, to].every((value) => typeof value === 'string' && hexAddress.test(value))) {
     return res.status(400).json({ success: false, error: 'invalid-address', message: 'contract, from, and to must be 20-byte hex addresses, optionally prefixed with 41.' })
@@ -162,13 +164,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   if (!approvedContracts.includes(normalizeHexAddress(contract))) {
     return res.status(403).json({ success: false, error: 'token-contract-not-allowlisted', message: 'This token contract is not on the server-approved verification list.' })
   }
-  const base = (process.env.TRON_SOLIDITY_API_URL || 'https://api.trongrid.io').replace(/\/$/, '')
-  let parsedBase
-  try { parsedBase = new URL(base) } catch { return res.status(503).json({ success: false, error: 'invalid-solidity-provider-config' }) }
-  const allowedHosts = new Set(['api.trongrid.io', 'api.shasta.trongrid.io', 'nile.trongrid.io'])
-  if (parsedBase.protocol !== 'https:' || !allowedHosts.has(parsedBase.hostname)) {
-    return res.status(503).json({ success: false, error: 'invalid-solidity-provider-config', message: 'TRON_SOLIDITY_API_URL must be an approved HTTPS TRONGrid endpoint.' })
-  }
+  const base = networkHosts[network]
   const headers = { 'content-type': 'application/json' }
   if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
   const querySolidified = async (path) => {
