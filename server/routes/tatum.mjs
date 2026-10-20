@@ -7,6 +7,16 @@ const router = Router()
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const txPattern = /^[0-9a-fA-F]{64}$/
 
+// Normalize TRON hex addresses for allowlist comparisons. The lifecycle module
+// has its own private normalizer for evidence checks; this route also needs one
+// when parsing the configured contract allowlist.
+function normalizeHexAddress(value) {
+  if (typeof value !== 'string') return null;
+  const hex = value.replace(/^0x/i, '');
+  if (!/^(?:41)?[0-9a-f]{40}$/i.test(hex)) return null;
+  return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase();
+}
+
 async function persistVerification(input) {
   try { await recordTransferVerification(input) } catch {
     // Chain verification results remain authoritative; database outages must not
