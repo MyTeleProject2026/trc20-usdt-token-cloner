@@ -51,3 +51,11 @@ test('UI queries and labels receiver native balance from the selected network', 
   assert.match(app, /Verify receiver TRX balance/)
   assert.match(app, /does not confirm exchange deposit credit/)
 })
+
+
+test('native transfer UI uses explicit TronLink approval and reflects selected network', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /Connect \/ verify TronLink/)
+  assert.match(app, /Send Native ' \+ \(network === 'shasta' \? 'Shasta Testnet' : 'Mainnet'\) \+ ' TRX/)
+  assert.match(app, /Never paste a seed phrase or private key into this tab/)
+})
