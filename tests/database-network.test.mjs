@@ -125,4 +125,29 @@ test('keeps user-controlled fields in SQL parameters and downgrades invalid stat
   assert.equal(query.values[2], marker)
   assert.equal(query.values[6], 'not-verified')
   assert.equal(query.values[7], null)
+  assert.match(query.text, /verification_status='verified-on-chain'/)
+  assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.result/)
+})
+
+test('does not coerce missing, null, fractional, or negative block numbers into a real block', () => {
+  const valid = {
+    network: 'mainnet',
+    transactionHash: 'c'.repeat(64),
+    tokenContract: 'contract',
+    fromAddress: 'sender',
+    toAddress: 'receiver',
+    amountBaseUnits: '10',
+    status: 'verified-on-chain',
+  }
+  for (const blockNumber of [undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const query = buildTransferVerificationUpsert({
+      ...valid,
+      result: { blockNumber },
+    })
+    assert.equal(query.values[7], null, `blockNumber: ${String(blockNumber)}`)
+  }
+  assert.equal(buildTransferVerificationUpsert({
+    ...valid,
+    result: { blockNumber: 123 },
+  }).values[7], 123)
 })
