@@ -59,3 +59,19 @@ test('native transfer UI uses explicit TronLink approval and reflects selected n
   assert.match(app, /Send Native ' \+ \(network === 'shasta' \? 'Shasta Testnet' : 'Mainnet'\) \+ ' TRX/)
   assert.match(app, /Never paste a seed phrase or private key into this tab/)
 })
+
+
+test('native transfer asks for explicit network, sender, receiver and amount confirmation', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /window\.confirm\(confirmationMessage\)/)
+  assert.match(app, /TRON MAINNET \(real funds\)/)
+  assert.match(app, /Check the recipient supports TRX on this exact network/)
+})
+
+test('native transfer verifies expected sender, receiver and exact SUN amount against solidified backend', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /\/api\/tron\/verify-native-transfer\//)
+  assert.match(app, /amountSun: record\.amountSun/)
+  assert.match(app, /Verify sender, receiver & amount/)
+  assert.match(app, /Solidified native TRX transaction matches sender, receiver and exact amount/)
+})
