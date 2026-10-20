@@ -60,15 +60,18 @@ router.get('/tron/account/:address', async (req, res) => {
 router.get('/tron/token-balance', async (req, res) => {
   const { network, contract, address } = req.query;
   const networkHosts = {
-    mainnet: 'https://api.trongrid.io',
-    shasta: 'https://api.shasta.trongrid.io',
-    nile: 'https://nile.trongrid.io',
+    mainnet: 'https://tron-mainnet.gateway.tatum.io',
+    shasta: 'https://tron-shasta.gateway.tatum.io',
+    nile: 'https://tron-nile.gateway.tatum.io',
   };
   if (typeof network !== 'string' || !Object.hasOwn(networkHosts, network)) {
     return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' });
   }
   if (typeof contract !== 'string' || typeof address !== 'string') {
     return res.status(400).json({ success: false, error: 'missing-address', message: 'Provide a token contract and receiver address.' });
+  }
+  if (!process.env.TATUM_API_KEY) {
+    return res.status(503).json({ success: false, error: 'missing-api-key', message: 'Set TATUM_API_KEY in the backend environment to query the selected Tatum TRON network.' });
   }
   try {
     const { TronWeb } = await import('tronweb');
@@ -79,8 +82,7 @@ router.get('/tron/token-balance', async (req, res) => {
     const contractHex = tronWeb.address.toHex(contract).replace(/^41/i, '');
     const addressHex = tronWeb.address.toHex(address).replace(/^41/i, '');
     const ownerHex = tronWeb.address.toHex(address);
-    const headers = { 'content-type': 'application/json' };
-    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY;
+    const headers = { 'content-type': 'application/json', 'x-api-key': process.env.TATUM_API_KEY };
     const readConstant = async (selector, parameter = '') => {
       const response = await fetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
         method: 'POST',
@@ -118,7 +120,7 @@ router.get('/tron/token-balance', async (req, res) => {
       receiverAddress: address,
       balanceBaseUnits,
       decimals,
-      source: 'TRON SolidityNode triggerconstantcontract',
+      source: 'Tatum TRON Solidity HTTP gateway triggerconstantcontract',
       note: 'This is the balance for this exact token contract on this exact network. It does not imply exchange deposit credit.',
     });
   } catch {
