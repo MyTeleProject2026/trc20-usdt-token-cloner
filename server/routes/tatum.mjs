@@ -194,12 +194,12 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   try {
     const transaction = await querySolidified('/walletsolidity/gettransactionbyid')
     if (!transaction || transaction.txID?.toLowerCase() !== hash.toLowerCase()) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidification', result: {} })
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidification', result: {} })
       return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidification', message: 'No matching transaction body is available from solidified state yet. Retry with the same transaction ID.' })
     }
     const receipt = await querySolidified('/walletsolidity/gettransactioninfobyid')
     if (!receipt || receipt.id?.toLowerCase() !== hash.toLowerCase()) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidified-receipt', result: {} })
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidified-receipt', result: {} })
       return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidified-receipt', message: 'The transaction body is solidified, but its receipt is not available yet. Retry with the same transaction ID.' })
     }
     const { verifySolidifiedTrc20Transfer } = await import('../tron-verification.mjs')
@@ -213,7 +213,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
       amountSun,
     })
     if (!result.verified) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result })
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result })
       return res.status(200).json({ success: true, ...result, status: 'not-verified' })
     }
     // Defense in depth: only allow the lifecycle to advance when the result returned
@@ -222,10 +222,10 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
       result, network, networkHosts, contract, from, to, amountSun,
     });
     if (!canTransitionTransferStatus('awaiting-finality', 'verified-on-chain', lifecycleEvidence)) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result: { verified: false, reason: 'lifecycle-evidence-gate-failed' } });
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result: { verified: false, reason: 'lifecycle-evidence-gate-failed' } });
       return res.status(502).json({ success: false, verified: false, status: 'not-verified', error: 'verification-invariant-failed', message: 'The verified result did not satisfy all lifecycle evidence checks.' });
     }
-    await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', result })
+    await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', result })
     return res.json({ success: true, status: 'verified-on-chain', ...result })
   } catch (err) {
     return res.status(502).json({ success: false, error: 'solidified-provider-request-failed', message: 'Could not verify the solidified transaction with the configured TRON provider.' })
