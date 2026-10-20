@@ -131,6 +131,7 @@ test('keeps user-controlled fields in SQL parameters and downgrades invalid stat
   assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.from_address/)
   assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.to_address/)
   assert.match(query.text, /THEN trc20_token_clone\.transfer_verifications\.amount_base_units/)
+  assert.match(query.text, /block_number=CASE[\s\S]*THEN trc20_token_clone\.transfer_verifications\.block_number[\s\S]*ELSE COALESCE\(EXCLUDED\.block_number, trc20_token_clone\.transfer_verifications\.block_number\)/)
   assert.doesNotMatch(query.text, /verification_status='verified-on-chain'\s+AND EXCLUDED\.verification_status/)
 })
 
