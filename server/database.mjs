@@ -61,11 +61,28 @@ export async function initializeDatabase() {
           verification_status TEXT NOT NULL
             CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
           block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
           result JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (network, transaction_hash, token_contract)
+          UNIQUE (network, transaction_hash, token_contract, log_index)
         )
       `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END $`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
       // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
       // any future direct insert must name its network explicitly. Existing
       // legacy rows are intentionally not relabelled: their chain is unknown.
@@ -139,6 +156,9 @@ export function buildTransferVerificationUpsert(input) {
   const status = ['verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error'].includes(input.status)
     ? input.status
     : 'not-verified'
+  const logIndex = Number.isSafeInteger(input?.logIndex) && input.logIndex >= 0
+    ? input.logIndex
+    : (Number.isSafeInteger(result.logIndex) && result.logIndex >= 0 ? result.logIndex : 0)
   const block = typeof result.blockNumber === 'number'
     && Number.isSafeInteger(result.blockNumber)
     && result.blockNumber > 0
@@ -147,9 +167,9 @@ export function buildTransferVerificationUpsert(input) {
 
   return {
     text: `INSERT INTO ${schema}.transfer_verifications
-      (network, transaction_hash, token_contract, from_address, to_address, amount_base_units, verification_status, block_number, result)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-     ON CONFLICT (network, transaction_hash, token_contract) DO UPDATE SET
+      (network, transaction_hash, token_contract, from_address, to_address, amount_base_units, verification_status, block_number, result, log_index)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
+     ON CONFLICT (network, transaction_hash, token_contract, log_index) DO UPDATE SET
        verification_status=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
          THEN ${schema}.transfer_verifications.verification_status
@@ -180,7 +200,7 @@ export function buildTransferVerificationUpsert(input) {
          THEN ${schema}.transfer_verifications.result
          ELSE EXCLUDED.result
        END`,
-    values: [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, status, block, JSON.stringify(result)],
+    values: [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, status, block, JSON.stringify(result), logIndex],
   }
 }
 
