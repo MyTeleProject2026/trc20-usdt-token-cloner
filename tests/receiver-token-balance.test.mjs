@@ -23,3 +23,13 @@ test('receiver balance endpoint does not sign or broadcast transfers', () => {
   assert.doesNotMatch(endpoint, /privateKey|broadcasttransaction|sendRawTransaction|wallet\/broadcasttransaction/i)
   assert.match(endpoint, /network must be mainnet, shasta, or nile/)
 })
+
+
+test('frontend exposes a solidified receiver token balance check for the selected contract and network', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /handleQueryTokenBalance/)
+  assert.match(app, /\/api\/tron\/token-balance/)
+  assert.match(app, /Verify receiver token balance/)
+  assert.match(app, /formatTokenUnits\(tokenBalanceResult\.balanceBaseUnits, tokenBalanceResult\.decimals\)/)
+  assert.match(app, /does not prove exchange deposit credit or that the token is official USDT/)
+})
