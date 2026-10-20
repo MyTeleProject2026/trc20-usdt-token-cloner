@@ -123,6 +123,25 @@ export async function recordTransferVerification(input) {
   // contaminate network-scoped verification history with mislabelled records.
   const network = normalizeVerificationNetwork(input?.network)
   if (!network) return { persisted: false, reason: 'invalid-network' }
+
+  // Validate required identity fields before touching the database. Amounts
+  // remain integer base units; floating-point or zero/negative amounts are rejected.
+  const transactionHash = typeof input?.transactionHash === 'string' ? input.transactionHash : ''
+  const tokenContract = typeof input?.tokenContract === 'string' ? input.tokenContract.trim() : ''
+  const fromAddress = typeof input?.fromAddress === 'string' ? input.fromAddress.trim() : ''
+  const toAddress = typeof input?.toAddress === 'string' ? input.toAddress.trim() : ''
+  const amountBaseUnits = typeof input?.amountBaseUnits === 'string' || typeof input?.amountBaseUnits === 'number'
+    ? String(input.amountBaseUnits)
+    : ''
+  if (!/^[0-9a-f]{64}$/i.test(transactionHash)
+    || !tokenContract
+    || !fromAddress
+    || !toAddress
+    || !/^[0-9]+$/.test(amountBaseUnits)
+    || !/[1-9]/.test(amountBaseUnits)) {
+    return { persisted: false, reason: 'invalid-record' }
+  }
+
   const db = getPool()
   if (!db) return { persisted: false, reason: 'database-not-configured' }
   await initializeDatabase()
@@ -144,7 +163,7 @@ export async function recordTransferVerification(input) {
        amount_base_units=EXCLUDED.amount_base_units,
        block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
        result=EXCLUDED.result`,
-    [network, input.transactionHash.toLowerCase(), input.tokenContract, input.fromAddress, input.toAddress, input.amountBaseUnits, status, block, JSON.stringify(result)],
+    [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, status, block, JSON.stringify(result)],
   )
   return { persisted: true }
 }
