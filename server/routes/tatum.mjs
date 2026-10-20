@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
 import { recordTransferVerification } from '../database.mjs'
+import { canTransitionTransferStatus } from '../transfer-lifecycle.mjs'
 
 const router = Router()
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -205,6 +206,21 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
     if (!result.verified) {
       await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result })
       return res.status(200).json({ success: true, ...result, status: 'not-verified' })
+    }
+    // Defense in depth: only allow the lifecycle to advance when the result returned
+    // by the solidified verifier matches every expected transfer field.
+    const lifecycleEvidence = {
+      finalized: Number.isInteger(result.blockNumber) && result.blockNumber > 0,
+      receiptSuccess: result.verified === true,
+      networkMatches: Object.hasOwn(networkHosts, network) && base === networkHosts[network],
+      contractMatches: normalizeHexAddress(result.tokenContractAddress) === normalizeHexAddress(contract),
+      senderMatches: normalizeHexAddress(result.fromAddress) === normalizeHexAddress(from),
+      receiverMatches: normalizeHexAddress(result.toAddress) === normalizeHexAddress(to),
+      amountMatches: typeof result.amountSun === 'string' && BigInt(result.amountSun) === BigInt(amountSun),
+    };
+    if (!canTransitionTransferStatus('awaiting-finality', 'verified-on-chain', lifecycleEvidence)) {
+      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result: { verified: false, reason: 'lifecycle-evidence-gate-failed' } });
+      return res.status(502).json({ success: false, verified: false, status: 'not-verified', error: 'verification-invariant-failed', message: 'The verified result did not satisfy all lifecycle evidence checks.' });
     }
     await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', result })
     return res.json({ success: true, status: 'verified-on-chain', ...result })
