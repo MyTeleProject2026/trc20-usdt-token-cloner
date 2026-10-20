@@ -42,3 +42,12 @@ test('native TRX SUN formatting does not use floating-point conversion', () => {
   assert.match(route, /amountTRX: actualAmountSun === null \? null : formatSun\(actualAmountSun\)/)
   assert.doesNotMatch(route, /Number\(actualAmountSun\)\s*\/\s*1_000_000/)
 })
+
+
+test('UI queries and labels receiver native balance from the selected network', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /handleQueryNativeBalance/)
+  assert.match(app, /\/api\/tron\/native-balance/)
+  assert.match(app, /Verify receiver TRX balance/)
+  assert.match(app, /does not confirm exchange deposit credit/)
+})
