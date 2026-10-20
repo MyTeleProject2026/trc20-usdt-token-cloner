@@ -84,8 +84,8 @@ test('builds a parameterized network-scoped upsert and preserves exact base-unit
     result: { blockNumber: 123 },
   })
 
-  assert.match(query.text, /ON CONFLICT \\(network, transaction_hash, token_contract, log_index\\)/)
-  assert.match(query.text, /VALUES \\(\\$1,\\$2,\\$3,\\$4,\\$5,\\$6,\\$7,\\$8,\\$9::jsonb,\\$10\\)/)
+  assert.ok(query.text.includes('ON CONFLICT (network, transaction_hash, token_contract, log_index)'))
+  assert.ok(query.text.includes('VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)'))
   assert.equal(query.values[0], 'mainnet')
   assert.equal(query.values[1], 'a'.repeat(64))
   assert.equal(query.values[5], amountBaseUnits)
