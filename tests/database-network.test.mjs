@@ -59,6 +59,7 @@ test('rejects malformed transfer identity and non-integer amounts before databas
     { amountBaseUnits: '-1' },
     { amountBaseUnits: '0' },
     { amountBaseUnits: '' },
+    { amountBaseUnits: '9'.repeat(79) },
     { amountBaseUnits: 9007199254740993 },
   ]
   for (const overrides of invalidCases) {
