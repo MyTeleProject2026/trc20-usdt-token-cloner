@@ -225,7 +225,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
       await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result: { verified: false, reason: 'lifecycle-evidence-gate-failed' } });
       return res.status(502).json({ success: false, verified: false, status: 'not-verified', error: 'verification-invariant-failed', message: 'The verified result did not satisfy all lifecycle evidence checks.' });
     }
-    await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', result })
+    await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', logIndex: result.logIndex, result })
     return res.json({ success: true, status: 'verified-on-chain', ...result })
   } catch (err) {
     return res.status(502).json({ success: false, error: 'solidified-provider-request-failed', message: 'Could not verify the solidified transaction with the configured TRON provider.' })
