@@ -130,8 +130,10 @@ export async function recordTransferVerification(input) {
   const tokenContract = typeof input?.tokenContract === 'string' ? input.tokenContract.trim() : ''
   const fromAddress = typeof input?.fromAddress === 'string' ? input.fromAddress.trim() : ''
   const toAddress = typeof input?.toAddress === 'string' ? input.toAddress.trim() : ''
-  const amountBaseUnits = typeof input?.amountBaseUnits === 'string' || typeof input?.amountBaseUnits === 'number'
-    ? String(input.amountBaseUnits)
+  // Require a decimal string: JavaScript numbers can lose precision for
+  // large token amounts before PostgreSQL ever receives the value.
+  const amountBaseUnits = typeof input?.amountBaseUnits === 'string'
+    ? input.amountBaseUnits
     : ''
   if (!/^[0-9a-f]{64}$/i.test(transactionHash)
     || !tokenContract
