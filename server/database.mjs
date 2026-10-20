@@ -114,10 +114,14 @@ export async function initializeDatabase() {
   return initPromise
 }
 
+export function normalizeVerificationNetwork(network) {
+  return ['mainnet', 'shasta', 'nile'].includes(network) ? network : null
+}
+
 export async function recordTransferVerification(input) {
   // Never infer Mainnet from a missing or invalid network; doing so could
   // contaminate network-scoped verification history with mislabelled records.
-  const network = ['mainnet', 'shasta', 'nile'].includes(input?.network) ? input.network : null
+  const network = normalizeVerificationNetwork(input?.network)
   if (!network) return { persisted: false, reason: 'invalid-network' }
   const db = getPool()
   if (!db) return { persisted: false, reason: 'database-not-configured' }
