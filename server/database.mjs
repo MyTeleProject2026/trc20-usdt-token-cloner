@@ -95,7 +95,8 @@ export async function initializeDatabase() {
         ["audit_events", "TRC20 Token Clone project only: non-secret application audit metadata. Never store credentials, private keys, or seed phrases."],
       ]
       for (const [table, comment] of comments) {
-        await db.query(`COMMENT ON TABLE ${schema}.${table} IS $1`, [comment])
+        const literal = "'" + comment.replace(/'/g, "''") + "'"
+        await db.query(`COMMENT ON TABLE ${schema}.${table} IS ${literal}`)
       }
       return { configured: true, ready: true, schema }
     })().catch((error) => {
