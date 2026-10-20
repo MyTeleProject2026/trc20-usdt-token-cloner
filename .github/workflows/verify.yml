@@ -29,9 +29,25 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Report dependency advisories
+        shell: bash
         run: |
           npm audit --json > npm-audit.json || true
-          node --input-type=module -e 'import fs from "node:fs"; const report=JSON.parse(fs.readFileSync("npm-audit.json", "utf8")); console.log(JSON.stringify({metadata:report.metadata?.vulnerabilities, advisories:Object.entries(report.vulnerabilities||{}).map(([name,v])=>({name,severity:v.severity,range:v.range,fixAvailable:v.fixAvailable,via:(v.via||[]).map(x=>typeof x === "string" ? x : {title:x.title,url:x.url,range:x.range}))}))}, null, 2))'
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
+          const advisories = Object.entries(report.vulnerabilities ?? {}).map(([name, v]) => ({
+            name,
+            severity: v.severity,
+            range: v.range,
+            fixAvailable: v.fixAvailable,
+            via: (v.via ?? []).map((x) => typeof x === 'string' ? x : {
+              title: x.title,
+              url: x.url,
+              range: x.range,
+            }),
+          }));
+          console.log(JSON.stringify({ metadata: report.metadata?.vulnerabilities, advisories }, null, 2));
+          NODE
       - name: Run automated tests
         run: npm test
       - name: Build frontend and contract artifacts
