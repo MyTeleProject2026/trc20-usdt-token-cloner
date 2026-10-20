@@ -1056,10 +1056,9 @@ export default function App() {
           <div className="grid grid-cols-1 gap-xl lg:grid-cols-3">
             <section className="lg:col-span-2 rounded-xl border border-secondary bg-primary p-xl shadow-xs space-y-xl">
               <div className="border-b border-secondary pb-md">
-                <h2 className="text-heading-xs font-semibold text-primary">Native TRX Testnet Transfer</h2>
+                <h2 className="text-heading-xs font-semibold text-primary">Native TRX Transfer</h2>
                 <p className="mt-xxs text-xs text-tertiary">
-                  Send native TRX on Shasta testnet. This does not mint TRX or create a token contract.
-                  Testnet coins have no mainnet or exchange deposit value.
+                  {network === 'shasta' ? 'Send native TRX on Shasta testnet. Testnet coins have no Mainnet or exchange deposit value.' : 'Send real native TRX on TRON Mainnet. Confirm the receiver supports TRX on the TRON network before sending.'} This does not mint TRX or create a token contract.
                 </p>
               </div>
               <div className="rounded-lg border border-secondary bg-secondary p-lg">
@@ -1082,19 +1081,17 @@ export default function App() {
                   {walletAddress && <p className="break-all text-xs font-mono text-secondary">Sender: {walletAddress}</p>}
                 </div>
               </div>
-              <div className="rounded-xl border border-secondary bg-primary p-lg">
-                <label className="mb-sm block text-sm font-medium text-secondary">Sender Private Key (local signing only)</label>
-                <input type={showPrivateKey ? 'text' : 'password'} autoComplete="off" value={privateKey} onChange={(e) => setPrivateKey(e.target.value)} placeholder="Private key for a test wallet you control" className="w-full rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring" />
-                <div className="mt-sm flex flex-wrap gap-sm">
-                  <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
-                  {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
-                </div>
-                <p className="mt-sm text-xs text-tertiary">Signing occurs in this browser. The key is not sent to the Render API. Use a dedicated test wallet only.</p>
+              <div className="rounded-xl border border-secondary bg-primary p-lg space-y-sm">
+                <p className="text-sm font-semibold text-primary">Sender wallet authorization</p>
+                <p className="text-xs text-tertiary">This transfer flow uses TronLink for network detection and explicit transaction approval. It does not use the private-key field from the token deployment tab.</p>
+                <button type="button" onClick={handleConnectWallet} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary">Connect / verify TronLink</button>
+                {walletAddress && <p className="break-all text-xs font-mono text-secondary">Connected sender: {walletAddress}</p>}
+                <p className="text-xs text-tertiary">Never paste a seed phrase or private key into this tab. Before mainnet sending, confirm the selected network, receiver, amount and fee in TronLink.</p>
               </div>
               <div className="flex flex-wrap gap-sm">
                 <button type="button" onClick={handleNativeTrxTransfer} disabled={trxTransferring} className="inline-flex items-center gap-sm rounded-lg border border-transparent bg-brand-solid px-lg py-sm text-sm font-semibold text-primary-on-brand disabled:opacity-50">
                   {trxTransferring ? <RefreshCw className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {trxTransferring ? 'Broadcasting TRX...' : 'Send Native Shasta TRX'}
+                  {trxTransferring ? 'Broadcasting TRX...' : 'Send Native ' + (network === 'shasta' ? 'Shasta Testnet' : 'Mainnet') + ' TRX'}
                 </button>
                 <button type="button" onClick={handleQueryNativeBalance} disabled={nativeBalanceLoading} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-secondary disabled:opacity-50">{nativeBalanceLoading ? 'Reading solidified balance…' : 'Verify receiver TRX balance'}</button>
               </div>
