@@ -26,3 +26,19 @@ test('native TRX verification is read-only and makes no exchange-credit claim', 
   assert.doesNotMatch(route, /privateKey|sendRawTransaction|broadcasttransaction|sendTrx\(/i)
   assert.match(route, /does not verify any TRC20 token balance or exchange deposit credit/)
 })
+
+
+test('native TRX receiver balance reads solidified state and preserves exact SUN values', () => {
+  assert.match(route, /router\.get\('\/native-balance'/)
+  assert.match(route, /walletsolidity\/getaccount/)
+  assert.match(route, /balanceSun/)
+  assert.match(route, /balanceTRX: formatSun\(balanceSun\)/)
+  assert.match(route, /does not query TRC20 tokens or confirm exchange deposit credit/)
+})
+
+test('native TRX SUN formatting does not use floating-point conversion', () => {
+  assert.match(route, /const formatSun = \(value\) => \{/)
+  assert.match(route, /BigInt\(value\)/)
+  assert.match(route, /amountTRX: actualAmountSun === null \? null : formatSun\(actualAmountSun\)/)
+  assert.doesNotMatch(route, /Number\(actualAmountSun\)\s*\/\s*1_000_000/)
+})
