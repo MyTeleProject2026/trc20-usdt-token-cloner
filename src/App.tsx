@@ -779,13 +779,14 @@ export default function App() {
                     <span className="text-primary font-medium">TRC-20 (Tron TVM)</span>
                   </div>
                   <div className="flex justify-between border-b border-secondary pb-xs">
-                    <span className="text-tertiary">Decimals:</span>
-                    <span className="text-primary font-medium">6</span>
+                    <span className="text-tertiary">Independent token decimals:</span>
+                    <span className="text-primary font-medium">18 (VTRC)</span>
                   </div>
                   <div className="flex justify-between border-b border-secondary pb-xs">
-                    <span className="text-tertiary">Total USDT Supply:</span>
-                    <span className="text-primary font-medium">&gt; 58 Billion USDT</span>
+                    <span className="text-tertiary">Token identity:</span>
+                    <span className="text-primary font-medium">TRC20 / VTRC — not official USDT</span>
                   </div>
+                  <p className="text-xs text-tertiary">Supply is determined by the deployed contract and must be read from the selected contract. This template does not report Tether's live supply.</p>
                 </div>
               </section>
 
