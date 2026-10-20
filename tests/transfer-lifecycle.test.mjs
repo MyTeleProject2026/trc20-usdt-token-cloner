@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TRANSFER_STATUSES, canTransitionTransferStatus, assertTransferStatusTransition } from '../server/transfer-lifecycle.mjs';
+import { TRANSFER_STATUSES, canTransitionTransferStatus, assertTransferStatusTransition, buildSolidifiedTransferEvidence } from '../server/transfer-lifecycle.mjs';
 
 const completeChainEvidence = {
   finalized: true,
@@ -77,4 +77,37 @@ test('terminal statuses cannot be advanced and invalid transitions throw', () =>
   assert.equal(canTransitionTransferStatus('exchange-credit-confirmed', 'failed'), false);
   assert.throws(() => assertTransferStatusTransition('submitted', 'exchange-credit-confirmed', {}), /transfer-status-transition-not-authorized/);
   assert.equal(assertTransferStatusTransition('draft', 'awaiting-wallet-signature'), 'awaiting-wallet-signature');
+});
+
+
+test('derives positive solidified evidence only when every expected transfer field matches', () => {
+  const networkHosts = { mainnet: 'https://api.trongrid.io', shasta: 'https://api.shasta.trongrid.io' };
+  const result = {
+    verified: true,
+    blockNumber: 123,
+    tokenContractAddress: '41' + '1'.repeat(40),
+    fromAddress: '41' + '2'.repeat(40),
+    toAddress: '41' + '3'.repeat(40),
+    amountSun: '500000',
+  };
+  const expected = {
+    result, network: 'mainnet', networkHosts,
+    contract: result.tokenContractAddress,
+    from: result.fromAddress, to: result.toAddress, amountSun: '500000',
+  };
+  const evidence = buildSolidifiedTransferEvidence(expected);
+  assert.equal(canTransitionTransferStatus('awaiting-finality', 'verified-on-chain', evidence), true);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, amountSun: '500001' }).amountMatches, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, network: 'unknown' }).networkMatches, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, to: '41' + '4'.repeat(40) }).receiverMatches, false);
+  assert.equal(buildSolidifiedTransferEvidence({ ...expected, result: { ...result, blockNumber: 0 } }).finalized, false);
+});
+
+test('malformed lifecycle evidence fails closed without throwing', () => {
+  const evidence = buildSolidifiedTransferEvidence({
+    result: { verified: true, amountSun: 'not-an-integer' },
+    network: 'mainnet', networkHosts: { mainnet: 'https://api.trongrid.io' },
+    contract: 'invalid', from: 'invalid', to: 'invalid', amountSun: '1',
+  });
+  assert.equal(Object.values(evidence).every((value) => value === false), true);
 });
