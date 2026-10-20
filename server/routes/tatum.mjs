@@ -1,9 +1,17 @@
 import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
+import { recordTransferVerification } from '../database.mjs'
 
 const router = Router()
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const txPattern = /^[0-9a-fA-F]{64}$/
+
+async function persistVerification(input) {
+  try { await recordTransferVerification(input) } catch {
+    // Chain verification results remain authoritative; database outages must not
+    // turn an unverified transfer into a verified one or leak connection details.
+  }
+}
 
 router.get('/status', async (_req, res) => {
   if (!process.env.TATUM_API_KEY) return res.json({ status: 'no-api-key' })
@@ -106,10 +114,12 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   try {
     const transaction = await querySolidified('/walletsolidity/gettransactionbyid')
     if (!transaction || transaction.txID?.toLowerCase() !== hash.toLowerCase()) {
+      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidification', result: {} })
       return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidification', message: 'No matching transaction body is available from solidified state yet. Retry with the same transaction ID.' })
     }
     const receipt = await querySolidified('/walletsolidity/gettransactioninfobyid')
     if (!receipt || receipt.id?.toLowerCase() !== hash.toLowerCase()) {
+      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidified-receipt', result: {} })
       return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidified-receipt', message: 'The transaction body is solidified, but its receipt is not available yet. Retry with the same transaction ID.' })
     }
     const { verifySolidifiedTrc20Transfer } = await import('../tron-verification.mjs')
@@ -122,7 +132,11 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
       toAddress: to,
       amountSun,
     })
-    if (!result.verified) return res.status(200).json({ success: true, ...result, status: 'not-verified' })
+    if (!result.verified) {
+      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result })
+      return res.status(200).json({ success: true, ...result, status: 'not-verified' })
+    }
+    await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', result })
     return res.json({ success: true, status: 'verified-on-chain', ...result })
   } catch (err) {
     return res.status(502).json({ success: false, error: 'solidified-provider-request-failed', message: 'Could not verify the solidified transaction with the configured TRON provider.' })
