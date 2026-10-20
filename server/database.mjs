@@ -152,32 +152,27 @@ export function buildTransferVerificationUpsert(input) {
      ON CONFLICT (network, transaction_hash, token_contract) DO UPDATE SET
        verification_status=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
-           AND EXCLUDED.verification_status <> 'verified-on-chain'
          THEN ${schema}.transfer_verifications.verification_status
          ELSE EXCLUDED.verification_status
        END,
        from_address=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
-           AND EXCLUDED.verification_status <> 'verified-on-chain'
          THEN ${schema}.transfer_verifications.from_address
          ELSE EXCLUDED.from_address
        END,
        to_address=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
-           AND EXCLUDED.verification_status <> 'verified-on-chain'
          THEN ${schema}.transfer_verifications.to_address
          ELSE EXCLUDED.to_address
        END,
        amount_base_units=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
-           AND EXCLUDED.verification_status <> 'verified-on-chain'
          THEN ${schema}.transfer_verifications.amount_base_units
          ELSE EXCLUDED.amount_base_units
        END,
        block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
        result=CASE
          WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
-           AND EXCLUDED.verification_status <> 'verified-on-chain'
          THEN ${schema}.transfer_verifications.result
          ELSE EXCLUDED.result
        END`,
