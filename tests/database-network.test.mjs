@@ -106,3 +106,23 @@ test('upsert builder rejects unsupported networks and invalid precision before S
   assert.throws(() => buildTransferVerificationUpsert({ ...valid, network: 'TRON' }), /explicit network/)
   assert.throws(() => buildTransferVerificationUpsert({ ...valid, amountBaseUnits: '9'.repeat(79) }), /valid transfer/)
 })
+
+test('keeps user-controlled fields in SQL parameters and downgrades invalid status', () => {
+  const marker = "contract'); DROP TABLE transfer_verifications; --"
+  const query = buildTransferVerificationUpsert({
+    network: 'shasta',
+    transactionHash: 'b'.repeat(64),
+    tokenContract: marker,
+    fromAddress: 'sender',
+    toAddress: 'receiver',
+    amountBaseUnits: '42',
+    status: 'exchange-credit-confirmed',
+    result: { blockNumber: Number.MAX_SAFE_INTEGER + 1 },
+  })
+
+  assert.equal(query.text.includes(marker), false)
+  assert.equal(query.values[0], 'shasta')
+  assert.equal(query.values[2], marker)
+  assert.equal(query.values[6], 'not-verified')
+  assert.equal(query.values[7], null)
+})
