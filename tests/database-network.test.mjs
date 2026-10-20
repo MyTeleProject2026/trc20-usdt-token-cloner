@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
+import { buildTransferVerificationUpsert, normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
 
 test('refuses to persist a transfer when the network is missing or unsupported', async () => {
   for (const network of [undefined, null, '', 'TRON', 'ethereum', 'MAINNET']) {
@@ -69,4 +69,40 @@ test('rejects malformed transfer identity and non-integer amounts before databas
       JSON.stringify(overrides),
     )
   }
+})
+
+test('builds a parameterized network-scoped upsert and preserves exact base-unit strings', () => {
+  const amountBaseUnits = '900719925474099312345678901234567890'
+  const query = buildTransferVerificationUpsert({
+    network: 'mainnet',
+    transactionHash: 'A'.repeat(64),
+    tokenContract: 'contract',
+    fromAddress: 'sender',
+    toAddress: 'receiver',
+    amountBaseUnits,
+    status: 'verified-on-chain',
+    result: { blockNumber: 123 },
+  })
+
+  assert.match(query.text, /ON CONFLICT \(network, transaction_hash, token_contract\)/)
+  assert.match(query.text, /VALUES \(\$1,\$2,\$3,\$4,\$5,\$6,\$7,\$8,\$9::jsonb\)/)
+  assert.equal(query.values[0], 'mainnet')
+  assert.equal(query.values[1], 'a'.repeat(64))
+  assert.equal(query.values[5], amountBaseUnits)
+  assert.equal(query.values[6], 'verified-on-chain')
+  assert.equal(query.values[7], 123)
+  assert.equal(query.values[8], JSON.stringify({ blockNumber: 123 }))
+})
+
+test('upsert builder rejects unsupported networks and invalid precision before SQL execution', () => {
+  const valid = {
+    network: 'mainnet',
+    transactionHash: 'a'.repeat(64),
+    tokenContract: 'contract',
+    fromAddress: 'sender',
+    toAddress: 'receiver',
+    amountBaseUnits: '1',
+  }
+  assert.throws(() => buildTransferVerificationUpsert({ ...valid, network: 'TRON' }), /explicit network/)
+  assert.throws(() => buildTransferVerificationUpsert({ ...valid, amountBaseUnits: '9'.repeat(79) }), /valid transfer/)
 })
