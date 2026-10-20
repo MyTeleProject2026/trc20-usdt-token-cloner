@@ -9,8 +9,8 @@ const networks = {
 }
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
-// Read-only verification for native TRX transfers. A result is verified only
-// when both transaction body and receipt are visible from the solidified node.
+// Read-only verification for native TRX transfers. Both the transaction body
+// and receipt must be visible from the selected network's solidified node.
 router.get('/verify-native-transfer/:hash', async (req, res) => {
   const { hash } = req.params
   const { network, from, to, amountSun } = req.query
@@ -21,21 +21,23 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
   if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
     return res.status(400).json({ success: false, verified: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
   }
-  if (typeof from !== 'string' || typeof to !== 'string' || !addressPattern.test(from) || !addressPattern.test(to)) {
-    return res.status(400).json({ success: false, verified: false, error: 'invalid-address', message: 'from and to must be valid TRON Base58 addresses.' })
+
+  const hasExpectedFields = from !== undefined || to !== undefined || amountSun !== undefined
+  if (hasExpectedFields && !(typeof from === 'string' && typeof to === 'string' && typeof amountSun === 'string')) {
+    return res.status(400).json({ success: false, verified: false, error: 'incomplete-expected-transfer', message: 'When checking expected values, provide from, to, and amountSun together.' })
   }
-  if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
-    return res.status(400).json({ success: false, verified: false, error: 'invalid-amount', message: 'amountSun must be a positive integer in sun; 1 TRX = 1000000 sun.' })
+  if (hasExpectedFields && (!addressPattern.test(from) || !addressPattern.test(to) || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n)) {
+    return res.status(400).json({ success: false, verified: false, error: 'invalid-expected-transfer', message: 'Use valid TRON Base58 addresses and a positive amountSun integer; 1 TRX = 1000000 sun.' })
   }
 
   try {
     const { TronWeb } = await import('tronweb')
     const tronWeb = new TronWeb({ fullHost: networks[network] })
-    if (!tronWeb.isAddress(from) || !tronWeb.isAddress(to)) {
-      return res.status(400).json({ success: false, verified: false, error: 'invalid-address' })
+    if (hasExpectedFields && (!tronWeb.isAddress(from) || !tronWeb.isAddress(to))) {
+      return res.status(400).json({ success: false, verified: false, error: 'invalid-expected-address' })
     }
-    const expectedFrom = tronWeb.address.toHex(from).replace(/^0x/i, '').toLowerCase()
-    const expectedTo = tronWeb.address.toHex(to).replace(/^0x/i, '').toLowerCase()
+    const expectedFrom = hasExpectedFields ? tronWeb.address.toHex(from).replace(/^0x/i, '').toLowerCase() : null
+    const expectedTo = hasExpectedFields ? tronWeb.address.toHex(to).replace(/^0x/i, '').toLowerCase() : null
     const headers = { 'content-type': 'application/json' }
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
 
@@ -61,7 +63,7 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
         status: 'awaiting-solidification',
         network,
         transactionId: hash,
-        message: 'The solidified transaction body and receipt are not both available yet. Retry this same transaction ID; do not send again just because it is pending.',
+        message: 'The solidified transaction body and receipt are not both available yet. Retry this same transaction ID; do not send another transfer just because this one is pending.',
       })
     }
 
@@ -73,13 +75,24 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
     const contractResult = transaction.ret?.[0]?.contractRet || null
     const checks = {
       nativeTransfer: Boolean(contract),
-      senderMatches: actualFrom === expectedFrom,
-      receiverMatches: actualTo === expectedTo,
-      amountMatches: actualAmountSun === amountSun,
       executionSucceeded: contractResult === 'SUCCESS',
       solidifiedReceiptPresent: receipt.id?.toLowerCase() === hash.toLowerCase() && Number.isInteger(receipt.blockNumber),
+      ...(hasExpectedFields ? {
+        senderMatches: actualFrom === expectedFrom,
+        receiverMatches: actualTo === expectedTo,
+        amountMatches: actualAmountSun === amountSun,
+      } : {}),
     }
-    const verified = Object.values(checks).every(Boolean)
+    const verified = Boolean(contract) && contractResult === 'SUCCESS' &&
+      checks.solidifiedReceiptPresent &&
+      (!hasExpectedFields || (checks.senderMatches && checks.receiverMatches && checks.amountMatches))
+
+    let senderAddress = value?.owner_address ?? null
+    let receiverAddress = value?.to_address ?? null
+    try {
+      if (senderAddress && /^[0-9a-fA-F]{42}$/.test(senderAddress)) senderAddress = tronWeb.address.fromHex(senderAddress)
+      if (receiverAddress && /^[0-9a-fA-F]{42}$/.test(receiverAddress)) receiverAddress = tronWeb.address.fromHex(receiverAddress)
+    } catch { /* Preserve provider-returned address if conversion is unsupported. */ }
 
     return res.json({
       success: true,
@@ -89,8 +102,8 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
       transactionId: hash,
       blockNumber: receipt.blockNumber,
       timestamp: receipt.blockTimeStamp ?? null,
-      from: value?.owner_address ?? null,
-      to: value?.to_address ?? null,
+      from: senderAddress,
+      to: receiverAddress,
       amountSun: actualAmountSun,
       amountTRX: actualAmountSun === null ? null : (Number(actualAmountSun) / 1_000_000).toString(),
       contractResult,
