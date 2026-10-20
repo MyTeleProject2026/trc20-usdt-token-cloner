@@ -163,7 +163,7 @@ test('does not coerce missing, null, fractional, or negative block numbers into 
 test('uses exact event log index as transfer identity and validates it', () => {
   const base = { network: 'mainnet', transactionHash: 'd'.repeat(64), tokenContract: 'contract', fromAddress: 'sender', toAddress: 'receiver', amountBaseUnits: '25', status: 'verified-on-chain', result: { blockNumber: 321, logIndex: 2 } };
   const query = buildTransferVerificationUpsert(base);
-  assert.match(query.text, /UNIQUE|ON CONFLICT \\(network, transaction_hash, token_contract, log_index\\)/);
+  assert.ok(query.text.includes('ON CONFLICT (network, transaction_hash, token_contract, log_index)'))
   assert.equal(query.values[9], 2);
   assert.equal(buildTransferVerificationUpsert({ ...base, logIndex: 1 }).values[9], 1);
   assert.equal(buildTransferVerificationUpsert({ ...base, logIndex: -1 }).values[9], 2);
