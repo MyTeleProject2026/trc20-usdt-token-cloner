@@ -6,8 +6,20 @@ export class MissingApiKeyError extends Error {
   }
 }
 
+const APPROVED_API_ORIGIN = 'https://api.tatum.io'
+
 export function tatumApiBase() {
-  return (process.env.TATUM_API_BASE || 'https://api.tatum.io').replace(/\/+$/, '')
+  const configured = process.env.TATUM_API_BASE || APPROVED_API_ORIGIN
+  let parsed
+  try {
+    parsed = new URL(configured)
+  } catch {
+    throw new Error('Invalid Tatum API base configuration')
+  }
+  if (parsed.protocol !== 'https:' || parsed.origin !== APPROVED_API_ORIGIN || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+    throw new Error('TATUM_API_BASE must be the approved HTTPS Tatum API origin')
+  }
+  return APPROVED_API_ORIGIN
 }
 
 function apiKey() {
@@ -25,7 +37,10 @@ function withKey(headers) {
 }
 
 export async function tatumFetch(path, init = {}) {
-  const response = await fetch(`${tatumApiBase()}${path.startsWith('/') ? path : `/${path}`}`, {
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) {
+    throw new Error('Tatum API path must be an absolute path on the approved API origin')
+  }
+  const response = await fetch(`${tatumApiBase()}${path}`, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
     ...init,
     headers: withKey(init.headers),
@@ -35,11 +50,10 @@ export async function tatumFetch(path, init = {}) {
   try {
     payload = text ? JSON.parse(text) : null
   } catch {
-    payload = { message: text.slice(0, 500) }
+    payload = null
   }
   if (!response.ok) {
-    const detail = typeof payload?.message === 'string' ? payload.message : typeof payload?.error === 'string' ? payload.error : 'Provider request failed'
-    const error = new Error(`Tatum API ${response.status}: ${detail}`)
+    const error = new Error('Tatum provider request failed')
     error.status = response.status
     throw error
   }
