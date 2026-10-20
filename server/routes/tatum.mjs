@@ -54,6 +54,76 @@ router.get('/tron/account/:address', async (req, res) => {
   }
 })
 
+
+// Read-only receiver balance query against TRON's solidified state.
+// This endpoint never signs, broadcasts, or credits an internal ledger.
+router.get('/tron/token-balance', async (req, res) => {
+  const { network, contract, address } = req.query;
+  const networkHosts = {
+    mainnet: 'https://api.trongrid.io',
+    shasta: 'https://api.shasta.trongrid.io',
+    nile: 'https://nile.trongrid.io',
+  };
+  if (typeof network !== 'string' || !Object.hasOwn(networkHosts, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' });
+  }
+  if (typeof contract !== 'string' || typeof address !== 'string') {
+    return res.status(400).json({ success: false, error: 'missing-address', message: 'Provide a token contract and receiver address.' });
+  }
+  try {
+    const { TronWeb } = await import('tronweb');
+    const tronWeb = new TronWeb({ fullHost: networkHosts[network] });
+    if (!tronWeb.isAddress(contract) || !tronWeb.isAddress(address)) {
+      return res.status(400).json({ success: false, error: 'invalid-address', message: 'Token contract and receiver must be valid TRON addresses.' });
+    }
+    const contractHex = tronWeb.address.toHex(contract).replace(/^41/i, '');
+    const addressHex = tronWeb.address.toHex(address).replace(/^41/i, '');
+    const ownerHex = tronWeb.address.toHex(address);
+    const readConstant = async (selector, parameter = '') => {
+      const response = await fetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          owner_address: ownerHex,
+          contract_address: '41' + contractHex,
+          function_selector: selector,
+          parameter,
+          visible: false,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error('solidified-provider-unavailable');
+      const data = await response.json();
+      if (data.Error || data.result?.result === false || !Array.isArray(data.constant_result) || !data.constant_result[0]) {
+        throw new Error('solidified-contract-read-failed');
+      }
+      return data.constant_result[0];
+    };
+    const [balanceHex, decimalsHex] = await Promise.all([
+      readConstant('balanceOf(address)', addressHex.padStart(64, '0')),
+      readConstant('decimals()'),
+    ]);
+    const balanceBaseUnits = BigInt('0x' + balanceHex).toString();
+    const decimals = Number(BigInt('0x' + decimalsHex));
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+      return res.status(502).json({ success: false, error: 'invalid-token-decimals' });
+    }
+    return res.json({
+      success: true,
+      status: 'solidified-balance-read',
+      network,
+      tokenContract: contract,
+      receiverAddress: address,
+      balanceBaseUnits,
+      decimals,
+      source: 'TRON SolidityNode triggerconstantcontract',
+      note: 'This is the balance for this exact token contract on this exact network. It does not imply exchange deposit credit.',
+    });
+  } catch {
+    return res.status(502).json({ success: false, error: 'solidified-balance-read-failed', message: 'Could not read the token balance from the selected network solidified state.' });
+  }
+});
+
 router.get('/tron/contract-by-tx/:hash', async (req, res) => {
   const hash = req.params.hash
   if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id', message: 'Transaction ID must be 64 hexadecimal characters.' })
