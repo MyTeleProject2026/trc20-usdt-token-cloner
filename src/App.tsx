@@ -53,6 +53,9 @@ export default function App() {
   const [trxTransferring, setTrxTransferring] = useState(false)
   const [nativeBalanceLoading, setNativeBalanceLoading] = useState(false)
   const [nativeBalanceResult, setNativeBalanceResult] = useState<any>(null)
+  const [nativeTransferRecord, setNativeTransferRecord] = useState<any>(null)
+  const [nativeVerifyLoading, setNativeVerifyLoading] = useState(false)
+  const [nativeVerifyResult, setNativeVerifyResult] = useState<any>(null)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [walletConnected, setWalletConnected] = useState(false)
@@ -372,6 +375,28 @@ export default function App() {
     }
   }
 
+  const handleVerifyNativeTransfer = async () => {
+    if (!nativeTransferRecord?.transactionId) {
+      setActionMessage({ type: 'error', text: 'Send a native TRX transaction first so the app has the expected sender, receiver and amount to verify.' })
+      return
+    }
+    setNativeVerifyLoading(true)
+    setNativeVerifyResult(null)
+    try {
+      const record = nativeTransferRecord
+      const params = new URLSearchParams({ network: record.network, from: record.from, to: record.to, amountSun: record.amountSun })
+      const response = await fetch(API_BASE + '/api/tron/verify-native-transfer/' + encodeURIComponent(record.transactionId) + '?' + params.toString())
+      const payload = await response.json()
+      setNativeVerifyResult(payload)
+      if (!response.ok || !payload?.success) throw new Error(payload?.message || 'Native TRX transfer verification failed.')
+      setActionMessage({ type: payload.verified ? 'success' : 'error', text: payload.verified ? 'Solidified native TRX transaction matches sender, receiver and exact amount.' : 'Transaction is not yet solidified or does not match the expected transfer. Do not resend; retry verification later.' })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message || 'Native TRX transfer verification failed.' })
+    } finally {
+      setNativeVerifyLoading(false)
+    }
+  }
+
   // Native Shasta TRX transfer. TRX is the network coin, not a TRC-20 contract.
   const handleNativeTrxTransfer = async () => {
     if (!recipientAddress.trim() || !trxAmount.trim()) {
@@ -393,6 +418,11 @@ export default function App() {
         throw new Error('TRX amount must be positive and may have at most 6 decimal places.')
       }
       const sun = amount.times(1_000_000).toFixed(0)
+      const confirmationMessage = 'Confirm native TRX transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\nSender: ' + (tronWeb.defaultAddress.base58 || 'unknown') + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + amount.toFixed() + ' TRX\n\nCheck the recipient supports TRX on this exact network. Exchange deposits are not guaranteed. Continue to TronLink signing?'
+      if (!window.confirm(confirmationMessage)) {
+        setActionMessage({ type: 'error', text: 'Transfer cancelled before signing.' })
+        return
+      }
       if (!Number.isSafeInteger(Number(sun))) {
         throw new Error('This TRX amount exceeds the safe transaction-builder range. Send a smaller amount.')
       }
@@ -406,6 +436,8 @@ export default function App() {
       if (!result?.result || !txid) {
         throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not accept the signed transaction. Check balance and network fees.')
       }
+      setNativeTransferRecord({ network, from: sender, to: recipientAddress.trim(), amountSun: sun, amountTRX: amount.toFixed(), transactionId: txid })
+      setNativeVerifyResult(null)
       setActionMessage({
         type: 'success',
         text: `Native ${network === 'shasta' ? 'Shasta testnet' : 'Mainnet'} TRX transfer broadcast from ${sender}. Transaction ID: ${txid}. This is submitted, not yet confirmed. Verify the solidified receipt and receiver balance before treating it as final.`,
@@ -1094,6 +1126,13 @@ export default function App() {
                 </button>
                 <button type="button" onClick={handleQueryNativeBalance} disabled={nativeBalanceLoading} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-secondary disabled:opacity-50">{nativeBalanceLoading ? 'Reading solidified balance…' : 'Verify receiver TRX balance'}</button>
               </div>
+              {nativeTransferRecord && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-sm">
+                <p className="text-sm font-semibold text-primary">Latest native TRX transfer</p>
+                <p className="text-xs text-tertiary">Network: {nativeTransferRecord.network} · Amount: {nativeTransferRecord.amountTRX} TRX</p>
+                <p className="break-all text-xs font-mono text-secondary">Tx: {nativeTransferRecord.transactionId}</p>
+                <button type="button" onClick={handleVerifyNativeTransfer} disabled={nativeVerifyLoading} className="rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{nativeVerifyLoading ? 'Verifying solidified transaction…' : 'Verify sender, receiver & amount'}</button>
+                {nativeVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{nativeVerifyResult.verified ? 'Solidified transfer verified' : (nativeVerifyResult.status || 'Not verified')}</p><p className="break-all text-xs text-tertiary">Sender: {nativeVerifyResult.from || nativeTransferRecord.from}</p><p className="break-all text-xs text-tertiary">Receiver: {nativeVerifyResult.to || nativeTransferRecord.to}</p><p className="text-xs text-tertiary">Amount: {nativeVerifyResult.amountTRX ?? nativeTransferRecord.amountTRX} TRX · Block: {nativeVerifyResult.blockNumber ?? 'not solidified yet'}</p><p className="text-xs text-tertiary">On-chain confirmation does not guarantee an exchange credited the deposit.</p></div>}
+              </div>}
               {nativeBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Receiver solidified native balance</p><p className="text-2xl font-semibold text-brand-primary">{nativeBalanceResult.balanceTRX} TRX</p><p className="text-xs text-tertiary">Network: {nativeBalanceResult.network} · Address: {nativeBalanceResult.address}</p><p className="text-xs text-tertiary">Balance: {nativeBalanceResult.balanceSun} SUN · Account exists: {nativeBalanceResult.accountExists ? 'yes' : 'not yet indexed/created'}</p><p className="text-xs text-tertiary">This is native TRX only. It is not a TRC-20 token balance and does not confirm exchange deposit credit.</p></div>}
               {actionMessage && <div className={`rounded-xl p-lg text-sm ${actionMessage.type === 'success' ? 'bg-utility-success-50 text-utility-success-700' : 'bg-utility-brand-50 text-brand-primary'}`}>{actionMessage.text}</div>}
             </section>
