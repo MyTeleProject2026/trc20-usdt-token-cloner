@@ -110,11 +110,14 @@ export async function initializeDatabase() {
 }
 
 export async function recordTransferVerification(input) {
+  // Never infer Mainnet from a missing or invalid network; doing so could
+  // contaminate network-scoped verification history with mislabelled records.
+  const network = ['mainnet', 'shasta', 'nile'].includes(input?.network) ? input.network : null
+  if (!network) return { persisted: false, reason: 'invalid-network' }
   const db = getPool()
   if (!db) return { persisted: false, reason: 'database-not-configured' }
   await initializeDatabase()
   const result = input.result && typeof input.result === 'object' ? input.result : {}
-  const network = ['mainnet', 'shasta', 'nile'].includes(input.network) ? input.network : 'mainnet'
   const status = ['verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error'].includes(input.status)
     ? input.status
     : 'not-verified'
