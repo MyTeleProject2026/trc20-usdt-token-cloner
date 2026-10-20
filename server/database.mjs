@@ -118,6 +118,46 @@ export function normalizeVerificationNetwork(network) {
   return ['mainnet', 'shasta', 'nile'].includes(network) ? network : null
 }
 
+export function buildTransferVerificationUpsert(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  if (!network) throw new TypeError('A supported explicit network is required')
+
+  const transactionHash = typeof input?.transactionHash === 'string' ? input.transactionHash : ''
+  const tokenContract = typeof input?.tokenContract === 'string' ? input.tokenContract.trim() : ''
+  const fromAddress = typeof input?.fromAddress === 'string' ? input.fromAddress.trim() : ''
+  const toAddress = typeof input?.toAddress === 'string' ? input.toAddress.trim() : ''
+  const amountBaseUnits = typeof input?.amountBaseUnits === 'string' ? input.amountBaseUnits : ''
+  if (!/^[0-9a-f]{64}$/i.test(transactionHash)
+    || !tokenContract || !fromAddress || !toAddress
+    || !/^[0-9]+$/.test(amountBaseUnits)
+    || amountBaseUnits.length > 78
+    || !/[1-9]/.test(amountBaseUnits)) {
+    throw new TypeError('A valid transfer verification record is required')
+  }
+
+  const result = input.result && typeof input.result === 'object' ? input.result : {}
+  const status = ['verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error'].includes(input.status)
+    ? input.status
+    : 'not-verified'
+  const block = Number.isSafeInteger(Number(result.blockNumber)) && Number(result.blockNumber) >= 0
+    ? Number(result.blockNumber)
+    : null
+
+  return {
+    text: `INSERT INTO ${schema}.transfer_verifications
+      (network, transaction_hash, token_contract, from_address, to_address, amount_base_units, verification_status, block_number, result)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+     ON CONFLICT (network, transaction_hash, token_contract) DO UPDATE SET
+       verification_status=EXCLUDED.verification_status,
+       from_address=EXCLUDED.from_address,
+       to_address=EXCLUDED.to_address,
+       amount_base_units=EXCLUDED.amount_base_units,
+       block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
+       result=EXCLUDED.result`,
+    values: [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, status, block, JSON.stringify(result)],
+  }
+}
+
 export async function recordTransferVerification(input) {
   // Never infer Mainnet from a missing or invalid network; doing so could
   // contaminate network-scoped verification history with mislabelled records.
@@ -148,26 +188,16 @@ export async function recordTransferVerification(input) {
   const db = getPool()
   if (!db) return { persisted: false, reason: 'database-not-configured' }
   await initializeDatabase()
-  const result = input.result && typeof input.result === 'object' ? input.result : {}
-  const status = ['verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error'].includes(input.status)
-    ? input.status
-    : 'not-verified'
-  const block = Number.isSafeInteger(Number(result.blockNumber)) && Number(result.blockNumber) >= 0
-    ? Number(result.blockNumber)
-    : null
-  await db.query(
-    `INSERT INTO ${schema}.transfer_verifications
-      (network, transaction_hash, token_contract, from_address, to_address, amount_base_units, verification_status, block_number, result)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-     ON CONFLICT (network, transaction_hash, token_contract) DO UPDATE SET
-       verification_status=EXCLUDED.verification_status,
-       from_address=EXCLUDED.from_address,
-       to_address=EXCLUDED.to_address,
-       amount_base_units=EXCLUDED.amount_base_units,
-       block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
-       result=EXCLUDED.result`,
-    [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, status, block, JSON.stringify(result)],
-  )
+  const query = buildTransferVerificationUpsert({
+    ...input,
+    network,
+    transactionHash,
+    tokenContract,
+    fromAddress,
+    toAddress,
+    amountBaseUnits,
+  })
+  await db.query(query.text, query.values)
   return { persisted: true }
 }
 
