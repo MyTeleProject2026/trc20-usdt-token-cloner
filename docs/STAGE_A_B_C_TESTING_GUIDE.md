@@ -27,6 +27,16 @@ GET /api/tron/token-balance?network=shasta&contract=<TOKEN_CONTRACT_T_ADDRESS>&a
 Use `network=mainnet`, `shasta`, or `nile`; use the token contract and receiver address for that exact network. The endpoint queries `walletsolidity/triggerconstantcontract` and returns `balanceBaseUnits` as an integer string and the token's on-chain `decimals`. Convert for display with decimal-safe arithmetic; do not parse the base-unit string as a JavaScript Number. This endpoint is read-only and does not submit transactions or mark an exchange deposit as credited.
 
 
+### Native TRX receiver balance (solidified state)
+
+The Native TRX tab now has a **Verify receiver TRX balance** action. It calls this read-only endpoint for the currently selected network:
+
+```http
+GET /api/tron/native-balance?network=shasta&address=<RECEIVER_T_ADDRESS>
+```
+
+The response returns `balanceSun` as an exact integer string and `balanceTRX` formatted without floating-point rounding. Use `network=mainnet` only for an actual Mainnet address/balance query. A balance read is independent of the transfer receipt and may include earlier funds; compare the before/after receiver balance and transaction details when testing. This endpoint does not query TRC-20 balances or exchange deposit credit.
+
 ### Native TRX transfer verification
 
 Native TRX transfers are not TRC-20 token transfers. The backend also exposes a read-only native transfer verifier:
