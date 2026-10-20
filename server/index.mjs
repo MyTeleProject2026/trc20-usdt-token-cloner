@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
+import { initializeDatabase, getDatabaseStatus } from './database.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
@@ -41,7 +42,21 @@ app.use((req, res, next) => {
 app.use(credentialGuard)
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'tron-token-studio-api' }))
 app.get('/', (_req, res) => res.json({ service: 'TRON Token Studio API', health: '/health' }))
+app.get('/api/storage/status', async (_req, res) => {
+  const database = await getDatabaseStatus()
+  res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
+})
 app.use('/api', tatumRoutes)
+
+if (process.env.DATABASE_URL) {
+  try {
+    const database = await initializeDatabase()
+    console.log('Project database initialization:', database.ready ? 'ready' : 'not-configured')
+  } catch {
+    // Keep read-only chain verification endpoints available; storage status exposes failure.
+    console.error('Project database initialization failed; persistence is unavailable')
+  }
+}
 
 if (process.env.NODE_ENV !== 'production') {
   const [{ createServer: createViteServer }, { default: react }] = await Promise.all([
