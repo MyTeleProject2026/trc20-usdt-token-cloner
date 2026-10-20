@@ -66,6 +66,11 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash, token_contract)
         )
       `)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
