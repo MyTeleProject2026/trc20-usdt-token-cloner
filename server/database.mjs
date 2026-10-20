@@ -139,8 +139,10 @@ export function buildTransferVerificationUpsert(input) {
   const status = ['verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error'].includes(input.status)
     ? input.status
     : 'not-verified'
-  const block = Number.isSafeInteger(Number(result.blockNumber)) && Number(result.blockNumber) >= 0
-    ? Number(result.blockNumber)
+  const block = typeof result.blockNumber === 'number'
+    && Number.isSafeInteger(result.blockNumber)
+    && result.blockNumber > 0
+    ? result.blockNumber
     : null
 
   return {
@@ -148,12 +150,37 @@ export function buildTransferVerificationUpsert(input) {
       (network, transaction_hash, token_contract, from_address, to_address, amount_base_units, verification_status, block_number, result)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
      ON CONFLICT (network, transaction_hash, token_contract) DO UPDATE SET
-       verification_status=EXCLUDED.verification_status,
-       from_address=EXCLUDED.from_address,
-       to_address=EXCLUDED.to_address,
-       amount_base_units=EXCLUDED.amount_base_units,
+       verification_status=CASE
+         WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
+           AND EXCLUDED.verification_status <> 'verified-on-chain'
+         THEN ${schema}.transfer_verifications.verification_status
+         ELSE EXCLUDED.verification_status
+       END,
+       from_address=CASE
+         WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
+           AND EXCLUDED.verification_status <> 'verified-on-chain'
+         THEN ${schema}.transfer_verifications.from_address
+         ELSE EXCLUDED.from_address
+       END,
+       to_address=CASE
+         WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
+           AND EXCLUDED.verification_status <> 'verified-on-chain'
+         THEN ${schema}.transfer_verifications.to_address
+         ELSE EXCLUDED.to_address
+       END,
+       amount_base_units=CASE
+         WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
+           AND EXCLUDED.verification_status <> 'verified-on-chain'
+         THEN ${schema}.transfer_verifications.amount_base_units
+         ELSE EXCLUDED.amount_base_units
+       END,
        block_number=COALESCE(EXCLUDED.block_number, ${schema}.transfer_verifications.block_number),
-       result=EXCLUDED.result`,
+       result=CASE
+         WHEN ${schema}.transfer_verifications.verification_status='verified-on-chain'
+           AND EXCLUDED.verification_status <> 'verified-on-chain'
+         THEN ${schema}.transfer_verifications.result
+         ELSE EXCLUDED.result
+       END`,
     values: [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, status, block, JSON.stringify(result)],
   }
 }
