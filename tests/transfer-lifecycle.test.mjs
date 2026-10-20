@@ -109,5 +109,9 @@ test('malformed lifecycle evidence fails closed without throwing', () => {
     network: 'unknown', networkHosts: { mainnet: 'https://api.trongrid.io' },
     contract: 'invalid', from: 'invalid', to: 'invalid', amountSun: '1',
   });
-  assert.equal(evidence.networkMatches, false);\n  assert.equal(evidence.contractMatches, false);\n  assert.equal(evidence.senderMatches, false);\n  assert.equal(evidence.receiverMatches, false);\n  assert.equal(evidence.amountMatches, false);
+  assert.equal(evidence.networkMatches, false);
+  assert.equal(evidence.contractMatches, false);
+  assert.equal(evidence.senderMatches, false);
+  assert.equal(evidence.receiverMatches, false);
+  assert.equal(evidence.amountMatches, false);
 });
