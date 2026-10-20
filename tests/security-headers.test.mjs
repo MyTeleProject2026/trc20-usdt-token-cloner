@@ -10,8 +10,8 @@ function responseRecorder() {
   }
 }
 
-test('sets defensive headers on API responses', () => {
-  const req = {}
+test('sets defensive headers and restrictive CSP on API responses', () => {
+  const req = { path: '/api/status' }
   const res = responseRecorder()
   let continued = false
   securityHeaders(req, res, () => { continued = true })
@@ -23,12 +23,19 @@ test('sets defensive headers on API responses', () => {
   assert.match(res.headers.get('content-security-policy'), /default-src 'none'/)
 })
 
+test('does not apply API CSP to the development app HTML', () => {
+  const res = responseRecorder()
+  securityHeaders({ path: '/' }, res, () => {})
+  assert.equal(res.headers.has('content-security-policy'), false)
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff')
+})
+
 test('adds HSTS in production', () => {
   const original = process.env.NODE_ENV
   process.env.NODE_ENV = 'production'
   try {
     const res = responseRecorder()
-    securityHeaders({}, res, () => {})
+    securityHeaders({ path: '/api/status' }, res, () => {})
     assert.equal(res.headers.get('strict-transport-security'), 'max-age=31536000; includeSubDomains')
   } finally {
     if (original === undefined) delete process.env.NODE_ENV
