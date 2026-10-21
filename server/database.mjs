@@ -813,13 +813,21 @@ export async function registerTrackedWallet({ network, address, displayLabel = n
   const db = getPool()
   if (!db) return { success: false, reason: 'database-not-configured' }
   await initializeDatabase()
-  const result = await db.query(
+  const inserted = await db.query(
     `INSERT INTO ${schema}.tracked_wallets (network, wallet_address, display_label)
      VALUES ($1, $2, $3)
-     ON CONFLICT (network, wallet_address) DO UPDATE
-       SET display_label = COALESCE(EXCLUDED.display_label, ${schema}.tracked_wallets.display_label)
-     RETURNING (xmax = 0) AS created`,
+     ON CONFLICT (network, wallet_address) DO NOTHING
+     RETURNING id`,
     [network, address, displayLabel],
   )
-  return { success: true, created: result.rows[0]?.created === true }
+  if (inserted.rowCount > 0) return { success: true, created: true }
+  if (displayLabel !== null) {
+    await db.query(
+      `UPDATE ${schema}.tracked_wallets
+          SET display_label = COALESCE($3, display_label)
+        WHERE network = $1 AND wallet_address = $2`,
+      [network, address, displayLabel],
+    )
+  }
+  return { success: true, created: false }
 }
