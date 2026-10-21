@@ -4,6 +4,7 @@
 
 - Adds `GET /api/tron/receiver-history?network=mainnet|shasta|nile&address=T...&limit=20`.
 - Supports an optional exact TRC-20 `contract` filter and bounds `limit` to 1–50.
+- Supports TRONGrid cursor pagination with a validated, bounded fingerprint token; the UI can load older pages and deduplicates repeated rows during refresh.
 - Queries only the known TRONGrid host for the selected network; callers cannot provide an arbitrary upstream URL.
 - Uses the optional server-side `TRONGRID_API_KEY` without returning it to clients.
 - Adds an incoming history panel to the Interact tab. While that tab is open, it refreshes every 30 seconds and also has a manual refresh button.
