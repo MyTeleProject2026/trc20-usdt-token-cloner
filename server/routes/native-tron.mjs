@@ -188,4 +188,78 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
   }
 })
 
+
+// Read-only incoming TRC-20 indexer feed. Indexer rows are candidates only;
+// they are not final settlement evidence until solidified transaction/receipt
+// verification succeeds in the existing verification endpoint.
+router.get('/receiver-history', async (req, res) => {
+  const { network, address, contract } = req.query
+  const limitValue = req.query.limit === undefined ? '20' : req.query.limit
+  const limit = Number(limitValue)
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  if (typeof address !== 'string' || !addressPattern.test(address)) {
+    return res.status(400).json({ success: false, error: 'invalid-address', message: 'Provide a valid TRON Base58 receiver address.' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 50.' })
+  }
+  try {
+    const { TronWeb } = await import('tronweb')
+    const tronWeb = new TronWeb({ fullHost: networks[network] })
+    if (!tronWeb.isAddress(address)) return res.status(400).json({ success: false, error: 'invalid-address' })
+    if (contract !== undefined && (typeof contract !== 'string' || !tronWeb.isAddress(contract))) {
+      return res.status(400).json({ success: false, error: 'invalid-contract', message: 'contract must be a valid TRON Base58 token contract address.' })
+    }
+    const query = new URLSearchParams({
+      only_confirmed: 'true',
+      only_to: 'true',
+      limit: String(limit),
+      order_by: 'block_timestamp,desc',
+    })
+    if (typeof contract === 'string' && contract) query.set('contract_address', contract)
+    const headers = { accept: 'application/json' }
+    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+    const response = await fetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!response.ok) {
+      return res.status(502).json({ success: false, error: 'history-provider-unavailable', providerStatus: response.status, message: 'The selected network history indexer is unavailable; no empty history is implied.' })
+    }
+    const payload = await response.json()
+    if (!Array.isArray(payload?.data)) throw new Error('invalid-indexer-response')
+    const records = payload.data.map((item) => ({
+      transactionId: item.transaction_id || item.txID || null,
+      network,
+      receiverAddress: item.to || address,
+      senderAddress: item.from || null,
+      tokenContract: item.token_info?.address || item.contract_address || null,
+      tokenName: item.token_info?.name || null,
+      tokenSymbol: item.token_info?.symbol || null,
+      tokenDecimals: Number.isInteger(Number(item.token_info?.decimals)) ? Number(item.token_info.decimals) : null,
+      amountBaseUnits: typeof item.value === 'string' || typeof item.value === 'number' ? String(item.value) : null,
+      timestamp: Number.isFinite(Number(item.block_timestamp)) ? Number(item.block_timestamp) : null,
+      indexedConfirmed: item.block_timestamp !== undefined,
+      verificationStatus: 'indexed-candidate-awaiting-solidified-verification',
+      verifiedOnChain: false,
+    }))
+    return res.json({
+      success: true,
+      status: 'indexed-candidates-not-finalized',
+      network,
+      address,
+      contract: typeof contract === 'string' ? contract : null,
+      count: records.length,
+      nextFingerprint: payload?.meta?.fingerprint || null,
+      records,
+      source: 'TRONGrid confirmed TRC-20 history indexer',
+      note: 'These indexed incoming records are candidates, not final settlement proof. Verify each transaction against the selected network solidified transaction body, receipt, exact contract and Transfer event before displaying it as fully verified. Wallet/exchange UI and exchange credit are controlled by the receiving platform.',
+    })
+  } catch {
+    return res.status(502).json({ success: false, error: 'receiver-history-unavailable', message: 'Could not safely read incoming TRC-20 history from the selected network.' })
+  }
+})
+
 export default router
