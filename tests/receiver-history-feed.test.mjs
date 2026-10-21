@@ -34,7 +34,7 @@ test('receiver history UI refreshes automatically and never labels indexer rows 
   assert.match(ui, /fingerprint: nextFingerprint/)
   assert.match(ui, /setNextFingerprint/)
   assert.match(ui, /Awaiting solidified verification/)
-  assert.match(ui, /On-chain verified: no/)
+  assert.match(ui, /On-chain verified:/)
   assert.match(ui, /does not change balances or promise exchange credit/)
   assert.match(ui, /!\/\^\\d\+\$\//)
   assert.match(app, /<ReceiverHistory network=\{network\}/)
@@ -45,4 +45,14 @@ test('sponsor UI keeps fee sponsorship, asset grants, and real spendable balance
   assert.match(sponsorshipUi, /Sponsor-funded TRX \/ USDT grant/)
   assert.match(sponsorshipUi, /Only the actual on-chain wallet balance is spendable/)
   assert.match(sponsorshipUi, /No verified sponsor provider\/account or funded budget is integrated/)
+})
+
+test('persisted receiver history endpoint is bounded and uses stored verification state', () => {
+  assert.ok(routes.includes("receiver-history/persisted"))
+  assert.match(routes, /listPersistedReceiverHistory/)
+  assert.match(routes, /persisted-history-unavailable/)
+  assert.ok(routes.includes("eventIndex: item.event_index"))
+  assert.ok(ui.includes("receiver-history/persisted"))
+  assert.match(ui, /Solidified on-chain verified/)
+  assert.ok(ui.includes("record.verifiedOnChain"))
 })
