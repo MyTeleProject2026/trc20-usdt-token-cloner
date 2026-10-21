@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory } from '../database.mjs'
 
 import { Router } from 'express'
 
@@ -188,6 +188,45 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
   }
 })
 
+
+
+/** Read persisted worker results separately from the live indexer feed. */
+router.get('/receiver-history/persisted', async (req, res) => {
+  const { network, address, contract } = req.query
+  const limitValue = req.query.limit === undefined ? '50' : req.query.limit
+  const limit = Number(limitValue)
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network' })
+  }
+  if (typeof address !== 'string' || !addressPattern.test(address)) {
+    return res.status(400).json({ success: false, error: 'invalid-address' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 50.' })
+  }
+  if (contract !== undefined && (typeof contract !== 'string' || !addressPattern.test(contract))) {
+    return res.status(400).json({ success: false, error: 'invalid-contract' })
+  }
+  try {
+    const result = await listPersistedReceiverHistory({ network, address, contract: contract || null, limit })
+    if (!result.success) {
+      if (result.reason === 'invalid-query') return res.status(400).json({ success: false, error: 'invalid-query' })
+      return res.status(503).json({ success: false, error: 'persisted-history-unavailable', reason: result.reason })
+    }
+    return res.json({
+      success: true,
+      status: 'persisted-receiver-history',
+      network,
+      address,
+      count: result.records.length,
+      records: result.records,
+      source: 'MTP TRC-20 receiver-history database',
+      note: 'Persisted records are only verified when verifiedOnChain is true and verificationStatus is verified-on-chain. This does not establish exchange deposit credit.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'persisted-history-unavailable', message: 'Persisted receiver history is temporarily unavailable.' })
+  }
+})
 
 // Read-only incoming TRC-20 indexer feed. Indexer rows are candidates only;
 // they are not final settlement evidence until solidified transaction/receipt
