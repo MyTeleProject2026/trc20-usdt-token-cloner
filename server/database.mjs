@@ -100,6 +100,48 @@ export async function initializeDatabase() {
       `)
       // Do not let new watchlist rows silently inherit an ambiguous legacy network.
       await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL UNIQUE,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          purpose TEXT NOT NULL CHECK (purpose IN ('network-fee','asset-grant')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          receiver_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','authorized','submitted','confirmed','failed','cancelled')),
+          transaction_hash CHAR(64),
+          authorization_reference TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_transfers_status_created
+          ON ${schema}.sponsor_transfers (status, created_at DESC)
+      `)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.audit_events (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
