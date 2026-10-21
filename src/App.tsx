@@ -504,6 +504,21 @@ export default function App() {
       setNativeVerifyResult(payload)
       if (!response.ok || !payload?.success) throw new Error(payload?.message || 'Native TRX transfer verification failed.')
       setActionMessage({ type: payload.verified ? 'success' : 'error', text: payload.verified ? 'Solidified native TRX transaction matches sender, receiver and exact amount.' : 'Transaction is not yet solidified or does not match the expected transfer. Do not resend; retry verification later.' })
+      if (payload.verified && record.to) {
+        try {
+          setNativeBalanceLoading(true)
+          const balanceParams = new URLSearchParams({ network: record.network, address: record.to })
+          const balanceResponse = await fetch(API_BASE + '/api/tron/native-balance?' + balanceParams.toString())
+          const balancePayload = await balanceResponse.json()
+          if (!balanceResponse.ok || !balancePayload?.success) throw new Error('receiver-native-balance-recheck-failed')
+          setNativeBalanceResult(balancePayload)
+          setActionMessage({ type: 'success', text: 'Native TRX transfer verified; receiver TRX balance rechecked on the same network. Exchange credit is not confirmed.' })
+        } catch {
+          setActionMessage({ type: 'success', text: 'Native TRX transfer verified. Receiver TRX balance could not be rechecked; use the balance button to retry. Exchange credit is not confirmed.' })
+        } finally {
+          setNativeBalanceLoading(false)
+        }
+      }
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err?.message || 'Native TRX transfer verification failed.' })
     } finally {
