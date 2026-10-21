@@ -61,6 +61,8 @@ export default function App() {
   const [tokenTransferRecord, setTokenTransferRecord] = useState<any>(null)
   const [tokenVerifyLoading, setTokenVerifyLoading] = useState(false)
   const [tokenVerifyResult, setTokenVerifyResult] = useState<any>(null)
+  const [verifiedTransferLookup, setVerifiedTransferLookup] = useState<any>(null)
+  const [verifiedTransferLookupLoading, setVerifiedTransferLookupLoading] = useState(false)
   const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [walletConnected, setWalletConnected] = useState(false)
@@ -389,6 +391,38 @@ export default function App() {
       setActionMessage({ type: 'error', text: err?.message || 'Token transfer verification failed.' })
     } finally {
       setTokenVerifyLoading(false)
+    }
+  }
+
+  const handleLookupVerifiedTransfer = async () => {
+    const record = tokenTransferRecord
+    const logIndex = tokenVerifyResult?.logIndex
+    if (!record?.transactionId || !tokenVerifyResult?.verified || !Number.isSafeInteger(logIndex) || logIndex < 0) {
+      setActionMessage({ type: 'error', text: 'Verify the transfer on solidified chain state first; the exact verified Transfer event log index is required.' })
+      return
+    }
+    setVerifiedTransferLookupLoading(true)
+    setVerifiedTransferLookup(null)
+    try {
+      const params = new URLSearchParams({
+        network: record.network,
+        contract: record.contractHex,
+        from: record.fromHex,
+        to: record.toHex,
+        amountSun: record.amountBaseUnits,
+        logIndex: String(logIndex),
+      })
+      const response = await fetch(API_BASE + '/api/tron/verified-transfer/' + encodeURIComponent(record.transactionId) + '?' + params.toString())
+      const payload = await response.json()
+      setVerifiedTransferLookup(payload)
+      if (!response.ok || !payload?.success || payload?.status !== 'verified-on-chain') {
+        throw new Error(payload?.message || payload?.error || 'No persisted verified event matched all supplied fields.')
+      }
+      setActionMessage({ type: 'success', text: 'The exact verified transfer event was found in persistent verification history.' })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message || 'Could not look up the persisted verified transfer.' })
+    } finally {
+      setVerifiedTransferLookupLoading(false)
     }
   }
 
@@ -1123,7 +1157,7 @@ export default function App() {
                   <p className="text-xs text-tertiary">Network: {tokenTransferRecord.network} · Token: {tokenTransferRecord.tokenSymbol} · Amount: {tokenTransferRecord.amount}</p>
                   <p className="break-all text-xs font-mono text-secondary">Tx: {tokenTransferRecord.transactionId}</p>
                   <button type="button" onClick={handleVerifyTokenTransfer} disabled={tokenVerifyLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{tokenVerifyLoading ? 'Verifying solidified token transfer…' : 'Verify token contract, sender, receiver & amount'}</button>
-                  {tokenVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{tokenVerifyResult.verified ? 'Solidified token transfer verified' : (tokenVerifyResult.status || tokenVerifyResult.reason || 'Not verified')}</p><p className="text-xs text-tertiary">Block: {tokenVerifyResult.blockNumber ?? 'not solidified yet'} · Exact event amount: {tokenVerifyResult.amountSun ?? tokenTransferRecord.amountBaseUnits} base units</p><p className="text-xs text-tertiary">This confirms a matching on-chain event for this contract. It does not prove the token is official USDT or that an exchange credited the deposit.</p></div>}
+                  {tokenVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{tokenVerifyResult.verified ? 'Solidified token transfer verified' : (tokenVerifyResult.status || tokenVerifyResult.reason || 'Not verified')}</p><p className="text-xs text-tertiary">Block: {tokenVerifyResult.blockNumber ?? 'not solidified yet'} · Exact event amount: {tokenVerifyResult.amountSun ?? tokenTransferRecord.amountBaseUnits} base units</p>{tokenVerifyResult.verified && <p className="text-xs text-tertiary">Verification history saved: {tokenVerifyResult.persistence?.persisted ? 'yes' : 'no — ' + (tokenVerifyResult.persistence?.reason || 'storage unavailable')}</p>}<p className="text-xs text-tertiary">This confirms a matching on-chain event for this contract. It does not prove the token is official USDT or that an exchange credited the deposit.</p>{tokenVerifyResult.verified && <button type="button" onClick={handleLookupVerifiedTransfer} disabled={verifiedTransferLookupLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{verifiedTransferLookupLoading ? 'Checking saved verification…' : 'Check saved verified-transfer record'}</button>}{verifiedTransferLookup && <p className="break-all text-xs text-tertiary">{verifiedTransferLookup.success ? 'Saved record found for exact network, contract, parties, amount and event index.' : 'Saved record lookup: ' + (verifiedTransferLookup.error || verifiedTransferLookup.message || 'not found')}</p>}</div>}
                 </div>}
                 {tokenBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Solidified receiver token balance</p><p className="break-all text-xs text-tertiary">Network: {tokenBalanceResult.network}</p><p className="break-all text-xs text-tertiary">Contract: {tokenBalanceResult.tokenContract}</p><p className="break-all text-xs text-tertiary">Receiver: {tokenBalanceResult.receiverAddress}</p><p className="text-lg font-semibold text-primary">Balance: {formatTokenUnits(tokenBalanceResult.balanceBaseUnits, tokenBalanceResult.decimals)} tokens</p><p className="text-xs text-tertiary">Raw units: {tokenBalanceResult.balanceBaseUnits} · Decimals: {tokenBalanceResult.decimals}. This is the balance of this exact contract only; it does not prove exchange deposit credit or that the token is official USDT.</p></div>}
 
