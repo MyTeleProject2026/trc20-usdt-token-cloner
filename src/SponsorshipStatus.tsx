@@ -10,6 +10,9 @@ type Sponsorship = {
   provider?: string | null
   mainnetEnabled?: boolean
   canSubmitSponsoredTransfer?: boolean
+  receiverRestrictionsAvailable?: boolean
+  receiverBalance?: { sponsorAssetGrantEnabled?: boolean; sponsoredFeeCoverage?: string; spendableSource?: string; exchangeCredit?: string }
+  requiredBeforeEnablement?: string[]
   message?: string
 }
 
@@ -51,11 +54,26 @@ export default function SponsorshipStatus() {
             ? 'Checking the backend status. Do not assume a transaction is sponsored until the service confirms it.'
             : status?.message || 'Sponsorship status could not be loaded. Assume you must cover network fees yourself.'}
         </p>
+        <div className="mt-md grid grid-cols-1 gap-sm sm:grid-cols-3">
+          <div className="rounded-lg border border-secondary bg-secondary p-md">
+            <p className="text-xs font-semibold text-primary">Network fee sponsorship</p>
+            <p className="mt-xs text-xs text-tertiary">{active ? `Available on ${status?.network || 'configured network'}` : 'Disabled — sender must cover network costs unless a verified sponsor is enabled.'}</p>
+          </div>
+          <div className="rounded-lg border border-secondary bg-secondary p-md">
+            <p className="text-xs font-semibold text-primary">Sponsor-funded TRX / USDT grant</p>
+            <p className="mt-xs text-xs text-tertiary">{status?.receiverBalance?.sponsorAssetGrantEnabled ? 'Grant policy is enabled; verify each grant on-chain.' : 'Disabled — no sponsor asset balance is available to claim or spend.'}</p>
+          </div>
+          <div className="rounded-lg border border-secondary bg-secondary p-md">
+            <p className="text-xs font-semibold text-primary">Spendable receiver balance</p>
+            <p className="mt-xs text-xs text-tertiary">Only the actual on-chain wallet balance is spendable. Sponsor budgets and pending grants are never shown as wallet funds.</p>
+          </div>
+        </div>
         <p className="mt-xs text-xs text-tertiary">
           {active
             ? `Network: ${status?.network || 'not specified'} · Provider: ${status?.provider || 'verified sponsor'}`
-            : 'No sponsor-paid transfer is available. Mainnet sponsorship remains disabled; Shasta test assets cannot become spendable Mainnet funds.'}
+            : 'No verified sponsor provider/account or funded budget is integrated. Exchange credit is independently controlled by each exchange; normal external wallets cannot enforce sponsor spending restrictions after receipt.'}
         </p>
+        {status?.requiredBeforeEnablement?.length ? <details className="mt-sm text-xs text-tertiary"><summary className="cursor-pointer font-semibold text-secondary">Sponsor activation requirements</summary><ul className="mt-sm list-disc space-y-xs pl-lg">{status.requiredBeforeEnablement.map((item) => <li key={item}>{item.replaceAll('-', ' ')}</li>)}</ul></details> : null}
       </div>
     </section>
   )
