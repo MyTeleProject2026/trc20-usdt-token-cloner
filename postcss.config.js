@@ -1,9 +1,6 @@
-// PostCSS config is auto-discovered by Vite in both middleware mode
-// (server/index.mjs, configFile: false) and the standalone `vite build`
-// verification — so Tailwind processes in both without a vite.config.js.
+// Tailwind CSS v4's PostCSS plugin owns vendor prefixing; Autoprefixer is no longer required.
 export default {
   plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
+    '@tailwindcss/postcss': {},
   },
 }

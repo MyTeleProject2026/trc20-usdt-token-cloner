@@ -1,0 +1,77 @@
+name: Generate Tailwind v4 security lockfile candidate
+
+on:
+  push:
+    branches: [fix/tailwind-4-security-migration]
+    paths:
+      - package.json
+      - postcss.config.js
+      - src/index.css
+      - .github/workflows/generate-tailwind-lockfile.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tailwind-v4-security-lockfile
+  cancel-in-progress: false
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/tailwind-4-security-migration
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Regenerate lockfile without install scripts
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Run npm audit and summarize candidate
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > npm-audit-tailwind-v4.json
+          audit_exit=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-tailwind-v4.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities ?? {}
+          const summary = [
+            '## Tailwind v4 migration candidate audit',
+            '- Critical: ' + (counts.critical ?? 0),
+            '- High: ' + (counts.high ?? 0),
+            '- Moderate: ' + (counts.moderate ?? 0),
+            '- Low: ' + (counts.low ?? 0),
+            '- Total: ' + (counts.total ?? 0),
+            '',
+            'Review remaining findings and build compatibility before merging.'
+          ].join('\\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          console.log(summary)
+          NODE
+          echo "npm audit exit code: $audit_exit"
+      - name: Commit generated lockfile
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfile is already current."
+            exit 0
+          fi
+          git commit -m "chore: lock patched Tailwind v4 dependencies"
+          git push origin HEAD:fix/tailwind-4-security-migration
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-tailwind-v4
+          path: npm-audit-tailwind-v4.json
+          if-no-files-found: warn
+          retention-days: 14
