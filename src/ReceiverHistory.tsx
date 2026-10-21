@@ -25,7 +25,7 @@ type HistoryRecord = {
 }
 
 function formatUnits(raw: string | null, decimals: number | null) {
-  if (raw === null || decimals === null || !/^\\d+$/.test(raw)) return raw || 'Unknown'
+  if (raw === null || decimals === null || !/^\d+$/.test(raw)) return raw || 'Unknown'
   const value = BigInt(raw)
   const scale = 10n ** BigInt(Math.min(decimals, 30))
   const whole = value / scale
