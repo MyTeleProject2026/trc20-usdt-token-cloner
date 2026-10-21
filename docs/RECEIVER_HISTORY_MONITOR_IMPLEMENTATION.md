@@ -2,6 +2,9 @@
 
 ## Included in this change
 
+- Adds a bounded `GET /api/tron/receiver-history/persisted` endpoint backed by PostgreSQL. The normal API database initializer creates the same event-table schema as the opt-in worker, so the UI does not depend on the worker having run first.
+- The receiver-history UI merges persisted worker rows with the live indexer feed and prefers stored solidified-verification results. Database monitoring remains optional; a database failure does not hide the live indexer feed.
+
 - Adds `GET /api/tron/receiver-history?network=mainnet|shasta|nile&address=T...&limit=20`.
 - Supports an optional exact TRC-20 `contract` filter and bounds `limit` to 1–50.
 - Supports TRONGrid cursor pagination with a validated, bounded fingerprint token; the UI can load older pages and deduplicates repeated rows during refresh.
@@ -12,7 +15,7 @@
 
 ## What is not claimed
 
-This is an automatically refreshing, foreground receiver-history feed—not a persistent background worker. It refreshes while the app panel is open; it does not guarantee detection while every browser is closed. A durable monitor still needs an always-on worker/cron process, persistent tracked-address subscriptions, pagination checkpoints, retries, idempotent event storage, and per-record solidified receipt verification.
+The UI's live indexer feed refreshes while the panel is open. Persistent results become available only after a separately scheduled worker is configured and the receiver is already present in the tracked-wallet table. The worker is opt-in and disabled by default; this change does not register arbitrary addresses, configure a Render cron, or guarantee monitoring while the browser is closed.
 
 The existing solidified verification route remains the source of final on-chain verification. A future worker must reuse that verification logic (or a shared service) and persist each verified Transfer event under the unique key `network + transaction hash + token contract + log index`.
 
