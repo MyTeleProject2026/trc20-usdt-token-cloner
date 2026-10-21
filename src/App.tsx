@@ -3,6 +3,7 @@ import { TronWeb } from 'tronweb'
 import { tokenArtifact } from './generated/IndependentTRC20'
 import TransferSimulator from './TransferSimulator'
 import ReceiverHistory from './ReceiverHistory'
+import SponsorshipStatus from './SponsorshipStatus'
 import {
   Coins,
   Send,
@@ -720,6 +721,7 @@ export default function App() {
             Fee sponsorship is currently not integrated. Do not assume the project pays fees or that a successful on-chain deposit guarantees an exchange will credit it.
           </p>
         </aside>
+        <SponsorshipStatus />
         {/* Alert component recipe */}
         {apiStatus === 'no-api-key' && (
           <div className="mb-xl flex gap-lg rounded-xl bg-utility-warning-50 p-xl">
