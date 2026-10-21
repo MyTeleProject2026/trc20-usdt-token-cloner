@@ -193,9 +193,16 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
 // they are not final settlement evidence until solidified transaction/receipt
 // verification succeeds in the existing verification endpoint.
 router.get('/receiver-history', async (req, res) => {
-  const { network, address, contract } = req.query
+  const { network, address, contract, fingerprint } = req.query
   const limitValue = req.query.limit === undefined ? '20' : req.query.limit
   const limit = Number(limitValue)
+  // TRONGrid supplies opaque pagination fingerprints. Bound and validate the
+  // token before forwarding it; callers cannot choose an upstream URL.
+  if (fingerprint !== undefined && (typeof fingerprint !== 'string'
+    || fingerprint.length < 1 || fingerprint.length > 512
+    || !/^[A-Za-z0-9_=-]+$/.test(fingerprint))) {
+    return res.status(400).json({ success: false, error: 'invalid-fingerprint', message: 'fingerprint must be a valid bounded TRONGrid pagination token.' })
+  }
   if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
     return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
   }
@@ -219,6 +226,7 @@ router.get('/receiver-history', async (req, res) => {
       order_by: 'block_timestamp,desc',
     })
     if (typeof contract === 'string' && contract) query.set('contract_address', contract)
+    if (typeof fingerprint === 'string') query.set('fingerprint', fingerprint)
     const headers = { accept: 'application/json' }
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
     const response = await fetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {

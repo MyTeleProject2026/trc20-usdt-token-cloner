@@ -15,6 +15,8 @@ test('receiver history is a bounded, read-only, network-scoped indexer endpoint'
   assert.match(routes, /networks\[network\].*transactions\/trc20/)
   assert.match(routes, /TRONGRID_API_KEY/)
   assert.match(routes, /nextFingerprint/)
+  assert.match(routes, /invalid-fingerprint/)
+  assert.match(routes, /query\.set\('fingerprint', fingerprint\)/)
   assert.match(routes, /indexed-candidate-awaiting-solidified-verification/)
   assert.match(routes, /verifiedOnChain: false/)
   const start = routes.indexOf("router.get('/receiver-history'")
@@ -28,6 +30,9 @@ test('receiver history is a bounded, read-only, network-scoped indexer endpoint'
 test('receiver history UI refreshes automatically and never labels indexer rows as verified', () => {
   assert.match(ui, /setInterval\(\(\) => \{ void load\(false\) \}, 30000\)/)
   assert.match(ui, /Refresh history/)
+  assert.match(ui, /Load older records/)
+  assert.match(ui, /fingerprint: nextFingerprint/)
+  assert.match(ui, /setNextFingerprint/)
   assert.match(ui, /Awaiting solidified verification/)
   assert.match(ui, /On-chain verified: no/)
   assert.match(ui, /does not change balances or promise exchange credit/)
