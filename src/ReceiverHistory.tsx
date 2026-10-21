@@ -22,6 +22,7 @@ type HistoryRecord = {
   timestamp: number | null
   verificationStatus: string
   verifiedOnChain: boolean
+  eventIndex?: string | null
 }
 
 function formatUnits(raw: string | null, decimals: number | null) {
@@ -42,6 +43,7 @@ function recordKey(record: HistoryRecord) {
     record.receiverAddress || '',
     record.amountBaseUnits || '',
     record.timestamp || '',
+    record.eventIndex ?? '',
   ].join(':')
 }
 
