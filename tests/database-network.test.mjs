@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTransferVerificationUpsert, normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
+import { buildTransferVerificationUpsert, findVerifiedTransfer, normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
 
 test('refuses to persist a transfer when the network is missing or unsupported', async () => {
   for (const network of [undefined, null, '', 'TRON', 'ethereum', 'MAINNET']) {
@@ -176,4 +176,54 @@ test('database migration uses valid PL/pgSQL block quoting and removes ambiguous
   assert.ok(source.includes('END; $$'))
   assert.ok(source.includes('ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT'))
   assert.ok(!source.includes("network TEXT NOT NULL DEFAULT 'TRON',\n          wallet_address TEXT NOT NULL"))
+})
+
+
+test('verified-event lookup fails closed unless every event identity field is supplied', async () => {
+  const base = {
+    network: 'mainnet',
+    transactionHash: 'e'.repeat(64),
+    tokenContract: '41' + '1'.repeat(40),
+    fromAddress: '41' + '2'.repeat(40),
+    toAddress: '41' + '3'.repeat(40),
+    amountBaseUnits: '2500000',
+    logIndex: 0,
+  }
+  for (const overrides of [
+    { network: 'TRON' },
+    { transactionHash: 'bad' },
+    { tokenContract: '' },
+    { fromAddress: '' },
+    { toAddress: '' },
+    { amountBaseUnits: '2.5' },
+    { amountBaseUnits: '0' },
+    { logIndex: -1 },
+    { logIndex: 1.5 },
+    { logIndex: undefined },
+  ]) {
+    assert.deepEqual(
+      await findVerifiedTransfer({ ...base, ...overrides }),
+      { found: false, reason: 'invalid-lookup' },
+      JSON.stringify(overrides),
+    )
+  }
+})
+
+test('verified-event lookup is scoped to network, hash, contract, parties, amount and log index', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('export async function findVerifiedTransfer')
+  const end = source.indexOf('export async function getDatabaseStatus', start)
+  assert.ok(start >= 0 && end > start)
+  const lookup = source.slice(start, end)
+  for (const field of [
+    'network = $1',
+    'transaction_hash = $2',
+    'lower(token_contract) = lower($3)',
+    'lower(from_address) = lower($4)',
+    'lower(to_address) = lower($5)',
+    'amount_base_units = $6::numeric',
+    'log_index = $7',
+    "verification_status = 'verified-on-chain'",
+  ]) assert.ok(lookup.includes(field), field)
 })
