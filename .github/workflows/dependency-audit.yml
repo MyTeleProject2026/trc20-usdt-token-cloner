@@ -1,0 +1,82 @@
+name: Dependency security audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run npm audit and summarize findings
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > npm-audit-report.json
+          audit_exit=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-report.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities ?? {}
+          const clean = value => String(value).replaceAll('|', '\\|').replaceAll('\\n', ' ')
+          const rank = { critical: 0, high: 1, moderate: 2, low: 3, info: 4 }
+          const packages = Object.entries(report.vulnerabilities ?? {}).sort((a, b) =>
+            (rank[a[1].severity] ?? 5) - (rank[b[1].severity] ?? 5) || a[0].localeCompare(b[0]))
+          const rows = packages.map(([name, item]) => {
+            const titles = (item.via ?? []).filter(v => typeof v === 'object')
+              .map(v => v.title ?? v.name ?? 'advisory').join('; ') || 'transitive dependency'
+            const fix = item.fixAvailable === true ? 'yes (compatible)'
+              : item.fixAvailable === false ? 'no automatic fix'
+              : item.fixAvailable ? `upgrade to ${item.fixAvailable.name ?? name}@${item.fixAvailable.version ?? 'new version'}`
+              : 'review'
+            return `| ${clean(name)} | ${clean(item.severity)} | ${item.isDirect ? 'yes' : 'no'} | ${clean(item.range ?? 'n/a')} | ${clean(fix)} | ${clean(titles)} |`
+          })
+          const summary = [
+            '## Dependency security audit',
+            '',
+            '| Severity | Count |',
+            '|---|---:|',
+            `| Critical | ${counts.critical ?? 0} |`,
+            `| High | ${counts.high ?? 0} |`,
+            `| Moderate | ${counts.moderate ?? 0} |`,
+            `| Low | ${counts.low ?? 0} |`,
+            `| **Total** | **${counts.total ?? 0}** |`,
+            '',
+            '## Affected packages',
+            '',
+            '| Package | Severity | Direct | Installed range | Fix availability | Advisory titles |',
+            '|---|---|---:|---|---|---|',
+            ...rows,
+            '',
+            'Detailed npm audit JSON is attached as a workflow artifact. Review major upgrades for runtime compatibility before applying.'
+          ].join('\\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          console.log(summary)
+          NODE
+          echo "npm audit exit code: $audit_exit"
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit-report.json
+          if-no-files-found: warn
+          retention-days: 14
