@@ -22,6 +22,7 @@ type HistoryRecord = {
   timestamp: number | null
   verificationStatus: string
   verifiedOnChain: boolean
+  eventIndex?: string | null
 }
 
 function formatUnits(raw: string | null, decimals: number | null) {
@@ -42,6 +43,7 @@ function recordKey(record: HistoryRecord) {
     record.receiverAddress || '',
     record.amountBaseUnits || '',
     record.timestamp || '',
+    record.eventIndex ?? '',
   ].join(':')
 }
 
@@ -75,13 +77,27 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
         if (!response.ok || !payload?.success || !Array.isArray(payload.records)) {
           throw new Error(payload?.message || payload?.error || 'Incoming transfer history is unavailable.')
         }
+        // Persisted worker results are optional. Keep the live indexer feed
+        // usable when database monitoring is unavailable, but prefer verified status.
+        let persistedRecords: HistoryRecord[] = []
+        try {
+          const storedParams = new URLSearchParams({ network, address: address.trim(), limit: '50' })
+          if (contract.trim()) storedParams.set('contract', contract.trim())
+          const storedResponse = await fetch(`${API_BASE}/api/tron/receiver-history/persisted?${storedParams.toString()}`, { headers: { Accept: 'application/json' } })
+          const storedPayload = await storedResponse.json()
+          if (storedResponse.ok && storedPayload?.success && Array.isArray(storedPayload.records)) {
+            persistedRecords = storedPayload.records
+          }
+        } catch { /* The live indexer feed remains available independently. */ }
         if (active) {
           setRecords((current) => {
-            if (showLoading) return payload.records
-            const merged = [...payload.records, ...current]
+            const incoming = [...persistedRecords, ...payload.records]
+            const merged = showLoading ? incoming : [...incoming, ...current]
             const unique = new Map<string, HistoryRecord>()
             for (const record of merged) {
-              unique.set(recordKey(record), record)
+              const key = recordKey(record)
+              const previous = unique.get(key)
+              if (!previous || record.verifiedOnChain || !previous.verifiedOnChain) unique.set(key, record)
             }
             return [...unique.values()]
           })
@@ -158,14 +174,16 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
             <div className="flex flex-wrap items-center justify-between gap-sm">
               <p className="text-sm font-semibold text-primary">{record.tokenSymbol || record.tokenName || 'TRC-20 token'} · {formatUnits(record.amountBaseUnits, record.tokenDecimals)}</p>
-              <span className="rounded-full border border-utility-warning-200 px-sm py-xxs text-xs text-utility-warning-700">Awaiting solidified verification</span>
+              <span className={`rounded-full border px-sm py-xxs text-xs ${record.verifiedOnChain ? 'border-utility-success-200 text-utility-success-700' : record.verificationStatus === 'not-verified' ? 'border-utility-danger-200 text-utility-danger-700' : 'border-utility-warning-200 text-utility-warning-700'}`}>
+                {record.verifiedOnChain ? 'Solidified on-chain verified' : record.verificationStatus === 'not-verified' ? 'Verification failed' : record.verificationStatus === 'provider-error' ? 'Verification provider error' : record.verificationStatus === 'awaiting-solidified-receipt' ? 'Awaiting solidified receipt' : 'Awaiting solidified verification'}
+              </span>
             </div>
             <p className="text-xs text-tertiary">Network: {record.network} · Indexed time: {record.timestamp ? new Date(record.timestamp).toLocaleString() : 'not provided'}</p>
             <p className="break-all text-xs font-mono text-secondary">From: {record.senderAddress || 'unknown'}</p>
             <p className="break-all text-xs font-mono text-secondary">To: {record.receiverAddress}</p>
             <p className="break-all text-xs font-mono text-tertiary">Token contract: {record.tokenContract || 'not provided'}</p>
             {record.transactionId && <p className="break-all text-xs font-mono text-tertiary">Transaction ID: {record.transactionId}</p>}
-            <p className="text-xs text-tertiary">On-chain verified: no · Exchange credit: not known</p>
+            <p className="text-xs text-tertiary">On-chain verified: {record.verifiedOnChain ? 'yes — solidified receipt and exact Transfer event matched' : 'no'} · Exchange credit: not known</p>
           </article>
         ))}
       </div>
