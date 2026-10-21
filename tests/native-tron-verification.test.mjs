@@ -85,3 +85,12 @@ test('wallet transfers fail closed for unknown mainnet endpoints and confirm tok
   assert.match(app, /window\.confirm\(confirmation\)/)
   assert.match(app, /Exchange deposit credit is not guaranteed/)
 })
+
+test('verified native TRX transfer rechecks receiver balance on the same network', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /if \(payload\.verified && record\.to\)/)
+  assert.match(app, /network: record\.network, address: record\.to/)
+  assert.match(app, /\/api\/tron\/native-balance\?/)
+  assert.match(app, /Native TRX transfer verified; receiver TRX balance rechecked on the same network/)
+  assert.match(app, /[Rr]eceiver TRX balance could not be rechecked/)
+})
