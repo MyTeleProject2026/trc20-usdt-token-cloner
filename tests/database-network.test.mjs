@@ -274,6 +274,25 @@ test('sponsor reservations use row locks, atomic exact-unit updates, idempotency
   assert.match(source, /WHERE transaction_hash IS NOT NULL/)
 })
 
+test('concurrent sponsor idempotency-key races re-read and compare the complete intent', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('export async function reserveSponsorTransfer')
+  const end = source.indexOf('export async function transitionSponsorTransfer', start)
+  assert.ok(start >= 0 && end > start)
+  const reserve = source.slice(start, end)
+  assert.match(reserve, /error\?\.code === '23505'/)
+  assert.match(reserve, /Re-read after rollback/)
+  assert.match(reserve, /FROM \$\{schema\}\.sponsor_transfers WHERE idempotency_key = \$1/)
+  assert.match(reserve, /row\.sponsor_reference === sponsorReference\.trim\(\)/)
+  assert.match(reserve, /row\.network === network && row\.purpose === purpose && row\.asset === asset/)
+  assert.match(reserve, /row\.receiver_address === receiverAddress\.trim\(\)/)
+  assert.match(reserve, /row\.amount_base_units === amountBaseUnits/)
+  assert.match(reserve, /reserved: true, duplicate: true, status: row\.status/)
+  assert.match(reserve, /reason: 'idempotency-key-conflict'/)
+  assert.match(reserve, /reason: 'reservation-conflict'/)
+})
+
 test('sponsor confirmation requires persisted matching finalized chain evidence and reconciles reserved budget', async () => {
   const { readFile } = await import('node:fs/promises')
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
