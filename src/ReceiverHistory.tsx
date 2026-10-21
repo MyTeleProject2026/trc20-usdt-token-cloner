@@ -39,6 +39,8 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
   const [error, setError] = useState('')
   const [lastChecked, setLastChecked] = useState<number | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const [nextFingerprint, setNextFingerprint] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -62,7 +64,16 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           throw new Error(payload?.message || payload?.error || 'Incoming transfer history is unavailable.')
         }
         if (active) {
-          setRecords(payload.records)
+          setRecords((current) => {
+            if (showLoading) return payload.records
+            const merged = [...payload.records, ...current]
+            const unique = new Map<string, HistoryRecord>()
+            for (const record of merged) {
+              unique.set(`${record.network}:${record.transactionId || ''}:${record.tokenContract || ''}:${record.timestamp || ''}`, record)
+            }
+            return [...unique.values()]
+          })
+          setNextFingerprint(typeof payload.nextFingerprint === 'string' && payload.nextFingerprint ? payload.nextFingerprint : null)
           setError('')
           setLastChecked(Date.now())
         }
@@ -79,6 +90,33 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       if (timer) clearInterval(timer)
     }
   }, [network, address, contract, refreshNonce])
+
+  const loadOlder = async () => {
+    if (!nextFingerprint || loadingMore || !address.trim()) return
+    setLoadingMore(true)
+    try {
+      const params = new URLSearchParams({ network, address: address.trim(), limit: '20', fingerprint: nextFingerprint })
+      if (contract.trim()) params.set('contract', contract.trim())
+      const response = await fetch(`${API_BASE}/api/tron/receiver-history?${params.toString()}`, { headers: { Accept: 'application/json' } })
+      const payload = await response.json()
+      if (!response.ok || !payload?.success || !Array.isArray(payload.records)) {
+        throw new Error(payload?.message || payload?.error || 'Older receiver history is unavailable.')
+      }
+      setRecords((current) => {
+        const unique = new Map<string, HistoryRecord>()
+        for (const record of [...current, ...payload.records]) {
+          unique.set(`${record.network}:${record.transactionId || ''}:${record.tokenContract || ''}:${record.timestamp || ''}`, record)
+        }
+        return [...unique.values()]
+      })
+      setNextFingerprint(typeof payload.nextFingerprint === 'string' && payload.nextFingerprint ? payload.nextFingerprint : null)
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Older receiver history is unavailable.')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   return (
     <section className="rounded-xl border border-secondary bg-primary p-xl space-y-lg" aria-live="polite">
@@ -117,6 +155,11 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           </article>
         ))}
       </div>
+      {nextFingerprint && <div className="flex justify-center">
+        <button type="button" onClick={() => void loadOlder()} disabled={loadingMore || loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
+          {loadingMore ? 'Loading older records…' : 'Load older records'}
+        </button>
+      </div>}
     </section>
   )
 }
