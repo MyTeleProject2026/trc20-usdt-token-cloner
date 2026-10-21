@@ -387,6 +387,25 @@ export default function App() {
       setTokenVerifyResult(payload)
       if (!response.ok || !payload?.success) throw new Error(payload?.message || payload?.error || 'Could not verify the token transfer on solidified chain state.')
       setActionMessage({ type: payload.verified ? 'success' : 'error', text: payload.verified ? 'Solidified TRC-20 Transfer event matches the exact contract, sender, receiver and token base-unit amount.' : (payload.message || payload.reason || 'The transfer did not pass all verification checks.') })
+      if (payload.verified && record.contractAddress && record.receiverAddress) {
+        try {
+          setTokenBalanceLoading(true)
+          const balanceParams = new URLSearchParams({
+            network: record.network,
+            contract: record.contractAddress,
+            address: record.receiverAddress,
+          })
+          const balanceResponse = await fetch(API_BASE + '/api/tron/token-balance?' + balanceParams.toString())
+          const balancePayload = await balanceResponse.json()
+          if (!balanceResponse.ok || !balancePayload?.success) throw new Error('receiver-balance-recheck-failed')
+          setTokenBalanceResult(balancePayload)
+          setActionMessage({ type: 'success', text: 'Transfer event verified; receiver balance rechecked for the same network, token contract and receiver.' })
+        } catch {
+          setActionMessage({ type: 'success', text: 'Transfer event verified. Receiver balance could not be rechecked; use the balance button to retry. Exchange credit is not confirmed.' })
+        } finally {
+          setTokenBalanceLoading(false)
+        }
+      }
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err?.message || 'Token transfer verification failed.' })
     } finally {
