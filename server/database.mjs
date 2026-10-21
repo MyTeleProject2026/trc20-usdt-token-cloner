@@ -551,6 +551,9 @@ export async function transitionSponsorTransfer(input) {
   if (nextStatus === 'authorized' && (typeof authorizationReference !== 'string' || !authorizationReference.trim())) {
     return { updated: false, reason: 'authorization-reference-required' }
   }
+  if (nextStatus === 'submitted' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
+    return { updated: false, reason: 'submitted-transaction-hash-required' }
+  }
   if (nextStatus === 'confirmed' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
     return { updated: false, reason: 'finalized-transaction-hash-required' }
   }
@@ -573,9 +576,15 @@ export async function transitionSponsorTransfer(input) {
     }
     const transfer = result.rows[0]
     if (transfer.status === nextStatus) {
-      const sameHash = nextStatus !== 'confirmed' || transfer.transaction_hash?.trim().toLowerCase() === transactionHash.toLowerCase()
+      const sameHash = !['submitted', 'confirmed'].includes(nextStatus)
+        || transfer.transaction_hash?.trim().toLowerCase() === transactionHash?.toLowerCase()
       await client.query('COMMIT')
-      return sameHash ? { updated: true, duplicate: true, status: nextStatus } : { updated: false, reason: 'terminal-hash-conflict' }
+      return sameHash ? { updated: true, duplicate: true, status: nextStatus } : { updated: false, reason: 'transaction-hash-conflict' }
+    }
+    if (transfer.transaction_hash && transactionHash
+      && transfer.transaction_hash.trim().toLowerCase() !== transactionHash.toLowerCase()) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'transaction-hash-conflict' }
     }
     const allowed = {
       'pending-review': ['authorized', 'cancelled'],
