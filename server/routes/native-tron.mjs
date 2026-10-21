@@ -288,6 +288,7 @@ router.get('/receiver-history', async (req, res) => {
       tokenDecimals: Number.isInteger(Number(item.token_info?.decimals)) ? Number(item.token_info.decimals) : null,
       amountBaseUnits: typeof item.value === 'string' || typeof item.value === 'number' ? String(item.value) : null,
       timestamp: Number.isFinite(Number(item.block_timestamp)) ? Number(item.block_timestamp) : null,
+      eventIndex: item.event_index ?? item.eventIndex ?? null,
       indexedConfirmed: item.block_timestamp !== undefined,
       verificationStatus: 'indexed-candidate-awaiting-solidified-verification',
       verifiedOnChain: false,
