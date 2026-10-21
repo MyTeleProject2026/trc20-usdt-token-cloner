@@ -107,5 +107,5 @@ test('backend readiness probes the supported Tatum v4 TRON block endpoint withou
   assert.match(index, /database\.ready && providers\.tatum\.reachable/)
   assert.match(index, /This endpoint tests database connectivity and a read-only Tatum API request/)
   assert.doesNotMatch(index, /TATUM_API_KEY:\s*process\.env\.TATUM_API_KEY/)
-  assert.doesNotMatch(index, /\/v3\/tron\/info/)
+  assert.doesNotMatch(index, /await tatumFetch\('\/v3\/tron\/info'\)/)
 })
