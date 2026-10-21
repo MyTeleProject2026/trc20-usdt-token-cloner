@@ -168,3 +168,12 @@ test('uses exact event log index as transfer identity and validates it', () => {
   assert.equal(buildTransferVerificationUpsert({ ...base, logIndex: 1 }).values[9], 1);
   assert.equal(buildTransferVerificationUpsert({ ...base, logIndex: -1 }).values[9], 2);
 });
+
+test('database migration uses valid PL/pgSQL block quoting and removes ambiguous wallet network defaults', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  assert.ok(source.includes('DO $$ BEGIN'))
+  assert.ok(source.includes('END; $$'))
+  assert.ok(source.includes('ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT'))
+  assert.ok(!source.includes("network TEXT NOT NULL DEFAULT 'TRON',\n          wallet_address TEXT NOT NULL"))
+})
