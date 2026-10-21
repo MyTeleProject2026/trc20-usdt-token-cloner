@@ -1,6 +1,7 @@
 import pg from 'pg'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
+import { recordTransferVerification } from './database.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -11,6 +12,7 @@ const NETWORK_HOSTS = Object.freeze({
 })
 const MAX_WALLETS_PER_RUN = 100
 const MAX_PAGES_PER_WALLET = 5
+const MAX_VERIFICATIONS_PER_RUN = 25
 const PAGE_SIZE = 50
 const REQUEST_TIMEOUT_MS = 10000
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -103,11 +105,13 @@ async function ensureTables(db) {
       verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
         CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
       verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+      verification_result JSONB,
       first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (network, wallet_address, event_key)
     )
   `)
+  await db.query(`ALTER TABLE ${SCHEMA}.receiver_history_events ADD COLUMN IF NOT EXISTS verification_result JSONB`)
   await db.query(`
     CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
       ON ${SCHEMA}.receiver_history_events (network, wallet_address, block_timestamp DESC)
@@ -207,6 +211,111 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
   }
 }
 
+function normalizeHexAddress(value) {
+  if (typeof value !== 'string') return null
+  const hex = value.replace(/^0x/i, '').toLowerCase()
+  if (!/^(?:41)?[0-9a-f]{40}$/.test(hex)) return null
+  return hex.startsWith('41') ? hex.slice(2) : hex
+}
+
+async function verifyPendingCandidates(db, { env, fetchImpl }) {
+  const approvedContracts = new Set(
+    String(env.TRON_VERIFIED_TOKEN_CONTRACTS || '')
+      .split(',')
+      .map(normalizeHexAddress)
+      .filter(Boolean),
+  )
+  if (!approvedContracts.size) return { checked: 0, verified: 0, pending: 0, skipped: 'token-allowlist-not-configured' }
+
+  const pending = await db.query(
+    `SELECT id,network,transaction_hash,token_contract,from_address,to_address,amount_base_units::text AS amount_base_units
+       FROM ${SCHEMA}.receiver_history_events
+      WHERE verification_status IN ('indexed-candidate-awaiting-solidified-verification','awaiting-solidified-receipt','provider-error')
+      ORDER BY block_timestamp DESC
+      LIMIT $1`,
+    [MAX_VERIFICATIONS_PER_RUN],
+  )
+  if (!pending.rows.length) return { checked: 0, verified: 0, pending: 0 }
+
+  const { TronWeb } = await import('tronweb')
+  let checked = 0
+  let verified = 0
+  let stillPending = 0
+  for (const row of pending.rows) {
+    const host = NETWORK_HOSTS[row.network]
+    if (!host) continue
+    const tronWeb = new TronWeb({ fullHost: host })
+    let contractHex, fromHex, toHex
+    try {
+      contractHex = normalizeHexAddress(tronWeb.address.toHex(row.token_contract))
+      fromHex = tronWeb.address.toHex(row.from_address).replace(/^0x/i, '')
+      toHex = tronWeb.address.toHex(row.to_address).replace(/^0x/i, '')
+    } catch {
+      await db.query(`UPDATE ${SCHEMA}.receiver_history_events SET verification_status='not-verified',verification_result=$2::jsonb,last_seen_at=now() WHERE id=$1`, [row.id, JSON.stringify({ verified: false, reason: 'invalid-indexed-address' })])
+      checked += 1
+      continue
+    }
+    if (!contractHex || !approvedContracts.has(contractHex)) continue
+
+    const headers = { 'content-type': 'application/json' }
+    if (env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY
+    const query = async (path) => {
+      const response = await fetchImpl(host + path, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ value: row.transaction_hash.trim(), visible: false }),
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!response.ok) throw new Error('solidified-provider-unavailable')
+      return response.json()
+    }
+    checked += 1
+    try {
+      const transaction = await query('/walletsolidity/gettransactionbyid')
+      const receipt = await query('/walletsolidity/gettransactioninfobyid')
+      const { verifySolidifiedTrc20Transfer } = await import('./tron-verification.mjs')
+      const result = verifySolidifiedTrc20Transfer({
+        transaction,
+        receipt,
+        expectedTxId: row.transaction_hash.trim(),
+        tokenContractAddress: contractHex,
+        fromAddress: fromHex,
+        toAddress: toHex,
+        amountSun: row.amount_base_units,
+      })
+      if (result.verified) {
+        const persisted = await recordTransferVerification({
+          network: row.network,
+          transactionHash: row.transaction_hash.trim(),
+          tokenContract: row.token_contract,
+          fromAddress: row.from_address,
+          toAddress: row.to_address,
+          amountBaseUnits: row.amount_base_units,
+          status: 'verified-on-chain',
+          logIndex: result.logIndex,
+          result,
+        })
+        if (!persisted.persisted) {
+          await db.query(`UPDATE ${SCHEMA}.receiver_history_events SET verification_status='provider-error',verification_result=$2::jsonb,last_seen_at=now() WHERE id=$1`, [row.id, JSON.stringify({ verified: false, reason: persisted.reason || 'verification-persistence-failed' })])
+          stillPending += 1
+          continue
+        }
+        await db.query(`UPDATE ${SCHEMA}.receiver_history_events SET verification_status='verified-on-chain',verified_on_chain=TRUE,verification_result=$2::jsonb,last_seen_at=now() WHERE id=$1`, [row.id, JSON.stringify(result)])
+        verified += 1
+      } else if (result.reason === 'solidified-transaction-not-found-or-id-mismatch' || result.reason === 'solidified-receipt-not-found-or-id-mismatch' || result.reason === 'receipt-has-no-solidified-block') {
+        await db.query(`UPDATE ${SCHEMA}.receiver_history_events SET verification_status='awaiting-solidified-receipt',verification_result=$2::jsonb,last_seen_at=now() WHERE id=$1`, [row.id, JSON.stringify(result)])
+        stillPending += 1
+      } else {
+        await db.query(`UPDATE ${SCHEMA}.receiver_history_events SET verification_status='not-verified',verification_result=$2::jsonb,last_seen_at=now() WHERE id=$1`, [row.id, JSON.stringify(result)])
+      }
+    } catch {
+      await db.query(`UPDATE ${SCHEMA}.receiver_history_events SET verification_status='provider-error',verification_result=$2::jsonb,last_seen_at=now() WHERE id=$1`, [row.id, JSON.stringify({ verified: false, reason: 'solidified-provider-request-failed' })])
+      stillPending += 1
+    }
+  }
+  return { checked, verified, pending: stillPending }
+}
+
 export async function runReceiverHistorySweep({ env = process.env, fetchImpl = fetch } = {}) {
   if (env.RECEIVER_HISTORY_WORKER_ENABLED !== 'true') {
     return { enabled: false, scannedWallets: 0, insertedCandidates: 0, failedWallets: 0 }
@@ -234,11 +343,13 @@ export async function runReceiverHistorySweep({ env = process.env, fetchImpl = f
       insertedCandidates += scan.inserted
       if (scan.error) failedWallets += 1
     }
+    const verification = await verifyPendingCandidates(pool, { env, fetchImpl })
     return {
       enabled: true,
       scannedWallets: result.rows.length,
       insertedCandidates,
       failedWallets,
+      verification,
     }
   } finally {
     await pool.end()
