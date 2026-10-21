@@ -51,7 +51,7 @@ test('persisted receiver history endpoint is bounded and uses stored verificatio
   assert.match(routes, /receiver-history\\/persisted/)
   assert.match(routes, /listPersistedReceiverHistory/)
   assert.match(routes, /persisted-history-unavailable/)
-  assert.match(routes, /verificationStatus: row\\.verification_status/)
+  assert.match(routes, /eventIndex: item\\.event_index/)
   assert.match(ui, /receiver-history\\/persisted/)
   assert.match(ui, /Solidified on-chain verified/)
   assert.match(ui, /record\\.verifiedOnChain/)
