@@ -800,3 +800,34 @@ export async function listPersistedReceiverHistory({ network, address, contract 
     })),
   }
 }
+
+ 
+/** Register a receiver for the opt-in history worker. Caller authorization is
+ * enforced by the route; this helper only performs a validated, idempotent DB write. */
+export async function registerTrackedWallet({ network, address, displayLabel = null } = {}) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || typeof address !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)
+    || (displayLabel !== null && (typeof displayLabel !== 'string' || displayLabel.length > 80))) {
+    return { success: false, reason: 'invalid-query' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const inserted = await db.query(
+    `INSERT INTO ${schema}.tracked_wallets (network, wallet_address, display_label)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (network, wallet_address) DO NOTHING
+     RETURNING id`,
+    [network, address, displayLabel],
+  )
+  if (inserted.rowCount > 0) return { success: true, created: true }
+  if (displayLabel !== null) {
+    await db.query(
+      `UPDATE ${schema}.tracked_wallets
+          SET display_label = COALESCE($3, display_label)
+        WHERE network = $1 AND wallet_address = $2`,
+      [network, address, displayLabel],
+    )
+  }
+  return { success: true, created: false }
+}

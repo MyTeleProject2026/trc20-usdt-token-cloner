@@ -58,3 +58,16 @@ test('persisted receiver history endpoint is bounded and uses stored verificatio
   assert.match(ui, /showing saved receiver history/)
   assert.match(ui, /persistedOnly = storedPayload.records/)
 })
+
+ 
+test('persistent watchlist registration is protected and does not imply monitoring is running', () => {
+  assert.ok(routes.includes("router.post('/tracked-wallets'"))
+  assert.match(routes, /RECEIVER_WATCHLIST_ADMIN_TOKEN/)
+  assert.match(routes, /timingSafeEqual/)
+  assert.match(routes, /status\(401\)/)
+  assert.match(routes, /status\(503\)/)
+  assert.match(routes, /registerTrackedWallet/)
+  assert.match(routes, /pending-worker-schedule/)
+  assert.match(routes, /A valid watchlist administrator token is required/)
+  assert.doesNotMatch(routes.slice(routes.indexOf("router.post('/tracked-wallets'"), routes.indexOf("// Read-only incoming TRC-20 indexer feed.")), /privateKey|broadcasttransaction|sendRawTransaction/i)
+})
