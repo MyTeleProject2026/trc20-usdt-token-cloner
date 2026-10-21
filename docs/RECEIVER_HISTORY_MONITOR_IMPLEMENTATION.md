@@ -25,3 +25,14 @@ A sponsor budget is not a receiver wallet balance. A receiver's spendable balanc
 ## External wallets and exchanges
 
 The app can monitor chain events and display chain-reported balances. It cannot force every wallet to index a token, force an exchange to accept a deposit, or report an exchange deposit as credited without confirmation from that exchange. The receiver must use the exact supported network and token contract, and the receiving platform's minimum deposit, memo/tag, and confirmation rules still apply.
+
+
+## Persistent worker implementation (feature branch; opt-in)
+
+- Adds `npm run worker:receiver-history`, a one-shot sweep intended for a separately scheduled Render Cron Job or another trusted scheduler.
+- The worker is disabled unless `RECEIVER_HISTORY_WORKER_ENABLED=true`; disabled mode performs no database connection and no network requests.
+- When enabled, it reads only pre-existing `tracked_wallets` rows and uses fixed network hosts. It never accepts a watch address or upstream URL from a public request.
+- Per sweep it scans at most 100 addresses and at most 5 pages of 50 incoming indexed rows per address. This bounds provider usage; unusually high activity may require more frequent sweeps or a reviewed limit adjustment.
+- Writes are idempotent to `receiver_history_events`, records per-wallet success/error checkpoints, and labels every newly indexed event as a candidate awaiting solidified verification. It does not update a wallet balance or trigger a payout.
+- The worker does **not yet** turn indexer events into verified events. The next required phase is to share the existing solidified TRC-20 receipt/event verifier with the worker, then persist exact matching Transfer log indices under the existing `transfer_verifications` uniqueness key.
+- The worker is code-only in this PR: no Render Cron Job, environment variables, production database migration, or deployment has been changed. A trusted scheduler and authorized watchlist onboarding must be configured deliberately after checks and review.
