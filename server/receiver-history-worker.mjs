@@ -287,9 +287,9 @@ async function verifyPendingCandidates(db, { env, fetchImpl }) {
         const persisted = await recordTransferVerification({
           network: row.network,
           transactionHash: row.transaction_hash.trim(),
-          tokenContract: row.token_contract,
-          fromAddress: row.from_address,
-          toAddress: row.to_address,
+          tokenContract: contractHex,
+          fromAddress: normalizeHexAddress(fromHex),
+          toAddress: normalizeHexAddress(toHex),
           amountBaseUnits: row.amount_base_units,
           status: 'verified-on-chain',
           logIndex: result.logIndex,
