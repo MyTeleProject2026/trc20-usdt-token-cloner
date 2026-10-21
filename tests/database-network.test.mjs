@@ -287,8 +287,8 @@ test('sponsor confirmation requires persisted matching finalized chain evidence 
   assert.match(transition, /sponsor-transfer-status-changed/)
   assert.match(source, /sponsor_address TEXT/)
   assert.match(transition, /sponsor_address/)
-  assert.match(transition, /lower\\(from_address\\) = lower\\(\\$3\\)/)
-  assert.match(transition, /lower\\(from_address\\) = lower\\(\\$4\\)/)
+  assert.ok(transition.includes('lower(from_address) = lower($3)'))
+  assert.ok(transition.includes('lower(from_address) = lower($4)'))
 })
 
 test('native transfer verification persists only solidified matching records before sponsor reconciliation', async () => {
