@@ -227,3 +227,17 @@ test('verified-event lookup is scoped to network, hash, contract, parties, amoun
     "verification_status = 'verified-on-chain'",
   ]) assert.ok(lookup.includes(field), field)
 })
+
+
+test('sponsor ledger schema separates fee sponsorship from asset grants and is idempotent', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  assert.match(source, /CREATE TABLE IF NOT EXISTS ${schema}\.sponsor_budgets/)
+  assert.match(source, /budget_base_units NUMERIC\(78,0\)/)
+  assert.match(source, /reserved_base_units \+ spent_base_units <= budget_base_units/)
+  assert.match(source, /CREATE TABLE IF NOT EXISTS ${schema}\.sponsor_transfers/)
+  assert.match(source, /idempotency_key TEXT NOT NULL UNIQUE/)
+  assert.match(source, /purpose TEXT NOT NULL CHECK \(purpose IN \('network-fee','asset-grant'\)\)/)
+  assert.match(source, /status IN \('pending-review','authorized','submitted','confirmed','failed','cancelled'\)/)
+  assert.match(source, /No wallet secrets are stored/)
+})
