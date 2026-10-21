@@ -246,6 +246,15 @@ test('sponsor ledger schema separates fee sponsorship from asset grants and is i
 })
 
 
+test('sponsor address migration runs only after sponsor transfer table exists', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  const createIndex = source.indexOf('CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers')
+  const addColumn = source.indexOf('ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address')
+  assert.ok(createIndex >= 0 && addColumn > createIndex)
+  assert.match(source, /ALTER TABLE \$\{schema\}\.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT/)
+})
+
 test('sponsor reservations use row locks, atomic exact-unit updates, idempotency, and audit events', async () => {
   const { readFile } = await import('node:fs/promises')
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
