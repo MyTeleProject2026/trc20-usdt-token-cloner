@@ -162,6 +162,11 @@ export async function initializeDatabase() {
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_transfer_tx_identity
+          ON ${schema}.sponsor_transfers (network, transaction_hash)
+          WHERE transaction_hash IS NOT NULL
+      `)
+      await db.query(`
         CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_transfers_status_created
           ON ${schema}.sponsor_transfers (status, created_at DESC)
       `)
@@ -589,7 +594,8 @@ export async function transitionSponsorTransfer(input) {
     const allowed = {
       'pending-review': ['authorized', 'cancelled'],
       authorized: ['submitted', 'cancelled'],
-      submitted: ['confirmed', 'failed'],
+      // Failed submissions remain reserved until finalized failure evidence exists.
+      submitted: ['confirmed'],
       confirmed: [],
       failed: [],
       cancelled: [],
