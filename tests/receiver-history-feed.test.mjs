@@ -55,4 +55,6 @@ test('persisted receiver history endpoint is bounded and uses stored verificatio
   assert.ok(ui.includes("receiver-history/persisted"))
   assert.match(ui, /Solidified on-chain verified/)
   assert.ok(ui.includes("record.verifiedOnChain"))
+  assert.match(ui, /showing saved receiver history/)
+  assert.match(ui, /persistedOnly = storedPayload.records/)
 })
