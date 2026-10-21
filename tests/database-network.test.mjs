@@ -270,6 +270,8 @@ test('sponsor reservations use row locks, atomic exact-unit updates, idempotency
   assert.match(reserve, /sponsor-transfer-reserved/)
   assert.match(reserve, /COMMIT/)
   assert.match(reserve, /ROLLBACK/)
+  assert.match(source, /idx_ttc_sponsor_transfer_tx_identity/)
+  assert.match(source, /WHERE transaction_hash IS NOT NULL/)
 })
 
 test('sponsor confirmation requires persisted matching finalized chain evidence and reconciles reserved budget', async () => {
@@ -281,6 +283,7 @@ test('sponsor confirmation requires persisted matching finalized chain evidence 
   assert.match(transition, /finalized-transaction-hash-required/)
   assert.match(transition, /submitted-transaction-hash-required/)
   assert.match(transition, /transaction-hash-conflict/)
+  assert.match(transition, /submitted: \['confirmed'\]/)
   assert.match(transition, /native_transfer_verifications/)
   assert.match(transition, /verification_status = 'verified-on-chain'/)
   assert.match(transition, /finalized-transfer-evidence-not-found/)
