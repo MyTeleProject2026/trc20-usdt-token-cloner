@@ -322,3 +322,16 @@ test('native transfer verification persists only solidified matching records bef
   assert.match(source, /if \(verified && senderAddress && receiverAddress && actualAmountSun/)
   assert.match(source, /verificationPersistence/)
 })
+
+
+test('submitted sponsor transfers cannot release reservations without finalized failure evidence and fee reconciliation', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('export async function transitionSponsorTransfer')
+  assert.ok(start >= 0)
+  const transition = source.slice(start)
+  assert.match(transition, /transfer\.status === 'submitted' && nextStatus === 'failed'/)
+  assert.match(transition, /finalized-failure-evidence-and-fee-reconciliation-required/)
+  assert.match(transition, /submitted: \['confirmed'\]/)
+  assert.match(transition, /if \(nextStatus === 'confirmed'\)[\s\S]*finalized-transfer-evidence-not-found/)
+})
