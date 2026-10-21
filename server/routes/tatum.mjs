@@ -1,15 +1,29 @@
 import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
-import { recordTransferVerification } from '../database.mjs'
+import { findVerifiedTransfer, recordTransferVerification } from '../database.mjs'
+import { canTransitionTransferStatus, buildSolidifiedTransferEvidence } from '../transfer-lifecycle.mjs'
 
 const router = Router()
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const txPattern = /^[0-9a-fA-F]{64}$/
 
+// Normalize TRON hex addresses for allowlist comparisons. The lifecycle module
+// has its own private normalizer for evidence checks; this route also needs one
+// when parsing the configured contract allowlist.
+function normalizeHexAddress(value) {
+  if (typeof value !== 'string') return null;
+  const hex = value.replace(/^0x/i, '');
+  if (!/^(?:41)?[0-9a-f]{40}$/i.test(hex)) return null;
+  return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase();
+}
+
 async function persistVerification(input) {
-  try { await recordTransferVerification(input) } catch {
-    // Chain verification results remain authoritative; database outages must not
-    // turn an unverified transfer into a verified one or leak connection details.
+  try {
+    return await recordTransferVerification(input)
+  } catch {
+    // Report persistence separately: a chain proof may be valid even if history
+    // could not be saved, but the API must never imply that it was persisted.
+    return { persisted: false, reason: 'persistence-failed' }
   }
 }
 
@@ -60,15 +74,18 @@ router.get('/tron/account/:address', async (req, res) => {
 router.get('/tron/token-balance', async (req, res) => {
   const { network, contract, address } = req.query;
   const networkHosts = {
-    mainnet: 'https://api.trongrid.io',
-    shasta: 'https://api.shasta.trongrid.io',
-    nile: 'https://nile.trongrid.io',
+    mainnet: 'https://tron-mainnet.gateway.tatum.io',
+    shasta: 'https://tron-shasta.gateway.tatum.io',
+    nile: 'https://tron-nile.gateway.tatum.io',
   };
   if (typeof network !== 'string' || !Object.hasOwn(networkHosts, network)) {
     return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' });
   }
   if (typeof contract !== 'string' || typeof address !== 'string') {
     return res.status(400).json({ success: false, error: 'missing-address', message: 'Provide a token contract and receiver address.' });
+  }
+  if (!process.env.TATUM_API_KEY) {
+    return res.status(503).json({ success: false, error: 'missing-api-key', message: 'Set TATUM_API_KEY in the backend environment to query the selected Tatum TRON network.' });
   }
   try {
     const { TronWeb } = await import('tronweb');
@@ -79,8 +96,7 @@ router.get('/tron/token-balance', async (req, res) => {
     const contractHex = tronWeb.address.toHex(contract).replace(/^41/i, '');
     const addressHex = tronWeb.address.toHex(address).replace(/^41/i, '');
     const ownerHex = tronWeb.address.toHex(address);
-    const headers = { 'content-type': 'application/json' };
-    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY;
+    const headers = { 'content-type': 'application/json', 'x-api-key': process.env.TATUM_API_KEY };
     const readConstant = async (selector, parameter = '') => {
       const response = await fetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
         method: 'POST',
@@ -118,7 +134,7 @@ router.get('/tron/token-balance', async (req, res) => {
       receiverAddress: address,
       balanceBaseUnits,
       decimals,
-      source: 'TRON SolidityNode triggerconstantcontract',
+      source: 'Tatum TRON Solidity HTTP gateway triggerconstantcontract',
       note: 'This is the balance for this exact token contract on this exact network. It does not imply exchange deposit credit.',
     });
   } catch {
@@ -154,7 +170,6 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
     return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a positive integer string in the token smallest unit.' })
   }
-  const normalizeHexAddress = (value) => { const hex = String(value).replace(/^0x/i, ''); return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase() }
   const approvedContracts = (process.env.TRON_VERIFIED_TOKEN_CONTRACTS || '')
     .split(',')
     .map((value) => value.trim())
@@ -182,12 +197,12 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   try {
     const transaction = await querySolidified('/walletsolidity/gettransactionbyid')
     if (!transaction || transaction.txID?.toLowerCase() !== hash.toLowerCase()) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidification', result: {} })
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidification', result: {} })
       return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidification', message: 'No matching transaction body is available from solidified state yet. Retry with the same transaction ID.' })
     }
     const receipt = await querySolidified('/walletsolidity/gettransactioninfobyid')
     if (!receipt || receipt.id?.toLowerCase() !== hash.toLowerCase()) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidified-receipt', result: {} })
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'awaiting-solidified-receipt', result: {} })
       return res.status(202).json({ success: true, verified: false, status: 'awaiting-solidified-receipt', message: 'The transaction body is solidified, but its receipt is not available yet. Retry with the same transaction ID.' })
     }
     const { verifySolidifiedTrc20Transfer } = await import('../tron-verification.mjs')
@@ -201,13 +216,67 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
       amountSun,
     })
     if (!result.verified) {
-      await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result })
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result })
       return res.status(200).json({ success: true, ...result, status: 'not-verified' })
     }
-    await persistVerification({ transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', result })
-    return res.json({ success: true, status: 'verified-on-chain', ...result })
+    // Defense in depth: only allow the lifecycle to advance when the result returned
+    // by the solidified verifier matches every expected transfer field.
+    const lifecycleEvidence = buildSolidifiedTransferEvidence({
+      result, network, networkHosts, contract, from, to, amountSun,
+    });
+    if (!canTransitionTransferStatus('awaiting-finality', 'verified-on-chain', lifecycleEvidence)) {
+      await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'not-verified', result: { verified: false, reason: 'lifecycle-evidence-gate-failed' } });
+      return res.status(502).json({ success: false, verified: false, status: 'not-verified', error: 'verification-invariant-failed', message: 'The verified result did not satisfy all lifecycle evidence checks.' });
+    }
+    const persistence = await persistVerification({ network, transactionHash: hash, tokenContract: contract, fromAddress: from, toAddress: to, amountBaseUnits: amountSun, status: 'verified-on-chain', logIndex: result.logIndex, result })
+    return res.json({
+      success: true,
+      status: 'verified-on-chain',
+      ...result,
+      persistence: persistence?.persisted
+        ? { persisted: true }
+        : { persisted: false, reason: persistence?.reason || 'persistence-unavailable' },
+    })
   } catch (err) {
     return res.status(502).json({ success: false, error: 'solidified-provider-request-failed', message: 'Could not verify the solidified transaction with the configured TRON provider.' })
+  }
+})
+
+
+// Read-only lookup for an exact, previously persisted, solidified Transfer event.
+// Every identity field is required so a hash alone cannot be treated as proof.
+router.get('/tron/verified-transfer/:hash', async (req, res) => {
+  const hash = req.params.hash
+  const { network, contract, from, to, amountSun, logIndex } = req.query
+  if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id' })
+  if (typeof network !== 'string' || !['mainnet', 'shasta', 'nile'].includes(network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be explicitly set to mainnet, shasta, or nile.' })
+  }
+  const hexAddress = /^(?:41)?[0-9a-fA-F]{40}$/
+  if (![contract, from, to].every((value) => typeof value === 'string' && hexAddress.test(value))) {
+    return res.status(400).json({ success: false, error: 'invalid-address', message: 'contract, from, and to must be 20-byte hex addresses, optionally prefixed with 41.' })
+  }
+  if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
+    return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a positive integer string in token smallest units.' })
+  }
+  if (typeof logIndex !== 'string' || !/^(0|[1-9][0-9]*)$/.test(logIndex) || !Number.isSafeInteger(Number(logIndex))) {
+    return res.status(400).json({ success: false, error: 'invalid-log-index', message: 'logIndex must be a non-negative safe integer from the verified Transfer event.' })
+  }
+  try {
+    const lookup = await findVerifiedTransfer({
+      network, transactionHash: hash, tokenContract: contract,
+      fromAddress: from, toAddress: to, amountBaseUnits: amountSun,
+      logIndex: Number(logIndex),
+    })
+    if (lookup.reason === 'database-not-configured') {
+      return res.status(503).json({ success: false, error: 'verification-storage-unavailable', message: 'Persistent verification storage is not configured.' })
+    }
+    if (!lookup.found) {
+      return res.status(404).json({ success: false, error: 'verified-transfer-not-found', message: 'No persisted verified event matches every supplied field.' })
+    }
+    return res.json({ success: true, status: 'verified-on-chain', transfer: lookup.transfer })
+  } catch {
+    return res.status(503).json({ success: false, error: 'verification-storage-unavailable', message: 'Could not read persistent verification storage.' })
   }
 })
 

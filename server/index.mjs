@@ -9,6 +9,7 @@ import nativeTronRoutes from './routes/native-tron.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { initializeDatabase, getDatabaseStatus } from './database.mjs'
+import { tatumFetch, MissingApiKeyError } from './tatum-client.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
@@ -46,6 +47,48 @@ app.get('/', (_req, res) => res.json({ service: 'TRON Token Studio API', health:
 app.get('/api/storage/status', async (_req, res) => {
   const database = await getDatabaseStatus()
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
+})
+
+app.get('/api/readiness', async (_req, res) => {
+  const database = await getDatabaseStatus()
+  const tatum = {
+    configured: Boolean(process.env.TATUM_API_KEY),
+    reachable: false,
+    status: process.env.TATUM_API_KEY ? 'not-tested' : 'missing-api-key',
+  }
+  if (tatum.configured) {
+    try {
+      // Exercise the same authenticated Tatum API origin used by read-only routes.
+      // Do not return provider payloads, credentials, or raw error messages.
+      await tatumFetch('/v3/tron/info')
+      tatum.reachable = true
+      tatum.status = 'reachable'
+    } catch (error) {
+      tatum.status = error instanceof MissingApiKeyError
+        ? 'missing-api-key'
+        : Number.isInteger(error?.status)
+          ? 'provider-http-error'
+          : 'provider-unreachable'
+      if (Number.isInteger(error?.status)) tatum.httpStatus = error.status
+    }
+  }
+  const providers = {
+    tatum,
+    tronGridApiKey: { configured: Boolean(process.env.TRONGRID_API_KEY) },
+    frontendOrigin: { configured: allowedOrigins.size > 0 },
+  }
+  const ready = database.ready && providers.tatum.reachable
+  return res.status(ready ? 200 : 503).json({
+    success: ready,
+    status: ready ? 'read-only-dependencies-healthy' : 'dependency-check-failed',
+    database,
+    providers,
+    limitations: [
+      'This endpoint tests database connectivity and a read-only Tatum API request; it is not proof of an on-chain transfer.',
+      'Transfers still require user wallet authorization, actual assets, and network fees.',
+      'On-chain confirmation does not guarantee exchange deposit credit.',
+    ],
+  })
 })
 app.use('/api', tatumRoutes)
 app.use('/api/tron', nativeTronRoutes)

@@ -51,7 +51,7 @@ export function verifySolidifiedTrc20Transfer({
     return fail('invalid-expected-amount')
   }
   const logs = Array.isArray(receipt.log) ? receipt.log : []
-  const matching = logs.some((log) => {
+  const matchingLogIndex = logs.findIndex((log) => {
     if (normalizeAddress(log?.address) !== contract) return false
     const topics = Array.isArray(log.topics) ? log.topics : []
     if (String(topics[0] || '').replace(/^0x/i, '').toLowerCase() !== TRANSFER_TOPIC) return false
@@ -60,11 +60,12 @@ export function verifySolidifiedTrc20Transfer({
     if (!/^[0-9a-f]{64}$/i.test(data)) return false
     try { return BigInt('0x' + data) === amount } catch { return false }
   })
-  if (!matching) return fail('matching-transfer-event-not-found')
+  if (matchingLogIndex < 0) return fail('matching-transfer-event-not-found')
   return {
     verified: true,
     txId: expectedTxId.toLowerCase(),
     blockNumber: Number(receipt.blockNumber),
+    logIndex: matchingLogIndex,
     tokenContractAddress,
     fromAddress,
     toAddress,

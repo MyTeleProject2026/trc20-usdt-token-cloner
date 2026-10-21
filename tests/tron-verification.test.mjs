@@ -30,6 +30,7 @@ test('accepts only a matching successful solidified TRC-20 Transfer event', () =
   assert.equal(result.verified, true)
   assert.equal(result.amountSun, amount.toString())
   assert.equal(result.blockNumber, 12345)
+  assert.equal(result.logIndex, 0)
 })
 
 test('rejects a missing or mismatched transaction body', () => {
@@ -88,4 +89,14 @@ test('preserves valid 20-byte addresses that begin with the hex digits 41', () =
     }],
   }
   assert.equal(verifySolidifiedTrc20Transfer(data).verified, true)
+})
+
+test('reports the exact matching event index when a transaction has multiple Transfer logs', () => {
+  const data = input()
+  const unrelated = { ...receipt.log[0], topics: [...receipt.log[0].topics] }
+  unrelated.topics[2] = topicAddress('41' + '4'.repeat(40))
+  data.receipt = { ...receipt, log: [unrelated, receipt.log[0]] }
+  const result = verifySolidifiedTrc20Transfer(data)
+  assert.equal(result.verified, true)
+  assert.equal(result.logIndex, 1)
 })

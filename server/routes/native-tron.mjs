@@ -1,3 +1,5 @@
+import { recordNativeTransferVerification } from '../database.mjs'
+
 import { Router } from 'express'
 
 const router = Router()
@@ -142,9 +144,26 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
       if (receiverAddress && /^[0-9a-fA-F]{42}$/.test(receiverAddress)) receiverAddress = tronWeb.address.fromHex(receiverAddress)
     } catch { /* Preserve provider-returned address if conversion is unsupported. */ }
 
+    let verificationPersistence = { persisted: false, reason: 'transfer-not-verified' }
+    if (verified && senderAddress && receiverAddress && actualAmountSun && Number.isSafeInteger(receipt.blockNumber)) {
+      try {
+        verificationPersistence = await recordNativeTransferVerification({
+          network,
+          transactionHash: hash,
+          fromAddress: senderAddress,
+          toAddress: receiverAddress,
+          amountSun: actualAmountSun,
+          blockNumber: receipt.blockNumber,
+        })
+      } catch {
+        verificationPersistence = { persisted: false, reason: 'database-persistence-failed' }
+      }
+    }
+
     return res.json({
       success: true,
       verified,
+      verificationPersistence,
       status: verified ? 'solidified-transfer-verified' : 'solidified-transfer-mismatch-or-failed',
       network,
       transactionId: hash,
