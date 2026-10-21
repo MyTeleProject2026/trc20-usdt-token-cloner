@@ -452,6 +452,11 @@ export async function reserveSponsorTransfer(input) {
       [idempotencyKey, sponsorReference.trim(), network, purpose, asset,
        asset === 'USDT' ? tokenContract.trim() : null, receiverAddress.trim(), amountBaseUnits],
     )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-transfer-reserved', 'sponsor-transfer', $1, $2::jsonb)`,
+      [idempotencyKey, JSON.stringify({ sponsorReference: sponsorReference.trim(), network, purpose, asset, amountBaseUnits })],
+    )
     await client.query('COMMIT')
     return { reserved: true, duplicate: false, status: 'pending-review', idempotencyKey }
   } catch (error) {
@@ -562,6 +567,11 @@ export async function transitionSponsorTransfer(input) {
               updated_at = now()
         WHERE idempotency_key = $4`,
       [nextStatus, authorizationReference?.trim() || null, transactionHash?.toLowerCase() || null, idempotencyKey],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-transfer-status-changed', 'sponsor-transfer', $1, $2::jsonb)`,
+      [idempotencyKey, JSON.stringify({ fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset })],
     )
     await client.query('COMMIT')
     return { updated: true, duplicate: false, status: nextStatus }
