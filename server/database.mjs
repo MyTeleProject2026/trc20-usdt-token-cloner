@@ -440,6 +440,15 @@ export async function reserveSponsorTransfer(input) {
     return { reserved: false, reason: 'invalid-transfer-intent' }
   }
 
+  const { TronWeb } = await import('tronweb')
+  const tronWeb = new TronWeb({ fullHost: network === 'mainnet'
+    ? 'https://api.trongrid.io'
+    : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io' })
+  if (!tronWeb.isAddress(receiverAddress.trim())
+    || (asset === 'USDT' && !tronWeb.isAddress(tokenContract.trim()))) {
+    return { reserved: false, reason: 'invalid-tron-address' }
+  }
+
   const db = getPool()
   if (!db) return { reserved: false, reason: 'database-not-configured' }
   await initializeDatabase()
@@ -486,6 +495,10 @@ export async function reserveSponsorTransfer(input) {
     if (typeof budget.sponsor_address !== 'string' || !budget.sponsor_address.trim()) {
       await client.query('ROLLBACK')
       return { reserved: false, reason: 'sponsor-address-not-configured' }
+    }
+    if (!tronWeb.isAddress(budget.sponsor_address.trim())) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'invalid-sponsor-address' }
     }
     const available = BigInt(budget.budget_base_units) - BigInt(budget.reserved_base_units) - BigInt(budget.spent_base_units)
     const amount = BigInt(amountBaseUnits)
