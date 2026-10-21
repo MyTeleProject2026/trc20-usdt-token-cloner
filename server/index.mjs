@@ -49,6 +49,29 @@ app.get('/api/storage/status', async (_req, res) => {
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
 })
 
+// Probe the same authenticated, read-only Tatum endpoint used by readiness.
+// The API root itself is not a health endpoint and may legitimately return 404.
+app.get('/api/status', async (_req, res) => {
+  if (!process.env.TATUM_API_KEY) return res.json({ status: 'no-api-key' })
+  try {
+    await tatumFetch('/v3/tron/info')
+    return res.json({ status: 'connected' })
+  } catch (error) {
+    if (error instanceof MissingApiKeyError) return res.json({ status: 'no-api-key' })
+    if (Number.isInteger(error?.status)) {
+      return res.json({ status: 'provider-response', providerStatus: error.status })
+    }
+    const configurationError = error instanceof Error && [
+      'Invalid Tatum API base configuration',
+      'TATUM_API_BASE must be the approved HTTPS Tatum API origin',
+    ].includes(error.message)
+    return res.json({
+      status: 'egress-failed',
+      errorCategory: configurationError ? 'configuration-error' : 'network-error',
+    })
+  }
+})
+
 app.get('/api/readiness', async (_req, res) => {
   const database = await getDatabaseStatus()
   const tatum = {
