@@ -133,6 +133,8 @@ export async function initializeDatabase() {
           CHECK (reserved_base_units + spent_base_units <= budget_base_units)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       // One sponsor may have independent budgets for each network/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
@@ -463,7 +465,7 @@ export async function reserveSponsorTransfer(input) {
     }
 
     const budgetResult = await client.query(
-      `SELECT id, budget_base_units::text AS budget_base_units,
+      `SELECT id, sponsor_address, budget_base_units::text AS budget_base_units,
               reserved_base_units::text AS reserved_base_units,
               spent_base_units::text AS spent_base_units, status
          FROM ${schema}.sponsor_budgets
@@ -481,6 +483,10 @@ export async function reserveSponsorTransfer(input) {
       await client.query('ROLLBACK')
       return { reserved: false, reason: 'sponsor-budget-not-active' }
     }
+    if (typeof budget.sponsor_address !== 'string' || !budget.sponsor_address.trim()) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'sponsor-address-not-configured' }
+    }
     const available = BigInt(budget.budget_base_units) - BigInt(budget.reserved_base_units) - BigInt(budget.spent_base_units)
     const amount = BigInt(amountBaseUnits)
     if (amount > available) {
@@ -496,10 +502,10 @@ export async function reserveSponsorTransfer(input) {
     )
     await client.query(
       `INSERT INTO ${schema}.sponsor_transfers
-        (idempotency_key, sponsor_reference, network, purpose, asset, token_contract,
+        (idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
          receiver_address, amount_base_units, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending-review')`,
-      [idempotencyKey, sponsorReference.trim(), network, purpose, asset,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending-review')`,
+      [idempotencyKey, sponsorReference.trim(), budget.sponsor_address, network, purpose, asset,
        asset === 'USDT' ? tokenContract.trim() : null, receiverAddress.trim(), amountBaseUnits],
     )
     await client.query(
@@ -543,7 +549,7 @@ export async function transitionSponsorTransfer(input) {
   try {
     await client.query('BEGIN')
     const result = await client.query(
-      `SELECT idempotency_key, sponsor_reference, network, asset, token_contract,
+      `SELECT idempotency_key, sponsor_reference, sponsor_address, network, asset, token_contract,
               receiver_address, amount_base_units::text AS amount_base_units, status, transaction_hash
          FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
       [idempotencyKey],
@@ -577,22 +583,24 @@ export async function transitionSponsorTransfer(input) {
         evidence = await client.query(
           `SELECT 1 FROM ${schema}.native_transfer_verifications
             WHERE network = $1 AND transaction_hash = $2
-              AND lower(to_address) = lower($3)
-              AND amount_sun = $4::numeric
+              AND lower(from_address) = lower($3)
+              AND lower(to_address) = lower($4)
+              AND amount_sun = $5::numeric
               AND verification_status = 'verified-on-chain'
             LIMIT 1`,
-          [transfer.network, transactionHash.toLowerCase(), transfer.receiver_address, transfer.amount_base_units],
+          [transfer.network, transactionHash.toLowerCase(), transfer.sponsor_address, transfer.receiver_address, transfer.amount_base_units],
         )
       } else {
         evidence = await client.query(
           `SELECT 1 FROM ${schema}.transfer_verifications
             WHERE network = $1 AND transaction_hash = $2
               AND lower(token_contract) = lower($3)
-              AND lower(to_address) = lower($4)
-              AND amount_base_units = $5::numeric
+              AND lower(from_address) = lower($4)
+              AND lower(to_address) = lower($5)
+              AND amount_base_units = $6::numeric
               AND verification_status = 'verified-on-chain'
             LIMIT 1`,
-          [transfer.network, transactionHash.toLowerCase(), transfer.token_contract, transfer.receiver_address, transfer.amount_base_units],
+          [transfer.network, transactionHash.toLowerCase(), transfer.token_contract, transfer.sponsor_address, transfer.receiver_address, transfer.amount_base_units],
         )
       }
       if (!evidence.rows.length) {
