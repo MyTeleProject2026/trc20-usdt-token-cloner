@@ -105,7 +105,7 @@ export async function initializeDatabase() {
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          sponsor_reference TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
           network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
           asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
           token_contract TEXT,
@@ -118,6 +118,13 @@ export async function initializeDatabase() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           CHECK (reserved_base_units + spent_base_units <= budget_base_units)
         )
+      `)
+      // One sponsor may have independent budgets for each network/asset/contract.
+      // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_budget_identity
+          ON ${schema}.sponsor_budgets (sponsor_reference, network, asset, COALESCE(token_contract, ''))
       `)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers (
