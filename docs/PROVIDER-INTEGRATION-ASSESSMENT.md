@@ -61,3 +61,20 @@ A wallet address and successful chain transaction do not establish that an excha
 - Tatum authentication: https://docs.tatum.io/oa/docs/authentication
 
 Before enabling any provider, re-check its current official documentation and the actual account's supported networks, methods, pricing, permissions and terms. No integration can turn testnet assets into Mainnet assets or force an exchange to credit unsupported deposits.
+
+## Sponsor payout failure reconciliation (not enabled)
+
+The current sponsor ledger intentionally does **not** release a submitted transfer reservation merely because a caller labels it failed. A finalized failed TRON transaction may still consume TRX network fees, so releasing the full reserved amount can overstate the sponsor's available balance. The backend therefore blocks `submitted -> failed` until a fee-aware reconciliation flow exists.
+
+Before implementing that flow, persist and independently verify at least:
+- The exact network and transaction ID from the submitted intent.
+- Solidified transaction body and receipt, including the final execution result and block number.
+- Sender identity matching the configured sponsor wallet.
+- The transfer operation and expected recipient/asset/amount, when an operation was actually executed.
+- Actual network fee in SUN, validated as a non-negative integer from the finalized receipt.
+- A unique, immutable reconciliation record so retries cannot charge or release the same intent twice.
+
+Accounting must separate **asset principal** from **network fees**. A USDT grant is denominated in USDT, while its TRON network fee is paid in TRX; these must not be booked against one interchangeable budget. For a failed asset transfer, the asset principal may be released only after finalized evidence proves no asset transfer occurred, while the actual TRX fee must be charged to a separately funded TRX fee budget. For native TRX transfers, the reconciliation must account for the actual transfer value and the actual network fee independently, with enough reserved capacity to cover both.
+
+Do not accept a user-provided failure flag, transaction hash alone, unfinalized receipt, or provider timeout as failure evidence. Timeouts and missing receipts are inconclusive and must keep the reservation held. Do not enable sponsor broadcasts until the ledger schema, atomic reconciliation transaction, audit trail, provider receipt tests, and testnet end-to-end tests cover these cases.
+
