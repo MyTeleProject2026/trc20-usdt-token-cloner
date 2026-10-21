@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { TronWeb } from 'tronweb'
 import { tokenArtifact } from './generated/IndependentTRC20'
 import TransferSimulator from './TransferSimulator'
+import ReceiverHistory from './ReceiverHistory'
 import {
   Coins,
   Send,
@@ -1229,6 +1230,7 @@ export default function App() {
                 )}
               </div>
             </section>
+            <ReceiverHistory network={network} address={queryAddress || walletAddress} contract={contractAddress} />
           </div>
         )}
 
