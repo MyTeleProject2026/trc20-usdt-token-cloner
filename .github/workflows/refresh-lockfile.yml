@@ -74,7 +74,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Open lockfile remediation pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: automation/refresh-npm-lockfile
           delete-branch: true
