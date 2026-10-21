@@ -1,4 +1,5 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet } from '../database.mjs'
+import { timingSafeEqual } from 'node:crypto'
 
 import { Router } from 'express'
 
@@ -225,6 +226,61 @@ router.get('/receiver-history/persisted', async (req, res) => {
     })
   } catch {
     return res.status(503).json({ success: false, error: 'persisted-history-unavailable', message: 'Persisted receiver history is temporarily unavailable.' })
+  }
+})
+
+
+function hasValidWatchlistAdminToken(req) {
+  const configured = process.env.RECEIVER_WATCHLIST_ADMIN_TOKEN
+  const authorization = req.headers.authorization
+  if (typeof configured !== 'string' || configured.length < 32
+    || typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return false
+  const supplied = Buffer.from(authorization.slice(7))
+  const expected = Buffer.from(configured)
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
+// Watchlist changes are privileged: never allow anonymous callers to enroll
+// arbitrary addresses into persistent polling. Configure a server-only token
+// of at least 32 characters before using this administrative endpoint.
+router.post('/tracked-wallets', async (req, res) => {
+  if (!process.env.RECEIVER_WATCHLIST_ADMIN_TOKEN || process.env.RECEIVER_WATCHLIST_ADMIN_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'watchlist-registration-not-configured', message: 'Protected receiver registration is not configured on this server.' })
+  }
+  if (!hasValidWatchlistAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid watchlist administrator token is required.' })
+  }
+  const { network, address, displayLabel } = req.body || {}
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  if (typeof address !== 'string' || !addressPattern.test(address)) {
+    return res.status(400).json({ success: false, error: 'invalid-address', message: 'Provide a valid TRON Base58 receiver address.' })
+  }
+  if (displayLabel !== undefined && (typeof displayLabel !== 'string' || displayLabel.trim().length > 80)) {
+    return res.status(400).json({ success: false, error: 'invalid-display-label', message: 'displayLabel must be a string no longer than 80 characters.' })
+  }
+  try {
+    const { TronWeb } = await import('tronweb')
+    const tronWeb = new TronWeb({ fullHost: networks[network] })
+    if (!tronWeb.isAddress(address)) return res.status(400).json({ success: false, error: 'invalid-address' })
+    const result = await registerTrackedWallet({
+      network,
+      address,
+      displayLabel: typeof displayLabel === 'string' ? displayLabel.trim() || null : null,
+    })
+    if (!result.success) return res.status(503).json({ success: false, error: 'watchlist-registration-unavailable', reason: result.reason })
+    return res.status(result.created ? 201 : 200).json({
+      success: true,
+      status: result.created ? 'receiver-registered-for-monitoring' : 'receiver-already-registered',
+      network,
+      address,
+      created: result.created,
+      monitoring: 'pending-worker-schedule',
+      note: 'Registration adds this address to the server watchlist only. Monitoring runs only when the separately configured worker is enabled and scheduled.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'watchlist-registration-unavailable', message: 'Could not register this receiver for monitoring.' })
   }
 })
 
