@@ -43,3 +43,22 @@ The app can monitor chain events and display chain-reported balances. It cannot 
 - When `TRON_VERIFIED_TOKEN_CONTRACTS` is configured with reviewed hex contract addresses, the worker checks up to 25 pending candidates per sweep against the selected network's solidified transaction body and receipt using the existing `verifySolidifiedTrc20Transfer` verifier. Successful matches are persisted with the exact Transfer log index via `recordTransferVerification`; missing receipts remain pending and mismatches are marked not verified.
 - If the reviewed token allowlist is absent, candidates are stored but no event is promoted to verified. No generic token is treated as official USDT; Mainnet USDT must be separately reviewed and allowlisted with its exact contract address.
 - The worker is code-only in this PR: no Render Cron Job, environment variables, production database migration, or deployment has been changed. A trusted scheduler and authorized watchlist onboarding must be configured deliberately after checks and review.
+
+## Render Cron Job rollout checklist (manual, not applied)
+
+The worker is a one-shot process intended for a scheduled Render Cron Job. This repository change does not create a Render service or alter existing service settings.
+
+1. Confirm the API's existing PostgreSQL database is reachable from the Cron Job and that its plan/cost is acceptable.
+2. In Render, create a separate Cron Job from this repository and the reviewed `main` branch only after the code review is complete.
+3. Use build command `npm ci` and start command `npm run worker:receiver-history`.
+4. Set `RECEIVER_HISTORY_WORKER_ENABLED=true` only on the Cron Job, never on the public web service unless a separately reviewed deployment design requires it.
+5. Link the existing database using Render's private connection string as `DATABASE_URL`. Never paste database URLs or provider keys into Git, client code, issues, or logs.
+6. Configure `TRONGRID_API_KEY` as a server-only secret if available. Do not set `TRON_VERIFIED_TOKEN_CONTRACTS` until exact token contracts have been independently reviewed and converted to the expected hexadecimal form; the worker normalizes optional `41` prefixes.
+7. Start conservatively with a low-frequency schedule such as `*/15 * * * *` (UTC), then inspect run duration, provider rate limits, database load, and error checkpoints before considering a faster cadence. Cron runs can incur separate charges; check current Render pricing before creating the service.
+8. Register only authorized addresses with the protected administrative endpoint after a server-only `RECEIVER_WATCHLIST_ADMIN_TOKEN` (minimum 32 characters) has been securely provisioned. Never expose this token in browser code.
+9. Verify the first run reports bounded scan counts, then query the persisted endpoint and compare any `verified-on-chain` record against the solidified transaction receipt. An indexed candidate is not proof of a successful transfer; neither state proves an exchange credited a deposit.
+10. Keep sponsorship disabled. The worker never signs/broadcasts transfers and does not credit user balances.
+
+### Stop conditions
+
+Keep the worker disabled if database initialization fails, the allowlist is unreviewed, provider errors repeat, address registration is unauthorized, or the schedule would exceed the budget. Disable the Cron Job first if it causes excessive provider/database load; preserve checkpoints and investigate before re-enabling.
