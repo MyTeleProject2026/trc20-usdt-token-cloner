@@ -9,6 +9,7 @@ export function getSponsorshipStatus() {
     provider: null,
     mainnetEnabled: false,
     canSubmitSponsoredTransfer: false,
-    message: 'No verified sponsor provider is connected. Transfers still require sender authorization and the sender must cover any required network costs.',
+    receiverRestrictionsAvailable: false,
+    message: 'No verified sponsor provider is connected. Sponsored fees are unavailable. A normal USDT/TRX transfer cannot impose spend restrictions on the receiver wallet; restrictions require an audited escrow/vesting contract or enforcement by the receiving platform. Sender authorization and valid token funds remain required.',
   }
 }
