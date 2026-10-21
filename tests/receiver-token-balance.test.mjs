@@ -42,3 +42,23 @@ test('frontend exposes a solidified receiver token balance check for the selecte
   assert.match(app, /formatTokenUnits\(tokenBalanceResult\.balanceBaseUnits, tokenBalanceResult\.decimals\)/)
   assert.match(app, /does not prove exchange deposit credit or that the token is official USDT/)
 })
+
+
+test('verified transfer lookup is read-only and requires an exact event identity', () => {
+  assert.match(routes, /router\.get\('\/tron\/verified-transfer\/:hash'/)
+  const start = routes.indexOf("router.get('/tron/verified-transfer/:hash'")
+  const end = routes.indexOf("// Contract deployment is performed", start)
+  assert.ok(start >= 0 && end > start)
+  const endpoint = routes.slice(start, end)
+  for (const field of ['network', 'contract', 'from', 'to', 'amountSun', 'logIndex']) {
+    assert.match(endpoint, new RegExp(field))
+  }
+  assert.match(endpoint, /findVerifiedTransfer\(/)
+  assert.match(endpoint, /verified-transfer-not-found/)
+  assert.doesNotMatch(endpoint, /privateKey|broadcasttransaction|sendRawTransaction/i)
+})
+
+test('chain verification reports persistence separately from chain success', () => {
+  assert.match(routes, /persistence: persistence\?\.persisted/)
+  assert.match(routes, /reason: persistence\?\.reason \|\| 'persistence-unavailable'/)
+})
