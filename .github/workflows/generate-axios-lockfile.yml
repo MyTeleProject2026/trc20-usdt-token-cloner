@@ -1,0 +1,73 @@
+name: Generate Axios override lockfile candidate
+
+on:
+  push:
+    branches: [fix/override-vulnerable-axios]
+    paths:
+      - package.json
+      - .github/workflows/generate-axios-lockfile.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: axios-override-lockfile
+  cancel-in-progress: false
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/override-vulnerable-axios
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Regenerate lockfile without install scripts
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Report resulting audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > npm-audit-axios-override.json
+          audit_exit=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-axios-override.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities ?? {}
+          const summary = [
+            '## Axios override candidate audit',
+            '- Critical: ' + (counts.critical ?? 0),
+            '- High: ' + (counts.high ?? 0),
+            '- Moderate: ' + (counts.moderate ?? 0),
+            '- Low: ' + (counts.low ?? 0),
+            '- Total: ' + (counts.total ?? 0)
+          ].join('\\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          console.log(summary)
+          NODE
+          echo "npm audit exit code: $audit_exit"
+      - name: Commit generated lockfile to candidate branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfile is already current."
+            exit 0
+          fi
+          git commit -m "chore: lock patched Axios version"
+          git push origin HEAD:fix/override-vulnerable-axios
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-axios-override
+          path: npm-audit-axios-override.json
+          if-no-files-found: warn
+          retention-days: 14
