@@ -95,11 +95,13 @@ test('verified native TRX transfer rechecks receiver balance on the same network
   assert.match(app, /[Rr]eceiver TRX balance could not be rechecked/)
 })
 
-test('backend readiness reports provider configuration without exposing secret values', async () => {
-  assert.match(index, /app\.get\('\/api\/readiness'/)
-  assert.match(index, /Boolean\(process\.env\.TATUM_API_KEY\)/)
-  assert.match(index, /Boolean\(process\.env\.TRONGRID_API_KEY\)/)
-  assert.match(index, /database\.ready && providers\.tatum\.configured/)
-  assert.match(index, /Configuration status is not a live provider test/)
-  assert.doesNotMatch(index, /TATUM_API_KEY:\s*process\.env\.TATUM_API_KEY/)
+test('backend readiness actively probes Tatum and database without exposing secret values', async () => {
+  assert.match(index, /app\\.get\\('\\/api\\/readiness'/)
+  assert.match(index, /Boolean\\(process\\.env\\.TATUM_API_KEY\\)/)
+  assert.match(index, /await tatumFetch\\('\\/v3\\/tron\\/info'\\)/)
+  assert.match(index, /tatum\\.reachable = true/)
+  assert.match(index, /provider-unreachable/)
+  assert.match(index, /database\\.ready && providers\\.tatum\\.reachable/)
+  assert.match(index, /This endpoint tests database connectivity and a read-only Tatum API request/)
+  assert.doesNotMatch(index, /TATUM_API_KEY:\\s*process\\.env\\.TATUM_API_KEY/)
 })
