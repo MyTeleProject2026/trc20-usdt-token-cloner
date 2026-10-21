@@ -62,3 +62,13 @@ test('chain verification reports persistence separately from chain success', () 
   assert.match(routes, /persistence: persistence\?\.persisted/)
   assert.match(routes, /reason: persistence\?\.reason \|\| 'persistence-unavailable'/)
 })
+
+
+test('successful transfer verification rechecks the same receiver and token contract balance', async () => {
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /contractAddress: contractAddress\.trim\(\)/)
+  assert.match(app, /receiverAddress: recipientAddress\.trim\(\)/)
+  assert.match(app, /if \(payload\.verified && record\.contractAddress && record\.receiverAddress\)/)
+  assert.match(app, /network: record\.network,[\s\S]*contract: record\.contractAddress,[\s\S]*address: record\.receiverAddress/)
+  assert.match(app, /receiver balance could not be rechecked/)
+})
