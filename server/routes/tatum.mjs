@@ -32,8 +32,26 @@ router.get('/status', async (_req, res) => {
   try {
     const response = await fetch(tatumApiBase(), { signal: AbortSignal.timeout(8000), headers: { 'x-api-key': process.env.TATUM_API_KEY } })
     res.json({ status: response.ok ? 'connected' : 'provider-response', providerStatus: response.status })
-  } catch {
-    res.json({ status: 'egress-failed' })
+  } catch (error) {
+    // Keep provider diagnostics useful without exposing request headers or secrets.
+    const code = typeof error?.cause?.code === 'string'
+      ? error.cause.code
+      : typeof error?.code === 'string'
+        ? error.code
+        : '';
+    const name = typeof error?.name === 'string' ? error.name : '';
+    let errorCategory = 'network-error';
+    if (name === 'AbortError' || name === 'TimeoutError' || code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') {
+      errorCategory = 'timeout';
+    } else if (['ENOTFOUND', 'EAI_AGAIN', 'ENODATA'].includes(code)) {
+      errorCategory = 'dns';
+    } else if (['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(code) || /TLS|CERT/i.test(code)) {
+      errorCategory = 'tls';
+    } else if (['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE'].includes(code)) {
+      errorCategory = 'connection';
+    }
+    console.warn('[tatum-status] Provider probe failed', JSON.stringify({ errorCategory, code: code || undefined, name: name || undefined }));
+    res.json({ status: 'egress-failed', errorCategory, ...(code ? { errorCode: code } : {}) })
   }
 })
 
