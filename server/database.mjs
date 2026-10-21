@@ -544,7 +544,7 @@ export async function transitionSponsorTransfer(input) {
     await client.query('BEGIN')
     const result = await client.query(
       `SELECT idempotency_key, sponsor_reference, network, asset, token_contract,
-              amount_base_units::text AS amount_base_units, status, transaction_hash
+              receiver_address, amount_base_units::text AS amount_base_units, status, transaction_hash
          FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
       [idempotencyKey],
     )
