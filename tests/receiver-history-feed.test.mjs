@@ -48,11 +48,11 @@ test('sponsor UI keeps fee sponsorship, asset grants, and real spendable balance
 })
 
 test('persisted receiver history endpoint is bounded and uses stored verification state', () => {
-  assert.match(routes, /receiver-history\\/persisted/)
+  assert.ok(routes.includes("receiver-history/persisted"))
   assert.match(routes, /listPersistedReceiverHistory/)
   assert.match(routes, /persisted-history-unavailable/)
-  assert.match(routes, /eventIndex: item\\.event_index/)
-  assert.match(ui, /receiver-history\\/persisted/)
+  assert.ok(routes.includes("eventIndex: item.event_index"))
+  assert.ok(ui.includes("receiver-history/persisted"))
   assert.match(ui, /Solidified on-chain verified/)
-  assert.match(ui, /record\\.verifiedOnChain/)
+  assert.ok(ui.includes("record.verifiedOnChain"))
 })
