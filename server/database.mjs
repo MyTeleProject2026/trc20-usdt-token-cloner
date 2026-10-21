@@ -611,10 +611,17 @@ export async function transitionSponsorTransfer(input) {
       await client.query('ROLLBACK')
       return { updated: false, reason: 'transaction-hash-conflict' }
     }
+    // A submitted transaction can consume chain fees even when execution fails.
+    // Do not release its reservation based only on a caller-supplied "failed" status;
+    // fee-aware finalized failure evidence and reconciliation are not implemented yet.
+    if (transfer.status === 'submitted' && nextStatus === 'failed') {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'finalized-failure-evidence-and-fee-reconciliation-required' }
+    }
     const allowed = {
       'pending-review': ['authorized', 'cancelled'],
       authorized: ['submitted', 'cancelled'],
-      // Failed submissions remain reserved until finalized failure evidence exists.
+      // Submitted transfers remain reserved until confirmed with persisted evidence.
       submitted: ['confirmed'],
       confirmed: [],
       failed: [],
