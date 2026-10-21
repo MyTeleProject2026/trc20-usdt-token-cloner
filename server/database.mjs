@@ -71,7 +71,7 @@ export async function initializeDatabase() {
       // preserve them as event 0, then replace the coarser transaction-level key.
       await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
       await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
-      await db.query(`DO $ BEGIN
+      await db.query(`DO $$ BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
           WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
@@ -81,7 +81,7 @@ export async function initializeDatabase() {
           ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
           UNIQUE (network, transaction_hash, token_contract, log_index);
         END IF;
-      END $`)
+      END; $$`)
       await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
       // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
       // any future direct insert must name its network explicitly. Existing
