@@ -134,7 +134,6 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
-      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       // One sponsor may have independent budgets for each network/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
@@ -161,6 +160,7 @@ export async function initializeDatabase() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       await db.query(`
         CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_transfers_status_created
           ON ${schema}.sponsor_transfers (status, created_at DESC)
