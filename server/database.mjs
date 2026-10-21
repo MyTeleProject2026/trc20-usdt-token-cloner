@@ -91,13 +91,15 @@ export async function initializeDatabase() {
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          network TEXT NOT NULL DEFAULT 'TRON',
+          network TEXT NOT NULL,
           wallet_address TEXT NOT NULL,
           display_label TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (network, wallet_address)
         )
       `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.audit_events (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
