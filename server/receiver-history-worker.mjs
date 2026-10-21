@@ -72,6 +72,18 @@ function normalizeIndexedEvent(item, network, walletAddress) {
 
 async function ensureTables(db) {
   await db.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`)
+  // Match the application's existing watchlist schema so a standalone cron
+  // process can initialize safely even if it starts before the web service.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ${SCHEMA}.tracked_wallets (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+      wallet_address TEXT NOT NULL,
+      display_label TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (network, wallet_address)
+    )
+  `)
   await db.query(`
     CREATE TABLE IF NOT EXISTS ${SCHEMA}.receiver_history_events (
       id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
