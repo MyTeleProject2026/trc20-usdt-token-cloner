@@ -249,6 +249,60 @@ export async function recordTransferVerification(input) {
   return { persisted: true }
 }
 
+
+export async function findVerifiedTransfer(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  const transactionHash = typeof input?.transactionHash === 'string' ? input.transactionHash : ''
+  const tokenContract = typeof input?.tokenContract === 'string' ? input.tokenContract.trim() : ''
+  const fromAddress = typeof input?.fromAddress === 'string' ? input.fromAddress.trim() : ''
+  const toAddress = typeof input?.toAddress === 'string' ? input.toAddress.trim() : ''
+  const amountBaseUnits = typeof input?.amountBaseUnits === 'string' ? input.amountBaseUnits : ''
+  const logIndex = input?.logIndex
+  if (!network || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || !tokenContract || !fromAddress || !toAddress
+    || !/^[0-9]+$/.test(amountBaseUnits) || amountBaseUnits.length > 78
+    || !/[1-9]/.test(amountBaseUnits)
+    || !Number.isSafeInteger(logIndex) || logIndex < 0) {
+    return { found: false, reason: 'invalid-lookup' }
+  }
+
+  const db = getPool()
+  if (!db) return { found: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const query = await db.query(
+    `SELECT network, transaction_hash, token_contract, from_address, to_address,
+            amount_base_units::text AS amount_base_units, block_number, log_index, result, created_at
+       FROM ${schema}.transfer_verifications
+      WHERE network = $1
+        AND transaction_hash = $2
+        AND lower(token_contract) = lower($3)
+        AND lower(from_address) = lower($4)
+        AND lower(to_address) = lower($5)
+        AND amount_base_units = $6::numeric
+        AND log_index = $7
+        AND verification_status = 'verified-on-chain'
+      LIMIT 1`,
+    [network, transactionHash.toLowerCase(), tokenContract, fromAddress, toAddress, amountBaseUnits, logIndex],
+  )
+  if (!query.rows.length) return { found: false, reason: 'verified-event-not-found' }
+  const row = query.rows[0]
+  return {
+    found: true,
+    transfer: {
+      network: row.network,
+      transactionHash: row.transaction_hash.trim(),
+      tokenContract: row.token_contract,
+      fromAddress: row.from_address,
+      toAddress: row.to_address,
+      amountBaseUnits: row.amount_base_units,
+      blockNumber: row.block_number === null ? null : Number(row.block_number),
+      logIndex: row.log_index,
+      result: row.result,
+      createdAt: row.created_at,
+    },
+  }
+}
+
 export async function getDatabaseStatus() {
   const db = getPool()
   if (!db) return { configured: false, ready: false }
