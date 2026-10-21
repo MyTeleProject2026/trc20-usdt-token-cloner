@@ -34,7 +34,7 @@ function boundedFingerprint(value) {
     : null
 }
 
-function normalizeIndexedEvent(item, network, walletAddress) {
+export function normalizeIndexedEvent(item, network, walletAddress) {
   const transactionId = item?.transaction_id || item?.txID
   const tokenContract = item?.token_info?.address || item?.contract_address
   const senderAddress = item?.from
