@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
-import { recordTransferVerification } from '../database.mjs'
+import { findVerifiedTransfer, recordTransferVerification } from '../database.mjs'
 import { canTransitionTransferStatus, buildSolidifiedTransferEvidence } from '../transfer-lifecycle.mjs'
 
 const router = Router()
@@ -229,6 +229,44 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
     return res.json({ success: true, status: 'verified-on-chain', ...result })
   } catch (err) {
     return res.status(502).json({ success: false, error: 'solidified-provider-request-failed', message: 'Could not verify the solidified transaction with the configured TRON provider.' })
+  }
+})
+
+
+// Read-only lookup for an exact, previously persisted, solidified Transfer event.
+// Every identity field is required so a hash alone cannot be treated as proof.
+router.get('/tron/verified-transfer/:hash', async (req, res) => {
+  const hash = req.params.hash
+  const { network, contract, from, to, amountSun, logIndex } = req.query
+  if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id' })
+  if (typeof network !== 'string' || !['mainnet', 'shasta', 'nile'].includes(network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be explicitly set to mainnet, shasta, or nile.' })
+  }
+  const hexAddress = /^(?:41)?[0-9a-fA-F]{40}$/
+  if (![contract, from, to].every((value) => typeof value === 'string' && hexAddress.test(value))) {
+    return res.status(400).json({ success: false, error: 'invalid-address', message: 'contract, from, and to must be 20-byte hex addresses, optionally prefixed with 41.' })
+  }
+  if (typeof amountSun !== 'string' || !/^[0-9]+$/.test(amountSun) || BigInt(amountSun) <= 0n) {
+    return res.status(400).json({ success: false, error: 'invalid-amount', message: 'amountSun must be a positive integer string in token smallest units.' })
+  }
+  if (typeof logIndex !== 'string' || !/^(0|[1-9][0-9]*)$/.test(logIndex) || !Number.isSafeInteger(Number(logIndex))) {
+    return res.status(400).json({ success: false, error: 'invalid-log-index', message: 'logIndex must be a non-negative safe integer from the verified Transfer event.' })
+  }
+  try {
+    const lookup = await findVerifiedTransfer({
+      network, transactionHash: hash, tokenContract: contract,
+      fromAddress: from, toAddress: to, amountBaseUnits: amountSun,
+      logIndex: Number(logIndex),
+    })
+    if (lookup.reason === 'database-not-configured') {
+      return res.status(503).json({ success: false, error: 'verification-storage-unavailable', message: 'Persistent verification storage is not configured.' })
+    }
+    if (!lookup.found) {
+      return res.status(404).json({ success: false, error: 'verified-transfer-not-found', message: 'No persisted verified event matches every supplied field.' })
+    }
+    return res.json({ success: true, status: 'verified-on-chain', transfer: lookup.transfer })
+  } catch {
+    return res.status(503).json({ success: false, error: 'verification-storage-unavailable', message: 'Could not read persistent verification storage.' })
   }
 })
 
