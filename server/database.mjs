@@ -100,6 +100,35 @@ export async function initializeDatabase() {
       `)
       // Do not let new watchlist rows silently inherit an ambiguous legacy network.
       await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
       // Sponsor accounting groundwork only: these tables do not enable payments.
       // Amounts are exact integer base units; no wallet secrets are stored.
       await db.query(`
@@ -723,5 +752,51 @@ export async function transitionSponsorTransfer(input) {
     throw error
   } finally {
     client.release()
+  }
+}
+
+
+/** Return bounded persisted receiver-history records. These are chain candidates
+ * unless the worker has independently verified a solidified receipt. */
+export async function listPersistedReceiverHistory({ network, address, contract = null, limit = 50 } = {}) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || typeof address !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)
+    || !Number.isInteger(limit) || limit < 1 || limit > 50
+    || (contract !== null && (typeof contract !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(contract)))) {
+    return { success: false, reason: 'invalid-query' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const result = await db.query(
+    `SELECT network, wallet_address, transaction_hash, token_contract, from_address, to_address,
+            amount_base_units::text AS amount_base_units, token_name, token_symbol, token_decimals,
+            block_timestamp, verification_status, verified_on_chain, event_index, first_seen_at, last_seen_at
+       FROM ${schema}.receiver_history_events
+      WHERE network = $1 AND lower(wallet_address) = lower($2)
+        AND ($3::text IS NULL OR lower(token_contract) = lower($3))
+      ORDER BY block_timestamp DESC, id DESC
+      LIMIT $4`,
+    [network, address, contract, limit],
+  )
+  return {
+    success: true,
+    records: result.rows.map((row) => ({
+      transactionId: row.transaction_hash?.trim() || null,
+      network: row.network,
+      receiverAddress: row.to_address,
+      senderAddress: row.from_address,
+      tokenContract: row.token_contract,
+      tokenName: row.token_name,
+      tokenSymbol: row.token_symbol,
+      tokenDecimals: row.token_decimals === null ? null : Number(row.token_decimals),
+      amountBaseUnits: row.amount_base_units,
+      timestamp: Number(row.block_timestamp),
+      verificationStatus: row.verification_status,
+      verifiedOnChain: row.verified_on_chain === true,
+      eventIndex: row.event_index,
+      firstSeenAt: row.first_seen_at,
+      lastSeenAt: row.last_seen_at,
+    })),
   }
 }
