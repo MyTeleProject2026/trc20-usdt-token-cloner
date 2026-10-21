@@ -108,7 +108,27 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           setLastChecked(Date.now())
         }
       } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'Incoming transfer history is unavailable.')
+        if (active) {
+          // If the live indexer is down, still show any history already saved by
+          // the background worker rather than hiding persisted verification.
+          let persistedOnly: HistoryRecord[] = []
+          try {
+            const storedParams = new URLSearchParams({ network, address: address.trim(), limit: '50' })
+            if (contract.trim()) storedParams.set('contract', contract.trim())
+            const storedResponse = await fetch(`${API_BASE}/api/tron/receiver-history/persisted?${storedParams.toString()}`, { headers: { Accept: 'application/json' } })
+            const storedPayload = await storedResponse.json()
+            if (storedResponse.ok && storedPayload?.success && Array.isArray(storedPayload.records)) {
+              persistedOnly = storedPayload.records
+            }
+          } catch { /* Keep the original indexer error if persistence is unavailable too. */ }
+          if (persistedOnly.length) {
+            setRecords(persistedOnly)
+            setLastChecked(Date.now())
+            setError('Live indexer is unavailable; showing saved receiver history. New events may be delayed.')
+          } else {
+            setError(err instanceof Error ? err.message : 'Incoming transfer history is unavailable.')
+          }
+        }
       } finally {
         if (active && showLoading) setLoading(false)
       }
