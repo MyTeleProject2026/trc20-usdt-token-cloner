@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory } from '../database.mjs'
 
 import { Router } from 'express'
 
@@ -189,6 +189,45 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
 })
 
 
+
+/** Read persisted worker results separately from the live indexer feed. */
+router.get('/receiver-history/persisted', async (req, res) => {
+  const { network, address, contract } = req.query
+  const limitValue = req.query.limit === undefined ? '50' : req.query.limit
+  const limit = Number(limitValue)
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network' })
+  }
+  if (typeof address !== 'string' || !addressPattern.test(address)) {
+    return res.status(400).json({ success: false, error: 'invalid-address' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 50.' })
+  }
+  if (contract !== undefined && (typeof contract !== 'string' || !addressPattern.test(contract))) {
+    return res.status(400).json({ success: false, error: 'invalid-contract' })
+  }
+  try {
+    const result = await listPersistedReceiverHistory({ network, address, contract: contract || null, limit })
+    if (!result.success) {
+      if (result.reason === 'invalid-query') return res.status(400).json({ success: false, error: 'invalid-query' })
+      return res.status(503).json({ success: false, error: 'persisted-history-unavailable', reason: result.reason })
+    }
+    return res.json({
+      success: true,
+      status: 'persisted-receiver-history',
+      network,
+      address,
+      count: result.records.length,
+      records: result.records,
+      source: 'TRON Token Studio receiver-history database',
+      note: 'Persisted records are only verified when verifiedOnChain is true and verificationStatus is verified-on-chain. This does not establish exchange deposit credit.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'persisted-history-unavailable', message: 'Persisted receiver history is temporarily unavailable.' })
+  }
+})
+
 // Read-only incoming TRC-20 indexer feed. Indexer rows are candidates only;
 // they are not final settlement evidence until solidified transaction/receipt
 // verification succeeds in the existing verification endpoint.
@@ -249,6 +288,7 @@ router.get('/receiver-history', async (req, res) => {
       tokenDecimals: Number.isInteger(Number(item.token_info?.decimals)) ? Number(item.token_info.decimals) : null,
       amountBaseUnits: typeof item.value === 'string' || typeof item.value === 'number' ? String(item.value) : null,
       timestamp: Number.isFinite(Number(item.block_timestamp)) ? Number(item.block_timestamp) : null,
+      eventIndex: item.event_index ?? item.eventIndex ?? null,
       indexedConfirmed: item.block_timestamp !== undefined,
       verificationStatus: 'indexed-candidate-awaiting-solidified-verification',
       verifiedOnChain: false,
