@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { makeReceiverEventKey, runReceiverHistorySweep } from '../server/receiver-history-worker.mjs'
+import { makeReceiverEventKey, normalizeIndexedEvent, runReceiverHistorySweep } from '../server/receiver-history-worker.mjs'
 
 const worker = await readFile(new URL('../server/receiver-history-worker.mjs', import.meta.url), 'utf8')
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
@@ -41,4 +41,25 @@ test('worker is bounded, network-scoped, idempotent, and stores candidates witho
   assert.match(packageJson.scripts['worker:receiver-history'], /server\/receiver-history-worker\.mjs/)
   assert.doesNotMatch(worker, /privateKey|broadcasttransaction|sendRawTransaction|wallet\/broadcasttransaction/i)
   assert.doesNotMatch(worker, /UPDATE .*wallet_balances|INSERT INTO .*wallet_balances/i)
+})
+
+test('worker normalizes only well-formed incoming token events', () => {
+  const address = (char) => 'T' + char.repeat(33)
+  const item = {
+    transaction_id: 'a'.repeat(64),
+    from: address('A'),
+    to: address('B'),
+    value: '1000000',
+    block_timestamp: 1760000000000,
+    event_index: 2,
+    token_info: { address: address('C'), name: 'Test Token', symbol: 'TST', decimals: 6 },
+  }
+  const normalized = normalizeIndexedEvent(item, 'shasta', address('B'))
+  assert.equal(normalized.network, 'shasta')
+  assert.equal(normalized.amountBaseUnits, '1000000')
+  assert.equal(normalized.tokenDecimals, 6)
+  assert.equal(normalized.eventIndex, '2')
+  assert.equal(normalized.eventKey.length, 64)
+  assert.equal(normalizeIndexedEvent({ ...item, value: '-1' }, 'shasta', address('B')), null)
+  assert.equal(normalizeIndexedEvent({ ...item, transaction_id: 'not-a-hash' }, 'shasta', address('B')), null)
 })
