@@ -64,11 +64,17 @@ app.get('/api/readiness', async (_req, res) => {
       tatum.reachable = true
       tatum.status = 'reachable'
     } catch (error) {
+      const configurationError = error instanceof Error && [
+        'Invalid Tatum API base configuration',
+        'TATUM_API_BASE must be the approved HTTPS Tatum API origin',
+      ].includes(error.message)
       tatum.status = error instanceof MissingApiKeyError
         ? 'missing-api-key'
-        : Number.isInteger(error?.status)
-          ? 'provider-http-error'
-          : 'provider-unreachable'
+        : configurationError
+          ? 'configuration-error'
+          : Number.isInteger(error?.status)
+            ? 'provider-http-error'
+            : 'provider-unreachable'
       if (Number.isInteger(error?.status)) tatum.httpStatus = error.status
     }
   }

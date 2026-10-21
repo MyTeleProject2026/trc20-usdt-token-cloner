@@ -40,8 +40,14 @@ router.get('/status', async (_req, res) => {
         ? error.code
         : '';
     const name = typeof error?.name === 'string' ? error.name : '';
-    let errorCategory = 'network-error';
-    if (name === 'AbortError' || name === 'TimeoutError' || code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') {
+    const configurationError = error instanceof Error && [
+      'Invalid Tatum API base configuration',
+      'TATUM_API_BASE must be the approved HTTPS Tatum API origin',
+    ].includes(error.message);
+    let errorCategory = configurationError ? 'configuration-error' : 'network-error';
+    if (configurationError) {
+      // Only expose the category; never echo the configured origin or any secret.
+    } else if (name === 'AbortError' || name === 'TimeoutError' || code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT') {
       errorCategory = 'timeout';
     } else if (['ENOTFOUND', 'EAI_AGAIN', 'ENODATA'].includes(code)) {
       errorCategory = 'dns';
