@@ -70,5 +70,5 @@ test('successful transfer verification rechecks the same receiver and token cont
   assert.match(app, /receiverAddress: recipientAddress\.trim\(\)/)
   assert.match(app, /if \(payload\.verified && record\.contractAddress && record\.receiverAddress\)/)
   assert.match(app, /network: record\.network,[\s\S]*contract: record\.contractAddress,[\s\S]*address: record\.receiverAddress/)
-  assert.match(app, /receiver balance could not be rechecked/)
+  assert.match(app, /[Rr]eceiver balance could not be rechecked/)
 })
