@@ -279,6 +279,8 @@ test('sponsor confirmation requires persisted matching finalized chain evidence 
   assert.ok(start >= 0)
   const transition = source.slice(start)
   assert.match(transition, /finalized-transaction-hash-required/)
+  assert.match(transition, /submitted-transaction-hash-required/)
+  assert.match(transition, /transaction-hash-conflict/)
   assert.match(transition, /native_transfer_verifications/)
   assert.match(transition, /verification_status = 'verified-on-chain'/)
   assert.match(transition, /finalized-transfer-evidence-not-found/)
