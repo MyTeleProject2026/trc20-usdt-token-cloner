@@ -359,7 +359,7 @@ export default function App() {
       // Pre-fill the on-chain verifier for a real transaction hash. A wallet's
       // broadcast response is only submission; confirmation is checked separately.
       if (/^[0-9a-fA-F]{64}$/.test(transactionId)) setVerifyTxId(transactionId)
-      setTokenTransferRecord({ network, transactionId, contractHex: tronWeb.address.toHex(contractAddress.trim()).replace(/^41/i, ''), fromHex: tronWeb.address.toHex(sender).replace(/^41/i, ''), toHex: tronWeb.address.toHex(recipientAddress.trim()).replace(/^41/i, ''), amountBaseUnits: rawAmount, tokenSymbol: tokenSymbolValue, amount: normalizedAmount })
+      setTokenTransferRecord({ network, transactionId, contractHex: tronWeb.address.toHex(contractAddress.trim()).replace(/^41/i, ''), fromHex: tronWeb.address.toHex(sender).replace(/^41/i, ''), toHex: tronWeb.address.toHex(recipientAddress.trim()).replace(/^41/i, ''), contractAddress: contractAddress.trim(), receiverAddress: recipientAddress.trim(), amountBaseUnits: rawAmount, tokenSymbol: tokenSymbolValue, amount: normalizedAmount })
       setTokenVerifyResult(null)
       setActionMessage({
         type: 'success',
