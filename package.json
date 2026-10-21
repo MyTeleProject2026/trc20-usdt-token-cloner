@@ -17,8 +17,8 @@
     "react-dom": "^18.3.1",
     "undici": "^8.12.2",
     "vite": "5.4.21",
-    "tronweb": "^6.0.4",
-    "solc": "^0.8.30",
+    "tronweb": "^6.4.1",
+    "solc": "^0.8.37",
     "pg": "^8.16.3"
   },
   "devDependencies": {
@@ -31,6 +31,9 @@
     "typescript": "^5.9.3"
   },
   "overrides": {
-    "axios": "^1.19.1"
+    "axios": "^1.19.1",
+    "tmp": "^0.2.6",
+    "ws": "^8.20.2",
+    "ethers": "^6.16.1"
   }
 }
