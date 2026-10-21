@@ -33,6 +33,18 @@ function formatUnits(raw: string | null, decimals: number | null) {
   return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
+function recordKey(record: HistoryRecord) {
+  return [
+    record.network,
+    record.transactionId || '',
+    record.tokenContract || '',
+    record.senderAddress || '',
+    record.receiverAddress || '',
+    record.amountBaseUnits || '',
+    record.timestamp || '',
+  ].join(':')
+}
+
 export default function ReceiverHistory({ network, address, contract = '' }: Props) {
   const [records, setRecords] = useState<HistoryRecord[]>([])
   const [loading, setLoading] = useState(false)
@@ -69,11 +81,13 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
             const merged = [...payload.records, ...current]
             const unique = new Map<string, HistoryRecord>()
             for (const record of merged) {
-              unique.set(`${record.network}:${record.transactionId || ''}:${record.tokenContract || ''}:${record.timestamp || ''}`, record)
+              unique.set(recordKey(record), record)
             }
             return [...unique.values()]
           })
-          setNextFingerprint(typeof payload.nextFingerprint === 'string' && payload.nextFingerprint ? payload.nextFingerprint : null)
+          setNextFingerprint((current) => showLoading || !current
+            ? (typeof payload.nextFingerprint === 'string' && payload.nextFingerprint ? payload.nextFingerprint : null)
+            : current)
           setError('')
           setLastChecked(Date.now())
         }
@@ -105,7 +119,7 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       setRecords((current) => {
         const unique = new Map<string, HistoryRecord>()
         for (const record of [...current, ...payload.records]) {
-          unique.set(`${record.network}:${record.transactionId || ''}:${record.tokenContract || ''}:${record.timestamp || ''}`, record)
+          unique.set(recordKey(record), record)
         }
         return [...unique.values()]
       })
