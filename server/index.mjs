@@ -47,6 +47,27 @@ app.get('/api/storage/status', async (_req, res) => {
   const database = await getDatabaseStatus()
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
 })
+
+app.get('/api/readiness', async (_req, res) => {
+  const database = await getDatabaseStatus()
+  const providers = {
+    tatum: { configured: Boolean(process.env.TATUM_API_KEY) },
+    tronGridApiKey: { configured: Boolean(process.env.TRONGRID_API_KEY) },
+    frontendOrigin: { configured: allowedOrigins.size > 0 },
+  }
+  const ready = database.ready && providers.tatum.configured
+  return res.status(ready ? 200 : 503).json({
+    success: ready,
+    status: ready ? 'read-only-checks-configured' : 'configuration-incomplete',
+    database,
+    providers,
+    limitations: [
+      'Configuration status is not a live provider test or proof of an on-chain transfer.',
+      'Transfers still require user wallet authorization, actual assets, and network fees.',
+      'On-chain confirmation does not guarantee exchange deposit credit.',
+    ],
+  })
+})
 app.use('/api', tatumRoutes)
 app.use('/api/tron', nativeTronRoutes)
 
