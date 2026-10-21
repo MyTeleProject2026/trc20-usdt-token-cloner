@@ -165,19 +165,27 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
         if (!event) continue
         seen += 1
         lastEventTimestamp = Math.max(lastEventTimestamp || 0, event.timestamp)
+        const values = [event.network,event.walletAddress,event.eventKey,event.transactionId,event.tokenContract,
+          event.senderAddress,event.receiverAddress,event.amountBaseUnits,event.tokenName,event.tokenSymbol,
+          event.tokenDecimals,event.eventIndex,event.timestamp]
         const result = await db.query(
           `INSERT INTO ${SCHEMA}.receiver_history_events
             (network,wallet_address,event_key,transaction_hash,token_contract,from_address,to_address,
              amount_base_units,token_name,token_symbol,token_decimals,event_index,block_timestamp)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-           ON CONFLICT (network,wallet_address,event_key)
-           DO UPDATE SET last_seen_at=now()
-           RETURNING (xmax = 0) AS inserted`,
-          [event.network,event.walletAddress,event.eventKey,event.transactionId,event.tokenContract,
-           event.senderAddress,event.receiverAddress,event.amountBaseUnits,event.tokenName,event.tokenSymbol,
-           event.tokenDecimals,event.eventIndex,event.timestamp],
+           ON CONFLICT (network,wallet_address,event_key) DO NOTHING
+           RETURNING id`,
+          values,
         )
-        if (result.rows[0]?.inserted === true) inserted += 1
+        if (result.rowCount > 0) {
+          inserted += 1
+        } else {
+          await db.query(
+            `UPDATE ${SCHEMA}.receiver_history_events SET last_seen_at=now()
+              WHERE network=$1 AND wallet_address=$2 AND event_key=$3`,
+            [event.network,event.walletAddress,event.eventKey],
+          )
+        }
       }
       const next = boundedFingerprint(payload?.meta?.fingerprint)
       if (!next || next === fingerprint || payload.data.length < PAGE_SIZE) break
