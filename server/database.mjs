@@ -535,7 +535,27 @@ export async function reserveSponsorTransfer(input) {
     return { reserved: true, duplicate: false, status: 'pending-review', idempotencyKey }
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
-    if (error?.code === '23505') return { reserved: false, reason: 'idempotency-key-conflict' }
+    if (error?.code === '23505') {
+      // Concurrent identical retries may race on the unique idempotency key.
+      // Re-read after rollback and return the existing result only if the
+      // complete transfer intent matches; never hide a conflicting request.
+      const raced = await db.query(
+        `SELECT sponsor_reference, network, purpose, asset, token_contract,
+                receiver_address, amount_base_units::text AS amount_base_units, status
+           FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1`,
+        [idempotencyKey],
+      )
+      if (!raced.rows.length) return { reserved: false, reason: 'reservation-conflict' }
+      const row = raced.rows[0]
+      const same = row.sponsor_reference === sponsorReference.trim()
+        && row.network === network && row.purpose === purpose && row.asset === asset
+        && (row.token_contract || null) === (asset === 'USDT' ? tokenContract.trim() : null)
+        && row.receiver_address === receiverAddress.trim()
+        && row.amount_base_units === amountBaseUnits
+      return same
+        ? { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+        : { reserved: false, reason: 'idempotency-key-conflict' }
+    }
     throw error
   } finally {
     client.release()
