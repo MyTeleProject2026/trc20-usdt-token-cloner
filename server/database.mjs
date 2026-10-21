@@ -103,6 +103,20 @@ export async function initializeDatabase() {
       // Sponsor accounting groundwork only: these tables do not enable payments.
       // Amounts are exact integer base units; no wallet secrets are stored.
       await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           sponsor_reference TEXT NOT NULL,
@@ -364,6 +378,42 @@ export async function getDatabaseStatus() {
   }
 }
 
+
+/**
+ * Persist only a native TRX transfer already checked against a solidified
+ * transaction body and receipt. Persistence is required before sponsor-ledger
+ * reconciliation may count the transfer as confirmed.
+ */
+export async function recordNativeTransferVerification(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  const { transactionHash, fromAddress, toAddress, amountSun, blockNumber } = input || {}
+  if (!network || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || typeof fromAddress !== 'string' || !fromAddress.trim()
+    || typeof toAddress !== 'string' || !toAddress.trim()
+    || typeof amountSun !== 'string' || !/^[1-9][0-9]*$/.test(amountSun) || amountSun.length > 78
+    || !Number.isSafeInteger(blockNumber) || blockNumber <= 0) {
+    return { persisted: false, reason: 'invalid-native-transfer-record' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  await db.query(
+    `INSERT INTO ${schema}.native_transfer_verifications
+      (network, transaction_hash, from_address, to_address, amount_sun, block_number, verification_status)
+     VALUES ($1,$2,$3,$4,$5,$6,'verified-on-chain')
+     ON CONFLICT (network, transaction_hash) DO UPDATE SET
+       from_address = CASE WHEN ${schema}.native_transfer_verifications.verification_status = 'verified-on-chain'
+         THEN ${schema}.native_transfer_verifications.from_address ELSE EXCLUDED.from_address END,
+       to_address = CASE WHEN ${schema}.native_transfer_verifications.verification_status = 'verified-on-chain'
+         THEN ${schema}.native_transfer_verifications.to_address ELSE EXCLUDED.to_address END,
+       amount_sun = CASE WHEN ${schema}.native_transfer_verifications.verification_status = 'verified-on-chain'
+         THEN ${schema}.native_transfer_verifications.amount_sun ELSE EXCLUDED.amount_sun END,
+       block_number = CASE WHEN ${schema}.native_transfer_verifications.verification_status = 'verified-on-chain'
+         THEN ${schema}.native_transfer_verifications.block_number ELSE EXCLUDED.block_number END`,
+    [network, transactionHash.toLowerCase(), fromAddress.trim(), toAddress.trim(), amountSun, blockNumber],
+  )
+  return { persisted: true }
+}
 
 function validSponsorTransitionStatus(status) {
   return ['authorized', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status)
