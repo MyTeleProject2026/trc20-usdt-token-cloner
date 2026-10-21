@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, History, AlertCircle } from 'lucide-react'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 type Props = {
   network: 'mainnet' | 'shasta'
