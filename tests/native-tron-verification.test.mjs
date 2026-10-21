@@ -36,6 +36,7 @@ test('native TRX receiver balance reads solidified state and preserves exact SUN
   assert.match(route, /does not query TRC20 tokens or confirm exchange deposit credit/)
 })
 
+
 test('native TRX SUN formatting does not use floating-point conversion', () => {
   assert.match(route, /const formatSun = \(value\) => \{/)
   assert.match(route, /BigInt\(value\)/)
@@ -68,6 +69,7 @@ test('native transfer asks for explicit network, sender, receiver and amount con
   assert.match(app, /Check the recipient supports TRX on this exact network/)
 })
 
+
 test('native transfer verifies expected sender, receiver and exact SUN amount against solidified backend', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
   assert.match(app, /\/api\/tron\/verify-native-transfer\//)
@@ -86,6 +88,7 @@ test('wallet transfers fail closed for unknown mainnet endpoints and confirm tok
   assert.match(app, /Exchange deposit credit is not guaranteed/)
 })
 
+
 test('verified native TRX transfer rechecks receiver balance on the same network', async () => {
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
   assert.match(app, /if \(payload\.verified && record\.to\)/)
@@ -95,13 +98,14 @@ test('verified native TRX transfer rechecks receiver balance on the same network
   assert.match(app, /[Rr]eceiver TRX balance could not be rechecked/)
 })
 
-test('backend readiness actively probes Tatum and database without exposing secret values', async () => {
-  assert.match(index, /app\.get\('\/api\/readiness'/)
-  assert.match(index, /Boolean\(process\.env\.TATUM_API_KEY\)/)
-  assert.match(index, /await tatumFetch\('\/v3\/tron\/info'\)/)
+test('backend readiness probes the supported Tatum v4 TRON block endpoint without exposing secrets', async () => {
+  assert.match(index, /const TATUM_TRON_HEALTH_PATH = '\/v4\/data\/blockchains\/block\/current\?chain=tron-mainnet'/)
+  assert.match(index, /app\.get\('\/api\/status'/)
+  assert.match(index, /await tatumFetch\(TATUM_TRON_HEALTH_PATH\)/)
   assert.match(index, /tatum\.reachable = true/)
   assert.match(index, /provider-unreachable/)
   assert.match(index, /database\.ready && providers\.tatum\.reachable/)
   assert.match(index, /This endpoint tests database connectivity and a read-only Tatum API request/)
   assert.doesNotMatch(index, /TATUM_API_KEY:\s*process\.env\.TATUM_API_KEY/)
+  assert.doesNotMatch(index, /await tatumFetch\('\/v3\/tron\/info'\)/)
 })

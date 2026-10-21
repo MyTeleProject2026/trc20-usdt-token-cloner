@@ -49,12 +49,15 @@ app.get('/api/storage/status', async (_req, res) => {
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
 })
 
+// Tatum deprecated /v3/tron/info; use the unified current-block endpoint.
+const TATUM_TRON_HEALTH_PATH = '/v4/data/blockchains/block/current?chain=tron-mainnet'
+
 // Probe the same authenticated, read-only Tatum endpoint used by readiness.
 // The API root itself is not a health endpoint and may legitimately return 404.
 app.get('/api/status', async (_req, res) => {
   if (!process.env.TATUM_API_KEY) return res.json({ status: 'no-api-key' })
   try {
-    await tatumFetch('/v3/tron/info')
+    await tatumFetch(TATUM_TRON_HEALTH_PATH)
     return res.json({ status: 'connected' })
   } catch (error) {
     if (error instanceof MissingApiKeyError) return res.json({ status: 'no-api-key' })
@@ -81,9 +84,9 @@ app.get('/api/readiness', async (_req, res) => {
   }
   if (tatum.configured) {
     try {
-      // Exercise the same authenticated Tatum API origin used by read-only routes.
+      // Exercise the supported authenticated Tatum current-block endpoint.
       // Do not return provider payloads, credentials, or raw error messages.
-      await tatumFetch('/v3/tron/info')
+      await tatumFetch(TATUM_TRON_HEALTH_PATH)
       tatum.reachable = true
       tatum.status = 'reachable'
     } catch (error) {
