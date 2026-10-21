@@ -17,6 +17,7 @@ permissions:
 jobs:
   refresh-lockfile:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -27,16 +28,60 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Regenerate lockfile without running package scripts
-        run: npm install --package-lock-only --ignore-scripts
-      - name: Open lockfile update pull request
+      - name: Apply non-breaking npm audit remediations to the lockfile
+        shell: bash
+        run: |
+          set +e
+          npm audit fix --package-lock-only --ignore-scripts
+          audit_fix_exit=$?
+          set -e
+          if [ "$audit_fix_exit" -ne 0 ]; then
+            echo "::warning::Some advisories need manual remediation. Keeping any compatible lockfile fixes for review."
+          fi
+          npm install --package-lock-only --ignore-scripts
+      - name: Report remaining dependency advisories
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > npm-audit-after-fix.json
+          audit_exit=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-after-fix.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities ?? {}
+          const summary = [
+            '## Candidate lockfile audit',
+            '',
+            '- Critical: ' + (counts.critical ?? 0),
+            '- High: ' + (counts.high ?? 0),
+            '- Moderate: ' + (counts.moderate ?? 0),
+            '- Low: ' + (counts.low ?? 0),
+            '- Total: ' + (counts.total ?? 0),
+            '',
+            'This is a candidate lockfile only. Review the generated PR and compatibility checks before merging.'
+          ].join('\\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          console.log(summary)
+          NODE
+          echo "npm audit exit code after compatible remediation: $audit_exit"
+      - name: Upload post-remediation audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-after-fix
+          path: npm-audit-after-fix.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Open lockfile remediation pull request
         uses: peter-evans/create-pull-request@v7
         with:
           branch: automation/refresh-npm-lockfile
           delete-branch: true
-          commit-message: "chore: regenerate npm lockfile"
-          title: "chore: regenerate npm lockfile"
+          commit-message: "chore: apply compatible npm security fixes"
+          title: "chore: apply compatible npm security fixes"
           body: |
-            Regenerates package-lock.json from package.json using npm with install scripts disabled.
-            This synchronizes declared dependencies, including TronWeb and solc, so clean npm ci installs can be validated.
+            Candidate package-lock.json generated with npm audit fix --package-lock-only --ignore-scripts, followed by lockfile normalization with package scripts disabled.
+
+            This applies only npm's non-forced compatible remediation. Remaining advisories and any major upgrades require separate review. CI, application verification, and the audit report must be reviewed before merging.
           add-paths: package-lock.json
