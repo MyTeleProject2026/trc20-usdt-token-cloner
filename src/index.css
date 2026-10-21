@@ -1,13 +1,9 @@
-/* The design-system CSS variables every token class resolves to. Must stay the
-   first statement — CSS @import is only valid ahead of other rules. */
+/* Keep the design-system variables first so all token utilities resolve correctly. */
 @import '../design-tokens/tokens.css';
+@import 'tailwindcss';
+@config '../tailwind.config.cjs';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Tatum foundation — read through the tokens, never hardcoded. The full system
-   (component anatomy, states, layout) is in the `tatum-design` skill. */
+/* Tatum foundation — read through design tokens, never hardcoded. */
 body {
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
