@@ -2,6 +2,9 @@
 
 ## Included in this change
 
+- Adds a protected `POST /api/tron/tracked-wallets` administrative endpoint. It refuses anonymous registration, requires a server-only `RECEIVER_WATCHLIST_ADMIN_TOKEN` of at least 32 characters, compares bearer tokens in constant time, validates network/address/label, and performs an idempotent database upsert.
+- Registration is not the same as active monitoring: the response explicitly says `pending-worker-schedule`. The worker remains disabled unless separately configured and scheduled.
+
 - Adds a bounded `GET /api/tron/receiver-history/persisted` endpoint backed by PostgreSQL. The normal API database initializer creates the same event-table schema as the opt-in worker, so the UI does not depend on the worker having run first.
 - The receiver-history UI merges persisted worker rows with the live indexer feed and prefers stored solidified-verification results. Database monitoring remains optional; a database failure does not hide the live indexer feed.
 
