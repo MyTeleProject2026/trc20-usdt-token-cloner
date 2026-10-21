@@ -1,0 +1,75 @@
+name: Generate runtime security lockfile candidate
+
+on:
+  push:
+    branches: [fix/transitive-runtime-security-deps]
+    paths:
+      - package.json
+      - .github/workflows/generate-runtime-security-lockfile.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runtime-security-lockfile
+  cancel-in-progress: false
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/transitive-runtime-security-deps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Regenerate lockfile without install scripts
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Run npm audit and summarize candidate
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > npm-audit-runtime-candidate.json
+          audit_exit=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-runtime-candidate.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities ?? {}
+          const summary = [
+            '## Runtime dependency candidate audit',
+            '- Critical: ' + (counts.critical ?? 0),
+            '- High: ' + (counts.high ?? 0),
+            '- Moderate: ' + (counts.moderate ?? 0),
+            '- Low: ' + (counts.low ?? 0),
+            '- Total: ' + (counts.total ?? 0),
+            '',
+            'Review all remaining findings and compatibility checks before merging.'
+          ].join('\\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          console.log(summary)
+          NODE
+          echo "npm audit exit code: $audit_exit"
+      - name: Commit generated lockfile
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfile is already current."
+            exit 0
+          fi
+          git commit -m "chore: lock patched runtime dependencies"
+          git push origin HEAD:fix/transitive-runtime-security-deps
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-runtime-candidate
+          path: npm-audit-runtime-candidate.json
+          if-no-files-found: warn
+          retention-days: 14
