@@ -571,6 +571,36 @@ export async function transitionSponsorTransfer(input) {
       return { updated: false, reason: 'invalid-state-transition' }
     }
 
+    if (nextStatus === 'confirmed') {
+      let evidence
+      if (transfer.asset === 'TRX') {
+        evidence = await client.query(
+          `SELECT 1 FROM ${schema}.native_transfer_verifications
+            WHERE network = $1 AND transaction_hash = $2
+              AND lower(to_address) = lower($3)
+              AND amount_sun = $4::numeric
+              AND verification_status = 'verified-on-chain'
+            LIMIT 1`,
+          [transfer.network, transactionHash.toLowerCase(), transfer.receiver_address, transfer.amount_base_units],
+        )
+      } else {
+        evidence = await client.query(
+          `SELECT 1 FROM ${schema}.transfer_verifications
+            WHERE network = $1 AND transaction_hash = $2
+              AND lower(token_contract) = lower($3)
+              AND lower(to_address) = lower($4)
+              AND amount_base_units = $5::numeric
+              AND verification_status = 'verified-on-chain'
+            LIMIT 1`,
+          [transfer.network, transactionHash.toLowerCase(), transfer.token_contract, transfer.receiver_address, transfer.amount_base_units],
+        )
+      }
+      if (!evidence.rows.length) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'finalized-transfer-evidence-not-found' }
+      }
+    }
+
     const budgetResult = await client.query(
       `SELECT id, reserved_base_units::text AS reserved_base_units,
               spent_base_units::text AS spent_base_units, budget_base_units::text AS budget_base_units
