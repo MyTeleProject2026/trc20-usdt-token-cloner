@@ -363,3 +363,212 @@ export async function getDatabaseStatus() {
     return { configured: true, ready: false, schema }
   }
 }
+
+
+function validSponsorTransitionStatus(status) {
+  return ['authorized', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status)
+}
+
+/**
+ * Atomically creates an idempotent sponsor transfer intent and reserves its
+ * budget. This is accounting only: it never signs or broadcasts transactions.
+ */
+export async function reserveSponsorTransfer(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  const { idempotencyKey, sponsorReference, purpose, asset, tokenContract = null, receiverAddress, amountBaseUnits } = input || {}
+  if (!network || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
+    || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
+    || !['network-fee', 'asset-grant'].includes(purpose)
+    || !['TRX', 'USDT'].includes(asset)
+    || (purpose === 'network-fee' && asset !== 'TRX')
+    || (asset === 'TRX' && tokenContract)
+    || (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim()))
+    || typeof receiverAddress !== 'string' || !receiverAddress.trim() || receiverAddress.length > 128
+    || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]*$/.test(amountBaseUnits) || amountBaseUnits.length > 78) {
+    return { reserved: false, reason: 'invalid-transfer-intent' }
+  }
+
+  const db = getPool()
+  if (!db) return { reserved: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const existing = await client.query(
+      `SELECT idempotency_key, sponsor_reference, network, purpose, asset, token_contract,
+              receiver_address, amount_base_units::text AS amount_base_units, status
+         FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
+      [idempotencyKey],
+    )
+    if (existing.rows.length) {
+      const row = existing.rows[0]
+      const same = row.sponsor_reference === sponsorReference.trim()
+        && row.network === network && row.purpose === purpose && row.asset === asset
+        && (row.token_contract || null) === (asset === 'USDT' ? tokenContract.trim() : null)
+        && row.receiver_address === receiverAddress.trim() && row.amount_base_units === amountBaseUnits
+      await client.query('COMMIT')
+      return same
+        ? { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+        : { reserved: false, reason: 'idempotency-key-conflict' }
+    }
+
+    const budgetResult = await client.query(
+      `SELECT id, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status
+         FROM ${schema}.sponsor_budgets
+        WHERE sponsor_reference = $1 AND network = $2 AND asset = $3
+          AND token_contract IS NOT DISTINCT FROM $4
+        FOR UPDATE`,
+      [sponsorReference.trim(), network, asset, asset === 'USDT' ? tokenContract.trim() : null],
+    )
+    if (!budgetResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'sponsor-budget-not-found' }
+    }
+    const budget = budgetResult.rows[0]
+    if (budget.status !== 'active') {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'sponsor-budget-not-active' }
+    }
+    const available = BigInt(budget.budget_base_units) - BigInt(budget.reserved_base_units) - BigInt(budget.spent_base_units)
+    const amount = BigInt(amountBaseUnits)
+    if (amount > available) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'insufficient-sponsor-budget' }
+    }
+
+    await client.query(
+      `UPDATE ${schema}.sponsor_budgets
+          SET reserved_base_units = reserved_base_units + $1::numeric, updated_at = now()
+        WHERE id = $2`,
+      [amountBaseUnits, budget.id],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.sponsor_transfers
+        (idempotency_key, sponsor_reference, network, purpose, asset, token_contract,
+         receiver_address, amount_base_units, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending-review')`,
+      [idempotencyKey, sponsorReference.trim(), network, purpose, asset,
+       asset === 'USDT' ? tokenContract.trim() : null, receiverAddress.trim(), amountBaseUnits],
+    )
+    await client.query('COMMIT')
+    return { reserved: true, duplicate: false, status: 'pending-review', idempotencyKey }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    if (error?.code === '23505') return { reserved: false, reason: 'idempotency-key-conflict' }
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Applies an explicit, audited lifecycle transition and reconciles budget
+ * reservation atomically. Authorization requires a non-empty approval reference.
+ * A confirmed transition requires an externally verified finalized transaction hash.
+ */
+export async function transitionSponsorTransfer(input) {
+  const { idempotencyKey, nextStatus, authorizationReference = null, transactionHash = null } = input || {}
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
+    || !validSponsorTransitionStatus(nextStatus)) {
+    return { updated: false, reason: 'invalid-transition' }
+  }
+  if (nextStatus === 'authorized' && (typeof authorizationReference !== 'string' || !authorizationReference.trim())) {
+    return { updated: false, reason: 'authorization-reference-required' }
+  }
+  if (nextStatus === 'confirmed' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
+    return { updated: false, reason: 'finalized-transaction-hash-required' }
+  }
+
+  const db = getPool()
+  if (!db) return { updated: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query(
+      `SELECT idempotency_key, sponsor_reference, network, asset, token_contract,
+              amount_base_units::text AS amount_base_units, status, transaction_hash
+         FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'transfer-not-found' }
+    }
+    const transfer = result.rows[0]
+    if (transfer.status === nextStatus) {
+      const sameHash = nextStatus !== 'confirmed' || transfer.transaction_hash?.trim().toLowerCase() === transactionHash.toLowerCase()
+      await client.query('COMMIT')
+      return sameHash ? { updated: true, duplicate: true, status: nextStatus } : { updated: false, reason: 'terminal-hash-conflict' }
+    }
+    const allowed = {
+      'pending-review': ['authorized', 'cancelled'],
+      authorized: ['submitted', 'cancelled'],
+      submitted: ['confirmed', 'failed'],
+      confirmed: [],
+      failed: [],
+      cancelled: [],
+    }
+    if (!allowed[transfer.status]?.includes(nextStatus)) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'invalid-state-transition' }
+    }
+
+    const budgetResult = await client.query(
+      `SELECT id, reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, budget_base_units::text AS budget_base_units
+         FROM ${schema}.sponsor_budgets
+        WHERE sponsor_reference = $1 AND network = $2 AND asset = $3
+          AND token_contract IS NOT DISTINCT FROM $4
+        FOR UPDATE`,
+      [transfer.sponsor_reference, transfer.network, transfer.asset, transfer.token_contract],
+    )
+    if (!budgetResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'sponsor-budget-not-found' }
+    }
+    const budget = budgetResult.rows[0]
+    const amount = BigInt(transfer.amount_base_units)
+    const reserved = BigInt(budget.reserved_base_units)
+    const spent = BigInt(budget.spent_base_units)
+    if (['confirmed', 'failed', 'cancelled'].includes(nextStatus) && reserved < amount) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'reservation-invariant-violated' }
+    }
+    if (nextStatus === 'confirmed' && spent + amount + reserved - amount > BigInt(budget.budget_base_units)) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'budget-invariant-violated' }
+    }
+    if (nextStatus === 'confirmed') {
+      await client.query(
+        `UPDATE ${schema}.sponsor_budgets SET reserved_base_units = reserved_base_units - $1::numeric,
+          spent_base_units = spent_base_units + $1::numeric, updated_at = now() WHERE id = $2`,
+        [amount.toString(), budget.id],
+      )
+    } else if (nextStatus === 'failed' || nextStatus === 'cancelled') {
+      await client.query(
+        `UPDATE ${schema}.sponsor_budgets SET reserved_base_units = reserved_base_units - $1::numeric,
+          updated_at = now() WHERE id = $2`,
+        [amount.toString(), budget.id],
+      )
+    }
+    await client.query(
+      `UPDATE ${schema}.sponsor_transfers
+          SET status = $1,
+              authorization_reference = COALESCE($2, authorization_reference),
+              transaction_hash = COALESCE($3, transaction_hash),
+              updated_at = now()
+        WHERE idempotency_key = $4`,
+      [nextStatus, authorizationReference?.trim() || null, transactionHash?.toLowerCase() || null, idempotencyKey],
+    )
+    await client.query('COMMIT')
+    return { updated: true, duplicate: false, status: nextStatus }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
