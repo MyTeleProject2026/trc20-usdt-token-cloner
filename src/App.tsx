@@ -313,8 +313,25 @@ export default function App() {
   }
 
   const handleTransfer = async () => {
+    if (selectedAsset === 'TRX') {
+      setActionMessage({ type: 'error', text: 'The selected asset is native TRX. Use the native TRX workflow instead of the TRC-20 contract transfer form.' })
+      return
+    }
+    if (selectedAsset === 'USDT') {
+      setActionMessage({ type: 'error', text: 'USDT transfers are blocked from this workflow until a network-specific official-contract allowlist and verification gate are implemented. Do not bypass this chooser using the contract field.' })
+      return
+    }
+    if (network !== 'shasta') {
+      setActionMessage({ type: 'error', text: 'VTRC is an independent project token and this workflow currently permits VTRC transfers on Shasta testnet only. Switch to Shasta and verify the deployed VTRC contract.' })
+      return
+    }
     if (!contractAddress || !recipientAddress || !transferAmount) {
       setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, and amount.' })
+      return
+    }
+    const officialMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+    if (contractAddress.trim() === officialMainnetUsdt) {
+      setActionMessage({ type: 'error', text: 'The selected asset is VTRC, but the entered contract is the known TRON Mainnet USDT address. Asset selection and contract do not match; transfer blocked.' })
       return
     }
     setTransferring(true)
@@ -325,10 +342,7 @@ export default function App() {
       if (!tronWeb.isAddress(contractAddress) || !tronWeb.isAddress(recipientAddress)) {
         throw new Error('Enter valid TRON Base58 addresses for the token contract and recipient.')
       }
-      const officialMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-      if (network === 'mainnet' && contractAddress.trim() !== officialMainnetUsdt) {
-        throw new Error('Mainnet token transfers in this workflow are restricted to the official TRON USDT contract. Custom tokens are not official USDT.')
-      }
+      if (network !== 'shasta') throw new Error('VTRC transfers are restricted to Shasta testnet in this workflow.')
       const sender = tronWeb.defaultAddress.base58
       if (!sender) throw new Error('TronLink has no authorized sender address.')
       setWalletAddress(sender)
