@@ -6,8 +6,9 @@ import { validateSponsorBudget, validateSponsorTransferIntent } from '../server/
 test('sponsor budget database constraint enforces TRX-only network-fee budgets', async () => {
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
   assert.match(source, /sponsor_budgets_network_fee_requires_trx/)
-  assert.match(source, /CHECK \\(purpose <> 'network-fee' OR asset = 'TRX'\\\) NOT VALID/)
-  assert.match(source, /conrelid = '\$\{schema\}\.sponsor_budgets'::regclass/)
+  assert.ok(source.includes("CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID"))
+  assert.ok(source.includes('DO $sponsor$ BEGIN'))
+  assert.ok(source.includes("conrelid = '\${schema}.sponsor_budgets'::regclass"))
 })
 
 test('fee-purpose policy rejects token principal for budgets and transfer intents', () => {
