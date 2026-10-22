@@ -24,16 +24,16 @@ test('all tool navigation controls expose their selected state', () => {
 })
 
 test('console theme includes separate phone, tablet, desktop, and reduced-motion rules', () => {
-  assert.match(styles, /@media \\(max-width: 640px\\)/)
-  assert.match(styles, /@media \\(max-width: 900px\\)/)
-  assert.match(styles, /@media \\(min-width: 1024px\\)/)
+  assert.match(styles, /@media \(max-width: 640px\)/)
+  assert.match(styles, /@media \(max-width: 900px\)/)
+  assert.match(styles, /@media \(min-width: 1024px\)/)
   assert.match(styles, /prefers-reduced-motion: reduce/)
-  assert.match(styles, /\\.app-workflow-nav button\\[aria-pressed="true"\\]/)
+  assert.match(styles, /\.app-workflow-nav button\[aria-pressed="true"\]/)
   assert.match(styles, /overflow-x: auto/)
 })
 
 test('receiver history uses responsive cards and wraps long chain identifiers', () => {
-  assert.match(history, /records\\.map\\(/)
+  assert.match(history, /records\.map\(/)
   assert.match(history, /<article[^>]*rounded-lg border/)
   assert.match(history, /break-all text-xs font-mono/)
 })
