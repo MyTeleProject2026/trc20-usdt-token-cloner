@@ -122,7 +122,7 @@ export default function SponsorProviderPage({ network, refreshKey }: SponsorPage
       'Please provide written details on supported operations, funding, pricing, supported networks, authorization, limits, and failure/refund handling.',
       '',
       'This message is a draft only. No funds, credentials, or wallet signing material are included.',
-    ].join('\\n')
+    ].join('\n')
 
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
