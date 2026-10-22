@@ -51,3 +51,11 @@ test('copy actions report success only after clipboard writes and handle browser
   assert.ok(app.includes('setCopyFeedback({ type: \'error\', text: \'Nothing to copy yet.\' })'))
   assert.ok(app.includes('onClick={() => setCopyFeedback(null)}'))
 })
+
+test('receiver history uses an accessible desktop table and mobile cards', () => {
+  assert.ok(history.includes('<table aria-label="Incoming TRC-20 receiver history">'))
+  assert.ok(history.includes('<th scope="col">Token / amount</th>'))
+  assert.ok(history.includes('<th scope="col">Verification</th>'))
+  assert.ok(history.includes('receiver-history-table-wrap'))
+  assert.ok(history.includes('receiver-history-mobile-cards'))
+})
