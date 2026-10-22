@@ -29,3 +29,15 @@ test('provider discovery UI never claims every exchange will credit a deposit', 
   assert.ok(component.includes('Not a confirmed free sponsor'))
   assert.ok(component.includes('Sponsor funding verification: not established.'))
 })
+
+
+test('GasFree UI exposes account inspection and trace status but no transfer submission control', () => {
+  assert.ok(component.includes('/api/gasfree/account?'))
+  assert.ok(component.includes('Inspect provider account'))
+  assert.ok(component.includes('Spendable balance not provided in the documented account response; it is unknown, not zero.'))
+  assert.ok(component.includes('/api/gasfree/trace?'))
+  assert.ok(component.includes('Query provider transfer status'))
+  assert.ok(component.includes('Chain verification: not established by this trace lookup.'))
+  assert.ok(component.includes('Live transfer submission: disabled'))
+  assert.ok(!component.includes('/api/gasfree/submit'))
+})
