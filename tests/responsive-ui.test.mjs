@@ -63,3 +63,16 @@ test('receiver history uses an accessible desktop table and mobile cards', () =>
 test('receiver history distinguishes multiple transfer events in the same transaction', () => {
   assert.ok(history.includes('record.eventIndex ?? index'))
 })
+test('sponsor status refreshes after wallet connect and matches selected network', async () => {
+  const sponsorship = await readFile(new URL('../src/SponsorshipStatus.tsx', import.meta.url), 'utf8')
+  const sponsorPages = await readFile(new URL('../src/SponsorProviderPages.tsx', import.meta.url), 'utf8')
+  assert.ok(app.includes('const [sponsorRefreshKey, setSponsorRefreshKey] = useState(0)'))
+  assert.ok(app.includes('setSponsorRefreshKey((current) => current + 1)'))
+  assert.ok(app.includes('<SponsorshipStatus network={network} refreshKey={sponsorRefreshKey} />'))
+  assert.ok(app.includes('<SponsorProviderPage network={network} refreshKey={sponsorRefreshKey} />'))
+  assert.ok(sponsorship.includes('}, [network, refreshKey])'))
+  assert.ok(sponsorship.includes('status?.network === network'))
+  assert.ok(sponsorship.includes("network !== 'mainnet' || status?.mainnetEnabled"))
+  assert.ok(sponsorPages.includes('}, [network, refreshKey])'))
+  assert.ok(sponsorPages.includes('status?.network === network'))
+})
