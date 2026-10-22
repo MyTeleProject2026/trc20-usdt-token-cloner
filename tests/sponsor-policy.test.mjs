@@ -27,6 +27,17 @@ test('budget policy rejects overspending, malformed precision and invalid status
   assert.equal(validateSponsorBudget({ ...validBudget, asset: 'TRX', tokenContract: 'TToken' }).reason, 'native-trx-has-no-token-contract')
 })
 
+test('fee and asset-grant budget purposes stay separate and fee budgets require TRX', () => {
+  assert.deepEqual(validateSponsorBudget({ ...validBudget, purpose: 'network-fee' }), {
+    valid: true,
+    purpose: 'network-fee',
+    availableBaseUnits: '5000000',
+    canReserve: true,
+  })
+  assert.equal(validateSponsorBudget({ ...validBudget, purpose: 'network-fee', asset: 'USDT', tokenContract: 'TUsdt' }).reason, 'network-fee-must-use-trx')
+  assert.equal(validateSponsorBudget({ ...validBudget, purpose: 'unknown' }).reason, 'invalid-purpose')
+})
+
 test('disabled or depleted budgets cannot be reserved from', () => {
   assert.equal(validateSponsorBudget({ ...validBudget, status: 'disabled' }).canReserve, false)
   assert.equal(validateSponsorBudget({ ...validBudget, status: 'depleted', reservedBaseUnits: '0', spentBaseUnits: '10000000' }).canReserve, false)
