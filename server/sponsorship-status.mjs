@@ -50,6 +50,6 @@ export function getSponsorshipStatus() {
       'mainnet-operator-approval-and-emergency-pause',
     ],
 
-    message: 'External-sponsor-only policy selected, but no sponsor provider or funded sponsor account is verified. Sponsored fees and sponsor-funded USDT/TRX grants remain unavailable, and the platform must never fall back to charging the user. The app must not display sponsor budget or pending credits as receiver wallet balance. Spendable balance must come from verified on-chain assets; exchange credit requires evidence from that exchange. A normal USDT/TRX transfer cannot impose spend restrictions on the receiver wallet; restrictions require an audited escrow/vesting contract or enforcement by the receiving platform. Sender authorization and valid token funds remain required for sender-funded transfers.',
+    message: 'External-sponsor-only policy selected, but no sponsor provider or funded sponsor account is verified. Sponsored fees and sponsor-funded TRX/USDT/VTRC grants remain unavailable, and the platform must never fall back to charging the user. The app must not display sponsor budget or pending credits as receiver wallet balance. Spendable balance must come from verified on-chain assets; exchange credit requires evidence from that exchange. A normal USDT/TRX transfer cannot impose spend restrictions on the receiver wallet; restrictions require an audited escrow/vesting contract or enforcement by the receiving platform. Sender authorization and valid token funds remain required for sender-funded transfers.',
   }
 }
