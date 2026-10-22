@@ -43,6 +43,7 @@ export function getSponsorshipStatus() {
 
     requiredBeforeEnablement: [
       'verified-provider-adapter-and-account',
+      'provider-specific-signing-authorization',
       'explicit-sponsor-consent-and-funded-budget',
       'server-side-authorization-and-per-transfer-limits',
       'idempotent-sponsor-ledger-and-reconciliation',
