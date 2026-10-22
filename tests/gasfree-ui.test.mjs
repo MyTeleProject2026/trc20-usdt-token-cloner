@@ -54,7 +54,7 @@ test('GasFree token list never treats a provider symbol alone as official Mainne
 test('GasFree trace UI has an explicit solidified-chain verification step before showing receiver balance as verified', () => {
   assert.ok(component.includes('/api/tron/verify-transfer/'))
   assert.ok(component.includes('Verify transaction and recheck receiver balance'))
-  assert.ok(component.includes('matching Transfer event in the solidified receipt'))
+  assert.ok(component.includes('matched a Transfer event in the solidified receipt'))
   assert.ok(component.includes('/api/tron/token-balance?'))
   assert.ok(component.includes('Solidified receiver token balance'))
   assert.ok(component.includes('This still does not establish exchange-account credit.'))
