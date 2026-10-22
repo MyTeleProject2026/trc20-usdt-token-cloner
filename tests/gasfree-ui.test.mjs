@@ -60,3 +60,12 @@ test('GasFree trace UI has an explicit solidified-chain verification step before
   assert.ok(component.includes('This still does not establish exchange-account credit.'))
   assert.ok(!component.includes('/api/gasfree/submit'))
 })
+
+
+test('GasFree account lookup auto-refreshes for a connected Mainnet wallet without cross-network fallback', () => {
+  assert.ok(component.includes("walletNetwork === 'mainnet' ? 'mainnet' : 'nile'"))
+  assert.ok(component.includes('setNetwork(\'mainnet\')'))
+  assert.ok(component.includes('void inspectAccount(walletAddress)'))
+  assert.ok(component.includes("if (walletNetwork !== 'mainnet')"))
+  assert.ok(component.includes('no automatic cross-network account lookup was made.'))
+})
