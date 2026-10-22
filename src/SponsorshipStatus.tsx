@@ -17,7 +17,9 @@ type Sponsorship = {
   message?: string
 }
 
-export default function SponsorshipStatus() {
+type Props = { network: 'shasta' | 'mainnet'; refreshKey: number }
+
+export default function SponsorshipStatus({ network, refreshKey }: Props) {
   const [status, setStatus] = useState<Sponsorship | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -38,9 +40,9 @@ export default function SponsorshipStatus() {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [])
+  }, [network, refreshKey])
 
-  const active = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer)
+  const active = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer && status?.network === network && (network !== 'mainnet' || status?.mainnetEnabled))
   return (
     <section className="mb-xl flex gap-lg rounded-xl border border-secondary bg-primary p-lg" aria-live="polite">
       {active
