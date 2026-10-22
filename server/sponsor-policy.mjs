@@ -25,6 +25,14 @@ export function validateSponsorBudget(input) {
   if (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
   }
+  // Fail closed: a token symbol/name is not proof of identity. The caller must
+  // provide an explicitly configured allowlist for the selected network.
+  if (asset === 'USDT') {
+    const allowed = allowedTokenContractsByNetwork?.[network]
+    if (!Array.isArray(allowed) || !allowed.some((contract) => typeof contract === 'string' && contract.trim() === tokenContract.trim())) {
+      return { valid: false, reason: 'token-contract-not-allowlisted-for-network' }
+    }
+  }
   if (!BUDGET_STATUSES.has(status)) return { valid: false, reason: 'invalid-budget-status' }
   const budget = baseUnits(budgetBaseUnits, { allowZero: true })
   const reserved = baseUnits(reservedBaseUnits, { allowZero: true })
@@ -42,7 +50,7 @@ export function validateSponsorBudget(input) {
  * Validates an intent only. It deliberately never authorizes, signs, broadcasts,
  * or represents an exchange credit. Pass a checksum-aware TRON address validator.
  */
-export function validateSponsorTransferIntent(input, { isValidAddress, maxTransferBaseUnits } = {}) {
+export function validateSponsorTransferIntent(input, { isValidAddress, maxTransferBaseUnits, allowedTokenContractsByNetwork = {} } = {}) {
   if (!input || typeof input !== 'object') return { valid: false, reason: 'invalid-transfer-intent' }
   const { idempotencyKey, sponsorReference, network, purpose, asset, tokenContract = null, receiverAddress, amountBaseUnits } = input
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)) {
