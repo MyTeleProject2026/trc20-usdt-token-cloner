@@ -246,3 +246,18 @@ test('GasFree trace lookup rejects unsafe IDs without calling provider', async (
   assert.equal(result.reason, 'invalid-trace-id')
   assert.equal(calls, 0)
 })
+
+
+test('GasFree trace lookup refuses a provider response for a different trace ID', async () => {
+  const client = createGasFreeClient({
+    env: mainnetEnv,
+    fetchImpl: async () => ({
+      ok: true, status: 200,
+      json: async () => ({ code: 200, data: { id: 'some-other-trace', state: 'SUCCEED' } }),
+    }),
+    now: () => 1731912286,
+  })
+  const result = await client.getTrace('mainnet', 'requested-trace')
+  assert.equal(result.reachable, false)
+  assert.equal(result.reason, 'invalid-provider-response')
+})
