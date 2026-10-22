@@ -192,7 +192,7 @@ export async function initializeDatabase() {
       // it can be budgeted separately from official USDT and native TRX.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
-      // One sponsor may have independent budgets for each network/asset/contract.
+      // One sponsor may have independent budgets for each network/purpose/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
       await db.query(`DROP INDEX IF EXISTS ${schema}.idx_ttc_sponsor_budget_identity`)
