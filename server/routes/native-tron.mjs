@@ -43,7 +43,7 @@ router.get('/sponsorship/status', (_req, res) => {
         sponsoredFeeCoverage: 'none',
         exchangeCredit: 'exchange-confirmation-required',
       },
-      message: 'External-sponsor-only policy selected. No sponsor agreement or funding is verified; paid provider purchases and user-funded fallback are forbidden. Sponsored fees and sponsor-funded asset transfers remain disabled until all operational gates pass.',
+      message: 'External-sponsor-only policy selected. No sponsor agreement or funding is verified; paid provider purchases and user-funded fallback are forbidden. Sponsored fees and sponsor-funded TRX/USDT/VTRC grants remain disabled until all operational gates pass.',
       requiredBeforeEnablement: [
         'verified-provider-adapter-and-account',
         'explicit-sponsor-consent-and-funded-budget',
