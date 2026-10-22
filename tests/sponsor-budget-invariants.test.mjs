@@ -265,7 +265,7 @@ test('sponsor confirmation requests rollback when audit-event insertion fails', 
     async connect() {
       return {
         async query(sql, values = []) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           state.queries.push(normalized)
           if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'COMMIT') {
