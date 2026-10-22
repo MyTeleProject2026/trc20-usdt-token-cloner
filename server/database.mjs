@@ -188,6 +188,20 @@ export async function initializeDatabase() {
       // Keep fee/resource budgets independent from asset principal budgets. Existing
       // rows default to asset-grant; fee sponsorship requires its own explicit budget.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Enforce the fee-budget denomination at the database boundary too. NOT VALID
+      // protects new/updated rows immediately without failing startup on legacy rows;
+      // those must be audited before this constraint is validated in a later migration.
+      await db.query(`DO $ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $`)
       // VTRC is an independent project token. Expand sponsor ledger constraints so
       // it can be budgeted separately from official USDT and native TRX.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
