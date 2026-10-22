@@ -35,6 +35,8 @@ These alternatives do not establish a universally free sponsor-funded programme 
 
 The research therefore found real gasless/energy sponsorship products, but **no verified unconditional free provider covering both network costs and the asset principal**. A sponsor-funded asset grant is a separate business arrangement and requires an explicitly consenting, funded sponsor.
 
+- **Request Network** advertises gasless USDT payments on TRON, but its published pricing is a 0.9% transaction fee plus a flat $3.99 TRON network-cost fee paid by the payer. It therefore does not satisfy this project's no-user-funded-fallback requirement and is not a free principal-grant sponsor. See https://request.network/pricing/ and https://request.network/request-network-eliminates-the-gas-barrier-for-usdt-on-tron/.
+
 ## Receiver notifications and exchange credit
 
 The receiver-history UI emits an in-app status message when a previously unseen incoming event is independently marked `verified-on-chain`. Initial historical rows and unverified indexer candidates do not trigger that alert. A separate opt-in requests browser Notification permission and, when granted, shows a device/browser notification for newly verified events while this page is running. This is not a service-worker push notification and does not work as a guaranteed background alert when the page is closed. It is not a notification delivered by other wallet apps or exchanges, and it does not prove exchange account credit.
