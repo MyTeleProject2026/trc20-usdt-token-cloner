@@ -49,3 +49,15 @@ The next external dependency is a real sponsor that voluntarily funds the servic
 ## VTRC implementation boundary
 
 The pure sponsor-intent validator and sponsor ledger schema accept VTRC as a distinct asset only when a network-specific token contract is explicitly allowlisted. This is policy/schema groundwork, not a transfer adapter: no VTRC sponsor transfer is authorized, signed, broadcast, or available in production. The actual VTRC contract must be independently verified for each network before any allowlist entry is configured. No placeholder contract or token symbol is evidence of a deployed token.
+
+
+## Network-scoped contract configuration
+
+The reservation layer requires exact contract addresses before it can reserve a token grant:
+
+- Mainnet official USDT uses the fixed contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`.
+- Non-mainnet USDT uses `SPONSOR_USDT_SHASTA_CONTRACTS` or `SPONSOR_USDT_NILE_CONTRACTS` only after the exact token contract is verified for that network.
+- VTRC uses `SPONSOR_VTRC_SHASTA_CONTRACTS`, `SPONSOR_VTRC_NILE_CONTRACTS`, or `SPONSOR_VTRC_MAINNET_CONTRACTS` only after the corresponding VTRC deployment is independently verified. Values are comma-separated exact addresses; no placeholder or symbol-only value is acceptable.
+- The existing VTRC transfer UI is Shasta-only. A Mainnet allowlist entry alone does not deploy VTRC or enable a Mainnet transfer.
+
+These variables authorize contract identity for ledger reservation only. They do not prove the sponsor owns sufficient tokens, do not enable transaction signing/broadcast, and do not override the global disabled sponsorship status.
