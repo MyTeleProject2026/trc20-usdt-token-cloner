@@ -9,7 +9,13 @@ The official GasFree developer documentation describes a TRON TRC-20 workflow wh
 - TRON resource model: https://developers.tron.network/docs/bandwidth-and-energy
 - TRON resource delegation: https://developers.tron.network/docs/delegation
 
-This repository change implements authenticated, fixed-host, read-only calls through:\n\n- `GET /api/gasfree/capabilities?network=mainnet|nile` — provider directory and supported-token fee configuration.\n- `GET /api/gasfree/account?network=mainnet|nile&address={EOA}` — provider account status, recommended nonce, pending/frozen amounts and supported asset metadata. The documented response does not guarantee a spendable balance field; an absent balance is unknown, not zero.\n- `GET /api/gasfree/trace?network=mainnet|nile&traceId={id}` — provider trace state and reported transaction metadata. A provider state is not independent chain-finality verification.\n\nThese calls require approved server-side API credentials. They never sign, submit, or broadcast a transfer, create a wallet balance, or credit a sponsor ledger.
+This repository change implements authenticated, fixed-host, read-only calls through:
+
+- `GET /api/gasfree/capabilities?network=mainnet|nile` — provider directory and supported-token fee configuration.
+- `GET /api/gasfree/account?network=mainnet|nile&address={EOA}` — provider account status, recommended nonce, pending/frozen amounts and supported asset metadata. The documented response does not guarantee a spendable balance field; an absent balance is unknown, not zero.
+- `GET /api/gasfree/trace?network=mainnet|nile&traceId={id}` — provider trace state and reported transaction metadata. A provider state is not independent chain-finality verification.
+
+These calls require approved server-side API credentials. They never sign, submit, or broadcast a transfer, create a wallet balance, or credit a sponsor ledger.
 
 ## Fees and funding: do not label this as free
 
@@ -31,7 +37,7 @@ The research therefore found real gasless/energy sponsorship products, but **no 
 
 ## Receiver notifications and exchange credit
 
-The receiver-history UI also emits an in-app status message when a previously unseen incoming event is independently marked `verified-on-chain`. Initial historical rows and unverified indexer candidates do not trigger that alert. It appears only while the app is open and polling. It is not a push notification delivered by other wallet apps or exchanges, and it does not prove exchange account credit.
+The receiver-history UI emits an in-app status message when a previously unseen incoming event is independently marked `verified-on-chain`. Initial historical rows and unverified indexer candidates do not trigger that alert. A separate opt-in requests browser Notification permission and, when granted, shows a device/browser notification for newly verified events while this page is running. This is not a service-worker push notification and does not work as a guaranteed background alert when the page is closed. It is not a notification delivered by other wallet apps or exchanges, and it does not prove exchange account credit.
 
 ## Networks and developer access
 
@@ -42,7 +48,16 @@ The documented provider API origins and path prefixes are:
 | Mainnet | `https://open.gasfree.io` | `/tron` |
 | Nile testnet | `https://open-test.gasfree.io` | `/nile` |
 
-The documented provider API does not list Shasta as an API environment. This implementation rejects Shasta rather than silently redirecting a Shasta request to Nile or Mainnet. The documentation says the integrator must apply for access to receive an API key and API secret. The current adapter isolates credentials by network using these server-only variables:\n\n| Environment variable | Network |\n|---|---|\n| `GASFREE_MAINNET_API_KEY` | Mainnet key |\n| `GASFREE_MAINNET_API_SECRET` | Mainnet HMAC secret |\n| `GASFREE_NILE_API_KEY` | Nile testnet key |\n| `GASFREE_NILE_API_SECRET` | Nile HMAC secret |\n\nNever put the API secret in `VITE_*` variables, browser code, a commit, a URL, or logs. The adapter rejects cross-network credential fallback.
+The documented provider API does not list Shasta as an API environment. This implementation rejects Shasta rather than silently redirecting a Shasta request to Nile or Mainnet. The documentation says the integrator must apply for access to receive an API key and API secret. The current adapter isolates credentials by network using these server-only variables:
+
+| Environment variable | Network |
+|---|---|
+| `GASFREE_MAINNET_API_KEY` | Mainnet key |
+| `GASFREE_MAINNET_API_SECRET` | Mainnet HMAC secret |
+| `GASFREE_NILE_API_KEY` | Nile testnet key |
+| `GASFREE_NILE_API_SECRET` | Nile HMAC secret |
+
+Never put the API secret in `VITE_*` variables, browser code, a commit, a URL, or logs. The adapter rejects cross-network credential fallback.
 
 ## Before any send route can be enabled
 
@@ -60,7 +75,9 @@ A standard TRON token transfer can arrive at a wallet without the receiver takin
 
 ## What this PR changes
 
-- Adds HMAC-SHA256 authenticated, fixed-host, read-only provider/token discovery for the documented Mainnet and Nile environments.
-- Normalizes provider/token records and returns token-denominated fee amounts without trusting a token symbol as proof of identity.
-- Keeps submission and funding verification disabled.
-- Exposes a capability endpoint and regression tests without altering live deployment configuration or database state.
+- Adds HMAC-SHA256 authenticated, fixed-host, read-only provider/token discovery, account lookup and trace lookup for the documented Mainnet and Nile environments.
+- Normalizes provider/token records and returns token-denominated fee amounts without trusting a token symbol as proof of identity; the UI explicitly checks the official Mainnet USDT contract address rather than relying on its symbol.
+- Adds a follow-up from a provider trace to the existing independent solidified transaction/receipt verifier and, after exact Transfer-event verification, re-reads the receiver balance for the same network/contract/address.
+- Adds opt-in browser notifications for newly verified receiver-history events and event-index-specific display keys.
+- Keeps authorization submission, sponsor-funding claims and spendable sponsor-funded balances disabled.
+- Adds regression tests without altering live deployment configuration or database state.
