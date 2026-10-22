@@ -1,10 +1,10 @@
-# Dependency security candidate review
+# Dependency security remediation status
 
-This document records the dependency candidate generated for PR #27. It is not a statement that all findings are resolved.
+Updated after PRs #27–#29 were merged into `main`.
 
-## Candidate versions
+## Patched dependency lines
 
-The generated lockfile resolves:
+The current main-branch lockfile resolves the following versions:
 
 - `axios`: 1.20.0
 - `tmp`: 0.2.7
@@ -12,16 +12,23 @@ The generated lockfile resolves:
 - `ethers`: 6.17.0
 - `tronweb`: 6.5.1
 - `solc`: 0.8.37
+- `vite`: 6.4.5
+- `tailwindcss`: 4.3.3
+- `@tailwindcss/postcss`: 4.3.3
 
-The candidate audit reported 9 remaining advisories: 0 critical, 6 high, and 3 moderate.
+The dependency audit on main commit `96e8ebd66a6d70c3777971d69b2a7d8ff8648158` completed successfully with `npm audit` reporting **0 vulnerabilities**. CI, application verification, and the Node.js build/contract compilation workflows also passed for that commit.
 
-## Remaining migration work
+## Production rollout
 
-The current report continues to flag Vite 5 and Tailwind CSS 3 dependency trees. Their reported remediation requires major-version migrations. These should be handled in separate branches with explicit build, test, and deployment compatibility checks; do not use `npm audit fix --force` to bypass those checks.
+Render deployment `dep-dbckpkrbc2fs738ieps0` is live on the same commit. The Render event stream reported a successful build and deployment. No application error-level logs were returned for the reviewed period. Render HTTP request metrics were empty, so these checks do not prove that external clients can reach every endpoint or that user-facing flows work end-to-end.
 
-## Rollout policy
+## Remaining operational checks
 
-- Review CI, application verification, and contract compilation for the exact candidate lockfile.
-- Do not merge solely because the audit count decreased.
-- Keep the production environment and Render configuration unchanged until the candidate is reviewed and deployed through the normal release path.
-- This dependency update does not sign or broadcast blockchain transactions, credit balances, or enable sponsorship.
+- Perform an external smoke test of `/health`, `/api/storage/status`, and `/api/readiness` from a network that can reach the public Render URL.
+- The `/api/readiness` route requires both database readiness and a reachable read-only Tatum current-block endpoint. A provider failure should not be treated as proof of an application crash.
+- Receiver history worker scheduling is still a separate opt-in operation. The worker remains disabled unless explicitly configured and scheduled; a successful API deployment does not mean background monitoring is active.
+- Keep wallet signing/broadcast, sponsorship, and balance crediting disabled until their separate controls and verification gates are reviewed.
+
+## Policy
+
+Use the lockfile and CI checks for future dependency changes. Avoid `npm audit fix --force` for major migrations. Re-run the audit after dependency updates and investigate any new findings before deployment.
