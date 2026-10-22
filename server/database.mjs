@@ -173,6 +173,7 @@ export async function initializeDatabase() {
           network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
           asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
           token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
           budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
           reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
           spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
@@ -184,6 +185,9 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
       // VTRC is an independent project token. Expand sponsor ledger constraints so
       // it can be budgeted separately from official USDT and native TRX.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
@@ -191,9 +195,10 @@ export async function initializeDatabase() {
       // One sponsor may have independent budgets for each network/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
+      await db.query(`DROP INDEX IF EXISTS ${schema}.idx_ttc_sponsor_budget_identity`)
       await db.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_budget_identity
-          ON ${schema}.sponsor_budgets (sponsor_reference, network, asset, COALESCE(token_contract, ''))
+          ON ${schema}.sponsor_budgets (sponsor_reference, network, purpose, asset, COALESCE(token_contract, ''))
       `)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers (
@@ -539,10 +544,10 @@ export async function reserveSponsorTransfer(input) {
               reserved_base_units::text AS reserved_base_units,
               spent_base_units::text AS spent_base_units, status
          FROM ${schema}.sponsor_budgets
-        WHERE sponsor_reference = $1 AND network = $2 AND asset = $3
-          AND token_contract IS NOT DISTINCT FROM $4
+        WHERE sponsor_reference = $1 AND network = $2 AND purpose = $3 AND asset = $4
+          AND token_contract IS NOT DISTINCT FROM $5
         FOR UPDATE`,
-      [sponsorReference.trim(), network, asset, SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null],
+      [sponsorReference.trim(), network, purpose, asset, SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null],
     )
     if (!budgetResult.rows.length) {
       await client.query('ROLLBACK')
@@ -737,10 +742,10 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       `SELECT id, reserved_base_units::text AS reserved_base_units,
               spent_base_units::text AS spent_base_units, budget_base_units::text AS budget_base_units
          FROM ${schema}.sponsor_budgets
-        WHERE sponsor_reference = $1 AND network = $2 AND asset = $3
-          AND token_contract IS NOT DISTINCT FROM $4
+        WHERE sponsor_reference = $1 AND network = $2 AND purpose = $3 AND asset = $4
+          AND token_contract IS NOT DISTINCT FROM $5
         FOR UPDATE`,
-      [transfer.sponsor_reference, transfer.network, transfer.asset, transfer.token_contract],
+      [transfer.sponsor_reference, transfer.network, transfer.purpose, transfer.asset, transfer.token_contract],
     )
     if (!budgetResult.rows.length) {
       await client.query('ROLLBACK')
