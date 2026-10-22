@@ -148,6 +148,7 @@ function normalizeAccount(payload, requestedAddress) {
 function normalizeTrace(payload, requestedTraceId) {
   const data = payload?.data
   if (!data || typeof data !== 'object') return null
+  if (typeof data.id === 'string' && data.id !== requestedTraceId) return null
   const returnedId = typeof data.id === 'string' ? data.id : requestedTraceId
   const state = typeof data.state === 'string' ? data.state
     : typeof data.status === 'string' ? data.status : null
@@ -209,6 +210,7 @@ export function createGasFreeClient({
     if (!payload || (payload.code !== 200 && payload.code !== '200')) {
       const error = new Error('GasFree returned an invalid API response')
       error.providerStatus = response.status
+      error.reasonCode = 'invalid-provider-response'
       throw error
     }
     return payload
