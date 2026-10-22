@@ -315,3 +315,18 @@ test('GasFree server credential template is complete and remains backend-only', 
   assert.match(template, /must only be configured server-side/)
   assert.doesNotMatch(template, /^VITE_GASFREE_[A-Z_]+=/m, 'GasFree credentials must never be frontend variables')
 })
+
+test('GasFree trace lookup rejects responses without the exact provider trace ID', async () => {
+  const client = createGasFreeClient({
+    env: mainnetEnv,
+    fetchImpl: async () => ({
+      ok: true, status: 200,
+      json: async () => ({ code: 200, data: { state: 'SUCCEED', transactionId: 'a'.repeat(64) } }),
+    }),
+    now: () => 1731912286,
+  })
+  const result = await client.getTrace('mainnet', 'requested-trace')
+  assert.equal(result.reachable, false)
+  assert.equal(result.reason, 'invalid-provider-response')
+  assert.equal(result.trace, undefined)
+})
