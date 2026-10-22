@@ -42,7 +42,7 @@ test('receiver history UI refreshes automatically and never labels indexer rows 
 
 test('sponsor UI keeps fee sponsorship, asset grants, and real spendable balance separate', () => {
   assert.match(sponsorshipUi, /Network fee sponsorship/)
-  assert.match(sponsorshipUi, /Sponsor-funded TRX \/ USDT grant/)
+  assert.match(sponsorshipUi, /Sponsor-funded TRX \/ USDT \/ VTRC grant/)
   assert.match(sponsorshipUi, /Only the actual on-chain wallet balance is spendable/)
   assert.match(sponsorshipUi, /No verified sponsor provider\/account or funded budget is integrated/)
 })

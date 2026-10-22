@@ -336,7 +336,10 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
   ]
   const sponsorReferences = cases.map(item => `pg-usdt-${item.name}-${suffix}`)
   const idempotencyKeys = cases.map(item => `pg-usdt-${item.name}:${suffix}`)
+  const previousUsdtShastaContracts = process.env.SPONSOR_USDT_SHASTA_CONTRACTS
   try {
+    // The test contract is deliberately scoped to this isolated test process and network.
+    process.env.SPONSOR_USDT_SHASTA_CONTRACTS = tokenContract
     for (let i = 0; i < cases.length; i += 1) {
       const item = cases[i]
       const sponsorReference = sponsorReferences[i]
@@ -375,6 +378,8 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
       assert.equal(transfer.rows[0].status, 'submitted', `${item.name}: transfer must remain submitted`)
     }
   } finally {
+    if (previousUsdtShastaContracts === undefined) delete process.env.SPONSOR_USDT_SHASTA_CONTRACTS
+    else process.env.SPONSOR_USDT_SHASTA_CONTRACTS = previousUsdtShastaContracts
     await cleanup(pool, sponsorReferences, idempotencyKeys)
     await pool.query(
       'DELETE FROM trc20_token_clone.transfer_verifications WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',

@@ -1,5 +1,6 @@
 import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
+import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 
 import { Router } from 'express'
 
@@ -18,48 +19,7 @@ const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 router.get('/sponsorship/status', (_req, res) => {
   return res.json({
     success: true,
-    sponsorship: {
-      enabled: false,
-      mainnetEnabled: false,
-      canSubmitSponsoredTransfer: false,
-      fundingPolicy: {
-        mode: 'external-sponsor-only',
-        userFundsRequiredForSponsoredFlow: false,
-        externalSponsorConfirmed: false,
-        sponsorFundingVerified: false,
-        paidProviderPurchasesAllowed: false,
-        feeSponsorshipAvailable: false,
-        sponsorFundedAssetTransfersAvailable: false,
-        unpaidFallbackToUserFunds: false,
-      },
-      network: null,
-      provider: null,
-      receiverRestrictionsAvailable: false,
-      receiverBalance: {
-        source: 'verified-on-chain-only',
-        displayOnlySponsorCredit: false,
-        spendableSource: 'on-chain-wallet-balance',
-        sponsorAssetGrantEnabled: false,
-        sponsoredFeeCoverage: 'none',
-        exchangeCredit: 'exchange-confirmation-required',
-      },
-      message: 'External-sponsor-only policy selected. No sponsor agreement or funding is verified; paid provider purchases and user-funded fallback are forbidden. Sponsored fees and sponsor-funded TRX/USDT/VTRC grants remain disabled until all operational gates pass.',
-      requiredBeforeEnablement: [
-        'verified-provider-adapter-and-account',
-        'explicit-sponsor-consent-and-funded-budget',
-        'server-side-authorization-and-per-transfer-limits',
-        'idempotent-sponsor-ledger-and-reconciliation',
-        'testnet-end-to-end-and-security-review',
-        'verified-provider-onboarding-and-terms',
-        'provider-specific-signing-authorization',
-        'independent-network-and-token-contract-allowlist',
-        'funding-and-budget-reservation-enforced-server-side',
-        'network-fee-and-asset-principal-reconciled-separately',
-        'finalized-on-chain-evidence-and-idempotent-ledger-transitions',
-        'audit-log-and-abuse-rate-limits',
-        'end-to-end-testnet-validation-and-security-review',
-      ],
-    },
+    sponsorship: getSponsorshipStatus(),
     limitations: [
       'This endpoint reports capability status only; it never authorizes or submits a transfer.',
       'An on-chain confirmation does not guarantee an exchange will credit a deposit.',

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import nativeTronRoutes from '../server/routes/native-tron.mjs'
+import { getSponsorshipStatus } from '../server/sponsorship-status.mjs'
 
 test('sponsorship status endpoint is read-only and fails closed', async () => {
   const layer = nativeTronRoutes.stack.find((item) =>
@@ -18,6 +19,7 @@ test('sponsorship status endpoint is read-only and fails closed', async () => {
 
   assert.equal(statusCode, 200)
   assert.equal(responseBody.success, true)
+  assert.deepEqual(responseBody.sponsorship, getSponsorshipStatus())
   assert.equal(responseBody.sponsorship.enabled, false)
   assert.equal(responseBody.sponsorship.mainnetEnabled, false)
   assert.equal(responseBody.sponsorship.canSubmitSponsoredTransfer, false)

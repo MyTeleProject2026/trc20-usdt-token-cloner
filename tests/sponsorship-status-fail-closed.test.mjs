@@ -35,6 +35,7 @@ test('sponsorship status exposes all operational gates rather than implying read
     'explicit-sponsor-consent-and-funded-budget',
     'server-side-authorization-and-per-transfer-limits',
     'idempotent-sponsor-ledger-and-reconciliation',
+    'separate-network-fee-and-asset-principal-budgets',
     'testnet-end-to-end-and-security-review',
     'mainnet-operator-approval-and-emergency-pause',
   ]) {

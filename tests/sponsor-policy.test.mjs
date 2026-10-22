@@ -15,6 +15,7 @@ const validBudget = {
 test('budget policy uses exact base units and computes only unreserved availability', () => {
   assert.deepEqual(validateSponsorBudget(validBudget), {
     valid: true,
+    purpose: 'asset-grant',
     availableBaseUnits: '5000000',
     canReserve: true,
   })
@@ -25,6 +26,17 @@ test('budget policy rejects overspending, malformed precision and invalid status
   assert.equal(validateSponsorBudget({ ...validBudget, spentBaseUnits: '1.2' }).reason, 'invalid-base-units')
   assert.equal(validateSponsorBudget({ ...validBudget, status: 'active-ish' }).reason, 'invalid-budget-status')
   assert.equal(validateSponsorBudget({ ...validBudget, asset: 'TRX', tokenContract: 'TToken' }).reason, 'native-trx-has-no-token-contract')
+})
+
+test('fee and asset-grant budget purposes stay separate and fee budgets require TRX', () => {
+  assert.deepEqual(validateSponsorBudget({ ...validBudget, purpose: 'network-fee' }), {
+    valid: true,
+    purpose: 'network-fee',
+    availableBaseUnits: '5000000',
+    canReserve: true,
+  })
+  assert.equal(validateSponsorBudget({ ...validBudget, purpose: 'network-fee', asset: 'USDT', tokenContract: 'TUsdt' }).reason, 'network-fee-must-use-trx')
+  assert.equal(validateSponsorBudget({ ...validBudget, purpose: 'unknown' }).reason, 'invalid-purpose')
 })
 
 test('disabled or depleted budgets cannot be reserved from', () => {
@@ -67,7 +79,7 @@ test('USDT asset grants require an explicit contract and are not treated as fee 
   }
   const result = validateSponsorTransferIntent(input, {
     isValidAddress: (address) => address === 'TValidReceiver',
-    allowedTokenContractsByNetwork: { shasta: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
+    allowedTokenContractsByNetwork: { mainnet: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
   })
   assert.equal(result.valid, true)
   assert.equal(result.intent.purpose, 'asset-grant')
