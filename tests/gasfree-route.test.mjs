@@ -32,7 +32,7 @@ test('GasFree route rejects unknown networks before calling provider', async () 
 test('GasFree route distinguishes missing access from a provider failure and never submits', async () => {
   const notConfigured = createGasFreeRouter({ getCapabilities: async () => ({
     configured: false, reachable: false, network: 'mainnet', reason: 'credentials-not-configured',
-    requiredEnvironment: ['GASFREE_API_KEY', 'GASFREE_API_SECRET'],
+    requiredEnvironment: ['GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET'],
   }) })
   const first = responseRecorder()
   await getRoute(notConfigured)({ query: { network: 'mainnet' } }, first)
