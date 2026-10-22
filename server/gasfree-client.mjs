@@ -5,11 +5,15 @@ const NETWORKS = Object.freeze({
     origin: 'https://open.gasfree.io',
     pathPrefix: '/tron',
     chainLabel: 'TRON Mainnet',
+    apiKeyEnv: 'GASFREE_MAINNET_API_KEY',
+    apiSecretEnv: 'GASFREE_MAINNET_API_SECRET',
   },
   nile: {
     origin: 'https://open-test.gasfree.io',
     pathPrefix: '/nile',
     chainLabel: 'TRON Nile testnet',
+    apiKeyEnv: 'GASFREE_NILE_API_KEY',
+    apiSecretEnv: 'GASFREE_NILE_API_SECRET',
   },
 })
 
@@ -103,9 +107,9 @@ export function createGasFreeClient({
   now = () => Math.floor(Date.now() / 1000),
   timeoutMs = 8000,
 } = {}) {
-  function credentials() {
-    const apiKey = env.GASFREE_API_KEY
-    const apiSecret = env.GASFREE_API_SECRET
+  function credentials(config) {
+    const apiKey = env[config.apiKeyEnv]
+    const apiSecret = env[config.apiSecretEnv]
     return typeof apiKey === 'string' && apiKey.trim()
       && typeof apiSecret === 'string' && apiSecret.trim()
       ? { apiKey: apiKey.trim(), apiSecret }
@@ -135,11 +139,14 @@ export function createGasFreeClient({
   }
 
   return {
-    isConfigured: () => Boolean(credentials()),
+    isConfigured(network) {
+      const config = getGasFreeNetwork(network)
+      return Boolean(config && credentials(config))
+    },
     async getCapabilities(network) {
       const config = getGasFreeNetwork(network)
-      if (!config) return { configured: this.isConfigured(), reachable: false, reason: 'unsupported-network' }
-      const auth = credentials()
+      if (!config) return { configured: false, reachable: false, reason: 'unsupported-network' }
+      const auth = credentials(config)
       if (!auth) {
         return {
           configured: false,
@@ -147,7 +154,7 @@ export function createGasFreeClient({
           network,
           networkLabel: config.chainLabel,
           reason: 'credentials-not-configured',
-          requiredEnvironment: ['GASFREE_API_KEY', 'GASFREE_API_SECRET'],
+          requiredEnvironment: [config.apiKeyEnv, config.apiSecretEnv],
         }
       }
       if (typeof fetchImpl !== 'function') {
