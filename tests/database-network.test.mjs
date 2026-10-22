@@ -324,6 +324,21 @@ test('native transfer verification persists only solidified matching records bef
 })
 
 
+test('sponsor confirmation loads purpose and fails closed for network-fee until fee reconciliation exists', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  const start = source.indexOf('export async function transitionSponsorTransfer')
+  assert.ok(start >= 0)
+  const transition = source.slice(start)
+  assert.match(transition, /network, purpose, asset, token_contract/)
+  assert.match(transition, /nextStatus === 'confirmed' && transfer\.purpose === 'network-fee'/)
+  assert.match(transition, /purpose-specific-fee-evidence-and-reconciliation-required/)
+  assert.match(transition, /nextStatus === 'confirmed' && transfer\.purpose !== 'asset-grant'/)
+  assert.match(transition, /unsupported-sponsor-transfer-purpose/)
+  assert.ok(transition.indexOf("transfer.purpose === 'network-fee'") < transition.indexOf('let evidence'))
+  assert.match(transition, /transfer\.purpose === 'network-fee'[\s\S]*?ROLLBACK[\s\S]*?purpose-specific-fee-evidence-and-reconciliation-required/)
+})
+
 test('submitted sponsor transfers cannot release reservations without finalized failure evidence and fee reconciliation', async () => {
   const { readFile } = await import('node:fs/promises')
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
