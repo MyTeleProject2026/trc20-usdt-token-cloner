@@ -94,6 +94,7 @@ contract IndependentTRC20 {
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
+  const [sponsorRefreshKey, setSponsorRefreshKey] = useState(0)
   const [activeTab, setActiveTab] = useState<'choose' | 'sponsors' | 'deploy' | 'interact' | 'trx' | 'simulation' | 'verify' | 'contract'>('choose')
   const [selectedAsset, setSelectedAsset] = useState<'VTRC' | 'TRX' | 'USDT'>('VTRC')
   const [copied, setCopied] = useState<string | null>(null)
@@ -242,6 +243,7 @@ export default function App() {
       setWalletAddress(address)
       setQueryAddress(address)
       setWalletConnected(true)
+      setSponsorRefreshKey((current) => current + 1)
       setActionMessage({ type: 'success', text: `TronLink connected: ${address}. Review every transaction in the wallet before approving.` })
     } catch (err: any) {
       setWalletConnected(false)
@@ -842,7 +844,7 @@ export default function App() {
             Fee sponsorship is currently not integrated. Do not assume the project pays fees or that a successful on-chain deposit guarantees an exchange will credit it.
           </p>
         </aside>
-        <SponsorshipStatus />
+        <SponsorshipStatus network={network} refreshKey={sponsorRefreshKey} />
         {copyFeedback && (
           <div role="status" aria-live="polite" className={`mb-xl flex items-center justify-between gap-md rounded-lg border p-md text-sm ${copyFeedback.type === 'success' ? 'border-utility-success-200 bg-utility-success-50 text-utility-success-700' : 'border-utility-danger-200 bg-utility-danger-50 text-utility-danger-700'}`}>
             <span>{copyFeedback.text}</span>
@@ -948,7 +950,7 @@ export default function App() {
         </div>
 
         {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else setActionMessage({ type: 'error', text: 'USDT transfer is blocked in this workflow until an independently verified official contract allowlist is implemented for the selected network.' }) }} />}
-        {activeTab === 'sponsors' && <SponsorProviderPage network={network} />}
+        {activeTab === 'sponsors' && <SponsorProviderPage network={network} refreshKey={sponsorRefreshKey} />}
 
         {/* Tab 1: Deploy & Clone */}
         {activeTab === 'deploy' && (
