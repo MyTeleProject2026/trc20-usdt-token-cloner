@@ -52,7 +52,7 @@ test('GasFree success route keeps provider funding and transaction submissions u
   const router = createGasFreeRouter({ getCapabilities: async () => ({
     configured: true, reachable: true, network: 'mainnet', networkLabel: 'TRON Mainnet',
     providerCount: 1, supportedTokenCount: 1, providers: [], tokens: [],
-    providerFundingVerified: false, canSubmitSponsoredTransfer: false,
+    providerFundingVerified: true, canSubmitSponsoredTransfer: true, submissionEnabled: true,
     feePolicy: 'fees charged in transferred token',
   }) })
   const res = responseRecorder()
@@ -61,6 +61,7 @@ test('GasFree success route keeps provider funding and transaction submissions u
   assert.equal(res.body.status, 'provider-capabilities-read')
   assert.equal(res.body.providerFundingVerified, false)
   assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
 })
 
 
@@ -86,6 +87,9 @@ test('GasFree account route exposes only read-only provider metadata and no subm
   const router = createGasFreeRouter({
     getAccount: async (network, accountAddress) => ({
       configured: true, reachable: true, network, accountLookupVerified: true,
+      providerFundingVerified: true,
+      canSubmitSponsoredTransfer: true,
+      submissionEnabled: true,
       account: {
         accountAddress, gasFreeAddress: 'T' + 'B'.repeat(33),
         active: true, nonce: 4, allowSubmit: true, assets: [],
@@ -98,7 +102,9 @@ test('GasFree account route exposes only read-only provider metadata and no subm
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.status, 'provider-account-read')
   assert.equal(res.body.account.chainFinalityVerified, false)
-  assert.equal(res.body.canSubmitSponsoredTransfer, undefined)
+  assert.equal(res.body.providerFundingVerified, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
 })
 
 test('GasFree trace route rejects unsafe IDs before provider access', async () => {
@@ -117,6 +123,9 @@ test('GasFree trace route explicitly distinguishes provider state from chain ver
   const router = createGasFreeRouter({
     getTrace: async (network, traceId) => ({
       configured: true, reachable: true, network, traceLookupVerified: true,
+      providerFundingVerified: true,
+      canSubmitSponsoredTransfer: true,
+      submissionEnabled: true,
       trace: { traceId, state: 'SUCCEED', transactionId: 'a'.repeat(64), verifiedOnChain: false },
     }),
   })
@@ -126,4 +135,7 @@ test('GasFree trace route explicitly distinguishes provider state from chain ver
   assert.equal(res.body.status, 'provider-trace-read')
   assert.equal(res.body.trace.state, 'SUCCEED')
   assert.equal(res.body.trace.verifiedOnChain, false)
+  assert.equal(res.body.providerFundingVerified, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
 })
