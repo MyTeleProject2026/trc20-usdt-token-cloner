@@ -1,5 +1,6 @@
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
-const ASSETS = new Set(['TRX', 'USDT'])
+const ASSETS = new Set(['TRX', 'USDT', 'VTRC'])
+const TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
 const PURPOSES = new Set(['network-fee', 'asset-grant'])
 const BUDGET_STATUSES = new Set(['disabled', 'pending-review', 'active', 'paused', 'depleted'])
 
@@ -22,7 +23,7 @@ export function validateSponsorBudget(input) {
   if (!NETWORKS.has(network)) return { valid: false, reason: 'invalid-network' }
   if (!ASSETS.has(asset)) return { valid: false, reason: 'invalid-asset' }
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
-  if (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
+  if (TOKEN_ASSETS.has(asset) && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
   }
   if (!BUDGET_STATUSES.has(status)) return { valid: false, reason: 'invalid-budget-status' }
@@ -61,7 +62,7 @@ export function validateSponsorTransferIntent(input, { isValidAddress, maxTransf
   }
   // Fail closed: a token symbol/name is not proof of identity. The caller must
   // provide an explicitly configured allowlist for the selected network.
-  if (asset === 'USDT') {
+  if (TOKEN_ASSETS.has(asset)) {
     const allowed = allowedTokenContractsByNetwork[network]
     if (!Array.isArray(allowed) || !allowed.some((contract) => typeof contract === 'string' && contract.trim() === tokenContract.trim())) {
       return { valid: false, reason: 'token-contract-not-allowlisted-for-network' }
@@ -84,7 +85,7 @@ export function validateSponsorTransferIntent(input, { isValidAddress, maxTransf
       network,
       purpose,
       asset,
-      tokenContract: asset === 'USDT' ? tokenContract.trim() : null,
+      tokenContract: TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null,
       receiverAddress: receiverAddress.trim(),
       amountBaseUnits: amount.toString(),
     },
