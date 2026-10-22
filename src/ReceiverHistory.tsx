@@ -56,6 +56,9 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
   const [nextFingerprint, setNextFingerprint] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [notification, setNotification] = useState<{ key: string; message: string; transactionId: string | null } | null>(null)
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | 'unsupported'>(() =>
+    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+  )
   const seenVerifiedKeys = useRef<Set<string>>(new Set())
   const historyInitialized = useRef(false)
 
@@ -112,11 +115,22 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
             if (newlyVerified) {
               const symbol = newlyVerified.tokenSymbol || 'TRC-20 token'
               const amount = formatUnits(newlyVerified.amountBaseUnits, newlyVerified.tokenDecimals)
+              const message = `Verified incoming ${amount} ${symbol} transfer observed on ${network}. Exchange credit is separate.`
+              const key = recordKey(newlyVerified)
               setNotification({
-                key: recordKey(newlyVerified),
-                message: `Verified incoming ${amount} ${symbol} transfer observed on ${network}. Exchange credit is separate.`,
+                key,
+                message,
                 transactionId: newlyVerified.transactionId,
               })
+              // Browser/system notifications are opt-in and only fire for a
+              // newly observed, already solidified-and-verified incoming event.
+              if (browserPermission === 'granted' && typeof Notification !== 'undefined') {
+                try {
+                  new Notification('Verified incoming transfer', { body: message, tag: key })
+                } catch {
+                  // In-app notification remains available if system notifications fail.
+                }
+              }
             }
           }
           setRecords((current) => {
@@ -167,7 +181,27 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       active = false
       if (timer) clearInterval(timer)
     }
-  }, [network, address, contract, refreshNonce])
+  }, [network, address, contract, refreshNonce, browserPermission])
+
+  const enableBrowserNotifications = async () => {
+    if (typeof Notification === 'undefined') {
+      setBrowserPermission('unsupported')
+      return
+    }
+    try {
+      const permission = await Notification.requestPermission()
+      setBrowserPermission(permission)
+      if (permission !== 'granted') {
+        setError(permission === 'denied'
+          ? 'Device notifications are blocked in browser settings. In-app verified-transfer messages remain available while this panel is open.'
+          : 'Device notifications were not enabled. In-app verified-transfer messages remain available while this panel is open.')
+      } else {
+        setError('')
+      }
+    } catch {
+      setError('Could not request device notification permission. In-app verified-transfer messages remain available while this panel is open.')
+    }
+  }
 
   const loadOlder = async () => {
     if (!nextFingerprint || loadingMore || !address.trim()) return
@@ -206,10 +240,21 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
             <p className="mt-xs text-xs text-tertiary">Selected network: {network} · Auto-refresh every 30 seconds while this panel is open.</p>
           </div>
         </div>
-        <button type="button" onClick={() => setRefreshNonce((n) => n + 1)} disabled={loading} className="inline-flex items-center gap-xs rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
-          <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Loading history…' : 'Refresh history'}
-        </button>
+        <div className="flex flex-wrap items-center gap-sm">
+          {browserPermission === 'granted' ? (
+            <span role="status" className="text-xs text-utility-success-700">Device notifications enabled</span>
+          ) : browserPermission === 'unsupported' ? (
+            <span className="text-xs text-tertiary">Device notifications unsupported; in-app messages still work.</span>
+          ) : (
+            <button type="button" onClick={() => void enableBrowserNotifications()} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary">
+              Enable device notifications
+            </button>
+          )}
+          <button type="button" onClick={() => setRefreshNonce((n) => n + 1)} disabled={loading} className="inline-flex items-center gap-xs rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
+            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Loading history…' : 'Refresh history'}
+          </button>
+        </div>
       </div>
       <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700">
         Indexer records are incoming-transfer candidates, not final proof. A row is not marked completed until its exact transaction, solidified receipt, contract, sender, receiver and amount are independently verified. This panel does not change balances or promise exchange credit.
@@ -221,7 +266,7 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
             <p className="font-semibold">Verified incoming transfer notification</p>
             <p className="mt-xs">{notification.message}</p>
             {notification.transactionId && <p className="mt-xs break-all font-mono text-xs">Transaction: {notification.transactionId}</p>}
-            <p className="mt-xs text-xs">This notification is inside this app while the history panel is open. It is not an exchange notification or proof of exchange-account credit.</p>
+            <p className="mt-xs text-xs">In-app notifications appear while this panel is open. Optional device notifications require browser permission and this page to be running; they are not push notifications from another wallet or exchange and do not prove exchange-account credit.</p>
           </div>
           <button type="button" onClick={() => setNotification(null)} className="shrink-0 rounded border border-current px-sm py-xs text-xs">Dismiss</button>
         </div>
