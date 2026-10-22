@@ -26,7 +26,7 @@ test('network-fee confirmation rejects before evidence and budget queries', asyn
     async connect() {
       return {
         async query(sql) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           queries.push(normalized)
           if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'ROLLBACK') {
@@ -40,7 +40,7 @@ test('network-fee confirmation rejects before evidence and budget queries', asyn
           if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
             return { rows: [{ ...transfer }] }
           }
-          throw new Error(`Unexpected query before network-fee guard: ${normalized}`)
+          throw new Error(\`Unexpected query before network-fee guard: \${normalized}\`)
         },
         release() { released = true },
       }
