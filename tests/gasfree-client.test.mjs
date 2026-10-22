@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { buildGasFreeAuthHeaders, createGasFreeClient, getGasFreeNetwork } from '../server/gasfree-client.mjs'
@@ -303,3 +304,14 @@ test('HTTP response credential guard redacts Tatum, TRONGrid, and both GasFree n
   }
 })
 
+
+test('GasFree server credential template is complete and remains backend-only', async () => {
+  const template = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
+  for (const variable of ['GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET', 'GASFREE_NILE_API_KEY', 'GASFREE_NILE_API_SECRET']) {
+    assert.match(template, new RegExp('^' + variable + '=$', 'm'), variable + ' must be documented as a backend variable')
+  }
+  assert.match(template, /GasFree provider discovery only/)
+  assert.match(template, /does not submit transfers or verify sponsor funding/)
+  assert.match(template, /must only be configured server-side/)
+  assert.doesNotMatch(template, /^VITE_GASFREE_[A-Z_]+=/m, 'GasFree credentials must never be frontend variables')
+})
