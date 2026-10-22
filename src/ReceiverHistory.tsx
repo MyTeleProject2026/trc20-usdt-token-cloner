@@ -204,7 +204,7 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           </thead>
           <tbody>
             {records.map((record, index) => (
-              <tr key={`table:${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`}>
+              <tr key={`table:${record.network}:${record.transactionId || index}:${record.tokenContract || ''}:${record.eventIndex ?? index}`}>
                 <td>
                   <div className="font-semibold">{record.tokenSymbol || record.tokenName || 'TRC-20 token'}</div>
                   <div className="font-mono text-xs">{formatUnits(record.amountBaseUnits, record.tokenDecimals)}</div>
@@ -230,7 +230,7 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       </div>
       <div className="receiver-history-mobile-cards space-y-md">
         {records.map((record, index) => (
-          <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
+          <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}:${record.eventIndex ?? index}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
             <div className="flex flex-wrap items-center justify-between gap-sm">
               <p className="text-sm font-semibold text-primary">{record.tokenSymbol || record.tokenName || 'TRC-20 token'} · {formatUnits(record.amountBaseUnits, record.tokenDecimals)}</p>
               <span className={`rounded-full border px-sm py-xxs text-xs ${record.verifiedOnChain ? 'border-utility-success-200 text-utility-success-700' : record.verificationStatus === 'not-verified' ? 'border-utility-danger-200 text-utility-danger-700' : 'border-utility-warning-200 text-utility-warning-700'}`}>
