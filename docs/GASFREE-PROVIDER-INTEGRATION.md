@@ -9,7 +9,7 @@ The official GasFree developer documentation describes a TRON TRC-20 workflow wh
 - TRON resource model: https://developers.tron.network/docs/bandwidth-and-energy
 - TRON resource delegation: https://developers.tron.network/docs/delegation
 
-This repository change implements **authenticated read-only discovery only** via `GET /api/gasfree/capabilities?network=mainnet|nile`. It reports the live provider directory and per-token fee configuration, when approved server API credentials are configured. It never signs, submits, or broadcasts a transfer.
+This repository change implements authenticated, fixed-host, read-only calls through:\n\n- `GET /api/gasfree/capabilities?network=mainnet|nile` — provider directory and supported-token fee configuration.\n- `GET /api/gasfree/account?network=mainnet|nile&address={EOA}` — provider account status, recommended nonce, pending/frozen amounts and supported asset metadata. The documented response does not guarantee a spendable balance field; an absent balance is unknown, not zero.\n- `GET /api/gasfree/trace?network=mainnet|nile&traceId={id}` — provider trace state and reported transaction metadata. A provider state is not independent chain-finality verification.\n\nThese calls require approved server-side API credentials. They never sign, submit, or broadcast a transfer, create a wallet balance, or credit a sponsor ledger.
 
 ## Fees and funding: do not label this as free
 
@@ -42,7 +42,7 @@ The documented provider API origins and path prefixes are:
 | Mainnet | `https://open.gasfree.io` | `/tron` |
 | Nile testnet | `https://open-test.gasfree.io` | `/nile` |
 
-The documented provider API does not list Shasta as an API environment. This implementation rejects Shasta rather than silently redirecting a Shasta request to Nile or Mainnet. The documentation says the integrator must apply for access to receive an API key and API secret. Both are server-only environment variables: `GASFREE_API_KEY` and `GASFREE_API_SECRET`. Never put the API secret in `VITE_*` variables, browser code, a commit, a URL, or logs.
+The documented provider API does not list Shasta as an API environment. This implementation rejects Shasta rather than silently redirecting a Shasta request to Nile or Mainnet. The documentation says the integrator must apply for access to receive an API key and API secret. The current adapter isolates credentials by network using these server-only variables:\n\n| Environment variable | Network |\n|---|---|\n| `GASFREE_MAINNET_API_KEY` | Mainnet key |\n| `GASFREE_MAINNET_API_SECRET` | Mainnet HMAC secret |\n| `GASFREE_NILE_API_KEY` | Nile testnet key |\n| `GASFREE_NILE_API_SECRET` | Nile HMAC secret |\n\nNever put the API secret in `VITE_*` variables, browser code, a commit, a URL, or logs. The adapter rejects cross-network credential fallback.
 
 ## Before any send route can be enabled
 
