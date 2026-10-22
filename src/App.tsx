@@ -4,6 +4,7 @@ import { tokenArtifact } from './generated/IndependentTRC20'
 import TransferSimulator from './TransferSimulator'
 import ReceiverHistory from './ReceiverHistory'
 import SponsorshipStatus from './SponsorshipStatus'
+import SponsorProviderPage, { TokenSelectionPage } from './SponsorProviderPages'
 import {
   Coins,
   Send,
@@ -23,7 +24,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
-  const [activeTab, setActiveTab] = useState<'deploy' | 'interact' | 'trx' | 'simulation' | 'verify' | 'contract'>('deploy')
+  const [activeTab, setActiveTab] = useState<'choose' | 'sponsors' | 'deploy' | 'interact' | 'trx' | 'simulation' | 'verify' | 'contract'>('choose')
   const [copied, setCopied] = useState<string | null>(null)
 
   // System status
@@ -735,6 +736,11 @@ export default function App() {
           </div>
         )}
 
+        {/* Primary workflow: select an asset and review sponsor availability before using transfer tools. */}
+        <div className="mb-md flex flex-wrap gap-sm">
+          <button type="button" onClick={() => setActiveTab('choose')} aria-current={activeTab === 'choose' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'choose' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Choose asset</button>
+          <button type="button" onClick={() => setActiveTab('sponsors')} aria-current={activeTab === 'sponsors' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'sponsors' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Sponsor providers</button>
+        </div>
         {/* Tabs component recipe: list on baseline divider */}
         <div className="mb-xl flex gap-lg border-b border-secondary overflow-x-auto">
           <button
@@ -802,6 +808,9 @@ export default function App() {
             6. Solidity Source Code & Spec
           </button>
         </div>
+
+        {activeTab === 'choose' && <TokenSelectionPage network={network} />}
+        {activeTab === 'sponsors' && <SponsorProviderPage network={network} />}
 
         {/* Tab 1: Deploy & Clone */}
         {activeTab === 'deploy' && (
