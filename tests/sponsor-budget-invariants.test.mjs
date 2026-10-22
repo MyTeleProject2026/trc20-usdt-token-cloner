@@ -229,3 +229,115 @@ test('sponsor confirmation fails closed when spent plus transfer exceeds total b
   assert.ok(!state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_budgets')))
   assert.ok(!state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status')))
 })
+
+
+// Model a transaction rollback when the audit write fails after the ledger updates.
+// This exercises application error handling with a query double, not PostgreSQL itself.
+test('sponsor confirmation rolls back ledger mutations when audit-event insertion fails', async () => {
+  const state = {
+    transfer: {
+      idempotency_key: 'sponsor-audit-failure-test-0001',
+      sponsor_reference: 'test-sponsor',
+      sponsor_address: 'T1111111111111111111111111',
+      network: 'shasta',
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      token_contract: null,
+      receiver_address: 'T2222222222222222222222222',
+      amount_base_units: '25',
+      status: 'submitted',
+      transaction_hash: 'd'.repeat(64),
+    },
+    budget: {
+      id: 9,
+      reserved_base_units: '25',
+      spent_base_units: '0',
+      budget_base_units: '100',
+    },
+    queries: [],
+    commits: 0,
+    rollbacks: 0,
+    released: false,
+    snapshot: null,
+  }
+
+  const pool = {
+    async connect() {
+      return {
+        async query(sql, values = []) {
+          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          state.queries.push(normalized)
+          if (normalized === 'BEGIN') {
+            state.snapshot = {
+              transfer: { ...state.transfer },
+              budget: { ...state.budget },
+            }
+            return { rows: [] }
+          }
+          if (normalized === 'COMMIT') {
+            state.commits += 1
+            return { rows: [] }
+          }
+          if (normalized === 'ROLLBACK') {
+            state.rollbacks += 1
+            if (state.snapshot) {
+              Object.assign(state.transfer, state.snapshot.transfer)
+              Object.assign(state.budget, state.snapshot.budget)
+            }
+            return { rows: [] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
+            return { rows: [{ ...state.transfer }] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.native_transfer_verifications')) {
+            const [network, hash, sender, receiver, amount] = values
+            const matches = network === state.transfer.network
+              && hash === state.transfer.transaction_hash
+              && sender === state.transfer.sponsor_address
+              && receiver === state.transfer.receiver_address
+              && amount === state.transfer.amount_base_units
+            return { rows: matches ? [{ '?column?': 1 }] : [] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_budgets')) {
+            return { rows: [{ ...state.budget }] }
+          }
+          if (normalized.startsWith('UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units -')) {
+            const [amount] = values
+            state.budget.reserved_base_units = (BigInt(state.budget.reserved_base_units) - BigInt(amount)).toString()
+            state.budget.spent_base_units = (BigInt(state.budget.spent_base_units) + BigInt(amount)).toString()
+            return { rows: [], rowCount: 1 }
+          }
+          if (normalized.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status =')) {
+            const [status, authorizationReference, hash] = values
+            state.transfer.status = status
+            if (authorizationReference) state.transfer.authorization_reference = authorizationReference
+            if (hash) state.transfer.transaction_hash = hash
+            return { rows: [], rowCount: 1 }
+          }
+          if (normalized.startsWith('INSERT INTO trc20_token_clone.audit_events')) {
+            throw new Error('simulated audit insert failure')
+          }
+          throw new Error('Unexpected SQL in sponsor audit-failure test')
+        },
+        release() { state.released = true },
+      }
+    },
+  }
+
+  await assert.rejects(
+    transitionSponsorTransferWithPool({
+      idempotencyKey: state.transfer.idempotency_key,
+      nextStatus: 'confirmed',
+      transactionHash: state.transfer.transaction_hash,
+    }, pool, { initialize: false }),
+    /simulated audit insert failure/,
+  )
+
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.commits, 0)
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.released, true)
+  assert.ok(state.queries.some((query) => query.startsWith('INSERT INTO trc20_token_clone.audit_events')))
+})
