@@ -21,6 +21,16 @@ test('sponsorship status endpoint is read-only and fails closed', async () => {
   assert.equal(responseBody.sponsorship.enabled, false)
   assert.equal(responseBody.sponsorship.mainnetEnabled, false)
   assert.equal(responseBody.sponsorship.canSubmitSponsoredTransfer, false)
+  assert.deepEqual(responseBody.sponsorship.fundingPolicy, {
+    mode: 'external-sponsor-only',
+    userFundsRequiredForSponsoredFlow: false,
+    externalSponsorConfirmed: false,
+    sponsorFundingVerified: false,
+    paidProviderPurchasesAllowed: false,
+    feeSponsorshipAvailable: false,
+    sponsorFundedAssetTransfersAvailable: false,
+    unpaidFallbackToUserFunds: false,
+  })
   assert.equal(responseBody.sponsorship.provider, null)
   assert.equal(responseBody.sponsorship.receiverRestrictionsAvailable, false)
   assert.deepEqual(responseBody.sponsorship.receiverBalance, {
