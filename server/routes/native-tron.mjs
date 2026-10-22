@@ -12,6 +12,37 @@ const networks = {
 }
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
+// Read-only sponsorship capability status. This API deliberately fails closed:
+// provider onboarding, signer authorization, limits, and fee/asset reconciliation
+// are not yet complete, so environment variables cannot accidentally enable sends.
+router.get('/sponsorship/status', (_req, res) => {
+  return res.json({
+    success: true,
+    sponsorship: {
+      enabled: false,
+      mainnetEnabled: false,
+      canSubmitSponsoredTransfer: false,
+      network: null,
+      provider: null,
+      message: 'Sponsored transfers are disabled. No verified provider authorization, signer controls, funding checks, limits, or end-to-end reconciliation gate is active.',
+      requiredBeforeEnablement: [
+        'verified-provider-onboarding-and-terms',
+        'provider-specific-signing-authorization',
+        'independent-network-and-token-contract-allowlist',
+        'funding-and-budget-reservation-enforced-server-side',
+        'network-fee-and-asset-principal-reconciled-separately',
+        'finalized-on-chain-evidence-and-idempotent-ledger-transitions',
+        'audit-log-and-abuse-rate-limits',
+        'end-to-end-testnet-validation-and-security-review',
+      ],
+    },
+    limitations: [
+      'This endpoint reports capability status only; it never authorizes or submits a transfer.',
+      'An on-chain confirmation does not guarantee an exchange will credit a deposit.',
+    ],
+  })
+})
+
 // Keep SUN conversion exact; native balances can exceed Number's safe integer range.
 const formatSun = (value) => {
   const sun = BigInt(value)
