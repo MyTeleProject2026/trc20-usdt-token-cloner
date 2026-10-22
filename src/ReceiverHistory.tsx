@@ -275,7 +275,7 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       {!error && records.length === 0 && <p className="rounded-lg border border-secondary bg-secondary p-lg text-sm text-tertiary">No incoming TRC-20 records were returned for this address and filter. Indexers may lag; this is not proof that no transfer exists.</p>}
       <div className="space-y-md">
         {records.map((record, index) => (
-          <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
+          <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}:${record.eventIndex ?? ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
             <div className="flex flex-wrap items-center justify-between gap-sm">
               <p className="text-sm font-semibold text-primary">{record.tokenSymbol || record.tokenName || 'TRC-20 token'} · {formatUnits(record.amountBaseUnits, record.tokenDecimals)}</p>
               <span className={`rounded-full border px-sm py-xxs text-xs ${record.verifiedOnChain ? 'border-utility-success-200 text-utility-success-700' : record.verificationStatus === 'not-verified' ? 'border-utility-danger-200 text-utility-danger-700' : 'border-utility-warning-200 text-utility-warning-700'}`}>
