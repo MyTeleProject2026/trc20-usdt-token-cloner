@@ -174,3 +174,39 @@ body::before { z-index: 0; }
 }
 .app-main > * { min-width: 0; }
 .app-main input, .app-main textarea, .app-main select { max-width: 100%; }
+
+
+/* Receiver history uses a wide, readable table on desktop and cards on mobile. */
+.receiver-history-table-wrap {
+  display: none;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--console-border);
+  border-radius: 12px;
+  background: var(--console-panel);
+  -webkit-overflow-scrolling: touch;
+}
+.receiver-history-table-wrap table { min-width: 1040px; }
+.receiver-history-table-wrap th,
+.receiver-history-table-wrap td {
+  max-width: 230px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  padding: .85rem;
+}
+.receiver-history-table-wrap th {
+  position: sticky;
+  top: 0;
+  background: #101e25;
+}
+.receiver-history-mobile-cards { display: block; }
+@media (min-width: 768px) {
+  .receiver-history-table-wrap { display: block; }
+  .receiver-history-mobile-cards { display: none; }
+}
+@media (max-width: 767px) {
+  .receiver-history-table-wrap { display: none; }
+  .receiver-history-mobile-cards { display: block; }
+}
