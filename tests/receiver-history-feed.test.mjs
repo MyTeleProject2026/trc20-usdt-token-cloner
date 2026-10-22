@@ -71,3 +71,8 @@ test('persistent watchlist registration is protected and does not imply monitori
   assert.match(routes, /A valid watchlist administrator token is required/)
   assert.doesNotMatch(routes.slice(routes.indexOf("router.post('/tracked-wallets'"), routes.indexOf("// Read-only incoming TRC-20 indexer feed.")), /privateKey|broadcasttransaction|sendRawTransaction/i)
 })
+
+
+test('receiver history React identity includes the event index for multiple token transfers in one transaction', () => {
+  assert.match(ui, /key=\{\`\$\{record\.network\}:\$\{record\.transactionId \|\| index\}:\$\{record\.tokenContract \|\| ''\}:\$\{record\.eventIndex \?\? ''\}\`\}/)
+})
