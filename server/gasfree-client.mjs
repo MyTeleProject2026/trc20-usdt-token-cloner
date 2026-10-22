@@ -148,8 +148,11 @@ function normalizeAccount(payload, requestedAddress) {
 function normalizeTrace(payload, requestedTraceId) {
   const data = payload?.data
   if (!data || typeof data !== 'object') return null
-  if (typeof data.id === 'string' && data.id !== requestedTraceId) return null
-  const returnedId = typeof data.id === 'string' ? data.id : requestedTraceId
+  // The official API identifies the authorization by its traceId in `data.id`.
+  // Do not substitute the caller's requested ID when the provider omits it:
+  // that would turn an uncorrelated response into a falsely "verified" lookup.
+  if (typeof data.id !== 'string' || data.id !== requestedTraceId) return null
+  const returnedId = data.id
   const state = typeof data.state === 'string' ? data.state
     : typeof data.status === 'string' ? data.status : null
   const txCandidate = [data.transactionId, data.transactionHash, data.txHash, data.txID]
