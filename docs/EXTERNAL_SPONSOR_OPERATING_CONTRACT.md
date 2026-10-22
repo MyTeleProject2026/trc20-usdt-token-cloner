@@ -61,3 +61,8 @@ The reservation layer requires exact contract addresses before it can reserve a 
 - The existing VTRC transfer UI is Shasta-only. A Mainnet allowlist entry alone does not deploy VTRC or enable a Mainnet transfer.
 
 These variables authorize contract identity for ledger reservation only. They do not prove the sponsor owns sufficient tokens, do not enable transaction signing/broadcast, and do not override the global disabled sponsorship status.
+
+
+## Separate fee and principal budgets
+
+Sponsor budgets are keyed by sponsor, network, purpose, asset, and token contract. A `network-fee` reservation must match a separately configured `network-fee` budget; it cannot consume an `asset-grant` budget, even when both are denominated in TRX. Existing budget rows migrate as `asset-grant` by default. An external sponsor must separately approve and fund the fee/resource allocation and each asset-principal allocation.
