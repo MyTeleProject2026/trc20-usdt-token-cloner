@@ -2,11 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createGasFreeRouter } from '../server/routes/gasfree.mjs'
 
-function getRoute(router) {
+function getRoute(router, routePath = '/capabilities') {
   const layer = router.stack.find((item) =>
-    item.route?.path === '/capabilities' && item.route.methods?.get,
+    item.route?.path === routePath && item.route.methods?.get,
   )
-  assert.ok(layer, 'GET /capabilities must be registered')
+  assert.ok(layer, `GET ${routePath} must be registered`
   return layer.route.stack[0].handle
 }
 
@@ -61,4 +61,69 @@ test('GasFree success route keeps provider funding and transaction submissions u
   assert.equal(res.body.status, 'provider-capabilities-read')
   assert.equal(res.body.providerFundingVerified, false)
   assert.equal(res.body.canSubmitSponsoredTransfer, false)
+})
+
+
+test('GasFree account route validates network/address before provider access', async () => {
+  let calls = 0
+  const router = createGasFreeRouter({
+    getAccount: async () => { calls += 1; return { configured: true, reachable: true } },
+  })
+  const badNetwork = responseRecorder()
+  await getRoute(router, '/account')({ query: { network: 'shasta', address: 'T' + 'A'.repeat(33) } }, badNetwork)
+  assert.equal(badNetwork.statusCode, 400)
+  assert.equal(calls, 0)
+
+  const badAddress = responseRecorder()
+  await getRoute(router, '/account')({ query: { network: 'nile', address: 'bad' } }, badAddress)
+  assert.equal(badAddress.statusCode, 400)
+  assert.equal(badAddress.body.status, 'invalid-address')
+  assert.equal(calls, 0)
+})
+
+test('GasFree account route exposes only read-only provider metadata and no submission capability', async () => {
+  const address = 'T' + 'A'.repeat(33)
+  const router = createGasFreeRouter({
+    getAccount: async (network, accountAddress) => ({
+      configured: true, reachable: true, network, accountLookupVerified: true,
+      account: {
+        accountAddress, gasFreeAddress: 'T' + 'B'.repeat(33),
+        active: true, nonce: 4, allowSubmit: true, assets: [],
+        chainFinalityVerified: false,
+      },
+    }),
+  })
+  const res = responseRecorder()
+  await getRoute(router, '/account')({ query: { network: 'nile', address } }, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.status, 'provider-account-read')
+  assert.equal(res.body.account.chainFinalityVerified, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, undefined)
+})
+
+test('GasFree trace route rejects unsafe IDs before provider access', async () => {
+  let calls = 0
+  const router = createGasFreeRouter({
+    getTrace: async () => { calls += 1; return { configured: true, reachable: true } },
+  })
+  const res = responseRecorder()
+  await getRoute(router, '/trace')({ query: { network: 'mainnet', traceId: '../private' } }, res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.body.status, 'invalid-trace-id')
+  assert.equal(calls, 0)
+})
+
+test('GasFree trace route explicitly distinguishes provider state from chain verification', async () => {
+  const router = createGasFreeRouter({
+    getTrace: async (network, traceId) => ({
+      configured: true, reachable: true, network, traceLookupVerified: true,
+      trace: { traceId, state: 'SUCCEED', transactionId: 'a'.repeat(64), verifiedOnChain: false },
+    }),
+  })
+  const res = responseRecorder()
+  await getRoute(router, '/trace')({ query: { network: 'mainnet', traceId: 'trace_1' } }, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.status, 'provider-trace-read')
+  assert.equal(res.body.trace.state, 'SUCCEED')
+  assert.equal(res.body.trace.verifiedOnChain, false)
 })
