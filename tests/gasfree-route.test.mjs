@@ -6,7 +6,7 @@ function getRoute(router, routePath = '/capabilities') {
   const layer = router.stack.find((item) =>
     item.route?.path === routePath && item.route.methods?.get,
   )
-  assert.ok(layer, `GET ${routePath} must be registered`
+  assert.ok(layer, `GET ${routePath} must be registered`)
   return layer.route.stack[0].handle
 }
 
