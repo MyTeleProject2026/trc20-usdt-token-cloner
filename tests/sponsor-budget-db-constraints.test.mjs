@@ -42,3 +42,12 @@ test('fee-purpose policy rejects token principal for budgets and transfer intent
     allowedTokenContractsByNetwork: { shasta: ['TContract'] },
   }).reason, 'network-fee-must-use-trx')
 })
+
+test('sponsor transfer database constraint prevents fee operations from being token-principal transfers', async () => {
+  const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  assert.match(source, /sponsor_transfers_network_fee_requires_trx/)
+  assert.ok(source.includes("ADD CONSTRAINT sponsor_transfers_network_fee_requires_trx"))
+  assert.ok(source.includes("CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID"))
+  assert.ok(source.includes("conrelid = '${schema}.sponsor_transfers'::regclass"))
+  assert.ok(source.includes('DO $sponsor_transfer$ BEGIN'))
+})
