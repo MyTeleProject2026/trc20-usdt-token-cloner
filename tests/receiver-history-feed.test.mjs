@@ -74,5 +74,5 @@ test('persistent watchlist registration is protected and does not imply monitori
 
 
 test('receiver history React identity includes the event index for multiple token transfers in one transaction', () => {
-  assert.match(ui, /key=\{\`\$\{record\.network\}:\$\{record\.transactionId \|\| index\}:\$\{record\.tokenContract \|\| ''\}:\$\{record\.eventIndex \?\? ''\}\`\}/)
+  assert.match(ui, /<article key=\{`\$\{record\.network\}:\$\{record\.transactionId \|\| index\}:\$\{record\.tokenContract \|\| ''\}:\$\{record\.eventIndex \?\? ''\}`\}/)
 })
