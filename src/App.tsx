@@ -102,7 +102,12 @@ export default function App() {
   }
 
   useEffect(() => {
+    // A network switch invalidates the prior wallet/network pairing. Require an
+    // explicit reconnect and discard network-specific account details before
+    // any subsequent transfer or balance lookup.
     setTronBlock(null)
+    setWalletConnected(false)
+    setAccountData(null)
     fetchStatus()
   }, [network])
 
