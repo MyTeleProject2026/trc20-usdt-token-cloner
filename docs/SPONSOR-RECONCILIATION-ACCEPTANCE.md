@@ -78,3 +78,9 @@ Keep `enabled=false`, `mainnetEnabled=false`, and `canSubmitSponsoredTransfer=fa
 - a low-value testnet end-to-end run passes; mainnet requires separate explicit operator approval and a reviewed low-value mainnet test.
 
 A provider account or API key alone does not prove funding or transfer capability. No funding or live transaction is authorized by this specification.
+
+## Current code-review blocker: purpose-specific evidence
+
+The existing database transition implementation must not be treated as a completed reconciler. Before any sponsor path is enabled, review `transitionSponsorTransfer` against `purpose` explicitly. A `network-fee` reservation is not the same operation as an `asset-grant`: fee sponsorship may delegate Energy/Bandwidth or pay an eligible provider cost without sending the reserved amount as a native TRX principal transfer to the receiver. Confirmation evidence and ledger booking must therefore be purpose-specific.
+
+For `asset-grant`, verify the actual principal transfer and book the asset principal only once. For `network-fee`, verify the supported sponsor/provider operation and its actual fee/resource consumption using provider-specific evidence; do not require or invent a receiver principal transfer, and do not infer the fee from the reservation amount. Until this distinction is implemented and tested, keep all sponsor submission flags disabled.
