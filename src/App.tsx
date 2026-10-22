@@ -139,10 +139,8 @@ export default function App() {
   const [tokenVerifyResult, setTokenVerifyResult] = useState<any>(null)
   const [verifiedTransferLookup, setVerifiedTransferLookup] = useState<any>(null)
   const [verifiedTransferLookupLoading, setVerifiedTransferLookupLoading] = useState(false)
-  const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [walletConnected, setWalletConnected] = useState(false)
-  const [showPrivateKey, setShowPrivateKey] = useState(false)
   const [accountData, setAccountData] = useState<any>(null)
   const [transactionHistory, setTransactionHistory] = useState<any[]>([])
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -181,8 +179,6 @@ export default function App() {
     setWalletConnected(false)
     setAccountData(null)
     setWalletAddress('')
-    setPrivateKey('')
-    setShowPrivateKey(false)
     setNativeBalanceResult(null)
     setTokenBalanceResult(null)
     setNativeTransferRecord(null)
@@ -251,23 +247,6 @@ export default function App() {
     }
   }
 
-  const handleGenerateWallet = async () => {
-    try {
-      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const tronWeb = new TronWeb({ fullHost })
-      const account: any = await tronWeb.createAccount()
-      const address = account?.address?.base58
-      const key = account?.privateKey
-      if (!address || !key) throw new Error('The wallet provider did not return a complete account.')
-      setWalletAddress(address)
-      setPrivateKey(key)
-      setQueryAddress(address)
-      setRecipient(address)
-      setActionMessage({ type: 'success', text: `New ${network === 'shasta' ? 'Shasta testnet' : 'TRON Mainnet'} wallet generated locally: ${address}. Back up the private key securely before leaving this page.` })
-    } catch (err: any) {
-      setActionMessage({ type: 'error', text: err?.message || 'Could not generate a local TRON wallet.' })
-    }
-  }
 
 
   const handleDeploy = async () => {
@@ -278,17 +257,18 @@ export default function App() {
     setDeploying(true)
     setDeployResult(null)
     try {
-      if (!privateKey.trim()) throw new Error('Enter your wallet private key in the local-signing field. It is used only in this browser and is never sent to the backend.')
+      const tronWeb = await getInjectedTronWeb()
+      assertSelectedTronLinkNetwork(tronWeb)
+      const deployerAddress = tronWeb.defaultAddress.base58
       if (!recipient.trim()) throw new Error('Enter the address that should receive the initial supply.')
       if (!/^[1-9][0-9]*$/.test(initialSupply)) throw new Error('Initial supply must be a positive whole-token integer.')
       if (Number(tokenDecimals) !== 18) throw new Error('This VTRC contract template uses 18 decimals.')
       if (tokenName.trim() !== 'TRC20' || tokenSymbol.trim() !== 'VTRC') {
         throw new Error('This deployment template is intentionally fixed to its independent identity: TRC20 / VTRC. It cannot be used to impersonate official Tether USDT.')
       }
-      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
       if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Base58 recipient address.')
-      setWalletAddress(tronWeb.defaultAddress.base58 || '')
+      setWalletAddress(deployerAddress)
+      setWalletConnected(true)
       const contract = await tronWeb.contract().new({
         abi: tokenArtifact.abi as any,
         bytecode: tokenArtifact.bytecode,
@@ -1026,25 +1006,11 @@ export default function App() {
                   />
                   <p className="text-xs text-tertiary">Receives 100% of the initial supply upon deployment</p>
                 </div>
-                <div className="sm:col-span-2 flex flex-col gap-sm">
-                  <div className="flex items-center justify-between gap-sm">
-                    <label className="text-sm font-medium text-secondary">Wallet Private Key (browser-local signing)</label>
-                    <button type="button" onClick={handleGenerateWallet} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Generate wallet</button>
-                  </div>
-                  <input
-                    type={showPrivateKey ? "text" : "password"}
-                    autoComplete="off"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    placeholder="Private key for your own wallet"
-                  />
-                  <div className="flex flex-wrap items-center gap-sm">
-                    <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
-                    {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
-                  </div>
-                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Current local wallet: {walletAddress}</p>}
-                  <p className="text-xs text-tertiary">The key is used only by this browser and is not submitted to the backend. Back it up securely; this page does not store it after you close or reload the app.</p>
+                <div className="sm:col-span-2 flex flex-col gap-sm rounded-lg border border-secondary bg-secondary p-lg">
+                  <p className="text-sm font-semibold text-primary">Deployment wallet authorization</p>
+                  <p className="text-xs text-tertiary">Connect TronLink on Shasta to review and approve deployment. This page never asks for a private key or recovery phrase.</p>
+                  <button type="button" onClick={handleConnectWallet} className="self-start rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary focus-visible:ring-2 focus-visible:ring-focus-ring">Connect / verify TronLink</button>
+                  {walletAddress && <p className="break-all text-xs font-mono text-secondary">Connected wallet: {walletAddress}</p>}
                 </div>
               </div>
 
@@ -1054,7 +1020,7 @@ export default function App() {
                 <div>
                   <p className="text-sm font-semibold text-primary">Tron Network Signing</p>
                   <p className="mt-xxs text-sm text-tertiary">
-                    Your wallet signs the deployment in this browser. The private key is not sent to the backend or stored by Render. Keep a secure backup and never use a wallet holding funds you cannot afford to risk.
+                    TronLink asks you to approve deployment details in your wallet. Review the selected network and all transaction details before confirming.
                   </p>
                 </div>
               </div>
@@ -1284,26 +1250,13 @@ export default function App() {
               </p>
 
               <div className="space-y-md">
-                <div className="flex flex-col gap-sm">
-                  <div className="flex items-center justify-between gap-sm">
-                    <label className="text-sm font-medium text-secondary">Wallet Private Key (local signing only)</label>
-                    <button type="button" onClick={handleGenerateWallet} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Generate wallet</button>
-                  </div>
-                  <input
-                    type={showPrivateKey ? "text" : "password"}
-                    autoComplete="off"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    placeholder="Enter your own wallet private key"
-                  />
-                  <div className="flex flex-wrap items-center gap-sm">
-                    <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
-                    {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
-                  </div>
-                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Current local wallet: {walletAddress}</p>}
-                  <p className="text-xs text-tertiary">Signing runs locally in this browser. The key is not sent to the backend. Back it up securely; it is not saved after you close or reload the app.</p>
+                <div className="flex flex-col gap-sm rounded-lg border border-secondary bg-secondary p-lg">
+                  <p className="text-sm font-semibold text-primary">Wallet authorization</p>
+                  <p className="text-xs text-tertiary">TRC-20 transfers use TronLink's connected account and wallet confirmation. This form never requests a private key or recovery phrase.</p>
+                  <button type="button" onClick={handleConnectWallet} className="self-start rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary focus-visible:ring-2 focus-visible:ring-focus-ring">Connect / verify TronLink</button>
+                  {walletAddress && <p className="break-all text-xs font-mono text-secondary">Connected wallet: {walletAddress}</p>}
                 </div>
+
 
                 <div className="flex flex-col gap-sm">
                   <label className="text-sm font-medium text-secondary">TRC-20 Contract Address</label>
