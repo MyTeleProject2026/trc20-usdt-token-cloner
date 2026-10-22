@@ -172,23 +172,37 @@ export default function App() {
   }
 
   useEffect(() => {
-    // A network switch invalidates the prior wallet/network pairing. Require an
-    // explicit reconnect and discard network-specific account details before
-    // any subsequent transfer or balance lookup.
-    setTronBlock(null)
-    setWalletConnected(false)
-    setAccountData(null)
-    setWalletAddress('')
-    setNativeBalanceResult(null)
-    setTokenBalanceResult(null)
-    setNativeTransferRecord(null)
-    setTokenTransferRecord(null)
-    setNativeVerifyResult(null)
-    setTokenVerifyResult(null)
-    setVerifiedTransferLookup(null)
-    setTransactionHistory([])
-    fetchStatus()
-  }, [network])
+    // Wallet-provider account/network changes invalidate the active session.
+    // Reconnect and re-run the selected-network guard before sending anything.
+    if (!walletConnected) return
+    const provider = (window as any).tron
+    if (!provider || typeof provider.on !== 'function') return
+
+    const invalidateWalletSession = () => {
+      setWalletConnected(false)
+      setWalletAddress('')
+      setAccountData(null)
+      setTransactionHistory([])
+      setNativeBalanceResult(null)
+      setTokenBalanceResult(null)
+      setNativeTransferRecord(null)
+      setTokenTransferRecord(null)
+      setNativeVerifyResult(null)
+      setTokenVerifyResult(null)
+      setVerifiedTransferLookup(null)
+      setActionMessage({ type: 'error', text: 'TronLink account or network changed. Reconnect and verify the selected network before continuing.' })
+      setSponsorRefreshKey((current) => current + 1)
+    }
+
+    provider.on('accountsChanged', invalidateWalletSession)
+    provider.on('chainChanged', invalidateWalletSession)
+    return () => {
+      if (typeof provider.removeListener === 'function') {
+        provider.removeListener('accountsChanged', invalidateWalletSession)
+        provider.removeListener('chainChanged', invalidateWalletSession)
+      }
+    }
+  }, [walletConnected, network])
 
   const copyToClipboard = async (text: string, id: string) => {
     if (!text) {
