@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, History, AlertCircle } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
@@ -55,10 +55,18 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [nextFingerprint, setNextFingerprint] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [notification, setNotification] = useState<{ key: string; message: string; transactionId: string | null } | null>(null)
+  const seenVerifiedKeys = useRef<Set<string>>(new Set())
+  const historyInitialized = useRef(false)
 
   useEffect(() => {
     let active = true
     let timer: ReturnType<typeof setInterval> | undefined
+    // Do not treat old transactions as new notifications when the watched
+    // address/network/filter changes or the user explicitly refreshes history.
+    seenVerifiedKeys.current.clear()
+    historyInitialized.current = false
+    setNotification(null)
     const load = async (showLoading: boolean) => {
       if (!address.trim()) {
         if (active) {
@@ -90,8 +98,28 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           }
         } catch { /* The live indexer feed remains available independently. */ }
         if (active) {
+          const incoming = [...persistedRecords, ...payload.records]
+          const confirmedIncoming = incoming.filter((record) =>
+            record.verifiedOnChain === true && record.verificationStatus === 'verified-on-chain',
+          )
+          if (!historyInitialized.current) {
+            // Initial history is a baseline, not a stream of alerts for old transfers.
+            for (const record of confirmedIncoming) seenVerifiedKeys.current.add(recordKey(record))
+            historyInitialized.current = true
+          } else {
+            const newlyVerified = confirmedIncoming.find((record) => !seenVerifiedKeys.current.has(recordKey(record)))
+            for (const record of confirmedIncoming) seenVerifiedKeys.current.add(recordKey(record))
+            if (newlyVerified) {
+              const symbol = newlyVerified.tokenSymbol || 'TRC-20 token'
+              const amount = formatUnits(newlyVerified.amountBaseUnits, newlyVerified.tokenDecimals)
+              setNotification({
+                key: recordKey(newlyVerified),
+                message: `Verified incoming ${amount} ${symbol} transfer observed on ${network}. Exchange credit is separate.`,
+                transactionId: newlyVerified.transactionId,
+              })
+            }
+          }
           setRecords((current) => {
-            const incoming = [...persistedRecords, ...payload.records]
             const merged = showLoading ? incoming : [...incoming, ...current]
             const unique = new Map<string, HistoryRecord>()
             for (const record of merged) {
@@ -187,6 +215,17 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
         Indexer records are incoming-transfer candidates, not final proof. A row is not marked completed until its exact transaction, solidified receipt, contract, sender, receiver and amount are independently verified. This panel does not change balances or promise exchange credit.
       </div>
       {error && <div className="flex items-start gap-sm rounded-lg border border-secondary bg-secondary p-md text-sm text-secondary"><AlertCircle className="mt-xxs size-4 shrink-0" />{error}</div>}
+      {notification && <div role="status" aria-live="polite" className="rounded-lg border border-utility-success-200 bg-utility-success-50 p-md text-sm text-utility-success-700">
+        <div className="flex items-start justify-between gap-md">
+          <div className="min-w-0">
+            <p className="font-semibold">Verified incoming transfer notification</p>
+            <p className="mt-xs">{notification.message}</p>
+            {notification.transactionId && <p className="mt-xs break-all font-mono text-xs">Transaction: {notification.transactionId}</p>}
+            <p className="mt-xs text-xs">This notification is inside this app while the history panel is open. It is not an exchange notification or proof of exchange-account credit.</p>
+          </div>
+          <button type="button" onClick={() => setNotification(null)} className="shrink-0 rounded border border-current px-sm py-xs text-xs">Dismiss</button>
+        </div>
+      </div>}
       {lastChecked !== null && <p className="text-xs text-tertiary">Last successful check: {new Date(lastChecked).toLocaleString()} · Receiver: <span className="break-all font-mono">{address || 'not set'}</span></p>}
       {!error && records.length === 0 && <p className="rounded-lg border border-secondary bg-secondary p-lg text-sm text-tertiary">No incoming TRC-20 records were returned for this address and filter. Indexers may lag; this is not proof that no transfer exists.</p>}
       <div className="space-y-md">
