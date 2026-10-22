@@ -619,7 +619,7 @@ export async function transitionSponsorTransfer(input) {
   try {
     await client.query('BEGIN')
     const result = await client.query(
-      `SELECT idempotency_key, sponsor_reference, sponsor_address, network, asset, token_contract,
+      `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
               receiver_address, amount_base_units::text AS amount_base_units, status, transaction_hash
          FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
       [idempotencyKey],
@@ -659,6 +659,20 @@ export async function transitionSponsorTransfer(input) {
     if (!allowed[transfer.status]?.includes(nextStatus)) {
       await client.query('ROLLBACK')
       return { updated: false, reason: 'invalid-state-transition' }
+    }
+
+    if (nextStatus === 'confirmed' && transfer.purpose === 'network-fee') {
+      // Fee/resource consumption is not principal paid to the receiver. Keep the
+      // reservation until a provider-specific finalized fee reconciler exists.
+      await client.query('ROLLBACK')
+      return {
+        updated: false,
+        reason: 'purpose-specific-fee-evidence-and-reconciliation-required',
+      }
+    }
+    if (nextStatus === 'confirmed' && transfer.purpose !== 'asset-grant') {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'unsupported-sponsor-transfer-purpose' }
     }
 
     if (nextStatus === 'confirmed') {
