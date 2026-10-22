@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { buildGasFreeAuthHeaders, createGasFreeClient, getGasFreeNetwork } from '../server/gasfree-client.mjs'
+import { credentialGuard } from '../server/credential-guard.mjs'
 
 const validAddress = 'T' + 'A'.repeat(33)
 const mainnetEnv = { GASFREE_MAINNET_API_KEY: 'mainnet-key', GASFREE_MAINNET_API_SECRET: 'mainnet-secret' }
@@ -261,3 +262,44 @@ test('GasFree trace lookup refuses a provider response for a different trace ID'
   assert.equal(result.reachable, false)
   assert.equal(result.reason, 'invalid-provider-response')
 })
+
+test('HTTP response credential guard redacts Tatum, TRONGrid, and both GasFree network credentials', () => {
+  const envKeys = [
+    'TATUM_API_KEY',
+    'TRONGRID_API_KEY',
+    'GASFREE_MAINNET_API_KEY',
+    'GASFREE_MAINNET_API_SECRET',
+    'GASFREE_NILE_API_KEY',
+    'GASFREE_NILE_API_SECRET',
+  ]
+  const before = new Map(envKeys.map((key) => [key, process.env[key]]))
+  const secrets = envKeys.map((key, index) => {
+    const value = `test-secret-${key.toLowerCase()}-value-${index}-not-for-production`
+    process.env[key] = value
+    return value
+  })
+
+  try {
+    const sent = []
+    const response = {
+      json(payload) { sent.push(payload); return payload },
+      send(payload) { sent.push(payload); return payload },
+      type() { return this },
+    }
+    credentialGuard({}, response, () => {})
+    response.json({ diagnosticEcho: secrets.join('|') })
+
+    const serialized = sent.at(-1)
+    assert.equal(typeof serialized, 'string')
+    for (const secret of secrets) {
+      assert.equal(serialized.includes(secret), false, `Response leaked ${secret.slice(0, 16)}`)
+    }
+    assert.equal((serialized.match(/\\[REDACTED\\]/g) || []).length, secrets.length)
+  } finally {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
