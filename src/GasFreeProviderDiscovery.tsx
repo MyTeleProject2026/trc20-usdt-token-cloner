@@ -3,6 +3,7 @@ import { ShieldCheck, SearchCheck, Activity } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 type GasFreeCapabilities = {
@@ -257,6 +258,15 @@ export default function GasFreeProviderDiscovery() {
               <div key={token.tokenAddress} className="rounded-lg border border-secondary p-md">
                 <p className="text-sm font-semibold text-primary">{token.symbol} <span className="font-normal text-tertiary">({token.decimals} decimals; provider-reported symbol)</span></p>
                 <p className="mt-xs break-all text-xs font-mono text-tertiary">Contract: {token.tokenAddress}</p>
+                <p className={`mt-xs text-xs font-semibold ${network === 'mainnet' && token.tokenAddress === OFFICIAL_MAINNET_USDT ? 'text-utility-success-700' : 'text-utility-warning-700'}`}>
+                  {network === 'mainnet' && token.tokenAddress === OFFICIAL_MAINNET_USDT
+                    ? 'Exact contract matches Tether-published TRON Mainnet USDT.'
+                    : token.symbol.toUpperCase() === 'USDT'
+                      ? network === 'mainnet'
+                        ? 'Symbol says USDT, but this is not the official Tether TRON Mainnet contract.'
+                        : 'Provider symbol only: testnet assets are separate from Mainnet USDT.'
+                      : 'Verify the exact token contract independently; the symbol alone does not establish asset identity.'}
+                </p>
                 <p className="mt-xs text-sm text-secondary">Activation fee: {formatBaseUnits(token.activationFeeBaseUnits, token.decimals)} {token.symbol}</p>
                 <p className="text-sm text-secondary">Transfer fee: {formatBaseUnits(token.transferFeeBaseUnits, token.decimals)} {token.symbol}</p>
               </div>
