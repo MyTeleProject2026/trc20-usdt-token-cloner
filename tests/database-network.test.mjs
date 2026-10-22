@@ -350,3 +350,257 @@ test('submitted sponsor transfers cannot release reservations without finalized 
   assert.match(transition, /submitted: \['confirmed'\]/)
   assert.match(transition, /if \(nextStatus === 'confirmed'\)[\s\S]*finalized-transfer-evidence-not-found/)
 })
+
+
+test('behavioral sponsor transition harness preserves reservations for network-fee confirmations', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'network-fee' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, {
+    updated: false,
+    reason: 'purpose-specific-fee-evidence-and-reconciliation-required',
+  })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.ok(state.queries.includes('ROLLBACK'))
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
+test('behavioral sponsor transition harness reconciles matching asset grants once only', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const pool = makeSponsorTransitionPool(state)
+  const input = {
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }
+
+  const first = await transitionSponsorTransferWithPool(input, pool, { initialize: false })
+  assert.deepEqual(first, { updated: true, duplicate: false, status: 'confirmed' })
+  assert.equal(state.transfer.status, 'confirmed')
+  assert.equal(state.budget.reserved_base_units, '0')
+  assert.equal(state.budget.spent_base_units, '25')
+  assert.equal(state.commits, 1)
+  assert.equal(state.rollbacks, 0)
+
+  const second = await transitionSponsorTransferWithPool(input, pool, { initialize: false })
+  assert.deepEqual(second, { updated: true, duplicate: true, status: 'confirmed' })
+  assert.equal(state.budget.reserved_base_units, '0')
+  assert.equal(state.budget.spent_base_units, '25')
+  assert.equal(state.commits, 2)
+  assert.equal(state.rollbacks, 0)
+})
+
+test('behavioral sponsor transition harness rolls back asset grants without exact finalized evidence', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant', evidenceMatches: false })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, { updated: false, reason: 'finalized-transfer-evidence-not-found' })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+})
+
+test('behavioral sponsor transition harness rejects unknown purposes before evidence or budget access', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'unsupported-purpose' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, { updated: false, reason: 'unsupported-sponsor-transfer-purpose' })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.ok(!state.queries.some((query) => query.includes('native_transfer_verifications')))
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
+test('behavioral sponsor transition harness rejects a conflicting transaction hash without reconciliation', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: 'b'.repeat(64),
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, { updated: false, reason: 'transaction-hash-conflict' })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.ok(!state.queries.some((query) => query.includes('native_transfer_verifications')))
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
+test('behavioral sponsor transition harness refuses caller-declared failure after submission', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'failed',
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, {
+    updated: false,
+    reason: 'finalized-failure-evidence-and-fee-reconciliation-required',
+  })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
+test('behavioral sponsor transition harness rolls back unexpected database errors and releases the client', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const basePool = makeSponsorTransitionPool(state)
+  let released = false
+  const pool = {
+    async connect() {
+      const client = await basePool.connect()
+      const query = client.query.bind(client)
+      return {
+        async query(sql, values) {
+          if (sql.includes('FROM trc20_token_clone.native_transfer_verifications')) {
+            throw new Error('simulated evidence query failure')
+          }
+          return query(sql, values)
+        },
+        release() {
+          released = true
+          client.release()
+        },
+      }
+    },
+  }
+
+  await assert.rejects(
+    transitionSponsorTransferWithPool({
+      idempotencyKey: state.transfer.idempotency_key,
+      nextStatus: 'confirmed',
+      transactionHash: state.transfer.transaction_hash,
+    }, pool, { initialize: false }),
+    /simulated evidence query failure/,
+  )
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.equal(released, true)
+})
+
+// These deterministic query doubles exercise transition outcomes without connecting to any live database or chain.
+function makeSponsorTransitionState({ purpose, evidenceMatches = true } = {}) {
+  return {
+    queries: [],
+    commits: 0,
+    rollbacks: 0,
+    evidenceMatches,
+    transfer: {
+      idempotency_key: 'sponsor-test-key-0001',
+      sponsor_reference: 'test-sponsor',
+      sponsor_address: 'T1111111111111111111111111',
+      network: 'shasta',
+      purpose,
+      asset: 'TRX',
+      token_contract: null,
+      receiver_address: 'T2222222222222222222222222',
+      amount_base_units: '25',
+      status: 'submitted',
+      transaction_hash: 'a'.repeat(64),
+    },
+    budget: {
+      id: 7,
+      reserved_base_units: '25',
+      spent_base_units: '0',
+      budget_base_units: '100',
+    },
+  }
+}
+
+function makeSponsorTransitionPool(state) {
+  return {
+    async connect() {
+      return {
+        async query(sql, values = []) {
+          const normalized = sql.replace(/\s+/g, ' ').trim()
+          state.queries.push(normalized)
+          if (normalized === 'BEGIN') return { rows: [] }
+          if (normalized === 'COMMIT') {
+            state.commits += 1
+            return { rows: [] }
+          }
+          if (normalized === 'ROLLBACK') {
+            state.rollbacks += 1
+            return { rows: [] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
+            return { rows: [{ ...state.transfer }] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.native_transfer_verifications')) {
+            const [network, hash, sender, receiver, amount] = values
+            const matches = state.evidenceMatches
+              && network === state.transfer.network
+              && hash === state.transfer.transaction_hash
+              && sender === state.transfer.sponsor_address
+              && receiver === state.transfer.receiver_address
+              && amount === state.transfer.amount_base_units
+            return { rows: matches ? [{ '?column?': 1 }] : [] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_budgets')) {
+            return { rows: [{ ...state.budget }] }
+          }
+          if (normalized.startsWith('UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units -')) {
+            const [amount] = values
+            state.budget.reserved_base_units = (BigInt(state.budget.reserved_base_units) - BigInt(amount)).toString()
+            if (normalized.includes('spent_base_units = spent_base_units +')) {
+              state.budget.spent_base_units = (BigInt(state.budget.spent_base_units) + BigInt(amount)).toString()
+            }
+            return { rows: [], rowCount: 1 }
+          }
+          if (normalized.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status =')) {
+            const [status, authorizationReference, hash] = values
+            state.transfer.status = status
+            if (authorizationReference) state.transfer.authorization_reference = authorizationReference
+            if (hash) state.transfer.transaction_hash = hash
+            return { rows: [], rowCount: 1 }
+          }
+          if (normalized.startsWith('INSERT INTO trc20_token_clone.audit_events')) {
+            return { rows: [], rowCount: 1 }
+          }
+          throw new Error('Unexpected SQL in sponsor transition test harness')
+        },
+        release() {},
+      }
+    },
+  }
+}
