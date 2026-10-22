@@ -44,3 +44,10 @@ test('Copy Code copies the same Solidity source that the viewer renders', () => 
   assert.ok(app.includes('{independentTokenSource}'))
   assert.ok(!app.includes('copyToClipboard(\'contract_source\', \'contract_source\')'))
 })
+
+test('copy actions report success only after clipboard writes and handle browser denial', () => {
+  assert.ok(app.includes('await navigator.clipboard.writeText(text)'))
+  assert.ok(app.includes('Clipboard access was blocked.'))
+  assert.ok(app.includes('setCopyFeedback({ type: \'error\', text: \'Nothing to copy yet.\' })'))
+  assert.ok(app.includes('onClick={() => setCopyFeedback(null)}'))
+})
