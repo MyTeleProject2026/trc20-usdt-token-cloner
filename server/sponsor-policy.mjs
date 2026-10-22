@@ -57,7 +57,7 @@ export function validateSponsorTransferIntent(input, { isValidAddress, maxTransf
   if (!ASSETS.has(asset)) return { valid: false, reason: 'invalid-asset' }
   if (purpose === 'network-fee' && asset !== 'TRX') return { valid: false, reason: 'network-fee-must-use-trx' }
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
-  if (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
+  if (TOKEN_ASSETS.has(asset) && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
   }
   // Fail closed: a token symbol/name is not proof of identity. The caller must
