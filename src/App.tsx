@@ -97,6 +97,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'choose' | 'sponsors' | 'deploy' | 'interact' | 'trx' | 'simulation' | 'verify' | 'contract'>('choose')
   const [selectedAsset, setSelectedAsset] = useState<'VTRC' | 'TRX' | 'USDT'>('VTRC')
   const [copied, setCopied] = useState<string | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // System status
   const [apiStatus, setApiStatus] = useState<string>('checking')
@@ -192,10 +193,22 @@ export default function App() {
     fetchStatus()
   }, [network])
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
-    setCopied(id)
-    setTimeout(() => setCopied(null), 2000)
+  const copyToClipboard = async (text: string, id: string) => {
+    if (!text) {
+      setCopied(null)
+      setCopyFeedback({ type: 'error', text: 'Nothing to copy yet.' })
+      return
+    }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(text)
+      setCopied(id)
+      setCopyFeedback({ type: 'success', text: 'Copied to clipboard.' })
+      window.setTimeout(() => setCopied((current) => current === id ? null : current), 2000)
+    } catch {
+      setCopied(null)
+      setCopyFeedback({ type: 'error', text: 'Clipboard access was blocked. Use a secure browser context or select the text to copy manually.' })
+    }
   }
 
   // Connect to TronLink. The wallet retains the private key and asks for approval
@@ -830,6 +843,12 @@ export default function App() {
           </p>
         </aside>
         <SponsorshipStatus />
+        {copyFeedback && (
+          <div role="status" aria-live="polite" className={`mb-xl flex items-center justify-between gap-md rounded-lg border p-md text-sm ${copyFeedback.type === 'success' ? 'border-utility-success-200 bg-utility-success-50 text-utility-success-700' : 'border-utility-danger-200 bg-utility-danger-50 text-utility-danger-700'}`}>
+            <span>{copyFeedback.text}</span>
+            <button type="button" onClick={() => setCopyFeedback(null)} className="shrink-0 rounded-md border border-current px-sm py-xs text-xs font-semibold">Dismiss</button>
+          </div>
+        )}
         {/* Alert component recipe */}
         {apiStatus === 'no-api-key' && (
           <div className="mb-xl flex gap-lg rounded-xl bg-utility-warning-50 p-xl">
