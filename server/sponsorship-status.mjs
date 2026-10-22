@@ -9,7 +9,8 @@ export function getSponsorshipStatus() {
   return {
     enabled: false,
     status: 'not-integrated',
-    network: 'shasta',
+    // No network is active while sponsorship is not integrated.
+    network: null,
     provider: null,
     mainnetEnabled: false,
     canSubmitSponsoredTransfer: false,
