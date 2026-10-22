@@ -684,10 +684,10 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-secondary text-primary font-sans">
+    <div className="app-shell min-h-screen bg-secondary text-primary font-sans">
       {/* Top Header */}
-      <header className="border-b border-secondary bg-primary px-xl py-lg">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
+      <header className="app-header border-b border-secondary bg-primary px-xl py-lg">
+        <div className="app-header-inner mx-auto flex max-w-7xl items-center justify-between">
           <div className="flex items-center gap-md">
             {/* Featured Icon component recipe */}
             <span className="flex size-10 items-center justify-center rounded-full bg-utility-brand-50">
@@ -743,7 +743,7 @@ export default function App() {
       </header>
 
       {/* Main Container */}
-      <main className="mx-auto max-w-7xl px-xl py-2xl">
+      <main className="app-main mx-auto max-w-7xl px-xl py-2xl">
         <aside role="status" className="mb-xl rounded-xl border border-secondary bg-secondary p-lg">
           <p className="text-sm font-semibold text-primary">
             {network === 'shasta' ? 'Shasta Testnet — test assets only' : 'TRON Mainnet — real assets and network costs'}
@@ -772,12 +772,12 @@ export default function App() {
         )}
 
         {/* Primary workflow: select an asset and review sponsor availability before using transfer tools. */}
-        <div className="mb-md flex flex-wrap gap-sm">
+        <div className="app-primary-nav mb-md flex flex-wrap gap-sm" role="navigation" aria-label="Primary workflow">
           <button type="button" onClick={() => setActiveTab('choose')} aria-current={activeTab === 'choose' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'choose' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Choose asset</button>
           <button type="button" onClick={() => setActiveTab('sponsors')} aria-current={activeTab === 'sponsors' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'sponsors' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Sponsor providers</button>
         </div>
         {/* Tabs component recipe: list on baseline divider */}
-        <div className="mb-xl flex gap-lg border-b border-secondary overflow-x-auto">
+        <div className="app-workflow-nav mb-xl flex gap-lg border-b border-secondary overflow-x-auto" role="navigation" aria-label="Token tools">
           <button
             type="button"
             onClick={() => setActiveTab('deploy')}
