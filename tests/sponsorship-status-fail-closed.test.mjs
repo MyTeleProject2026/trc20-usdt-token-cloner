@@ -16,6 +16,18 @@ test('sponsorship status remains fail-closed until provider and operational gate
   assert.equal(status.receiverBalance.exchangeCredit, 'exchange-confirmation-required')
 })
 
+test('selected funding policy never charges the user or falls back to user funds', () => {
+  const policy = getSponsorshipStatus().fundingPolicy
+  assert.equal(policy.mode, 'external-sponsor-only')
+  assert.equal(policy.userFundsRequiredForSponsoredFlow, false)
+  assert.equal(policy.externalSponsorConfirmed, false)
+  assert.equal(policy.sponsorFundingVerified, false)
+  assert.equal(policy.paidProviderPurchasesAllowed, false)
+  assert.equal(policy.feeSponsorshipAvailable, false)
+  assert.equal(policy.sponsorFundedAssetTransfersAvailable, false)
+  assert.equal(policy.unpaidFallbackToUserFunds, false)
+})
+
 test('sponsorship status exposes all operational gates rather than implying readiness', () => {
   const status = getSponsorshipStatus()
   for (const required of [
