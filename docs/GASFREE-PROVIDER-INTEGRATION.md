@@ -19,6 +19,20 @@ GasFree is not documented as a source of free USDT/TRX principal for a sender to
 
 The current product requirement remains external-sponsor-only and no user-funded fallback. Therefore this discovery endpoint **never enables sponsored submission** and exposes `providerFundingVerified: false` and `canSubmitSponsoredTransfer: false`, even when the provider API is reachable.
 
+## Other public provider offers reviewed
+
+These alternatives do not establish a universally free sponsor-funded programme either:
+
+- **TronTransfer** publicly documents sponsored USDT energy delegation, but its documented flow includes a separate TRX fee transaction to a collection address. That is a paid service rather than confirmed zero-cost sponsorship. See https://doc.trontransfer.com/.
+- **FluxRail Pay** advertises a flat transfer fee. Its published example includes a `from_private_key` field in the transfer request. This repository will not send wallet private keys or recovery phrases to an external HTTP API; any future integration must use a documented non-custodial signature flow instead. See https://fluxrail.io/pay.
+- TRON's own resource documentation says Energy has no free account quota; it is obtained through stake or delegation, or paid through the network's fee mechanism when resources are insufficient. See https://developers.tron.network/docs/bandwidth-and-energy and https://developers.tron.network/docs/delegation.
+
+The research therefore found real gasless/energy sponsorship products, but **no verified unconditional free provider covering both network costs and the asset principal**. A sponsor-funded asset grant is a separate business arrangement and requires an explicitly consenting, funded sponsor.
+
+## Receiver notifications and exchange credit
+
+The receiver-history UI also emits an in-app status message when a previously unseen incoming event is independently marked `verified-on-chain`. Initial historical rows and unverified indexer candidates do not trigger that alert. It appears only while the app is open and polling. It is not a push notification delivered by other wallet apps or exchanges, and it does not prove exchange account credit.
+
 ## Networks and developer access
 
 The documented provider API origins and path prefixes are:
