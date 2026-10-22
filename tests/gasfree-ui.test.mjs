@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 const component = await readFile(new URL('../src/GasFreeProviderDiscovery.tsx', import.meta.url), 'utf8')
 const sponsorPage = await readFile(new URL('../src/SponsorProviderPages.tsx', import.meta.url), 'utf8')
 const server = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
 
 test('sponsor UI requests live provider capabilities instead of showing fabricated balances', () => {
   assert.ok(component.includes('/api/gasfree/capabilities?network='))
@@ -14,7 +15,8 @@ test('sponsor UI requests live provider capabilities instead of showing fabricat
   assert.ok(component.includes('Provider listing and API reachability do not prove funding'))
   assert.ok(component.includes('Live transfer submission: disabled'))
   assert.ok(sponsorPage.includes("import GasFreeProviderDiscovery from './GasFreeProviderDiscovery'"))
-  assert.ok(sponsorPage.includes('<GasFreeProviderDiscovery />'))
+  assert.ok(sponsorPage.includes('<GasFreeProviderDiscovery walletAddress={walletAddress} walletNetwork={network} />'))
+  assert.ok(app.includes('<SponsorProviderPage network={network} walletAddress={walletConnected ? walletAddress : \'\'} />'))
 })
 
 test('GasFree API secret remains a server-only variable and is not configured in frontend source', () => {
