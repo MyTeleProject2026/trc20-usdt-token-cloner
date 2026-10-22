@@ -25,14 +25,6 @@ export function validateSponsorBudget(input) {
   if (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
   }
-  // Fail closed: a token symbol/name is not proof of identity. The caller must
-  // provide an explicitly configured allowlist for the selected network.
-  if (asset === 'USDT') {
-    const allowed = allowedTokenContractsByNetwork?.[network]
-    if (!Array.isArray(allowed) || !allowed.some((contract) => typeof contract === 'string' && contract.trim() === tokenContract.trim())) {
-      return { valid: false, reason: 'token-contract-not-allowlisted-for-network' }
-    }
-  }
   if (!BUDGET_STATUSES.has(status)) return { valid: false, reason: 'invalid-budget-status' }
   const budget = baseUnits(budgetBaseUnits, { allowZero: true })
   const reserved = baseUnits(reservedBaseUnits, { allowZero: true })
@@ -66,6 +58,14 @@ export function validateSponsorTransferIntent(input, { isValidAddress, maxTransf
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
   if (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
+  }
+  // Fail closed: a token symbol/name is not proof of identity. The caller must
+  // provide an explicitly configured allowlist for the selected network.
+  if (asset === 'USDT') {
+    const allowed = allowedTokenContractsByNetwork[network]
+    if (!Array.isArray(allowed) || !allowed.some((contract) => typeof contract === 'string' && contract.trim() === tokenContract.trim())) {
+      return { valid: false, reason: 'token-contract-not-allowlisted-for-network' }
+    }
   }
   if (typeof isValidAddress !== 'function' || !isValidAddress(receiverAddress)) {
     return { valid: false, reason: 'invalid-receiver-address' }
