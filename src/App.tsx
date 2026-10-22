@@ -546,6 +546,10 @@ export default function App() {
 
   // Native Shasta TRX transfer. TRX is the network coin, not a TRC-20 contract.
   const handleNativeTrxTransfer = async () => {
+    if (selectedAsset !== 'TRX') {
+      setActionMessage({ type: 'error', text: 'Select TRX in Choose asset before using the native TRX transfer workflow.' })
+      return
+    }
     if (!recipientAddress.trim() || !trxAmount.trim()) {
       setActionMessage({ type: 'error', text: 'Enter a receiver address and a TRX amount.' })
       return
