@@ -16,12 +16,14 @@ function baseUnits(value, { allowZero = false } = {}) {
  */
 export function validateSponsorBudget(input) {
   if (!input || typeof input !== 'object') return { valid: false, reason: 'invalid-budget' }
-  const { sponsorReference, network, asset, tokenContract = null, budgetBaseUnits, reservedBaseUnits, spentBaseUnits, status } = input
+  const { sponsorReference, network, purpose = 'asset-grant', asset, tokenContract = null, budgetBaseUnits, reservedBaseUnits, spentBaseUnits, status } = input
   if (typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128) {
     return { valid: false, reason: 'invalid-sponsor-reference' }
   }
   if (!NETWORKS.has(network)) return { valid: false, reason: 'invalid-network' }
+  if (!PURPOSES.has(purpose)) return { valid: false, reason: 'invalid-purpose' }
   if (!ASSETS.has(asset)) return { valid: false, reason: 'invalid-asset' }
+  if (purpose === 'network-fee' && asset !== 'TRX') return { valid: false, reason: 'network-fee-must-use-trx' }
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
   if (TOKEN_ASSETS.has(asset) && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
@@ -34,6 +36,7 @@ export function validateSponsorBudget(input) {
   if (reserved + spent > budget) return { valid: false, reason: 'budget-exceeded' }
   return {
     valid: true,
+    purpose,
     availableBaseUnits: (budget - reserved - spent).toString(),
     canReserve: status === 'active' && budget > reserved + spent,
   }
