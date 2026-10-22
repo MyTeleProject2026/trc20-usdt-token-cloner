@@ -87,3 +87,13 @@ test('wallet flows request TronLink authorization instead of private-key form en
   assert.ok(!app.includes('handleGenerateWallet'))
   assert.ok(!app.includes('privateKey: privateKey.trim()'))
 })
+test('provider application draft validates and copies locally without submitting details', async () => {
+  const sponsorPages = await readFile(new URL('../src/SponsorProviderPages.tsx', import.meta.url), 'utf8')
+  assert.ok(sponsorPages.includes('const copyApplicationDraft = async () =>'))
+  assert.ok(sponsorPages.includes('Enter an organization name and a business contact email'))
+  assert.ok(sponsorPages.includes('Enter a valid business contact email address.'))
+  assert.ok(sponsorPages.includes('await navigator.clipboard.writeText(draft)'))
+  assert.ok(sponsorPages.includes('Copy provider application draft'))
+  assert.ok(sponsorPages.includes('Nothing was sent or stored by this application.'))
+  assert.ok(sponsorPages.includes(".join('\\n')"))
+})
