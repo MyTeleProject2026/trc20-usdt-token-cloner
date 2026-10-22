@@ -5,14 +5,23 @@ const schema = 'trc20_token_clone'
 const SPONSORED_TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
 const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
-function isSponsorTokenContractAllowed(network, asset, tokenContract) {
-  if (!SPONSORED_TOKEN_ASSETS.has(asset) || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
   if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
   // Non-mainnet USDT and all VTRC deployments require an explicit operator-configured,
   // network-scoped allowlist. Symbols and plausible addresses do not prove token identity.
-  const envName = `SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`
-  const configured = (process.env[envName] || '').split(',').map((item) => item.trim()).filter(Boolean)
-  return configured.includes(tokenContract.trim())
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
 }
 let pool
 let initPromise
@@ -486,7 +495,7 @@ export async function reserveSponsorTransfer(input) {
     || !['TRX', 'USDT', 'VTRC'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
     || (asset === 'TRX' && tokenContract)
-    || (SPONSORED_TOKEN_ASSETS.has(asset) && !isSponsorTokenContractAllowed(network, asset, tokenContract))
+    || (SPONSORED_TOKEN_ASSETS.has(asset) && !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))
     || typeof receiverAddress !== 'string' || !receiverAddress.trim() || receiverAddress.length > 128
     || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]*$/.test(amountBaseUnits) || amountBaseUnits.length > 78) {
     return { reserved: false, reason: 'invalid-transfer-intent' }
