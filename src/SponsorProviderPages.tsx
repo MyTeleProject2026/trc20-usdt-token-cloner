@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDollarSign, ShieldCheck } from 'lucide-react'
+import GasFreeProviderDiscovery from './GasFreeProviderDiscovery'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
@@ -109,6 +110,7 @@ export default function SponsorProviderPage({ network }: Props) {
 
   return (
     <div className="space-y-xl">
+      <GasFreeProviderDiscovery />
       <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs space-y-lg">
         <div className="flex items-start gap-md">
           <ShieldCheck className="size-6 shrink-0 text-brand-primary" aria-hidden="true" />
