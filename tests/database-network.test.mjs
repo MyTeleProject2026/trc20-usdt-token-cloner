@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTransferVerificationUpsert, findVerifiedTransfer, normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
+import { buildTransferVerificationUpsert, findVerifiedTransfer, isSponsorTokenContractAllowed, normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
 
 test('refuses to persist a transfer when the network is missing or unsupported', async () => {
   for (const network of [undefined, null, '', 'TRON', 'ethereum', 'MAINNET']) {
@@ -604,3 +604,17 @@ function makeSponsorTransitionPool(state) {
     },
   }
 }
+
+
+test('sponsor token contract allowlists are exact and network-scoped', () => {
+  const officialUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const vtrcShasta = 'TQ9u4P2xVtrcTestContract'
+  assert.equal(isSponsorTokenContractAllowed('mainnet', 'USDT', officialUsdt), true)
+  assert.equal(isSponsorTokenContractAllowed('shasta', 'USDT', officialUsdt), false)
+  assert.equal(isSponsorTokenContractAllowed('mainnet', 'USDT', 'TWrongContract'), false)
+  assert.equal(isSponsorTokenContractAllowed('shasta', 'VTRC', vtrcShasta), false)
+  assert.equal(isSponsorTokenContractAllowed('shasta', 'VTRC', vtrcShasta, [vtrcShasta]), true)
+  assert.equal(isSponsorTokenContractAllowed('mainnet', 'VTRC', vtrcShasta), false)
+  assert.equal(isSponsorTokenContractAllowed('mainnet', 'VTRC', vtrcShasta, ['TAnotherContract']), false)
+  assert.equal(isSponsorTokenContractAllowed('TRON', 'VTRC', vtrcShasta, [vtrcShasta]), false)
+})
