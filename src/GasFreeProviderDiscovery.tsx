@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ShieldCheck, SearchCheck, Activity } from 'lucide-react'
+import { TronWeb } from 'tronweb'
+import { ShieldCheck, SearchCheck, Activity, BadgeCheck } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -68,6 +69,31 @@ type GasFreeAccountResult = {
   }
 }
 
+type SolidifiedTokenVerification = {
+  success?: boolean
+  verified?: boolean
+  status?: string
+  message?: string
+  error?: string
+  reason?: string
+  blockNumber?: number
+  logIndex?: number
+  amountSun?: string
+  persistence?: { persisted?: boolean; reason?: string }
+}
+
+type SolidifiedTokenBalance = {
+  success?: boolean
+  status?: string
+  network?: string
+  tokenContract?: string
+  receiverAddress?: string
+  balanceBaseUnits?: string
+  decimals?: number
+  error?: string
+  message?: string
+}
+
 type GasFreeTraceResult = {
   success?: boolean
   status?: string
@@ -121,6 +147,12 @@ export default function GasFreeProviderDiscovery() {
   const [traceLoading, setTraceLoading] = useState(false)
   const [traceError, setTraceError] = useState('')
   const [traceResult, setTraceResult] = useState<GasFreeTraceResult | null>(null)
+  const [chainVerificationLoading, setChainVerificationLoading] = useState(false)
+  const [chainVerificationError, setChainVerificationError] = useState('')
+  const [chainVerificationResult, setChainVerificationResult] = useState<SolidifiedTokenVerification | null>(null)
+  const [receiverBalanceLoading, setReceiverBalanceLoading] = useState(false)
+  const [receiverBalanceError, setReceiverBalanceError] = useState('')
+  const [receiverBalance, setReceiverBalance] = useState<SolidifiedTokenBalance | null>(null)
 
   const refresh = async (selectedNetwork: 'mainnet' | 'nile' = network) => {
     setLoading(true)
@@ -194,10 +226,93 @@ export default function GasFreeProviderDiscovery() {
     }
   }
 
+  const verifyTraceOnChain = async () => {
+    const trace = traceResult?.trace
+    setChainVerificationError('')
+    setChainVerificationResult(null)
+    setReceiverBalanceError('')
+    setReceiverBalance(null)
+
+    if (!trace
+      || !trace.transactionId
+      || !/^[0-9a-f]{64}$/i.test(trace.transactionId)
+      || !trace.senderAddress || !TRON_ADDRESS.test(trace.senderAddress)
+      || !trace.receiverAddress || !TRON_ADDRESS.test(trace.receiverAddress)
+      || !trace.tokenAddress || !TRON_ADDRESS.test(trace.tokenAddress)
+      || !trace.amountBaseUnits || !/^[1-9][0-9]*$/.test(trace.amountBaseUnits)) {
+      setChainVerificationError('The provider has not returned a complete transaction ID, sender, receiver, token contract, and positive amount. Chain verification is not available yet.')
+      return
+    }
+
+    setChainVerificationLoading(true)
+    try {
+      const tronWeb = new TronWeb({
+        fullHost: network === 'mainnet' ? 'https://api.trongrid.io' : 'https://nile.trongrid.io',
+      })
+      const toHexAddress = (address: string) => tronWeb.address.toHex(address).replace(/^41/i, '')
+      const params = new URLSearchParams({
+        network,
+        contract: toHexAddress(trace.tokenAddress),
+        from: toHexAddress(trace.senderAddress),
+        to: toHexAddress(trace.receiverAddress),
+        amountSun: trace.amountBaseUnits,
+      })
+      const response = await fetch(
+        `${API_BASE}/api/tron/verify-transfer/${encodeURIComponent(trace.transactionId)}?${params.toString()}`,
+        { headers: { Accept: 'application/json' } },
+      )
+      const payload: SolidifiedTokenVerification = await response.json()
+      setChainVerificationResult(payload)
+
+      if (!response.ok || payload?.success !== true) {
+        setChainVerificationError(payload?.message || payload?.error || payload?.status || 'Solidified-chain verification is unavailable.')
+        return
+      }
+      if (payload.verified !== true) {
+        setChainVerificationError(payload.message || payload.reason || 'The transfer is not yet independently verified on solidified chain state. Retry the same trace later; do not resend the transfer.')
+        return
+      }
+
+      setReceiverBalanceLoading(true)
+      try {
+        const balanceParams = new URLSearchParams({
+          network,
+          contract: trace.tokenAddress,
+          address: trace.receiverAddress,
+        })
+        const balanceResponse = await fetch(`${API_BASE}/api/tron/token-balance?${balanceParams.toString()}`, {
+          headers: { Accept: 'application/json' },
+        })
+        const balancePayload: SolidifiedTokenBalance = await balanceResponse.json()
+        if (!balanceResponse.ok || balancePayload?.success !== true
+          || typeof balancePayload.balanceBaseUnits !== 'string'
+          || !/^[0-9]+$/.test(balancePayload.balanceBaseUnits)
+          || !Number.isInteger(balancePayload.decimals)
+          || (balancePayload.decimals as number) < 0
+          || (balancePayload.decimals as number) > 255) {
+          throw new Error(balancePayload?.message || balancePayload?.error || 'Could not read the receiver token balance from solidified chain state.')
+        }
+        setReceiverBalance(balancePayload)
+      } catch (error) {
+        setReceiverBalanceError(error instanceof Error ? error.message : 'Could not read the receiver token balance from solidified chain state.')
+      } finally {
+        setReceiverBalanceLoading(false)
+      }
+    } catch (error) {
+      setChainVerificationError(error instanceof Error ? error.message : 'Solidified-chain verification is unavailable.')
+    } finally {
+      setChainVerificationLoading(false)
+    }
+  }
+
   useEffect(() => {
     void refresh(network)
     setAccountResult(null)
     setTraceResult(null)
+    setChainVerificationError('')
+    setChainVerificationResult(null)
+    setReceiverBalance(null)
+    setReceiverBalanceError('')
     // The effect is intentionally scoped to selectedNetwork changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [network])
@@ -343,6 +458,39 @@ export default function GasFreeProviderDiscovery() {
             {traceResult.trace.maxFeeBaseUnits && <p className="text-xs text-secondary">Maximum authorized fee base units: {traceResult.trace.maxFeeBaseUnits}</p>}
             <p className="text-xs font-semibold text-utility-warning-700">Chain verification: not established by this trace lookup.</p>
             <p className="text-xs text-tertiary">{traceResult.trace.note}</p>
+            <button
+              type="button"
+              onClick={() => void verifyTraceOnChain()}
+              disabled={chainVerificationLoading || receiverBalanceLoading}
+              className="w-full rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50"
+            >
+              {chainVerificationLoading ? 'Verifying solidified chain evidence…' : 'Verify transaction and recheck receiver balance'}
+            </button>
+            {chainVerificationError && <p role="alert" className="text-sm text-utility-warning-700">{chainVerificationError}</p>}
+            {chainVerificationResult && (
+              <div className="rounded-lg border border-secondary p-md space-y-xs">
+                <p className="flex items-center gap-xs text-sm font-semibold text-primary">
+                  {chainVerificationResult.verified ? <BadgeCheck className="size-4 text-utility-success-700" aria-hidden="true" /> : null}
+                  {chainVerificationResult.verified ? 'Transfer verified against solidified transaction and receipt' : `Chain verification: ${chainVerificationResult.status || 'not verified'}`}
+                </p>
+                {chainVerificationResult.blockNumber !== undefined && <p className="text-xs text-secondary">Solidified block: {chainVerificationResult.blockNumber}</p>}
+                {chainVerificationResult.logIndex !== undefined && <p className="text-xs text-secondary">Matching Transfer event log index: {chainVerificationResult.logIndex}</p>}
+                {chainVerificationResult.verified && <p className="text-xs text-tertiary">The exact contract, parties and amount matched a Transfer event in the solidified receipt. This still does not establish exchange-account credit.</p>}
+                {chainVerificationResult.persistence && <p className="text-xs text-tertiary">Verification persistence: {chainVerificationResult.persistence.persisted ? 'saved' : `not saved — ${chainVerificationResult.persistence.reason || 'storage unavailable'}`}</p>}
+              </div>
+            )}
+            {receiverBalanceLoading && <p role="status" className="text-xs text-tertiary">Reading receiver balance from the selected network’s solidified state…</p>}
+            {receiverBalanceError && <p role="alert" className="text-sm text-utility-warning-700">{receiverBalanceError}</p>}
+            {receiverBalance?.success && receiverBalance.balanceBaseUnits !== undefined && receiverBalance.decimals !== undefined && (
+              <div className="rounded-lg border border-secondary bg-primary p-md space-y-xs">
+                <p className="text-sm font-semibold text-primary">Solidified receiver token balance</p>
+                <p className="text-lg font-semibold text-primary">{formatBaseUnits(receiverBalance.balanceBaseUnits, receiverBalance.decimals)}</p>
+                <p className="break-all text-xs text-tertiary">Network: {receiverBalance.network || network}</p>
+                <p className="break-all text-xs font-mono text-tertiary">Contract: {receiverBalance.tokenContract || traceResult.trace.tokenAddress}</p>
+                <p className="break-all text-xs font-mono text-tertiary">Receiver: {receiverBalance.receiverAddress || traceResult.trace.receiverAddress}</p>
+                <p className="text-xs text-tertiary">On-chain balance of this exact token contract, not proof of official token identity or exchange deposit credit.</p>
+              </div>
+            )}
           </div>
         )}
       </div>
