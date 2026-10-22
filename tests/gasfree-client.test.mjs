@@ -189,7 +189,7 @@ test('GasFree account lookup rejects malformed provider responses and invalid EO
   assert.equal(calls, 0)
   const malformed = await client.getAccount('mainnet', validAddress)
   assert.equal(malformed.reachable, false)
-  assert.equal(malformed.reason, 'provider-http-error')
+  assert.equal(malformed.reason, 'invalid-provider-response')
   assert.equal(malformed.providerStatus, 502)
 })
 
