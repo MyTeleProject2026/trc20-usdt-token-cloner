@@ -73,6 +73,57 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
   )
 }
 
+test('fee coverage and asset-grant principal require independent TRX sponsor budgets', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-purpose-${suffix}`
+  const grantKey = `pg-grant:${suffix}`
+  const feeKey = `pg-fee:${suffix}`
+  try {
+    await insertBudget(pool, sponsorReference, '100')
+    const feeWithoutBudget = await reserveSponsorTransfer({
+      idempotencyKey: feeKey, sponsorReference, network, purpose: 'network-fee',
+      asset: 'TRX', receiverAddress, amountBaseUnits: '20',
+    })
+    assert.deepEqual(feeWithoutBudget, { reserved: false, reason: 'sponsor-budget-not-found' })
+
+    await pool.query(
+      `INSERT INTO trc20_token_clone.sponsor_budgets
+        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+         budget_base_units, reserved_base_units, spent_base_units, status)
+       VALUES ($1,$2,$3,'network-fee','TRX',NULL,50,0,0,'active')`,
+      [sponsorReference, sponsorAddress, network],
+    )
+    const fee = await reserveSponsorTransfer({
+      idempotencyKey: feeKey, sponsorReference, network, purpose: 'network-fee',
+      asset: 'TRX', receiverAddress, amountBaseUnits: '20',
+    })
+    assert.equal(fee.reserved, true)
+
+    const grant = await reserveSponsorTransfer({
+      idempotencyKey: grantKey, sponsorReference, network, purpose: 'asset-grant',
+      asset: 'TRX', receiverAddress, amountBaseUnits: '80',
+    })
+    assert.equal(grant.reserved, true)
+
+    const budgets = await pool.query(
+      `SELECT purpose, budget_base_units::text AS budget, reserved_base_units::text AS reserved
+         FROM trc20_token_clone.sponsor_budgets
+        WHERE sponsor_reference = $1 ORDER BY purpose`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budgets.rows, [
+      { purpose: 'asset-grant', budget: '100', reserved: '80' },
+      { purpose: 'network-fee', budget: '50', reserved: '20' },
+    ])
+  } finally {
+    await cleanup(pool, [sponsorReference], [grantKey, feeKey])
+    await pool.end()
+  }
+})
+
 test('PostgreSQL sponsor reservation is idempotent and confirmed ledger changes persist atomically', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
