@@ -3,6 +3,8 @@ import { createGasFreeClient } from '../gasfree-client.mjs'
 
 export function createGasFreeRouter(client = createGasFreeClient()) {
   const router = Router()
+  const capabilityCache = new Map()
+  const cacheTtlMs = 30_000
 
   // Provider discovery is read-only. This route never signs, submits, or
   // broadcasts any transfer and never returns server-side API credentials.
@@ -17,24 +19,35 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
     }
 
     try {
+      const cached = capabilityCache.get(network)
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.status(cached.httpStatus).json(cached.body)
+      }
+
       const result = await client.getCapabilities(network)
       if (!result.configured) {
-        return res.status(503).json({
+        const body = {
           success: false,
           status: 'not-configured',
           ...result,
           message: 'GasFree API access is not configured. Apply for provider API credentials; keep the API secret server-side.',
-        })
+        }
+        capabilityCache.set(network, { body, httpStatus: 503, expiresAt: Date.now() + 10_000 })
+        return res.status(503).json(body)
       }
       if (!result.reachable) {
-        return res.status(502).json({
+        const body = {
           success: false,
           status: result.reason || 'provider-unreachable',
           ...result,
           message: 'GasFree provider discovery could not be verified. No transfer was submitted.',
-        })
+        }
+        capabilityCache.set(network, { body, httpStatus: 502, expiresAt: Date.now() + 5_000 })
+        return res.status(502).json(body)
       }
-      return res.json({ success: true, status: 'provider-capabilities-read', ...result })
+      const body = { success: true, status: 'provider-capabilities-read', checkedAt: new Date().toISOString(), ...result }
+      capabilityCache.set(network, { body, httpStatus: 200, expiresAt: Date.now() + cacheTtlMs })
+      return res.json(body)
     } catch {
       return res.status(502).json({
         success: false,
