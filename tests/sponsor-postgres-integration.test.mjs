@@ -245,6 +245,7 @@ test('PostgreSQL rolls back sponsor ledger and status when the audit insert fail
       `SELECT count(*)::int AS count FROM trc20_token_clone.audit_events
         WHERE event_type = 'sponsor-transfer-status-changed' AND entity_reference = $1
           AND details->>'toStatus' = 'confirmed'`,
+      [idempotencyKey],
     )
     assert.equal(audit.rows[0].count, 0)
   } finally {
