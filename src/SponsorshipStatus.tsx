@@ -10,6 +10,7 @@ type Sponsorship = {
   provider?: string | null
   mainnetEnabled?: boolean
   canSubmitSponsoredTransfer?: boolean
+  fundingPolicy?: { mode?: string; userFundsRequiredForSponsoredFlow?: boolean; externalSponsorConfirmed?: boolean; sponsorFundingVerified?: boolean; paidProviderPurchasesAllowed?: boolean; feeSponsorshipAvailable?: boolean; sponsorFundedAssetTransfersAvailable?: boolean; unpaidFallbackToUserFunds?: boolean }
   receiverRestrictionsAvailable?: boolean
   receiverBalance?: { sponsorAssetGrantEnabled?: boolean; sponsoredFeeCoverage?: string; spendableSource?: string; exchangeCredit?: string }
   requiredBeforeEnablement?: string[]
@@ -57,11 +58,11 @@ export default function SponsorshipStatus() {
         <div className="mt-md grid grid-cols-1 gap-sm sm:grid-cols-3">
           <div className="rounded-lg border border-secondary bg-secondary p-md">
             <p className="text-xs font-semibold text-primary">Network fee sponsorship</p>
-            <p className="mt-xs text-xs text-tertiary">{active ? `Available on ${status?.network || 'configured network'}` : 'Disabled — sender must cover network costs unless a verified sponsor is enabled.'}</p>
+            <p className="mt-xs text-xs text-tertiary">{active ? `Available on ${status?.network || 'configured network'}` : 'Unavailable — wait for a verified external sponsor; never fall back to user funds.'}</p>
           </div>
           <div className="rounded-lg border border-secondary bg-secondary p-md">
             <p className="text-xs font-semibold text-primary">Sponsor-funded TRX / USDT grant</p>
-            <p className="mt-xs text-xs text-tertiary">{status?.receiverBalance?.sponsorAssetGrantEnabled ? 'Grant policy is enabled; verify each grant on-chain.' : 'Disabled — no sponsor asset balance is available to claim or spend.'}</p>
+            <p className="mt-xs text-xs text-tertiary">{status?.receiverBalance?.sponsorAssetGrantEnabled ? 'Grant policy is enabled; verify each grant on-chain.' : 'Disabled — no sponsor-funded asset balance is verified; do not show credits as spendable.'}</p>
           </div>
           <div className="rounded-lg border border-secondary bg-secondary p-md">
             <p className="text-xs font-semibold text-primary">Spendable receiver balance</p>
