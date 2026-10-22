@@ -417,6 +417,7 @@ test('behavioral sponsor transition harness rolls back asset grants without exac
   assert.equal(state.commits, 0)
 })
 
+// These deterministic query doubles exercise transition outcomes without connecting to any live database or chain.
 function makeSponsorTransitionState({ purpose, evidenceMatches = true } = {}) {
   return {
     queries: [],
