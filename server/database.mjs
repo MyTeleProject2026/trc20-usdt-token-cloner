@@ -596,7 +596,7 @@ export async function reserveSponsorTransfer(input) {
  * reservation atomically. Authorization requires a non-empty approval reference.
  * A confirmed transition requires an externally verified finalized transaction hash.
  */
-export async function transitionSponsorTransfer(input) {
+export async function transitionSponsorTransferWithPool(input, db, { initialize = true } = {}) {
   const { idempotencyKey, nextStatus, authorizationReference = null, transactionHash = null } = input || {}
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
     || !validSponsorTransitionStatus(nextStatus)) {
@@ -612,14 +612,13 @@ export async function transitionSponsorTransfer(input) {
     return { updated: false, reason: 'finalized-transaction-hash-required' }
   }
 
-  const db = getPool()
   if (!db) return { updated: false, reason: 'database-not-configured' }
-  await initializeDatabase()
+  if (initialize) await initializeDatabase()
   const client = await db.connect()
   try {
     await client.query('BEGIN')
     const result = await client.query(
-      `SELECT idempotency_key, sponsor_reference, sponsor_address, network, asset, token_contract,
+      `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
               receiver_address, amount_base_units::text AS amount_base_units, status, transaction_hash
          FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
       [idempotencyKey],
@@ -659,6 +658,20 @@ export async function transitionSponsorTransfer(input) {
     if (!allowed[transfer.status]?.includes(nextStatus)) {
       await client.query('ROLLBACK')
       return { updated: false, reason: 'invalid-state-transition' }
+    }
+
+    if (nextStatus === 'confirmed' && transfer.purpose === 'network-fee') {
+      // Fee/resource consumption is not principal paid to the receiver. Keep the
+      // reservation until a provider-specific finalized fee reconciler exists.
+      await client.query('ROLLBACK')
+      return {
+        updated: false,
+        reason: 'purpose-specific-fee-evidence-and-reconciliation-required',
+      }
+    }
+    if (nextStatus === 'confirmed' && transfer.purpose !== 'asset-grant') {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'unsupported-sponsor-transfer-purpose' }
     }
 
     if (nextStatus === 'confirmed') {
@@ -753,6 +766,14 @@ export async function transitionSponsorTransfer(input) {
   } finally {
     client.release()
   }
+}
+
+
+/** Production entry point: use the configured pool and initialize the schema. */
+export async function transitionSponsorTransfer(input) {
+  const db = getPool()
+  if (!db) return { updated: false, reason: 'database-not-configured' }
+  return transitionSponsorTransferWithPool(input, db)
 }
 
  
