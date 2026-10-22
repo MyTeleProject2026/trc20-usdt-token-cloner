@@ -697,7 +697,7 @@ export default function App() {
               <div className="flex items-center gap-sm">
                 <h1 className="text-heading-sm font-semibold text-primary">TRON Token Studio</h1>
                 {/* Badge component recipe */}
-                <span className="inline-flex items-center gap-xs rounded-full border border-utility-success-200 bg-utility-success-50 px-md py-xxs text-xs font-medium text-utility-success-700">
+                <span role="status" aria-live="polite" className="inline-flex items-center gap-xs rounded-full border border-utility-success-200 bg-utility-success-50 px-md py-xxs text-xs font-medium text-utility-success-700">
                   {tronBlock?.blockNumber ? 'TRON RPC Connected' : 'Checking TRON RPC'}
                 </span>
               </div>
@@ -718,10 +718,11 @@ export default function App() {
               </div>
             )}
 
-            <div className="flex items-center rounded-lg border border-secondary bg-secondary p-xxs">
+            <div className="flex items-center rounded-lg border border-secondary bg-secondary p-xxs" role="group" aria-label="TRON network selection">
               <button
                 type="button"
                 onClick={() => setNetwork('shasta')}
+                aria-pressed={network === 'shasta'}
                 className={`rounded-md px-md py-xs text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${
                   network === 'shasta'
                     ? 'bg-primary text-primary shadow-xs'
@@ -733,6 +734,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => { setNetwork('mainnet'); setContractAddress('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t') }}
+                aria-pressed={network === 'mainnet'}
                 className={`rounded-md px-md py-xs text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${network === 'mainnet' ? 'bg-primary text-primary shadow-xs' : 'text-tertiary hover:text-secondary'}`}
               >
                 Mainnet
@@ -781,6 +783,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('deploy')}
+            aria-pressed={activeTab === 'deploy'}
+            aria-current={activeTab === 'deploy' ? 'page' : undefined}
             className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${
               activeTab === 'deploy'
                 ? 'border-brand text-brand-primary'
@@ -793,6 +797,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('interact')}
+            aria-pressed={activeTab === 'interact'}
+            aria-current={activeTab === 'interact' ? 'page' : undefined}
             className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${
               activeTab === 'interact'
                 ? 'border-brand text-brand-primary'
@@ -805,6 +811,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('trx')}
+            aria-pressed={activeTab === 'trx'}
+            aria-current={activeTab === 'trx' ? 'page' : undefined}
             className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${activeTab === 'trx' ? 'border-brand text-brand-primary' : 'border-transparent text-tertiary hover:text-secondary'}`}
           >
             <Send className="size-4 shrink-0 text-fg-brand-primary" />
@@ -813,6 +821,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('simulation')}
+            aria-pressed={activeTab === 'simulation'}
+            aria-current={activeTab === 'simulation' ? 'page' : undefined}
             className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${activeTab === 'simulation' ? 'border-brand text-brand-primary' : 'border-transparent text-tertiary hover:text-secondary'}`}
           >
             <Send className="size-4 shrink-0 text-fg-brand-primary" />
@@ -821,6 +831,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('verify')}
+            aria-pressed={activeTab === 'verify'}
+            aria-current={activeTab === 'verify' ? 'page' : undefined}
             className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${
               activeTab === 'verify'
                 ? 'border-brand text-brand-primary'
@@ -833,6 +845,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('contract')}
+            aria-pressed={activeTab === 'contract'}
+            aria-current={activeTab === 'contract' ? 'page' : undefined}
             className={`border-b-2 px-md py-sm text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring flex items-center gap-xs ${
               activeTab === 'contract'
                 ? 'border-brand text-brand-primary'
