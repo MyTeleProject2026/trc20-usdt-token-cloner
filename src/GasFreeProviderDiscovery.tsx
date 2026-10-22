@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck, SearchCheck, Activity } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 type GasFreeCapabilities = {
   success?: boolean
@@ -35,6 +37,63 @@ type GasFreeCapabilities = {
   canSubmitSponsoredTransfer?: boolean
 }
 
+type GasFreeAsset = {
+  tokenAddress: string
+  tokenSymbol: string
+  decimals: number
+  activationFeeBaseUnits: string | null
+  transferFeeBaseUnits: string | null
+  frozenBaseUnits: string | null
+  providerReportedBalanceBaseUnits?: string
+}
+
+type GasFreeAccountResult = {
+  success?: boolean
+  status?: string
+  network?: string
+  message?: string
+  reason?: string
+  requiredEnvironment?: string[]
+  accountLookupVerified?: boolean
+  account?: {
+    accountAddress: string
+    gasFreeAddress: string
+    active: boolean
+    nonce: number
+    allowSubmit: boolean
+    assets: GasFreeAsset[]
+    chainFinalityVerified: boolean
+    note: string
+  }
+}
+
+type GasFreeTraceResult = {
+  success?: boolean
+  status?: string
+  network?: string
+  message?: string
+  reason?: string
+  requiredEnvironment?: string[]
+  traceLookupVerified?: boolean
+  trace?: {
+    traceId: string
+    state: string
+    senderAddress: string | null
+    gasFreeAddress: string | null
+    receiverAddress: string | null
+    providerAddress: string | null
+    tokenAddress: string | null
+    amountBaseUnits?: string
+    maxFeeBaseUnits?: string
+    transactionId: string | null
+    createdAt: string | null
+    updatedAt: string | null
+    expiredAt: string | null
+    verifiedOnChain: boolean
+    note: string
+  }
+}
+
 function formatBaseUnits(baseUnits: string, decimals: number): string {
   try {
     const amount = BigInt(baseUnits)
@@ -47,12 +106,20 @@ function formatBaseUnits(baseUnits: string, decimals: number): string {
   }
 }
 
-/** Live provider/token discovery only: no authorization is signed or submitted. */
+/** Provider inventory, account, and trace reads only; no authorization is signed or submitted. */
 export default function GasFreeProviderDiscovery() {
   const [network, setNetwork] = useState<'mainnet' | 'nile'>('nile')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<GasFreeCapabilities | null>(null)
   const [requestError, setRequestError] = useState('')
+  const [accountAddress, setAccountAddress] = useState('')
+  const [accountLoading, setAccountLoading] = useState(false)
+  const [accountError, setAccountError] = useState('')
+  const [accountResult, setAccountResult] = useState<GasFreeAccountResult | null>(null)
+  const [traceId, setTraceId] = useState('')
+  const [traceLoading, setTraceLoading] = useState(false)
+  const [traceError, setTraceError] = useState('')
+  const [traceResult, setTraceResult] = useState<GasFreeTraceResult | null>(null)
 
   const refresh = async (selectedNetwork: 'mainnet' | 'nile' = network) => {
     setLoading(true)
@@ -74,8 +141,62 @@ export default function GasFreeProviderDiscovery() {
     }
   }
 
+  const inspectAccount = async () => {
+    const address = accountAddress.trim()
+    setAccountError('')
+    setAccountResult(null)
+    if (!TRON_ADDRESS.test(address)) {
+      setAccountError('Enter a valid TRON Base58 EOA address beginning with T.')
+      return
+    }
+    setAccountLoading(true)
+    try {
+      const params = new URLSearchParams({ network, address })
+      const response = await fetch(`${API_BASE}/api/gasfree/account?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+      })
+      const payload: GasFreeAccountResult = await response.json()
+      if (!response.ok || !payload?.success || !payload.account) {
+        throw new Error(payload?.message || payload?.reason || 'GasFree account lookup is unavailable.')
+      }
+      setAccountResult(payload)
+    } catch (error) {
+      setAccountError(error instanceof Error ? error.message : 'GasFree account lookup is unavailable.')
+    } finally {
+      setAccountLoading(false)
+    }
+  }
+
+  const inspectTrace = async () => {
+    const id = traceId.trim()
+    setTraceError('')
+    setTraceResult(null)
+    if (!TRACE_ID.test(id)) {
+      setTraceError('Enter the provider-issued trace ID. Do not enter a wallet address or private information.')
+      return
+    }
+    setTraceLoading(true)
+    try {
+      const params = new URLSearchParams({ network, traceId: id })
+      const response = await fetch(`${API_BASE}/api/gasfree/trace?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+      })
+      const payload: GasFreeTraceResult = await response.json()
+      if (!response.ok || !payload?.success || !payload.trace) {
+        throw new Error(payload?.message || payload?.reason || 'GasFree transfer status is unavailable.')
+      }
+      setTraceResult(payload)
+    } catch (error) {
+      setTraceError(error instanceof Error ? error.message : 'GasFree transfer status is unavailable.')
+    } finally {
+      setTraceLoading(false)
+    }
+  }
+
   useEffect(() => {
     void refresh(network)
+    setAccountResult(null)
+    setTraceResult(null)
     // The effect is intentionally scoped to selectedNetwork changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [network])
@@ -87,8 +208,8 @@ export default function GasFreeProviderDiscovery() {
       <div className="flex items-start gap-md">
         <ShieldCheck className="size-6 shrink-0 text-brand-primary" aria-hidden="true" />
         <div className="min-w-0">
-          <h3 className="text-heading-xs font-semibold text-primary">GasFree live provider discovery</h3>
-          <p className="mt-xs text-sm text-tertiary">Queries the provider directory and current supported-token fee configuration. This is read-only; it does not authorize or submit a transfer.</p>
+          <h3 className="text-heading-xs font-semibold text-primary">GasFree provider integration</h3>
+          <p className="mt-xs text-sm text-tertiary">Reads provider directory, token fee configuration, GasFree account metadata, and provider trace status. These read-only calls do not authorize or submit a transfer.</p>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-md sm:grid-cols-2">
@@ -143,6 +264,79 @@ export default function GasFreeProviderDiscovery() {
           </div>
         </>
       )}
+
+      <div className="rounded-xl border border-secondary p-lg space-y-md">
+        <div className="flex items-start gap-sm">
+          <SearchCheck className="size-5 shrink-0 text-brand-primary" aria-hidden="true" />
+          <div>
+            <h4 className="text-sm font-semibold text-primary">Inspect a GasFree account</h4>
+            <p className="mt-xs text-xs text-tertiary">Queries the account associated with an EOA. It does not move funds or sign anything. Provider metadata is not a substitute for an independently verified chain balance.</p>
+          </div>
+        </div>
+        <label className="flex flex-col gap-xs text-sm font-medium text-secondary">
+          TRON EOA address
+          <input value={accountAddress} onChange={(event) => setAccountAddress(event.target.value)} autoComplete="off" spellCheck={false} placeholder="T..." className="w-full rounded-md border border-primary bg-primary px-md py-sm font-mono text-sm text-primary" />
+        </label>
+        <button type="button" onClick={() => void inspectAccount()} disabled={accountLoading} className="w-full rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
+          {accountLoading ? 'Querying account…' : 'Inspect provider account'}
+        </button>
+        {accountError && <p role="alert" className="text-sm text-utility-danger-700">{accountError}</p>}
+        {accountResult?.account && (
+          <div className="rounded-lg border border-secondary bg-secondary p-md space-y-sm">
+            <p className="text-sm font-semibold text-primary">Provider account response — {accountResult.network}</p>
+            <p className="break-all text-xs text-tertiary">EOA: {accountResult.account.accountAddress}</p>
+            <p className="break-all text-xs text-tertiary">GasFree account: {accountResult.account.gasFreeAddress}</p>
+            <div className="grid grid-cols-2 gap-sm text-sm">
+              <p className="text-secondary">Active: <strong>{accountResult.account.active ? 'Yes' : 'No'}</strong></p>
+              <p className="text-secondary">Recommended nonce: <strong>{accountResult.account.nonce}</strong></p>
+              <p className="text-secondary col-span-2">Provider allows another submission: <strong>{accountResult.account.allowSubmit ? 'Yes' : 'No'}</strong></p>
+            </div>
+            {accountResult.account.assets.length ? accountResult.account.assets.map((asset) => (
+              <div key={asset.tokenAddress} className="rounded-md border border-secondary p-sm">
+                <p className="text-sm font-semibold text-primary">{asset.tokenSymbol} — provider-reported asset metadata</p>
+                <p className="break-all text-xs text-tertiary">Contract: {asset.tokenAddress}</p>
+                <p className="text-xs text-secondary">Activation fee: {asset.activationFeeBaseUnits === null ? 'unknown' : `${formatBaseUnits(asset.activationFeeBaseUnits, asset.decimals)} ${asset.tokenSymbol}`}</p>
+                <p className="text-xs text-secondary">Transfer fee: {asset.transferFeeBaseUnits === null ? 'unknown' : `${formatBaseUnits(asset.transferFeeBaseUnits, asset.decimals)} ${asset.tokenSymbol}`}</p>
+                <p className="text-xs text-secondary">Frozen for pending transfers: {asset.frozenBaseUnits === null ? 'unknown' : `${formatBaseUnits(asset.frozenBaseUnits, asset.decimals)} ${asset.tokenSymbol}`}</p>
+                <p className="text-xs text-tertiary">{asset.providerReportedBalanceBaseUnits === undefined ? 'Spendable balance not provided in the documented account response; it is unknown, not zero.' : `Provider-reported balance (not independently verified): ${formatBaseUnits(asset.providerReportedBalanceBaseUnits, asset.decimals)} ${asset.tokenSymbol}`}</p>
+              </div>
+            )) : <p className="text-xs text-tertiary">No assets were returned in the provider account response.</p>}
+            <p className="text-xs text-tertiary">{accountResult.account.note}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-secondary p-lg space-y-md">
+        <div className="flex items-start gap-sm">
+          <Activity className="size-5 shrink-0 text-brand-primary" aria-hidden="true" />
+          <div>
+            <h4 className="text-sm font-semibold text-primary">Track a provider-issued transfer trace</h4>
+            <p className="mt-xs text-xs text-tertiary">Use a trace ID returned after a GasFree authorization is accepted. No submission occurs here, and a provider status is not final chain evidence.</p>
+          </div>
+        </div>
+        <label className="flex flex-col gap-xs text-sm font-medium text-secondary">
+          Provider trace ID
+          <input value={traceId} onChange={(event) => setTraceId(event.target.value)} autoComplete="off" spellCheck={false} placeholder="trace ID returned by provider" className="w-full rounded-md border border-primary bg-primary px-md py-sm font-mono text-sm text-primary" />
+        </label>
+        <button type="button" onClick={() => void inspectTrace()} disabled={traceLoading} className="w-full rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
+          {traceLoading ? 'Checking transfer status…' : 'Query provider transfer status'}
+        </button>
+        {traceError && <p role="alert" className="text-sm text-utility-danger-700">{traceError}</p>}
+        {traceResult?.trace && (
+          <div className="rounded-lg border border-secondary bg-secondary p-md space-y-sm">
+            <p className="text-sm font-semibold text-primary">Provider state: {traceResult.trace.state}</p>
+            <p className="break-all text-xs text-tertiary">Trace ID: {traceResult.trace.traceId}</p>
+            <p className="break-all text-xs text-tertiary">Transaction ID: {traceResult.trace.transactionId || 'Not reported yet'}</p>
+            <p className="break-all text-xs text-tertiary">Receiver: {traceResult.trace.receiverAddress || 'Not reported'}</p>
+            <p className="break-all text-xs text-tertiary">Token contract: {traceResult.trace.tokenAddress || 'Not reported'}</p>
+            {traceResult.trace.amountBaseUnits && <p className="text-xs text-secondary">Transferred base units reported by provider: {traceResult.trace.amountBaseUnits}</p>}
+            {traceResult.trace.maxFeeBaseUnits && <p className="text-xs text-secondary">Maximum authorized fee base units: {traceResult.trace.maxFeeBaseUnits}</p>}
+            <p className="text-xs font-semibold text-utility-warning-700">Chain verification: not established by this trace lookup.</p>
+            <p className="text-xs text-tertiary">{traceResult.trace.note}</p>
+          </div>
+        )}
+      </div>
+
       <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-sm text-utility-warning-700">
         <p className="font-semibold">Not a confirmed free sponsor</p>
         <p className="mt-xs">{result?.feePolicy || 'GasFree documents activation and transfer fees denominated in the transferred token. Review the live schedule and the provider’s written terms.'}</p>
