@@ -2,6 +2,18 @@ import pg from 'pg'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+function isSponsorTokenContractAllowed(network, asset, tokenContract) {
+  if (!SPONSORED_TOKEN_ASSETS.has(asset) || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT and all VTRC deployments require an explicit operator-configured,
+  // network-scoped allowlist. Symbols and plausible addresses do not prove token identity.
+  const envName = `SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`
+  const configured = (process.env[envName] || '').split(',').map((item) => item.trim()).filter(Boolean)
+  return configured.includes(tokenContract.trim())
+}
 let pool
 let initPromise
 
@@ -471,10 +483,10 @@ export async function reserveSponsorTransfer(input) {
   if (!network || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
     || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
     || !['network-fee', 'asset-grant'].includes(purpose)
-    || !['TRX', 'USDT'].includes(asset)
+    || !['TRX', 'USDT', 'VTRC'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
     || (asset === 'TRX' && tokenContract)
-    || (asset === 'USDT' && (typeof tokenContract !== 'string' || !tokenContract.trim()))
+    || (SPONSORED_TOKEN_ASSETS.has(asset) && !isSponsorTokenContractAllowed(network, asset, tokenContract))
     || typeof receiverAddress !== 'string' || !receiverAddress.trim() || receiverAddress.length > 128
     || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]*$/.test(amountBaseUnits) || amountBaseUnits.length > 78) {
     return { reserved: false, reason: 'invalid-transfer-intent' }
@@ -485,7 +497,7 @@ export async function reserveSponsorTransfer(input) {
     ? 'https://api.trongrid.io'
     : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io' })
   if (!tronWeb.isAddress(receiverAddress.trim())
-    || (asset === 'USDT' && !tronWeb.isAddress(tokenContract.trim()))) {
+    || (SPONSORED_TOKEN_ASSETS.has(asset) && !tronWeb.isAddress(tokenContract.trim()))) {
     return { reserved: false, reason: 'invalid-tron-address' }
   }
 
@@ -505,7 +517,7 @@ export async function reserveSponsorTransfer(input) {
       const row = existing.rows[0]
       const same = row.sponsor_reference === sponsorReference.trim()
         && row.network === network && row.purpose === purpose && row.asset === asset
-        && (row.token_contract || null) === (asset === 'USDT' ? tokenContract.trim() : null)
+        && (row.token_contract || null) === (SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null)
         && row.receiver_address === receiverAddress.trim() && row.amount_base_units === amountBaseUnits
       await client.query('COMMIT')
       return same
@@ -521,7 +533,7 @@ export async function reserveSponsorTransfer(input) {
         WHERE sponsor_reference = $1 AND network = $2 AND asset = $3
           AND token_contract IS NOT DISTINCT FROM $4
         FOR UPDATE`,
-      [sponsorReference.trim(), network, asset, asset === 'USDT' ? tokenContract.trim() : null],
+      [sponsorReference.trim(), network, asset, SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null],
     )
     if (!budgetResult.rows.length) {
       await client.query('ROLLBACK')
@@ -559,7 +571,7 @@ export async function reserveSponsorTransfer(input) {
          receiver_address, amount_base_units, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending-review')`,
       [idempotencyKey, sponsorReference.trim(), budget.sponsor_address, network, purpose, asset,
-       asset === 'USDT' ? tokenContract.trim() : null, receiverAddress.trim(), amountBaseUnits],
+       SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null, receiverAddress.trim(), amountBaseUnits],
     )
     await client.query(
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
@@ -584,7 +596,7 @@ export async function reserveSponsorTransfer(input) {
       const row = raced.rows[0]
       const same = row.sponsor_reference === sponsorReference.trim()
         && row.network === network && row.purpose === purpose && row.asset === asset
-        && (row.token_contract || null) === (asset === 'USDT' ? tokenContract.trim() : null)
+        && (row.token_contract || null) === (SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null)
         && row.receiver_address === receiverAddress.trim()
         && row.amount_base_units === amountBaseUnits
       return same
