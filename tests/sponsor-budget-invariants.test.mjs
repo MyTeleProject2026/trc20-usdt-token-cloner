@@ -34,7 +34,7 @@ test('sponsor confirmation fails closed when reserved budget is below the transf
     async connect() {
       return {
         async query(sql) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           state.queries.push(normalized)
           if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'COMMIT') {
