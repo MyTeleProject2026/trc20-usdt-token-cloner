@@ -61,13 +61,25 @@ test('USDT asset grants require an explicit contract and are not treated as fee 
     network: 'mainnet',
     purpose: 'asset-grant',
     asset: 'USDT',
-    tokenContract: 'TContractAddress',
+    tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     receiverAddress: 'TValidReceiver',
     amountBaseUnits: '1000000',
   }
-  const result = validateSponsorTransferIntent(input, { isValidAddress: (address) => address === 'TValidReceiver' })
+  const result = validateSponsorTransferIntent(input, {
+    isValidAddress: (address) => address === 'TValidReceiver',
+    allowedTokenContractsByNetwork: { mainnet: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
+  })
   assert.equal(result.valid, true)
   assert.equal(result.intent.purpose, 'asset-grant')
   assert.equal(result.intent.asset, 'USDT')
   assert.equal(validateSponsorTransferIntent({ ...input, tokenContract: '' }, { isValidAddress: () => true }).reason, 'token-contract-required')
+  assert.equal(validateSponsorTransferIntent(input, { isValidAddress: () => true }).reason, 'token-contract-not-allowlisted-for-network')
+  assert.equal(validateSponsorTransferIntent(input, {
+    isValidAddress: () => true,
+    allowedTokenContractsByNetwork: { shasta: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
+  }).reason, 'token-contract-not-allowlisted-for-network')
+  assert.equal(validateSponsorTransferIntent({ ...input, tokenContract: 'TImpostorContract' }, {
+    isValidAddress: () => true,
+    allowedTokenContractsByNetwork: { mainnet: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
+  }).reason, 'token-contract-not-allowlisted-for-network')
 })
