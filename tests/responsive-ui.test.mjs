@@ -59,3 +59,7 @@ test('receiver history uses an accessible desktop table and mobile cards', () =>
   assert.ok(history.includes('receiver-history-table-wrap'))
   assert.ok(history.includes('receiver-history-mobile-cards'))
 })
+
+test('receiver history distinguishes multiple transfer events in the same transaction', () => {
+  assert.ok(history.includes('record.eventIndex ?? index'))
+})
