@@ -48,6 +48,16 @@ async function insertBudget(pool, sponsorReference, budgetBaseUnits) {
   )
 }
 
+async function insertUsdtBudget(pool, sponsorReference, tokenContract, budgetBaseUnits) {
+  await pool.query(
+    `INSERT INTO trc20_token_clone.sponsor_budgets
+      (sponsor_reference, sponsor_address, network, asset, token_contract,
+       budget_base_units, reserved_base_units, spent_base_units, status)
+     VALUES ($1,$2,$3,'USDT',$4,$5,0,0,'active')`,
+    [sponsorReference, sponsorAddress, network, tokenContract, budgetBaseUnits],
+  )
+}
+
 async function cleanup(pool, sponsorReferences, idempotencyKeys) {
   await pool.query(
     'DELETE FROM trc20_token_clone.audit_events WHERE entity_reference = ANY($1::text[])',
@@ -255,6 +265,69 @@ test('PostgreSQL rolls back sponsor ledger and status when the audit insert fail
     await pool.query(
       'DELETE FROM trc20_token_clone.native_transfer_verifications WHERE network = $1 AND transaction_hash = $2',
       [network, transactionHash],
+    )
+    await pool.end()
+  }
+})
+
+
+test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mismatches receiver, contract, or amount', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer, transitionSponsorTransfer } = await setup()
+  const suffix = randomUUID()
+  const tokenContract = sponsorAddress
+  const wrongContract = receiverAddress
+  const cases = [
+    { name: 'receiver', hash: 'c'.repeat(64), evidenceContract: tokenContract, evidenceReceiver: sponsorAddress, evidenceAmount: '25' },
+    { name: 'contract', hash: 'd'.repeat(64), evidenceContract: wrongContract, evidenceReceiver: receiverAddress, evidenceAmount: '25' },
+    { name: 'amount', hash: 'e'.repeat(64), evidenceContract: tokenContract, evidenceReceiver: receiverAddress, evidenceAmount: '24' },
+  ]
+  const sponsorReferences = cases.map(item => `pg-usdt-${item.name}-${suffix}`)
+  const idempotencyKeys = cases.map(item => `pg-usdt-${item.name}:${suffix}`)
+  try {
+    for (let i = 0; i < cases.length; i += 1) {
+      const item = cases[i]
+      const sponsorReference = sponsorReferences[i]
+      const idempotencyKey = idempotencyKeys[i]
+      await insertUsdtBudget(pool, sponsorReference, tokenContract, '100')
+      const reserved = await reserveSponsorTransfer({
+        idempotencyKey, sponsorReference, network, purpose: 'asset-grant', asset: 'USDT',
+        tokenContract, receiverAddress, amountBaseUnits: '25',
+      })
+      assert.equal(reserved.reserved, true, `${item.name}: reservation should be created`)
+      assert.equal((await transitionSponsorTransfer({
+        idempotencyKey, nextStatus: 'authorized', authorizationReference: `approval-${suffix}-${item.name}`,
+      })).updated, true)
+      assert.equal((await transitionSponsorTransfer({
+        idempotencyKey, nextStatus: 'submitted', transactionHash: item.hash,
+      })).updated, true)
+      await pool.query(
+        `INSERT INTO trc20_token_clone.transfer_verifications
+          (network, transaction_hash, token_contract, from_address, to_address,
+           amount_base_units, verification_status, block_number, log_index, result)
+         VALUES ($1,$2,$3,$4,$5,$6,'verified-on-chain',12347,0,'{}'::jsonb)`,
+        [network, item.hash, item.evidenceContract, sponsorAddress, item.evidenceReceiver, item.evidenceAmount],
+      )
+      const result = await transitionSponsorTransfer({ idempotencyKey, nextStatus: 'confirmed', transactionHash: item.hash })
+      assert.deepEqual(result, { updated: false, reason: 'finalized-transfer-evidence-not-found' }, item.name)
+      const budget = await pool.query(
+        `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
+           FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+        [sponsorReference],
+      )
+      assert.deepEqual(budget.rows[0], { reserved: '25', spent: '0' }, `${item.name}: budget must remain reserved`)
+      const transfer = await pool.query(
+        'SELECT status FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+        [idempotencyKey],
+      )
+      assert.equal(transfer.rows[0].status, 'submitted', `${item.name}: transfer must remain submitted`)
+    }
+  } finally {
+    await cleanup(pool, sponsorReferences, idempotencyKeys)
+    await pool.query(
+      'DELETE FROM trc20_token_clone.transfer_verifications WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',
+      [network, cases.map(item => item.hash)],
     )
     await pool.end()
   }
