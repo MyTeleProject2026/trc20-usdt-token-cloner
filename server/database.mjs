@@ -191,7 +191,7 @@ export async function initializeDatabase() {
       // Enforce the fee-budget denomination at the database boundary too. NOT VALID
       // protects new/updated rows immediately without failing startup on legacy rows;
       // those must be audited before this constraint is validated in a later migration.
-      await db.query(`DO $ BEGIN
+      await db.query(`DO $sponsor$ BEGIN
         IF NOT EXISTS (
           SELECT 1 FROM pg_constraint
           WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
@@ -201,7 +201,7 @@ export async function initializeDatabase() {
           ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
           CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
         END IF;
-      END; $`)
+      END; $sponsor$`)
       // VTRC is an independent project token. Expand sponsor ledger constraints so
       // it can be budgeted separately from official USDT and native TRX.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
