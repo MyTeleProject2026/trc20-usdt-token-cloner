@@ -15,6 +15,7 @@ const validBudget = {
 test('budget policy uses exact base units and computes only unreserved availability', () => {
   assert.deepEqual(validateSponsorBudget(validBudget), {
     valid: true,
+    purpose: 'asset-grant',
     availableBaseUnits: '5000000',
     canReserve: true,
   })
@@ -78,7 +79,7 @@ test('USDT asset grants require an explicit contract and are not treated as fee 
   }
   const result = validateSponsorTransferIntent(input, {
     isValidAddress: (address) => address === 'TValidReceiver',
-    allowedTokenContractsByNetwork: { shasta: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
+    allowedTokenContractsByNetwork: { mainnet: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
   })
   assert.equal(result.valid, true)
   assert.equal(result.intent.purpose, 'asset-grant')
