@@ -153,3 +153,79 @@ test('TRC20 sponsor confirmation rejects evidence that does not match contract, 
   assert.ok(!state.queries.some(({ sql }) => sql.includes('FROM trc20_token_clone.sponsor_budgets')))
   assert.ok(!state.queries.some(({ sql }) => sql.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status')))
 })
+
+// Confirmed principal cannot push the ledger beyond the sponsor's configured budget.
+test('sponsor confirmation fails closed when spent plus transfer exceeds total budget', async () => {
+  const state = {
+    transfer: {
+      idempotency_key: 'sponsor-budget-cap-test-0001',
+      sponsor_reference: 'test-sponsor',
+      sponsor_address: 'T1111111111111111111111111',
+      network: 'shasta',
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      token_contract: null,
+      receiver_address: 'T2222222222222222222222222',
+      amount_base_units: '25',
+      status: 'submitted',
+      transaction_hash: 'c'.repeat(64),
+    },
+    budget: {
+      id: 8,
+      reserved_base_units: '25',
+      spent_base_units: '80',
+      budget_base_units: '100',
+    },
+    queries: [],
+    commits: 0,
+    rollbacks: 0,
+    released: false,
+  }
+
+  const pool = {
+    async connect() {
+      return {
+        async query(sql) {
+          const normalized = sql.trim()
+          state.queries.push(normalized)
+          if (normalized === 'BEGIN') return { rows: [] }
+          if (normalized === 'COMMIT') {
+            state.commits += 1
+            return { rows: [] }
+          }
+          if (normalized === 'ROLLBACK') {
+            state.rollbacks += 1
+            return { rows: [] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
+            return { rows: [{ ...state.transfer }] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.native_transfer_verifications')) {
+            return { rows: [{ '?column?': 1 }] }
+          }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_budgets')) {
+            return { rows: [{ ...state.budget }] }
+          }
+          throw new Error('Unexpected SQL in sponsor budget-cap test')
+        },
+        release() { state.released = true },
+      }
+    },
+  }
+
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, { updated: false, reason: 'budget-invariant-violated' })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '80')
+  assert.equal(state.commits, 0)
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.released, true)
+  assert.ok(!state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_budgets')))
+  assert.ok(!state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status')))
+})
