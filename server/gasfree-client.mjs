@@ -241,8 +241,8 @@ export function createGasFreeClient({
         reachable: false,
         network,
         networkLabel: config.chainLabel,
-        reason: status === 401 || status === 403 ? 'provider-auth-rejected'
-          : status ? 'provider-http-error' : 'provider-unreachable',
+        reason: error?.reasonCode || (status === 401 || status === 403 ? 'provider-auth-rejected'
+          : status ? 'provider-http-error' : 'provider-unreachable'),
         ...(status ? { providerStatus: status } : {}),
       }
     }
@@ -261,7 +261,7 @@ export function createGasFreeClient({
         ])
         const providers = normalizeProviders(providerPayload)
         const tokens = normalizeTokens(tokenPayload)
-        if (!providers || !tokens) throw Object.assign(new Error('Invalid provider response'), { providerStatus: 502 })
+        if (!providers || !tokens) throw Object.assign(new Error('Invalid provider response'), { providerStatus: 502, reasonCode: 'invalid-provider-response' })
         return {
           providerCount: providers.length,
           supportedTokenCount: tokens.filter((token) => token.supported).length,
@@ -285,7 +285,7 @@ export function createGasFreeClient({
           { ...auth, timestamp: now() },
         )
         const account = normalizeAccount(payload, accountAddress)
-        if (!account) throw Object.assign(new Error('Invalid account response'), { providerStatus: 502 })
+        if (!account) throw Object.assign(new Error('Invalid account response'), { providerStatus: 502, reasonCode: 'invalid-provider-response' })
         return { account, accountLookupVerified: true }
       })
     },
@@ -300,7 +300,7 @@ export function createGasFreeClient({
           { ...auth, timestamp: now() },
         )
         const trace = normalizeTrace(payload, traceId)
-        if (!trace) throw Object.assign(new Error('Invalid trace response'), { providerStatus: 502 })
+        if (!trace) throw Object.assign(new Error('Invalid trace response'), { providerStatus: 502, reasonCode: 'invalid-provider-response' })
         return { trace, traceLookupVerified: true }
       })
     },
