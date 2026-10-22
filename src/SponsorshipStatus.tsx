@@ -61,7 +61,7 @@ export default function SponsorshipStatus() {
             <p className="mt-xs text-xs text-tertiary">{active ? `Available on ${status?.network || 'configured network'}` : 'Unavailable — wait for a verified external sponsor; never fall back to user funds.'}</p>
           </div>
           <div className="rounded-lg border border-secondary bg-secondary p-md">
-            <p className="text-xs font-semibold text-primary">Sponsor-funded TRX / USDT grant</p>
+            <p className="text-xs font-semibold text-primary">Sponsor-funded TRX / USDT / VTRC grant</p>
             <p className="mt-xs text-xs text-tertiary">{status?.receiverBalance?.sponsorAssetGrantEnabled ? 'Grant policy is enabled; verify each grant on-chain.' : 'Disabled — no sponsor-funded asset balance is verified; do not show credits as spendable.'}</p>
           </div>
           <div className="rounded-lg border border-secondary bg-secondary p-md">
