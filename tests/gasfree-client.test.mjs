@@ -4,10 +4,14 @@ import { createHmac } from 'node:crypto'
 import { buildGasFreeAuthHeaders, createGasFreeClient, getGasFreeNetwork } from '../server/gasfree-client.mjs'
 
 const validAddress = 'T' + 'A'.repeat(33)
+const mainnetEnv = { GASFREE_MAINNET_API_KEY: 'mainnet-key', GASFREE_MAINNET_API_SECRET: 'mainnet-secret' }
+const nileEnv = { GASFREE_NILE_API_KEY: 'nile-key', GASFREE_NILE_API_SECRET: 'nile-secret' }
 
-test('GasFree network map is fixed and excludes unsupported Shasta provider endpoint', () => {
+test('GasFree network map uses isolated mainnet and Nile API credentials and excludes Shasta', () => {
   assert.equal(getGasFreeNetwork('mainnet').origin, 'https://open.gasfree.io')
+  assert.equal(getGasFreeNetwork('mainnet').apiKeyEnv, 'GASFREE_MAINNET_API_KEY')
   assert.equal(getGasFreeNetwork('nile').pathPrefix, '/nile')
+  assert.equal(getGasFreeNetwork('nile').apiKeyEnv, 'GASFREE_NILE_API_KEY')
   assert.equal(getGasFreeNetwork('shasta'), null)
   assert.equal(getGasFreeNetwork('https://attacker.example'), null)
 })
@@ -29,17 +33,19 @@ test('GasFree HMAC auth signs method + path + timestamp and exposes no secret fi
   }), /Invalid GasFree API authentication input/)
 })
 
-test('GasFree does not attempt any network call without server-side credentials', async () => {
+test('GasFree does not attempt a network call without credentials for the selected network', async () => {
   let calls = 0
   const client = createGasFreeClient({
-    env: {},
+    env: mainnetEnv,
     fetchImpl: async () => { calls += 1; throw new Error('must not call') },
     now: () => 100,
   })
-  const result = await client.getCapabilities('mainnet')
+  const result = await client.getCapabilities('nile')
   assert.equal(result.configured, false)
   assert.equal(result.reason, 'credentials-not-configured')
-  assert.deepEqual(result.requiredEnvironment, ['GASFREE_API_KEY', 'GASFREE_API_SECRET'])
+  assert.deepEqual(result.requiredEnvironment, ['GASFREE_NILE_API_KEY', 'GASFREE_NILE_API_SECRET'])
+  assert.equal(client.isConfigured('mainnet'), true)
+  assert.equal(client.isConfigured('nile'), false)
   assert.equal(calls, 0)
 })
 
@@ -67,7 +73,7 @@ test('GasFree capabilities return live provider list and token-denominated fee f
     }) }
   }
   const client = createGasFreeClient({
-    env: { GASFREE_API_KEY: 'server-key', GASFREE_API_SECRET: 'server-secret' },
+    env: mainnetEnv,
     fetchImpl,
     now: () => 1731912286,
   })
@@ -88,14 +94,14 @@ test('GasFree capabilities return live provider list and token-denominated fee f
   assert.equal(result.providerFundingVerified, false)
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(requested.length, 2)
-  assert.ok(requested.every((item) => item.options.headers.Authorization.startsWith('ApiKey server-key:')))
-  assert.ok(requested.every((item) => !item.url.includes('server-secret')))
-  assert.ok(requested.every((item) => !JSON.stringify(item.options).includes('server-secret')))
+  assert.ok(requested.every((item) => item.options.headers.Authorization.startsWith('ApiKey mainnet-key:')))
+  assert.ok(requested.every((item) => !item.url.includes('mainnet-secret')))
+  assert.ok(requested.every((item) => !JSON.stringify(item.options).includes('mainnet-secret')))
 })
 
 test('GasFree rejects malformed API payloads and sanitizes provider errors', async () => {
   const client = createGasFreeClient({
-    env: { GASFREE_API_KEY: 'server-key', GASFREE_API_SECRET: 'server-secret' },
+    env: nileEnv,
     fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ code: 200, data: {} }) }),
     now: () => 1731912286,
   })
@@ -104,12 +110,12 @@ test('GasFree rejects malformed API payloads and sanitizes provider errors', asy
   assert.equal(malformed.reason, 'invalid-provider-response')
 
   const rejected = createGasFreeClient({
-    env: { GASFREE_API_KEY: 'server-key', GASFREE_API_SECRET: 'server-secret' },
+    env: nileEnv,
     fetchImpl: async () => ({ ok: false, status: 403 }),
     now: () => 1731912286,
   })
   const denied = await rejected.getCapabilities('nile')
   assert.equal(denied.reason, 'provider-auth-rejected')
   assert.equal(denied.providerStatus, 403)
-  assert.equal(JSON.stringify(denied).includes('server-secret'), false)
+  assert.equal(JSON.stringify(denied).includes('nile-secret'), false)
 })
