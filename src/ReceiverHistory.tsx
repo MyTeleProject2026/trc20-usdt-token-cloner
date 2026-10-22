@@ -189,7 +189,46 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       {error && <div className="flex items-start gap-sm rounded-lg border border-secondary bg-secondary p-md text-sm text-secondary"><AlertCircle className="mt-xxs size-4 shrink-0" />{error}</div>}
       {lastChecked !== null && <p className="text-xs text-tertiary">Last successful check: {new Date(lastChecked).toLocaleString()} · Receiver: <span className="break-all font-mono">{address || 'not set'}</span></p>}
       {!error && records.length === 0 && <p className="rounded-lg border border-secondary bg-secondary p-lg text-sm text-tertiary">No incoming TRC-20 records were returned for this address and filter. Indexers may lag; this is not proof that no transfer exists.</p>}
-      <div className="space-y-md">
+      <div className="receiver-history-table-wrap" aria-label="Receiver transfer history table">
+        <table aria-label="Incoming TRC-20 receiver history">
+          <thead>
+            <tr>
+              <th scope="col">Token / amount</th>
+              <th scope="col">Network / time</th>
+              <th scope="col">Verification</th>
+              <th scope="col">Sender</th>
+              <th scope="col">Receiver</th>
+              <th scope="col">Token contract</th>
+              <th scope="col">Transaction ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record, index) => (
+              <tr key={`table:${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`}>
+                <td>
+                  <div className="font-semibold">{record.tokenSymbol || record.tokenName || 'TRC-20 token'}</div>
+                  <div className="font-mono text-xs">{formatUnits(record.amountBaseUnits, record.tokenDecimals)}</div>
+                </td>
+                <td>
+                  <div className="font-semibold">{record.network}</div>
+                  <div className="text-xs text-tertiary">{record.timestamp ? new Date(record.timestamp).toLocaleString() : 'not provided'}</div>
+                </td>
+                <td>
+                  <span className={`inline-flex rounded-full border px-sm py-xxs text-xs ${record.verifiedOnChain ? 'border-utility-success-200 text-utility-success-700' : record.verificationStatus === 'not-verified' ? 'border-utility-danger-200 text-utility-danger-700' : 'border-utility-warning-200 text-utility-warning-700'}`}>
+                    {record.verifiedOnChain ? 'Verified' : record.verificationStatus === 'not-verified' ? 'Failed' : record.verificationStatus === 'provider-error' ? 'Provider error' : 'Pending verification'}
+                  </span>
+                  <div className="mt-xs text-xs text-tertiary">{record.verifiedOnChain ? 'Solidified receipt matched' : 'Not final proof'}</div>
+                </td>
+                <td className="break-all font-mono text-xs">{record.senderAddress || 'unknown'}</td>
+                <td className="break-all font-mono text-xs">{record.receiverAddress || 'unknown'}</td>
+                <td className="break-all font-mono text-xs">{record.tokenContract || 'not provided'}</td>
+                <td className="break-all font-mono text-xs">{record.transactionId || 'not provided'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="receiver-history-mobile-cards space-y-md">
         {records.map((record, index) => (
           <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
             <div className="flex flex-wrap items-center justify-between gap-sm">
