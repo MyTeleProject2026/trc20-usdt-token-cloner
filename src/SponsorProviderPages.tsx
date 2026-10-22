@@ -14,9 +14,10 @@ type SponsorStatus = {
 }
 
 type Props = { network: 'shasta' | 'mainnet' }
+type Asset = 'VTRC' | 'TRX' | 'USDT'
+type TokenSelectionProps = Props & { asset: Asset; onAssetChange: (asset: Asset) => void; onContinue: () => void }
 
-export function TokenSelectionPage({ network }: Props) {
-  const [asset, setAsset] = useState<'VTRC' | 'TRX' | 'USDT'>('VTRC')
+export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }: TokenSelectionProps) {
 
   const options = [
     { id: 'VTRC' as const, title: 'VTRC — independent project token', description: 'Your project token. It is not official Tether USDT. The exact deployed contract must be selected before sending.', badge: 'Project token' },
@@ -39,7 +40,7 @@ export function TokenSelectionPage({ network }: Props) {
         </div>
         <div className="grid grid-cols-1 gap-md md:grid-cols-3">
           {options.map((option) => (
-            <button key={option.id} type="button" onClick={() => setAsset(option.id)} aria-pressed={asset === option.id} className={`rounded-xl border p-lg text-left transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${asset === option.id ? 'border-brand-primary bg-secondary' : 'border-secondary bg-primary hover:bg-secondary'}`}>
+            <button key={option.id} type="button" onClick={() => onAssetChange(option.id)} aria-pressed={asset === option.id} className={`rounded-xl border p-lg text-left transition-colors focus-visible:ring-2 focus-visible:ring-focus-ring ${asset === option.id ? 'border-brand-primary bg-secondary' : 'border-secondary bg-primary hover:bg-secondary'}`}>
               <span className="text-xs font-semibold text-tertiary">{option.badge}</span>
               <span className="mt-sm block text-sm font-semibold text-primary">{option.title}</span>
               <span className="mt-sm block text-xs leading-relaxed text-tertiary">{option.description}</span>
@@ -50,7 +51,8 @@ export function TokenSelectionPage({ network }: Props) {
         <div className="rounded-lg border border-secondary bg-secondary p-lg">
           <p className="text-sm font-semibold text-primary">Current selection: {asset}</p>
           <p className="mt-xs text-sm text-tertiary">{asset === 'VTRC' ? 'Before transfer, confirm the deployed VTRC contract address, token decimals, available balance, recipient and selected network.' : asset === 'TRX' ? 'Before transfer, confirm the sender has enough TRX for the transfer and any network fee.' : 'Sending is not enabled from this chooser until the official contract address is independently verified for this exact network.'}</p>
-          <p className="mt-sm text-xs text-tertiary">This selection is a planning aid; it does not submit a transaction or change the asset used by other tabs.</p>
+          <p className="mt-sm text-xs text-tertiary">Your selection is shared with the main workflow. No transaction is submitted from this page. VTRC still requires the exact deployed contract and balance check; USDT remains blocked until a verified network-specific contract allowlist exists.</p>
+          <button type="button" onClick={onContinue} className="mt-md rounded-lg bg-brand-primary px-md py-sm text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-focus-ring">{asset === 'TRX' ? 'Continue to native TRX workflow' : asset === 'VTRC' ? 'Continue to token workflow' : 'Review USDT requirements'}</button>
         </div>
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-md">
