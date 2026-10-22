@@ -478,6 +478,46 @@ test('behavioral sponsor transition harness refuses caller-declared failure afte
   assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
 })
 
+test('behavioral sponsor transition harness rolls back unexpected database errors and releases the client', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const basePool = makeSponsorTransitionPool(state)
+  let released = false
+  const pool = {
+    async connect() {
+      const client = await basePool.connect()
+      const query = client.query.bind(client)
+      return {
+        async query(sql, values) {
+          if (sql.includes('FROM trc20_token_clone.native_transfer_verifications')) {
+            throw new Error('simulated evidence query failure')
+          }
+          return query(sql, values)
+        },
+        release() {
+          released = true
+          client.release()
+        },
+      }
+    },
+  }
+
+  await assert.rejects(
+    transitionSponsorTransferWithPool({
+      idempotencyKey: state.transfer.idempotency_key,
+      nextStatus: 'confirmed',
+      transactionHash: state.transfer.transaction_hash,
+    }, pool, { initialize: false }),
+    /simulated evidence query failure/,
+  )
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.equal(released, true)
+})
+
 // These deterministic query doubles exercise transition outcomes without connecting to any live database or chain.
 function makeSponsorTransitionState({ purpose, evidenceMatches = true } = {}) {
   return {
