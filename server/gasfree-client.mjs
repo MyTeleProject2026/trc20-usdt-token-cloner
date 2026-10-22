@@ -17,7 +17,8 @@ const NETWORKS = Object.freeze({
   },
 })
 
-const TOKEN_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 export function getGasFreeNetwork(network) {
   return typeof network === 'string' && Object.hasOwn(NETWORKS, network)
@@ -60,7 +61,7 @@ function normalizeProviders(payload) {
   if (!Array.isArray(payload?.data?.providers)) return null
   return payload.data.providers
     .filter((item) => item && typeof item.address === 'string'
-      && TOKEN_ADDRESS.test(item.address)
+      && TRON_ADDRESS.test(item.address)
       && typeof item.name === 'string' && item.name.trim().length > 0)
     .map((item) => ({
       address: item.address,
@@ -85,7 +86,7 @@ function normalizeTokens(payload) {
   if (!Array.isArray(payload?.data?.tokens)) return null
   return payload.data.tokens
     .filter((item) => item && typeof item.tokenAddress === 'string'
-      && TOKEN_ADDRESS.test(item.tokenAddress)
+      && TRON_ADDRESS.test(item.tokenAddress)
       && typeof item.symbol === 'string' && item.symbol.trim().length > 0
       && Number.isInteger(item.decimal) && item.decimal >= 0 && item.decimal <= 255
       && validIntegerString(item.activateFee) !== null
@@ -99,6 +100,80 @@ function normalizeTokens(payload) {
       transferFeeBaseUnits: validIntegerString(item.transferFee),
       feeCurrency: 'transferred-token',
     }))
+}
+
+function normalizeAccount(payload, requestedAddress) {
+  const account = payload?.data
+  if (!account || typeof account !== 'object'
+    || account.accountAddress !== requestedAddress
+    || typeof account.gasFreeAddress !== 'string'
+    || !TRON_ADDRESS.test(account.gasFreeAddress)
+    || typeof account.active !== 'boolean'
+    || !Number.isSafeInteger(account.nonce) || account.nonce < 0
+    || typeof account.allowSubmit !== 'boolean'
+    || !Array.isArray(account.assets)) return null
+
+  const assets = account.assets
+    .filter((item) => item && typeof item.tokenAddress === 'string'
+      && TRON_ADDRESS.test(item.tokenAddress)
+      && typeof item.tokenSymbol === 'string'
+      && Number.isInteger(item.decimal) && item.decimal >= 0 && item.decimal <= 255)
+    .map((item) => ({
+      tokenAddress: item.tokenAddress,
+      tokenSymbol: item.tokenSymbol.trim().slice(0, 32),
+      decimals: item.decimal,
+      activationFeeBaseUnits: validIntegerString(item.activateFee),
+      transferFeeBaseUnits: validIntegerString(item.transferFee),
+      frozenBaseUnits: validIntegerString(item.frozen),
+      // The documented account response does not guarantee a spendable-balance
+      // field. Only expose it if the live provider supplied a valid value.
+      ...(validIntegerString(item.balance) !== null
+        ? { providerReportedBalanceBaseUnits: validIntegerString(item.balance) }
+        : {}),
+    }))
+
+  return {
+    accountAddress: account.accountAddress,
+    gasFreeAddress: account.gasFreeAddress,
+    active: account.active,
+    nonce: account.nonce,
+    allowSubmit: account.allowSubmit,
+    assets,
+    source: 'GasFree provider account API',
+    chainFinalityVerified: false,
+    note: 'Provider account metadata is not independent solidified-chain proof. A missing balance field is unknown, not zero; verify balances and receipts on-chain before any accounting.',
+  }
+}
+
+function normalizeTrace(payload, requestedTraceId) {
+  const data = payload?.data
+  if (!data || typeof data !== 'object') return null
+  const returnedId = typeof data.id === 'string' ? data.id : requestedTraceId
+  const state = typeof data.state === 'string' ? data.state
+    : typeof data.status === 'string' ? data.status : null
+  const txCandidate = [data.transactionId, data.transactionHash, data.txHash, data.txID]
+    .find((value) => typeof value === 'string' && /^[0-9a-fA-F]{64}$/.test(value))
+  const amount = validIntegerString(data.amount)
+  const maxFee = validIntegerString(data.maxFee)
+  const normalizeAddress = (value) => typeof value === 'string' && TRON_ADDRESS.test(value) ? value : null
+  return {
+    traceId: returnedId.slice(0, 128),
+    state: state ? state.toUpperCase().slice(0, 32) : 'UNKNOWN',
+    senderAddress: normalizeAddress(data.accountAddress),
+    gasFreeAddress: normalizeAddress(data.gasFreeAddress),
+    receiverAddress: normalizeAddress(data.targetAddress || data.receiver),
+    providerAddress: normalizeAddress(data.providerAddress),
+    tokenAddress: normalizeAddress(data.tokenAddress || data.token),
+    ...(amount !== null ? { amountBaseUnits: amount } : {}),
+    ...(maxFee !== null ? { maxFeeBaseUnits: maxFee } : {}),
+    transactionId: txCandidate || null,
+    createdAt: typeof data.createdAt === 'string' ? data.createdAt.slice(0, 64) : null,
+    updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt.slice(0, 64) : null,
+    expiredAt: typeof data.expiredAt === 'string' ? data.expiredAt.slice(0, 64) : null,
+    source: 'GasFree provider trace API',
+    verifiedOnChain: false,
+    note: 'A provider trace state is not independent proof of finalized receipt, exact token Transfer event, receiver balance, or exchange deposit credit.',
+  }
 }
 
 export function createGasFreeClient({
@@ -117,6 +192,7 @@ export function createGasFreeClient({
   }
 
   async function getJson(networkConfig, endpointPath, auth) {
+    // endpointPath is selected internally, never built from arbitrary URL input.
     const path = `${networkConfig.pathPrefix}${endpointPath}`
     const headers = buildGasFreeAuthHeaders('GET', path, auth)
     const response = await fetchImpl(`${networkConfig.origin}${path}`, {
@@ -138,44 +214,55 @@ export function createGasFreeClient({
     return payload
   }
 
+  async function withReadOnlyAccess(network, operation) {
+    const config = getGasFreeNetwork(network)
+    if (!config) return { configured: false, reachable: false, network, reason: 'unsupported-network' }
+    const auth = credentials(config)
+    if (!auth) {
+      return {
+        configured: false,
+        reachable: false,
+        network,
+        networkLabel: config.chainLabel,
+        reason: 'credentials-not-configured',
+        requiredEnvironment: [config.apiKeyEnv, config.apiSecretEnv],
+      }
+    }
+    if (typeof fetchImpl !== 'function') {
+      return { configured: true, reachable: false, network, reason: 'fetch-unavailable' }
+    }
+    try {
+      const data = await operation(config, auth)
+      return { configured: true, reachable: true, network, networkLabel: config.chainLabel, ...data }
+    } catch (error) {
+      const status = Number.isInteger(error?.providerStatus) ? error.providerStatus : null
+      return {
+        configured: true,
+        reachable: false,
+        network,
+        networkLabel: config.chainLabel,
+        reason: status === 401 || status === 403 ? 'provider-auth-rejected'
+          : status ? 'provider-http-error' : 'provider-unreachable',
+        ...(status ? { providerStatus: status } : {}),
+      }
+    }
+  }
+
   return {
     isConfigured(network) {
       const config = getGasFreeNetwork(network)
       return Boolean(config && credentials(config))
     },
     async getCapabilities(network) {
-      const config = getGasFreeNetwork(network)
-      if (!config) return { configured: false, reachable: false, reason: 'unsupported-network' }
-      const auth = credentials(config)
-      if (!auth) {
-        return {
-          configured: false,
-          reachable: false,
-          network,
-          networkLabel: config.chainLabel,
-          reason: 'credentials-not-configured',
-          requiredEnvironment: [config.apiKeyEnv, config.apiSecretEnv],
-        }
-      }
-      if (typeof fetchImpl !== 'function') {
-        return { configured: true, reachable: false, network, reason: 'fetch-unavailable' }
-      }
-
-      try {
+      return withReadOnlyAccess(network, async (config, auth) => {
         const [providerPayload, tokenPayload] = await Promise.all([
           getJson(config, '/api/v1/config/provider/all', { ...auth, timestamp: now() }),
           getJson(config, '/api/v1/config/token/all', { ...auth, timestamp: now() }),
         ])
         const providers = normalizeProviders(providerPayload)
         const tokens = normalizeTokens(tokenPayload)
-        if (!providers || !tokens) {
-          return { configured: true, reachable: false, network, reason: 'invalid-provider-response' }
-        }
+        if (!providers || !tokens) throw Object.assign(new Error('Invalid provider response'), { providerStatus: 502 })
         return {
-          configured: true,
-          reachable: true,
-          network,
-          networkLabel: config.chainLabel,
           providerCount: providers.length,
           supportedTokenCount: tokens.filter((token) => token.supported).length,
           providers,
@@ -185,18 +272,37 @@ export function createGasFreeClient({
           feePolicy: 'GasFree token activation and transfer fees are charged in the transferred token; these are not confirmed to be free.',
           note: 'Discovery only. Provider listing and API reachability do not prove sponsor funding, zero fees, transaction authorization, or exchange deposit credit.',
         }
-      } catch (error) {
-        const status = Number.isInteger(error?.providerStatus) ? error.providerStatus : null
-        return {
-          configured: true,
-          reachable: false,
-          network,
-          networkLabel: config.chainLabel,
-          reason: status === 401 || status === 403 ? 'provider-auth-rejected'
-            : status ? 'provider-http-error' : 'provider-unreachable',
-          ...(status ? { providerStatus: status } : {}),
-        }
+      })
+    },
+    async getAccount(network, accountAddress) {
+      if (typeof accountAddress !== 'string' || !TRON_ADDRESS.test(accountAddress)) {
+        return { configured: false, reachable: false, network, reason: 'invalid-account-address' }
       }
+      return withReadOnlyAccess(network, async (config, auth) => {
+        const payload = await getJson(
+          config,
+          `/api/v1/address/${encodeURIComponent(accountAddress)}`,
+          { ...auth, timestamp: now() },
+        )
+        const account = normalizeAccount(payload, accountAddress)
+        if (!account) throw Object.assign(new Error('Invalid account response'), { providerStatus: 502 })
+        return { account, accountLookupVerified: true }
+      })
+    },
+    async getTrace(network, traceId) {
+      if (typeof traceId !== 'string' || !TRACE_ID.test(traceId)) {
+        return { configured: false, reachable: false, network, reason: 'invalid-trace-id' }
+      }
+      return withReadOnlyAccess(network, async (config, auth) => {
+        const payload = await getJson(
+          config,
+          `/api/v1/gasfree/${encodeURIComponent(traceId)}`,
+          { ...auth, timestamp: now() },
+        )
+        const trace = normalizeTrace(payload, traceId)
+        if (!trace) throw Object.assign(new Error('Invalid trace response'), { providerStatus: 502 })
+        return { trace, traceLookupVerified: true }
+      })
     },
   }
 }
