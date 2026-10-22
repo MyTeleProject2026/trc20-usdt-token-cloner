@@ -110,27 +110,47 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
             for (const record of confirmedIncoming) seenVerifiedKeys.current.add(recordKey(record))
             historyInitialized.current = true
           } else {
-            const newlyVerified = confirmedIncoming.find((record) => !seenVerifiedKeys.current.has(recordKey(record)))
+            const newlyVerified = confirmedIncoming.filter((record) => !seenVerifiedKeys.current.has(recordKey(record)))
             for (const record of confirmedIncoming) seenVerifiedKeys.current.add(recordKey(record))
-            if (newlyVerified) {
-              const symbol = newlyVerified.tokenSymbol || 'TRC-20 token'
-              const amount = formatUnits(newlyVerified.amountBaseUnits, newlyVerified.tokenDecimals)
-              const message = `Verified incoming ${amount} ${symbol} transfer observed on ${network}. Exchange credit is separate.`
-              const key = recordKey(newlyVerified)
-              setNotification({
-                key,
-                message,
-                transactionId: newlyVerified.transactionId,
+            if (newlyVerified.length > 0) {
+              const messages = newlyVerified.map((record) => {
+                const symbol = record.tokenSymbol || 'TRC-20 token'
+                const amount = formatUnits(record.amountBaseUnits, record.tokenDecimals)
+                return {
+                  record,
+                  key: recordKey(record),
+                  message: `Verified incoming ${amount} ${symbol} transfer observed on ${network}. Exchange credit is separate.`,
+                }
               })
-              // Browser/system notifications are opt-in and only fire for a
-              // newly observed, already solidified-and-verified incoming event.
+
+              // Every newly observed verified event should be announced. Cap
+              // individual system alerts and summarize any burst to avoid
+              // flooding the device after a delayed poll or worker recovery.
               if (browserPermission === 'granted' && typeof Notification !== 'undefined') {
                 try {
-                  new Notification('Verified incoming transfer', { body: message, tag: key })
+                  for (const item of messages.slice(0, 5)) {
+                    new Notification('Verified incoming transfer', { body: item.message, tag: item.key })
+                  }
+                  if (messages.length > 5) {
+                    new Notification('Additional verified transfers', {
+                      body: `${messages.length - 5} more verified incoming transfers were detected on ${network}.`,
+                      tag: `verified-transfer-batch:${network}:${messages[messages.length - 1].key}`,
+                    })
+                  }
                 } catch {
                   // In-app notification remains available if system notifications fail.
                 }
               }
+
+              const latest = messages[0]
+              const batchMessage = messages.length === 1
+                ? latest.message
+                : `${messages.length} newly verified incoming transfers observed on ${network}. Latest: ${latest.message}`
+              setNotification({
+                key: latest.key,
+                message: batchMessage,
+                transactionId: latest.record.transactionId,
+              })
             }
           }
           setRecords((current) => {
