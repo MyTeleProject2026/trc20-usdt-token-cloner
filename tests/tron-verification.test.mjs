@@ -100,3 +100,39 @@ test('reports the exact matching event index when a transaction has multiple Tra
   assert.equal(result.verified, true)
   assert.equal(result.logIndex, 1)
 })
+
+
+test('rejects malformed transaction identifiers, expected addresses, and non-positive amounts', () => {
+  assert.equal(verifySolidifiedTrc20Transfer({ ...input(), expectedTxId: 'not-a-transaction-id' }).reason, 'invalid-expected-transaction-id')
+  assert.equal(verifySolidifiedTrc20Transfer({ ...input(), tokenContractAddress: 'not-an-address' }).reason, 'invalid-expected-address')
+  assert.equal(verifySolidifiedTrc20Transfer({ ...input(), fromAddress: null }).reason, 'invalid-expected-address')
+  assert.equal(verifySolidifiedTrc20Transfer({ ...input(), amountSun: '0' }).reason, 'invalid-expected-amount')
+  assert.equal(verifySolidifiedTrc20Transfer({ ...input(), amountSun: '-1' }).reason, 'invalid-expected-amount')
+  assert.equal(verifySolidifiedTrc20Transfer({ ...input(), amountSun: '1.5' }).reason, 'invalid-expected-amount')
+})
+
+test('rejects a Transfer event with the wrong sender even when contract, recipient, and amount match', () => {
+  const data = input()
+  const wrongSender = '41' + '4'.repeat(40)
+  data.receipt = {
+    ...receipt,
+    log: [{
+      ...receipt.log[0],
+      topics: [receipt.log[0].topics[0], topicAddress(wrongSender), topicAddress(to)],
+    }],
+  }
+  assert.equal(verifySolidifiedTrc20Transfer(data).reason, 'matching-transfer-event-not-found')
+})
+
+test('rejects malformed Transfer topics and non-uint256 event data', () => {
+  const malformedTopics = input()
+  malformedTopics.receipt = {
+    ...receipt,
+    log: [{ ...receipt.log[0], topics: [receipt.log[0].topics[0], 'bad-topic', topicAddress(to)] }],
+  }
+  assert.equal(verifySolidifiedTrc20Transfer(malformedTopics).reason, 'matching-transfer-event-not-found')
+
+  const malformedData = input()
+  malformedData.receipt = { ...receipt, log: [{ ...receipt.log[0], data: '0x1234' }] }
+  assert.equal(verifySolidifiedTrc20Transfer(malformedData).reason, 'matching-transfer-event-not-found')
+})
