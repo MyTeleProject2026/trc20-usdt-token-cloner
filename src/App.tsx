@@ -845,7 +845,7 @@ export default function App() {
         </div>
 
         {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else setActionMessage({ type: 'error', text: 'USDT transfer is blocked in this workflow until an independently verified official contract allowlist is implemented for the selected network.' }) }} />}
-        {activeTab === 'sponsors' && <SponsorProviderPage network={network} />}
+        {activeTab === 'sponsors' && <SponsorProviderPage network={network} walletAddress={walletConnected ? walletAddress : ''} />}
 
         {/* Tab 1: Deploy & Clone */}
         {activeTab === 'deploy' && (
