@@ -163,6 +163,10 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      // VTRC is an independent project token. Expand sponsor ledger constraints so
+      // it can be budgeted separately from official USDT and native TRX.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
       // One sponsor may have independent budgets for each network/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
@@ -189,6 +193,8 @@ export async function initializeDatabase() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       await db.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_transfer_tx_identity
