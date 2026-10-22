@@ -41,3 +41,11 @@ test('GasFree UI exposes account inspection and trace status but no transfer sub
   assert.ok(component.includes('Live transfer submission: disabled'))
   assert.ok(!component.includes('/api/gasfree/submit'))
 })
+
+
+test('GasFree token list never treats a provider symbol alone as official Mainnet USDT', () => {
+  assert.ok(component.includes("const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(component.includes('Exact contract matches Tether-published TRON Mainnet USDT.'))
+  assert.ok(component.includes('Symbol says USDT, but this is not the official Tether TRON Mainnet contract.'))
+  assert.ok(component.includes('Provider symbol only: testnet assets are separate from Mainnet USDT.'))
+})
