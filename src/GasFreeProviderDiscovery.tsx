@@ -137,7 +137,7 @@ function formatBaseUnits(baseUnits: string, decimals: number): string {
 type Props = { walletAddress?: string; walletNetwork: 'mainnet' | 'shasta' }
 
 export default function GasFreeProviderDiscovery({ walletAddress = '', walletNetwork }: Props) {
-  const [network, setNetwork] = useState<'mainnet' | 'nile'>('nile')
+  const [network, setNetwork] = useState<'mainnet' | 'nile'>(walletNetwork === 'mainnet' ? 'mainnet' : 'nile')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<GasFreeCapabilities | null>(null)
   const [requestError, setRequestError] = useState('')
@@ -318,6 +318,13 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
     // The effect is intentionally scoped to selectedNetwork changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [network])
+
+  // When a connected Mainnet wallet first appears or changes, select the
+  // matching GasFree environment. Manual Nile selection remains available until
+  // the wallet/network itself changes again.
+  useEffect(() => {
+    if (walletAddress && walletNetwork === 'mainnet') setNetwork('mainnet')
+  }, [walletAddress, walletNetwork])
 
   // Re-query account metadata automatically when a wallet connects or changes,
   // but only when the application's active network is Mainnet and the GasFree
