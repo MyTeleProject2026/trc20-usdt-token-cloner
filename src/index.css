@@ -150,3 +150,27 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+
+/* Keep the subtle console grid above the page background but below app content. */
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  min-height: 100svh;
+}
+body::before { z-index: 0; }
+.app-workflow-nav button[aria-pressed="true"],
+.app-workflow-nav button[aria-current="page"] {
+  color: var(--console-green) !important;
+  border-color: var(--console-green) !important;
+  background: rgb(29 110 80 / 20%) !important;
+  box-shadow: inset 0 -2px 0 rgb(89 242 164 / 55%);
+}
+.app-header button[aria-pressed="true"] {
+  color: var(--console-green) !important;
+  border-color: var(--console-green) !important;
+  background: rgb(29 110 80 / 22%) !important;
+}
+.app-main > * { min-width: 0; }
+.app-main input, .app-main textarea, .app-main select { max-width: 100%; }
