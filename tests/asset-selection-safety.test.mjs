@@ -24,12 +24,14 @@ test('TRC-20 handler fails closed for native TRX and USDT asset selections', () 
 })
 
 test('native TRX handler checks selected asset before any send attempt', () => {
-  const handler = sectionBetween('const handleNativeTrxTransfer = async () => {', 'const handleVerifyNativeTransfer = async () => {')
+  const handler = sectionBetween('const handleNativeTrxTransfer = async () => {', 'const handleVerifyTx = async () => {')
   const assetGuard = handler.indexOf("selectedAsset !== 'TRX'")
   assert.ok(assetGuard >= 0, 'native transfer must require TRX selection')
   const walletAccess = handler.indexOf('getInjectedTronWeb()')
   assert.ok(walletAccess < 0 || assetGuard < walletAccess, 'asset mismatch must be rejected before wallet access')
-  assert.match(handler, /assertSelectedTronLinkNetwork/, 'native transfer must validate the selected network')
+  assert.match(handler, /fullNodeHost/, 'native transfer must inspect the connected wallet node')
+  assert.match(handler, /network === 'shasta'.*isShastaWallet/s, 'Shasta selection must reject a non-Shasta wallet')
+  assert.match(handler, /network === 'mainnet'.*isShastaWallet/s, 'Mainnet selection must reject a Shasta wallet')
 })
 
 test('wallet network validation rejects a Shasta/Mainnet mismatch', () => {
