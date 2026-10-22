@@ -265,7 +265,7 @@ test('sponsor confirmation rolls back ledger mutations when audit-event insertio
     async connect() {
       return {
         async query(sql, values = []) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           state.queries.push(normalized)
           if (normalized === 'BEGIN') {
             state.snapshot = {
