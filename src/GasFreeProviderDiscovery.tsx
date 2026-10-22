@@ -134,7 +134,9 @@ function formatBaseUnits(baseUnits: string, decimals: number): string {
 }
 
 /** Provider inventory, account, and trace reads only; no authorization is signed or submitted. */
-export default function GasFreeProviderDiscovery() {
+type Props = { walletAddress?: string; walletNetwork: 'mainnet' | 'shasta' }
+
+export default function GasFreeProviderDiscovery({ walletAddress = '', walletNetwork }: Props) {
   const [network, setNetwork] = useState<'mainnet' | 'nile'>('nile')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<GasFreeCapabilities | null>(null)
@@ -174,8 +176,8 @@ export default function GasFreeProviderDiscovery() {
     }
   }
 
-  const inspectAccount = async () => {
-    const address = accountAddress.trim()
+  const inspectAccount = async (addressOverride?: string) => {
+    const address = (addressOverride ?? accountAddress).trim()
     setAccountError('')
     setAccountResult(null)
     if (!TRON_ADDRESS.test(address)) {
@@ -317,6 +319,26 @@ export default function GasFreeProviderDiscovery() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [network])
 
+  // Re-query account metadata automatically when a wallet connects or changes,
+  // but only when the application's active network is Mainnet and the GasFree
+  // selector is also Mainnet. A Shasta wallet must never be silently queried
+  // against Nile or Mainnet just because TRON addresses share the same format.
+  useEffect(() => {
+    setAccountAddress(walletAddress)
+    setAccountResult(null)
+    setAccountError('')
+    if (!walletAddress) return
+
+    if (walletNetwork !== 'mainnet') {
+      setAccountError('The connected app wallet is on Shasta. GasFree API account lookups support Mainnet and Nile, not Shasta; no automatic cross-network account lookup was made.')
+      return
+    }
+    if (network === 'mainnet') {
+      void inspectAccount(walletAddress)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletAddress, walletNetwork, network])
+
   const live = result?.success === true && result.reachable === true
 
   return (
@@ -342,6 +364,14 @@ export default function GasFreeProviderDiscovery() {
           </button>
         </div>
       </div>
+      {walletNetwork === 'shasta' && walletAddress && (
+        <p role="status" className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-sm text-utility-warning-700">
+          Connected application wallet is on Shasta. GasFree account auto-lookup is paused to prevent cross-network confusion. Switch the application network to Mainnet for a matching Mainnet lookup, or only manually inspect an account that you know belongs to the selected provider network.
+        </p>
+      )}
+      {walletAddress && walletNetwork === 'mainnet' && network === 'mainnet' && (
+        <p role="status" className="text-xs text-tertiary">Wallet connected: account metadata auto-refreshes when the connected Mainnet address changes. No transaction is authorized or submitted.</p>
+      )}
       {requestError && <p role="alert" className="text-sm text-utility-danger-700">{requestError}</p>}
       {loading && <p role="status" className="text-sm text-tertiary">Checking the selected provider environment…</p>}
       {result && !live && !loading && (
