@@ -16,11 +16,21 @@ test('receiver history only announces newly verified on-chain events', () => {
 test('notification is an in-app status and does not claim exchange credit', () => {
   assert.ok(history.includes('role="status" aria-live="polite"'))
   assert.ok(history.includes('Exchange credit is separate.'))
-  assert.ok(history.includes('It is not an exchange notification or proof of exchange-account credit.'))
+  assert.ok(history.includes('they are not push notifications from another wallet or exchange and do not prove exchange-account credit.'))
   assert.ok(history.includes('onClick={() => setNotification(null)}'))
 })
 
 test('first loaded history is a baseline and does not notify for old records', () => {
   assert.ok(history.includes('Initial history is a baseline, not a stream of alerts for old transfers.'))
   assert.ok(history.includes('seenVerifiedKeys.current.clear()'))
+})
+
+
+test('device notifications require browser permission and are sent only for newly verified events', () => {
+  assert.ok(history.includes("Notification.requestPermission()"))
+  assert.ok(history.includes("browserPermission === 'granted'"))
+  assert.ok(history.includes("new Notification('Verified incoming transfer'"))
+  assert.ok(history.includes('if (newlyVerified)'))
+  assert.ok(history.includes('Optional device notifications require browser permission and this page to be running'))
+  assert.ok(history.includes('Device notifications unsupported; in-app messages still work.'))
 })
