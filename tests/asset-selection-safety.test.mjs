@@ -40,3 +40,10 @@ test('wallet network validation rejects a Shasta/Mainnet mismatch', () => {
   assert.match(guard, /network === 'mainnet'/)
   assert.match(guard, /api\.trongrid\.io/)
 })
+
+test('changing networks clears the previous wallet connection and account snapshot', () => {
+  const effect = sectionBetween('useEffect(() => {\n    setTronBlock(null)', '  }, [network])')
+  assert.match(effect, /setWalletConnected\(false\)/, 'network changes must require wallet reconnection')
+  assert.match(effect, /setAccountData\(null\)/, 'network-specific account details must be discarded')
+  assert.match(effect, /fetchStatus\(\)/, 'the selected network status must be refreshed')
+})
