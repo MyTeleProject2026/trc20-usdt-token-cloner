@@ -14,6 +14,7 @@ type SponsorStatus = {
 }
 
 type Props = { network: 'shasta' | 'mainnet' }
+type SponsorPageProps = Props & { refreshKey: number }
 type Asset = 'VTRC' | 'TRX' | 'USDT'
 type TokenSelectionProps = Props & { asset: Asset; onAssetChange: (asset: Asset) => void; onContinue: () => void }
 
@@ -68,7 +69,7 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
   )
 }
 
-export default function SponsorProviderPage({ network }: Props) {
+export default function SponsorProviderPage({ network, refreshKey }: SponsorPageProps) {
   const [status, setStatus] = useState<SponsorStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [providerName, setProviderName] = useState('')
@@ -88,9 +89,9 @@ export default function SponsorProviderPage({ network }: Props) {
       .catch(() => { if (active) setStatus(null) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [network])
+  }, [network, refreshKey])
 
-  const liveSubmissionEnabled = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer && (network !== 'mainnet' || status?.mainnetEnabled))
+  const liveSubmissionEnabled = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer && status?.network === network && (network !== 'mainnet' || status?.mainnetEnabled))
   const refreshStatus = async () => {
     setLoading(true)
     setNotice('')
