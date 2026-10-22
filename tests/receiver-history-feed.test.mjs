@@ -40,6 +40,18 @@ test('receiver history UI refreshes automatically and never labels indexer rows 
   assert.match(app, /<ReceiverHistory network=\{network\}/)
 })
 
+test('receiver notifications require a newly observed solidified on-chain verified event', () => {
+  assert.ok(ui.includes("record.verifiedOnChain === true && record.verificationStatus === 'verified-on-chain'"))
+  assert.ok(ui.includes("const verifiedBaseline = useRef<Set<string> | null>(null)"))
+  assert.ok(ui.includes("window.Notification.requestPermission()"))
+  assert.ok(ui.includes("new window.Notification('Incoming transfer verified'"))
+  assert.ok(ui.includes("Enable browser alerts"))
+  assert.ok(ui.includes("Dismiss incoming transfer notification"))
+  assert.ok(ui.includes("Notifications are triggered only for newly observed, solidified on-chain verified records."))
+  assert.ok(ui.includes("Exchange deposit credit is not confirmed."))
+  assert.ok(ui.includes("background push monitoring is not configured by this UI"))
+})
+
 test('sponsor UI keeps fee sponsorship, asset grants, and real spendable balance separate', () => {
   assert.match(sponsorshipUi, /Network fee sponsorship/)
   assert.match(sponsorshipUi, /Sponsor-funded TRX \/ USDT \/ VTRC grant/)
