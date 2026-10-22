@@ -53,7 +53,7 @@ export default function SponsorshipStatus() {
         <p className="mt-xxs text-sm text-tertiary">
           {loading
             ? 'Checking the backend status. Do not assume a transaction is sponsored until the service confirms it.'
-            : status?.message || 'Sponsorship status could not be loaded. Assume you must cover network fees yourself.'}
+            : status?.message || 'Sponsorship status could not be loaded. Do not submit a sponsored transfer; no user-funded fallback is allowed.'}
         </p>
         <div className="mt-md grid grid-cols-1 gap-sm sm:grid-cols-3">
           <div className="rounded-lg border border-secondary bg-secondary p-md">
