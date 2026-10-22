@@ -75,7 +75,8 @@ export default function SponsorProviderPage({ network, refreshKey }: SponsorPage
   const [providerName, setProviderName] = useState('')
   const [contact, setContact] = useState('')
   const [scope, setScope] = useState('network-fees')
-  const [notice, setNotice] = useState('')
+  const [statusNotice, setStatusNotice] = useState('')
+  const [draftNotice, setDraftNotice] = useState('')
 
   useEffect(() => {
     let active = true
@@ -91,18 +92,59 @@ export default function SponsorProviderPage({ network, refreshKey }: SponsorPage
     return () => { active = false }
   }, [network, refreshKey])
 
+  const copyApplicationDraft = async () => {
+    setDraftNotice('')
+    const organization = providerName.trim()
+    const email = contact.trim()
+    if (!organization || !email) {
+      setDraftNotice('Enter an organization name and a business contact email before copying the draft.')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setDraftNotice('Enter a valid business contact email address.')
+      return
+    }
+
+    const scopeLabel = scope === 'network-fees'
+      ? 'Network fee / resource sponsorship'
+      : scope === 'trx-grant'
+        ? 'Native TRX asset grant'
+        : 'Allowlisted TRC-20 asset grant'
+    const draft = [
+      'Subject: External sponsorship partnership inquiry',
+      '',
+      `Organization: ${organization}`,
+      `Business contact: ${email}`,
+      `Proposed scope: ${scopeLabel}`,
+      `Selected network: ${network === 'shasta' ? 'Shasta testnet' : 'TRON Mainnet'}`,
+      '',
+      'We would like to discuss a voluntary, externally funded sponsorship arrangement.',
+      'Please provide written details on supported operations, funding, pricing, supported networks, authorization, limits, and failure/refund handling.',
+      '',
+      'This message is a draft only. No funds, credentials, or wallet signing material are included.',
+    ].join('\\n')
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+      await navigator.clipboard.writeText(draft)
+      setDraftNotice('Inquiry draft copied to clipboard. Nothing was sent or stored by this application.')
+    } catch {
+      setDraftNotice('Clipboard access was blocked. You can select and copy the form values manually; nothing was sent or stored.')
+    }
+  }
+
   const liveSubmissionEnabled = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer && status?.network === network && (network !== 'mainnet' || status?.mainnetEnabled))
   const refreshStatus = async () => {
     setLoading(true)
-    setNotice('')
+    setStatusNotice('')
     try {
       const response = await fetch(`${API_BASE}/api/tron/sponsorship/status`, { headers: { Accept: 'application/json' } })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.message || 'Could not refresh sponsor status.')
       setStatus(payload?.sponsorship || null)
-      setNotice('Status refreshed. No application or transfer was submitted.')
+      setStatusNotice('Status refreshed. No application or transfer was submitted.')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Sponsor status is unavailable.')
+      setStatusNotice(error instanceof Error ? error.message : 'Sponsor status is unavailable.')
     } finally {
       setLoading(false)
     }
@@ -132,7 +174,7 @@ export default function SponsorProviderPage({ network, refreshKey }: SponsorPage
         </div>
         {status?.requiredBeforeEnablement?.length ? <details className="rounded-lg border border-secondary p-md"><summary className="cursor-pointer text-sm font-semibold text-primary">Required activation gates</summary><ul className="mt-sm list-disc space-y-xs pl-lg text-xs text-tertiary">{status.requiredBeforeEnablement.map((item) => <li key={item}>{item.replaceAll('-', ' ')}</li>)}</ul></details> : null}
         <button type="button" onClick={() => void refreshStatus()} disabled={loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">{loading ? 'Checking…' : 'Refresh provider status'}</button>
-        {notice && <p role="status" className="text-xs text-tertiary">{notice}</p>}
+        {statusNotice && <p role="status" className="text-xs text-tertiary">{statusNotice}</p>}
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-lg">
         <div><h3 className="text-heading-xs font-semibold text-primary">Provider application draft</h3><p className="mt-xs text-sm text-tertiary">Enter details to prepare an application draft. This repository does not yet expose a secure provider-application API, so this form deliberately does not send or store your details.</p></div>
@@ -142,8 +184,8 @@ export default function SponsorProviderPage({ network, refreshKey }: SponsorPage
           <label className="flex flex-col gap-xs text-sm font-medium text-secondary md:col-span-2">Proposed sponsorship scope<select value={scope} onChange={(e) => setScope(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary"><option value="network-fees">Network fee / resource sponsorship</option><option value="trx-grant">Native TRX asset grant</option><option value="trc20-grant">Allowlisted TRC-20 asset grant</option></select></label>
         </div>
         <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700"><strong>Not submitted.</strong> Do not enter passwords, private keys, recovery phrases, API secrets or wallet signing material. Provider onboarding requires a secured backend, verification and review before it can be accepted.</div>
-        <button type="button" onClick={() => setNotice(`Draft reviewed locally for scope: ${scope}. No application was sent or saved. A secure provider-application API must be implemented before submission can be enabled.`)} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary">Review application draft</button>
-        {notice && <p role="status" className="text-xs text-tertiary">{notice}</p>}
+        <button type="button" onClick={() => void copyApplicationDraft()} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary focus-visible:ring-2 focus-visible:ring-focus-ring">Copy provider application draft</button>
+        {draftNotice && <p role="status" className="text-xs text-tertiary">{draftNotice}</p>}
         <p className="text-xs text-tertiary">Draft fields currently remain only in this open page state; providerName/contact are not transmitted to the backend.</p>
       </section>
     </div>
