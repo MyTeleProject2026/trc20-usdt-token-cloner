@@ -294,7 +294,7 @@ test('HTTP response credential guard redacts Tatum, TRONGrid, and both GasFree n
     for (const secret of secrets) {
       assert.equal(serialized.includes(secret), false, `Response leaked ${secret.slice(0, 16)}`)
     }
-    assert.equal((serialized.match(/\\[REDACTED\\]/g) || []).length, secrets.length)
+    assert.equal(serialized.split('[REDACTED]').length - 1, secrets.length)
   } finally {
     for (const [key, value] of before) {
       if (value === undefined) delete process.env[key]
