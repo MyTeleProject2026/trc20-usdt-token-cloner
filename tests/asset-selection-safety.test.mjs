@@ -42,7 +42,7 @@ test('wallet network validation rejects a Shasta/Mainnet mismatch', () => {
 })
 
 test('changing networks clears the previous wallet connection and account snapshot', () => {
-  const effect = sectionBetween('useEffect(() => {\n    setTronBlock(null)', '  }, [network])')
+  const effect = sectionBetween('// A network switch invalidates the prior wallet/network pairing.', '  }, [network])')
   assert.match(effect, /setWalletConnected\(false\)/, 'network changes must require wallet reconnection')
   assert.match(effect, /setAccountData\(null\)/, 'network-specific account details must be discarded')
   assert.match(effect, /setPrivateKey\(''\)/, 'locally held signing material must not carry across network switches')
