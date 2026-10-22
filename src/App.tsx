@@ -25,6 +25,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
   const [activeTab, setActiveTab] = useState<'choose' | 'sponsors' | 'deploy' | 'interact' | 'trx' | 'simulation' | 'verify' | 'contract'>('choose')
+  const [selectedAsset, setSelectedAsset] = useState<'VTRC' | 'TRX' | 'USDT'>('VTRC')
   const [copied, setCopied] = useState<string | null>(null)
 
   // System status
@@ -809,7 +810,7 @@ export default function App() {
           </button>
         </div>
 
-        {activeTab === 'choose' && <TokenSelectionPage network={network} />}
+        {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else setActionMessage({ type: 'error', text: 'USDT transfer is blocked in this workflow until an independently verified official contract allowlist is implemented for the selected network.' }) }} />}
         {activeTab === 'sponsors' && <SponsorProviderPage network={network} />}
 
         {/* Tab 1: Deploy & Clone */}
