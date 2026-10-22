@@ -68,7 +68,17 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
         setCached(capabilityCache, network, { body, httpStatus: 502 }, 5_000)
         return res.status(502).json(body)
       }
-      const body = { success: true, status: 'provider-capabilities-read', checkedAt: new Date().toISOString(), ...result }
+      const body = {
+        ...result,
+        success: true,
+        status: 'provider-capabilities-read',
+        checkedAt: new Date().toISOString(),
+        // This router exposes discovery only. Never allow provider data or a
+        // future adapter to turn a read-only response into send authorization.
+        providerFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      }
       setCached(capabilityCache, network, { body, httpStatus: 200 }, cacheTtlMs)
       return res.json(body)
     } catch {
@@ -123,8 +133,13 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
         return res.status(502).json(body)
       }
       const body = {
-        success: true, status: 'provider-account-read', checkedAt: new Date().toISOString(),
         ...result,
+        success: true,
+        status: 'provider-account-read',
+        checkedAt: new Date().toISOString(),
+        providerFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
       }
       setCached(detailCache, key, { body, httpStatus: 200 }, detailCacheTtlMs)
       return res.json(body)
@@ -176,8 +191,13 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
         return res.status(502).json(body)
       }
       const body = {
-        success: true, status: 'provider-trace-read', checkedAt: new Date().toISOString(),
         ...result,
+        success: true,
+        status: 'provider-trace-read',
+        checkedAt: new Date().toISOString(),
+        providerFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
       }
       setCached(detailCache, key, { body, httpStatus: 200 }, detailCacheTtlMs)
       return res.json(body)
