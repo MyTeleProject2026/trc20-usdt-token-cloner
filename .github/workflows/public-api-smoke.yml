@@ -1,0 +1,89 @@
+name: Public API smoke and readiness check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-api-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public API health
+        id: health
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 --silent --show-error --fail https://trc20-usdt-token-cloner-api.onrender.com/health)"
+          echo "$response" | node --input-type=module -e '
+            let body = "";
+            for await (const chunk of process.stdin) body += chunk;
+            const data = JSON.parse(body);
+            if (data.status !== "ok") throw new Error("Unexpected health response");
+            console.log("Public health endpoint returned ok.");
+          '
+
+      - name: Inspect sanitized provider status
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --retry 1 --connect-timeout 10 --max-time 25 --silent --show-error --fail https://trc20-usdt-token-cloner-api.onrender.com/api/status)"
+          echo "$response" | node --input-type=module -e '
+            let body = "";
+            for await (const chunk of process.stdin) body += chunk;
+            const data = JSON.parse(body);
+            const allowed = new Set(["connected", "no-api-key", "provider-response", "egress-failed"]);
+            if (!allowed.has(data.status)) throw new Error("Unexpected sanitized provider status");
+            if ("apiKey" in data || "token" in data || "authorization" in data || "headers" in data) {
+              throw new Error("Provider status unexpectedly exposes sensitive fields");
+            }
+            console.log("Provider status category:", data.status);
+            if (Number.isInteger(data.providerStatus)) console.log("Provider HTTP status:", data.providerStatus);
+          '
+
+      - name: Report dependency readiness without leaking provider data
+        shell: bash
+        run: |
+          set -euo pipefail
+          http_code="$(curl --connect-timeout 10 --max-time 30 --silent --show-error --output readiness.json --write-out '%{http_code}' https://trc20-usdt-token-cloner-api.onrender.com/api/readiness)"
+          echo "Readiness HTTP status: $http_code"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('readiness.json', 'utf8'))
+          if (!['read-only-dependencies-healthy', 'dependency-check-failed'].includes(data.status)) {
+            throw new Error('Unexpected readiness status')
+          }
+          if (typeof data.success !== 'boolean' || !data.database || !data.providers?.tatum) {
+            throw new Error('Readiness response is missing required diagnostic fields')
+          }
+          const tatum = data.providers.tatum
+          if (typeof tatum.configured !== 'boolean' || typeof tatum.reachable !== 'boolean' || typeof tatum.status !== 'string') {
+            throw new Error('Readiness provider fields have unexpected shape')
+          }
+          const serialized = JSON.stringify(data)
+          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key\s*[:=]\s*["'][^"']+/i.test(serialized)) {
+            throw new Error('Readiness response may expose sensitive material')
+          }
+          console.log(JSON.stringify({
+            success: data.success,
+            status: data.status,
+            database: { configured: data.database.configured, ready: data.database.ready },
+            providers: {
+              tatum: { configured: tatum.configured, reachable: tatum.reachable, status: tatum.status, httpStatus: tatum.httpStatus ?? null },
+              tronGridApiKey: { configured: data.providers.tronGridApiKey?.configured ?? false },
+              frontendOrigin: { configured: data.providers.frontendOrigin?.configured ?? false }
+            }
+          }, null, 2))
+          if (http_code !== '200' && http_code !== '503') throw new Error('Unexpected readiness HTTP status')
+          if (http_code === '200' && data.success !== true) throw new Error('Readiness HTTP/body mismatch')
+          if (http_code === '503' && data.success !== false) throw new Error('Readiness HTTP/body mismatch')
+          NODE
+          rm -f readiness.json
