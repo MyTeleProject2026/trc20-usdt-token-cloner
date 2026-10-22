@@ -37,3 +37,10 @@ test('receiver history uses responsive cards and wraps long chain identifiers', 
   assert.match(history, /<article[^>]*rounded-lg border/)
   assert.match(history, /break-all text-xs font-mono/)
 })
+
+test('Copy Code copies the same Solidity source that the viewer renders', () => {
+  assert.ok(app.includes('const independentTokenSource = `// SPDX-License-Identifier: MIT'))
+  assert.ok(app.includes('copyToClipboard(independentTokenSource, \'contract_source\')'))
+  assert.ok(app.includes('{independentTokenSource}'))
+  assert.ok(!app.includes('copyToClipboard(\'contract_source\', \'contract_source\')'))
+})
