@@ -417,6 +417,67 @@ test('behavioral sponsor transition harness rolls back asset grants without exac
   assert.equal(state.commits, 0)
 })
 
+test('behavioral sponsor transition harness rejects unknown purposes before evidence or budget access', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'unsupported-purpose' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, { updated: false, reason: 'unsupported-sponsor-transfer-purpose' })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.ok(!state.queries.some((query) => query.includes('native_transfer_verifications')))
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
+test('behavioral sponsor transition harness rejects a conflicting transaction hash without reconciliation', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: 'b'.repeat(64),
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, { updated: false, reason: 'transaction-hash-conflict' })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.ok(!state.queries.some((query) => query.includes('native_transfer_verifications')))
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
+test('behavioral sponsor transition harness refuses caller-declared failure after submission', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const state = makeSponsorTransitionState({ purpose: 'asset-grant' })
+  const pool = makeSponsorTransitionPool(state)
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'failed',
+  }, pool, { initialize: false })
+
+  assert.deepEqual(result, {
+    updated: false,
+    reason: 'finalized-failure-evidence-and-fee-reconciliation-required',
+  })
+  assert.equal(state.transfer.status, 'submitted')
+  assert.equal(state.budget.reserved_base_units, '25')
+  assert.equal(state.budget.spent_base_units, '0')
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.commits, 0)
+  assert.ok(!state.queries.some((query) => query.includes('UPDATE sponsor_budgets')))
+})
+
 // These deterministic query doubles exercise transition outcomes without connecting to any live database or chain.
 function makeSponsorTransitionState({ purpose, evidenceMatches = true } = {}) {
   return {
