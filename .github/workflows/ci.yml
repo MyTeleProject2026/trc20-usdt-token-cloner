@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "fix/**"]
+    branches: [main, "fix/**", "test/**"]
   pull_request:
     branches: [main, "fix/**"]
   workflow_dispatch:
@@ -14,6 +14,23 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
+      SPONSOR_PG_INTEGRATION: "1"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sponsor_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sponsor_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -24,7 +41,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm install
-      - name: Run security and regression tests
+      - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
       - name: Build frontend and compile contract
         run: npm run build
