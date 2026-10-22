@@ -231,9 +231,10 @@ test('sponsor confirmation fails closed when spent plus transfer exceeds total b
 })
 
 
-// Model a transaction rollback when the audit write fails after the ledger updates.
-// This exercises application error handling with a query double, not PostgreSQL itself.
-test('sponsor confirmation rolls back ledger mutations when audit-event insertion fails', async () => {
+// The audit write fails after the ledger update statements. This query-double test
+// verifies that the application issues ROLLBACK and never COMMITs; it cannot prove
+// PostgreSQL restored persisted rows (that requires an integration test).
+test('sponsor confirmation requests rollback when audit-event insertion fails', async () => {
   const state = {
     transfer: {
       idempotency_key: 'sponsor-audit-failure-test-0001',
@@ -258,32 +259,21 @@ test('sponsor confirmation rolls back ledger mutations when audit-event insertio
     commits: 0,
     rollbacks: 0,
     released: false,
-    snapshot: null,
   }
 
   const pool = {
     async connect() {
       return {
         async query(sql, values = []) {
-          const normalized = sql.replace(/\s+/g, ' ').trim()
+          const normalized = sql.replace(/\\s+/g, ' ').trim()
           state.queries.push(normalized)
-          if (normalized === 'BEGIN') {
-            state.snapshot = {
-              transfer: { ...state.transfer },
-              budget: { ...state.budget },
-            }
-            return { rows: [] }
-          }
+          if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'COMMIT') {
             state.commits += 1
             return { rows: [] }
           }
           if (normalized === 'ROLLBACK') {
             state.rollbacks += 1
-            if (state.snapshot) {
-              Object.assign(state.transfer, state.snapshot.transfer)
-              Object.assign(state.budget, state.snapshot.budget)
-            }
             return { rows: [] }
           }
           if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
@@ -302,16 +292,9 @@ test('sponsor confirmation rolls back ledger mutations when audit-event insertio
             return { rows: [{ ...state.budget }] }
           }
           if (normalized.startsWith('UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units -')) {
-            const [amount] = values
-            state.budget.reserved_base_units = (BigInt(state.budget.reserved_base_units) - BigInt(amount)).toString()
-            state.budget.spent_base_units = (BigInt(state.budget.spent_base_units) + BigInt(amount)).toString()
             return { rows: [], rowCount: 1 }
           }
           if (normalized.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status =')) {
-            const [status, authorizationReference, hash] = values
-            state.transfer.status = status
-            if (authorizationReference) state.transfer.authorization_reference = authorizationReference
-            if (hash) state.transfer.transaction_hash = hash
             return { rows: [], rowCount: 1 }
           }
           if (normalized.startsWith('INSERT INTO trc20_token_clone.audit_events')) {
@@ -333,11 +316,10 @@ test('sponsor confirmation rolls back ledger mutations when audit-event insertio
     /simulated audit insert failure/,
   )
 
-  assert.equal(state.transfer.status, 'submitted')
-  assert.equal(state.budget.reserved_base_units, '25')
-  assert.equal(state.budget.spent_base_units, '0')
   assert.equal(state.commits, 0)
   assert.equal(state.rollbacks, 1)
   assert.equal(state.released, true)
+  assert.ok(state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units -')))
+  assert.ok(state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status =')))
   assert.ok(state.queries.some((query) => query.startsWith('INSERT INTO trc20_token_clone.audit_events')))
 })
