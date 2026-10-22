@@ -19,6 +19,7 @@ Fee funding does not provide the transfer principal. An accounting entry, sponso
 - Never silently downgrade to an ordinary sender-funded transfer.
 - If the sponsor is unavailable, paused, depleted, unauthorized, or cannot cover the whole authorized amount and fee, reject the request before broadcast.
 - Never treat testnet assets as mainnet value.
+- Treat VTRC as an independent project token with a separately verified, network-specific contract allowlist; never label it as official USDT.
 - Require network-specific token-contract allowlists; VTRC must be labeled as an independent project token, not official USDT.
 - Use atomic PostgreSQL reservations and idempotency to prevent duplicate or over-budget sponsor operations.
 - Keep sponsor credentials server-side in an approved secret store. Never place keys, seed phrases, or private keys in Git, UI payloads, logs, or chat.
@@ -43,3 +44,8 @@ All gates are mandatory; none may be inferred from an environment variable alone
 The sponsorship status is intentionally `enabled: false`, `mainnetEnabled: false`, and `canSubmitSponsoredTransfer: false`. The external-sponsor-only policy is exposed to clients, with `externalSponsorConfirmed: false`, `sponsorFundingVerified: false`, `paidProviderPurchasesAllowed: false`, and `unpaidFallbackToUserFunds: false`.
 
 The next external dependency is a real sponsor that voluntarily funds the service. The code cannot create sponsor money, enroll a third party without authorization, or guarantee free transactions in the absence of such funding. Until the gates above are met, no sponsored transaction may be broadcast.
+
+
+## VTRC implementation boundary
+
+The pure sponsor-intent validator and sponsor ledger schema accept VTRC as a distinct asset only when a network-specific token contract is explicitly allowlisted. This is policy/schema groundwork, not a transfer adapter: no VTRC sponsor transfer is authorized, signed, broadcast, or available in production. The actual VTRC contract must be independently verified for each network before any allowlist entry is configured. No placeholder contract or token symbol is evidence of a deployed token.
