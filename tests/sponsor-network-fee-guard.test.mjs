@@ -40,7 +40,7 @@ test('network-fee confirmation rejects before evidence and budget queries', asyn
           if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
             return { rows: [{ ...transfer }] }
           }
-          throw new Error(\`Unexpected query before network-fee guard: \${normalized}\`)
+          throw new Error('Unexpected query before network-fee guard: ' + normalized)
         },
         release() { released = true },
       }
