@@ -158,7 +158,10 @@ router.get('/sponsorship/roles/reconciliation', async (req, res) => {
   }
 
   try {
-    const roleResult = await readSponsorRoleFunding(network, { refresh: true })
+    // Reuse a very recent successful snapshot instead of forcing a second read
+    // milliseconds after the public diagnostics panel just read it. The pure
+    // reconciler independently rejects cached snapshots older than 10 seconds.
+    const roleResult = await readSponsorRoleFunding(network, { refresh: false })
     if (roleResult?.success !== true || !roleResult.fundingSnapshots) {
       return res.status(503).json({
         success: false, error: 'sponsor-role-status-unavailable',
@@ -189,7 +192,8 @@ router.get('/sponsorship/roles/reconciliation', async (req, res) => {
       { role: 'asset-principal-sponsor', snapshot: roleResult.fundingSnapshots.assetPrincipalSponsor },
     ]
     const roles = await Promise.all(scopes.map(async ({ role, snapshot }) => {
-      if (snapshot?.onChainBalanceRead !== true || snapshot?.cache?.status !== 'fresh'
+      if (snapshot?.onChainBalanceRead !== true
+        || !['fresh', 'cached'].includes(snapshot?.cache?.status)
         || snapshot.network !== network || typeof snapshot.sponsorAddress !== 'string') {
         return {
           role,
