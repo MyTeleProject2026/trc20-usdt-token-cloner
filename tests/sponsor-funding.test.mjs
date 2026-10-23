@@ -260,8 +260,10 @@ test('sponsor budget draft and listing routes require the server-only admin toke
   )
   const draftLayer = findRoute('/sponsorship/budgets', 'post')
   const listLayer = findRoute('/sponsorship/budgets', 'get')
+  const pauseLayer = findRoute('/sponsorship/budgets/:id/pause', 'post')
   assert.ok(draftLayer, 'POST /sponsorship/budgets must be registered')
   assert.ok(listLayer, 'GET /sponsorship/budgets must be registered')
+  assert.ok(pauseLayer, 'POST /sponsorship/budgets/:id/pause must be registered')
 
   const saved = {
     token: process.env.SPONSOR_ADMIN_API_TOKEN,
@@ -321,6 +323,32 @@ test('sponsor budget draft and listing routes require the server-only admin toke
     assert.equal(noAddress.statusCode, 503)
     assert.equal(noAddress.responseBody.error, 'sponsor-address-not-configured')
     assert.equal(noAddress.responseBody.canReserve, undefined)
+
+    delete process.env.SPONSOR_NILE_ADDRESS
+    const pauseMissingToken = response()
+    await pauseLayer.route.stack[0].handle({
+      headers: {}, params: { id: '1' }, body: { reasonCode: 'emergency-stop' },
+    }, pauseMissingToken)
+    assert.equal(pauseMissingToken.statusCode, 401)
+    assert.equal(pauseMissingToken.responseBody.error, 'unauthorized')
+    assert.equal(pauseMissingToken.responseHeaders['cache-control'], 'no-store')
+    assert.equal(pauseMissingToken.responseHeaders.vary, 'Authorization')
+
+    const invalidPauseId = response()
+    await pauseLayer.route.stack[0].handle({
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+      params: { id: '0' }, body: { reasonCode: 'emergency-stop' },
+    }, invalidPauseId)
+    assert.equal(invalidPauseId.statusCode, 400)
+    assert.equal(invalidPauseId.responseBody.error, 'invalid-budget-id')
+
+    const invalidPauseReason = response()
+    await pauseLayer.route.stack[0].handle({
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+      params: { id: '1' }, body: { reasonCode: 'pay-anything' },
+    }, invalidPauseReason)
+    assert.equal(invalidPauseReason.statusCode, 400)
+    assert.equal(invalidPauseReason.responseBody.error, 'invalid-pause-reason')
   } finally {
     if (saved.token === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
     else process.env.SPONSOR_ADMIN_API_TOKEN = saved.token
