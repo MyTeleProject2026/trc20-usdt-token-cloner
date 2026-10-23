@@ -7,7 +7,7 @@ type DelegationRecord = { transactionId: string; owner: string; receiver: string
 type Verification = { status: 'verified' | 'pending' | 'failed'; message: string; blockNumber?: number; delegatedBaseUnits?: string; persistence?: { persisted: boolean; duplicate?: boolean; reason?: string } }
 
 const SHASTA_RPC = 'https://api.shasta.trongrid.io'
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const MIN_DELEGATION_SUN = 1_000_000n
 
 function parseTrxToSun(value: string): bigint {
