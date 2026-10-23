@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url'
 
+const DEFAULT_API_BASE_URL = 'https://trc20-usdt-token-cloner-api.onrender.com'
 const API_BASE_URL = (process.env.PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
-const API_BASE_URL = (process.env.PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\\/+$/, '')
 const TIMEOUT_MS = 20_000
 
 function isRecord(value) {
