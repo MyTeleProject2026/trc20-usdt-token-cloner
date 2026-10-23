@@ -158,3 +158,38 @@ test('sponsorship funding HTTP route is read-only and reports missing sponsor ad
     else process.env.TATUM_API_KEY = savedKey
   }
 })
+
+
+test('sponsor funding reader pins Mainnet USDT snapshots to the official Tether TRON contract', async () => {
+  const requests = []
+  const reader = createSponsorFundingReader({
+    env: {
+      TATUM_API_KEY: 'server-test-key',
+      SPONSOR_MAINNET_ADDRESS: sponsorAddress,
+      // Even a user-supplied different contract must not redefine official Mainnet USDT.
+      SPONSOR_USDT_MAINNET_CONTRACTS: tokenAddress,
+    },
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options })
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        return { ok: true, json: async () => ({ address: '41' + hex, balance: 0 }) }
+      }
+      const body = JSON.parse(options.body)
+      const isDecimals = body.function_selector === 'decimals()'
+      return { ok: true, json: async () => ({
+        result: { result: true },
+        constant_result: [(isDecimals ? 6n : 0n).toString(16).padStart(64, '0')],
+      }) }
+    },
+  })
+  const result = await reader('mainnet')
+  assert.equal(result.status, 'solidified-sponsor-balances-read')
+  assert.equal(result.tokens.length, 1)
+  assert.equal(result.tokens[0].asset, 'USDT')
+  assert.equal(result.tokens[0].tokenContract, 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t')
+  const tokenRead = requests.find(({ url }) => url.endsWith('/walletsolidity/triggerconstantcontract'))
+  assert.ok(tokenRead)
+  assert.equal(JSON.parse(tokenRead.options.body).contract_address.toLowerCase().startsWith('41'), true)
+  assert.notEqual(result.tokens[0].tokenContract, tokenAddress)
+})
