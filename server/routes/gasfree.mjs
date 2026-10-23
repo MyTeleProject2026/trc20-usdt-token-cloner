@@ -1,11 +1,22 @@
 import { Router } from 'express'
 import { createGasFreeClient } from '../gasfree-client.mjs'
+import { createGasFreeChainVerifier } from '../gasfree-chain-verifier.mjs'
+import { recordTransferVerification } from '../database.mjs'
 
 const ALLOWED_NETWORKS = ['mainnet', 'nile']
 const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
-export function createGasFreeRouter(client = createGasFreeClient()) {
+export function createGasFreeRouter(client = createGasFreeClient(), {
+  verifyOnChain = createGasFreeChainVerifier(),
+  persistVerifiedTrace = async (input) => {
+    try {
+      return await recordTransferVerification(input)
+    } catch {
+      return { persisted: false, reason: 'persistence-failed' }
+    }
+  },
+} = {}) {
   const router = Router()
   const capabilityCache = new Map()
   const detailCache = new Map()
@@ -251,8 +262,60 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
         setCached(detailCache, key, { body, httpStatus: 502 }, 3_000)
         return res.status(502).json(body)
       }
+      // The provider trace is only a transaction locator. Verify any reported
+      // transaction hash against the selected network's solidified transaction
+      // body and receipt before marking it verified or persisting it.
+      const sourceTrace = result.trace && typeof result.trace === 'object' ? result.trace : null
+      let chainVerification = {
+        verified: false,
+        status: 'not-attempted',
+        reason: 'provider-trace-missing',
+      }
+      if (sourceTrace) {
+        try {
+          chainVerification = await verifyOnChain({ network, trace: sourceTrace })
+        } catch {
+          chainVerification = {
+            verified: false,
+            status: 'verification-unavailable',
+            reason: 'solidified-chain-verification-failed',
+          }
+        }
+      }
+
+      let verificationPersistence = { persisted: false, reason: 'transfer-not-verified' }
+      if (chainVerification?.verified === true) {
+        try {
+          const saved = await persistVerifiedTrace({
+            network,
+            transactionHash: chainVerification.txId || sourceTrace?.transactionId,
+            tokenContract: chainVerification.tokenContractAddress,
+            fromAddress: chainVerification.fromAddress,
+            toAddress: chainVerification.toAddress,
+            amountBaseUnits: chainVerification.amountSun,
+            status: 'verified-on-chain',
+            logIndex: chainVerification.logIndex,
+            result: chainVerification,
+          })
+          verificationPersistence = saved?.persisted === true
+            ? { persisted: true }
+            : { persisted: false, reason: saved?.reason || 'persistence-unavailable' }
+        } catch {
+          verificationPersistence = { persisted: false, reason: 'persistence-failed' }
+        }
+      }
+
+      const verifiedTrace = sourceTrace
+        ? {
+            ...sourceTrace,
+            verifiedOnChain: chainVerification?.verified === true,
+            chainVerification,
+            verificationPersistence,
+          }
+        : null
       const body = {
         ...result,
+        ...(verifiedTrace ? { trace: verifiedTrace } : { chainVerification }),
         success: true,
         status: 'provider-trace-read',
         checkedAt: new Date().toISOString(),
