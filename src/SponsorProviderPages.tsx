@@ -123,7 +123,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       .catch(() => { if (active) setFunding({ status: 'balance-check-unavailable', onChainBalanceRead: false }) })
       .finally(() => { if (active) setFundingLoading(false) })
     return () => { active = false }
-  }, [network])
+  }, [network, walletAddress])
 
   const liveSubmissionEnabled = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer && (network !== 'mainnet' || status?.mainnetEnabled))
   const refreshStatus = async () => {
