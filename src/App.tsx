@@ -139,11 +139,17 @@ export default function App() {
     }
     const onAccountsChanged = () => invalidateWalletSession('account changed')
     const onChainChanged = () => invalidateWalletSession('network changed')
+    const onDisconnected = () => invalidateWalletSession('disconnected')
+    const onLocked = () => invalidateWalletSession('locked')
     provider.on('accountsChanged', onAccountsChanged)
     provider.on('chainChanged', onChainChanged)
+    provider.on('disconnect', onDisconnected)
+    provider.on('lock', onLocked)
     return () => {
       provider.removeListener?.('accountsChanged', onAccountsChanged)
       provider.removeListener?.('chainChanged', onChainChanged)
+      provider.removeListener?.('disconnect', onDisconnected)
+      provider.removeListener?.('lock', onLocked)
     }
   }, [network])
 
@@ -197,9 +203,15 @@ export default function App() {
     if (!provider) throw new Error('TronLink was not detected. Open this site in a browser with TronLink installed.')
     if (provider.isTronLink !== true) throw new Error('The injected wallet provider could not be confirmed as TronLink. No transfer will be signed by an unverified provider.')
     if (typeof provider.request !== 'function') throw new Error('This TronLink provider does not support the standard wallet connection request.')
-    await provider.request({ method: 'eth_requestAccounts' })
+    const authorizedAccounts = await provider.request({ method: 'eth_requestAccounts' })
+    if (!Array.isArray(authorizedAccounts) || typeof authorizedAccounts[0] !== 'string' || !authorizedAccounts[0]) {
+      throw new Error('TronLink authorization did not return a valid account list. No wallet action can continue.')
+    }
     const tronWeb = provider.tronWeb
     if (!tronWeb || !tronWeb.defaultAddress?.base58) throw new Error('TronLink did not provide an authorized account. Unlock the wallet and approve connection.')
+    if (authorizedAccounts[0] !== tronWeb.defaultAddress.base58 || !tronWeb.isAddress(authorizedAccounts[0])) {
+      throw new Error('TronLink authorization response does not match its active account. Reconnect before continuing.')
+    }
     return tronWeb
   }
 
@@ -214,6 +226,16 @@ export default function App() {
       setActionMessage({ type: 'success', text: `TronLink connected: ${address}. Review every transaction in the wallet before approving.` })
     } catch (err: any) {
       setWalletConnected(false)
+      setWalletAddress('')
+      setAccountData(null)
+      setNativeBalanceResult(null)
+      setTokenBalanceResult(null)
+      setNativeTransferRecord(null)
+      setTokenTransferRecord(null)
+      setNativeVerifyResult(null)
+      setTokenVerifyResult(null)
+      setVerifiedTransferLookup(null)
+      setTransactionHistory([])
       setActionMessage({ type: 'error', text: err?.message || 'Could not connect to TronLink.' })
     }
   }
