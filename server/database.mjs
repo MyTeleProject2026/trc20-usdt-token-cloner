@@ -548,7 +548,7 @@ export async function reserveSponsorTransfer(input) {
   const network = normalizeVerificationNetwork(input?.network)
   const { idempotencyKey, sponsorReference, purpose, asset, tokenContract = null, receiverAddress, amountBaseUnits } = input || {}
   if (!network || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
-    || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
+    || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorReference)
     || !['network-fee', 'asset-grant'].includes(purpose)
     || !['TRX', 'USDT', 'VTRC'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
@@ -1302,7 +1302,7 @@ export async function listSponsorBudgets({ network = null, limit = 50 } = {}) {
               reserved_base_units::text AS reserved_base_units,
               spent_base_units::text AS spent_base_units,
               (budget_base_units - reserved_base_units - spent_base_units)::text AS ledger_available_base_units,
-              status, created_at, updated_at
+              status, approval_reference, review_reference, approved_at, created_at, updated_at
          FROM ${schema}.sponsor_budgets
         WHERE ($1::text IS NULL OR network = $1)
         ORDER BY updated_at DESC, id DESC
