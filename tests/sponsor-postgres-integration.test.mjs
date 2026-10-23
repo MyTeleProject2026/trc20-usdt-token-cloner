@@ -27,7 +27,7 @@ const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
-async function setup() {
+async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = {}) {
   const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
@@ -38,28 +38,31 @@ async function setup() {
   // Integration tests exercise PostgreSQL lifecycle behavior with a deterministic
   // test-only on-chain snapshot. Production defaults still require live provider
   // reads and never accept this test fixture outside this test process.
+  const fundingSnapshotReader = injectedFundingSnapshotReader || (async (requestedNetwork, asset = 'TRX', tokenContract = null, address = sponsorAddress) => ({
+    status: 'solidified-sponsor-balances-read',
+    onChainBalanceRead: true,
+    network: requestedNetwork,
+    source: 'Tatum TRON SolidityNode account and constant-contract queries',
+    sponsorAddress: address,
+    checkedAt: new Date().toISOString(),
+    cache: { status: 'fresh', ageMs: 0 },
+    native: {
+      status: 'verified', asset: 'TRX',
+      balanceSun: '999999999999999999999999999999999999',
+      balanceTRX: '999999999999999999999999999999.999999',
+    },
+    tokens: asset === 'TRX' ? [] : [{
+      asset: asset === 'USDT' && requestedNetwork !== 'mainnet' ? 'USDT (testnet)' : asset,
+      tokenContract,
+      status: 'verified',
+      balanceBaseUnits: '999999999999999999999999999999999999',
+      decimals: asset === 'USDT' && requestedNetwork === 'mainnet' ? 6 : 18,
+    }],
+  }))
   const reserveSponsorTransfer = (input) => reserveSponsorTransferWithFundingGate(input, {
-    fundingSnapshotReader: async (requestedNetwork) => ({
-      status: 'solidified-sponsor-balances-read',
-      onChainBalanceRead: true,
-      network: requestedNetwork,
-      source: 'Tatum TRON SolidityNode account and constant-contract queries',
-      sponsorAddress,
-      checkedAt: new Date().toISOString(),
-      cache: { status: 'fresh', ageMs: 0 },
-      native: {
-        status: 'verified', asset: 'TRX',
-        balanceSun: '999999999999999999999999999999999999',
-        balanceTRX: '999999999999999999999999999999.999999',
-      },
-      tokens: input.asset === 'TRX' ? [] : [{
-        asset: input.asset === 'USDT' && requestedNetwork !== 'mainnet' ? 'USDT (testnet)' : input.asset,
-        tokenContract: input.tokenContract,
-        status: 'verified',
-        balanceBaseUnits: '999999999999999999999999999999999999',
-        decimals: input.asset === 'USDT' && requestedNetwork === 'mainnet' ? 6 : 18,
-      }],
-    }),
+    fundingSnapshotReader: async (requestedNetwork) => fundingSnapshotReader(
+      requestedNetwork, input.asset, input.tokenContract,
+    ),
   })
   return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
 }
