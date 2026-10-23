@@ -182,9 +182,9 @@ export default function App() {
   const getInjectedTronWeb = async () => {
     const provider = (window as any).tron
     if (!provider) throw new Error('TronLink was not detected. Open this site in a browser with TronLink installed.')
-    if (typeof provider.request === 'function') {
-      await provider.request({ method: 'eth_requestAccounts' })
-    }
+    if (provider.isTronLink !== true) throw new Error('The injected wallet provider could not be confirmed as TronLink. No transfer will be signed by an unverified provider.')
+    if (typeof provider.request !== 'function') throw new Error('This TronLink provider does not support the standard wallet connection request.')
+    await provider.request({ method: 'eth_requestAccounts' })
     const tronWeb = provider.tronWeb
     if (!tronWeb || !tronWeb.defaultAddress?.base58) throw new Error('TronLink did not provide an authorized account. Unlock the wallet and approve connection.')
     return tronWeb
