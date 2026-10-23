@@ -45,6 +45,8 @@ export function createSponsorFundingReader({
 } = {}) {
   const cache = new Map()
   const inFlight = new Map()
+  const forcedRefreshAt = new Map()
+  const cacheTtlMs = 10_000
   async function readFreshSponsorFundingStatus(network) {
     const config = typeof network === 'string' && Object.hasOwn(NETWORKS, network)
       ? NETWORKS[network] : null
@@ -158,6 +160,7 @@ export function createSponsorFundingReader({
       }
 
       const tokenResults = await Promise.all(tokenConfig.tokens.map(async ({ asset, contract }) => {
+        const displayAsset = asset === 'USDT' && network !== 'mainnet' ? 'USDT (testnet)' : asset
         try {
           if (!tronWeb.isAddress(contract)) return { asset, tokenContract: contract, status: 'invalid-token-contract' }
           const contractHex = tronWeb.address.toHex(contract).replace(/^41/i, '')
@@ -196,14 +199,14 @@ export function createSponsorFundingReader({
             throw new Error('official-mainnet-usdt-decimals-mismatch')
           }
           return {
-            asset: asset === 'USDT' && network !== 'mainnet' ? 'USDT (testnet)' : asset,
+            asset: displayAsset,
             tokenContract: contract,
             status: 'verified',
             balanceBaseUnits: BigInt('0x' + balanceHex).toString(),
             decimals,
           }
         } catch {
-          return { asset, tokenContract: contract, status: 'unavailable' }
+          return { asset: displayAsset, tokenContract: contract, status: 'unavailable' }
         }
       }))
 
@@ -254,18 +257,25 @@ export function createSponsorFundingReader({
   // Short-lived per-network snapshots avoid multiplying provider calls on page
   // refreshes. Requests in flight for the same network share the same promise.
   // Only successful solidified account reads are cached; errors remain retryable.
-  return async function readSponsorFundingStatus(network) {
+  return async function readSponsorFundingStatus(network, { refresh = false } = {}) {
     if (typeof network !== 'string' || !Object.hasOwn(NETWORKS, network)) {
       return readFreshSponsorFundingStatus(network)
     }
     const now = Date.now()
     const cached = cache.get(network)
-    if (cached && cached.expiresAt > now) {
+    const lastForcedAt = forcedRefreshAt.get(network) || 0
+    const forceRefreshThrottled = refresh && lastForcedAt > 0 && now - lastForcedAt < cacheTtlMs
+    if (cached && cached.expiresAt > now && (!refresh || forceRefreshThrottled)) {
       return {
         ...cached.result,
-        cache: { status: 'cached', ageMs: Math.max(0, now - cached.checkedAt) },
+        cache: {
+          status: forceRefreshThrottled ? 'refresh-throttled' : 'cached',
+          ageMs: Math.max(0, now - cached.checkedAt),
+          ...(forceRefreshThrottled ? { refreshThrottled: true } : {}),
+        },
       }
     }
+    if (refresh) forcedRefreshAt.set(network, now)
 
     let pending = inFlight.get(network)
     if (!pending) {
@@ -276,7 +286,7 @@ export function createSponsorFundingReader({
       const result = await pending
       if (result?.onChainBalanceRead === true) {
         const checkedAt = Date.now()
-        cache.set(network, { result, checkedAt, expiresAt: checkedAt + 10_000 })
+        cache.set(network, { result, checkedAt, expiresAt: checkedAt + cacheTtlMs })
       }
       return { ...result, cache: { status: 'fresh', ageMs: 0 } }
     } finally {
