@@ -2,6 +2,7 @@ import { recordNativeTransferVerification, recordSponsorResourceDelegation, list
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
+import { createSponsorRoleFundingReader } from '../sponsor-roles.mjs'
 import { createSponsorResourceReader } from '../sponsor-resources.mjs'
 import { createSponsorResourceDelegationVerifier } from '../sponsor-resource-delegation-verifier.mjs'
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
@@ -103,6 +104,35 @@ router.get('/sponsorship/funding-status', async (req, res) => {
       success: false,
       error: 'sponsor-balance-read-failed',
       message: 'Could not read the sponsor balance from the selected network.',
+    })
+  }
+})
+
+// Read-only status for independent fee and asset-principal sponsor accounts.
+const readSponsorRoleFunding = createSponsorRoleFundingReader()
+router.get('/sponsorship/roles', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const network = req.query?.network
+  const refreshValue = req.query?.refresh
+  if (refreshValue !== undefined && refreshValue !== '0' && refreshValue !== '1') {
+    return res.status(400).json({ success: false, error: 'invalid-refresh', message: 'refresh must be 0 or 1.' })
+  }
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  try {
+    // A 200 response means diagnostics were returned, not that either sponsor is enabled.
+    const result = await readSponsorRoleFunding(network, { refresh: refreshValue === '1' })
+    return res.status(result.success === true ? 200 : 503).json(result)
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-role-status-unavailable',
+      roles: {},
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      message: 'Could not read both sponsor roles. No transfer was authorized or submitted.',
     })
   }
 })

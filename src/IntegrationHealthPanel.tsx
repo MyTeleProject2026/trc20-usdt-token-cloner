@@ -39,8 +39,7 @@ const initialItems: Item[] = [
   { title: 'Backend health', tone: 'checking', value: 'Checking…', detail: 'Reading /health' },
   { title: 'Database & provider readiness', tone: 'checking', value: 'Checking…', detail: 'Reading /api/readiness' },
   { title: 'Sponsorship authorization', tone: 'checking', value: 'Checking…', detail: 'Reading backend-enforced sponsorship policy' },
-  { title: 'Sponsor chain balances', tone: 'checking', value: 'Checking…', detail: 'Reading verified balances for the selected network' },
-  { title: 'Sponsor resource capacity', tone: 'checking', value: 'Checking…', detail: 'Reading solidified chain resource data' },
+  { title: 'Independent sponsor accounts', tone: 'checking', value: 'Checking…', detail: 'Reading fee sponsor and asset sponsor separately' },
   { title: 'GasFree integration', tone: 'checking', value: 'Checking…', detail: 'Checking configured networks without exposing credentials' },
 ]
 
@@ -59,14 +58,13 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
         readJson('/health'),
         readJson('/api/readiness'),
         readJson('/api/tron/sponsorship/status'),
-        readJson(`/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}&refresh=1`),
-        readJson(`/api/tron/sponsorship/resource-status?network=${encodeURIComponent(network)}&refresh=1`),
+        readJson(`/api/tron/sponsorship/roles?network=${encodeURIComponent(network)}&refresh=1`),
         readJson('/api/gasfree/config-status'),
         network === 'mainnet' ? readJson('/api/gasfree/capabilities?network=mainnet') : Promise.resolve(null),
       ])
 
       if (!active) return
-      const [health, readiness, sponsorship, funding, resources, gasFreeConfig, gasFreeCapabilities] = results
+      const [health, readiness, sponsorship, sponsorRoles, gasFreeConfig, gasFreeCapabilities] = results
 
       const nextItems: Item[] = [
         statusItem('Backend health', health, ({ httpStatus, payload }) => {
@@ -103,40 +101,28 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
             value: enabled ? 'Backend reports enabled' : 'Disabled — fail-closed',
             detail: enabled
               ? `Backend reports a sponsorship capability for ${status.network || 'the configured network'}; transaction-specific funding and limits must still be checked.`
-              : 'No verified sponsor authorization is active. This panel cannot activate it; no sponsor submission or user-funded fallback is available.',
+              : 'No verified sponsor authorization is active. No sponsored submission or user-funded fallback is enabled.',
           }
         }),
-        statusItem('Sponsor chain balances', funding, ({ httpStatus, payload }) => {
-          const snapshot = payload.funding
-          if (!snapshot || typeof snapshot.onChainBalanceRead !== 'boolean') {
-            return { title: 'Sponsor chain balances', tone: 'error', value: 'Unexpected response', detail: `Funding endpoint returned an unexpected response (HTTP ${httpStatus}).` }
+        statusItem('Independent sponsor accounts', sponsorRoles, ({ httpStatus, payload }) => {
+          const fee = payload.roles?.networkFeeSponsor
+          const asset = payload.roles?.assetPrincipalSponsor
+          if (httpStatus !== 200 || payload.success !== true || !fee || !asset) {
+            return { title: 'Independent sponsor accounts', tone: 'error', value: 'Status unavailable', detail: `Separate sponsor status returned HTTP ${httpStatus} or an incomplete response.` }
           }
-          const verified = httpStatus === 200 && payload.success === true && snapshot.onChainBalanceRead === true
-          const nativeBalance = snapshot.native?.status === 'verified' && typeof snapshot.native.balanceTRX === 'string'
-            ? `${snapshot.native.balanceTRX} TRX`
-            : 'not verified'
-          const verifiedTokenCount = Array.isArray(snapshot.tokens) ? snapshot.tokens.filter((token: any) => token?.status === 'verified').length : 0
+          const bothConfigured = fee.addressConfigured === true && asset.addressConfigured === true
+          const distinct = payload.configuredAddressesDistinct === true
+          const feeNative = fee.native?.status === 'verified' ? `${fee.native.balanceTRX} TRX` : 'not verified'
+          const assetNative = asset.native?.status === 'verified' ? `${asset.native.balanceTRX} TRX` : 'not verified'
+          const tokenNames = Array.isArray(asset.tokens)
+            ? asset.tokens.filter((token: any) => token?.status === 'verified').map((token: any) => token.asset).join(', ')
+            : ''
+          const feeResourceStatus = fee.resourceStatus?.resourceRead === true ? 'resource snapshot verified' : 'resource snapshot not verified'
           return {
-            title: 'Sponsor chain balances',
-            tone: verified ? 'healthy' : 'warning',
-            value: verified ? 'Solidified-chain read verified' : (snapshot.status || 'Balance read incomplete'),
-            detail: verified
-              ? `Network: ${network}. Native TRX: ${nativeBalance}. Token balances verified: ${verifiedTokenCount}. Chain balances are not an approved budget, grant, or receiver credit.`
-              : `Network: ${network}. ${snapshot.status || payload.error || 'No complete balance snapshot was verified'}. Do not treat missing/unavailable data as zero, and do not display this as receiver balance.`,
-          }
-        }),
-        statusItem('Sponsor resource capacity', resources, ({ httpStatus, payload }) => {
-          const snapshot = payload.resources
-          const verified = httpStatus === 200 && payload.success === true && snapshot?.success === true && snapshot.resourceRead === true
-          const energy = snapshot?.resources?.currentlyAvailableEnergy
-          const bandwidth = snapshot?.resources?.currentlyAvailableBandwidth
-          return {
-            title: 'Sponsor resource capacity',
-            tone: verified ? 'healthy' : 'warning',
-            value: verified ? 'Solidified resource read verified' : (snapshot?.status || payload.error || 'Resource read incomplete'),
-            detail: verified
-              ? `Network: ${network}. Available Energy: ${energy ?? 'unknown'} · Bandwidth: ${bandwidth ?? 'unknown'}. Capacity is a snapshot, not proof a transaction will be fully covered.`
-              : `Network: ${network}. Sponsor resource state is not verified. No delegation or transfer was made; no user-funded fallback is permitted.`,
+            title: 'Independent sponsor accounts',
+            tone: 'warning',
+            value: !bothConfigured ? 'Sponsor account addresses missing' : distinct ? 'Two distinct addresses configured' : 'Address separation failed',
+            detail: `Fee sponsor: address ${fee.addressConfigured ? 'configured' : 'missing'}, TRX balance ${feeNative}, ${feeResourceStatus}. Asset sponsor: address ${asset.addressConfigured ? 'configured' : 'missing'}, TRX balance ${assetNative}, token balances verified: ${tokenNames || 'none'} . Distinct public addresses: ${distinct ? 'yes' : 'no'}. Funding agreements, signer authorization, and permission to send remain unverified; submission remains disabled.`,
           }
         }),
         statusItem('GasFree integration', gasFreeConfig, ({ httpStatus, payload }) => {
@@ -161,9 +147,9 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
           const credentialsPresent = networks.mainnet.configured === true
           return {
             title: 'GasFree integration',
-            tone: providerReachable ? 'healthy' : 'warning',
+            tone: 'warning',
             value: providerReachable ? 'Read-only provider API reachable' : credentialsPresent ? 'Provider reachability not verified' : 'Mainnet credentials missing',
-            detail: `Mainnet credentials: ${credentialsPresent ? 'present' : 'missing'}. API reachability: ${providerReachable ? 'verified' : 'not verified'}${capability?.reason ? ` (${String(capability.reason)})` : ''}. Funding, provider authorization, and sponsored submission remain separate and are not enabled by this check.`,
+            detail: `Mainnet credentials: ${credentialsPresent ? 'present' : 'missing'}. API reachability: ${providerReachable ? 'verified' : 'not verified'}${capability?.reason ? ` (${String(capability.reason)})` : ''}. Sponsor funding, consent, and transaction authorization are separate. Sponsored submission is not enabled by this check.`,
           }
         }),
       ]
@@ -179,8 +165,7 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
         errorItem('Backend health', new Error('Diagnostics request failed.')),
         errorItem('Database & provider readiness', new Error('Diagnostics request failed.')),
         errorItem('Sponsorship authorization', new Error('Diagnostics request failed.')),
-        errorItem('Sponsor chain balances', new Error('Diagnostics request failed.')),
-        errorItem('Sponsor resource capacity', new Error('Diagnostics request failed.')),
+        errorItem('Independent sponsor accounts', new Error('Diagnostics request failed.')),
         errorItem('GasFree integration', new Error('Diagnostics request failed.')),
       ])
       setCheckedAt(Date.now())
@@ -205,7 +190,7 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
             <Activity className="size-5 text-fg-brand-primary" aria-hidden="true" />
             <h2 id="integration-health-heading" className="text-sm font-semibold text-primary">Live integration diagnostics</h2>
           </div>
-          <p className="mt-xs text-xs text-tertiary">Live read-only checks for the selected {network === 'mainnet' ? 'TRON Mainnet' : 'Shasta testnet'} network, including actual sponsor chain balance and resource reads. None of these checks signs or submits a transfer.</p>
+          <p className="mt-xs text-xs text-tertiary">Live read-only checks for the selected {network === 'mainnet' ? 'TRON Mainnet' : 'Shasta testnet'} network. Fee sponsor and asset-principal sponsor addresses are queried separately; no check signs, delegates, or submits a transfer.</p>
         </div>
         <button type="button" onClick={() => { setLoading(true); setRefreshNonce((value) => value + 1) }} disabled={loading} className="inline-flex items-center gap-xs rounded-lg border border-primary px-md py-sm text-xs font-semibold text-brand-primary disabled:opacity-50">
           <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
