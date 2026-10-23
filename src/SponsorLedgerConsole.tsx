@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, ClipboardList, RefreshCw, ShieldAlert } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -86,6 +86,15 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [checkedAt, setCheckedAt] = useState<number | null>(null)
+
+  useEffect(() => {
+    setLedgerNetwork(network)
+    setBudgets(null)
+    setTransfers(null)
+    setTruncated(false)
+    setError('')
+    setNotice('')
+  }, [network])
 
   const loadLedger = async () => {
     const token = adminToken.trim()

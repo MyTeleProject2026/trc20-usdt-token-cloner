@@ -11,6 +11,7 @@ test('protected sponsor ledger console loads real budget and lifecycle endpoints
   assert.ok(component.includes('Authorization: `Bearer ${token}`'))
   assert.ok(component.includes("credentials: 'omit'"))
   assert.ok(component.includes("cache: 'no-store'"))
+  assert.ok(component.includes('setLedgerNetwork(network)'))
   assert.ok(page.includes("import SponsorLedgerConsole from './SponsorLedgerConsole'"))
   assert.ok(page.includes('<SponsorLedgerConsole network={network} />'))
 })
