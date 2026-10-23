@@ -1,0 +1,241 @@
+const NETWORKS = Object.freeze({
+  mainnet: { host: 'https://tron-mainnet.gateway.tatum.io', addressEnv: 'SPONSOR_MAINNET_ADDRESS' },
+  shasta: { host: 'https://tron-shasta.gateway.tatum.io', addressEnv: 'SPONSOR_SHASTA_ADDRESS' },
+  nile: { host: 'https://tron-nile.gateway.tatum.io', addressEnv: 'SPONSOR_NILE_ADDRESS' },
+})
+
+const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const TOKEN_ASSETS = Object.freeze(['USDT', 'VTRC'])
+
+function formatSun(value) {
+  const sun = BigInt(value)
+  const whole = sun / 1_000_000n
+  const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
+}
+
+function readTokenAllowlist(env, network) {
+  const tokens = []
+  for (const asset of TOKEN_ASSETS) {
+    // Mainnet USDT has one well-known official Tether contract. Never let a
+    // configurable symbol map a different contract to official USDT.
+    const contracts = asset === 'USDT' && network === 'mainnet'
+      ? [OFFICIAL_MAINNET_USDT]
+      : String(env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+        .split(',').map((value) => value.trim()).filter(Boolean)
+    for (const contract of [...new Set(contracts)]) {
+      if (!ADDRESS_PATTERN.test(contract)) {
+        return { valid: false, reason: 'invalid-token-contract-allowlist' }
+      }
+      tokens.push({ asset, contract })
+      if (tokens.length > 10) return { valid: false, reason: 'token-contract-allowlist-too-large' }
+    }
+  }
+  return { valid: true, tokens }
+}
+
+export function createSponsorFundingReader({
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  tronWebFactory = async (host) => {
+    const { TronWeb } = await import('tronweb')
+    return new TronWeb({ fullHost: host })
+  },
+} = {}) {
+  return async function readSponsorFundingStatus(network) {
+    const config = typeof network === 'string' && Object.hasOwn(NETWORKS, network)
+      ? NETWORKS[network] : null
+    if (!config) return { configured: false, network: network ?? null, status: 'invalid-network', onChainBalanceRead: false }
+    const sponsorAddress = typeof env[config.addressEnv] === 'string' ? env[config.addressEnv].trim() : ''
+    if (!sponsorAddress) {
+      return {
+        configured: false,
+        network,
+        status: 'sponsor-address-not-configured',
+        requiredEnvironment: [config.addressEnv],
+        onChainBalanceRead: false,
+        sponsorFundingVerified: false,
+        sponsorAgreementVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      }
+    }
+    if (!ADDRESS_PATTERN.test(sponsorAddress)) {
+      return {
+        configured: false,
+        network,
+        status: 'invalid-sponsor-address',
+        requiredEnvironment: [config.addressEnv],
+        onChainBalanceRead: false,
+        sponsorFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      }
+    }
+    if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
+      return {
+        configured: true,
+        network,
+        status: 'provider-credentials-missing',
+        sponsorAddress,
+        requiredEnvironment: ['TATUM_API_KEY'],
+        onChainBalanceRead: false,
+        sponsorFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      }
+    }
+    if (typeof fetchImpl !== 'function') {
+      return {
+        configured: true,
+        network,
+        status: 'provider-unavailable',
+        sponsorAddress,
+        onChainBalanceRead: false,
+        sponsorFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      }
+    }
+
+    try {
+      const tronWeb = await tronWebFactory(config.host)
+      if (typeof tronWeb?.isAddress !== 'function'
+        || !tronWeb.isAddress(sponsorAddress)
+        || typeof tronWeb?.address?.toHex !== 'function') {
+        return {
+          configured: false, network, status: 'invalid-sponsor-address',
+          requiredEnvironment: [config.addressEnv], onChainBalanceRead: false,
+          sponsorFundingVerified: false, canSubmitSponsoredTransfer: false, submissionEnabled: false,
+        }
+      }
+      const headers = {
+        'content-type': 'application/json',
+        'x-api-key': env.TATUM_API_KEY.trim(),
+      }
+      const timeout = { signal: AbortSignal.timeout(8000) }
+      const accountResponse = await fetchImpl(config.host + '/walletsolidity/getaccount', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ address: tronWeb.address.toHex(sponsorAddress), visible: false }),
+        ...timeout,
+      })
+      if (!accountResponse.ok) throw new Error('native-balance-unavailable')
+      const account = await accountResponse.json()
+      let balanceSun
+      if (!account || typeof account !== 'object' || Array.isArray(account)) throw new Error('invalid-native-balance-response')
+      if (account.balance === undefined && !account.address) {
+        // SolidityNode returns an empty object for an address without an account.
+        balanceSun = '0'
+      } else {
+        balanceSun = String(account.balance ?? '')
+        if (!/^(0|[1-9][0-9]{0,77})$/.test(balanceSun)) throw new Error('invalid-native-balance-response')
+      }
+
+      const tokenConfig = readTokenAllowlist(env, network)
+      if (!tokenConfig.valid) {
+        return {
+          configured: true, network, status: tokenConfig.reason, sponsorAddress,
+          onChainBalanceRead: true,
+          native: { status: 'verified', asset: 'TRX', balanceSun, balanceTRX: formatSun(balanceSun), accountExists: Boolean(account.address) },
+          tokens: [],
+          tokenBalancesComplete: false,
+          sponsorFundingVerified: false,
+          sponsorAgreementVerified: false,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+        }
+      }
+
+      const tokenResults = await Promise.all(tokenConfig.tokens.map(async ({ asset, contract }) => {
+        try {
+          if (!tronWeb.isAddress(contract)) return { asset, tokenContract: contract, status: 'invalid-token-contract' }
+          const contractHex = tronWeb.address.toHex(contract).replace(/^41/i, '')
+          const addressHex = tronWeb.address.toHex(sponsorAddress).replace(/^41/i, '')
+          const ownerHex = tronWeb.address.toHex(sponsorAddress)
+          const readConstant = async (selector, parameter = '') => {
+            const response = await fetchImpl(config.host + '/walletsolidity/triggerconstantcontract', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                owner_address: ownerHex,
+                contract_address: '41' + contractHex,
+                function_selector: selector,
+                parameter,
+                visible: false,
+              }),
+              ...timeout,
+            })
+            if (!response.ok) throw new Error('token-balance-unavailable')
+            const payload = await response.json()
+            if (payload?.Error || payload?.result?.result === false
+              || !Array.isArray(payload?.constant_result)
+              || typeof payload.constant_result[0] !== 'string'
+              || !/^[0-9a-f]{64}$/i.test(payload.constant_result[0])) {
+              throw new Error('token-balance-unavailable')
+            }
+            return payload.constant_result[0]
+          }
+          const [balanceHex, decimalsHex] = await Promise.all([
+            readConstant('balanceOf(address)', addressHex.padStart(64, '0')),
+            readConstant('decimals()'),
+          ])
+          const decimals = Number(BigInt('0x' + decimalsHex))
+          if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new Error('invalid-token-decimals')
+          return {
+            asset,
+            tokenContract: contract,
+            status: 'verified',
+            balanceBaseUnits: BigInt('0x' + balanceHex).toString(),
+            decimals,
+          }
+        } catch {
+          return { asset, tokenContract: contract, status: 'unavailable' }
+        }
+      }))
+
+      const tokenBalancesComplete = tokenResults.every((item) => item.status === 'verified')
+      return {
+        configured: true,
+        network,
+        status: 'solidified-sponsor-balances-read',
+        source: 'Tatum TRON SolidityNode account and constant-contract queries',
+        checkedAt: new Date().toISOString(),
+        sponsorAddress,
+        onChainBalanceRead: true,
+        native: {
+          status: 'verified',
+          asset: 'TRX',
+          balanceSun,
+          balanceTRX: formatSun(balanceSun),
+          accountExists: Boolean(account.address),
+        },
+        tokens: tokenResults,
+        tokenBalancesComplete,
+        tokenBalanceScope: tokenConfig.tokens.length ? 'configured-contracts-only' : 'no-token-contracts-configured',
+        // An on-chain snapshot is not proof of sponsor consent, spend authority,
+        // a separate accounting budget, or eligibility for the intended transfer.
+        sponsorFundingVerified: false,
+        sponsorAgreementVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        unpaidFallbackToUserFunds: false,
+        note: 'Read-only solidified balance snapshot only. It does not verify sponsor consent, signing authority, budget reservation, fee coverage, or transfer eligibility.',
+      }
+    } catch {
+      // Do not return provider bodies, auth headers, or API credentials.
+      return {
+        configured: true,
+        network,
+        status: 'solidified-balance-read-failed',
+        sponsorAddress,
+        onChainBalanceRead: false,
+        sponsorFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        unpaidFallbackToUserFunds: false,
+      }
+    }
+  }
+}
