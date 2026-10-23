@@ -937,6 +937,43 @@ export async function createSponsorBudgetDraft(input) {
   }
 }
 
+function approvedSponsorAgreementScopes() {
+  return String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(';').map((entry) => entry.trim()).filter(Boolean)
+    .map((entry) => {
+      const fields = entry.split('|')
+      if (fields.length !== 7) return null
+      const [reference, sponsorReference, network, sponsorAddress, purpose, asset, tokenContract] = fields
+      if (!reference || !sponsorReference
+        || !['mainnet', 'shasta', 'nile'].includes(network)
+        || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)
+        || !['network-fee', 'asset-grant'].includes(purpose)
+        || !['TRX', 'USDT', 'VTRC'].includes(asset)
+        || (asset === 'TRX' ? tokenContract !== '-' : !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(tokenContract))) {
+        return null
+      }
+      return { reference, sponsorReference, network, sponsorAddress, purpose, asset, tokenContract }
+    })
+    .filter(Boolean)
+}
+
+export function isSponsorAgreementReferenceConfigured(reference) {
+  return typeof reference === 'string'
+    && approvedSponsorAgreementScopes().some((scope) => scope.reference === reference)
+}
+
+export function isApprovedSponsorAgreementScope({ consentReference, budget } = {}) {
+  if (typeof consentReference !== 'string' || !budget || typeof budget !== 'object') return false
+  return approvedSponsorAgreementScopes().some((scope) =>
+    scope.reference === consentReference
+      && scope.sponsorReference === budget.sponsor_reference
+      && scope.network === budget.network
+      && scope.sponsorAddress === budget.sponsor_address
+      && scope.purpose === budget.purpose
+      && scope.asset === budget.asset
+      && scope.tokenContract === (budget.token_contract || '-'))
+}
+
 /**
  * Fetch one sponsor budget for operator review. All of its amounts remain
  * ledger values, not independent chain balance evidence.
@@ -983,11 +1020,6 @@ export async function activateSponsorBudget({
     || typeof consentReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(consentReference)
     || typeof reviewReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(reviewReference)) {
     return { success: false, reason: 'invalid-activation-request' }
-  }
-  const approvedReferences = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
-    .split(',').map((value) => value.trim()).filter(Boolean)
-  if (!approvedReferences.includes(consentReference)) {
-    return { success: false, reason: 'agreement-reference-not-approved' }
   }
   if (!fundingSnapshot || fundingSnapshot.status !== 'solidified-sponsor-balances-read'
     || fundingSnapshot.onChainBalanceRead !== true
@@ -1070,6 +1102,10 @@ export async function activateSponsorBudget({
     if (budget.status !== 'pending-review') {
       await client.query('ROLLBACK')
       return { success: false, reason: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review' }
+    }
+    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'agreement-reference-not-approved' }
     }
 
     let chainBalanceBaseUnits = null
