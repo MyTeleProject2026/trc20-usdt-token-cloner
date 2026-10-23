@@ -662,6 +662,47 @@ export async function recordSponsorResourceDelegation(input) {
   }
 }
 
+/** Read previously independently verified, project-persisted sponsor resource delegations. */
+export async function listSponsorResourceDelegations({ network, limit = 20 } = {}) {
+  const normalizedNetwork = normalizeVerificationNetwork(network)
+  if (!normalizedNetwork) return { success: false, reason: 'invalid-network', delegations: [] }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', delegations: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', delegations: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT network, transaction_hash, sponsor_address, receiver_address, resource_type,
+              stake_equivalent_sun::text AS stake_equivalent_sun, block_number,
+              verification_status, created_at
+         FROM ${schema}.sponsor_resource_delegations
+        WHERE network = $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [normalizedNetwork, limit],
+    )
+    return {
+      success: true,
+      delegations: result.rows.map((row) => ({
+        network: row.network,
+        transactionId: row.transaction_hash.trim(),
+        sponsorAddress: row.sponsor_address,
+        receiverAddress: row.receiver_address,
+        resourceType: row.resource_type,
+        stakeEquivalentSun: row.stake_equivalent_sun,
+        blockNumber: Number(row.block_number),
+        status: row.verification_status,
+        recordedAt: row.created_at,
+      })),
+    }
+  } catch (error) {
+    console.error('Sponsor resource delegation history read failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', delegations: [] }
+  }
+}
+
 function validSponsorTransitionStatus(status) {
   return ['authorized', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status)
 }
