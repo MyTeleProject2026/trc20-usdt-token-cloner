@@ -32,6 +32,9 @@ router.get('/sponsorship/status', (_req, res) => {
 // This never grants transfer authority and never converts balance visibility into budget approval.
 const readSponsorFundingStatus = createSponsorFundingReader()
 router.get('/sponsorship/funding-status', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+
   const network = req.query?.network
   const refreshValue = req.query?.refresh
   if (refreshValue !== undefined && refreshValue !== '1' && refreshValue !== '0') {
@@ -78,6 +81,10 @@ function hasValidSponsorAdminToken(req) {
 // Draft-only sponsor budget creation. An approved operator token is required;
 // each record starts pending-review and this route cannot activate or reserve a budget.
 router.post('/sponsorship/budgets', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+
   if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
     || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
     return res.status(503).json({
@@ -139,6 +146,10 @@ router.post('/sponsorship/budgets', async (req, res) => {
 // Privileged, read-only view of configured sponsor budget caps and ledger usage.
 // Budget values are not chain balances and this endpoint cannot activate budgets or send transfers.
 router.get('/sponsorship/budgets', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+
   if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
     || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
     return res.status(503).json({
