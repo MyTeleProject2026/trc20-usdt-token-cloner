@@ -1259,7 +1259,7 @@ export async function activateSponsorBudget({
               token_contract, budget_base_units::text AS budget_base_units,
               reserved_base_units::text AS reserved_base_units,
               spent_base_units::text AS spent_base_units, status,
-              approval_reference, review_reference
+              approval_reference, review_reference, approved_at
          FROM ${schema}.sponsor_budgets
         WHERE id = $1::bigint
         FOR UPDATE`,
