@@ -399,10 +399,15 @@ export default function App() {
         callValue: 0,
         shouldPollResponse: true,
       })
-      const transactionId = typeof txId === 'string' ? txId : (txId as any)?.txid || (txId as any)?.transaction?.txID || JSON.stringify(txId)
-      // Pre-fill the on-chain verifier for a real transaction hash. A wallet's
-      // broadcast response is only submission; confirmation is checked separately.
-      if (/^[0-9a-fA-F]{64}$/.test(transactionId)) setVerifyTxId(transactionId)
+      const transactionId = typeof txId === 'string'
+        ? txId
+        : (txId as any)?.txid || (txId as any)?.transaction?.txID || (txId as any)?.txID
+      if (typeof transactionId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(transactionId)) {
+        throw new Error('Wallet response did not include a valid 64-character transaction ID. No confirmation can be claimed; check the wallet/provider activity before trying again.')
+      }
+      // A valid transaction ID proves submission only. Solidified chain verification
+      // and the exact Transfer event are still required before treating it as final.
+      setVerifyTxId(transactionId)
       setTokenTransferRecord({ network, transactionId, contractHex: tronWeb.address.toHex(contractAddress.trim()).replace(/^41/i, ''), fromHex: tronWeb.address.toHex(sender).replace(/^41/i, ''), toHex: tronWeb.address.toHex(recipientAddress.trim()).replace(/^41/i, ''), contractAddress: contractAddress.trim(), receiverAddress: recipientAddress.trim(), amountBaseUnits: rawAmount, tokenSymbol: tokenSymbolValue, amount: normalizedAmount })
       setTokenVerifyResult(null)
       setActionMessage({
@@ -609,9 +614,9 @@ export default function App() {
       const transaction = await tronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
       const signed: any = await tronWeb.trx.sign(transaction)
       const result: any = await tronWeb.trx.sendRawTransaction(signed)
-      const txid = signed?.txID || result?.txid || transaction?.txID
-      if (!result?.result || !txid) {
-        throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not accept the signed transaction. Check balance and network fees.')
+      const txid = signed?.txID || result?.txid || result?.txID || transaction?.txID
+      if (!result?.result || typeof txid !== 'string' || !/^[0-9a-fA-F]{64}$/.test(txid)) {
+        throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not return a valid accepted transaction ID. Check wallet activity and network fees before retrying; do not blindly resend.')
       }
       setNativeTransferRecord({ network, from: sender, to: recipientAddress.trim(), amountSun: sun, amountTRX: amount.toFixed(), transactionId: txid })
       setNativeVerifyResult(null)
