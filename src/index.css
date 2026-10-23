@@ -189,3 +189,66 @@ main .grid > *, main .flex > * { min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Workflow layout repairs: flex items must not collapse to one-letter columns. */
+.primary-workflow-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 0 .25rem;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+.primary-workflow-tabs > button {
+  flex: 0 0 auto !important;
+  width: auto;
+  min-width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  padding: .8rem .9rem;
+}
+.primary-workflow-shortcuts {
+  width: 100%;
+  min-width: 0;
+}
+.primary-workflow-shortcuts > button {
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+main .grid > button[aria-pressed] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 9rem;
+  white-space: normal;
+  text-align: left;
+}
+main .grid > button[aria-pressed] > span {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+@media (max-width: 767px) {
+  .primary-workflow-tabs { gap: .35rem; }
+  .primary-workflow-tabs > button { min-height: 3rem; padding: .75rem .85rem; }
+  .primary-workflow-shortcuts { grid-template-columns: minmax(0, 1fr); }
+  header > div { width: 100%; }
+  header > div > div:first-child { width: 100%; }
+  header > div > div:last-child { width: 100%; }
+  main { width: 100%; max-width: 100%; }
+  main .grid > button[aria-pressed] { min-height: 0; }
+}
