@@ -110,9 +110,9 @@ async function main() {
   try {
     const result = await runSponsorGateSmoke()
     // Deliberately output only sanitized booleans; never print credentials or tokens.
-    process.stdout.write(\`Public sponsorship gates verified:\n\${JSON.stringify(result, null, 2)}\n\`)
+    process.stdout.write('Public sponsorship gates verified:\n' + JSON.stringify(result, null, 2) + '\n')
   } catch (error) {
-    process.stderr.write(\`Public sponsorship-gate smoke check failed: \${error instanceof Error ? error.message : 'unknown error'}\n\`)
+    process.stderr.write('Public sponsorship-gate smoke check failed: ' + (error instanceof Error ? error.message : 'unknown error') + '\n')
     process.exitCode = 1
   }
 }
