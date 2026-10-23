@@ -47,6 +47,7 @@ export function createSponsorFundingReader({
   const inFlight = new Map()
   const forcedRefreshAt = new Map()
   const cacheTtlMs = 10_000
+  const failureCacheTtlMs = 3_000
   async function readFreshSponsorFundingStatus(network) {
     const config = typeof network === 'string' && Object.hasOwn(NETWORKS, network)
       ? NETWORKS[network] : null
@@ -265,6 +266,24 @@ export function createSponsorFundingReader({
     const cached = cache.get(network)
     const lastForcedAt = forcedRefreshAt.get(network) || 0
     const forceRefreshThrottled = refresh && lastForcedAt > 0 && now - lastForcedAt < cacheTtlMs
+    if (forceRefreshThrottled && (!cached || cached.expiresAt <= now)) {
+      const pendingRead = inFlight.get(network)
+      if (pendingRead) {
+        const pendingResult = await pendingRead
+        return { ...pendingResult, cache: { status: 'refresh-throttled', ageMs: 0, refreshThrottled: true } }
+      }
+      return {
+        configured: true,
+        network,
+        status: 'refresh-rate-limited',
+        onChainBalanceRead: false,
+        sponsorFundingVerified: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        refreshThrottled: true,
+        retryAfterMs: Math.max(0, cacheTtlMs - (now - lastForcedAt)),
+      }
+    }
     if (cached && cached.expiresAt > now && (!refresh || forceRefreshThrottled)) {
       return {
         ...cached.result,
@@ -284,9 +303,11 @@ export function createSponsorFundingReader({
     }
     try {
       const result = await pending
-      if (result?.onChainBalanceRead === true) {
-        const checkedAt = Date.now()
-        cache.set(network, { result, checkedAt, expiresAt: checkedAt + cacheTtlMs })
+      const checkedAt = Date.now()
+      const cacheTtl = result?.onChainBalanceRead === true ? cacheTtlMs
+        : result?.configured === true ? failureCacheTtlMs : 0
+      if (cacheTtl > 0) {
+        cache.set(network, { result, checkedAt, expiresAt: checkedAt + cacheTtl })
       }
       return { ...result, cache: { status: 'fresh', ageMs: 0 } }
     } finally {
