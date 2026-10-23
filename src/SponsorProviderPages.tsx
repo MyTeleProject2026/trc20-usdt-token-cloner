@@ -380,6 +380,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
                   })()}
                 </div>
               : <p className="text-xs text-tertiary">Independent sponsor status is unavailable. No current fee-sponsor or asset-sponsor snapshot is confirmed.</p>}
+          {roleStatus?.checkedAt && Number.isFinite(Date.parse(roleStatus.checkedAt)) && <p className="text-xs text-tertiary">Last independent sponsor snapshot: {new Date(roleStatus.checkedAt).toLocaleString()}. The balance is point-in-time and does not authorize spending.</p>}
           <p className="text-xs text-tertiary">Configured addresses are distinct: {roleStatus?.configuredAddressesDistinct ? 'yes' : 'no or not verified'}. Different addresses do not by themselves prove different owners or signed sponsor consent. Spendable receiver balance must come from the receiver's verified on-chain balance.</p>
         </section>
         <section aria-live="polite" className="rounded-lg border border-secondary p-md space-y-sm">
