@@ -43,7 +43,9 @@ export function createSponsorFundingReader({
     return new TronWeb({ fullHost: host })
   },
 } = {}) {
-  return async function readSponsorFundingStatus(network) {
+  const cache = new Map()
+  const inFlight = new Map()
+  async function readFreshSponsorFundingStatus(network) {
     const config = typeof network === 'string' && Object.hasOwn(NETWORKS, network)
       ? NETWORKS[network] : null
     if (!config) return { configured: false, network: network ?? null, status: 'invalid-network', onChainBalanceRead: false }
@@ -243,6 +245,39 @@ export function createSponsorFundingReader({
         submissionEnabled: false,
         unpaidFallbackToUserFunds: false,
       }
+    }
+  }
+
+  // Short-lived per-network snapshots avoid multiplying provider calls on page
+  // refreshes. Requests in flight for the same network share the same promise.
+  // Only successful solidified account reads are cached; errors remain retryable.
+  return async function readSponsorFundingStatus(network) {
+    if (typeof network !== 'string' || !Object.hasOwn(NETWORKS, network)) {
+      return readFreshSponsorFundingStatus(network)
+    }
+    const now = Date.now()
+    const cached = cache.get(network)
+    if (cached && cached.expiresAt > now) {
+      return {
+        ...cached.result,
+        cache: { status: 'cached', ageMs: Math.max(0, now - cached.checkedAt) },
+      }
+    }
+
+    let pending = inFlight.get(network)
+    if (!pending) {
+      pending = readFreshSponsorFundingStatus(network)
+      inFlight.set(network, pending)
+    }
+    try {
+      const result = await pending
+      if (result?.onChainBalanceRead === true) {
+        const checkedAt = Date.now()
+        cache.set(network, { result, checkedAt, expiresAt: checkedAt + 10_000 })
+      }
+      return { ...result, cache: { status: 'fresh', ageMs: 0 } }
+    } finally {
+      if (inFlight.get(network) === pending) inFlight.delete(network)
     }
   }
 }
