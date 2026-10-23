@@ -93,3 +93,47 @@ test('role ledger reconciliation requires an admin token and validates network b
     else process.env.SPONSOR_ADMIN_API_TOKEN = originalToken
   }
 })
+
+test('role budget draft requires admin authorization and is testnet-only', async () => {
+  const draftLayer = nativeTronRoutes.stack.find((item) =>
+    item.route?.path === '/sponsorship/role-budget-drafts' && item.route.methods?.post,
+  )
+  assert.ok(draftLayer, 'testnet-only role budget draft route must be registered')
+  const originalToken = process.env.SPONSOR_ADMIN_API_TOKEN
+  try {
+    delete process.env.SPONSOR_ADMIN_API_TOKEN
+    const noAdmin = makeResponse()
+    await draftLayer.route.stack[0].handle({ body: { network: 'nile' }, headers: {} }, noAdmin)
+    assert.equal(noAdmin.statusCode, 503)
+    assert.equal(noAdmin.body.error, 'sponsor-admin-not-configured')
+
+    process.env.SPONSOR_ADMIN_API_TOKEN = 'test-admin-token-that-is-at-least-32-characters-long'
+    const mainnet = makeResponse()
+    await draftLayer.route.stack[0].handle({
+      body: { network: 'mainnet', role: 'asset-principal-sponsor', asset: 'USDT', budgetBaseUnits: '1000000' },
+      headers: { authorization: 'Bearer test-admin-token-that-is-at-least-32-characters-long' },
+    }, mainnet)
+    assert.equal(mainnet.statusCode, 400)
+    assert.equal(mainnet.body.error, 'testnet-only-draft')
+
+    const mismatch = makeResponse()
+    await draftLayer.route.stack[0].handle({
+      body: { network: 'nile', role: 'network-fee-sponsor', asset: 'USDT', budgetBaseUnits: '1000000' },
+      headers: { authorization: 'Bearer test-admin-token-that-is-at-least-32-characters-long' },
+    }, mismatch)
+    assert.equal(mismatch.statusCode, 400)
+    assert.equal(mismatch.body.error, 'role-asset-mismatch')
+
+    const missingAddress = makeResponse()
+    await draftLayer.route.stack[0].handle({
+      body: { network: 'nile', role: 'network-fee-sponsor', asset: 'TRX', sponsorReference: 'test-fee-sponsor', budgetBaseUnits: '1000000' },
+      headers: { authorization: 'Bearer test-admin-token-that-is-at-least-32-characters-long' },
+    }, missingAddress)
+    assert.equal(missingAddress.statusCode, 503)
+    assert.equal(missingAddress.body.error, 'sponsor-role-address-not-configured')
+    assert.deepEqual(missingAddress.body.requiredEnvironment, ['SPONSOR_FEE_NILE_ADDRESS'])
+  } finally {
+    if (originalToken === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
+    else process.env.SPONSOR_ADMIN_API_TOKEN = originalToken
+  }
+})

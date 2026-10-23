@@ -541,6 +541,109 @@ router.post('/sponsorship/provider-applications/:reference/review', async (req, 
   return res.json({ success: true, application: result, feeSponsorshipEnabled: false, providerSubmissionEnabled: false })
 })
 
+// Testnet-only draft entry for separate sponsor roles. This records a pending-review
+// cap under a server-configured sponsor address; it never activates, reserves, signs, or submits.
+router.post('/sponsorship/role-budget-drafts', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      message: 'Sponsor budget drafting is disabled until a long server-only admin token is configured.',
+      canSubmitSponsoredTransfer: false,
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', canSubmitSponsoredTransfer: false })
+  }
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  const allowed = new Set(['network', 'role', 'sponsorReference', 'asset', 'tokenContract', 'budgetBaseUnits'])
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    return res.status(400).json({ success: false, error: 'unexpected-fields', message: 'Only network, role, sponsor reference, asset, token contract and integer base-unit cap are accepted.' })
+  }
+  if (!['shasta', 'nile'].includes(body.network)) {
+    return res.status(400).json({
+      success: false,
+      error: 'testnet-only-draft',
+      message: 'Role-specific budget drafts are restricted to Shasta or Nile. Mainnet budget drafting is not available from this endpoint.',
+      canSubmitSponsoredTransfer: false,
+    })
+  }
+  if (!['network-fee-sponsor', 'asset-principal-sponsor'].includes(body.role)) {
+    return res.status(400).json({ success: false, error: 'invalid-sponsor-role' })
+  }
+  const feeRole = body.role === 'network-fee-sponsor'
+  if (feeRole && (body.asset !== 'TRX' || (body.tokenContract !== undefined && body.tokenContract !== null && body.tokenContract !== ''))
+    || !feeRole && !['TRX', 'USDT', 'VTRC'].includes(body.asset)) {
+    return res.status(400).json({
+      success: false,
+      error: 'role-asset-mismatch',
+      message: 'The fee sponsor can draft only a native TRX resource/fee cap. The asset-principal sponsor may draft TRX, allowlisted USDT, or allowlisted VTRC.',
+    })
+  }
+  const networkKey = body.network.toUpperCase()
+  const addressEnv = feeRole
+    ? `SPONSOR_FEE_${networkKey}_ADDRESS`
+    : `SPONSOR_ASSET_${networkKey}_ADDRESS`
+  const sponsorAddress = process.env[addressEnv]
+  if (typeof sponsorAddress !== 'string' || !addressPattern.test(sponsorAddress.trim())) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-role-address-not-configured',
+      requiredEnvironment: [addressEnv],
+      message: 'Configure the public address for this exact sponsor role and testnet; the client cannot choose the sponsor wallet.',
+      canSubmitSponsoredTransfer: false,
+    })
+  }
+  const purpose = feeRole ? 'network-fee' : 'asset-grant'
+  const tokenContract = body.asset === 'TRX' ? null : body.tokenContract
+  try {
+    const result = await createSponsorBudgetDraft({
+      network: body.network,
+      sponsorReference: body.sponsorReference,
+      purpose,
+      asset: body.asset,
+      tokenContract,
+      budgetBaseUnits: body.budgetBaseUnits,
+      sponsorAddress: sponsorAddress.trim(),
+    })
+    if (!result.success) {
+      const status = result.reason === 'budget-already-exists' ? 409
+        : result.reason === 'database-not-configured' ? 503
+          : result.reason === 'invalid-tron-address' ? 400 : 400
+      return res.status(status).json({
+        success: false,
+        error: result.reason || 'role-budget-draft-failed',
+        message: result.reason === 'budget-already-exists'
+          ? 'An equivalent draft already exists; no existing budget was modified.'
+          : 'The role-specific draft was rejected. Verify the testnet, integer base units and configured token allowlist.',
+        canSubmitSponsoredTransfer: false,
+      })
+    }
+    return res.status(201).json({
+      success: true,
+      status: 'pending-review',
+      role: body.role,
+      purpose,
+      ...result,
+      canReserve: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'The testnet draft is an internal cap only. It is not funding proof, sponsor consent, activation, a reservation, a grant, or a transfer.',
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'role-budget-draft-unavailable',
+      canSubmitSponsoredTransfer: false,
+      message: 'Could not create the testnet draft. No transfer was submitted.',
+    })
+  }
+})
+
 // Draft-only sponsor budget creation. An approved operator token is required;
 // each record starts pending-review and this route cannot activate or reserve a budget.
 router.post('/sponsorship/budgets', async (req, res) => {
