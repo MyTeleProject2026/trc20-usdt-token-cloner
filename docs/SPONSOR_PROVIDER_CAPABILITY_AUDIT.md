@@ -57,3 +57,40 @@ Do not enable sponsored submission until all of the following are evidenced and 
 6. An operator separately approves any Mainnet activation after security review.
 
 Until then, `server/sponsorship-status.mjs` must remain disabled and the UI must show only verified on-chain balances and verified transaction history. No provider secrets, Render variables, production database, or chain state were changed by this audit.
+
+
+## GasFree assessment (official documentation checked 2026-10-23)
+
+Official sources:
+- Specification: https://gasfree.io/specification?lang=en-US
+- Developer documentation: https://docs.gasfree.io/
+- Provider discovery endpoint documented by GasFree: `GET /api/v1/config/provider/all`
+- Supported-token discovery endpoint documented by GasFree: `GET /api/v1/config/token/all`
+- Wallet account metadata: `GET /api/v1/address/{accountAddress}`
+- Transfer status lookup: `GET /api/v1/gasfree/{traceId}`
+- Signed authorization submission: `POST /api/v1/gasfree/submit`
+
+### What GasFree can and cannot do for this platform
+
+GasFree is a relevant candidate for a **wallet-authorized TRC-20 transfer on TRON**, not a universal, free sponsor for all assets and destinations. Its published flow requires the wallet owner to sign a transfer authorization; the service provider submits the authorization and pays chain execution costs. The documented activation and transfer fees are charged in the **transferred token**. Therefore it is not fee-free, and it does not donate the sender's transfer principal.
+
+- **Existing external TRON wallet:** integration requires the exact documented GasFree permit-signing flow and an eligible token/provider. It is not equivalent to sponsoring a conventional native TRX transfer.
+- **Principal:** the token amount still comes from the user's GasFree-enabled account. GasFree does not give this application spendable TRX or USDT to distribute to arbitrary recipients.
+- **Recipient:** a successful TRC-20 transfer is sent to the specified on-chain address and normally does not require the recipient to sign. It cannot force every exchange to support the chain/token or credit an exchange deposit.
+- **Network:** the official documentation lists TRON Mainnet and Nile testnet endpoints. Shasta is not listed for this API; never silently substitute Nile or Mainnet for a Shasta wallet.
+- **Provider onboarding:** the docs state that API Key and API Secret are issued after applying for GasFree access. Public documentation and an endpoint URL do not prove that this project has approved credentials, provider acceptance, a funded program, or production permission.
+- **Fees and consent:** the UI must show the provider-reported token, exact contract, activation fee, transfer fee, maximum fee and expected recipient amount before the wallet signs. Do not label the flow “free” or “sponsor-funded.”
+- **Finality:** a provider trace status is not final chain evidence. After submission, independently verify the transaction ID, solidified receipt, expected token contract, Transfer event, sender, receiver, amount and resulting receiver balance. Keep exchange credit as a separate, exchange-controlled status.
+
+### Implementation status in this repository
+
+The current `server/gasfree-client.mjs`, `server/routes/gasfree.mjs`, and `src/GasFreeProviderDiscovery.tsx` provide **read-only discovery, account metadata inspection and trace lookup**. They intentionally do not submit authorizations. The API responses force `providerFundingVerified`, `canSubmitSponsoredTransfer`, and `submissionEnabled` to false; that is correct until the following gates are satisfied.
+
+1. Apply for and receive project-specific GasFree API credentials; configure them only as backend environment variables.
+2. Implement and independently review the wallet-side typed-data authorization against the current official specification, including chain ID, verifying contract, token contract, provider address, nonce, expiry, amount and maximum fee.
+3. Implement a server-side submission proxy with strict request schema validation, exact token/provider allowlists, replay/idempotency controls, bounded request rates, secret redaction, and sanitized provider errors. The backend must never collect or store a wallet private key.
+4. Add integration tests against the official Nile endpoint using test assets and a wallet controlled by the tester. Verify provider response correlation and then verify the on-chain receipt/event and receiver token balance.
+5. Confirm the real fee schedule and provider terms with GasFree. The flow cannot satisfy the separate “external sponsor pays all fees and principal, no user-funded fallback” requirement unless GasFree explicitly offers and contractually confirms that different arrangement.
+6. Keep Mainnet submission disabled until an operator explicitly authorizes activation after a security review and the exact supported Mainnet USDT contract and recipient display have been reviewed.
+
+**Decision:** continue with GasFree as an optional, token-fee-paid transfer rail only if the project owner accepts its documented fee model and completes provider onboarding. Do not represent it as a public free-funds sponsor. It does not meet the current requirement to provide both free transaction fees and sponsor-owned asset principal to arbitrary recipients. No live transaction submission was added by this research update.
