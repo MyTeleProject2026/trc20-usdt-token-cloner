@@ -72,6 +72,12 @@ test('sponsor funding status verifies native TRX and configured token balances w
   assert.ok(requests.every(({ options }) => options.headers['x-api-key'] === 'server-test-key'))
   assert.equal(JSON.stringify(result).includes('server-test-key'), false)
   assert.ok(requests.every(({ url }) => url.startsWith('https://tron-nile.gateway.tatum.io/')))
+
+  const requestsAfterFreshRead = requests.length
+  const cached = await reader('nile')
+  assert.equal(cached.cache.status, 'cached')
+  assert.equal(cached.native.balanceSun, '1234567')
+  assert.equal(requests.length, requestsAfterFreshRead, 'fresh snapshot should avoid duplicate provider calls')
 })
 
 test('sponsor funding read rejects invalid networks and malformed allowlists without reporting tokens', async () => {
