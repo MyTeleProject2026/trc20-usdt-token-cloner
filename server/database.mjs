@@ -1669,15 +1669,15 @@ export async function createSponsorProviderApplication(input = {}) {
     try {
       await client.query('BEGIN')
       const inserted = await client.query(
-        \`INSERT INTO \${schema}.sponsor_provider_applications
+        `INSERT INTO ${schema}.sponsor_provider_applications
            (reference, provider_name, contact_email, scope)
          VALUES ($1::uuid, $2, $3, $4)
-         RETURNING reference, scope, status, created_at, updated_at\`,
+         RETURNING reference, scope, status, created_at, updated_at`,
         [normalized.reference, normalized.providerName, normalized.contactEmail, normalized.scope],
       )
       await client.query(
-        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
-         VALUES ('sponsor-provider-application-created', 'sponsor-provider-application', $1, $2::jsonb)\`,
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-provider-application-created', 'sponsor-provider-application', $1, $2::jsonb)`,
         [normalized.reference, JSON.stringify({ scope: normalized.scope, status: 'pending-review' })],
       )
       await client.query('COMMIT')
@@ -1713,9 +1713,9 @@ export async function getSponsorProviderApplicationStatus(reference) {
   try {
     await initializeDatabase()
     const result = await db.query(
-      \`SELECT reference, scope, status, created_at, updated_at, reviewed_at
-         FROM \${schema}.sponsor_provider_applications
-        WHERE reference = $1::uuid\`,
+      `SELECT reference, scope, status, created_at, updated_at, reviewed_at
+         FROM ${schema}.sponsor_provider_applications
+        WHERE reference = $1::uuid`,
       [reference.trim()],
     )
     if (!result.rowCount) return { success: false, reason: 'application-not-found' }
@@ -1746,11 +1746,11 @@ export async function listSponsorProviderApplications({ status = null, limit = 5
   try {
     await initializeDatabase()
     const result = await db.query(
-      \`SELECT reference, provider_name, contact_email, scope, status, review_reference, created_at, updated_at, reviewed_at
-         FROM \${schema}.sponsor_provider_applications
+      `SELECT reference, provider_name, contact_email, scope, status, review_reference, created_at, updated_at, reviewed_at
+         FROM ${schema}.sponsor_provider_applications
         WHERE ($1::text IS NULL OR status = $1)
         ORDER BY created_at ASC
-        LIMIT $2\`,
+        LIMIT $2`,
       [status, limit],
     )
     return { success: true, applications: result.rows.map((row) => ({
@@ -1789,8 +1789,8 @@ export async function reviewSponsorProviderApplication({ reference, status, revi
     try {
       await client.query('BEGIN')
       const current = await client.query(
-        \`SELECT reference, status, review_reference FROM \${schema}.sponsor_provider_applications
-          WHERE reference = $1::uuid FOR UPDATE\`,
+        `SELECT reference, status, review_reference FROM ${schema}.sponsor_provider_applications
+          WHERE reference = $1::uuid FOR UPDATE`,
         [normalizedReference],
       )
       if (!current.rowCount) {
@@ -1807,15 +1807,15 @@ export async function reviewSponsorProviderApplication({ reference, status, revi
         return { success: false, reason: 'invalid-status-transition' }
       }
       const updated = await client.query(
-        \`UPDATE \${schema}.sponsor_provider_applications
+        `UPDATE ${schema}.sponsor_provider_applications
             SET status = $2, review_reference = $3, updated_at = now(), reviewed_at = now()
           WHERE reference = $1::uuid
-          RETURNING reference, status, updated_at, reviewed_at\`,
+          RETURNING reference, status, updated_at, reviewed_at`,
         [normalizedReference, status, normalizedReviewReference],
       )
       await client.query(
-        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
-         VALUES ('sponsor-provider-application-reviewed', 'sponsor-provider-application', $1, $2::jsonb)\`,
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-provider-application-reviewed', 'sponsor-provider-application', $1, $2::jsonb)`,
         [normalizedReference, JSON.stringify({ status, reviewReference: normalizedReviewReference })],
       )
       await client.query('COMMIT')
