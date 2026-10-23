@@ -76,3 +76,15 @@ test('GasFree account lookup auto-refreshes for a connected Mainnet wallet witho
   assert.ok(component.includes("if (walletNetwork !== 'mainnet')"))
   assert.ok(component.includes('no automatic cross-network account lookup was made.'))
 })
+
+
+test('UI distinguishes credential presence from provider authentication and sponsor funding', () => {
+  assert.ok(component.includes('/api/gasfree/config-status'))
+  assert.ok(component.includes('Server-side credential presence'))
+  assert.ok(component.includes('Presence only — not authenticated'))
+  assert.ok(component.includes('Sponsor funding verification: not established.'))
+  assert.ok(component.includes('TRON Mainnet'))
+  assert.ok(component.includes('Nile testnet'))
+  assert.ok(!component.includes('GASFREE_MAINNET_API_SECRET'))
+  assert.ok(!component.includes('GASFREE_NILE_API_SECRET'))
+})
