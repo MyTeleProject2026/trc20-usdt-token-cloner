@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { validateSponsorBudget, validateSponsorTransferIntent } from '../server/sponsor-policy.mjs'
-import { createSponsorBudgetDraft, listSponsorBudgets } from '../server/database.mjs'
+import { createSponsorBudgetDraft, listSponsorBudgets, activateSponsorBudget } from '../server/database.mjs'
 
 test('sponsor budget database constraint enforces TRX-only network-fee budgets', async () => {
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
@@ -94,4 +94,30 @@ test('sponsor budget ledger listing rejects invalid query bounds before database
   assert.deepEqual(await listSponsorBudgets({ limit: 101 }), {
     success: false, reason: 'invalid-limit', budgets: [],
   })
+})
+
+
+test('sponsor budget activation requires allowlisted agreement and fresh evidence before database access', async () => {
+  const previous = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = 'signed-agreement-approved'
+  try {
+    const unapproved = await activateSponsorBudget({
+      budgetId: '1',
+      consentReference: 'signed-agreement-not-approved',
+      reviewReference: 'review-ticket-123',
+      fundingSnapshot: {},
+    })
+    assert.deepEqual(unapproved, { success: false, reason: 'agreement-reference-not-approved' })
+
+    const snapshotMissing = await activateSponsorBudget({
+      budgetId: '1',
+      consentReference: 'signed-agreement-approved',
+      reviewReference: 'review-ticket-123',
+      fundingSnapshot: {},
+    })
+    assert.deepEqual(snapshotMissing, { success: false, reason: 'fresh-solidified-funding-snapshot-required' })
+  } finally {
+    if (previous === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previous
+  }
 })
