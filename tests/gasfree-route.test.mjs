@@ -265,3 +265,54 @@ test('GasFree trace route never persists or promotes an unverified chain result'
   assert.deepEqual(res.body.trace.verificationPersistence, { persisted: false, reason: 'transfer-not-verified' })
   assert.equal(persistCalls, 0)
 })
+
+
+test('GasFree trace retry bypasses cache once per refresh window and then throttles repeats', async () => {
+  let providerCalls = 0
+  const router = createGasFreeRouter({
+    getTrace: async (network, traceId) => {
+      providerCalls += 1
+      return {
+        configured: true,
+        reachable: true,
+        network,
+        traceLookupVerified: true,
+        trace: {
+          traceId,
+          state: 'PENDING',
+          senderAddress: null,
+          gasFreeAddress: null,
+          receiverAddress: null,
+          providerAddress: null,
+          tokenAddress: null,
+          transactionId: null,
+          verifiedOnChain: false,
+          note: 'pending test trace',
+        },
+      }
+    },
+  }, {
+    verifyOnChain: async () => ({
+      verified: false,
+      status: 'awaiting-transaction-id',
+      reason: 'provider-trace-has-no-transaction-id',
+    }),
+  })
+  const handler = getRoute(router, '/trace')
+  const first = responseRecorder()
+  await handler({ query: { network: 'nile', traceId: 'trace_retry_1' } }, first)
+  assert.equal(first.statusCode, 200)
+  assert.equal(providerCalls, 1)
+
+  const forced = responseRecorder()
+  await handler({ query: { network: 'nile', traceId: 'trace_retry_1', refresh: '1' } }, forced)
+  assert.equal(forced.statusCode, 200)
+  assert.equal(providerCalls, 2)
+
+  const throttled = responseRecorder()
+  await handler({ query: { network: 'nile', traceId: 'trace_retry_1', refresh: '1' } }, throttled)
+  assert.equal(throttled.statusCode, 200)
+  assert.equal(providerCalls, 2)
+  assert.equal(throttled.body.status, 'provider-trace-read')
+  assert.equal(throttled.body.trace.verifiedOnChain, false)
+})
