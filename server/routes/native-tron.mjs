@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -142,6 +142,36 @@ router.get('/sponsorship/resource-status', async (req, res) => {
 // Independently verify a wallet-signed Stake-2.0 delegation on solidified chain state
 // before recording it in the project-scoped, idempotent audit ledger.
 const verifySponsorResourceDelegation = createSponsorResourceDelegationVerifier()
+// Read-only history of resource delegations that the backend independently
+// verified against solidified transaction and delegation state and persisted.
+router.get('/sponsorship/resource-delegations', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const network = req.query?.network
+  const limitText = req.query?.limit === undefined ? '20' : req.query.limit
+  const limit = typeof limitText === 'string' ? Number(limitText) : Number.NaN
+  if (!['mainnet', 'shasta', 'nile'].includes(network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 100.' })
+  }
+  const result = await listSponsorResourceDelegations({ network, limit })
+  if (!result.success) {
+    return res.status(result.reason === 'invalid-limit' || result.reason === 'invalid-network' ? 400 : 503)
+      .json({ success: false, error: result.reason || 'resource-delegation-history-unavailable', delegations: [] })
+  }
+  return res.json({
+    success: true,
+    status: 'verified-resource-delegation-history',
+    network,
+    count: result.delegations.length,
+    delegations: result.delegations,
+    source: 'TRON Token Studio PostgreSQL audit ledger',
+    note: 'Only resource delegations independently verified from solidified TRON transaction and resulting delegation state are listed. This is not a token-transfer history or proof that a later transfer had zero fees.',
+  })
+})
+
 router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
   res.setHeader?.('Cache-Control', 'no-store')
   res.setHeader?.('Pragma', 'no-cache')
