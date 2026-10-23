@@ -22,9 +22,14 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
   if (typeof network !== 'string' || !NETWORKS.has(network)) {
     return fail('invalid-network')
   }
+  const cacheIsFresh = fundingSnapshot?.cache?.status === 'fresh'
+    || (fundingSnapshot?.cache?.status === 'cached'
+      && Number.isFinite(fundingSnapshot.cache.ageMs)
+      && fundingSnapshot.cache.ageMs >= 0
+      && fundingSnapshot.cache.ageMs <= 10_000)
   if (!fundingSnapshot || fundingSnapshot.status !== 'solidified-sponsor-balances-read'
     || fundingSnapshot.onChainBalanceRead !== true
-    || fundingSnapshot.cache?.status !== 'fresh'
+    || !cacheIsFresh
     || fundingSnapshot.network !== network
     || typeof fundingSnapshot.sponsorAddress !== 'string'
     || !ADDRESS.test(fundingSnapshot.sponsorAddress)
