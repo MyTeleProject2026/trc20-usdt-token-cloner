@@ -381,6 +381,61 @@ test('PostgreSQL reservation rejects stale sponsor snapshots without reserving b
   }
 })
 
+test('PostgreSQL reservation rejects a snapshot for a different sponsor wallet', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const mismatchedReader = async (requestedNetwork) => ({
+    status: 'solidified-sponsor-balances-read',
+    onChainBalanceRead: true,
+    network: requestedNetwork,
+    source: 'Tatum TRON SolidityNode account and constant-contract queries',
+    sponsorAddress,
+    checkedAt: new Date().toISOString(),
+    cache: { status: 'fresh', ageMs: 0 },
+    native: { status: 'verified', asset: 'TRX', balanceSun: '999999999', balanceTRX: '999.999999' },
+    tokens: [],
+  })
+  const { pool, reserveSponsorTransfer } = await setup({ fundingSnapshotReader: mismatchedReader })
+  const suffix = randomUUID()
+  const sponsorReference = `pg-wallet-mismatch-${suffix}`
+  const idempotencyKey = `pg-wallet-mismatch:${suffix}`
+  try {
+    await insertActiveBudget(pool, {
+      sponsorReference,
+      sponsorAddress: receiverAddress,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: '100',
+    })
+    const result = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.deepEqual(result, { reserved: false, reason: 'funding-snapshot-identity-mismatch' })
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0' })
+    const transfers = await pool.query(
+      'SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfers.rows[0].count, 0)
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
 test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempotent', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
