@@ -161,7 +161,15 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       setFunding(fundingPayload.funding)
       setNotice('Provider status checked and a successful solidified-chain funding snapshot loaded. Individual balances remain read-only; no application or transfer was submitted.')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Sponsor status is unavailable.')
+      // Clear prior results on a failed refresh so stale sponsor readiness or
+      // balances cannot be mistaken for current, verified state.
+      setStatus(null)
+      setFunding({
+        status: 'balance-check-unavailable',
+        onChainBalanceRead: false,
+        note: 'Sponsor status or funding refresh failed. No current funding snapshot is verified.',
+      })
+      setNotice(error instanceof Error ? error.message : 'Sponsor status is unavailable. Previous funding data was cleared.')
     } finally {
       setLoading(false)
       setFundingLoading(false)
