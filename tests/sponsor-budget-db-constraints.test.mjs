@@ -189,3 +189,19 @@ test('sponsor agreement scopes reject wrong-network tokens and pin Mainnet USDT'
     }
   }
 })
+
+
+test('sponsor transfer listing rejects invalid filters before database access', async () => {
+  assert.deepEqual(await listSponsorTransfers({ network: 'attacker' }), {
+    success: false, reason: 'invalid-network', transfers: [],
+  })
+  assert.deepEqual(await listSponsorTransfers({ status: 'broadcast' }), {
+    success: false, reason: 'invalid-status', transfers: [],
+  })
+  assert.deepEqual(await listSponsorTransfers({ sponsorReference: 'bad reference with spaces' }), {
+    success: false, reason: 'invalid-sponsor-reference', transfers: [],
+  })
+  assert.deepEqual(await listSponsorTransfers({ limit: 101 }), {
+    success: false, reason: 'invalid-limit', transfers: [],
+  })
+})
