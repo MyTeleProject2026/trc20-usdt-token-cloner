@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertCircle, ShieldCheck } from 'lucide-react'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 
 type Sponsorship = {
   enabled?: boolean

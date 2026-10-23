@@ -5,6 +5,21 @@ import { readFile } from 'node:fs/promises'
 const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const sponsorship = await readFile(new URL('../server/sponsorship-status.mjs', import.meta.url), 'utf8')
 
+const apiBaseComponents = await Promise.all([
+  'App.tsx',
+  'SponsorshipStatus.tsx',
+  'ReceiverHistory.tsx',
+  'SponsorProviderPages.tsx',
+  'GasFreeProviderDiscovery.tsx',
+].map((file) => readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')))
+
+test('production API calls default to the deployed backend when no Vite API URL is configured', () => {
+  for (const source of apiBaseComponents) {
+    assert.match(source, /import\\.meta\\.env\\.VITE_API_BASE_URL \\|\\| \\(import\\.meta\\.env\\.DEV \\? '' : 'https:\\/\\/trc20-usdt-token-cloner-api\\.onrender\\.com'\\)/)
+  }
+})
+
+
 test('UI explicitly separates Shasta test assets from mainnet funds', () => {
   assert.match(app, /Shasta Testnet — test assets only/)
   assert.match(app, /cannot become mainnet USDT/)
