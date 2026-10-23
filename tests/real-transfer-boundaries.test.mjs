@@ -13,9 +13,11 @@ const apiBaseComponents = await Promise.all([
   'GasFreeProviderDiscovery.tsx',
 ].map((file) => readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')))
 
+const expectedProductionApiBase = "import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')"
+
 test('production API calls default to the deployed backend when no Vite API URL is configured', () => {
   for (const source of apiBaseComponents) {
-    assert.match(source, /import\\.meta\\.env\\.VITE_API_BASE_URL \\|\\| \\(import\\.meta\\.env\\.DEV \\? '' : 'https:\\/\\/trc20-usdt-token-cloner-api\\.onrender\\.com'\\)/)
+    assert.ok(source.includes(expectedProductionApiBase), 'component should use the production backend fallback')
   }
 })
 
