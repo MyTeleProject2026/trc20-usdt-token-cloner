@@ -362,7 +362,7 @@ export default function App() {
       if (!tronWeb.isAddress(contractAddress) || !tronWeb.isAddress(recipientAddress)) {
         throw new Error('Enter valid TRON Base58 addresses for the token contract and recipient.')
       }
-      if (network !== 'shasta') throw new Error('VTRC transfers are restricted to Shasta testnet in this workflow.')
+      if (selectedAsset === 'VTRC' && network !== 'shasta') throw new Error('VTRC transfers are restricted to Shasta testnet in this workflow.')
       const sender = tronWeb.defaultAddress.base58
       if (!sender) throw new Error('TronLink has no authorized sender address.')
       setWalletAddress(sender)
