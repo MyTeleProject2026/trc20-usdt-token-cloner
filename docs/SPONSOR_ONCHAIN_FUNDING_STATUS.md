@@ -32,3 +32,13 @@ This view does not measure the PostgreSQL sponsor budget ledger. Operators must 
 ## Remaining activation gates
 
 Before any sponsor-funded TRX or USDT transfer can be enabled, implement and independently review provider/sponsor authorization, wallet or managed signer authorization, atomic reservation against actual available budget, idempotency/replay protection, per-recipient and daily limits, a pause mechanism, failure release, finality reconciliation, audit events, and a complete Nile end-to-end test. Mainnet also requires explicit operator approval and a real sponsor agreement. No seed phrase or private key should be sent to this service.
+
+
+## Protected sponsor budget ledger
+
+The following administrative endpoints require `Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>`. Configure a random server-only token of at least 32 characters in the backend environment. Never expose it as a Vite variable or embed it in the frontend.
+
+- `GET /api/tron/sponsorship/budgets?network=mainnet|shasta|nile` lists configured budget caps, reservations, recorded spend and ledger-available base units. It is read-only and requires the admin token.
+- `POST /api/tron/sponsorship/budgets` creates a budget draft for a configured server-side sponsor address. Required JSON fields are `network`, `sponsorReference`, `purpose` (`network-fee` or `asset-grant`), `asset` (`TRX`, `USDT`, or `VTRC`), `budgetBaseUnits` (positive integer string), and `tokenContract` for token assets.
+
+Creation always sets the row to `pending-review`; duplicate identities are rejected and audited in the same database transaction. The endpoint cannot activate, reserve, sign, submit, or broadcast a transfer. No public UI stores or sends the administrator token. The requested amount is a ledger cap, not a verified wallet balance; compare it with the read-only funding snapshot during operator review. Existing budgets are not edited by these endpoints.
