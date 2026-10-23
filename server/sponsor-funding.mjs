@@ -125,11 +125,13 @@ export function createSponsorFundingReader({
       let balanceSun
       if (!account || typeof account !== 'object' || Array.isArray(account)) throw new Error('invalid-native-balance-response')
       const expectedAccountHex = tronWeb.address.toHex(sponsorAddress).replace(/^0x/i, '').toLowerCase()
-      if (account.address !== undefined
-        && (typeof account.address !== 'string' || account.address.replace(/^0x/i, '').toLowerCase() !== expectedAccountHex)) {
+      const accountExists = typeof account.address === 'string' && account.address.length > 0
+      if (account.address !== undefined && !accountExists) throw new Error('invalid-native-balance-response')
+      if (accountExists && account.address.replace(/^0x/i, '').toLowerCase() !== expectedAccountHex) {
         throw new Error('sponsor-account-identity-mismatch')
       }
-      if (account.balance === undefined && !account.address) {
+      if (!accountExists && account.balance !== undefined) throw new Error('invalid-native-balance-response')
+      if (!accountExists) {
         // SolidityNode returns an empty object for an address without an account.
         balanceSun = '0'
       } else {
@@ -142,9 +144,10 @@ export function createSponsorFundingReader({
         return {
           configured: true, network, status: tokenConfig.reason, sponsorAddress,
           onChainBalanceRead: true,
-          native: { status: 'verified', asset: 'TRX', balanceSun, balanceTRX: formatSun(balanceSun), accountExists: Boolean(account.address) },
+          native: { status: 'verified', asset: 'TRX', balanceSun, balanceTRX: formatSun(balanceSun), accountExists: accountExists },
           tokens: [],
           tokenBalancesComplete: false,
+          tokenBalanceScope: tokenConfig.reason,
           sponsorFundingVerified: false,
           sponsorAgreementVerified: false,
           canSubmitSponsoredTransfer: false,
@@ -169,7 +172,7 @@ export function createSponsorFundingReader({
                 parameter,
                 visible: false,
               }),
-              ...timeout,
+              signal: AbortSignal.timeout(8000),
             })
             if (!response.ok) throw new Error('token-balance-unavailable')
             const payload = await response.json()
@@ -188,7 +191,7 @@ export function createSponsorFundingReader({
           const decimals = Number(BigInt('0x' + decimalsHex))
           if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new Error('invalid-token-decimals')
           return {
-            asset,
+            asset: asset === 'USDT' && network !== 'mainnet' ? 'USDT (testnet)' : asset,
             tokenContract: contract,
             status: 'verified',
             balanceBaseUnits: BigInt('0x' + balanceHex).toString(),
