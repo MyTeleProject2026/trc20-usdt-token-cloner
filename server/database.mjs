@@ -1,7 +1,11 @@
 import pg from 'pg'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
 const SPONSORED_TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
 const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
