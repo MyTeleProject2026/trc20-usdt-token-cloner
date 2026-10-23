@@ -663,16 +663,16 @@ export default function App() {
         throw new Error('TRX amount must be positive and may have at most 6 decimal places.')
       }
       const sun = amount.times(1_000_000).toFixed(0)
-      const confirmationMessage = 'Confirm native TRX transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\nSender: ' + (tronWeb.defaultAddress.base58 || 'unknown') + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + amount.toFixed() + ' TRX\n\nCheck the recipient supports TRX on this exact network. Exchange deposits are not guaranteed. Continue to TronLink signing?'
-      if (!window.confirm(confirmationMessage)) {
-        setActionMessage({ type: 'error', text: 'Transfer cancelled before signing.' })
-        return
-      }
       if (!Number.isSafeInteger(Number(sun))) {
         throw new Error('This TRX amount exceeds the safe transaction-builder range. Send a smaller amount.')
       }
       const sender = tronWeb.defaultAddress.base58
-      if (!sender) throw new Error('TronLink has no authorized sender address.')
+      if (!sender || !tronWeb.isAddress(sender)) throw new Error('TronLink has no valid authorized sender address.')
+      const confirmationMessage = 'Confirm native TRX transfer\\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\\nSender: ' + sender + '\\nReceiver: ' + recipientAddress.trim() + '\\nAmount: ' + amount.toFixed() + ' TRX\\n\\nNetwork fees depend on wallet resources and the network. Review the fee and the full transaction in TronLink before signing. Exchange deposits are not guaranteed. Continue to TronLink signing?'
+      if (!window.confirm(confirmationMessage)) {
+        setActionMessage({ type: 'error', text: 'Transfer cancelled before signing.' })
+        return
+      }
       setWalletAddress(sender)
       const currentTronWeb = getCurrentAuthorizedTronWeb(sender)
       const transaction = await currentTronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
