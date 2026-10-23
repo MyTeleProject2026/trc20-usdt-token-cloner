@@ -313,6 +313,15 @@ test('sponsor budget draft and listing routes require the server-only admin toke
     assert.equal(listMissing.responseHeaders['cache-control'], 'no-store')
     assert.equal(listMissing.responseHeaders.vary, 'Authorization')
 
+    const activateMissing = response()
+    await activateLayer.route.stack[0].handle({
+      headers: {}, params: { id: '1' },
+      body: { consentReference: 'agreement-test-001', reviewReference: 'review-ticket-001' },
+    }, activateMissing)
+    assert.equal(activateMissing.statusCode, 503)
+    assert.equal(activateMissing.responseBody.error, 'sponsor-admin-not-configured')
+    assert.equal(activateMissing.responseHeaders['cache-control'], 'no-store')
+
     process.env.SPONSOR_ADMIN_API_TOKEN = 'y'.repeat(40)
     const unauthorized = response()
     await draftLayer.route.stack[0].handle({
