@@ -125,6 +125,11 @@ export function createSponsorFundingReader({
       const account = await accountResponse.json()
       let balanceSun
       if (!account || typeof account !== 'object' || Array.isArray(account)) throw new Error('invalid-native-balance-response')
+      const expectedAccountHex = tronWeb.address.toHex(sponsorAddress).replace(/^0x/i, '').toLowerCase()
+      if (account.address !== undefined
+        && (typeof account.address !== 'string' || account.address.replace(/^0x/i, '').toLowerCase() !== expectedAccountHex)) {
+        throw new Error('sponsor-account-identity-mismatch')
+      }
       if (account.balance === undefined && !account.address) {
         // SolidityNode returns an empty object for an address without an account.
         balanceSun = '0'
@@ -195,7 +200,7 @@ export function createSponsorFundingReader({
         }
       }))
 
-      const tokenBalancesComplete = tokenResults.every((item) => item.status === 'verified')
+      const tokenBalancesComplete = tokenResults.length > 0 && tokenResults.every((item) => item.status === 'verified')
       return {
         configured: true,
         network,
