@@ -167,7 +167,8 @@ export default function App() {
       const parsed = new URL(rawHost)
       hostname = parsed.hostname.toLowerCase()
       protocol = parsed.protocol.toLowerCase()
-      if (parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash) hostname = ''
+      if (parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
+        || (parsed.pathname !== '' && parsed.pathname !== '/')) hostname = ''
     } catch {
       hostname = ''
     }
@@ -443,7 +444,7 @@ export default function App() {
       if (selectedAsset === 'USDT' && tokenSymbolValue.toUpperCase() !== 'USDT') {
         throw new Error('The selected contract did not report the expected USDT symbol; transfer blocked.')
       }
-      const confirmation = 'Confirm TRC-20 transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (test assets only)' : 'TRON MAINNET (real funds)') + '\nToken: ' + tokenSymbolValue + '\nContract: ' + contractAddress.trim() + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + normalizedAmount + ' (token decimals: ' + decimals + ')\n\nOnly proceed if the receiver supports this exact token and network. Exchange deposit credit is not guaranteed. Continue to TronLink approval?'
+      const confirmation = 'Confirm TRC-20 transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (test assets only)' : 'TRON MAINNET (real funds)') + '\nToken: ' + tokenSymbolValue + '\nContract: ' + contractAddress.trim() + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + normalizedAmount + ' (token decimals: ' + decimals + ')\nContract-call feeLimit: up to 100 TRX (100,000,000 SUN; the actual resource cost may differ).\n\nReview the transaction and fee in TronLink and cancel if anything differs. Only proceed if the receiver supports this exact token and network. Exchange deposit credit is not guaranteed. Continue to TronLink approval?'
       if (!window.confirm(confirmation)) {
         setActionMessage({ type: 'error', text: 'Token transfer cancelled before signing.' })
         return
@@ -1258,7 +1259,7 @@ export default function App() {
             <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs">
               <h2 className="text-heading-xs font-semibold text-primary mb-sm">Transfer TRC-20 Tokens</h2>
               <p className="text-xs text-tertiary mb-lg">
-                Sign a real TRC-20 transfer in this browser. Your private key is not sent to the backend.
+                Sign a real TRC-20 transfer in this browser. Your private key is not sent to the backend. The current contract-call feeLimit is up to 100 TRX; this is a maximum allowance for the call, not a quote of the final network cost.
               </p>
 
               <div className="space-y-md">
