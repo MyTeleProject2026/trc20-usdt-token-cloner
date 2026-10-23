@@ -518,3 +518,59 @@ test('sponsor reconciliation endpoint is protected and refuses missing chain evi
     }
   }
 })
+
+
+test('protected sponsor transfer history route is read-only and validates filters', async () => {
+  const nativeTronRoutes = (await import('../server/routes/native-tron.mjs')).default
+  const layer = nativeTronRoutes.stack.find((item) =>
+    item.route?.path === '/sponsorship/transfers' && item.route.methods?.get,
+  )
+  assert.ok(layer, 'GET /sponsorship/transfers must be registered')
+  const savedToken = process.env.SPONSOR_ADMIN_API_TOKEN
+  const makeResponse = () => {
+    let statusCode = 200
+    let body
+    const headers = {}
+    return {
+      status(code) { statusCode = code; return this },
+      json(value) { body = value; return this },
+      setHeader(name, value) { headers[name] = value },
+      get statusCode() { return statusCode },
+      get body() { return body },
+      headers,
+    }
+  }
+  try {
+    delete process.env.SPONSOR_ADMIN_API_TOKEN
+    let res = makeResponse()
+    await layer.route.stack[0].handle({ headers: {}, query: {} }, res)
+    assert.equal(res.statusCode, 503)
+    assert.equal(res.body.error, 'sponsor-admin-not-configured')
+    assert.equal(res.headers['Cache-Control'], 'no-store')
+
+    process.env.SPONSOR_ADMIN_API_TOKEN = 'z'.repeat(40)
+    res = makeResponse()
+    await layer.route.stack[0].handle({ headers: { authorization: 'Bearer wrong-token' }, query: {} }, res)
+    assert.equal(res.statusCode, 401)
+    assert.equal(res.body.error, 'unauthorized')
+
+    res = makeResponse()
+    await layer.route.stack[0].handle({
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+      query: { status: 'unverified' },
+    }, res)
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.body.error, 'invalid-status')
+
+    res = makeResponse()
+    await layer.route.stack[0].handle({
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+      query: { limit: '101' },
+    }, res)
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.body.error, 'invalid-limit')
+  } finally {
+    if (savedToken === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
+    else process.env.SPONSOR_ADMIN_API_TOKEN = savedToken
+  }
+})
