@@ -186,3 +186,17 @@ test('reconciliation does not report coverage for an unapproved active budget', 
   assert.equal(result.groups[0].onChainBalanceBaseUnits, '150')
   assert.equal(result.canSubmitSponsoredTransfer, false)
 })
+
+
+test('reconciliation reports current approval scope gaps on active allocations', () => {
+  const result = reconcileSponsorBudgets({
+    network: 'shasta',
+    fundingSnapshot: snapshot(),
+    budgets: [
+      budget({ budget_base_units: '100', approvalScopeVerified: false }),
+    ],
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'approval-required')
+  assert.equal(result.groups[0].unapprovedActiveBudgetCount, 1)
+})
