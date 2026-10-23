@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { TronWeb } from 'tronweb'
 import { ShieldCheck, SearchCheck, Activity, BadgeCheck } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
@@ -239,49 +238,63 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
   }
 
   const verifyTraceOnChain = async () => {
-    const trace = traceResult?.trace
+    const currentTrace = traceResult?.trace
     setChainVerificationError('')
     setChainVerificationResult(null)
     setReceiverBalanceError('')
     setReceiverBalance(null)
 
-    if (!trace
-      || !trace.transactionId
-      || !/^[0-9a-f]{64}$/i.test(trace.transactionId)
-      || !trace.gasFreeAddress || !TRON_ADDRESS.test(trace.gasFreeAddress)
-      || !trace.receiverAddress || !TRON_ADDRESS.test(trace.receiverAddress)
-      || !trace.tokenAddress || !TRON_ADDRESS.test(trace.tokenAddress)
-      || !trace.amountBaseUnits || !/^[1-9][0-9]*$/.test(trace.amountBaseUnits)) {
-      setChainVerificationError('The provider has not returned a complete transaction ID, sender, receiver, token contract, and positive amount. Chain verification is not available yet.')
+    if (!currentTrace
+      || typeof currentTrace.traceId !== 'string'
+      || !TRACE_ID.test(currentTrace.traceId)
+      || !currentTrace.receiverAddress
+      || !TRON_ADDRESS.test(currentTrace.receiverAddress)
+      || !currentTrace.tokenAddress
+      || !TRON_ADDRESS.test(currentTrace.tokenAddress)) {
+      setChainVerificationError('The provider has not returned a valid trace ID, receiver, and token contract. Chain verification is not available yet.')
       return
     }
 
     setChainVerificationLoading(true)
     try {
-      const tronWeb = new TronWeb({
-        fullHost: network === 'mainnet' ? 'https://api.trongrid.io' : 'https://nile.trongrid.io',
+      // Re-read the provider trace through the backend. The backend performs
+      // independent solidified-chain verification and never trusts provider
+      // status alone; this also avoids a second, differently configured
+      // verification path in the browser.
+      const params = new URLSearchParams({ network, traceId: currentTrace.traceId })
+      const response = await fetch(`${API_BASE}/api/gasfree/trace?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
       })
-      const toHexAddress = (address: string) => tronWeb.address.toHex(address).replace(/^41/i, '')
-      const params = new URLSearchParams({
-        network,
-        contract: toHexAddress(trace.tokenAddress),
-        from: toHexAddress(trace.gasFreeAddress),
-        to: toHexAddress(trace.receiverAddress),
-        amountSun: trace.amountBaseUnits,
-      })
-      const response = await fetch(
-        `${API_BASE}/api/tron/verify-transfer/${encodeURIComponent(trace.transactionId)}?${params.toString()}`,
-        { headers: { Accept: 'application/json' } },
-      )
-      const payload: SolidifiedTokenVerification = await response.json()
-      setChainVerificationResult(payload)
-
-      if (!response.ok || payload?.success !== true) {
-        setChainVerificationError(payload?.message || payload?.error || payload?.status || 'Solidified-chain verification is unavailable.')
+      const payload: GasFreeTraceResult = await response.json()
+      if (!response.ok || payload?.success !== true || !payload.trace) {
+        const failed: SolidifiedTokenVerification = {
+          success: false,
+          verified: false,
+          status: payload?.status || 'provider-trace-unavailable',
+          error: payload?.message || 'Provider trace could not be refreshed.',
+        }
+        setChainVerificationResult(failed)
+        setChainVerificationError(failed.error || 'Provider trace could not be refreshed.')
         return
       }
-      if (payload.verified !== true) {
-        setChainVerificationError(payload.message || payload.reason || 'The transfer is not yet independently verified on solidified chain state. Retry the same trace later; do not resend the transfer.')
+
+      setTraceResult(payload)
+      const evidence = payload.trace.chainVerification
+      const verification: SolidifiedTokenVerification = {
+        success: true,
+        verified: evidence?.verified === true,
+        status: evidence?.status || 'not-verified',
+        reason: evidence?.reason,
+        message: evidence?.reason,
+        blockNumber: evidence?.blockNumber,
+        logIndex: evidence?.logIndex,
+        amountSun: evidence?.amountSun,
+        persistence: payload.trace.verificationPersistence,
+      }
+      setChainVerificationResult(verification)
+
+      if (verification.verified !== true) {
+        setChainVerificationError(verification.message || `Chain verification is ${verification.status || 'not verified'}. Retry this trace later; do not resubmit or repeat the transfer based only on a pending result.`)
         return
       }
 
@@ -289,8 +302,8 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
       try {
         const balanceParams = new URLSearchParams({
           network,
-          contract: trace.tokenAddress,
-          address: trace.receiverAddress,
+          contract: payload.trace.tokenAddress || '',
+          address: payload.trace.receiverAddress || '',
         })
         const balanceResponse = await fetch(`${API_BASE}/api/tron/token-balance?${balanceParams.toString()}`, {
           headers: { Accept: 'application/json' },
