@@ -4,6 +4,7 @@ import router from '../server/routes/native-tron.mjs'
 import {
   createSponsorProviderApplication,
   reviewSponsorProviderApplication,
+  isSponsorProviderApplicationStatusTransitionAllowed,
 } from '../server/database.mjs'
 
 function getRoute(method, routePath) {
@@ -105,6 +106,37 @@ test('provider contact list and review endpoints require the server-side admin t
   } finally {
     if (previous === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
     else process.env.SPONSOR_ADMIN_API_TOKEN = previous
+  }
+})
+
+test('provider application review statuses follow an explicit, irreversible-safe transition matrix', () => {
+  const allowed = [
+    ['pending-review', 'in-review'],
+    ['pending-review', 'accepted-for-due-diligence'],
+    ['pending-review', 'declined'],
+    ['pending-review', 'closed'],
+    ['in-review', 'accepted-for-due-diligence'],
+    ['in-review', 'declined'],
+    ['in-review', 'closed'],
+    ['accepted-for-due-diligence', 'in-review'],
+    ['accepted-for-due-diligence', 'declined'],
+    ['accepted-for-due-diligence', 'closed'],
+    ['declined', 'closed'],
+  ]
+  for (const [current, next] of allowed) {
+    assert.equal(isSponsorProviderApplicationStatusTransitionAllowed(current, next), true, current + ' -> ' + next)
+  }
+
+  const denied = [
+    ['closed', 'in-review'],
+    ['closed', 'declined'],
+    ['declined', 'in-review'],
+    ['declined', 'accepted-for-due-diligence'],
+    ['pending-review', 'pending-review'],
+    ['in-review', 'pending-review'],
+  ]
+  for (const [current, next] of denied) {
+    assert.equal(isSponsorProviderApplicationStatusTransitionAllowed(current, next), false, current + ' -> ' + next)
   }
 })
 

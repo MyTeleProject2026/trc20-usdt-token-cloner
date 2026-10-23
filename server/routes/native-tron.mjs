@@ -28,9 +28,16 @@ function reserveProviderApplicationAttempt(normalizedEmail) {
   recent.push(now)
   providerApplicationRateLimit.set(key, recent)
   if (providerApplicationRateLimit.size > 2000) {
+    // Remove expired buckets first. If the map is still too large after a
+    // high-cardinality burst, evict oldest entries to keep process memory bounded.
     for (const [candidate, timestamps] of providerApplicationRateLimit) {
       if (!timestamps.some((timestamp) => now - timestamp < 60 * 60 * 1000)) providerApplicationRateLimit.delete(candidate)
       if (providerApplicationRateLimit.size <= 1800) break
+    }
+    while (providerApplicationRateLimit.size > 2000) {
+      const oldestKey = providerApplicationRateLimit.keys().next().value
+      if (oldestKey === undefined) break
+      providerApplicationRateLimit.delete(oldestKey)
     }
   }
   return { allowed: true, key, timestamp: now }

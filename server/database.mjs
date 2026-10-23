@@ -1642,6 +1642,19 @@ export async function registerTrackedWallet({ network, address, displayLabel = n
 
 const PROVIDER_APPLICATION_SCOPES = new Set(['network-fees', 'trx-grant', 'trc20-grant'])
 const PROVIDER_APPLICATION_REFERENCE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const PROVIDER_APPLICATION_STATUS_TRANSITIONS = Object.freeze({
+  'pending-review': ['in-review', 'accepted-for-due-diligence', 'declined', 'closed'],
+  'in-review': ['accepted-for-due-diligence', 'declined', 'closed'],
+  'accepted-for-due-diligence': ['in-review', 'declined', 'closed'],
+  'declined': ['closed'],
+  'closed': [],
+})
+
+export function isSponsorProviderApplicationStatusTransitionAllowed(currentStatus, nextStatus) {
+  const allowed = PROVIDER_APPLICATION_STATUS_TRANSITIONS[currentStatus]
+  return Array.isArray(allowed) && allowed.includes(nextStatus)
+}
+
 
 function normalizeProviderApplication(input = {}) {
   const reference = typeof input.reference === 'string' ? input.reference.trim() : ''
@@ -1802,7 +1815,7 @@ export async function reviewSponsorProviderApplication({ reference, status, revi
         await client.query('COMMIT')
         return { success: true, duplicate: true, reference: row.reference, status: row.status }
       }
-      if (!['pending-review', 'in-review'].includes(row.status)) {
+      if (!isSponsorProviderApplicationStatusTransitionAllowed(row.status, status)) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'invalid-status-transition' }
       }

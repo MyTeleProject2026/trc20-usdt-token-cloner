@@ -64,13 +64,13 @@ Example request:
       "reviewReference": "approved-internal-case-reference"
     }
 
-Allowed review statuses are in-review, accepted-for-due-diligence, declined, and closed. Acceptance for due diligence requires a review reference and records an audit event; it is not an approved sponsor agreement and cannot activate fee sponsorship. Final states cannot be changed by repeatedly calling the review endpoint; reopening or reversal requires a deliberate reviewed change.
+Allowed review statuses are in-review, accepted-for-due-diligence, declined, and closed. Acceptance for due diligence requires a review reference and records an audit event; it is not an approved sponsor agreement and cannot activate fee sponsorship. Accepted-for-due-diligence can move back to in-review for continued due diligence or to declined/closed. Declined can only move to closed, and closed is final. A new application or a separately reviewed policy is required to reverse a declined/closed outcome.
 
 ## Persistence and auditing
 
 Applications are stored under trc20_token_clone.sponsor_provider_applications with a UUID reference, provider name, normalized business email, scope, status, timestamps, and an optional review reference. Creation and review decisions record non-secret metadata in trc20_token_clone.audit_events. API secrets, signing keys, recovery phrases, signatures, and transaction payloads are not stored in this table.
 
-The in-memory rate limit resets when the backend process restarts and does not replace a shared durable abuse-control service. For public production onboarding at scale, add cross-instance rate limiting, privacy/retention policy, CSRF/origin review where applicable, and operational monitoring. Do not disable the field allowlist or consent check as a workaround.
+The in-memory rate limit allows up to three submissions per normalized email per hour, is bounded to 2,000 email buckets per process, and resets when the backend process restarts. It does not replace a shared durable abuse-control service. For public production onboarding at scale, add cross-instance rate limiting, privacy/retention policy, CSRF/origin review where applicable, and operational monitoring. Do not disable the field allowlist or consent check as a workaround.
 
 ## Operational verification checklist
 
