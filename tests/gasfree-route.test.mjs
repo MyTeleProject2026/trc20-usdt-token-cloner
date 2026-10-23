@@ -159,3 +159,31 @@ test('GasFree trace route explicitly distinguishes provider state from chain ver
   assert.equal(res.body.canSubmitSponsoredTransfer, false)
   assert.equal(res.body.submissionEnabled, false)
 })
+
+
+test('GasFree explicitly refuses sponsored submission without contacting provider or falling back to user funds', async () => {
+  let calls = 0
+  const router = createGasFreeRouter({
+    submitTransfer: async () => { calls += 1; throw new Error('must not be called') },
+    getCapabilities: async () => { calls += 1; throw new Error('must not be called') },
+  })
+  const layer = router.stack.find((item) =>
+    item.route?.path === '/submit' && item.route.methods?.post,
+  )
+  assert.ok(layer, 'POST /submit must be registered')
+  const res = responseRecorder()
+  await layer.route.stack[0].handle({ body: { network: 'mainnet', amount: '100' } }, res)
+  assert.equal(res.statusCode, 503)
+  assert.equal(res.body.status, 'sponsored-submission-disabled')
+  assert.equal(res.body.enabled, false)
+  assert.equal(res.body.providerSubmissionAttempted, false)
+  assert.equal(res.body.transactionBroadcast, false)
+  assert.equal(res.body.providerFundingVerified, false)
+  assert.equal(res.body.externalSponsorConfirmed, false)
+  assert.equal(res.body.feePolicyConfirmed, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
+  assert.equal(res.body.unpaidFallbackToUserFunds, false)
+  assert.ok(res.body.requiredBeforeEnablement.includes('atomic-separate-fee-and-principal-budget-reservation'))
+  assert.equal(calls, 0)
+})
