@@ -10,6 +10,9 @@ test('sponsor provider page loads separate fee and principal sponsor accounts fr
   assert.ok(page.includes('Sponsor A · Network fees / resources'))
   assert.ok(page.includes('Sponsor B · Asset principal'))
   assert.ok(page.includes('configuredAddressesDistinct'))
+  assert.ok(page.includes('Last independent sponsor snapshot'))
+  assert.ok(page.includes('Number.isFinite(Date.parse(roleStatus.checkedAt))'))
+  assert.ok(page.includes('does not authorize spending'))
   assert.ok(page.includes('Legacy shared sponsor address snapshot'))
 })
 
