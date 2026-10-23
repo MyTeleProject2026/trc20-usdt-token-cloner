@@ -2,6 +2,7 @@ import { recordNativeTransferVerification, listPersistedReceiverHistory, registe
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
+import { createSponsorResourceReader } from '../sponsor-resources.mjs'
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 
 import { Router } from 'express'
@@ -102,6 +103,38 @@ router.get('/sponsorship/funding-status', async (req, res) => {
       error: 'sponsor-balance-read-failed',
       message: 'Could not read the sponsor balance from the selected network.',
     })
+  }
+})
+
+// Read the configured sponsor's solidified resource limits and Stake-2.0
+// delegation ceilings. Public chain metadata is read-only; no funds move here.
+const readSponsorResourceStatus = createSponsorResourceReader()
+router.get('/sponsorship/resource-status', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const network = req.query?.network
+  const refreshValue = req.query?.refresh
+  if (refreshValue !== undefined && refreshValue !== '0' && refreshValue !== '1') {
+    return res.status(400).json({ success: false, error: 'invalid-refresh', message: 'refresh must be 0 or 1.' })
+  }
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  try {
+    const resources = await readSponsorResourceStatus(network, { refresh: refreshValue === '1' })
+    const verifiedRead = resources?.success === true && resources?.resourceRead === true
+    return res.status(verifiedRead ? 200 : 503).json({
+      success: verifiedRead,
+      resources,
+      limitations: [
+        'This endpoint queries solidified account resources and the maximum Stake-2.0 delegation size; it never signs or broadcasts a delegation or token transfer.',
+        'Delegation ceilings are measured in SUN-equivalent staked TRX, not Energy units.',
+        'A resource snapshot does not prove a later transaction will be fully covered; verify the resulting delegation and each transfer separately.',
+        'No user-funded fallback is authorized by this endpoint.',
+      ],
+    })
+  } catch {
+    return res.status(502).json({ success: false, error: 'sponsor-resource-read-failed', message: 'Could not verify sponsor resources on the selected network.' })
   }
 })
 
