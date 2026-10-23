@@ -860,6 +860,81 @@ export async function transitionSponsorTransfer(input) {
 
  
 /**
+ * Creates an operator-requested sponsor budget draft. The row always starts as
+ * pending-review; this helper cannot activate budgets or submit transfers.
+ */
+export async function createSponsorBudgetDraft(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  const { sponsorReference, purpose, asset, budgetBaseUnits, sponsorAddress } = input || {}
+  const tokenContract = input?.tokenContract ?? null
+  if (!network
+    || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
+    || !['network-fee', 'asset-grant'].includes(purpose)
+    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || (purpose === 'network-fee' && asset !== 'TRX')
+    || (asset === 'TRX' && tokenContract !== null)
+    || (asset !== 'TRX' && (typeof tokenContract !== 'string'
+      || !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract)))
+    || typeof budgetBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(budgetBaseUnits)
+    || typeof sponsorAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)) {
+    return { success: false, reason: 'invalid-budget-draft' }
+  }
+
+  const { TronWeb } = await import('tronweb')
+  const host = network === 'mainnet' ? 'https://api.trongrid.io'
+    : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io'
+  const tronWeb = new TronWeb({ fullHost: host })
+  if (!tronWeb.isAddress(sponsorAddress)
+    || (asset !== 'TRX' && !tronWeb.isAddress(tokenContract))) {
+    return { success: false, reason: 'invalid-tron-address' }
+  }
+
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query(
+      `INSERT INTO ${schema}.sponsor_budgets
+        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+         budget_base_units, reserved_base_units, spent_base_units, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,0,0,'pending-review')
+       ON CONFLICT DO NOTHING
+       RETURNING id::text AS id, sponsor_reference, sponsor_address, network, purpose,
+                 asset, token_contract, budget_base_units::text AS budget_base_units,
+                 reserved_base_units::text AS reserved_base_units,
+                 spent_base_units::text AS spent_base_units, status, created_at, updated_at`,
+      [sponsorReference.trim(), sponsorAddress, network, purpose, asset, asset === 'TRX' ? null : tokenContract.trim(), budgetBaseUnits],
+    )
+    if (!result.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-already-exists' }
+    }
+    const budget = result.rows[0]
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-budget-draft-created', 'sponsor-budget', $1, $2::jsonb)`,
+      [`${sponsorReference.trim()}:${network}:${purpose}:${asset}:${asset === 'TRX' ? '' : tokenContract.trim()}`,
+       JSON.stringify({ network, purpose, asset, budgetBaseUnits, status: 'pending-review' })],
+    )
+    await client.query('COMMIT')
+    return {
+      success: true,
+      duplicate: false,
+      budget,
+      canReserve: false,
+      message: 'Budget draft recorded as pending-review. Operator approval, sponsor consent, actual funding reconciliation, and a reviewed transfer path are still required.',
+    }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * Return only the configured sponsor-ledger budget records for privileged operations.
  * These are operator-set caps, not proof of live on-chain balances or funded resources.
  */
