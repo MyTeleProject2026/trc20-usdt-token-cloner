@@ -51,3 +51,12 @@ Creation always sets the row to `pending-review`; duplicate identities are rejec
 `POST /api/tron/sponsorship/budgets/:id/pause` is protected by the same server-only administrator bearer token. It requires one controlled reason code: `operator-request`, `funding-mismatch`, `provider-incident`, or `emergency-stop`. It uses a row lock and a database transaction to change the configured budget to `paused` and record an audit event. Repeated pauses are idempotent. Depleted budgets remain terminal. A paused budget cannot be used for new reservations by the existing reservation function. Pausing cannot reverse or cancel transactions already submitted to TRON.
 
 The funding endpoint accepts `refresh=1` to bypass a fresh successful snapshot once per 10 seconds per network. Repeated forced refreshes are throttled; successful snapshots cache for up to 10 seconds and provider failures cache for 3 seconds to avoid retry storms. Responses carrying sponsor balances or ledger details include `Cache-Control: no-store`.
+
+
+## Budget activation gate
+
+`POST /api/tron/sponsorship/budgets/:id/activate` requires the protected administrator token, a review/ticket reference, and an agreement reference that has already been placed in server-only `SPONSOR_APPROVED_AGREEMENT_REFERENCES` after an operator independently reviews the signed sponsor agreement. Merely supplying a string is not sufficient. The endpoint refreshes the exact network's chain snapshot and rejects throttled/stale reads, mismatched sponsor accounts, missing exact-asset balances, and caps that exceed the chain balance after other active/paused allocations for the same wallet/network/asset are included.
+
+Activation is serialized at the sponsor-wallet/network/asset level with a PostgreSQL transaction and advisory lock, stores the approval/review references and timestamp, and writes an audit event. Inactive drafts do not consume an allocation until approved, but outstanding reservations on other inactive records are still included. A successful activation makes the ledger budget eligible for internal reservations only; there is still no signing or submission capability.
+
+Mainnet activation additionally requires `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=true`, which defaults to `false`. Both the allowlisted agreement reference and this separate Mainnet gate are required in addition to administrator authentication and fresh balance reconciliation. These configuration settings never turn on the GasFree submission endpoint or a transfer broadcast path.
