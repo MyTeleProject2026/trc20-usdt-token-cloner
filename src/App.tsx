@@ -68,10 +68,8 @@ export default function App() {
   const [tokenVerifyResult, setTokenVerifyResult] = useState<any>(null)
   const [verifiedTransferLookup, setVerifiedTransferLookup] = useState<any>(null)
   const [verifiedTransferLookupLoading, setVerifiedTransferLookupLoading] = useState(false)
-  const [privateKey, setPrivateKey] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
   const [walletConnected, setWalletConnected] = useState(false)
-  const [showPrivateKey, setShowPrivateKey] = useState(false)
   const [accountData, setAccountData] = useState<any>(null)
   const [transactionHistory, setTransactionHistory] = useState<any[]>([])
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -110,8 +108,6 @@ export default function App() {
     setWalletConnected(false)
     setAccountData(null)
     setWalletAddress('')
-    setPrivateKey('')
-    setShowPrivateKey(false)
     setNativeBalanceResult(null)
     setTokenBalanceResult(null)
     setNativeTransferRecord(null)
@@ -222,24 +218,21 @@ export default function App() {
     }
   }
 
-  const handleGenerateWallet = async () => {
+  const handleUseConnectedWalletAsRecipient = async () => {
     try {
-      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const tronWeb = new TronWeb({ fullHost })
-      const account: any = await tronWeb.createAccount()
-      const address = account?.address?.base58
-      const key = account?.privateKey
-      if (!address || !key) throw new Error('The wallet provider did not return a complete account.')
+      const tronWeb = await getInjectedTronWeb()
+      assertSelectedTronLinkNetwork(tronWeb)
+      const address = tronWeb.defaultAddress.base58
+      if (!address || !tronWeb.isAddress(address)) throw new Error('TronLink did not provide a valid authorized address.')
       setWalletAddress(address)
-      setPrivateKey(key)
+      setWalletConnected(true)
       setQueryAddress(address)
       setRecipient(address)
-      setActionMessage({ type: 'success', text: `New ${network === 'shasta' ? 'Shasta testnet' : 'TRON Mainnet'} wallet generated locally: ${address}. Back up the private key securely before leaving this page.` })
+      setActionMessage({ type: 'success', text: 'Connected TronLink address set as the initial VTRC recipient. Review the address before deployment.' })
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err?.message || 'Could not generate a local TRON wallet.' })
+      setActionMessage({ type: 'error', text: err?.message || 'Could not use the connected TronLink address.' })
     }
   }
-
 
   const handleDeploy = async () => {
     if (network !== 'shasta') {
@@ -249,18 +242,31 @@ export default function App() {
     setDeploying(true)
     setDeployResult(null)
     try {
-      if (!privateKey.trim()) throw new Error('Enter your wallet private key in the local-signing field. It is used only in this browser and is never sent to the backend.')
-      if (!recipient.trim()) throw new Error('Enter the address that should receive the initial supply.')
+      if (!recipient.trim()) throw new Error('Connect TronLink and enter the address that should receive the initial supply.')
       if (!/^[1-9][0-9]*$/.test(initialSupply)) throw new Error('Initial supply must be a positive whole-token integer.')
       if (Number(tokenDecimals) !== 18) throw new Error('This VTRC contract template uses 18 decimals.')
       if (tokenName.trim() !== 'TRC20' || tokenSymbol.trim() !== 'VTRC') {
         throw new Error('This deployment template is intentionally fixed to its independent identity: TRC20 / VTRC. It cannot be used to impersonate official Tether USDT.')
       }
-      const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
-      const tronWeb = new TronWeb({ fullHost, privateKey: privateKey.trim() })
+
+      const tronWeb = await getInjectedTronWeb()
+      assertSelectedTronLinkNetwork(tronWeb)
       if (!tronWeb.isAddress(recipient.trim())) throw new Error('Enter a valid TRON Base58 recipient address.')
-      setWalletAddress(tronWeb.defaultAddress.base58 || '')
-      const contract = await tronWeb.contract().new({
+      const sender = tronWeb.defaultAddress.base58
+      if (!sender || !tronWeb.isAddress(sender)) throw new Error('TronLink has no valid authorized deployer address.')
+      setWalletAddress(sender)
+      setWalletConnected(true)
+
+      const confirmation = 'Confirm VTRC contract deployment\\nNetwork: Shasta testnet (test assets only)\\nDeployer: ' + sender + '\\nToken: TRC20 / VTRC (independent project token, not USDT)\\nDecimals: 18\\nInitial supply: ' + initialSupply + ' VTRC\\nInitial recipient: ' + recipient.trim() + '\\nMaximum fee limit configured: 1,000 TRX (testnet only; review the actual wallet transaction and cancel if unexpected).\\n\\nTronLink will request authorization. Never enter or share a private key on this website. Continue?'
+      if (!window.confirm(confirmation)) {
+        setDeployResult({ success: false, error: 'cancelled', message: 'Deployment cancelled before wallet authorization.' })
+        return
+      }
+
+      // Re-read the injected wallet after confirmation; only TronLink is allowed
+      // to hold the signing key. Deployment remains Shasta-only.
+      const signerTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const contract = await signerTronWeb.contract().new({
         abi: tokenArtifact.abi as any,
         bytecode: tokenArtifact.bytecode,
         feeLimit: 1_000_000_000,
@@ -269,18 +275,19 @@ export default function App() {
         originEnergyLimit: 10_000_000,
         parameters: [tokenName.trim(), tokenSymbol.trim(), initialSupply, recipient.trim()],
       })
+      getCurrentAuthorizedTronWeb(sender)
       const contractAddress = (contract as any).address
       const txId = (contract as any).transaction?.txID || (contract as any).transaction?.txid || ''
-      if (!contractAddress) throw new Error('The deployment request returned no contract address. Check the transaction and network explorer.')
+      if (!contractAddress) throw new Error('The deployment request returned no contract address. Check TronLink activity and the Shasta explorer before retrying.')
       setDeployResult({
         success: true,
         txId,
         contractAddress,
-        message: 'Contract deployment submitted. Confirm the transaction on the selected TRON network before relying on the address.',
+        message: 'Contract deployment submitted through TronLink. Verify the solidified transaction on Shasta before relying on the address.',
       })
       setContractAddress(contractAddress)
     } catch (err: any) {
-      setDeployResult({ success: false, error: 'deployment-failed', message: err?.message || 'Deployment failed. Check the network, wallet funds, and fee limit.' })
+      setDeployResult({ success: false, error: 'deployment-failed', message: err?.message || 'Deployment failed. Check the selected Shasta network, TronLink approval, testnet resources, and fee limit.' })
     } finally {
       setDeploying(false)
     }
@@ -1005,25 +1012,16 @@ export default function App() {
                   />
                   <p className="text-xs text-tertiary">Receives 100% of the initial supply upon deployment</p>
                 </div>
-                <div className="sm:col-span-2 flex flex-col gap-sm">
-                  <div className="flex items-center justify-between gap-sm">
-                    <label className="text-sm font-medium text-secondary">Wallet Private Key (browser-local signing)</label>
-                    <button type="button" onClick={handleGenerateWallet} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Generate wallet</button>
+                <div className="sm:col-span-2 flex flex-col gap-sm rounded-lg border border-secondary bg-secondary p-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-sm">
+                    <div>
+                      <p className="text-sm font-medium text-primary">TronLink deployment wallet</p>
+                      <p className="text-xs text-tertiary">The signing key stays in TronLink; this app does not ask for or store your private key.</p>
+                    </div>
+                    <button type="button" onClick={handleUseConnectedWalletAsRecipient} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Use connected wallet as recipient</button>
                   </div>
-                  <input
-                    type={showPrivateKey ? "text" : "password"}
-                    autoComplete="off"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    placeholder="Private key for your own wallet"
-                  />
-                  <div className="flex flex-wrap items-center gap-sm">
-                    <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
-                    {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
-                  </div>
-                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Current local wallet: {walletAddress}</p>}
-                  <p className="text-xs text-tertiary">The key is used only by this browser and is not submitted to the backend. Back it up securely; this page does not store it after you close or reload the app.</p>
+                  <p className="text-xs font-mono text-secondary break-all">Connected address: {walletConnected && walletAddress ? walletAddress : 'Not connected — use Connect TronLink above'}</p>
+                  <p className="text-xs text-tertiary">Deployment is limited to Shasta testnet. Review the network, recipient, initial supply, and fee limit in the wallet before approving.</p>
                 </div>
               </div>
 
@@ -1033,7 +1031,7 @@ export default function App() {
                 <div>
                   <p className="text-sm font-semibold text-primary">Tron Network Signing</p>
                   <p className="mt-xxs text-sm text-tertiary">
-                    Your wallet signs the deployment in this browser. The private key is not sent to the backend or stored by Render. Keep a secure backup and never use a wallet holding funds you cannot afford to risk.
+                    TronLink retains the signing key and asks you to approve the deployment. This page never asks you to paste, reveal, or copy a private key. Verify the selected Shasta network and the wallet's transaction details before approving.
                   </p>
                 </div>
               </div>
