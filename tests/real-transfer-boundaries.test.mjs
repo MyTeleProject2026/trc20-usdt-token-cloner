@@ -63,3 +63,11 @@ test('TronLink account or network changes invalidate stale transfer and balance 
   assert.match(app, /provider\.removeListener\?\.\('accountsChanged', onAccountsChanged\)/)
   assert.match(app, /provider\.removeListener\?\.\('chainChanged', onChainChanged\)/)
 })
+
+
+test('wallet transfers require the exact trusted HTTPS RPC hostname', () => {
+  assert.match(app, /const parsed = new URL\(rawHost\)/)
+  assert.match(app, /protocol !== 'https:' \|\| hostname !== expectedHost/)
+  assert.match(app, /const expectedHost = network === 'shasta' \? 'api\.shasta\.trongrid\.io' : 'api\.trongrid\.io'/)
+  assert.match(app, /const handleNativeTrxTransfer = async \(\) => \{[\s\S]*?assertSelectedTronLinkNetwork\(tronWeb\)/)
+})
