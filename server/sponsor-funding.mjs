@@ -114,12 +114,11 @@ export function createSponsorFundingReader({
         'content-type': 'application/json',
         'x-api-key': env.TATUM_API_KEY.trim(),
       }
-      const timeout = { signal: AbortSignal.timeout(8000) }
       const accountResponse = await fetchImpl(config.host + '/walletsolidity/getaccount', {
         method: 'POST',
         headers,
         body: JSON.stringify({ address: tronWeb.address.toHex(sponsorAddress), visible: false }),
-        ...timeout,
+        signal: AbortSignal.timeout(8000),
       })
       if (!accountResponse.ok) throw new Error('native-balance-unavailable')
       const account = await accountResponse.json()
