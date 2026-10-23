@@ -184,7 +184,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
                     </p>)}
                   </div> : <p className="text-xs text-tertiary">{funding.tokenBalanceScope === 'invalid-token-contract-allowlist' || funding.tokenBalanceScope === 'token-contract-allowlist-too-large' ? 'Token contract configuration is invalid; token balances are withheld.' : 'No token contracts were configured for read-only balance checks on this network.'}</p>}
                   {funding.tokenBalancesComplete === false && Boolean(funding.tokens?.length) && <p className="text-xs text-tertiary">At least one token balance could not be verified; inspect each token result above.</p>}
-                  {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}{funding.cache?.status === 'cached' ? ` · cached ${Math.ceil((funding.cache.ageMs || 0) / 1000)}s ago` : ' · fresh provider read'}</p>}
+                  {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}{funding.cache?.status === 'cached' ? ` · cached ${Math.ceil((funding.cache.ageMs || 0) / 1000)}s ago` : funding.cache?.status === 'refresh-throttled' ? ` · refresh throttled; snapshot ${Math.ceil((funding.cache.ageMs || 0) / 1000)}s old` : ' · fresh provider read'}</p>}
                 </div>
               : <p className="text-xs text-tertiary">{funding?.status === 'sponsor-address-not-configured'
                   ? `No sponsor address is configured for this network. Set ${funding.requiredEnvironment?.join(', ') || 'the network-specific sponsor address'} server-side before the balance can be checked.`
