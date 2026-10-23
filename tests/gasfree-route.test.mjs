@@ -19,6 +19,26 @@ function responseRecorder() {
   }
 }
 
+test('GasFree config status reports credential presence without exposing secrets or enabling transfers', async () => {
+  const router = createGasFreeRouter({
+    isConfigured: (network) => network === 'nile',
+  })
+  const res = responseRecorder()
+  await getRoute(router, '/config-status')({ query: {} }, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.status, 'credentials-missing')
+  assert.equal(res.body.networks.mainnet.configured, false)
+  assert.deepEqual(res.body.networks.mainnet.requiredEnvironment, [
+    'GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET',
+  ])
+  assert.equal(res.body.networks.nile.configured, true)
+  assert.equal(res.body.providerReachabilityVerified, false)
+  assert.equal(res.body.providerFundingVerified, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
+  assert.equal(JSON.stringify(res.body).includes('secret-value'), false)
+})
+
 test('GasFree route rejects unknown networks before calling provider', async () => {
   let called = false
   const router = createGasFreeRouter({ getCapabilities: async () => { called = true } })
