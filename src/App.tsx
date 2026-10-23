@@ -1031,12 +1031,12 @@ export default function App() {
           </div>
         )}
         {/* Primary workflow: select an asset and review sponsor availability before using transfer tools. */}
-        <div className="mb-md flex flex-wrap gap-sm">
+        <nav aria-label="Token Studio primary navigation" className="primary-workflow-shortcuts mb-lg grid grid-cols-1 gap-sm sm:grid-cols-2">
           <button type="button" onClick={() => setActiveTab('choose')} aria-current={activeTab === 'choose' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'choose' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Choose asset</button>
           <button type="button" onClick={() => setActiveTab('sponsors')} aria-current={activeTab === 'sponsors' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'sponsors' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Sponsor providers</button>
-        </div>
-        {/* Tabs component recipe: list on baseline divider */}
-        <div className="mb-xl flex gap-lg border-b border-secondary overflow-x-auto">
+        </nav>
+        {/* Keep tab labels at their intrinsic width; allow horizontal scrolling on narrow screens. */}
+        <nav aria-label="Token Studio workflows" className="primary-workflow-tabs mb-xl flex gap-lg border-b border-secondary overflow-x-auto" role="tablist">
           <button
             type="button"
             onClick={() => setActiveTab('deploy')}
