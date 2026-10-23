@@ -1230,16 +1230,6 @@ export default function App() {
                             )}
                           </div>
                         )}
-                            <span>Tx Hash: {deployResult.txId}</span>
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(deployResult.txId || '', 'tx')}
-                              className="text-tertiary hover:text-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                            >
-                              <Copy className="size-4 shrink-0 text-fg-quaternary" />
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>
                   ) : (
