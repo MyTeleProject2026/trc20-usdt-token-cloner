@@ -216,7 +216,8 @@ test('GasFree trace lookup sanitizes status and reports provider trace separatel
             tokenAddress: 'T' + 'E'.repeat(33),
             amount: '5000000',
             maxFee: 1000000,
-            transactionId: 'a'.repeat(64),
+            // `txnHash` is the field name used by the official GasFree trace API.
+            txnHash: 'a'.repeat(64),
             createdAt: '2026-10-22T12:00:00Z',
           },
         }),
