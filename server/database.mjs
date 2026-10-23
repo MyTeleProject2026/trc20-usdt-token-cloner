@@ -1502,6 +1502,48 @@ export async function listSponsorBudgets({ network = null, sponsorAddress = null
   }
 }
 
+/**
+ * Read-only, bounded operator view of sponsor transfer lifecycle records.
+ * This does not transition states, release reservations, or submit transactions.
+ */
+export async function listSponsorTransfers({ network = null, status = null, sponsorReference = null, limit = 50 } = {}) {
+  if (network !== null && !normalizeVerificationNetwork(network)) {
+    return { success: false, reason: 'invalid-network', transfers: [] }
+  }
+  const allowedStatuses = new Set(['pending-review', 'authorized', 'submitted', 'confirmed', 'failed', 'cancelled'])
+  if (status !== null && (typeof status !== 'string' || !allowedStatuses.has(status))) {
+    return { success: false, reason: 'invalid-status', transfers: [] }
+  }
+  if (sponsorReference !== null
+    && (typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference))) {
+    return { success: false, reason: 'invalid-sponsor-reference', transfers: [] }
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', transfers: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', transfers: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, idempotency_key, sponsor_reference, network, purpose, asset,
+              token_contract, receiver_address, amount_base_units::text AS amount_base_units,
+              status, transaction_hash, authorization_reference, created_at, updated_at
+         FROM ${schema}.sponsor_transfers
+        WHERE ($1::text IS NULL OR network = $1)
+          AND ($2::text IS NULL OR status = $2)
+          AND ($3::text IS NULL OR sponsor_reference = $3)
+        ORDER BY updated_at DESC, id DESC
+        LIMIT $4`,
+      [network, status, sponsorReference, limit + 1],
+    )
+    const truncated = result.rows.length > limit
+    return { success: true, transfers: result.rows.slice(0, limit), truncated }
+  } catch {
+    return { success: false, reason: 'database-unavailable', transfers: [] }
+  }
+}
+
 /** Return bounded persisted receiver-history records. Indexed rows are candidates
  * unless the worker has independently verified a solidified receipt. */
 export async function listPersistedReceiverHistory({ network, address, contract = null, limit = 50 } = {}) {
