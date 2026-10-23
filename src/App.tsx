@@ -93,16 +93,37 @@ export default function App() {
       const fullHost = network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://api.trongrid.io'
       const [blockResult, providerResult] = await Promise.allSettled([
         new TronWeb({ fullHost }).trx.getCurrentBlock(),
-        fetch(`${API_BASE}/api/status`).then((response) => response.json()),
+        fetch(`${API_BASE}/api/status`, { cache: 'no-store' }).then(async (response) => {
+          const payload = await response.json().catch(() => null)
+          if (!response.ok) throw new Error(`API status endpoint returned HTTP ${response.status}.`)
+          if (!payload || typeof payload !== 'object' || typeof payload.status !== 'string') {
+            throw new Error('API status endpoint returned an invalid payload.')
+          }
+          return payload
+        }),
       ])
       if (blockResult.status === 'fulfilled') {
         const block: any = blockResult.value
         const raw = block?.block_header?.raw_data
-        setTronBlock({ blockNumber: raw?.number, hash: block?.blockID })
+        if (Number.isFinite(raw?.number) && typeof block?.blockID === 'string') {
+          setTronBlock({ blockNumber: raw.number, hash: block.blockID })
+        } else {
+          setTronBlock(null)
+        }
+      } else {
+        setTronBlock(null)
       }
-      if (providerResult.status === 'fulfilled') setApiStatus(providerResult.value?.status || 'connected')
-      else setApiStatus('connected')
+
+      // Never translate a failed backend request into a healthy/connected state.
+      // Provider-level failures returned as HTTP 200 are preserved for the UI too.
+      if (providerResult.status === 'fulfilled') {
+        const status = providerResult.value?.status
+        setApiStatus(typeof status === 'string' && status.trim() ? status : 'invalid-response')
+      } else {
+        setApiStatus('unavailable')
+      }
     } catch {
+      setTronBlock(null)
       setApiStatus('error')
     }
   }
@@ -992,6 +1013,23 @@ export default function App() {
           </div>
         )}
 
+        {apiStatus !== 'connected' && apiStatus !== 'checking' && apiStatus !== 'no-api-key' && (
+          <div role="status" aria-live="polite" className="mb-xl flex gap-lg rounded-xl bg-utility-warning-50 p-xl">
+            <AlertCircle className="mt-xxs size-5 shrink-0 text-utility-warning-600" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-utility-warning-600">Tatum-backed API status: {apiStatus}</p>
+              <p className="mt-xxs text-sm text-tertiary">
+                {apiStatus === 'provider-response'
+                  ? 'The backend reached Tatum but received an HTTP error. Check the server-side API key, provider permissions, and endpoint configuration.'
+                  : apiStatus === 'egress-failed'
+                    ? 'The backend could not complete its read-only Tatum request. Check outbound network access and server-side Tatum configuration.'
+                    : apiStatus === 'unavailable' || apiStatus === 'error'
+                      ? 'The backend status endpoint could not be reached. Public TRON reads may still work, but backend-dependent features are not confirmed healthy.'
+                      : 'The backend returned an unexpected status. Treat API-dependent features as unavailable until the status check succeeds.'}
+              </p>
+            </div>
+          </div>
+        )}
         {/* Primary workflow: select an asset and review sponsor availability before using transfer tools. */}
         <div className="mb-md flex flex-wrap gap-sm">
           <button type="button" onClick={() => setActiveTab('choose')} aria-current={activeTab === 'choose' ? 'page' : undefined} className={`rounded-lg border px-md py-sm text-sm font-semibold ${activeTab === 'choose' ? 'border-brand-primary bg-secondary text-primary' : 'border-primary text-secondary'}`}>Choose asset</button>
