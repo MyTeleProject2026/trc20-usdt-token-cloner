@@ -4,9 +4,10 @@ import { Activity, CheckCircle2, ExternalLink, RefreshCw, ShieldCheck, TriangleA
 type Props = { network: 'shasta' | 'nile' | 'mainnet'; walletAddress?: string }
 type Resource = 'ENERGY' | 'BANDWIDTH'
 type DelegationRecord = { transactionId: string; owner: string; receiver: string; resource: Resource; amountSun: string }
-type Verification = { status: 'verified' | 'pending' | 'failed'; message: string; blockNumber?: number; delegatedBaseUnits?: string }
+type Verification = { status: 'verified' | 'pending' | 'failed'; message: string; blockNumber?: number; delegatedBaseUnits?: string; persistence?: { persisted: boolean; duplicate?: boolean; reason?: string } }
 
 const SHASTA_RPC = 'https://api.shasta.trongrid.io'
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
 const MIN_DELEGATION_SUN = 1_000_000n
 
 function parseTrxToSun(value: string): bigint {
@@ -180,9 +181,36 @@ export default function SponsorResourceDelegation({ network, walletAddress = '' 
         setNotice({ kind: 'info', text: inconclusive.message })
         return
       }
-      const success = { status: 'verified' as const, blockNumber: info.blockNumber, delegatedBaseUnits: verifiedSun.toString(), message: 'Solidified Shasta transaction and confirmed recipient delegation record match the exact sponsor, receiver, resource type, and amount.' }
+      const baseSuccessMessage = 'Solidified Shasta transaction and confirmed recipient delegation record match the exact sponsor, receiver, resource type, and amount.'
+      let persistence: Verification['persistence'] = { persisted: false, reason: 'audit-persistence-not-confirmed' }
+      try {
+        const auditResponse = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            network: 'shasta',
+            transactionId: nextRecord.transactionId,
+            sponsorAddress: nextRecord.owner,
+            receiverAddress: nextRecord.receiver,
+            resourceType: nextRecord.resource,
+            stakeEquivalentSun: nextRecord.amountSun,
+          }),
+          cache: 'no-store',
+        })
+        const auditPayload = await auditResponse.json().catch(() => null)
+        persistence = {
+          persisted: auditResponse.ok && auditPayload?.verified === true && auditPayload?.persistence?.persisted === true,
+          duplicate: auditPayload?.persistence?.duplicate === true,
+          reason: auditPayload?.persistence?.reason || auditPayload?.error || (!auditResponse.ok ? `audit-api-http-${auditResponse.status}` : 'audit-persistence-not-confirmed'),
+        }
+      } catch {
+        persistence = { persisted: false, reason: 'audit-api-unavailable' }
+      }
+      const success = { status: 'verified' as const, blockNumber: info.blockNumber, delegatedBaseUnits: verifiedSun.toString(), message: baseSuccessMessage, persistence }
       setVerification(success)
-      setNotice({ kind: 'success', text: success.message + ' This verifies a resource delegation only; it does not verify a later token transfer or promise zero TRX fees.' })
+      setNotice(persistence.persisted
+        ? { kind: 'success', text: baseSuccessMessage + ' Server independently re-verified and saved this evidence to the project audit ledger. This is resource delegation only; it does not prove a later token transfer or promise zero TRX fees.' }
+        : { kind: 'error', text: baseSuccessMessage + ' However, the backend did not confirm audit persistence (' + persistence.reason + '). The on-chain delegation remains verified in this session; retry the verification action before relying on project audit history.' })
     } catch (error) {
       const failure = { status: 'pending' as const, message: error instanceof Error ? error.message : 'Solidified delegation verification is unavailable.' }
       setVerification(failure)
@@ -344,6 +372,7 @@ export default function SponsorResourceDelegation({ network, walletAddress = '' 
           <p className="mt-xs text-xs text-secondary">{verification.message}</p>
           {verification.blockNumber && <p className="mt-xs text-xs text-tertiary">Solidified block: {verification.blockNumber}</p>}
           {verification.delegatedBaseUnits && <p className="mt-xs text-xs text-tertiary">Confirmed delegation: {formatSun(verification.delegatedBaseUnits)} TRX-equivalent stake.</p>}
+          {verification.persistence && <p className={`mt-xs text-xs ${verification.persistence.persisted ? 'text-utility-success-600' : 'text-utility-warning-700'}`}>Project audit ledger: {verification.persistence.persisted ? (verification.persistence.duplicate ? 'already saved (idempotent record)' : 'verified evidence saved') : 'not confirmed — ' + (verification.persistence.reason || 'unknown reason')}</p>}
         </div>}
       </div>}
 
