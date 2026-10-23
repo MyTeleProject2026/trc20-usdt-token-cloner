@@ -299,6 +299,25 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_delegations (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          sponsor_address TEXT NOT NULL,
+          receiver_address TEXT NOT NULL,
+          resource_type TEXT NOT NULL CHECK (resource_type IN ('ENERGY','BANDWIDTH')),
+          stake_equivalent_sun NUMERIC(78,0) NOT NULL CHECK (stake_equivalent_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_ttc_resource_delegations_created
+          ON ${schema}.sponsor_resource_delegations (network, created_at DESC)
+      `)
+      await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_provider_applications (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           reference UUID NOT NULL UNIQUE,
@@ -324,6 +343,7 @@ export async function initializeDatabase() {
         ["transfer_verifications", "TRC20 Token Clone project only: on-chain verification outcomes; not a balance ledger and not proof unless status is verified-on-chain."],
         ["tracked_wallets", "TRC20 Token Clone project only: optional public TRON wallet watchlist. Do not store private keys or seed phrases."],
         ["audit_events", "TRC20 Token Clone project only: non-secret application audit metadata. Never store credentials, private keys, or seed phrases."],
+        ["sponsor_resource_delegations", "TRC20 Token Clone project only: exact sponsor resource delegations independently checked on solidified TRON state. Stores no signing material."],
         ["sponsor_provider_applications", "TRC20 Token Clone project only: provider onboarding contacts and status. Never store provider API secrets, private keys, or signing material."],
       ]
       for (const [table, comment] of comments) {
@@ -558,6 +578,88 @@ export async function recordNativeTransferVerification(input) {
     [network, transactionHash.toLowerCase(), fromAddress.trim(), toAddress.trim(), amountSun, blockNumber],
   )
   return { persisted: true }
+}
+
+/**
+ * Persist only a sponsor delegation whose exact DelegateResource transaction,
+ * solidified receipt, and resulting confirmed Stake-2.0 delegation were verified.
+ * Transaction identity is idempotent per chain environment.
+ */
+export async function recordSponsorResourceDelegation(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  const { transactionHash, sponsorAddress, receiverAddress, resourceType, stakeEquivalentSun, blockNumber } = input || {}
+  const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+  if (!network
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || typeof sponsorAddress !== 'string' || !addressPattern.test(sponsorAddress)
+    || typeof receiverAddress !== 'string' || !addressPattern.test(receiverAddress)
+    || sponsorAddress === receiverAddress
+    || !['ENERGY', 'BANDWIDTH'].includes(resourceType)
+    || typeof stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,77}$/.test(stakeEquivalentSun)
+    || !Number.isSafeInteger(blockNumber) || blockNumber <= 0) {
+    return { persisted: false, reason: 'invalid-resource-delegation-record' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const inserted = await client.query(
+        `INSERT INTO ${schema}.sponsor_resource_delegations
+          (network, transaction_hash, sponsor_address, receiver_address, resource_type, stake_equivalent_sun, block_number, verification_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'verified-on-chain')
+         ON CONFLICT (network, transaction_hash) DO NOTHING
+         RETURNING id::text AS id`,
+        [network, transactionHash.toLowerCase(), sponsorAddress, receiverAddress, resourceType, stakeEquivalentSun, blockNumber],
+      )
+      if (!inserted.rowCount) {
+        const existing = await client.query(
+          `SELECT sponsor_address, receiver_address, resource_type,
+                  stake_equivalent_sun::text AS stake_equivalent_sun,
+                  block_number, verification_status
+             FROM ${schema}.sponsor_resource_delegations
+            WHERE network = $1 AND transaction_hash = $2
+            FOR UPDATE`,
+          [network, transactionHash.toLowerCase()],
+        )
+        const row = existing.rows[0]
+        const same = row
+          && row.sponsor_address === sponsorAddress
+          && row.receiver_address === receiverAddress
+          && row.resource_type === resourceType
+          && row.stake_equivalent_sun === stakeEquivalentSun
+          && Number(row.block_number) === blockNumber
+          && row.verification_status === 'verified-on-chain'
+        if (!same) {
+          await client.query('ROLLBACK')
+          return { persisted: false, reason: 'resource-delegation-identity-conflict' }
+        }
+        await client.query('COMMIT')
+        return { persisted: true, duplicate: true }
+      }
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-delegation-verified', 'sponsor-resource-delegation', $1, $2::jsonb)`,
+        [`${network}:${transactionHash.toLowerCase()}`, JSON.stringify({
+          network, transactionHash: transactionHash.toLowerCase(), sponsorAddress, receiverAddress,
+          resourceType, stakeEquivalentSun, blockNumber, verificationStatus: 'verified-on-chain',
+        })],
+      )
+      await client.query('COMMIT')
+      return { persisted: true, duplicate: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource delegation record failed:', error?.code || 'unknown')
+      return { persisted: false, reason: 'database-unavailable' }
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error('Sponsor resource delegation persistence initialization failed:', error?.code || 'unknown')
+    return { persisted: false, reason: 'database-unavailable' }
+  }
 }
 
 function validSponsorTransitionStatus(status) {
