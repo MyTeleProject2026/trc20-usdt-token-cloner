@@ -1,11 +1,19 @@
 name: CI
 
 on:
+  # Run push validation on main. Feature branches are validated by their PR
+  # workflow below, avoiding duplicate CI jobs for every PR commit.
   push:
-    branches: [main, "fix/**", "test/**", "feat/**"]
+    branches: [main]
   pull_request:
     branches: [main, "fix/**", "test/**", "feat/**"]
   workflow_dispatch:
+
+# New commits supersede older in-flight tests for the same PR. Required checks
+# still run for the current head; do not weaken test, build, or audit steps.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
