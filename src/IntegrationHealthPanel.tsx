@@ -100,12 +100,17 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
           if (httpStatus !== 200 || !networks || typeof networks.mainnet?.configured !== 'boolean' || typeof networks.nile?.configured !== 'boolean') {
             return { title: 'GasFree credentials', tone: 'error', value: 'Status unavailable', detail: `Credential diagnostic endpoint returned HTTP ${httpStatus} or an unexpected response.` }
           }
-          const chosen = network === 'mainnet' ? networks.mainnet : networks.nile
+          const selectedNetworkSupported = network === 'mainnet'
+          const chosen = selectedNetworkSupported ? networks.mainnet : null
           return {
             title: 'GasFree credentials',
             tone: 'warning',
-            value: chosen.configured ? `${network === 'mainnet' ? 'Mainnet' : 'Nile'} credentials present` : `${network === 'mainnet' ? 'Mainnet' : 'Nile'} credentials missing`,
-            detail: `Mainnet: ${networks.mainnet.configured ? 'configured' : 'missing'} · Nile: ${networks.nile.configured ? 'configured' : 'missing'}. Credential presence does not prove provider reachability or sponsor funding; submission remains disabled.`,
+            value: selectedNetworkSupported
+              ? (chosen?.configured ? 'Mainnet credentials present' : 'Mainnet credentials missing')
+              : 'No GasFree Shasta endpoint',
+            detail: selectedNetworkSupported
+              ? `Mainnet: ${networks.mainnet.configured ? 'configured' : 'missing'} · Nile: ${networks.nile.configured ? 'configured' : 'missing'}. Credential presence does not prove provider reachability or sponsor funding; submission remains disabled.`
+              : `GasFree credentials cover Mainnet and Nile only. The selected Shasta network is not mapped to Nile; no cross-network fallback is used. Mainnet: ${networks.mainnet.configured ? 'configured' : 'missing'} · Nile: ${networks.nile.configured ? 'configured' : 'missing'}. Sponsor funding is unverified and submission remains disabled.`,
           }
         }),
       ]
