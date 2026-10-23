@@ -1301,9 +1301,13 @@ export async function pauseSponsorBudget({ budgetId, reasonCode } = {}) {
  * Return only the configured sponsor-ledger budget records for privileged operations.
  * These are operator-set caps, not proof of live on-chain balances or funded resources.
  */
-export async function listSponsorBudgets({ network = null, limit = 50 } = {}) {
+export async function listSponsorBudgets({ network = null, sponsorAddress = null, limit = 50 } = {}) {
   if (network !== null && !normalizeVerificationNetwork(network)) {
     return { success: false, reason: 'invalid-network', budgets: [] }
+  }
+  if (sponsorAddress !== null
+    && (typeof sponsorAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress))) {
+    return { success: false, reason: 'invalid-sponsor-address', budgets: [] }
   }
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     return { success: false, reason: 'invalid-limit', budgets: [] }
@@ -1322,9 +1326,10 @@ export async function listSponsorBudgets({ network = null, limit = 50 } = {}) {
               status, approval_reference, review_reference, approved_at, created_at, updated_at
          FROM ${schema}.sponsor_budgets
         WHERE ($1::text IS NULL OR network = $1)
+          AND ($2::text IS NULL OR sponsor_address = $2)
         ORDER BY updated_at DESC, id DESC
-        LIMIT $2`,
-      [network, limit],
+        LIMIT $3`,
+      [network, sponsorAddress, limit],
     )
     return { success: true, budgets: result.rows }
   } catch {
