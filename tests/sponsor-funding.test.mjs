@@ -270,11 +270,14 @@ test('sponsor budget draft and listing routes require the server-only admin toke
   const response = () => {
     let statusCode = 200
     let responseBody
+    const responseHeaders = {}
     return {
       status(code) { statusCode = code; return this },
+      setHeader(name, value) { responseHeaders[name.toLowerCase()] = value; return this },
       json(body) { responseBody = body; return this },
       get statusCode() { return statusCode },
       get responseBody() { return responseBody },
+      get responseHeaders() { return responseHeaders },
     }
   }
 
@@ -284,11 +287,15 @@ test('sponsor budget draft and listing routes require the server-only admin toke
     await draftLayer.route.stack[0].handle({ headers: {}, body: { network: 'nile' } }, draftMissing)
     assert.equal(draftMissing.statusCode, 503)
     assert.equal(draftMissing.responseBody.error, 'sponsor-admin-not-configured')
+    assert.equal(draftMissing.responseHeaders['cache-control'], 'no-store')
+    assert.equal(draftMissing.responseHeaders.vary, 'Authorization')
 
     const listMissing = response()
     await listLayer.route.stack[0].handle({ headers: {}, query: {} }, listMissing)
     assert.equal(listMissing.statusCode, 503)
     assert.equal(listMissing.responseBody.error, 'sponsor-admin-not-configured')
+    assert.equal(listMissing.responseHeaders['cache-control'], 'no-store')
+    assert.equal(listMissing.responseHeaders.vary, 'Authorization')
 
     process.env.SPONSOR_ADMIN_API_TOKEN = 'y'.repeat(40)
     const unauthorized = response()
