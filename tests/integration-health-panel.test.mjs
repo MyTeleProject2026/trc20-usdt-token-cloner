@@ -14,6 +14,7 @@ test('diagnostics query live backend readiness and independently scoped sponsor 
   assert.ok(component.includes('/api/gasfree/capabilities?network=mainnet'))
   assert.ok(component.includes("credentials: 'omit'"))
   assert.ok(component.includes("cache: 'no-store'"))
+  assert.ok(component.includes('signal: AbortSignal.timeout(12_000)'))
   assert.ok(app.includes("import IntegrationHealthPanel from './IntegrationHealthPanel'"))
   assert.ok(app.includes('<IntegrationHealthPanel network={network} />'))
 })
