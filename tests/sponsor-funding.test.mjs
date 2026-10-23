@@ -156,17 +156,27 @@ test('sponsorship funding HTTP route is read-only and reports missing sponsor ad
   try {
     let statusCode = 200
     let responseBody
+    const responseHeaders = {}
     const response = {
       status(code) { statusCode = code; return this },
+      setHeader(name, value) { responseHeaders[name.toLowerCase()] = value; return this },
       json(body) { responseBody = body; return this },
     }
     await layer.route.stack[0].handle({ query: { network: 'nile' } }, response)
     assert.equal(statusCode, 503)
+    assert.equal(responseHeaders['cache-control'], 'no-store')
+    assert.equal(responseHeaders.pragma, 'no-cache')
     assert.equal(responseBody.success, false)
     assert.equal(responseBody.funding.status, 'sponsor-address-not-configured')
     assert.equal(responseBody.funding.onChainBalanceRead, false)
     assert.equal(responseBody.funding.canSubmitSponsoredTransfer, false)
     assert.ok(responseBody.limitations.some((item) => item.includes('never is signed') || item.includes('never signed') || item.includes('No transfer is signed')))
+
+    statusCode = 200
+    responseBody = null
+    await layer.route.stack[0].handle({ query: { network: 'nile', refresh: 'true' } }, response)
+    assert.equal(statusCode, 400)
+    assert.equal(responseBody.error, 'invalid-refresh')
   } finally {
     if (savedAddress === undefined) delete process.env.SPONSOR_NILE_ADDRESS
     else process.env.SPONSOR_NILE_ADDRESS = savedAddress
