@@ -113,9 +113,17 @@ async function insertLegacyActiveBudget(pool, sponsorReference, budgetBaseUnits)
 }
 
 async function cleanup(pool, sponsorReferences, idempotencyKeys) {
+  // Clean transfer and budget lifecycle audit rows as well as rows whose own
+  // entity reference is an idempotency key; tests must leave no ledger residue.
   await pool.query(
-    'DELETE FROM trc20_token_clone.audit_events WHERE entity_reference = ANY($1::text[])',
-    [idempotencyKeys],
+    `DELETE FROM trc20_token_clone.audit_events AS a
+      WHERE a.entity_reference = ANY($2::text[])
+         OR a.details->>'sponsorReference' = ANY($1::text[])
+         OR (a.entity_type = 'sponsor-budget' AND a.entity_reference IN (
+           SELECT id::text FROM trc20_token_clone.sponsor_budgets
+            WHERE sponsor_reference = ANY($1::text[])
+         ))`,
+    [sponsorReferences, idempotencyKeys],
   )
   await pool.query(
     'DELETE FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = ANY($1::text[])',
