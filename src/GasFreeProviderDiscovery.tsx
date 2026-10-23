@@ -117,6 +117,16 @@ type GasFreeTraceResult = {
     updatedAt: string | null
     expiredAt: string | null
     verifiedOnChain: boolean
+    chainVerification?: {
+      verified?: boolean
+      status?: string
+      reason?: string
+      blockNumber?: number
+      logIndex?: number
+      txId?: string
+      amountSun?: string
+    }
+    verificationPersistence?: { persisted?: boolean; reason?: string }
     note: string
   }
 }
@@ -238,7 +248,7 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
     if (!trace
       || !trace.transactionId
       || !/^[0-9a-f]{64}$/i.test(trace.transactionId)
-      || !trace.senderAddress || !TRON_ADDRESS.test(trace.senderAddress)
+      || !trace.gasFreeAddress || !TRON_ADDRESS.test(trace.gasFreeAddress)
       || !trace.receiverAddress || !TRON_ADDRESS.test(trace.receiverAddress)
       || !trace.tokenAddress || !TRON_ADDRESS.test(trace.tokenAddress)
       || !trace.amountBaseUnits || !/^[1-9][0-9]*$/.test(trace.amountBaseUnits)) {
@@ -255,7 +265,7 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
       const params = new URLSearchParams({
         network,
         contract: toHexAddress(trace.tokenAddress),
-        from: toHexAddress(trace.senderAddress),
+        from: toHexAddress(trace.gasFreeAddress),
         to: toHexAddress(trace.receiverAddress),
         amountSun: trace.amountBaseUnits,
       })
@@ -493,7 +503,19 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
             <p className="break-all text-xs text-tertiary">Token contract: {traceResult.trace.tokenAddress || 'Not reported'}</p>
             {traceResult.trace.amountBaseUnits && <p className="text-xs text-secondary">Transferred base units reported by provider: {traceResult.trace.amountBaseUnits}</p>}
             {traceResult.trace.maxFeeBaseUnits && <p className="text-xs text-secondary">Maximum authorized fee base units: {traceResult.trace.maxFeeBaseUnits}</p>}
-            <p className="text-xs font-semibold text-utility-warning-700">Chain verification: not established by this trace lookup.</p>
+            <p className={`text-xs font-semibold ${traceResult.trace.verifiedOnChain ? 'text-utility-success-700' : 'text-utility-warning-700'}`}>
+              Chain verification: {traceResult.trace.verifiedOnChain
+                ? `independently verified${traceResult.trace.chainVerification?.blockNumber !== undefined ? ` at block ${traceResult.trace.chainVerification.blockNumber}` : ''}.`
+                : `not verified${traceResult.trace.chainVerification?.status ? ` (${traceResult.trace.chainVerification.status})` : ''}.`}
+            </p>
+            {traceResult.trace.chainVerification?.reason && !traceResult.trace.verifiedOnChain && (
+              <p className="text-xs text-tertiary">Verification detail: {traceResult.trace.chainVerification.reason}</p>
+            )}
+            {traceResult.trace.verificationPersistence && (
+              <p className="text-xs text-tertiary">Chain evidence persistence: {traceResult.trace.verificationPersistence.persisted
+                ? 'saved'
+                : `not saved — ${traceResult.trace.verificationPersistence.reason || 'storage unavailable'}`}</p>
+            )}
             <p className="text-xs text-tertiary">{traceResult.trace.note}</p>
             <button
               type="button"
