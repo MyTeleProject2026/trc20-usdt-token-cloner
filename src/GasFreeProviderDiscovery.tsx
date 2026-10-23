@@ -261,7 +261,7 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
       // independent solidified-chain verification and never trusts provider
       // status alone; this also avoids a second, differently configured
       // verification path in the browser.
-      const params = new URLSearchParams({ network, traceId: currentTrace.traceId })
+      const params = new URLSearchParams({ network, traceId: currentTrace.traceId, refresh: '1' })
       const response = await fetch(`${API_BASE}/api/gasfree/trace?${params.toString()}`, {
         headers: { Accept: 'application/json' },
       })
