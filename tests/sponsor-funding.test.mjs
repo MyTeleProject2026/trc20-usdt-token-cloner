@@ -311,3 +311,26 @@ test('sponsor budget draft and listing routes require the server-only admin toke
     else process.env.SPONSOR_NILE_ADDRESS = saved.nileAddress
   }
 })
+
+
+test('sponsor funding reader rejects official USDT decimal mismatch', async () => {
+  const reader = createSponsorFundingReader({
+    env: { TATUM_API_KEY: 'server-test-key', SPONSOR_MAINNET_ADDRESS: sponsorAddress },
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        return { ok: true, json: async () => ({ address: '41' + hex, balance: 0 }) }
+      }
+      const isDecimals = JSON.parse(options.body).function_selector === 'decimals()'
+      return { ok: true, json: async () => ({
+        result: { result: true },
+        constant_result: [(isDecimals ? 18n : 0n).toString(16).padStart(64, '0')],
+      }) }
+    },
+  })
+  const result = await reader('mainnet')
+  assert.equal(result.status, 'solidified-sponsor-balances-read')
+  assert.equal(result.tokens.length, 1)
+  assert.equal(result.tokens[0].status, 'unavailable')
+  assert.equal(Object.hasOwn(result.tokens[0], 'balanceBaseUnits'), false)
+})
