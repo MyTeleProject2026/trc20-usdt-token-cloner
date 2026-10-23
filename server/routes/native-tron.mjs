@@ -344,6 +344,7 @@ router.get('/sponsorship/reconciliation', async (req, res) => {
       approvalScopeVerified: budget.status === 'active'
         && typeof budget.review_reference === 'string'
         && budget.review_reference.length > 0
+        && budget.approved_at != null
         && isApprovedSponsorAgreementScope({
           consentReference: budget.approval_reference,
           budget,
