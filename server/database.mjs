@@ -1011,6 +1011,31 @@ export async function activateSponsorBudget({
   const client = await db.connect()
   try {
     await client.query('BEGIN')
+    // Read immutable allocation identity without locking the row first. Acquire
+    // the wallet/asset advisory lock before row locks, preventing two concurrent
+    // activations from deadlocking while each tries to lock the other's draft.
+    const identityResult = await client.query(
+      `SELECT id::text AS id, sponsor_address, network, asset, token_contract
+         FROM ${schema}.sponsor_budgets WHERE id = $1::bigint`,
+      [budgetId],
+    )
+    if (!identityResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-not-found' }
+    }
+    const identity = identityResult.rows[0]
+    if (identity.network !== fundingSnapshot.network
+      || identity.sponsor_address !== fundingSnapshot.sponsorAddress) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'funding-snapshot-identity-mismatch' }
+    }
+    if (identity.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'mainnet-budget-activation-disabled' }
+    }
+    const lockIdentity = `sponsor-budget-activation:${identity.network}:${identity.sponsor_address}:${identity.asset}:${identity.token_contract || ''}`
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [lockIdentity])
+
     const targetResult = await client.query(
       `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
               token_contract, budget_base_units::text AS budget_base_units,
@@ -1027,14 +1052,12 @@ export async function activateSponsorBudget({
       return { success: false, reason: 'budget-not-found' }
     }
     const budget = targetResult.rows[0]
-    if (budget.network !== fundingSnapshot.network
-      || budget.sponsor_address !== fundingSnapshot.sponsorAddress) {
+    if (budget.sponsor_address !== identity.sponsor_address
+      || budget.network !== identity.network
+      || budget.asset !== identity.asset
+      || budget.token_contract !== identity.token_contract) {
       await client.query('ROLLBACK')
-      return { success: false, reason: 'funding-snapshot-identity-mismatch' }
-    }
-    if (budget.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
-      await client.query('ROLLBACK')
-      return { success: false, reason: 'mainnet-budget-activation-disabled' }
+      return { success: false, reason: 'budget-identity-changed' }
     }
     if (budget.status === 'active') {
       const sameApproval = budget.approval_reference === consentReference
@@ -1077,8 +1100,6 @@ export async function activateSponsorBudget({
       chainBalanceBaseUnits = BigInt(token.balanceBaseUnits)
     }
 
-    const lockIdentity = `sponsor-budget-activation:${budget.network}:${budget.sponsor_address}:${budget.asset}:${budget.token_contract || ''}`
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [lockIdentity])
     const commitments = await client.query(
       `SELECT id::text AS id, budget_base_units::text AS budget_base_units,
               reserved_base_units::text AS reserved_base_units,
