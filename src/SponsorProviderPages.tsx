@@ -39,6 +39,41 @@ function formatSponsorAssetUnits(value?: string, decimals?: number) {
   return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
+type SponsorRoleSnapshot = {
+  role?: string
+  status?: string
+  addressConfigured?: boolean
+  onChainBalanceRead?: boolean
+  native?: { status?: string; balanceTRX?: string; balanceSun?: string; accountExists?: boolean }
+  tokens?: Array<{ asset?: string; tokenContract?: string; status?: string; balanceBaseUnits?: string; decimals?: number }>
+  tokenBalancesComplete?: boolean
+  sponsorFundingVerified?: boolean
+  sponsorAgreementVerified?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  submissionEnabled?: boolean
+  resourceStatus?: {
+    status?: string
+    resourceRead?: boolean
+    currentlyAvailableEnergy?: string
+    currentlyAvailableBandwidth?: string
+  } | null
+  requiredEnvironment?: string[]
+}
+type SponsorRoleStatus = {
+  success?: boolean
+  status?: string
+  network?: string
+  checkedAt?: string
+  accountsConfigured?: boolean
+  configuredAddressesDistinct?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  submissionEnabled?: boolean
+  roles?: {
+    networkFeeSponsor?: SponsorRoleSnapshot
+    assetPrincipalSponsor?: SponsorRoleSnapshot
+  }
+}
+
 type Asset = 'VTRC' | 'TRX' | 'USDT'
 type TokenSelectionProps = Props & { asset: Asset; onAssetChange: (asset: Asset) => void; onContinue: () => void }
 
@@ -97,6 +132,8 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
   const [status, setStatus] = useState<SponsorStatus | null>(null)
   const [funding, setFunding] = useState<SponsorFunding | null>(null)
   const [fundingLoading, setFundingLoading] = useState(true)
+  const [roleStatus, setRoleStatus] = useState<SponsorRoleStatus | null>(null)
+  const [roleLoading, setRoleLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [providerName, setProviderName] = useState('')
   const [contact, setContact] = useState('')
@@ -112,6 +149,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
     let active = true
     setLoading(true)
     setFundingLoading(true)
+    setRoleLoading(true)
     fetch(`${API_BASE}/api/tron/sponsorship/status`, { headers: { Accept: 'application/json' } })
       .then(async (response) => {
         if (!response.ok) throw new Error('Sponsor status endpoint unavailable')
@@ -120,6 +158,19 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       .then((payload) => { if (active) setStatus(payload?.sponsorship || null) })
       .catch(() => { if (active) setStatus(null) })
       .finally(() => { if (active) setLoading(false) })
+
+    fetch(`${API_BASE}/api/tron/sponsorship/roles?network=${encodeURIComponent(network)}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || payload?.success !== true || !payload?.roles) throw new Error('Independent sponsor status unavailable')
+        return payload as SponsorRoleStatus
+      })
+      .then((payload) => { if (active) setRoleStatus(payload) })
+      .catch(() => { if (active) setRoleStatus(null) })
+      .finally(() => { if (active) setRoleLoading(false) })
 
     fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}`, {
       headers: { Accept: 'application/json' },
@@ -135,12 +186,23 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
   const refreshStatus = async () => {
     setLoading(true)
     setFundingLoading(true)
+    setRoleLoading(true)
     setNotice('')
     try {
       const response = await fetch(`${API_BASE}/api/tron/sponsorship/status`, { headers: { Accept: 'application/json' } })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.message || 'Could not refresh sponsor status.')
       setStatus(payload?.sponsorship || null)
+      try {
+        const rolesResponse = await fetch(`${API_BASE}/api/tron/sponsorship/roles?network=${encodeURIComponent(network)}&refresh=1`, {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        })
+        const rolesPayload = await rolesResponse.json().catch(() => null)
+        setRoleStatus(rolesResponse.ok && rolesPayload?.success === true && rolesPayload?.roles ? rolesPayload : null)
+      } catch {
+        setRoleStatus(null)
+      }
       const fundingResponse = await fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}&refresh=1`, {
         headers: { Accept: 'application/json' },
         cache: 'no-store',
@@ -165,6 +227,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       // Clear prior results on a failed refresh so stale sponsor readiness or
       // balances cannot be mistaken for current, verified state.
       setStatus(null)
+      setRoleStatus(null)
       setFunding({
         status: 'balance-check-unavailable',
         onChainBalanceRead: false,
@@ -174,6 +237,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
     } finally {
       setLoading(false)
       setFundingLoading(false)
+      setRoleLoading(false)
     }
   }
 
@@ -276,8 +340,49 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
           <div className="rounded-lg border border-secondary bg-secondary p-md"><p className="text-xs font-semibold text-primary">Exchange deposits</p><p className="mt-xs text-xs text-tertiary">Sponsors cannot guarantee exchange credit. Only the receiving platform can confirm its deposit accounting.</p></div>
         </div>
         {status?.requiredBeforeEnablement?.length ? <details className="rounded-lg border border-secondary p-md"><summary className="cursor-pointer text-sm font-semibold text-primary">Required activation gates</summary><ul className="mt-sm list-disc space-y-xs pl-lg text-xs text-tertiary">{status.requiredBeforeEnablement.map((item) => <li key={item}>{item.replaceAll('-', ' ')}</li>)}</ul></details> : null}
+        <section aria-live="polite" className="rounded-lg border border-secondary p-md space-y-md">
+          <div>
+            <h3 className="text-sm font-semibold text-primary">Independent fee and asset-principal sponsor accounts</h3>
+            <p className="mt-xs text-xs text-tertiary">These cards read two separately configured public addresses from the selected network. They do not authorize a spend, make a grant, or enable a sponsored transfer.</p>
+          </div>
+          {roleLoading ? <p className="text-xs text-tertiary">Checking the fee sponsor and asset sponsor separately…</p>
+            : roleStatus?.roles?.networkFeeSponsor && roleStatus.roles.assetPrincipalSponsor
+              ? <div className="grid grid-cols-1 gap-md md:grid-cols-2">
+                  {(() => {
+                    const fee = roleStatus.roles!.networkFeeSponsor!
+                    const feeNative = fee.native?.status === 'verified' ? `${fee.native.balanceTRX} TRX` : 'not verified'
+                    return <article className="rounded-lg border border-secondary bg-secondary p-md space-y-xs">
+                      <p className="text-sm font-semibold text-primary">Sponsor A · Network fees / resources</p>
+                      <p className="text-xs text-tertiary">Account address: {fee.addressConfigured ? 'configured' : 'missing'} · Chain balance read: {fee.onChainBalanceRead ? 'verified' : 'not verified'}</p>
+                      <p className="text-sm text-primary">Native TRX: <strong>{feeNative}</strong></p>
+                      <p className="text-xs text-tertiary">Resource snapshot: {fee.resourceStatus?.resourceRead ? 'verified' : (fee.resourceStatus?.status || 'not verified')}{fee.resourceStatus?.resourceRead ? ` · Energy: ${fee.resourceStatus.currentlyAvailableEnergy ?? 'unknown'} · Bandwidth: ${fee.resourceStatus.currentlyAvailableBandwidth ?? 'unknown'}` : ''}</p>
+                      <p className="text-xs text-tertiary">Sponsor consent and actual fee-coverage authorization: {fee.sponsorFundingVerified && fee.sponsorAgreementVerified ? 'reported verified by backend' : 'not verified'}. Transfer submission remains disabled.</p>
+                    </article>
+                  })()}
+                  {(() => {
+                    const asset = roleStatus.roles!.assetPrincipalSponsor!
+                    const assetNative = asset.native?.status === 'verified' ? `${asset.native.balanceTRX} TRX` : 'not verified'
+                    return <article className="rounded-lg border border-secondary bg-secondary p-md space-y-xs">
+                      <p className="text-sm font-semibold text-primary">Sponsor B · Asset principal</p>
+                      <p className="text-xs text-tertiary">Account address: {asset.addressConfigured ? 'configured' : 'missing'} · Chain balance read: {asset.onChainBalanceRead ? 'verified' : 'not verified'}</p>
+                      <p className="text-sm text-primary">Native TRX: <strong>{assetNative}</strong></p>
+                      {asset.tokens?.length ? <div className="space-y-xs">
+                        {asset.tokens.map((token) => <p key={token.asset + token.tokenContract} className="break-all text-xs text-tertiary">
+                          <strong>{token.asset || 'Token'}</strong>: {token.status === 'verified'
+                            ? `${formatSponsorAssetUnits(token.balanceBaseUnits, token.decimals) ?? token.balanceBaseUnits} · ${token.decimals} decimals`
+                            : 'balance unavailable; not treated as zero'}
+                        </p>)}
+                      </div> : <p className="text-xs text-tertiary">No allowlisted token balances are available for this sponsor on this network.</p>}
+                      <p className="text-xs text-tertiary">Sponsor consent and permission to send token principal: {asset.sponsorFundingVerified && asset.sponsorAgreementVerified ? 'reported verified by backend' : 'not verified'}. No receiver credit is inferred.</p>
+                    </article>
+                  })()}
+                </div>
+              : <p className="text-xs text-tertiary">Independent sponsor status is unavailable. No current fee-sponsor or asset-sponsor snapshot is confirmed.</p>}
+          <p className="text-xs text-tertiary">Configured addresses are distinct: {roleStatus?.configuredAddressesDistinct ? 'yes' : 'no or not verified'}. Different addresses do not by themselves prove different owners or signed sponsor consent. Spendable receiver balance must come from the receiver's verified on-chain balance.</p>
+        </section>
         <section aria-live="polite" className="rounded-lg border border-secondary p-md space-y-sm">
-          <h3 className="text-sm font-semibold text-primary">Sponsor wallet on-chain balances (read-only)</h3>
+          <h3 className="text-sm font-semibold text-primary">Legacy shared sponsor address snapshot (read-only)</h3>
+          <p className="text-xs text-tertiary">This snapshot uses the legacy SPONSOR_*_ADDRESS setting; it is separate from Sponsor A and Sponsor B above.</p>
           {fundingLoading ? <p className="text-xs text-tertiary">Checking the selected network's solidified chain state…</p>
             : funding?.native?.status === 'verified'
               ? <div className="space-y-xs">
@@ -300,7 +405,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
                       : 'A fresh sponsor balance could not be verified from the selected network.'}</p>}
           <p className="text-xs text-tertiary">A verified balance snapshot is not sponsor consent, signing authority, or a reserved spend budget. It does not enable transfers or imply receiver credit. Failed token queries are shown as unavailable, never as zero.</p>
         </section>
-        <button type="button" onClick={() => void refreshStatus()} disabled={loading || fundingLoading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">{loading || fundingLoading ? 'Checking…' : 'Refresh provider status and balances'}</button>
+        <button type="button" onClick={() => void refreshStatus()} disabled={loading || fundingLoading || roleLoading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">{loading || fundingLoading || roleLoading ? 'Checking…' : 'Refresh provider status and balances'}</button>
         {notice && <p role="status" className="text-xs text-tertiary">{notice}</p>}
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-lg">
