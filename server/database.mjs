@@ -859,6 +859,41 @@ export async function transitionSponsorTransfer(input) {
 }
 
  
+/**
+ * Return only the configured sponsor-ledger budget records for privileged operations.
+ * These are operator-set caps, not proof of live on-chain balances or funded resources.
+ */
+export async function listSponsorBudgets({ network = null, limit = 50 } = {}) {
+  if (network !== null && !normalizeVerificationNetwork(network)) {
+    return { success: false, reason: 'invalid-network', budgets: [] }
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', budgets: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', budgets: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose,
+              asset, token_contract,
+              budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units,
+              (budget_base_units - reserved_base_units - spent_base_units)::text AS ledger_available_base_units,
+              status, created_at, updated_at
+         FROM ${schema}.sponsor_budgets
+        WHERE ($1::text IS NULL OR network = $1)
+        ORDER BY updated_at DESC, id DESC
+        LIMIT $2`,
+      [network, limit],
+    )
+    return { success: true, budgets: result.rows }
+  } catch {
+    return { success: false, reason: 'database-unavailable', budgets: [] }
+  }
+}
+
 /** Return bounded persisted receiver-history records. Indexed rows are candidates
  * unless the worker has independently verified a solidified receipt. */
 export async function listPersistedReceiverHistory({ network, address, contract = null, limit = 50 } = {}) {
