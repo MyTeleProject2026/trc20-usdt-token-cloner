@@ -1071,7 +1071,7 @@ export async function activateSponsorBudget({
       return { success: false, reason: 'mainnet-budget-activation-disabled' }
     }
     const lockIdentity = `sponsor-budget-activation:${identity.network}:${identity.sponsor_address}:${identity.asset}:${identity.token_contract || ''}`
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [lockIdentity])
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockIdentity])
 
     const targetResult = await client.query(
       `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
