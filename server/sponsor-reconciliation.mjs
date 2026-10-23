@@ -144,11 +144,13 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
     }
   })
 
+  const hasCommittedAllocation = groups.some((group) => BigInt(group.committedBaseUnits) > 0n)
   const status = walletMismatchCount > 0 ? 'wallet-scope-mismatch'
     : groups.some((group) => group.unapprovedActiveBudgetCount > 0) ? 'approval-required'
       : groups.some((group) => group.status === 'balance-unavailable') ? 'balance-unavailable'
-      : groups.some((group) => group.status === 'underfunded') ? 'underfunded'
-        : groups.length === 0 ? 'no-sponsor-budgets' : 'covered'
+        : groups.some((group) => group.status === 'underfunded') ? 'underfunded'
+          : groups.length === 0 ? 'no-sponsor-budgets'
+            : !hasCommittedAllocation ? 'no-committed-allocations' : 'covered'
   const covered = status === 'covered'
   return {
     // success means the reconciliation was computed from valid complete inputs.
