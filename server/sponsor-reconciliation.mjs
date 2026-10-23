@@ -149,10 +149,14 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
       : groups.some((group) => group.status === 'balance-unavailable') ? 'balance-unavailable'
       : groups.some((group) => group.status === 'underfunded') ? 'underfunded'
         : groups.length === 0 ? 'no-sponsor-budgets' : 'covered'
+  const covered = status === 'covered'
   return {
+    // success means the reconciliation was computed from valid complete inputs.
+    // 'covered' separately answers whether every tracked allocation is funded.
     success: walletMismatchCount === 0
       && !groups.some((group) => group.unapprovedActiveBudgetCount > 0)
       && !groups.some((group) => group.status === 'balance-unavailable'),
+    covered,
     status,
     network,
     sponsorAddress: fundingSnapshot.sponsorAddress,
