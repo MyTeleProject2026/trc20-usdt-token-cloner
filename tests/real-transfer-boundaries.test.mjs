@@ -71,3 +71,15 @@ test('wallet transfers require the exact trusted HTTPS RPC hostname', () => {
   assert.match(app, /const expectedHost = network === 'shasta' \? 'api\.shasta\.trongrid\.io' : 'api\.trongrid\.io'/)
   assert.match(app, /const handleNativeTrxTransfer = async \(\) => \{[\s\S]*?assertSelectedTronLinkNetwork\(tronWeb\)/)
 })
+
+
+test('native and token transfers revalidate live TronLink account/network before signing or submission', () => {
+  assert.match(app, /const getCurrentAuthorizedTronWeb = \(expectedAddress: string\) =>/)
+  assert.match(app, /assertSelectedTronLinkNetwork\(currentTronWeb\)/)
+  assert.match(app, /currentTronWeb\.defaultAddress\.base58 !== expectedAddress/)
+  assert.match(app, /const signerTronWeb = getCurrentAuthorizedTronWeb\(sender\)[\s\S]*?signerTronWeb\.trx\.sign\(transaction\)/)
+  assert.match(app, /const broadcasterTronWeb = getCurrentAuthorizedTronWeb\(sender\)[\s\S]*?broadcasterTronWeb\.trx\.sendRawTransaction\(signed\)/)
+  assert.match(app, /const currentContract = await currentTronWeb\.contract\(\)\.at\(contractAddress\.trim\(\)\)/)
+  assert.match(app, /currentContract\.balanceOf\(sender\)\.call\(\)/)
+  assert.match(app, /getCurrentAuthorizedTronWeb\(sender\)[\s\S]*?currentContract\.transfer\(recipientAddress\.trim\(\), rawAmount\)\.send/)
+})
