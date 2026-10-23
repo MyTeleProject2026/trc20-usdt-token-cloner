@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity, CheckCircle2, ExternalLink, RefreshCw, ShieldCheck, TriangleAlert, Zap } from 'lucide-react'
 
 type Props = { network: 'shasta' | 'nile' | 'mainnet'; walletAddress?: string }
@@ -76,6 +76,34 @@ export default function SponsorResourceDelegation({ network, walletAddress = '' 
   const [record, setRecord] = useState<DelegationRecord | null>(null)
   const [verification, setVerification] = useState<Verification | null>(null)
   const [notice, setNotice] = useState<{ kind: 'info' | 'success' | 'error'; text: string } | null>(null)
+  const [history, setHistory] = useState<Array<{ transactionId: string; sponsorAddress: string; receiverAddress: string; resourceType: Resource; stakeEquivalentSun: string; blockNumber: number; recordedAt: string }> | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+
+  const refreshHistory = async () => {
+    setHistoryLoading(true)
+    setHistoryError('')
+    try {
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/resource-delegations?network=' + encodeURIComponent(network) + '&limit=10', {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || !Array.isArray(payload?.delegations)) {
+        throw new Error(payload?.message || payload?.error || `Audit history returned HTTP ${response.status}.`)
+      }
+      setHistory(payload.delegations)
+    } catch (error) {
+      setHistory(null)
+      setHistoryError(error instanceof Error ? error.message : 'Verified resource-delegation history is unavailable.')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshHistory()
+  }, [network])
 
   const refreshCapacity = async () => {
     setCapacityLoading(true)
@@ -208,6 +236,7 @@ export default function SponsorResourceDelegation({ network, walletAddress = '' 
       }
       const success = { status: 'verified' as const, blockNumber: info.blockNumber, delegatedBaseUnits: verifiedSun.toString(), message: baseSuccessMessage, persistence }
       setVerification(success)
+      if (persistence.persisted) void refreshHistory()
       setNotice(persistence.persisted
         ? { kind: 'success', text: baseSuccessMessage + ' Server independently re-verified and saved this evidence to the project audit ledger. This is resource delegation only; it does not prove a later token transfer or promise zero TRX fees.' }
         : { kind: 'error', text: baseSuccessMessage + ' However, the backend did not confirm audit persistence (' + persistence.reason + '). The on-chain delegation remains verified in this session; retry the verification action before relying on project audit history.' })
@@ -377,6 +406,41 @@ export default function SponsorResourceDelegation({ network, walletAddress = '' 
       </div>}
 
       {notice && <p role={notice.kind === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-lg border p-md text-sm ${notice.kind === 'error' ? 'border-utility-error-200 bg-utility-error-50 text-utility-error-700' : notice.kind === 'success' ? 'border-utility-success-200 bg-utility-success-50 text-utility-success-700' : 'border-secondary bg-secondary text-secondary'}`}>{notice.text}</p>}
+
+      <section className="rounded-xl border border-secondary bg-primary p-xl space-y-md" aria-labelledby="resource-delegation-history-title">
+        <div className="flex flex-wrap items-center justify-between gap-sm">
+          <div className="min-w-0">
+            <h3 id="resource-delegation-history-title" className="text-sm font-semibold text-primary">Verified sponsor delegation history</h3>
+            <p className="mt-xs text-xs text-tertiary">Loaded from the backend's persistent audit ledger. Entries appear here only after the server independently verifies the solidified transaction and resulting delegation state.</p>
+          </div>
+          <button type="button" onClick={() => void refreshHistory()} disabled={historyLoading} className="inline-flex items-center gap-sm rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
+            <RefreshCw className={`size-4 ${historyLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {historyLoading ? 'Refreshing…' : 'Refresh audit history'}
+          </button>
+        </div>
+        {historyError && <p role="status" className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700">{historyError} Chain confirmations alone are not presented as saved audit records.</p>}
+        {history === null && !historyLoading
+          ? <p className="text-sm text-tertiary">No verified audit history is currently available from the backend.</p>
+          : history?.length === 0 && !historyLoading
+            ? <p className="text-sm text-tertiary">No server-persisted verified resource delegations were found for {network}.</p>
+            : <div className="space-y-sm">
+                {history?.map((item) => (
+                  <article key={item.network + ':' + item.transactionId} className="rounded-lg border border-secondary bg-secondary p-md space-y-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-sm">
+                      <p className="text-sm font-semibold text-primary">{item.resourceType} · {formatSun(item.stakeEquivalentSun)} TRX-equivalent stake</p>
+                      <span className="rounded-full border border-utility-success-200 bg-utility-success-50 px-sm py-xxs text-xs font-semibold text-utility-success-700">Verified on chain</span>
+                    </div>
+                    <p className="break-all text-xs text-secondary">Sponsor: {item.sponsorAddress}</p>
+                    <p className="break-all text-xs text-secondary">Recipient: {item.receiverAddress}</p>
+                    <p className="break-all font-mono text-xs text-tertiary">Tx: {item.transactionId}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-sm">
+                      <p className="text-xs text-tertiary">Solidified block: {item.blockNumber}{item.recordedAt ? ' · Recorded: ' + new Date(item.recordedAt).toLocaleString() : ''}</p>
+                      <a href={'https://shasta.tronscan.org/#/transaction/' + encodeURIComponent(item.transactionId)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-xs text-xs font-semibold text-brand-primary">Open explorer <ExternalLink className="size-3" aria-hidden="true" /></a>
+                    </div>
+                  </article>
+                ))}
+              </div>}
+      </section>
 
       <p className="text-xs text-tertiary">Important: this is a real Stake-2.0 resource delegation when the sponsor signs and the solidified chain verifies it. It is not a paid provider relay, does not transfer token principal, does not guarantee zero TRX expense, and does not enable automatic sponsored submission. Before the sender transfers tokens, confirm the actual receiver, token contract, sender balance, network and current resources. Never interpret a delegated resource amount as a spendable TRX or USDT balance.</p>
     </section>
