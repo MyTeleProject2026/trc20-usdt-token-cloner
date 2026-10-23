@@ -80,13 +80,14 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
   const { pool, reserveSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } = await setup()
   const suffix = randomUUID()
   const sponsorReference = `pg-draft-${suffix}`
+  const draftSponsorAddress = receiverAddress
   const amount = '123456789'
   const consentReference = `signed-sponsor-${suffix}`
   const reviewReference = `review-ticket-${suffix}`
   const pauseKey = `pg-pause:${suffix}`
   const previousAgreementReferences = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
   process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES =
-    `${consentReference}|${sponsorReference}|${network}|${sponsorAddress}|asset-grant|TRX|-`
+    `${consentReference}|${sponsorReference}|${network}|${draftSponsorAddress}|asset-grant|TRX|-`
   let created = null
   try {
     created = await createSponsorBudgetDraft({
@@ -96,7 +97,7 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
       asset: 'TRX',
       tokenContract: null,
       budgetBaseUnits: amount,
-      sponsorAddress,
+      sponsorAddress: draftSponsorAddress,
     })
     assert.equal(created.success, true)
     assert.equal(created.duplicate, false)
@@ -113,7 +114,7 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
       asset: 'TRX',
       tokenContract: null,
       budgetBaseUnits: amount,
-      sponsorAddress,
+      sponsorAddress: draftSponsorAddress,
     })
     assert.deepEqual(duplicate, { success: false, reason: 'budget-already-exists' })
 
@@ -149,7 +150,7 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
       onChainBalanceRead: true,
       network,
       source: 'Tatum TRON SolidityNode account and constant-contract queries',
-      sponsorAddress,
+      sponsorAddress: draftSponsorAddress,
       checkedAt: new Date().toISOString(),
       cache: { status: 'fresh', ageMs: 0 },
       native: { status: 'verified', asset: 'TRX', balanceSun: '100000000', balanceTRX: '100' },
