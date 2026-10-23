@@ -1,5 +1,5 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../database.mjs'
-import { timingSafeEqual } from 'node:crypto'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
+import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
@@ -14,6 +14,35 @@ const networks = {
   mainnet: 'https://api.trongrid.io',
 }
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const providerApplicationScopes = new Set(['network-fees', 'trx-grant', 'trc20-grant'])
+const providerApplicationRateLimit = new Map()
+
+function reserveProviderApplicationAttempt(normalizedEmail) {
+  const now = Date.now()
+  const key = createHash('sha256').update(normalizedEmail, 'utf8').digest('hex')
+  const recent = (providerApplicationRateLimit.get(key) || []).filter((timestamp) => now - timestamp < 60 * 60 * 1000)
+  if (recent.length >= 3) {
+    providerApplicationRateLimit.set(key, recent)
+    return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((60 * 60 * 1000 - (now - recent[0])) / 1000)) }
+  }
+  recent.push(now)
+  providerApplicationRateLimit.set(key, recent)
+  if (providerApplicationRateLimit.size > 2000) {
+    for (const [candidate, timestamps] of providerApplicationRateLimit) {
+      if (!timestamps.some((timestamp) => now - timestamp < 60 * 60 * 1000)) providerApplicationRateLimit.delete(candidate)
+      if (providerApplicationRateLimit.size <= 1800) break
+    }
+  }
+  return { allowed: true, key, timestamp: now }
+}
+
+function releaseProviderApplicationAttempt(attempt) {
+  if (!attempt?.allowed || !attempt.key) return
+  const timestamps = providerApplicationRateLimit.get(attempt.key) || []
+  const updated = timestamps.filter((timestamp) => timestamp !== attempt.timestamp)
+  if (updated.length) providerApplicationRateLimit.set(attempt.key, updated)
+  else providerApplicationRateLimit.delete(attempt.key)
+}
 
 // Read-only sponsorship capability status. This API deliberately fails closed:
 // provider onboarding, signer authorization, limits, and fee/asset reconciliation
@@ -78,6 +107,132 @@ function hasValidSponsorAdminToken(req) {
   const expected = Buffer.from(configured)
   return supplied.length === expected.length && timingSafeEqual(supplied, expected)
 }
+
+// Public intake stores only the provider name, business email, and scope. A privacy
+// consent flag is required; secrets and signing material are never accepted or saved.
+router.post('/sponsorship/provider-applications', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  const allowedFields = new Set(['providerName', 'contactEmail', 'scope', 'privacyConsent'])
+  if (Object.keys(body).some((key) => !allowedFields.has(key))) {
+    return res.status(400).json({ success: false, error: 'unexpected-fields', message: 'Submit only providerName, contactEmail, scope, and privacyConsent. Do not submit credentials or signing material.' })
+  }
+  const providerName = typeof body.providerName === 'string' ? body.providerName.trim() : ''
+  const contactEmail = typeof body.contactEmail === 'string' ? body.contactEmail.trim().toLowerCase() : ''
+  const scope = body.scope
+  if (providerName.length < 2 || providerName.length > 120 || /[\r\n\x00-\x1f]/.test(providerName)) {
+    return res.status(400).json({ success: false, error: 'invalid-provider-name', message: 'Provider name must be 2 to 120 characters with no control characters.' })
+  }
+  if (contactEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail)) {
+    return res.status(400).json({ success: false, error: 'invalid-contact-email', message: 'Enter a valid business contact email address.' })
+  }
+  if (!providerApplicationScopes.has(scope)) {
+    return res.status(400).json({ success: false, error: 'invalid-scope', allowedScopes: [...providerApplicationScopes] })
+  }
+  if (body.privacyConsent !== true) {
+    return res.status(400).json({ success: false, error: 'privacy-consent-required', message: 'Consent is required before storing the provider name and business contact email for manual onboarding review.' })
+  }
+
+  const attempt = reserveProviderApplicationAttempt(contactEmail)
+  if (!attempt.allowed) {
+    return res.status(429).json({ success: false, error: 'application-rate-limited', retryAfterSeconds: attempt.retryAfterSeconds, message: 'Up to three applications per business email are accepted per hour. Check the existing reference status before trying again.' })
+  }
+
+  const reference = randomUUID()
+  try {
+    const result = await createSponsorProviderApplication({ reference, providerName, contactEmail, scope })
+    if (!result.success) {
+      releaseProviderApplicationAttempt(attempt)
+      const status = result.reason === 'database-not-configured' || result.reason === 'database-unavailable' ? 503 : 400
+      return res.status(status).json({
+        success: false,
+        error: result.reason || 'application-not-created',
+        message: status === 503
+          ? 'Provider applications cannot be stored right now. No application was confirmed; retry later.'
+          : 'The provider application was rejected. Verify its fields and retry.',
+      })
+    }
+    return res.status(201).json({
+      success: true,
+      application: result.application,
+      providerSubmissionEnabled: false,
+      feeSponsorshipEnabled: false,
+      message: 'Application stored for manual provider due diligence. This is not a sponsor agreement, funding attestation, or transfer authorization.',
+    })
+  } catch {
+    releaseProviderApplicationAttempt(attempt)
+    return res.status(503).json({ success: false, error: 'application-storage-unavailable', message: 'Provider applications cannot be stored right now. No application was confirmed; retry later.' })
+  }
+})
+
+// Reference-only status lookup deliberately omits provider name and contact email.
+router.get('/sponsorship/provider-applications/:reference/status', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const reference = req.params?.reference
+  if (typeof reference !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reference)) {
+    return res.status(400).json({ success: false, error: 'invalid-application-reference' })
+  }
+  const result = await getSponsorProviderApplicationStatus(reference)
+  if (!result.success) {
+    const status = result.reason === 'application-not-found' ? 404
+      : result.reason === 'invalid-reference' ? 400 : 503
+    return res.status(status).json({ success: false, error: result.reason || 'application-status-unavailable' })
+  }
+  return res.json({
+    success: true,
+    application: result.application,
+    providerSubmissionEnabled: false,
+    feeSponsorshipEnabled: false,
+  })
+})
+
+// Contact details are visible only through the server-only admin token.
+router.get('/sponsorship/provider-applications', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string' || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized' })
+  }
+  const status = req.query?.status === undefined ? null : req.query.status
+  const limitText = req.query?.limit === undefined ? '50' : req.query.limit
+  const limit = typeof limitText === 'string' ? Number(limitText) : Number.NaN
+  if (status !== null && !['pending-review', 'in-review', 'accepted-for-due-diligence', 'declined', 'closed'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'invalid-status-filter' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 100.' })
+  }
+  const result = await listSponsorProviderApplications({ status, limit })
+  if (!result.success) return res.status(result.reason === 'invalid-query' ? 400 : 503).json({ success: false, error: result.reason || 'application-list-unavailable' })
+  return res.json({ success: true, count: result.applications.length, applications: result.applications })
+})
+
+router.post('/sponsorship/provider-applications/:reference/review', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string' || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized' })
+  }
+  const { status, reviewReference = null } = req.body || {}
+  const result = await reviewSponsorProviderApplication({ reference: req.params?.reference, status, reviewReference })
+  if (!result.success) {
+    const code = result.reason === 'application-not-found' ? 404
+      : result.reason === 'invalid-review' ? 400
+        : result.reason === 'invalid-status-transition' ? 409 : 503
+    return res.status(code).json({ success: false, error: result.reason || 'application-review-failed' })
+  }
+  return res.json({ success: true, application: result, feeSponsorshipEnabled: false, providerSubmissionEnabled: false })
+})
 
 // Draft-only sponsor budget creation. An approved operator token is required;
 // each record starts pending-review and this route cannot activate or reserve a budget.
