@@ -12,6 +12,7 @@ async function readJson(path: string): Promise<ProbeResponse> {
     headers: { Accept: 'application/json' },
     cache: 'no-store',
     credentials: 'omit',
+    signal: AbortSignal.timeout(12_000),
   })
   const payload = await response.json().catch(() => null)
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
