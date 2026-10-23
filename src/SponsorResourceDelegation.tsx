@@ -76,7 +76,7 @@ export default function SponsorResourceDelegation({ network, walletAddress = '' 
   const [record, setRecord] = useState<DelegationRecord | null>(null)
   const [verification, setVerification] = useState<Verification | null>(null)
   const [notice, setNotice] = useState<{ kind: 'info' | 'success' | 'error'; text: string } | null>(null)
-  const [history, setHistory] = useState<Array<{ transactionId: string; sponsorAddress: string; receiverAddress: string; resourceType: Resource; stakeEquivalentSun: string; blockNumber: number; recordedAt: string }> | null>(null)
+  const [history, setHistory] = useState<Array<{ network: string; transactionId: string; sponsorAddress: string; receiverAddress: string; resourceType: Resource; stakeEquivalentSun: string; blockNumber: number; recordedAt: string }> | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
 
