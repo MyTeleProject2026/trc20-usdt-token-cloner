@@ -155,7 +155,7 @@ function normalizeTrace(payload, requestedTraceId) {
   const returnedId = data.id
   const state = typeof data.state === 'string' ? data.state
     : typeof data.status === 'string' ? data.status : null
-  const txCandidate = [data.transactionId, data.transactionHash, data.txHash, data.txID]
+  const txCandidate = [data.txnHash, data.transactionId, data.transactionHash, data.txHash, data.txID]
     .find((value) => typeof value === 'string' && /^[0-9a-fA-F]{64}$/.test(value))
   const amount = validIntegerString(data.amount)
   const maxFee = validIntegerString(data.maxFee)
