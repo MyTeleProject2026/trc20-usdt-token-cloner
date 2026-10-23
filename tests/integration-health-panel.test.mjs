@@ -22,6 +22,9 @@ test('diagnostics query live backend readiness and independently scoped sponsor 
 test('dashboard distinguishes distinct addresses, on-chain reads, and transfer authorization', () => {
   assert.ok(component.includes('Two distinct addresses configured'))
   assert.ok(component.includes('Address separation failed'))
+  assert.ok(component.includes('requiredEnvironment'))
+  assert.ok(component.includes('Configure these as Render environment variables for the selected network'))
+  assert.ok(component.includes('never put API secrets in frontend variables'))
   assert.ok(component.includes('Funding agreements, signer authorization, and permission to send remain unverified'))
   assert.ok(component.includes('submission remains disabled'))
   assert.ok(component.includes('no cross-network fallback is used'))
