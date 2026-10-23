@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -70,6 +70,67 @@ function hasValidSponsorAdminToken(req) {
   const expected = Buffer.from(configured)
   return supplied.length === expected.length && timingSafeEqual(supplied, expected)
 }
+
+// Draft-only sponsor budget creation. An approved operator token is required;
+// each record starts pending-review and this route cannot activate or reserve a budget.
+router.post('/sponsorship/budgets', async (req, res) => {
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      message: 'Sponsor budget drafting is disabled until a long server-only admin token is configured.',
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const { network, sponsorReference, purpose, asset, tokenContract = null, budgetBaseUnits } = req.body || {}
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  // Sponsor address is chosen from server-side configuration, never accepted from the client.
+  const addressEnv = network === 'mainnet' ? 'SPONSOR_MAINNET_ADDRESS'
+    : network === 'shasta' ? 'SPONSOR_SHASTA_ADDRESS' : 'SPONSOR_NILE_ADDRESS'
+  const sponsorAddress = process.env[addressEnv]
+  if (typeof sponsorAddress !== 'string' || !addressPattern.test(sponsorAddress.trim())) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-address-not-configured',
+      requiredEnvironment: [addressEnv],
+      message: 'Configure the public sponsor wallet address server-side for this network before creating a budget draft.',
+    })
+  }
+  try {
+    const result = await createSponsorBudgetDraft({
+      network, sponsorReference, purpose, asset, tokenContract,
+      budgetBaseUnits, sponsorAddress: sponsorAddress.trim(),
+    })
+    if (!result.success) {
+      const status = result.reason === 'budget-already-exists' ? 409
+        : result.reason === 'database-not-configured' ? 503
+          : result.reason === 'invalid-tron-address' ? 400
+            : 400
+      return res.status(status).json({
+        success: false,
+        error: result.reason || 'sponsor-budget-draft-failed',
+        message: result.reason === 'budget-already-exists'
+          ? 'A budget for this sponsor, network, purpose, asset and contract already exists; this endpoint does not modify existing budgets.'
+          : 'The sponsor budget draft was rejected. Verify network, asset, exact contract allowlist, address and integer base-unit amount.',
+      })
+    }
+    return res.status(201).json({
+      ...result,
+      status: 'pending-review',
+      canReserve: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'This draft records an operator-requested budget cap only. It is not a chain balance, funding attestation, sponsor consent, activation, reservation, or transfer.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-budget-draft-unavailable', message: 'Could not create the sponsor budget draft.' })
+  }
+})
 
 // Privileged, read-only view of configured sponsor budget caps and ledger usage.
 // Budget values are not chain balances and this endpoint cannot activate budgets or send transfers.
