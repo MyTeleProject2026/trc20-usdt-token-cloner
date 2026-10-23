@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, RefreshCw, ShieldAlert } from 'lucide-react'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 
 type ProbeResponse = { httpStatus: number; payload: any }
 type Tone = 'checking' | 'healthy' | 'warning' | 'error'
@@ -103,7 +103,7 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
           const chosen = network === 'mainnet' ? networks.mainnet : networks.nile
           return {
             title: 'GasFree credentials',
-            tone: chosen.configured ? 'warning' : 'warning',
+            tone: 'warning',
             value: chosen.configured ? `${network === 'mainnet' ? 'Mainnet' : 'Nile'} credentials present` : `${network === 'mainnet' ? 'Mainnet' : 'Nile'} credentials missing`,
             detail: `Mainnet: ${networks.mainnet.configured ? 'configured' : 'missing'} · Nile: ${networks.nile.configured ? 'configured' : 'missing'}. Credential presence does not prove provider reachability or sponsor funding; submission remains disabled.`,
           }
