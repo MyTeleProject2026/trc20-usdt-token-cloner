@@ -271,13 +271,17 @@ test('sponsor budget draft and listing routes require the server-only admin toke
   const draftLayer = findRoute('/sponsorship/budgets', 'post')
   const listLayer = findRoute('/sponsorship/budgets', 'get')
   const pauseLayer = findRoute('/sponsorship/budgets/:id/pause', 'post')
+  const activateLayer = findRoute('/sponsorship/budgets/:id/activate', 'post')
   assert.ok(draftLayer, 'POST /sponsorship/budgets must be registered')
   assert.ok(listLayer, 'GET /sponsorship/budgets must be registered')
   assert.ok(pauseLayer, 'POST /sponsorship/budgets/:id/pause must be registered')
+  assert.ok(activateLayer, 'POST /sponsorship/budgets/:id/activate must be registered')
 
   const saved = {
     token: process.env.SPONSOR_ADMIN_API_TOKEN,
     nileAddress: process.env.SPONSOR_NILE_ADDRESS,
+    agreementReferences: process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES,
+    mainnetActivation: process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED,
   }
   const response = () => {
     let statusCode = 200
@@ -359,11 +363,27 @@ test('sponsor budget draft and listing routes require the server-only admin toke
     }, invalidPauseReason)
     assert.equal(invalidPauseReason.statusCode, 400)
     assert.equal(invalidPauseReason.responseBody.error, 'invalid-pause-reason')
+
+    process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = 'signed-agreement-allowed'
+    const unapprovedAgreement = response()
+    await activateLayer.route.stack[0].handle({
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+      params: { id: '1' },
+      body: { consentReference: 'agreement-not-approved', reviewReference: 'review-ticket-001' },
+    }, unapprovedAgreement)
+    assert.equal(unapprovedAgreement.statusCode, 403)
+    assert.equal(unapprovedAgreement.responseBody.error, 'agreement-reference-not-approved')
+    assert.equal(unapprovedAgreement.responseHeaders['cache-control'], 'no-store')
+    assert.equal(unapprovedAgreement.responseHeaders.vary, 'Authorization')
   } finally {
     if (saved.token === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
     else process.env.SPONSOR_ADMIN_API_TOKEN = saved.token
     if (saved.nileAddress === undefined) delete process.env.SPONSOR_NILE_ADDRESS
     else process.env.SPONSOR_NILE_ADDRESS = saved.nileAddress
+    if (saved.agreementReferences === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = saved.agreementReferences
+    if (saved.mainnetActivation === undefined) delete process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED
+    else process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED = saved.mainnetActivation
   }
 })
 
