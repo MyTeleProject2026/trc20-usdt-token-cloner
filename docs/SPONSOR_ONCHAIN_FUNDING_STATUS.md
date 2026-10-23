@@ -79,3 +79,8 @@ New reservations require an active sponsor budget with an activation timestamp, 
 ## Still required before any real sponsor-funded broadcast
 
 The ledger and reconciliation controls are implemented as accounting and readiness safeguards only. A live transaction provider/signing adapter is not enabled; no sponsor private key is stored; no wallet signature is validated by this ledger path; and no transfer is broadcast. Before that work can safely begin, the project still needs an independently reviewed wallet/provider authorization model, recipient and daily spend limits, nonce/replay handling in the actual signing path, failure/fee reconciliation after broadcast, monitoring and alerting, and a complete test-network end-to-end run. Mainnet transaction sending must remain separately gated and should not be enabled until that entire path is reviewed and verified.
+
+
+## Protected transfer lifecycle history
+
+`GET /api/tron/sponsorship/transfers` requires the same server-only administrator bearer token as the sponsor budget ledger. Optional filters are `network`, `status`, `sponsorReference`, and `limit` (1–100). The response is bounded, marks truncation, and is sent with `Cache-Control: no-store`. It reports internal intent lifecycle fields only; it does not prove a transaction was mined or credited, and cannot mutate transfer state or release reservations. Only the independent solidified-chain verifier may supply evidence for final confirmation.
