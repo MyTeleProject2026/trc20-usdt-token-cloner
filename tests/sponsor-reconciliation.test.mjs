@@ -204,3 +204,16 @@ test('reconciliation reports current approval scope gaps on active allocations',
   assert.equal(result.status, 'approval-required')
   assert.equal(result.groups[0].unapprovedActiveBudgetCount, 1)
 })
+
+
+test('draft-only ledgers are not reported as funded coverage', () => {
+  const result = reconcileSponsorBudgets({
+    network: 'shasta',
+    fundingSnapshot: snapshot(),
+    budgets: [budget({ status: 'pending-review', reserved_base_units: '0' })],
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.status, 'no-committed-allocations')
+  assert.equal(result.covered, false)
+  assert.equal(result.groups[0].committedBaseUnits, '0')
+})
