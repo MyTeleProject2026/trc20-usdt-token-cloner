@@ -32,7 +32,7 @@ test('provider reachability is queried only on Mainnet and never uses a Shasta-t
   assert.ok(component.includes("network === 'mainnet' ? readJson('/api/gasfree/capabilities?network=mainnet') : Promise.resolve(null)"))
   assert.ok(component.includes('GasFree is configured for Mainnet and Nile only'))
   assert.ok(component.includes('Shasta unsupported'))
-  assert.ok(component.includes('sponsored submission remains separate'))
+  assert.ok(component.includes('sponsored submission remain separate'))
 })
 
 test('refresh button re-runs diagnostic reads and announces the last check', () => {
