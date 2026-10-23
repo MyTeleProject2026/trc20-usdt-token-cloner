@@ -44,7 +44,7 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
           <CircleDollarSign className="size-6 shrink-0 text-brand-primary" aria-hidden="true" />
           <div>
             <h2 className="text-heading-xs font-semibold text-primary">Choose asset and transfer network</h2>
-            <p className="mt-xs text-sm text-tertiary">Selected network: <strong>{network === 'shasta' ? 'Shasta testnet' : 'TRON Mainnet'}</strong>. Asset identity and network must match the receiving wallet or exchange deposit instructions.</p>
+            <p className="mt-xs text-sm text-tertiary">Selected network: <strong>{network === 'shasta' ? 'Shasta testnet' : network === 'nile' ? 'Nile testnet' : 'TRON Mainnet'}</strong>. Asset identity and network must match the receiving wallet or exchange deposit instructions.</p>
           </div>
         </div>
         <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-sm text-utility-warning-700">
@@ -171,7 +171,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
                       <strong>{item.asset}</strong> ({item.tokenContract}): {item.status === 'verified' ? `${item.balanceBaseUnits} base units · ${item.decimals} decimals` : 'balance unavailable; not treated as zero'}
                     </p>)}
                   </div> : <p className="text-xs text-tertiary">No token contracts were configured for read-only balance checks on this network.</p>}
-                  {funding.tokenBalancesComplete === false && <p className="text-xs text-tertiary">At least one token balance could not be verified; inspect each token result above.</p>}
+                  {funding.tokenBalancesComplete === false && Boolean(funding.tokens?.length) && <p className="text-xs text-tertiary">At least one token balance could not be verified; inspect each token result above.</p>}
                   {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}</p>}
                 </div>
               : <p className="text-xs text-tertiary">{funding?.status === 'sponsor-address-not-configured'
