@@ -62,7 +62,7 @@ test('sponsor funding status verifies native TRX and configured token balances w
   assert.equal(result.native.balanceSun, '1234567')
   assert.equal(result.native.balanceTRX, '1.234567')
   assert.equal(result.tokens.length, 1)
-  assert.equal(result.tokens[0].asset, 'USDT')
+  assert.equal(result.tokens[0].asset, 'USDT (testnet)')
   assert.equal(result.tokens[0].balanceBaseUnits, '2500000')
   assert.equal(result.tokens[0].decimals, 6)
   assert.equal(result.tokenBalancesComplete, true)
