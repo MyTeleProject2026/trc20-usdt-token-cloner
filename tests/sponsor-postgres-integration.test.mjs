@@ -38,23 +38,77 @@ async function setup() {
   return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
 }
 
-async function insertBudget(pool, sponsorReference, budgetBaseUnits) {
+const testBudgetApprovals = new Map()
+
+function registerTestBudgetApproval({ sponsorReference, network, sponsorAddress, purpose, asset, tokenContract = null }) {
+  const consentReference = `pg-approval-${randomUUID()}`
+  const reviewReference = `pg-review-${randomUUID()}`
+  const scope = [
+    consentReference,
+    sponsorReference,
+    network,
+    sponsorAddress,
+    purpose,
+    asset,
+    tokenContract || '-',
+  ].join('|')
+  const previous = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(';').map((entry) => entry.trim()).filter(Boolean)
+  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [...new Set([...previous, scope])].join(';')
+  const approval = { sponsorReference, scope, consentReference, reviewReference }
+  testBudgetApprovals.set(scope, approval)
+  return approval
+}
+
+async function insertActiveBudget(pool, {
+  sponsorReference,
+  network: budgetNetwork = network,
+  sponsorAddress: budgetSponsorAddress = sponsorAddress,
+  purpose,
+  asset,
+  tokenContract = null,
+  budgetBaseUnits,
+}) {
+  const approval = registerTestBudgetApproval({
+    sponsorReference,
+    network: budgetNetwork,
+    sponsorAddress: budgetSponsorAddress,
+    purpose,
+    asset,
+    tokenContract,
+  })
   await pool.query(
-    `INSERT INTO trc20_token_clone.sponsor_budgets
-      (sponsor_reference, sponsor_address, network, asset, token_contract,
-       budget_base_units, reserved_base_units, spent_base_units, status)
-     VALUES ($1,$2,$3,'TRX',NULL,$4,0,0,'active')`,
-    [sponsorReference, sponsorAddress, network, budgetBaseUnits],
+    `INSERT INTO trc20_token_cloner.sponsor_budgets
+      (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+       budget_base_units, reserved_base_units, spent_base_units, status,
+       approval_reference, review_reference, approved_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,0,0,'active',$8,$9,now())`,
+    [sponsorReference, budgetSponsorAddress, budgetNetwork, purpose, asset,
+      tokenContract, budgetBaseUnits, approval.consentReference, approval.reviewReference],
   )
 }
 
+async function insertBudget(pool, sponsorReference, budgetBaseUnits) {
+  return insertActiveBudget(pool, {
+    sponsorReference, purpose: 'asset-grant', asset: 'TRX',
+    tokenContract: null, budgetBaseUnits,
+  })
+}
+
 async function insertUsdtBudget(pool, sponsorReference, tokenContract, budgetBaseUnits) {
+  return insertActiveBudget(pool, {
+    sponsorReference, purpose: 'asset-grant', asset: 'USDT',
+    tokenContract, budgetBaseUnits,
+  })
+}
+
+async function insertLegacyActiveBudget(pool, sponsorReference, budgetBaseUnits) {
   await pool.query(
     `INSERT INTO trc20_token_clone.sponsor_budgets
-      (sponsor_reference, sponsor_address, network, asset, token_contract,
+      (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
        budget_base_units, reserved_base_units, spent_base_units, status)
-     VALUES ($1,$2,$3,'USDT',$4,$5,0,0,'active')`,
-    [sponsorReference, sponsorAddress, network, tokenContract, budgetBaseUnits],
+     VALUES ($1,$2,$3,'asset-grant','TRX',NULL,$4,0,0,'active')`,
+    [sponsorReference, sponsorAddress, network, budgetBaseUnits],
   )
 }
 
@@ -71,6 +125,16 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
     'DELETE FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = ANY($1::text[])',
     [sponsorReferences],
   )
+  const removedScopes = [...testBudgetApprovals.values()]
+    .filter((approval) => sponsorReferences.includes(approval.sponsorReference))
+    .map((approval) => approval.scope)
+  if (removedScopes.length) {
+    const remaining = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+      .split(';').map((entry) => entry.trim()).filter((entry) => entry && !removedScopes.includes(entry))
+    if (remaining.length) process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = remaining.join(';')
+    else delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    for (const scope of removedScopes) testBudgetApprovals.delete(scope)
+  }
 }
 
 
@@ -283,13 +347,13 @@ test('fee coverage and asset-grant principal require independent TRX sponsor bud
     })
     assert.deepEqual(feeWithoutBudget, { reserved: false, reason: 'sponsor-budget-not-found' })
 
-    await pool.query(
-      `INSERT INTO trc20_token_clone.sponsor_budgets
-        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
-         budget_base_units, reserved_base_units, spent_base_units, status)
-       VALUES ($1,$2,$3,'network-fee','TRX',NULL,50,0,0,'active')`,
-      [sponsorReference, sponsorAddress, network],
-    )
+    await insertActiveBudget(pool, {
+      sponsorReference,
+      purpose: 'network-fee',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: '50',
+    })
     const fee = await reserveSponsorTransfer({
       idempotencyKey: feeKey, sponsorReference, network, purpose: 'network-fee',
       asset: 'TRX', receiverAddress, amountBaseUnits: '20',
