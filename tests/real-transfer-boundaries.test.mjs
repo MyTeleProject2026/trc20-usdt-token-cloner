@@ -18,3 +18,28 @@ test('sponsorship cannot be represented as enabled without a verified integratio
   assert.match(sponsorship, /canSubmitSponsoredTransfer: false/)
   assert.match(sponsorship, /not-integrated/)
 })
+
+
+test('Mainnet USDT sending is restricted to the official TRON contract and six decimals', () => {
+  assert.match(app, /const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'/)
+  assert.match(app, /selectedAsset === 'USDT' && network !== 'mainnet'/)
+  assert.match(app, /selectedAsset === 'USDT' && contractAddress\.trim\(\) !== OFFICIAL_MAINNET_USDT_CONTRACT/)
+  assert.match(app, /selectedAsset === 'USDT' && decimals !== 6/)
+  assert.match(app, /selectedAsset === 'USDT' && tokenSymbolValue\.toUpperCase\(\) !== 'USDT'/)
+  assert.match(app, /setContractAddress\(OFFICIAL_MAINNET_USDT_CONTRACT\)/)
+})
+
+test('token transfer UI uses TronLink and does not request a pasted private key', () => {
+  const start = app.indexOf('/* Tab 2: Interact & Balance */')
+  const end = app.indexOf('/* Native TRX is the network coin', start)
+  assert.ok(start >= 0 && end > start, 'token transfer UI section should exist')
+  const tokenTransferUi = app.slice(start, end)
+  assert.match(tokenTransferUi, /Connect \/ verify TronLink/)
+  assert.doesNotMatch(tokenTransferUi, /Wallet Private Key \(local signing only\)/)
+})
+
+test('USDT remains blocked from Shasta/Nile and VTRC cannot use the official USDT contract', () => {
+  assert.match(app, /Official USDT transfer is restricted to TRON Mainnet/)
+  assert.match(app, /selectedAsset === 'VTRC' && network !== 'shasta'/)
+  assert.match(app, /selectedAsset === 'VTRC' && contractAddress\.trim\(\) === OFFICIAL_MAINNET_USDT_CONTRACT/)
+})
