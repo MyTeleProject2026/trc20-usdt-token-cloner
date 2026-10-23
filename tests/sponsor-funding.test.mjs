@@ -199,3 +199,45 @@ test('sponsor funding reader pins Mainnet USDT snapshots to the official Tether 
   assert.equal(JSON.parse(tokenRead.options.body).contract_address.toLowerCase().startsWith('41'), true)
   assert.notEqual(result.tokens[0].tokenContract, tokenAddress)
 })
+
+
+test('sponsor budget ledger endpoint rejects unconfigured and invalid admin tokens', async () => {
+  const nativeTronRoutes = (await import('../server/routes/native-tron.mjs')).default
+  const layer = nativeTronRoutes.stack.find((item) =>
+    item.route?.path === '/sponsorship/budgets' && item.route.methods?.get,
+  )
+  assert.ok(layer, 'GET /sponsorship/budgets route must be registered')
+
+  const savedToken = process.env.SPONSOR_ADMIN_API_TOKEN
+  try {
+    delete process.env.SPONSOR_ADMIN_API_TOKEN
+    let statusCode = 200
+    let responseBody
+    const response = {
+      status(code) { statusCode = code; return this },
+      json(body) { responseBody = body; return this },
+    }
+    await layer.route.stack[0].handle({ query: {}, headers: {} }, response)
+    assert.equal(statusCode, 503)
+    assert.equal(responseBody.error, 'sponsor-admin-not-configured')
+    assert.equal(Object.hasOwn(responseBody, 'budgets'), false)
+
+    process.env.SPONSOR_ADMIN_API_TOKEN = 'x'.repeat(40)
+    statusCode = 200
+    responseBody = null
+    await layer.route.stack[0].handle({ query: {}, headers: { authorization: 'Bearer incorrect-token' } }, response)
+    assert.equal(statusCode, 401)
+    assert.equal(responseBody.error, 'unauthorized')
+    assert.equal(Object.hasOwn(responseBody, 'budgets'), false)
+
+    // The token must be checked before input validation or database access.
+    statusCode = 200
+    responseBody = null
+    await layer.route.stack[0].handle({ query: { network: 'attacker' }, headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN } }, response)
+    assert.equal(statusCode, 400)
+    assert.equal(responseBody.error, 'invalid-network')
+  } finally {
+    if (savedToken === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
+    else process.env.SPONSOR_ADMIN_API_TOKEN = savedToken
+  }
+})
