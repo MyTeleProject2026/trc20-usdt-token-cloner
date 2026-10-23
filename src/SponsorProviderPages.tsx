@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDollarSign, ShieldCheck } from 'lucide-react'
 import GasFreeProviderDiscovery from './GasFreeProviderDiscovery'
+import SponsorResourceDelegation from './SponsorResourceDelegation'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 
@@ -252,6 +253,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
 
   return (
     <div className="space-y-xl">
+      <SponsorResourceDelegation network={network} walletAddress={walletAddress} />
       <GasFreeProviderDiscovery walletAddress={walletAddress} walletNetwork={network} />
       <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs space-y-lg">
         <div className="flex items-start gap-md">
