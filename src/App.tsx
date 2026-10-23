@@ -4,6 +4,7 @@ import { tokenArtifact } from './generated/IndependentTRC20'
 import TransferSimulator from './TransferSimulator'
 import ReceiverHistory from './ReceiverHistory'
 import SponsorshipStatus from './SponsorshipStatus'
+import IntegrationHealthPanel from './IntegrationHealthPanel'
 import SponsorProviderPage, { TokenSelectionPage } from './SponsorProviderPages'
 import {
   Coins,
@@ -1000,6 +1001,7 @@ export default function App() {
           </p>
         </aside>
         <SponsorshipStatus />
+        <IntegrationHealthPanel network={network} />
         {/* Alert component recipe */}
         {apiStatus === 'no-api-key' && (
           <div className="mb-xl flex gap-lg rounded-xl bg-utility-warning-50 p-xl">
