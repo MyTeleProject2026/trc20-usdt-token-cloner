@@ -241,3 +241,73 @@ test('sponsor budget ledger endpoint rejects unconfigured and invalid admin toke
     else process.env.SPONSOR_ADMIN_API_TOKEN = savedToken
   }
 })
+
+
+test('sponsor budget draft and listing routes require the server-only admin token', async () => {
+  const nativeTronRoutes = (await import('../server/routes/native-tron.mjs')).default
+  const findRoute = (path, method) => nativeTronRoutes.stack.find((item) =>
+    item.route?.path === path && item.route.methods?.[method],
+  )
+  const draftLayer = findRoute('/sponsorship/budgets', 'post')
+  const listLayer = findRoute('/sponsorship/budgets', 'get')
+  assert.ok(draftLayer, 'POST /sponsorship/budgets must be registered')
+  assert.ok(listLayer, 'GET /sponsorship/budgets must be registered')
+
+  const saved = {
+    token: process.env.SPONSOR_ADMIN_API_TOKEN,
+    nileAddress: process.env.SPONSOR_NILE_ADDRESS,
+  }
+  const response = () => {
+    let statusCode = 200
+    let responseBody
+    return {
+      status(code) { statusCode = code; return this },
+      json(body) { responseBody = body; return this },
+      get statusCode() { return statusCode },
+      get responseBody() { return responseBody },
+    }
+  }
+
+  try {
+    delete process.env.SPONSOR_ADMIN_API_TOKEN
+    const draftMissing = response()
+    await draftLayer.route.stack[0].handle({ headers: {}, body: { network: 'nile' } }, draftMissing)
+    assert.equal(draftMissing.statusCode, 503)
+    assert.equal(draftMissing.responseBody.error, 'sponsor-admin-not-configured')
+
+    const listMissing = response()
+    await listLayer.route.stack[0].handle({ headers: {}, query: {} }, listMissing)
+    assert.equal(listMissing.statusCode, 503)
+    assert.equal(listMissing.responseBody.error, 'sponsor-admin-not-configured')
+
+    process.env.SPONSOR_ADMIN_API_TOKEN = 'y'.repeat(40)
+    const unauthorized = response()
+    await draftLayer.route.stack[0].handle({
+      headers: { authorization: 'Bearer wrong-token' },
+      body: { network: 'nile' },
+    }, unauthorized)
+    assert.equal(unauthorized.statusCode, 401)
+    assert.equal(unauthorized.responseBody.error, 'unauthorized')
+
+    delete process.env.SPONSOR_NILE_ADDRESS
+    const noAddress = response()
+    await draftLayer.route.stack[0].handle({
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+      body: {
+        network: 'nile',
+        sponsorReference: 'review-only',
+        purpose: 'asset-grant',
+        asset: 'TRX',
+        budgetBaseUnits: '1000000',
+      },
+    }, noAddress)
+    assert.equal(noAddress.statusCode, 503)
+    assert.equal(noAddress.responseBody.error, 'sponsor-address-not-configured')
+    assert.equal(noAddress.responseBody.canReserve, undefined)
+  } finally {
+    if (saved.token === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
+    else process.env.SPONSOR_ADMIN_API_TOKEN = saved.token
+    if (saved.nileAddress === undefined) delete process.env.SPONSOR_NILE_ADDRESS
+    else process.env.SPONSOR_NILE_ADDRESS = saved.nileAddress
+  }
+})
