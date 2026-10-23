@@ -88,6 +88,13 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [checkedAt, setCheckedAt] = useState<number | null>(null)
+  const [draftRole, setDraftRole] = useState<'network-fee-sponsor' | 'asset-principal-sponsor'>('network-fee-sponsor')
+  const [draftSponsorReference, setDraftSponsorReference] = useState('')
+  const [draftAsset, setDraftAsset] = useState<'TRX' | 'USDT' | 'VTRC'>('TRX')
+  const [draftTokenContract, setDraftTokenContract] = useState('')
+  const [draftBudgetBaseUnits, setDraftBudgetBaseUnits] = useState('')
+  const [draftLoading, setDraftLoading] = useState(false)
+  const [draftNotice, setDraftNotice] = useState('')
 
   useEffect(() => {
     setLedgerNetwork(network)
@@ -97,6 +104,66 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
     setError('')
     setNotice('')
   }, [network])
+
+  const createRoleDraft = async () => {
+    const token = adminToken.trim()
+    const baseUnitsPattern = /^[1-9][0-9]{0,77}$/
+    if (token.length < 32) {
+      setDraftNotice('Enter the server-configured sponsor admin token first.')
+      return
+    }
+    if (!['shasta', 'nile'].includes(ledgerNetwork)) {
+      setDraftNotice('Budget drafting is restricted to Shasta or Nile testnet. Mainnet drafts cannot be created from this form.')
+      return
+    }
+    if (!draftSponsorReference.trim() || draftSponsorReference.trim().length > 128) {
+      setDraftNotice('Enter a sponsor reference of 1–128 characters.')
+      return
+    }
+    if (!baseUnitsPattern.test(draftBudgetBaseUnits)) {
+      setDraftNotice('Enter a positive integer amount in base units, with no decimal point, comma or sign.')
+      return
+    }
+    if (draftRole === 'network-fee-sponsor' && draftAsset !== 'TRX') {
+      setDraftNotice('The fee sponsor draft can only use native TRX as a resource/fee budget.')
+      return
+    }
+    if (draftRole === 'asset-principal-sponsor' && draftAsset !== 'TRX' && !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(draftTokenContract.trim())) {
+      setDraftNotice('Enter a valid token contract address that is included in the server-side allowlist for this testnet.')
+      return
+    }
+    setDraftLoading(true)
+    setDraftNotice('')
+    try {
+      const response = await fetch(`${API_BASE}/api/tron/sponsorship/role-budget-drafts`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          network: ledgerNetwork,
+          role: draftRole,
+          sponsorReference: draftSponsorReference.trim(),
+          asset: draftAsset,
+          tokenContract: draftAsset === 'TRX' ? null : draftTokenContract.trim(),
+          budgetBaseUnits: draftBudgetBaseUnits,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.status !== 'pending-review') {
+        const detail = typeof payload?.message === 'string' ? payload.message
+          : typeof payload?.error === 'string' ? payload.error : `HTTP ${response.status}`
+        throw new Error(detail)
+      }
+      setDraftNotice(`Draft #${payload.budget?.id || 'created'} was saved as pending review for ${draftRole}. It is not active and cannot reserve or send funds.`)
+      setDraftBudgetBaseUnits('')
+      await loadLedger()
+    } catch (err) {
+      setDraftNotice(err instanceof Error ? `Draft not confirmed: ${err.message}. No transfer was submitted.` : 'Draft request failed; no successful draft was confirmed.')
+    } finally {
+      setDraftLoading(false)
+    }
+  }
 
   const loadLedger = async () => {
     const token = adminToken.trim()
@@ -204,7 +271,7 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
           <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
           {loading ? 'Loading protected ledger…' : 'Load / refresh ledger'}
         </button>
-        <button type="button" onClick={() => { setAdminToken(''); setBudgets(null); setTransfers(null); setRoleReconciliation(null); setReconciliationError(''); setTruncated(false); setError(''); setNotice(''); setCheckedAt(null) }} disabled={loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">Clear token and records</button>
+        <button type="button" onClick={() => { setAdminToken(''); setBudgets(null); setTransfers(null); setRoleReconciliation(null); setReconciliationError(''); setTruncated(false); setError(''); setNotice(''); setDraftNotice(''); setDraftSponsorReference(''); setDraftTokenContract(''); setDraftBudgetBaseUnits(''); setCheckedAt(null) }} disabled={loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">Clear token and records</button>
       </div>
       {error && <div role="alert" className="rounded-lg border border-utility-error-200 bg-utility-error-50 p-md text-sm text-utility-error-700"><strong>Ledger read failed:</strong> {error}. No records were changed.</div>}
       {notice && <p role="status" className="rounded-lg border border-secondary bg-secondary p-md text-xs text-tertiary">{notice}</p>}
@@ -239,6 +306,46 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
                 <p className="text-xs text-tertiary">The response is point-in-time and may become stale after funds move. Mainnet sponsored submission remains disabled regardless of this report.</p>
               </div>
             : <p className="rounded-lg border border-secondary bg-secondary p-md text-xs text-tertiary">Enter the protected admin token and load the ledger to request separate role reconciliation.</p>}
+      </div>
+      <div className="space-y-md rounded-lg border border-secondary p-md">
+        <div>
+          <h3 className="text-sm font-semibold text-primary">Create testnet-only sponsor budget draft</h3>
+          <p className="mt-xs text-xs text-tertiary">This writes one pending-review cap to the project ledger. It does not activate the cap, reserve funds, sign or send a transaction. Mainnet drafts are disabled here.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-md md:grid-cols-2">
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Sponsor role
+            <select value={draftRole} onChange={(event) => {
+              const nextRole = event.target.value as 'network-fee-sponsor' | 'asset-principal-sponsor'
+              setDraftRole(nextRole)
+              if (nextRole === 'network-fee-sponsor') setDraftAsset('TRX')
+              setDraftNotice('')
+            }}>
+              <option value="network-fee-sponsor">Sponsor A — network fees / resources</option>
+              <option value="asset-principal-sponsor">Sponsor B — actual asset principal</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Draft asset
+            <select value={draftAsset} disabled={draftRole === 'network-fee-sponsor'} onChange={(event) => { setDraftAsset(event.target.value as 'TRX' | 'USDT' | 'VTRC'); setDraftNotice('') }}>
+              <option value="TRX">TRX</option>
+              <option value="USDT">USDT (allowlisted testnet contract)</option>
+              <option value="VTRC">VTRC (allowlisted project token contract)</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Sponsor reference
+            <input value={draftSponsorReference} onChange={(event) => setDraftSponsorReference(event.target.value)} maxLength={128} placeholder="e.g. sponsor-testnet-001" />
+          </label>
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Budget cap (base units)
+            <input value={draftBudgetBaseUnits} onChange={(event) => setDraftBudgetBaseUnits(event.target.value)} inputMode="numeric" maxLength={78} placeholder="Positive integer; no decimals" />
+          </label>
+          {draftAsset !== 'TRX' && <label className="flex flex-col gap-xs text-sm font-medium text-secondary md:col-span-2">Token contract address
+            <input value={draftTokenContract} onChange={(event) => setDraftTokenContract(event.target.value)} maxLength={34} placeholder="T… contract already allowlisted server-side" />
+          </label>}
+        </div>
+        <button type="button" onClick={() => void createRoleDraft()} disabled={draftLoading || loading || adminToken.trim().length < 32 || !['shasta', 'nile'].includes(ledgerNetwork)} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:cursor-not-allowed disabled:opacity-50">
+          {draftLoading ? 'Creating pending-review draft…' : 'Create testnet budget draft'}
+        </button>
+        {ledgerNetwork === 'mainnet' && <p className="text-xs text-tertiary">Select Shasta or Nile to create a testnet draft. This form cannot create Mainnet drafts.</p>}
+        {draftNotice && <p role="status" className="text-xs text-tertiary">{draftNotice}</p>}
       </div>
       {budgets !== null && (
         <div className="space-y-sm">
