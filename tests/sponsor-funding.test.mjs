@@ -78,6 +78,16 @@ test('sponsor funding status verifies native TRX and configured token balances w
   assert.equal(cached.cache.status, 'cached')
   assert.equal(cached.native.balanceSun, '1234567')
   assert.equal(requests.length, requestsAfterFreshRead, 'fresh snapshot should avoid duplicate provider calls')
+
+  const forcedRefresh = await reader('nile', { refresh: true })
+  assert.equal(forcedRefresh.cache.status, 'fresh')
+  assert.equal(forcedRefresh.native.balanceSun, '1234567')
+  assert.ok(requests.length > requestsAfterFreshRead, 'explicit refresh should bypass a successful cache once')
+  const afterForceRefresh = requests.length
+  const throttledRefresh = await reader('nile', { refresh: true })
+  assert.equal(throttledRefresh.cache.status, 'refresh-throttled')
+  assert.equal(throttledRefresh.cache.refreshThrottled, true)
+  assert.equal(requests.length, afterForceRefresh, 'repeated forced refreshes should not multiply provider calls')
 })
 
 test('sponsor funding read rejects invalid networks and malformed allowlists without reporting tokens', async () => {
