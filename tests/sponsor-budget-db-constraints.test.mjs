@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { validateSponsorBudget, validateSponsorTransferIntent } from '../server/sponsor-policy.mjs'
-import { createSponsorBudgetDraft, listSponsorBudgets, activateSponsorBudget } from '../server/database.mjs'
+import { createSponsorBudgetDraft, listSponsorBudgets, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../server/database.mjs'
 
 test('sponsor budget database constraint enforces TRX-only network-fee budgets', async () => {
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
@@ -99,8 +99,22 @@ test('sponsor budget ledger listing rejects invalid query bounds before database
 
 test('sponsor budget activation requires allowlisted agreement and fresh evidence before database access', async () => {
   const previous = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
-  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = 'signed-agreement-approved'
+  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = 'signed-agreement-approved|sponsor-draft-test|shasta|TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2|network-fee|TRX|-'
   try {
+    assert.equal(isSponsorAgreementReferenceConfigured('signed-agreement-approved'), true)
+    assert.equal(isSponsorAgreementReferenceConfigured('signed-agreement-not-approved'), false)
+
+    const budgetScope = {
+      sponsor_reference: 'sponsor-draft-test',
+      network: 'shasta',
+      sponsor_address: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
+      purpose: 'network-fee',
+      asset: 'TRX',
+      token_contract: null,
+    }
+    assert.equal(isApprovedSponsorAgreementScope({ consentReference: 'signed-agreement-approved', budget: budgetScope }), true)
+    assert.equal(isApprovedSponsorAgreementScope({ consentReference: 'signed-agreement-approved', budget: { ...budgetScope, purpose: 'asset-grant' } }), false)
+
     const unapproved = await activateSponsorBudget({
       budgetId: '1',
       consentReference: 'signed-agreement-not-approved',
