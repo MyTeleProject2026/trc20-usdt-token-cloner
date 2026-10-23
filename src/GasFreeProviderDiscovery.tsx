@@ -162,7 +162,7 @@ function formatBaseUnits(baseUnits: string, decimals: number): string {
 }
 
 /** Provider inventory, account, and trace reads only; no authorization is signed or submitted. */
-type Props = { walletAddress?: string; walletNetwork: 'mainnet' | 'shasta' }
+type Props = { walletAddress?: string; walletNetwork: 'mainnet' | 'shasta' | 'nile' }
 
 export default function GasFreeProviderDiscovery({ walletAddress = '', walletNetwork }: Props) {
   const [network, setNetwork] = useState<'mainnet' | 'nile'>(walletNetwork === 'mainnet' ? 'mainnet' : 'nile')
