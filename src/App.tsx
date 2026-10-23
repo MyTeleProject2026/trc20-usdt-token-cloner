@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
@@ -333,21 +334,24 @@ export default function App() {
       setActionMessage({ type: 'error', text: 'The selected asset is native TRX. Use the native TRX workflow instead of the TRC-20 contract transfer form.' })
       return
     }
-    if (selectedAsset === 'USDT') {
-      setActionMessage({ type: 'error', text: 'USDT transfers are blocked from this workflow until a network-specific official-contract allowlist and verification gate are implemented. Do not bypass this chooser using the contract field.' })
+    if (selectedAsset === 'USDT' && network !== 'mainnet') {
+      setActionMessage({ type: 'error', text: 'Official USDT transfer is restricted to TRON Mainnet. Mainnet USDT cannot be sent on Shasta or Nile, and testnet tokens are not official USDT.' })
       return
     }
-    if (network !== 'shasta') {
-      setActionMessage({ type: 'error', text: 'VTRC is an independent project token and this workflow currently permits VTRC transfers on Shasta testnet only. Switch to Shasta and verify the deployed VTRC contract.' })
+    if (selectedAsset === 'VTRC' && network !== 'shasta') {
+      setActionMessage({ type: 'error', text: 'VTRC is an independent project token and this workflow permits VTRC transfers on Shasta testnet only. Switch to Shasta and verify the deployed VTRC contract.' })
       return
     }
-    if (!contractAddress || !recipientAddress || !transferAmount) {
+    if (!contractAddress.trim() || !recipientAddress.trim() || !transferAmount.trim()) {
       setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, and amount.' })
       return
     }
-    const officialMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-    if (contractAddress.trim() === officialMainnetUsdt) {
-      setActionMessage({ type: 'error', text: 'The selected asset is VTRC, but the entered contract is the known TRON Mainnet USDT address. Asset selection and contract do not match; transfer blocked.' })
+    if (selectedAsset === 'USDT' && contractAddress.trim() !== OFFICIAL_MAINNET_USDT_CONTRACT) {
+      setActionMessage({ type: 'error', text: 'Mainnet USDT transfers are restricted to the official TRON contract TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t. The selected contract does not match; transfer blocked.' })
+      return
+    }
+    if (selectedAsset === 'VTRC' && contractAddress.trim() === OFFICIAL_MAINNET_USDT_CONTRACT) {
+      setActionMessage({ type: 'error', text: 'VTRC is a separate project token, not official USDT. The entered contract is official TRON Mainnet USDT; asset selection and contract do not match, so the transfer is blocked.' })
       return
     }
     setTransferring(true)
@@ -367,6 +371,9 @@ export default function App() {
       if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) {
         throw new Error('The token contract returned an unsupported decimals value.')
       }
+      if (selectedAsset === 'USDT' && decimals !== 6) {
+        throw new Error('The official Mainnet USDT contract must report exactly 6 decimals; this contract response does not match.')
+      }
       const normalizedAmount = transferAmount.trim()
       if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(normalizedAmount)) {
         throw new Error('Enter a plain decimal token amount without signs or exponent notation.')
@@ -379,6 +386,9 @@ export default function App() {
       const senderBalance = BigInt(String(await contract.balanceOf(sender).call()))
       if (senderBalance < BigInt(rawAmount)) throw new Error('Sender token balance is insufficient for this transfer.')
       const tokenSymbolValue = String(await contract.symbol().call().catch(() => 'TRC-20'))
+      if (selectedAsset === 'USDT' && tokenSymbolValue.toUpperCase() !== 'USDT') {
+        throw new Error('The selected contract did not report the expected USDT symbol; transfer blocked.')
+      }
       const confirmation = 'Confirm TRC-20 transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (test assets only)' : 'TRON MAINNET (real funds)') + '\nToken: ' + tokenSymbolValue + '\nContract: ' + contractAddress.trim() + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + normalizedAmount + ' (token decimals: ' + decimals + ')\n\nOnly proceed if the receiver supports this exact token and network. Exchange deposit credit is not guaranteed. Continue to TronLink approval?'
       if (!window.confirm(confirmation)) {
         setActionMessage({ type: 'error', text: 'Token transfer cancelled before signing.' })
@@ -844,7 +854,7 @@ export default function App() {
           </button>
         </div>
 
-        {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else setActionMessage({ type: 'error', text: 'USDT transfer is blocked in this workflow until an independently verified official contract allowlist is implemented for the selected network.' }) }} />}
+        {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else if (network !== 'mainnet') setActionMessage({ type: 'error', text: 'Official USDT transfers are only available on TRON Mainnet in this workflow. Mainnet USDT is not available on Shasta or Nile; testnet tokens are not Mainnet USDT.' }); else { setContractAddress(OFFICIAL_MAINNET_USDT_CONTRACT); setActionMessage(null); setActiveTab('interact'); } }} />}
         {activeTab === 'sponsors' && <SponsorProviderPage network={network} walletAddress={walletConnected ? walletAddress : ''} />}
 
         {/* Tab 1: Deploy & Clone */}
@@ -1179,25 +1189,11 @@ export default function App() {
               </p>
 
               <div className="space-y-md">
-                <div className="flex flex-col gap-sm">
-                  <div className="flex items-center justify-between gap-sm">
-                    <label className="text-sm font-medium text-secondary">Wallet Private Key (local signing only)</label>
-                    <button type="button" onClick={handleGenerateWallet} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Generate wallet</button>
-                  </div>
-                  <input
-                    type={showPrivateKey ? "text" : "password"}
-                    autoComplete="off"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    placeholder="Enter your own wallet private key"
-                  />
-                  <div className="flex flex-wrap items-center gap-sm">
-                    <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
-                    {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
-                  </div>
-                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Current local wallet: {walletAddress}</p>}
-                  <p className="text-xs text-tertiary">Signing runs locally in this browser. The key is not sent to the backend. Back it up securely; it is not saved after you close or reload the app.</p>
+                <div className="flex flex-col gap-sm rounded-lg border border-secondary bg-secondary p-lg">
+                  <label className="text-sm font-medium text-primary">Wallet authorization</label>
+                  <p className="text-xs text-tertiary">This transfer handler uses TronLink for network validation and transaction signing. It does not need a private key pasted into this page.</p>
+                  <button type="button" onClick={handleConnectWallet} className="rounded-md border border-primary bg-primary px-sm py-xs text-xs font-semibold text-brand-primary">Connect / verify TronLink</button>
+                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Wallet: {walletAddress}</p>}
                 </div>
 
                 <div className="flex flex-col gap-sm">
@@ -1238,7 +1234,7 @@ export default function App() {
                   <p className="text-xs text-tertiary">Network: {tokenTransferRecord.network} · Token: {tokenTransferRecord.tokenSymbol} · Amount: {tokenTransferRecord.amount}</p>
                   <p className="break-all text-xs font-mono text-secondary">Tx: {tokenTransferRecord.transactionId}</p>
                   <button type="button" onClick={handleVerifyTokenTransfer} disabled={tokenVerifyLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{tokenVerifyLoading ? 'Verifying solidified token transfer…' : 'Verify token contract, sender, receiver & amount'}</button>
-                  {tokenVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{tokenVerifyResult.verified ? 'Solidified token transfer verified' : (tokenVerifyResult.status || tokenVerifyResult.reason || 'Not verified')}</p><p className="text-xs text-tertiary">Block: {tokenVerifyResult.blockNumber ?? 'not solidified yet'} · Exact event amount: {tokenVerifyResult.amountSun ?? tokenTransferRecord.amountBaseUnits} base units</p>{tokenVerifyResult.verified && <p className="text-xs text-tertiary">Verification history saved: {tokenVerifyResult.persistence?.persisted ? 'yes' : 'no — ' + (tokenVerifyResult.persistence?.reason || 'storage unavailable')}</p>}<p className="text-xs text-tertiary">This confirms a matching on-chain event for this contract. It does not prove the token is official USDT or that an exchange credited the deposit.</p>{tokenVerifyResult.verified && <button type="button" onClick={handleLookupVerifiedTransfer} disabled={verifiedTransferLookupLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{verifiedTransferLookupLoading ? 'Checking saved verification…' : 'Check saved verified-transfer record'}</button>}{verifiedTransferLookup && <p className="break-all text-xs text-tertiary">{verifiedTransferLookup.success ? 'Saved record found for exact network, contract, parties, amount and event index.' : 'Saved record lookup: ' + (verifiedTransferLookup.error || verifiedTransferLookup.message || 'not found')}</p>}</div>}
+                  {tokenVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{tokenVerifyResult.verified ? 'Solidified token transfer verified' : (tokenVerifyResult.status || tokenVerifyResult.reason || 'Not verified')}</p><p className="text-xs text-tertiary">Block: {tokenVerifyResult.blockNumber ?? 'not solidified yet'} · Exact event amount: {tokenVerifyResult.amountSun ?? tokenTransferRecord.amountBaseUnits} base units</p>{tokenVerifyResult.verified && <p className="text-xs text-tertiary">Verification history saved: {tokenVerifyResult.persistence?.persisted ? 'yes' : 'no — ' + (tokenVerifyResult.persistence?.reason || 'storage unavailable')}</p>}<p className="text-xs text-tertiary">This confirms a matching on-chain event for this exact network, contract, sender, receiver and amount. Contract identity determines the token; this does not confirm exchange deposit credit.</p>{tokenVerifyResult.verified && <button type="button" onClick={handleLookupVerifiedTransfer} disabled={verifiedTransferLookupLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{verifiedTransferLookupLoading ? 'Checking saved verification…' : 'Check saved verified-transfer record'}</button>}{verifiedTransferLookup && <p className="break-all text-xs text-tertiary">{verifiedTransferLookup.success ? 'Saved record found for exact network, contract, parties, amount and event index.' : 'Saved record lookup: ' + (verifiedTransferLookup.error || verifiedTransferLookup.message || 'not found')}</p>}</div>}
                 </div>}
                 {tokenBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Solidified receiver token balance</p><p className="break-all text-xs text-tertiary">Network: {tokenBalanceResult.network}</p><p className="break-all text-xs text-tertiary">Contract: {tokenBalanceResult.tokenContract}</p><p className="break-all text-xs text-tertiary">Receiver: {tokenBalanceResult.receiverAddress}</p><p className="text-lg font-semibold text-primary">Balance: {formatTokenUnits(tokenBalanceResult.balanceBaseUnits, tokenBalanceResult.decimals)} tokens</p><p className="text-xs text-tertiary">Raw units: {tokenBalanceResult.balanceBaseUnits} · Decimals: {tokenBalanceResult.decimals}. This is the balance of this exact contract only; it does not prove exchange deposit credit or that the token is official USDT.</p></div>}
 
