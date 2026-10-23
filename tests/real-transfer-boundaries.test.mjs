@@ -83,3 +83,20 @@ test('native and token transfers revalidate live TronLink account/network before
   assert.match(app, /currentContract\.balanceOf\(sender\)\.call\(\)/)
   assert.match(app, /getCurrentAuthorizedTronWeb\(sender\)[\s\S]*?currentContract\.transfer\(recipientAddress\.trim\(\), rawAmount\)\.send/)
 })
+
+
+test('connection requires recognized TronLink identity and the standard authorization prompt', () => {
+  assert.match(app, /provider\.isTronLink !== true/)
+  assert.match(app, /provider\.request\(\{ method: 'eth_requestAccounts' \}\)/)
+  assert.match(app, /No transfer will be signed by an unverified provider/)
+})
+
+test('native TRX validates amount and sender before displaying the final confirmation', () => {
+  const start = app.indexOf('const handleNativeTrxTransfer = async () => {')
+  const amountGuard = app.indexOf('if (!Number.isSafeInteger(Number(sun)))', start)
+  const senderGuard = app.indexOf('if (!sender || !tronWeb.isAddress(sender))', start)
+  const confirmation = app.indexOf("const confirmationMessage = 'Confirm native TRX transfer", start)
+  assert.ok(start >= 0 && amountGuard > start && senderGuard > amountGuard && confirmation > senderGuard)
+  assert.match(app, /Network fees depend on wallet resources and the network/)
+  assert.match(app, /review the fee and the full transaction in TronLink before signing/i)
+})
