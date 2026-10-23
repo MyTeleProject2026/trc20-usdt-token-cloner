@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url'
 
-const DEFAULT_API_BASE_URL = 'https://trc20-usdt-token-cloner-api.onrender.com'
+const API_BASE_URL = (process.env.PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
 const API_BASE_URL = (process.env.PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\\/+$/, '')
 const TIMEOUT_MS = 20_000
 
@@ -10,7 +10,7 @@ function isRecord(value) {
 
 function assertNoSecretFields(value, path = '$') {
   if (typeof value === 'string') {
-    if (/\\bBearer\\s+[A-Za-z0-9._~-]{12,}/i.test(value)) {
+    if (/\bBearer\s+[A-Za-z0-9._~-]{12,}/i.test(value)) {
       throw new Error(`Sensitive bearer material found in public response at ${path}.`)
     }
     return
@@ -110,9 +110,9 @@ async function main() {
   try {
     const result = await runSponsorGateSmoke()
     // Deliberately output only sanitized booleans; never print credentials or tokens.
-    process.stdout.write(`Public sponsorship gates verified:\\n${JSON.stringify(result, null, 2)}\\n`)
+    process.stdout.write(\`Public sponsorship gates verified:\n\${JSON.stringify(result, null, 2)}\n\`)
   } catch (error) {
-    process.stderr.write(`Public sponsorship-gate smoke check failed: ${error instanceof Error ? error.message : 'unknown error'}\\n`)
+    process.stderr.write(\`Public sponsorship-gate smoke check failed: \${error instanceof Error ? error.message : 'unknown error'}\n\`)
     process.exitCode = 1
   }
 }
