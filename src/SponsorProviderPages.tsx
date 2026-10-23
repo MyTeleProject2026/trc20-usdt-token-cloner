@@ -46,7 +46,7 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
   const options = [
     { id: 'VTRC' as const, title: 'VTRC — independent project token', description: 'Your project token. It is not official Tether USDT. The exact deployed contract must be selected before sending.', badge: 'Project token' },
     { id: 'TRX' as const, title: 'TRX — native network asset', description: 'Used for native transfers and may be needed for TRON network fees. Shasta TRX has no Mainnet value.', badge: 'Network asset' },
-    { id: 'USDT' as const, title: 'USDT — external token contract', description: 'Only use a verified official contract for the selected network. This page does not assume a contract or exchange listing.', badge: 'Contract verification required' },
+    { id: 'USDT' as const, title: 'USDT — official Mainnet token', description: network === 'mainnet' ? 'Only the official TRON Mainnet USDT contract is allowlisted in this transfer flow. The app checks the exact address and six-decimal precision.' : 'Official Mainnet USDT is not available on this testnet. Test tokens are not Mainnet USDT and are not eligible in this transfer flow.', badge: network === 'mainnet' ? 'Official contract allowlisted' : 'Mainnet only' },
   ]
 
   return (
@@ -74,9 +74,9 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
         </div>
         <div className="rounded-lg border border-secondary bg-secondary p-lg">
           <p className="text-sm font-semibold text-primary">Current selection: {asset}</p>
-          <p className="mt-xs text-sm text-tertiary">{asset === 'VTRC' ? 'Before transfer, confirm the deployed VTRC contract address, token decimals, available balance, recipient and selected network.' : asset === 'TRX' ? 'Before transfer, confirm the sender has enough TRX for the transfer and any network fee.' : 'Sending is not enabled from this chooser until the official contract address is independently verified for this exact network.'}</p>
-          <p className="mt-sm text-xs text-tertiary">Your selection is shared with the main workflow. No transaction is submitted from this page. VTRC still requires the exact deployed contract and balance check; USDT remains blocked until a verified network-specific contract allowlist exists.</p>
-          <button type="button" onClick={onContinue} className="mt-md rounded-lg bg-brand-primary px-md py-sm text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-focus-ring">{asset === 'TRX' ? 'Continue to native TRX workflow' : asset === 'VTRC' ? 'Continue to token workflow' : 'Review USDT requirements'}</button>
+          <p className="mt-xs text-sm text-tertiary">{asset === 'VTRC' ? 'Before transfer, confirm the deployed VTRC contract address, token decimals, available balance, recipient and selected network.' : asset === 'TRX' ? 'Before transfer, confirm the sender has enough TRX for the transfer and any network fee.' : network === 'mainnet' ? 'The official TRON Mainnet USDT contract will be filled into the transfer form. Confirm the contract, six decimals, sender, receiver, amount, wallet network and fees before approving in TronLink.' : 'USDT transfers are Mainnet-only in this workflow. Switch the network selector to TRON Mainnet; testnet tokens are not official USDT.'}</p>
+          <p className="mt-sm text-xs text-tertiary">Your selection is shared with the main workflow. No transaction is submitted from this page. VTRC remains limited to its selected Shasta test contract. USDT can continue only on Mainnet to the fixed official contract; sponsor-paid fees are not enabled.</p>
+          <button type="button" onClick={onContinue} disabled={asset === 'USDT' && network !== 'mainnet'} className="mt-md rounded-lg bg-brand-primary px-md py-sm text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-50">{asset === 'TRX' ? 'Continue to native TRX workflow' : asset === 'VTRC' ? 'Continue to token workflow' : network === 'mainnet' ? 'Continue to official USDT transfer' : 'USDT transfer requires Mainnet'}</button>
         </div>
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-md">
