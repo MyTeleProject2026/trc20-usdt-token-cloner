@@ -593,9 +593,11 @@ export async function reserveSponsorTransfer(input) {
     }
 
     const budgetResult = await client.query(
-      `SELECT id, sponsor_address, budget_base_units::text AS budget_base_units,
+      `SELECT id, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+              budget_base_units::text AS budget_base_units,
               reserved_base_units::text AS reserved_base_units,
-              spent_base_units::text AS spent_base_units, status
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference, approved_at
          FROM ${schema}.sponsor_budgets
         WHERE sponsor_reference = $1 AND network = $2 AND purpose = $3 AND asset = $4
           AND token_contract IS NOT DISTINCT FROM $5
@@ -610,6 +612,17 @@ export async function reserveSponsorTransfer(input) {
     if (budget.status !== 'active') {
       await client.query('ROLLBACK')
       return { reserved: false, reason: 'sponsor-budget-not-active' }
+    }
+    // Prevent legacy/manual active rows from bypassing the reviewed activation
+    // flow. This is checked at every reservation, not only at activation time.
+    if (typeof budget.approval_reference !== 'string' || !budget.approval_reference
+      || typeof budget.review_reference !== 'string' || !budget.review_reference
+      || !isApprovedSponsorAgreementScope({
+        consentReference: budget.approval_reference,
+        budget,
+      })) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'sponsor-budget-activation-required' }
     }
     if (typeof budget.sponsor_address !== 'string' || !budget.sponsor_address.trim()) {
       await client.query('ROLLBACK')
