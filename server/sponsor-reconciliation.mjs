@@ -76,6 +76,7 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
         activeBudgetCount: 0,
         pausedBudgetCount: 0,
         pendingReviewBudgetCount: 0,
+        unapprovedActiveBudgetCount: 0,
         committedBaseUnits: 0n,
         unreservedLedgerBaseUnits: 0n,
       }
@@ -85,6 +86,7 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
     if (budget.status === 'active') item.activeBudgetCount += 1
     if (budget.status === 'paused') item.pausedBudgetCount += 1
     if (budget.status === 'pending-review') item.pendingReviewBudgetCount += 1
+    if (budget.status === 'active' && budget.approvalScopeVerified !== true) item.unapprovedActiveBudgetCount += 1
 
     // Active and paused budgets retain their remaining cap; inactive rows only
     // contribute any reservations already held by legacy/in-flight ledger rows.
@@ -131,6 +133,7 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
       activeBudgetCount: item.activeBudgetCount,
       pausedBudgetCount: item.pausedBudgetCount,
       pendingReviewBudgetCount: item.pendingReviewBudgetCount,
+      unapprovedActiveBudgetCount: item.unapprovedActiveBudgetCount,
       committedBaseUnits: required.toString(),
       unreservedLedgerBaseUnits: item.unreservedLedgerBaseUnits.toString(),
       onChainBalanceBaseUnits: balance?.toString() ?? null,
@@ -142,11 +145,14 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
   })
 
   const status = walletMismatchCount > 0 ? 'wallet-scope-mismatch'
-    : groups.some((group) => group.status === 'balance-unavailable') ? 'balance-unavailable'
+    : groups.some((group) => group.unapprovedActiveBudgetCount > 0) ? 'approval-required'
+      : groups.some((group) => group.status === 'balance-unavailable') ? 'balance-unavailable'
       : groups.some((group) => group.status === 'underfunded') ? 'underfunded'
         : groups.length === 0 ? 'no-sponsor-budgets' : 'covered'
   return {
-    success: walletMismatchCount === 0 && !groups.some((group) => group.status === 'balance-unavailable'),
+    success: walletMismatchCount === 0
+      && !groups.some((group) => group.unapprovedActiveBudgetCount > 0)
+      && !groups.some((group) => group.status === 'balance-unavailable'),
     status,
     network,
     sponsorAddress: fundingSnapshot.sponsorAddress,
