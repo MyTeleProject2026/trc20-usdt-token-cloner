@@ -20,6 +20,7 @@ test('diagnostics distinguish sponsor credential presence from transfer authoriz
   assert.ok(component.includes('Credential presence does not prove provider reachability or sponsor funding'))
   assert.ok(component.includes('No verified sponsor authorization is active'))
   assert.ok(component.includes('submission remains disabled'))
+  assert.ok(component.includes('no cross-network fallback is used'))
   assert.ok(component.includes('Secrets are never requested or shown'))
   assert.ok(!component.includes('/api/gasfree/submit'))
 })
