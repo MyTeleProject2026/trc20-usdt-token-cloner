@@ -6,6 +6,25 @@ const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
+type GasFreeCredentialNetworkStatus = {
+  configured?: boolean
+  status?: string
+  requiredEnvironment?: string[]
+}
+
+type GasFreeCredentialStatus = {
+  success?: boolean
+  status?: string
+  networks?: {
+    mainnet?: GasFreeCredentialNetworkStatus
+    nile?: GasFreeCredentialNetworkStatus
+  }
+  providerReachabilityVerified?: boolean
+  providerFundingVerified?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  submissionEnabled?: boolean
+}
+
 type GasFreeCapabilities = {
   success?: boolean
   status?: string
@@ -150,6 +169,8 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<GasFreeCapabilities | null>(null)
   const [requestError, setRequestError] = useState('')
+  const [credentialStatus, setCredentialStatus] = useState<GasFreeCredentialStatus | null>(null)
+  const [credentialError, setCredentialError] = useState('')
   const [accountAddress, setAccountAddress] = useState('')
   const [accountLoading, setAccountLoading] = useState(false)
   const [accountError, setAccountError] = useState('')
@@ -168,21 +189,50 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
   const refresh = async (selectedNetwork: 'mainnet' | 'nile' = network) => {
     setLoading(true)
     setRequestError('')
-    try {
-      const response = await fetch(`${API_BASE}/api/gasfree/capabilities?network=${selectedNetwork}`, {
+    setCredentialError('')
+    const [configResult, capabilityResult] = await Promise.allSettled([
+      fetch(`${API_BASE}/api/gasfree/config-status`, {
         headers: { Accept: 'application/json' },
-      })
-      const payload: GasFreeCapabilities = await response.json()
-      setResult(payload)
-      if (!response.ok && payload?.status !== 'not-configured') {
-        setRequestError(payload?.message || 'GasFree provider discovery is unavailable.')
+      }),
+      fetch(`${API_BASE}/api/gasfree/capabilities?network=${selectedNetwork}`, {
+        headers: { Accept: 'application/json' },
+      }),
+    ])
+
+    if (configResult.status === 'fulfilled') {
+      try {
+        const payload: GasFreeCredentialStatus = await configResult.value.json()
+        if (configResult.value.ok && payload?.success === true && payload.networks) {
+          setCredentialStatus(payload)
+        } else {
+          setCredentialStatus(null)
+          setCredentialError('Credential-presence status is unavailable. No credential values were requested or exposed.')
+        }
+      } catch {
+        setCredentialStatus(null)
+        setCredentialError('Credential-presence status returned invalid JSON. No credential values were requested or exposed.')
       }
-    } catch {
+    } else {
+      setCredentialStatus(null)
+      setCredentialError('Could not reach the credential-presence endpoint. This does not imply provider credentials are missing.')
+    }
+
+    if (capabilityResult.status === 'fulfilled') {
+      try {
+        const payload: GasFreeCapabilities = await capabilityResult.value.json()
+        setResult(payload)
+        if (!capabilityResult.value.ok && payload?.status !== 'not-configured') {
+          setRequestError(payload?.message || 'GasFree provider discovery is unavailable.')
+        }
+      } catch {
+        setRequestError('GasFree provider discovery returned invalid JSON. No transfer was submitted.')
+        setResult(null)
+      }
+    } else {
       setRequestError('Could not reach the GasFree discovery endpoint. No transfer was submitted.')
       setResult(null)
-    } finally {
-      setLoading(false)
     }
+    setLoading(false)
   }
 
   const inspectAccount = async (addressOverride?: string) => {
@@ -379,6 +429,29 @@ export default function GasFreeProviderDiscovery({ walletAddress = '', walletNet
           <h3 className="text-heading-xs font-semibold text-primary">GasFree provider integration</h3>
           <p className="mt-xs text-sm text-tertiary">Reads provider directory, token fee configuration, GasFree account metadata, and provider trace status. These read-only calls do not authorize or submit a transfer.</p>
         </div>
+      </div>
+      <div className="rounded-lg border border-secondary p-md space-y-sm">
+        <div>
+          <p className="text-sm font-semibold text-primary">Server-side credential presence</p>
+          <p className="mt-xs text-xs text-tertiary">This checks whether each key/secret pair exists in the backend environment. It does not authenticate the credentials, prove provider reachability, or verify sponsor funding.</p>
+        </div>
+        {credentialError && <p role="alert" className="text-xs text-utility-warning-700">{credentialError}</p>}
+        {(['mainnet', 'nile'] as const).map((credentialNetwork) => {
+          const entry = credentialStatus?.networks?.[credentialNetwork]
+          return (
+            <div key={credentialNetwork} className="flex flex-col gap-xs rounded-md border border-secondary px-md py-sm sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-primary">{credentialNetwork === 'mainnet' ? 'TRON Mainnet' : 'Nile testnet'}</p>
+                <p className="text-xs text-tertiary">{entry?.configured === true ? 'Credential pair present' : entry?.configured === false ? 'Credential pair missing' : 'Status unavailable'}</p>
+                {entry?.requiredEnvironment?.length ? <p className="mt-xxs break-words text-xs text-tertiary">Backend variables required: {entry.requiredEnvironment.join(', ')}</p> : null}
+              </div>
+              <span className={`text-xs font-semibold ${entry?.configured === true ? 'text-utility-warning-700' : 'text-tertiary'}`}>
+                {entry?.configured === true ? 'Presence only — not authenticated' : entry?.configured === false ? 'Not configured' : 'Unknown'}
+              </span>
+            </div>
+          )
+        })}
+        <p className="text-xs font-semibold text-utility-warning-700">Sponsor funding verification: not established. Transfer submission remains disabled.</p>
       </div>
       <div className="grid grid-cols-1 gap-md sm:grid-cols-2">
         <label className="flex flex-col gap-xs text-sm font-medium text-secondary">
