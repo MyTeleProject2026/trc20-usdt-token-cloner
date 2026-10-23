@@ -94,6 +94,9 @@ test('sponsor budget ledger listing rejects invalid query bounds before database
   assert.deepEqual(await listSponsorBudgets({ limit: 101 }), {
     success: false, reason: 'invalid-limit', budgets: [],
   })
+  assert.deepEqual(await listSponsorBudgets({ sponsorAddress: 'not-an-address' }), {
+    success: false, reason: 'invalid-sponsor-address', budgets: [],
+  })
 })
 
 
