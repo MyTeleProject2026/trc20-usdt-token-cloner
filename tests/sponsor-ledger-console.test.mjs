@@ -19,8 +19,8 @@ test('admin token is ephemeral and can be cleared without browser persistence', 
   assert.ok(component.includes('setAdminToken'))
   assert.ok(component.includes('Clear token and records'))
   assert.ok(component.includes('not written to localStorage or sessionStorage'))
-  assert.ok(!component.includes('localStorage'))
-  assert.ok(!component.includes('sessionStorage'))
+  assert.ok(!component.includes('localStorage.setItem('))
+  assert.ok(!component.includes('sessionStorage.setItem('))
 })
 
 test('ledger UI is read-only and distinguishes ledger units from chain balances', () => {
