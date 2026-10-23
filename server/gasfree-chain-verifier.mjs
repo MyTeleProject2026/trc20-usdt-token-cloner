@@ -57,7 +57,13 @@ export function createGasFreeChainVerifier({
         return notVerified('incomplete-provider-trace', 'invalid-trace-address')
       }
 
-      const [tokenContractAddress, fromAddress, toAddress] = addresses.map((address) => tronWeb.address.toHex(address))
+      // Persist a canonical 20-byte hex form (without TRON's 41 network
+      // prefix), matching the existing verification APIs and lookup keys.
+      const toVerificationHex = (address) => {
+        const hex = tronWeb.address.toHex(address).replace(/^0x/i, '')
+        return hex.length === 42 && /^41/i.test(hex) ? hex.slice(2).toLowerCase() : hex.toLowerCase()
+      }
+      const [tokenContractAddress, fromAddress, toAddress] = addresses.map(toVerificationHex)
       const headers = { 'content-type': 'application/json' }
       if (typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()) {
         headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY.trim()
