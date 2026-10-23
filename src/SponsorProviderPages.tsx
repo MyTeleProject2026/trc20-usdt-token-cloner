@@ -101,6 +101,11 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
   const [contact, setContact] = useState('')
   const [scope, setScope] = useState('network-fees')
   const [notice, setNotice] = useState('')
+  const [applicationSubmitting, setApplicationSubmitting] = useState(false)
+  const [applicationReference, setApplicationReference] = useState('')
+  const [applicationStatus, setApplicationStatus] = useState('')
+  const [privacyConsent, setPrivacyConsent] = useState(false)
+  const [applicationNotice, setApplicationNotice] = useState('')
 
   useEffect(() => {
     let active = true
@@ -144,6 +149,80 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
     } finally {
       setLoading(false)
       setFundingLoading(false)
+    }
+  }
+
+  const submitProviderApplication = async () => {
+    const normalizedName = providerName.trim()
+    const normalizedEmail = contact.trim().toLowerCase()
+    if (normalizedName.length < 2 || normalizedName.length > 120) {
+      setApplicationNotice('Enter a provider or organization name between 2 and 120 characters.')
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail) || normalizedEmail.length > 254) {
+      setApplicationNotice('Enter a valid business contact email.')
+      return
+    }
+    if (!['network-fees', 'trx-grant', 'trc20-grant'].includes(scope)) {
+      setApplicationNotice('Choose one of the listed sponsorship scopes.')
+      return
+    }
+    if (!privacyConsent) {
+      setApplicationNotice('Consent is required before the backend can store these contact details.')
+      return
+    }
+    setApplicationSubmitting(true)
+    setApplicationNotice('')
+    try {
+      const response = await fetch(`${API_BASE}/api/tron/sponsorship/provider-applications`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerName: normalizedName,
+          contactEmail: normalizedEmail,
+          scope,
+          privacyConsent: true,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+      })
+      const payload = await response.json()
+      if (!response.ok || payload?.success !== true || typeof payload?.application?.reference !== 'string') {
+        throw new Error(payload?.message || 'The backend did not confirm that the application was stored.')
+      }
+      setApplicationReference(payload.application.reference)
+      setApplicationStatus(payload.application.status || 'pending-review')
+      setApplicationNotice('Application stored for manual due diligence. Save the reference below to check its status later. No sponsor agreement or transfer authorization was created.')
+    } catch (error) {
+      setApplicationNotice(error instanceof Error ? error.message : 'Could not submit the provider application. No successful submission was confirmed.')
+    } finally {
+      setApplicationSubmitting(false)
+    }
+  }
+
+  const checkProviderApplicationStatus = async () => {
+    if (!applicationReference) {
+      setApplicationNotice('Submit an application successfully first; a status reference is required.')
+      return
+    }
+    setApplicationSubmitting(true)
+    setApplicationNotice('')
+    try {
+      const response = await fetch(`${API_BASE}/api/tron/sponsorship/provider-applications/${encodeURIComponent(applicationReference)}/status`, {
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        cache: 'no-store',
+      })
+      const payload = await response.json()
+      if (!response.ok || payload?.success !== true || typeof payload?.application?.status !== 'string') {
+        throw new Error(payload?.message || 'Could not read the application status from the backend.')
+      }
+      setApplicationStatus(payload.application.status)
+      setApplicationNotice('Status refreshed from the backend. Provider due diligence is separate from sponsor funding and fee authorization.')
+    } catch (error) {
+      setApplicationNotice(error instanceof Error ? error.message : 'Application status is unavailable.')
+    } finally {
+      setApplicationSubmitting(false)
     }
   }
 
@@ -199,16 +278,43 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
         {notice && <p role="status" className="text-xs text-tertiary">{notice}</p>}
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-lg">
-        <div><h3 className="text-heading-xs font-semibold text-primary">Provider application draft</h3><p className="mt-xs text-sm text-tertiary">Enter details to prepare an application draft. This repository does not yet expose a secure provider-application API, so this form deliberately does not send or store your details.</p></div>
-        <div className="grid grid-cols-1 gap-md md:grid-cols-2">
-          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Provider / organization name<input value={providerName} onChange={(e) => setProviderName(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary" placeholder="Organization name" autoComplete="organization" /></label>
-          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Business contact email<input type="email" value={contact} onChange={(e) => setContact(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary" placeholder="name@example.com" autoComplete="email" /></label>
-          <label className="flex flex-col gap-xs text-sm font-medium text-secondary md:col-span-2">Proposed sponsorship scope<select value={scope} onChange={(e) => setScope(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary"><option value="network-fees">Network fee / resource sponsorship</option><option value="trx-grant">Native TRX asset grant</option><option value="trc20-grant">Allowlisted TRC-20 asset grant</option></select></label>
+        <div>
+          <h3 className="text-heading-xs font-semibold text-primary">Provider application</h3>
+          <p className="mt-xs text-sm text-tertiary">Submit an application for manual provider due diligence. Only the organization name, business contact email and requested scope are stored, and only after consent and a confirmed backend response.</p>
         </div>
-        <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700"><strong>Not submitted.</strong> Do not enter passwords, private keys, recovery phrases, API secrets or wallet signing material. Provider onboarding requires a secured backend, verification and review before it can be accepted.</div>
-        <button type="button" onClick={() => setNotice(`Draft reviewed locally for scope: ${scope}. No application was sent or saved. A secure provider-application API must be implemented before submission can be enabled.`)} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary">Review application draft</button>
-        {notice && <p role="status" className="text-xs text-tertiary">{notice}</p>}
-        <p className="text-xs text-tertiary">Draft fields currently remain only in this open page state; providerName/contact are not transmitted to the backend.</p>
+        <div className="grid grid-cols-1 gap-md md:grid-cols-2">
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Provider / organization name
+            <input required maxLength={120} value={providerName} onChange={(e) => setProviderName(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary" placeholder="Organization name" autoComplete="organization" />
+          </label>
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary">Business contact email
+            <input required type="email" maxLength={254} value={contact} onChange={(e) => setContact(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary" placeholder="name@example.com" autoComplete="email" />
+          </label>
+          <label className="flex flex-col gap-xs text-sm font-medium text-secondary md:col-span-2">Proposed sponsorship scope
+            <select value={scope} onChange={(e) => setScope(e.target.value)} className="rounded-md border border-primary bg-primary px-md py-sm text-sm text-primary">
+              <option value="network-fees">Network fee / resource sponsorship</option>
+              <option value="trx-grant">Native TRX asset grant</option>
+              <option value="trc20-grant">Allowlisted TRC-20 asset grant</option>
+            </select>
+          </label>
+        </div>
+        <label className="flex items-start gap-sm text-xs text-secondary">
+          <input type="checkbox" checked={privacyConsent} onChange={(e) => setPrivacyConsent(e.target.checked)} className="mt-xxs size-4 shrink-0" />
+          <span>I consent to storing this organization name and business email in the project database for manual provider onboarding review. I will not submit passwords, private keys, recovery phrases, API secrets, or wallet signing material.</span>
+        </label>
+        <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700">
+          <strong>Important:</strong> Submission is an intake request only. It is not provider approval, sponsor consent, proof of funds, or permission to submit a transaction. No fee sponsorship is enabled by this form.
+        </div>
+        <button type="button" onClick={() => void submitProviderApplication()} disabled={applicationSubmitting || !privacyConsent} className="rounded-lg border border-transparent bg-brand-solid px-md py-sm text-sm font-semibold text-primary-on-brand disabled:cursor-not-allowed disabled:opacity-50">
+          {applicationSubmitting ? 'Submitting…' : 'Submit provider application'}
+        </button>
+        {applicationReference && <div className="rounded-lg border border-secondary bg-secondary p-md space-y-sm">
+          <p className="text-sm font-semibold text-primary">Application reference</p>
+          <p className="break-all font-mono text-xs text-primary">{applicationReference}</p>
+          <p className="text-xs text-tertiary">Current status: <strong>{applicationStatus || 'pending-review'}</strong>. Save this reference before leaving or refreshing the page. It reveals status only, not your contact details.</p>
+          <button type="button" onClick={() => void checkProviderApplicationStatus()} disabled={applicationSubmitting} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">Check application status</button>
+        </div>}
+        {applicationNotice && <p role="status" className="text-xs text-tertiary">{applicationNotice}</p>}
+        <p className="text-xs text-tertiary">The application is reviewed manually; no automatic email confirmation is sent. Acceptance for due diligence does not enable transfers.</p>
       </section>
     </div>
   )
