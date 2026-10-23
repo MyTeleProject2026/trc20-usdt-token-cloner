@@ -188,6 +188,13 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
       return res.status(code).json({ success: false, error: lookup.reason || 'sponsor-budget-lookup-failed' })
     }
     const budget = lookup.budget
+    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
+      return res.status(403).json({
+        success: false,
+        error: 'agreement-reference-not-approved-for-budget',
+        message: 'The approved agreement does not cover this exact sponsor, network, purpose, asset, and token contract.',
+      })
+    }
     if (budget.status === 'active') {
       const sameApproval = budget.approval_reference === consentReference
         && budget.review_reference === reviewReference
@@ -204,13 +211,6 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
         success: false,
         error: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review',
         message: 'Only a pending-review draft can be activated through this route.',
-      })
-    }
-    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
-      return res.status(403).json({
-        success: false,
-        error: 'agreement-reference-not-approved-for-budget',
-        message: 'The approved agreement does not cover this exact sponsor, network, purpose, asset, and token contract.',
       })
     }
     if (budget.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
@@ -249,7 +249,7 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
         : activated.reason === 'budget-not-found' ? 404
           : ['budget-already-active', 'budget-paused', 'budget-not-pending-review', 'budget-already-depleted'].includes(activated.reason) ? 409
             : activated.reason === 'insufficient-onchain-funding' ? 422
-              : ['mainnet-budget-activation-disabled', 'funding-snapshot-stale', 'fresh-solidified-funding-snapshot-required', 'database-not-configured'].includes(activated.reason) ? 503
+              : ['mainnet-budget-activation-disabled', 'funding-snapshot-stale', 'fresh-solidified-funding-snapshot-required', 'exact-asset-balance-not-verified', 'official-mainnet-usdt-decimals-mismatch', 'database-not-configured'].includes(activated.reason) ? 503
                 : ['funding-snapshot-identity-mismatch', 'budget-identity-changed'].includes(activated.reason) ? 502 : 400
       return res.status(statusCode).json({
         success: false,
