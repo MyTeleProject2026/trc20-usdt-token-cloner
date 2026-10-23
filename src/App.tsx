@@ -668,7 +668,7 @@ export default function App() {
       }
       const sender = tronWeb.defaultAddress.base58
       if (!sender || !tronWeb.isAddress(sender)) throw new Error('TronLink has no valid authorized sender address.')
-      const confirmationMessage = 'Confirm native TRX transfer\\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\\nSender: ' + sender + '\\nReceiver: ' + recipientAddress.trim() + '\\nAmount: ' + amount.toFixed() + ' TRX\\n\\nNetwork fees depend on wallet resources and the network. Review the fee and the full transaction in TronLink before signing. Exchange deposits are not guaranteed. Continue to TronLink signing?'
+      const confirmationMessage = 'Confirm native TRX transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + amount.toFixed() + ' TRX\n\nNetwork fees depend on wallet resources and the network. Review the fee and the full transaction in TronLink before signing. Exchange deposits are not guaranteed. Continue to TronLink signing?'
       if (!window.confirm(confirmationMessage)) {
         setActionMessage({ type: 'error', text: 'Transfer cancelled before signing.' })
         return
