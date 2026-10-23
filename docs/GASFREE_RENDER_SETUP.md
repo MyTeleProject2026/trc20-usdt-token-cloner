@@ -4,7 +4,9 @@ This guide applies to the backend Web Service only. Do not put any GasFree API s
 
 ## Current implementation boundary
 
-The current GasFree adapter is **read-only**: it can check credential presence and, when valid credentials are configured, query GasFree provider/token discovery, account metadata, and provider trace status. It does not construct or sign a transfer authorization, submit a transfer, or enable sponsored transfers. The backend intentionally returns `canSubmitSponsoredTransfer: false` and `submissionEnabled: false`.
+The current GasFree adapter is **read-only**: it can check credential presence and, when valid credentials are configured, query GasFree provider/token discovery and account metadata. Provider trace lookup is additionally cross-checked against the selected TRON network's solidified transaction body and receipt when the provider supplies a complete transaction identity; only an exact successful token Transfer event can be marked `verifiedOnChain: true` and persisted. Provider-only status is never treated as chain proof.
+
+The API intentionally exposes `POST /api/gasfree/submit` as a disabled guard that always returns HTTP 503. It does not forward request payloads, call GasFree, reserve funds, sign, or broadcast a transaction. The backend returns `canSubmitSponsoredTransfer: false` and `submissionEnabled: false`.
 
 GasFree's published specification says activation and transfer fees are charged in the transferred token. Therefore GasFree must not be described as a free sponsor or as a source of the sender's USDT/TRX principal. Provider discovery and a successful API response do not prove a provider is funded or agrees to pay fees for this application.
 
