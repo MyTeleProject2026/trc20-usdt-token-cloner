@@ -85,8 +85,8 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
   const reviewReference = `review-ticket-${suffix}`
   const pauseKey = `pg-pause:${suffix}`
   const previousAgreementReferences = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
-  const approvedReferences = String(previousAgreementReferences || '').split(',').map((value) => value.trim()).filter(Boolean)
-  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [...approvedReferences, consentReference].join(',')
+  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES =
+    `${consentReference}|${sponsorReference}|${network}|${sponsorAddress}|asset-grant|TRX|-`
   let created = null
   try {
     created = await createSponsorBudgetDraft({
