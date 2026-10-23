@@ -1,11 +1,191 @@
-/* Keep the design-system variables first so all token utilities resolve correctly. */
+/* Token Studio cyber theme and responsive layout foundation.
+ * Keep generated design tokens imported for component utility compatibility,
+ * then override their semantic values here for the dark hacker/terminal UI. */
 @import '../design-tokens/tokens.css';
 @import 'tailwindcss';
 @config '../tailwind.config.cjs';
 
-/* Tatum foundation — read through design tokens, never hardcoded. */
+:root {
+  color-scheme: dark;
+  --color-text-primary: #e6fff7;
+  --color-text-secondary: #b7d5cc;
+  --color-text-tertiary: #91b3aa;
+  --color-text-quaternary: #71938a;
+  --color-text-primary-on-brand: #04110d;
+  --color-text-placeholder: #71938a;
+  --color-text-disabled: #658078;
+  --color-text-brand-primary: #5dffc8;
+  --color-fg-primary: #e6fff7;
+  --color-fg-secondary: #b7d5cc;
+  --color-fg-tertiary: #91b3aa;
+  --color-fg-quaternary: #71938a;
+  --color-fg-brand-primary: #5dffc8;
+  --color-bg-primary: #0a1114;
+  --color-bg-primary-hover: #111e21;
+  --color-bg-primary-solid: #020807;
+  --color-bg-secondary: #0d191c;
+  --color-bg-secondary-hover: #142629;
+  --color-bg-tertiary: #122124;
+  --color-bg-overlay: #020807;
+  --color-bg-brand-solid: #5dffc8;
+  --color-bg-brand-solid-hover: #2debb0;
+  --color-bg-error-primary: #2b1518;
+  --color-bg-warning-primary: #2a2110;
+  --color-bg-success-primary: #0d2a20;
+  --color-bg-error-secondary: #422024;
+  --color-bg-warning-secondary: #453315;
+  --color-bg-success-secondary: #154431;
+  --color-bg-disabled-subtle: #122124;
+  --color-border-primary: #28443f;
+  --color-border-secondary: #1d3432;
+  --color-border-brand: #5dffc8;
+  --color-ring-focus-ring: #5dffc8;
+  --color-utility-brand-50: #102d27;
+  --color-utility-brand-200: #236b58;
+  --color-utility-brand-600: #5dffc8;
+  --color-utility-brand-700: #8dffda;
+  --color-utility-success-50: #0d2a20;
+  --color-utility-success-200: #236b58;
+  --color-utility-success-600: #5dffc8;
+  --color-utility-success-700: #a3ffdf;
+  --color-utility-warning-50: #2a2110;
+  --color-utility-warning-200: #715a28;
+  --color-utility-warning-600: #ffd166;
+  --color-utility-warning-700: #ffe4a1;
+  --color-utility-error-50: #2b1518;
+  --color-utility-error-200: #79353d;
+  --color-utility-error-600: #ff8994;
+  --color-utility-error-700: #ffc1c6;
+  --color-border-error-subtle: #79353d;
+  --color-shadow-xs: 0 1px 2px rgba(0,0,0,.25);
+  --font-family-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; width: 100%; background: #0a1114; }
 body {
-  background-color: var(--color-bg-primary);
+  margin: 0;
+  width: 100%;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: clip;
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(0, 255, 170, .08), transparent 36rem),
+    radial-gradient(ellipse at 88% 14%, rgba(0, 190, 255, .055), transparent 32rem),
+    var(--color-bg-primary);
   color: var(--color-text-primary);
   font-family: var(--font-family-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+#root { min-height: 100vh; width: 100%; min-width: 0; }
+button, input, select, textarea { font: inherit; }
+button { max-width: 100%; cursor: pointer; touch-action: manipulation; }
+button:disabled { cursor: not-allowed; }
+input, select, textarea { min-width: 0; max-width: 100%; }
+a { color: #5dffc8; }
+:focus-visible { outline: 2px solid #5dffc8; outline-offset: 3px; }
+::selection { color: #04110d; background: #5dffc8; }
+
+/* Give cards, alerts and controls a consistent terminal-console finish. */
+header, main { min-width: 0; }
+header {
+  background: rgba(7, 17, 19, .94) !important;
+  border-color: #1d3432 !important;
+  box-shadow: 0 1px 0 rgba(93,255,200,.06);
+}
+header > div {
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+header h1 { overflow-wrap: anywhere; letter-spacing: -.035em; }
+main { width: 100%; max-width: 80rem; }
+main > *, main section, main aside, main article, main form,
+main [class*="rounded-"] { min-width: 0; }
+main section, main article {
+  border-color: #28443f;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .12);
+}
+main input, main select, main textarea {
+  width: 100%;
+  background-color: #091416;
+  color: #e6fff7;
+  border-color: #31534c;
+  border-radius: .65rem;
+}
+main input::placeholder, main textarea::placeholder { color: #71938a; }
+main button {
+  min-height: 2.5rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  border-radius: .65rem;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
+}
+main button:active { transform: translateY(1px); }
+main button[aria-current="page"],
+main button[aria-selected="true"] {
+  color: #5dffc8;
+  border-color: #5dffc8;
+  background: #102d27;
+}
+main [role="status"], main [role="alert"] { overflow-wrap: anywhere; }
+main code, main pre, main .font-mono { overflow-wrap: anywhere; word-break: break-word; }
+main .overflow-x-auto { max-width: 100%; overscroll-behavior-x: contain; }
+main table { width: 100%; border-collapse: collapse; }
+main td, main th { overflow-wrap: anywhere; word-break: break-word; }
+main svg { flex-shrink: 0; }
+main .grid > *, main .flex > * { min-width: 0; }
+
+/* The previous header tried to fit title, wallet and network controls in one row.
+   Stack it on phones so it cannot force the entire page into a desktop-width canvas. */
+@media (max-width: 767px) {
+  header { padding: .875rem !important; }
+  header > div {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: .875rem;
+  }
+  header > div > div:first-child {
+    width: 100%;
+    align-items: flex-start;
+    gap: .65rem;
+  }
+  header > div > div:first-child > div { min-width: 0; flex: 1 1 auto; }
+  header h1 { font-size: 1.35rem !important; line-height: 1.55rem !important; }
+  header > div > div:last-child {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: .5rem;
+  }
+  header > div > div:last-child > button { flex: 1 1 9rem; min-width: 0; }
+  header > div > div:last-child > div { max-width: 100%; }
+  main { padding-left: .875rem !important; padding-right: .875rem !important; padding-top: 1rem !important; }
+  main .grid { grid-template-columns: minmax(0, 1fr) !important; }
+  main .flex { min-width: 0; }
+  main .flex-wrap { row-gap: .5rem; }
+  main button { min-height: 2.75rem; padding: .65rem .75rem; }
+  main [role="status"], main [role="alert"] { padding: .8rem; }
+  main section { padding: 1rem; }
+  main .overflow-x-auto { scrollbar-width: thin; }
+  main .text-xs { line-height: 1.45; }
+  main p, main li, main label { overflow-wrap: anywhere; }
+  main .space-y-xl > :not(:first-child) { margin-top: 1rem; }
+}
+
+/* Mid-sized tablets also need flexible header controls and two-column-safe grids. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  header { padding-left: 1rem !important; padding-right: 1rem !important; }
+  header > div { align-items: flex-start; gap: 1rem; }
+  header > div > div:last-child { flex-wrap: wrap; justify-content: flex-end; }
+  main { padding-left: 1rem !important; padding-right: 1rem !important; }
+  main .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
