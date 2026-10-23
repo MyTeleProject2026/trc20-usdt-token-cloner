@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft, pauseSponsorBudget } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -140,6 +140,141 @@ router.post('/sponsorship/budgets', async (req, res) => {
     })
   } catch {
     return res.status(503).json({ success: false, error: 'sponsor-budget-draft-unavailable', message: 'Could not create the sponsor budget draft.' })
+  }
+})
+
+// Operator-only activation gate. The approved agreement reference must have been
+// reviewed and allowlisted server-side; the on-chain balance snapshot must be fresh,
+// exact-network, and sufficient for the total remaining allocation. This only makes
+// a ledger budget eligible for internal reservations; it never signs or submits.
+router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const budgetId = req.params?.id
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)) {
+    return res.status(400).json({ success: false, error: 'invalid-budget-id' })
+  }
+  const { consentReference, reviewReference } = req.body || {}
+  const referencePattern = /^[A-Za-z0-9._:-]{8,160}$/
+  if (typeof consentReference !== 'string' || !referencePattern.test(consentReference)
+    || typeof reviewReference !== 'string' || !referencePattern.test(reviewReference)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-activation-references',
+      message: 'Provide a server-allowlisted sponsor agreement reference and a bounded operator review/ticket reference.',
+    })
+  }
+  const approvedReferences = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(',').map((value) => value.trim()).filter(Boolean)
+  if (!approvedReferences.includes(consentReference)) {
+    return res.status(403).json({
+      success: false,
+      error: 'agreement-reference-not-approved',
+      message: 'This agreement reference has not been allowlisted after operator review.',
+    })
+  }
+
+  try {
+    const lookup = await getSponsorBudgetById(budgetId)
+    if (!lookup.success) {
+      const code = lookup.reason === 'budget-not-found' ? 404
+        : lookup.reason === 'database-not-configured' ? 503 : 400
+      return res.status(code).json({ success: false, error: lookup.reason || 'sponsor-budget-lookup-failed' })
+    }
+    const budget = lookup.budget
+    if (budget.status === 'active') {
+      const sameApproval = budget.approval_reference === consentReference
+        && budget.review_reference === reviewReference
+      return sameApproval
+        ? res.json({
+            success: true, duplicate: true, status: 'active', budgetId,
+            canReserve: true, canSubmitSponsoredTransfer: false, submissionEnabled: false,
+            note: 'The same approved budget request was already applied. No transaction was submitted.',
+          })
+        : res.status(409).json({ success: false, error: 'budget-already-active' })
+    }
+    if (budget.status !== 'pending-review') {
+      return res.status(409).json({
+        success: false,
+        error: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review',
+        message: 'Only a pending-review draft can be activated through this route.',
+      })
+    }
+    if (budget.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
+      return res.status(503).json({
+        success: false,
+        error: 'mainnet-budget-activation-disabled',
+        message: 'Mainnet budget activation remains off until an operator separately enables the reviewed Mainnet gate.',
+      })
+    }
+
+    const fundingSnapshot = await readSponsorFundingStatus(budget.network, { refresh: true })
+    if (fundingSnapshot?.cache?.status !== 'fresh') {
+      return res.status(503).json({
+        success: false,
+        error: 'funding-snapshot-refresh-throttled',
+        retryAfterMs: Math.max(0, Number(fundingSnapshot?.retryAfterMs) || 0),
+        message: 'A fresh solidified balance snapshot is required for activation. Wait for the per-network refresh interval and retry; the old snapshot was not used to activate this budget.',
+      })
+    }
+    if (fundingSnapshot?.onChainBalanceRead !== true) {
+      return res.status(503).json({
+        success: false,
+        error: 'fresh-sponsor-balance-unavailable',
+        message: 'The selected sponsor balance could not be verified from the selected network; the budget remains pending-review.',
+      })
+    }
+
+    const activated = await activateSponsorBudget({
+      budgetId,
+      consentReference,
+      reviewReference,
+      fundingSnapshot,
+    })
+    if (!activated.success) {
+      const statusCode = ['agreement-reference-not-approved'].includes(activated.reason) ? 403
+        : activated.reason === 'budget-not-found' ? 404
+          : ['budget-already-active', 'budget-paused', 'budget-not-pending-review', 'budget-already-depleted'].includes(activated.reason) ? 409
+            : activated.reason === 'insufficient-onchain-funding' ? 422
+              : ['mainnet-budget-activation-disabled', 'funding-snapshot-stale', 'fresh-solidified-funding-snapshot-required', 'database-not-configured'].includes(activated.reason) ? 503
+                : ['funding-snapshot-identity-mismatch', 'budget-identity-changed'].includes(activated.reason) ? 502 : 400
+      return res.status(statusCode).json({
+        success: false,
+        error: activated.reason || 'sponsor-budget-activation-failed',
+        ...(activated.requiredBaseUnits ? { requiredBaseUnits: activated.requiredBaseUnits } : {}),
+        ...(activated.chainBalanceBaseUnits ? { chainBalanceBaseUnits: activated.chainBalanceBaseUnits } : {}),
+        message: activated.reason === 'insufficient-onchain-funding'
+          ? 'The fresh chain balance cannot cover this budget plus existing active/paused allocations for the same wallet, network, and asset.'
+          : 'Budget activation was rejected; it remains unavailable for new reservations.',
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      status: 'active',
+      ...activated,
+      chainBalanceReconciled: true,
+      canReserve: true,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      transactionSigned: false,
+      transactionSubmitted: false,
+      note: 'This approves the internal reservation cap only. It does not authorize a particular transfer, sign or broadcast a transaction, or prove exchange deposit credit.',
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-budget-activation-unavailable',
+      message: 'Could not complete sponsor budget activation. The budget was not reported active.',
+    })
   }
 })
 
