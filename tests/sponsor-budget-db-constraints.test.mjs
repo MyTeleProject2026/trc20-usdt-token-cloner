@@ -135,3 +135,52 @@ test('sponsor budget activation requires allowlisted agreement and fresh evidenc
     else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previous
   }
 })
+
+
+test('sponsor agreement scopes reject wrong-network tokens and pin Mainnet USDT', () => {
+  const keys = [
+    'SPONSOR_APPROVED_AGREEMENT_REFERENCES',
+    'SPONSOR_USDT_SHASTA_CONTRACTS',
+    'SPONSOR_USDT_MAINNET_CONTRACTS',
+  ]
+  const previous = new Map(keys.map((key) => [key, process.env[key]]))
+  const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+  const tokenAddress = 'T' + 'B'.repeat(33)
+  const officialMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  try {
+    process.env.SPONSOR_USDT_SHASTA_CONTRACTS = tokenAddress
+    process.env.SPONSOR_USDT_MAINNET_CONTRACTS = tokenAddress
+    process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [
+      `signed-shasta-usdt|sponsor-usdt-shasta|shasta|${sponsorAddress}|asset-grant|USDT|${tokenAddress}`,
+      `wrong-mainnet-usdt|sponsor-usdt-mainnet|mainnet|${sponsorAddress}|asset-grant|USDT|${tokenAddress}`,
+      `signed-mainnet-usdt|sponsor-usdt-mainnet|mainnet|${sponsorAddress}|asset-grant|USDT|${officialMainnetUsdt}`,
+    ].join(';')
+
+    assert.equal(isSponsorAgreementReferenceConfigured('signed-shasta-usdt'), true)
+    assert.equal(isSponsorAgreementReferenceConfigured('wrong-mainnet-usdt'), false)
+    assert.equal(isSponsorAgreementReferenceConfigured('signed-mainnet-usdt'), true)
+    assert.equal(isSponsorAgreementReferenceConfigured('malformed reference with spaces'), false)
+
+    const shastaBudget = {
+      sponsor_reference: 'sponsor-usdt-shasta',
+      network: 'shasta',
+      sponsor_address: sponsorAddress,
+      purpose: 'asset-grant',
+      asset: 'USDT',
+      token_contract: tokenAddress,
+    }
+    assert.equal(isApprovedSponsorAgreementScope({
+      consentReference: 'signed-shasta-usdt',
+      budget: shastaBudget,
+    }), true)
+    assert.equal(isApprovedSponsorAgreementScope({
+      consentReference: 'signed-shasta-usdt',
+      budget: { ...shastaBudget, network: 'mainnet' },
+    }), false)
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
