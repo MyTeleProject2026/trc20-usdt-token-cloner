@@ -160,12 +160,22 @@ export default function App() {
   // Connect to TronLink. The wallet retains the private key and asks for approval
   // for every state-changing transaction.
   const assertSelectedTronLinkNetwork = (tronWeb: any) => {
-    const host = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
-    if (network === 'shasta' && !host.includes('shasta')) {
-      throw new Error('Safety check: TronLink must be connected to the Shasta testnet node for a Shasta transaction.')
+    const rawHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '')
+    let hostname = ''
+    let protocol = ''
+    try {
+      const parsed = new URL(rawHost)
+      hostname = parsed.hostname.toLowerCase()
+      protocol = parsed.protocol.toLowerCase()
+      if (parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash) hostname = ''
+    } catch {
+      hostname = ''
     }
-    if (network === 'mainnet' && (!host.includes('api.trongrid.io') || host.includes('shasta') || host.includes('nile'))) {
-      throw new Error('Safety check: Mainnet sending requires TronLink connected to the recognized TRON Mainnet node. Unknown/custom network endpoints are blocked in this workflow.')
+    const expectedHost = network === 'shasta' ? 'api.shasta.trongrid.io' : 'api.trongrid.io'
+    if (protocol !== 'https:' || hostname !== expectedHost) {
+      throw new Error(network === 'shasta'
+        ? 'Safety check: TronLink must use the recognized HTTPS Shasta node for this testnet transaction.'
+        : 'Safety check: Mainnet sending requires the exact recognized HTTPS TRON Mainnet node. Unknown/custom endpoints are blocked.')
     }
   }
 
@@ -617,11 +627,7 @@ export default function App() {
     setActionMessage(null)
     try {
       const tronWeb = await getInjectedTronWeb()
-      const fullNodeHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
-      const isShastaWallet = fullNodeHost.includes('shasta')
-      if ((network === 'shasta' && !isShastaWallet) || (network === 'mainnet' && (isShastaWallet || fullNodeHost.includes('nile')))) {
-        throw new Error('Selected network does not match the network currently active in TronLink. Switch TronLink network and reconnect before sending.')
-      }
+      assertSelectedTronLinkNetwork(tronWeb)
       if (!tronWeb.isAddress(recipientAddress.trim())) throw new Error('Enter a valid TRON Base58 receiver address.')
       const amount = tronWeb.toBigNumber(trxAmount.trim())
       if (!amount.isFinite() || amount.lte(0) || amount.decimalPlaces() > 6) {
