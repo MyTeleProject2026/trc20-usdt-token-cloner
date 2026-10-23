@@ -21,6 +21,7 @@ type SponsorFunding = {
   requiredEnvironment?: string[]
   onChainBalanceRead?: boolean
   tokenBalancesComplete?: boolean
+  tokenBalanceScope?: string
   checkedAt?: string
   note?: string
   native?: { status?: string; balanceTRX?: string; balanceSun?: string; accountExists?: boolean }
@@ -170,7 +171,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
                     {funding.tokens.map((item) => <p key={item.asset + item.tokenContract} className="break-all text-xs text-tertiary">
                       <strong>{item.asset}</strong> ({item.tokenContract}): {item.status === 'verified' ? `${item.balanceBaseUnits} base units · ${item.decimals} decimals` : 'balance unavailable; not treated as zero'}
                     </p>)}
-                  </div> : <p className="text-xs text-tertiary">No token contracts were configured for read-only balance checks on this network.</p>}
+                  </div> : <p className="text-xs text-tertiary">{funding.tokenBalanceScope === 'invalid-token-contract-allowlist' || funding.tokenBalanceScope === 'token-contract-allowlist-too-large' ? 'Token contract configuration is invalid; token balances are withheld.' : 'No token contracts were configured for read-only balance checks on this network.'}</p>}
                   {funding.tokenBalancesComplete === false && Boolean(funding.tokens?.length) && <p className="text-xs text-tertiary">At least one token balance could not be verified; inspect each token result above.</p>}
                   {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}</p>}
                 </div>
