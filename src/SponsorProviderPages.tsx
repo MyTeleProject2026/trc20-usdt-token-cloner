@@ -22,11 +22,22 @@ type SponsorFunding = {
   onChainBalanceRead?: boolean
   tokenBalancesComplete?: boolean
   tokenBalanceScope?: string
+  cache?: { status?: string; ageMs?: number }
   checkedAt?: string
   note?: string
   native?: { status?: string; balanceTRX?: string; balanceSun?: string; accountExists?: boolean }
   tokens?: Array<{ asset: string; tokenContract: string; status: string; balanceBaseUnits?: string; decimals?: number }>
 }
+function formatSponsorAssetUnits(value?: string, decimals?: number) {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)
+    || !Number.isInteger(decimals) || (decimals as number) < 0 || (decimals as number) > 255) return null
+  const amount = BigInt(value)
+  const scale = 10n ** BigInt(decimals as number)
+  const whole = amount / scale
+  const fraction = (amount % scale).toString().padStart(decimals as number, '0').replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
+}
+
 type Asset = 'VTRC' | 'TRX' | 'USDT'
 type TokenSelectionProps = Props & { asset: Asset; onAssetChange: (asset: Asset) => void; onContinue: () => void }
 
@@ -127,7 +138,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       const fundingResponse = await fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}`, { headers: { Accept: 'application/json' } })
       const fundingPayload = await fundingResponse.json()
       setFunding(fundingPayload?.funding || null)
-      setNotice('Provider status and on-chain funding snapshot refreshed. No application or transfer was submitted.')
+      setNotice('Provider status checked and latest funding snapshot loaded (balances may be cached for up to 10 seconds). No application or transfer was submitted.')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Sponsor status is unavailable.')
     } finally {
@@ -169,11 +180,11 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
                   <p className="text-xs text-tertiary">Source: Tatum TRON SolidityNode. Account present: {funding.native.accountExists ? 'yes' : 'no'}.</p>
                   {funding.tokens?.length ? <div className="space-y-xs">
                     {funding.tokens.map((item) => <p key={item.asset + item.tokenContract} className="break-all text-xs text-tertiary">
-                      <strong>{item.asset}</strong> ({item.tokenContract}): {item.status === 'verified' ? `${item.balanceBaseUnits} base units · ${item.decimals} decimals` : 'balance unavailable; not treated as zero'}
+                      <strong>{item.asset}</strong> ({item.tokenContract}): {item.status === 'verified' ? `${formatSponsorAssetUnits(item.balanceBaseUnits, item.decimals) ?? item.balanceBaseUnits} (base units: ${item.balanceBaseUnits}; ${item.decimals} decimals)` : 'balance unavailable; not treated as zero'}
                     </p>)}
                   </div> : <p className="text-xs text-tertiary">{funding.tokenBalanceScope === 'invalid-token-contract-allowlist' || funding.tokenBalanceScope === 'token-contract-allowlist-too-large' ? 'Token contract configuration is invalid; token balances are withheld.' : 'No token contracts were configured for read-only balance checks on this network.'}</p>}
                   {funding.tokenBalancesComplete === false && Boolean(funding.tokens?.length) && <p className="text-xs text-tertiary">At least one token balance could not be verified; inspect each token result above.</p>}
-                  {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}</p>}
+                  {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}{funding.cache?.status === 'cached' ? ` · cached ${Math.ceil((funding.cache.ageMs || 0) / 1000)}s ago` : ' · fresh provider read'}</p>}
                 </div>
               : <p className="text-xs text-tertiary">{funding?.status === 'sponsor-address-not-configured'
                   ? `No sponsor address is configured for this network. Set ${funding.requiredEnvironment?.join(', ') || 'the network-specific sponsor address'} server-side before the balance can be checked.`
