@@ -81,6 +81,8 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
   const [sponsorReference, setSponsorReference] = useState('')
   const [budgets, setBudgets] = useState<Budget[] | null>(null)
   const [transfers, setTransfers] = useState<Transfer[] | null>(null)
+  const [roleReconciliation, setRoleReconciliation] = useState<any | null>(null)
+  const [reconciliationError, setReconciliationError] = useState('')
   const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -106,6 +108,7 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
     setLoading(true)
     setError('')
     setNotice('')
+    setReconciliationError('')
     try {
       const query = new URLSearchParams({ network: ledgerNetwork, limit: '100' })
       const transfersQuery = new URLSearchParams({ network: ledgerNetwork, limit: '100' })
@@ -119,11 +122,31 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
       setBudgets(Array.isArray(budgetResult.budgets) ? budgetResult.budgets : [])
       setTransfers(Array.isArray(transferResult.transfers) ? transferResult.transfers : [])
       setTruncated(transferResult.truncated === true)
+
+      // Reconciliation is a separate optional read: its failure must not hide
+      // successfully loaded budget/transfer history.
+      try {
+        const reconciliation = await protectedRead(
+          `/api/tron/sponsorship/roles/reconciliation?network=${encodeURIComponent(ledgerNetwork)}`,
+          token,
+        )
+        setRoleReconciliation(reconciliation)
+        setReconciliationError('')
+      } catch (reconciliationFailure) {
+        setRoleReconciliation(null)
+        setReconciliationError(
+          reconciliationFailure instanceof Error
+            ? reconciliationFailure.message
+            : 'Independent sponsor reconciliation is not available.',
+        )
+      }
       setCheckedAt(Date.now())
       setNotice('Protected ledger records loaded. These are internal accounting/lifecycle records, not proof of chain settlement or exchange credit. No records were changed.')
     } catch (err) {
       setBudgets(null)
       setTransfers(null)
+      setRoleReconciliation(null)
+      setReconciliationError('')
       setTruncated(false)
       setCheckedAt(Date.now())
       setError(err instanceof Error ? err.message : 'Could not load the protected sponsor ledger.')
@@ -153,7 +176,7 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
         </label>
         <label className="flex flex-col gap-xs text-sm font-medium text-secondary">
           Ledger network
-          <select value={ledgerNetwork} onChange={(event) => { setLedgerNetwork(event.target.value as Network); setBudgets(null); setTransfers(null); setNotice(''); setError('') }}>
+          <select value={ledgerNetwork} onChange={(event) => { setLedgerNetwork(event.target.value as Network); setBudgets(null); setTransfers(null); setRoleReconciliation(null); setReconciliationError(''); setNotice(''); setError('') }}>
             <option value="shasta">Shasta testnet</option>
             <option value="nile">Nile testnet</option>
             <option value="mainnet">TRON Mainnet (read-only)</option>
@@ -181,11 +204,42 @@ export default function SponsorLedgerConsole({ network }: { network: Network }) 
           <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
           {loading ? 'Loading protected ledger…' : 'Load / refresh ledger'}
         </button>
-        <button type="button" onClick={() => { setAdminToken(''); setBudgets(null); setTransfers(null); setTruncated(false); setError(''); setNotice(''); setCheckedAt(null) }} disabled={loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">Clear token and records</button>
+        <button type="button" onClick={() => { setAdminToken(''); setBudgets(null); setTransfers(null); setRoleReconciliation(null); setReconciliationError(''); setTruncated(false); setError(''); setNotice(''); setCheckedAt(null) }} disabled={loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">Clear token and records</button>
       </div>
       {error && <div role="alert" className="rounded-lg border border-utility-error-200 bg-utility-error-50 p-md text-sm text-utility-error-700"><strong>Ledger read failed:</strong> {error}. No records were changed.</div>}
       {notice && <p role="status" className="rounded-lg border border-secondary bg-secondary p-md text-xs text-tertiary">{notice}</p>}
       {checkedAt && !loading && <p className="text-xs text-tertiary">Last request completed at {new Date(checkedAt).toLocaleTimeString()}.</p>}
+      <div className="space-y-sm">
+        <div className="flex flex-wrap items-center justify-between gap-sm">
+          <h3 className="text-sm font-semibold text-primary">Independent sponsor budget reconciliation</h3>
+          {roleReconciliation && <span className="text-xs text-tertiary">{roleReconciliation.network === 'mainnet' ? 'TRON Mainnet' : roleReconciliation.network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</span>}
+        </div>
+        <p className="text-xs text-tertiary">Uses a fresh solidified-chain read for each configured sponsor and compares only that address's ledger allocations. A successful computation is not transaction authorization.</p>
+        {reconciliationError
+          ? <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700"><strong>Reconciliation unavailable:</strong> {reconciliationError}. The budget and transfer tables remain separate from this result; no ledger rows were changed.</div>
+          : roleReconciliation
+            ? <div className="rounded-lg border border-secondary p-md space-y-md">
+                <p className="text-sm font-semibold text-primary">Overall: {statusLabel(roleReconciliation.status)} · Ledger coverage: {roleReconciliation.covered === true ? 'covered at snapshot time' : 'not confirmed'}</p>
+                <div className="grid grid-cols-1 gap-md md:grid-cols-2">
+                  {(Array.isArray(roleReconciliation.roles) ? roleReconciliation.roles : []).map((role: any) => (
+                    <article key={role.role} className="rounded-lg border border-secondary bg-secondary p-md space-y-xs">
+                      <p className="text-sm font-semibold text-primary">{role.role === 'network-fee-sponsor' ? 'Sponsor A · fee/resource allocations' : 'Sponsor B · asset-principal allocations'}</p>
+                      <p className="text-xs text-tertiary">Status: <strong>{statusLabel(role.status)}</strong> · Budget rows: {role.budgetCount ?? 'unknown'}</p>
+                      {Array.isArray(role.reconciliation?.groups) && role.reconciliation.groups.length > 0
+                        ? <div className="space-y-xs">
+                            {role.reconciliation.groups.map((group: any) => <div key={group.asset + ':' + (group.tokenContract || 'native')} className="rounded-md border border-secondary p-sm">
+                              <p className="text-xs font-semibold text-primary">{group.asset}{group.tokenContract ? ` · ${shortAddress(group.tokenContract)}` : ''}: {statusLabel(group.status)}</p>
+                              <p className="mt-xs text-xs text-tertiary">Committed: {units(group.committedBaseUnits)} base units · On-chain: {group.balanceStatus === 'verified' ? units(group.onChainBalanceBaseUnits) : 'not verified'} · Deficit: {units(group.deficitBaseUnits)}</p>
+                            </div>)}
+                          </div>
+                        : <p className="text-xs text-tertiary">No complete asset-group comparison is available for this role.</p>}
+                    </article>
+                  ))}
+                </div>
+                <p className="text-xs text-tertiary">The response is point-in-time and may become stale after funds move. Mainnet sponsored submission remains disabled regardless of this report.</p>
+              </div>
+            : <p className="rounded-lg border border-secondary bg-secondary p-md text-xs text-tertiary">Enter the protected admin token and load the ledger to request separate role reconciliation.</p>}
+      </div>
       {budgets !== null && (
         <div className="space-y-sm">
           <div className="flex flex-wrap items-center justify-between gap-sm">

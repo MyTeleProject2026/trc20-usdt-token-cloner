@@ -8,6 +8,7 @@ const page = await readFile(new URL('../src/SponsorProviderPages.tsx', import.me
 test('protected sponsor ledger console loads real budget and lifecycle endpoints using an explicit bearer token', () => {
   assert.ok(component.includes('/api/tron/sponsorship/budgets?'))
   assert.ok(component.includes('/api/tron/sponsorship/transfers?'))
+  assert.ok(component.includes('/api/tron/sponsorship/roles/reconciliation?network='))
   assert.ok(component.includes('Authorization: `Bearer ${token}`'))
   assert.ok(component.includes("credentials: 'omit'"))
   assert.ok(component.includes("cache: 'no-store'"))
@@ -32,4 +33,13 @@ test('ledger UI is read-only and distinguishes ledger units from chain balances'
   assert.ok(component.includes('Sponsored transaction submission is independently disabled'))
   assert.ok(!component.includes('/sponsorship/budgets/${'))
   assert.ok(!component.includes('/api/gasfree/submit'))
+})
+
+test('console presents per-role reconciliation without hiding ledger history on reconciliation errors', () => {
+  assert.ok(component.includes('Independent sponsor budget reconciliation'))
+  assert.ok(component.includes('Sponsor A · fee/resource allocations'))
+  assert.ok(component.includes('Sponsor B · asset-principal allocations'))
+  assert.ok(component.includes('reconciliationError'))
+  assert.ok(component.includes('successfully loaded budget/transfer history'))
+  assert.ok(component.includes('Mainnet sponsored submission remains disabled'))
 })
