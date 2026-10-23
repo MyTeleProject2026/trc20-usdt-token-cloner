@@ -62,6 +62,7 @@ test('reconciliation aggregates active, paused, and outstanding reservations by 
 
   assert.equal(result.success, true)
   assert.equal(result.status, 'covered')
+  assert.equal(result.covered, true)
   assert.equal(result.groups.length, 1)
   assert.equal(result.groups[0].committedBaseUnits, '139')
   assert.equal(result.groups[0].onChainBalanceBaseUnits, '150')
@@ -86,6 +87,7 @@ test('reconciliation flags an underfunded sponsor allocation and quantifies the 
 
   assert.equal(result.success, true)
   assert.equal(result.status, 'underfunded')
+  assert.equal(result.covered, false)
   assert.equal(result.groups[0].committedBaseUnits, '125')
   assert.equal(result.groups[0].onChainBalanceBaseUnits, '100')
   assert.equal(result.groups[0].deficitBaseUnits, '25')
@@ -113,6 +115,7 @@ test('reconciliation requires the exact configured token contract balance and Ma
     ],
   })
   assert.equal(correct.groups[0].status, 'covered')
+  assert.equal(correct.covered, true)
   assert.equal(correct.groups[0].onChainBalanceBaseUnits, '1200000')
 
   const incorrect = reconcileSponsorBudgets({
@@ -130,6 +133,7 @@ test('reconciliation requires the exact configured token contract balance and Ma
   })
   assert.equal(incorrect.success, false)
   assert.equal(incorrect.status, 'balance-unavailable')
+  assert.equal(incorrect.covered, false)
   assert.equal(incorrect.groups[0].onChainBalanceBaseUnits, null)
 })
 
