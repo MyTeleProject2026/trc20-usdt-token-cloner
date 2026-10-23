@@ -192,6 +192,9 @@ export function createSponsorFundingReader({
           ])
           const decimals = Number(BigInt('0x' + decimalsHex))
           if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new Error('invalid-token-decimals')
+          if (asset === 'USDT' && network === 'mainnet' && decimals !== 6) {
+            throw new Error('official-mainnet-usdt-decimals-mismatch')
+          }
           return {
             asset: asset === 'USDT' && network !== 'mainnet' ? 'USDT (testnet)' : asset,
             tokenContract: contract,
