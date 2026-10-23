@@ -31,6 +31,35 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
     cache.set(key, { ...value, expiresAt: Date.now() + ttl })
   }
 
+  // Report whether server-side credentials exist without exposing their values.
+  // This is configuration diagnostics only: it does not prove provider reachability,
+  // sponsor funding, transaction authorization, or permission to submit transfers.
+  router.get('/config-status', (_req, res) => {
+    const networks = Object.fromEntries(ALLOWED_NETWORKS.map((network) => {
+      const configured = typeof client.isConfigured === 'function'
+        && client.isConfigured(network) === true
+      const requiredEnvironment = network === 'mainnet'
+        ? ['GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET']
+        : ['GASFREE_NILE_API_KEY', 'GASFREE_NILE_API_SECRET']
+      return [network, {
+        configured,
+        status: configured ? 'credentials-configured' : 'credentials-missing',
+        ...(!configured ? { requiredEnvironment } : {}),
+      }]
+    }))
+    const allConfigured = Object.values(networks).every((network) => network.configured)
+    return res.json({
+      success: true,
+      status: allConfigured ? 'credentials-configured' : 'credentials-missing',
+      networks,
+      providerReachabilityVerified: false,
+      providerFundingVerified: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'Credential presence only. Use /capabilities to test provider API access; neither endpoint verifies sponsor funding or enables transfers.',
+    })
+  })
+
   // Provider discovery is read-only. This route never signs, submits, or
   // broadcasts any transfer and never returns server-side API credentials.
   router.get('/capabilities', async (req, res) => {
