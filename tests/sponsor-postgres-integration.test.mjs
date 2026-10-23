@@ -290,6 +290,11 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
     assert.equal(listed.status, 'pending-review')
     assert.equal(listed.ledger_available_base_units, amount)
 
+    const walletListing = await listSponsorBudgets({ network, sponsorAddress: draftSponsorAddress, limit: 100 })
+    assert.equal(walletListing.success, true)
+    assert.ok(walletListing.budgets.some((item) => item.sponsor_reference === sponsorReference))
+    assert.ok(walletListing.budgets.every((item) => item.sponsor_address === draftSponsorAddress))
+
     const audit = await pool.query(
       `SELECT event_type, details
          FROM trc20_token_clone.audit_events
