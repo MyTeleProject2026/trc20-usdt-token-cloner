@@ -156,11 +156,13 @@ test('sponsor agreement scopes reject wrong-network tokens and pin Mainnet USDT'
     process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [
       `signed-shasta-usdt|sponsor-usdt-shasta|shasta|${sponsorAddress}|asset-grant|USDT|${tokenAddress}`,
       `wrong-mainnet-usdt|sponsor-usdt-mainnet|mainnet|${sponsorAddress}|asset-grant|USDT|${tokenAddress}`,
+      `fee-purpose-token|sponsor-usdt-shasta|shasta|${sponsorAddress}|network-fee|USDT|${tokenAddress}`,
       `signed-mainnet-usdt|sponsor-usdt-mainnet|mainnet|${sponsorAddress}|asset-grant|USDT|${officialMainnetUsdt}`,
     ].join(';')
 
     assert.equal(isSponsorAgreementReferenceConfigured('signed-shasta-usdt'), true)
     assert.equal(isSponsorAgreementReferenceConfigured('wrong-mainnet-usdt'), false)
+    assert.equal(isSponsorAgreementReferenceConfigured('fee-purpose-token'), false)
     assert.equal(isSponsorAgreementReferenceConfigured('signed-mainnet-usdt'), true)
     assert.equal(isSponsorAgreementReferenceConfigured('malformed reference with spaces'), false)
 
