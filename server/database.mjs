@@ -957,12 +957,16 @@ function approvedSponsorAgreementScopes() {
       const fields = entry.split('|')
       if (fields.length !== 7) return null
       const [reference, sponsorReference, network, sponsorAddress, purpose, asset, tokenContract] = fields
-      if (!reference || !sponsorReference
+      if (typeof reference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(reference)
+        || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorReference)
         || !['mainnet', 'shasta', 'nile'].includes(network)
         || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)
         || !['network-fee', 'asset-grant'].includes(purpose)
         || !['TRX', 'USDT', 'VTRC'].includes(asset)
-        || (asset === 'TRX' ? tokenContract !== '-' : !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(tokenContract))) {
+        || (asset === 'TRX'
+          ? tokenContract !== '-'
+          : typeof tokenContract !== 'string'
+            || !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))) {
         return null
       }
       return { reference, sponsorReference, network, sponsorAddress, purpose, asset, tokenContract }
