@@ -1096,6 +1096,10 @@ export async function activateSponsorBudget({
       await client.query('ROLLBACK')
       return { success: false, reason: 'budget-identity-changed' }
     }
+    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'agreement-reference-not-approved' }
+    }
     if (budget.status === 'active') {
       const sameApproval = budget.approval_reference === consentReference
         && budget.review_reference === reviewReference
@@ -1107,10 +1111,6 @@ export async function activateSponsorBudget({
     if (budget.status !== 'pending-review') {
       await client.query('ROLLBACK')
       return { success: false, reason: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review' }
-    }
-    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
-      await client.query('ROLLBACK')
-      return { success: false, reason: 'agreement-reference-not-approved' }
     }
 
     let chainBalanceBaseUnits = null
