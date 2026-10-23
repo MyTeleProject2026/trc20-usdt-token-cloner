@@ -180,6 +180,38 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
     }
   })
 
+  // Explicit, fail-closed submission contract. This route deliberately does not
+  // validate or forward a user signature, call the provider, reserve budgets, or
+  // broadcast a transaction. GasFree's published token-denominated fees do not
+  // satisfy the project's external-sponsor-only policy without a separately
+  // verified sponsor agreement and fee funding model.
+  router.post('/submit', (_req, res) => {
+    return res.status(503).json({
+      success: false,
+      status: 'sponsored-submission-disabled',
+      enabled: false,
+      providerSubmissionAttempted: false,
+      transactionBroadcast: false,
+      providerFundingVerified: false,
+      externalSponsorConfirmed: false,
+      feePolicyConfirmed: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      unpaidFallbackToUserFunds: false,
+      requiredBeforeEnablement: [
+        'verified-external-sponsor-agreement-and-funded-account',
+        'fee-policy-compatible-with-external-sponsor-only',
+        'wallet-side-authorization-and-reviewed-signature-validation',
+        'provider-token-network-and-amount-allowlists',
+        'nonce-deadline-replay-and-idempotency-protection',
+        'atomic-separate-fee-and-principal-budget-reservation',
+        'Nile-end-to-end-tests-and-solidified-chain-reconciliation',
+        'security-review-and-explicit-Mainnet-operator-approval',
+      ],
+      message: 'Sponsored submission is disabled. This endpoint does not call GasFree, reserve funds, sign, or broadcast a transaction. No user-funded fallback is permitted.',
+    })
+  })
+
   // A trace ID is an opaque, provider-issued identifier. It is constrained to
   // safe path characters before the fixed-host provider client uses it.
   router.get('/trace', async (req, res) => {
