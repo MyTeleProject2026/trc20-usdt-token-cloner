@@ -33,6 +33,10 @@ router.get('/sponsorship/status', (_req, res) => {
 const readSponsorFundingStatus = createSponsorFundingReader()
 router.get('/sponsorship/funding-status', async (req, res) => {
   const network = req.query?.network
+  const refreshValue = req.query?.refresh
+  if (refreshValue !== undefined && refreshValue !== '1' && refreshValue !== '0') {
+    return res.status(400).json({ success: false, error: 'invalid-refresh', message: 'refresh must be 1 or 0.' })
+  }
   if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
     return res.status(400).json({
       success: false,
@@ -41,7 +45,7 @@ router.get('/sponsorship/funding-status', async (req, res) => {
     })
   }
   try {
-    const funding = await readSponsorFundingStatus(network)
+    const funding = await readSponsorFundingStatus(network, { refresh: refreshValue === '1' })
     const verifiedRead = funding?.onChainBalanceRead === true
     return res.status(verifiedRead ? 200 : 503).json({
       success: verifiedRead,
