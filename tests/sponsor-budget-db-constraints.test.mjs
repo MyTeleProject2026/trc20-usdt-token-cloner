@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { validateSponsorBudget, validateSponsorTransferIntent } from '../server/sponsor-policy.mjs'
+import { createSponsorBudgetDraft, listSponsorBudgets } from '../server/database.mjs'
 
 test('sponsor budget database constraint enforces TRX-only network-fee budgets', async () => {
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
@@ -59,4 +60,38 @@ test('sponsor budget and transfer records enforce native-vs-token contract shape
   assert.ok(source.includes("asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0"))
   assert.ok(source.includes('DO $sponsor_budget_contract$ BEGIN'))
   assert.ok(source.includes('DO $sponsor_transfer_contract$ BEGIN'))
+})
+
+
+test('operator sponsor budget draft validator rejects fee/token and amount mismatches before database access', async () => {
+  const base = {
+    network: 'shasta',
+    sponsorReference: 'sponsor-draft-test',
+    purpose: 'network-fee',
+    asset: 'TRX',
+    tokenContract: null,
+    budgetBaseUnits: '1000000',
+    sponsorAddress: 'T' + 'A'.repeat(33),
+  }
+  assert.deepEqual(await createSponsorBudgetDraft({ ...base, network: 'attacker' }), {
+    success: false, reason: 'invalid-budget-draft',
+  })
+  assert.deepEqual(await createSponsorBudgetDraft({ ...base, asset: 'USDT', tokenContract: 'T' + 'B'.repeat(33) }), {
+    success: false, reason: 'invalid-budget-draft',
+  })
+  assert.deepEqual(await createSponsorBudgetDraft({ ...base, budgetBaseUnits: '0' }), {
+    success: false, reason: 'invalid-budget-draft',
+  })
+  assert.deepEqual(await createSponsorBudgetDraft({ ...base, sponsorAddress: 'not-an-address' }), {
+    success: false, reason: 'invalid-budget-draft',
+  })
+})
+
+test('sponsor budget ledger listing rejects invalid query bounds before database access', async () => {
+  assert.deepEqual(await listSponsorBudgets({ network: 'attacker' }), {
+    success: false, reason: 'invalid-network', budgets: [],
+  })
+  assert.deepEqual(await listSponsorBudgets({ limit: 101 }), {
+    success: false, reason: 'invalid-limit', budgets: [],
+  })
 })
