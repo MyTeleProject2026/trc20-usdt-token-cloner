@@ -44,3 +44,11 @@ test('USDT remains blocked from Shasta/Nile and VTRC cannot use the official USD
   assert.match(app, /selectedAsset === 'VTRC' && network !== 'shasta'/)
   assert.match(app, /selectedAsset === 'VTRC' && contractAddress\.trim\(\) === OFFICIAL_MAINNET_USDT_CONTRACT/)
 })
+
+
+test('transfer records require a valid transaction hash from the wallet or node', () => {
+  assert.match(app, /Wallet response did not include a valid 64-character transaction ID/)
+  assert.match(app, /typeof transactionId !== 'string' \|\| !\/\^\[0-9a-fA-F\]\{64\}\$\/.test\(transactionId\)/)
+  assert.match(app, /typeof txid !== 'string' \|\| !\/\^\[0-9a-fA-F\]\{64\}\$\/.test\(txid\)/)
+  assert.match(app, /do not blindly resend/)
+})
