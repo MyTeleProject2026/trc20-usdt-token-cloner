@@ -31,9 +31,11 @@ The endpoint rejects malformed sponsor addresses, invalid networks, and malforme
 
 This view does not measure the PostgreSQL sponsor budget ledger. Operators must reconcile on-chain assets against separately approved per-network, per-asset budget limits; fee resources and transfer principal must remain distinct. It also does not enable a GasFree submission: GasFree's documented activation/transfer fees are paid in the transferred token and therefore do not prove external sponsor-paid fees.
 
-## Remaining activation gates
+## Remaining transaction activation gates
 
-Before any sponsor-funded TRX or USDT transfer can be enabled, implement and independently review provider/sponsor authorization, wallet or managed signer authorization, atomic reservation against actual available budget, idempotency/replay protection, per-recipient and daily limits, a pause mechanism, failure release, finality reconciliation, audit events, and a complete Nile end-to-end test. Mainnet also requires explicit operator approval and a real sponsor agreement. No seed phrase or private key should be sent to this service.
+The repository now has scoped sponsor budget drafts and activation, atomic ledger reservations, idempotency checks, a protected pause control, on-chain balance snapshots/reconciliation, and audited budget/transfer status changes. These are ledger safeguards, not a live signing or provider-submission implementation.
+
+Before any sponsored TRX or USDT transfer can be enabled, the project still needs a production provider/relay adapter, a reviewed user-wallet or managed-signer authorization model, recipient and per-user/daily spend controls enforced in the actual signing path, nonce/replay protections bound to the signed transfer intent, post-broadcast fee/failure reconciliation, monitoring and emergency response, and a complete test-network end-to-end run. Mainnet sending also requires explicit operator release approval and a verified sponsor agreement/funding model. The GasFree submission route remains disabled; no seed phrase or private key should be sent to this service.
 
 
 ## Protected sponsor budget ledger
