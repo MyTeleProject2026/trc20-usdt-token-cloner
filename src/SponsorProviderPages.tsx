@@ -135,7 +135,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.message || 'Could not refresh sponsor status.')
       setStatus(payload?.sponsorship || null)
-      const fundingResponse = await fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}`, { headers: { Accept: 'application/json' } })
+      const fundingResponse = await fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}&refresh=1`, { headers: { Accept: 'application/json' } })
       const fundingPayload = await fundingResponse.json()
       setFunding(fundingPayload?.funding || null)
       setNotice('Provider status checked and latest funding snapshot loaded (balances may be cached for up to 10 seconds). No application or transfer was submitted.')
