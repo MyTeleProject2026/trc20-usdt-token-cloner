@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft, pauseSponsorBudget } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -140,6 +140,61 @@ router.post('/sponsorship/budgets', async (req, res) => {
     })
   } catch {
     return res.status(503).json({ success: false, error: 'sponsor-budget-draft-unavailable', message: 'Could not create the sponsor budget draft.' })
+  }
+})
+
+// Emergency pause for a configured sponsor budget. Requires the protected admin token.
+// This prevents new reservations against the budget; it cannot reverse submitted transactions.
+router.post('/sponsorship/budgets/:id/pause', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const budgetId = req.params?.id
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)) {
+    return res.status(400).json({ success: false, error: 'invalid-budget-id' })
+  }
+  const reasonCode = req.body?.reasonCode
+  if (!['operator-request', 'funding-mismatch', 'provider-incident', 'emergency-stop'].includes(reasonCode)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-pause-reason',
+      allowedReasonCodes: ['operator-request', 'funding-mismatch', 'provider-incident', 'emergency-stop'],
+    })
+  }
+  try {
+    const result = await pauseSponsorBudget({ budgetId, reasonCode })
+    if (!result.success) {
+      const httpStatus = result.reason === 'budget-not-found' ? 404
+        : result.reason === 'budget-already-depleted' ? 409
+          : result.reason === 'database-not-configured' ? 503 : 400
+      return res.status(httpStatus).json({
+        success: false,
+        error: result.reason,
+        message: result.reason === 'budget-not-found'
+          ? 'No sponsor budget exists for this ID.'
+          : result.reason === 'budget-already-depleted'
+            ? 'This budget is already depleted.'
+            : 'The sponsor budget could not be paused.',
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'paused',
+      ...result,
+      canReserve: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'The budget is paused for new reservations. Any already-submitted on-chain transaction is not cancelled or reversed by this action.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-budget-pause-unavailable', message: 'Could not pause the sponsor budget.' })
   }
 })
 
