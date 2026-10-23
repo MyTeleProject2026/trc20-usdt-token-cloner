@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -172,9 +172,7 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
       message: 'Provide a server-allowlisted sponsor agreement reference and a bounded operator review/ticket reference.',
     })
   }
-  const approvedReferences = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
-    .split(',').map((value) => value.trim()).filter(Boolean)
-  if (!approvedReferences.includes(consentReference)) {
+  if (!isSponsorAgreementReferenceConfigured(consentReference)) {
     return res.status(403).json({
       success: false,
       error: 'agreement-reference-not-approved',
@@ -206,6 +204,13 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
         success: false,
         error: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review',
         message: 'Only a pending-review draft can be activated through this route.',
+      })
+    }
+    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
+      return res.status(403).json({
+        success: false,
+        error: 'agreement-reference-not-approved-for-budget',
+        message: 'The approved agreement does not cover this exact sponsor, network, purpose, asset, and token contract.',
       })
     }
     if (budget.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
