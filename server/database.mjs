@@ -298,6 +298,25 @@ export async function initializeDatabase() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_provider_applications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          reference UUID NOT NULL UNIQUE,
+          provider_name TEXT NOT NULL CHECK (char_length(provider_name) BETWEEN 2 AND 120),
+          contact_email TEXT NOT NULL CHECK (char_length(contact_email) BETWEEN 3 AND 254),
+          scope TEXT NOT NULL CHECK (scope IN ('network-fees','trx-grant','trc20-grant')),
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','in-review','accepted-for-due-diligence','declined','closed')),
+          review_reference TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          reviewed_at TIMESTAMPTZ
+        )
+      `)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_ttc_provider_applications_status_created
+          ON ${schema}.sponsor_provider_applications (status, created_at DESC)
+      `)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_verifications_created_at ON ${schema}.transfer_verifications (created_at DESC)`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_deployments_created_at ON ${schema}.token_deployments (created_at DESC)`)
       const comments = [
@@ -305,6 +324,7 @@ export async function initializeDatabase() {
         ["transfer_verifications", "TRC20 Token Clone project only: on-chain verification outcomes; not a balance ledger and not proof unless status is verified-on-chain."],
         ["tracked_wallets", "TRC20 Token Clone project only: optional public TRON wallet watchlist. Do not store private keys or seed phrases."],
         ["audit_events", "TRC20 Token Clone project only: non-secret application audit metadata. Never store credentials, private keys, or seed phrases."],
+        ["sponsor_provider_applications", "TRC20 Token Clone project only: provider onboarding contacts and status. Never store provider API secrets, private keys, or signing material."],
       ]
       for (const [table, comment] of comments) {
         const literal = "'" + comment.replace(/'/g, "''") + "'"
@@ -1618,4 +1638,198 @@ export async function registerTrackedWallet({ network, address, displayLabel = n
     )
   }
   return { success: true, created: false }
+}
+
+const PROVIDER_APPLICATION_SCOPES = new Set(['network-fees', 'trx-grant', 'trc20-grant'])
+const PROVIDER_APPLICATION_REFERENCE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function normalizeProviderApplication(input = {}) {
+  const reference = typeof input.reference === 'string' ? input.reference.trim() : ''
+  const providerName = typeof input.providerName === 'string' ? input.providerName.trim() : ''
+  const contactEmail = typeof input.contactEmail === 'string' ? input.contactEmail.trim().toLowerCase() : ''
+  const scope = input.scope
+  if (!PROVIDER_APPLICATION_REFERENCE.test(reference)
+    || providerName.length < 2 || providerName.length > 120
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail)
+    || contactEmail.length > 254
+    || !PROVIDER_APPLICATION_SCOPES.has(scope)) return null
+  return { reference, providerName, contactEmail, scope }
+}
+
+/** Store a minimal, consent-backed provider onboarding request. This records an
+ * application only; it never verifies a sponsor agreement or enables transfers. */
+export async function createSponsorProviderApplication(input = {}) {
+  const normalized = normalizeProviderApplication(input)
+  if (!normalized) return { success: false, reason: 'invalid-provider-application' }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const inserted = await client.query(
+        \`INSERT INTO \${schema}.sponsor_provider_applications
+           (reference, provider_name, contact_email, scope)
+         VALUES ($1::uuid, $2, $3, $4)
+         RETURNING reference, scope, status, created_at, updated_at\`,
+        [normalized.reference, normalized.providerName, normalized.contactEmail, normalized.scope],
+      )
+      await client.query(
+        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-provider-application-created', 'sponsor-provider-application', $1, $2::jsonb)\`,
+        [normalized.reference, JSON.stringify({ scope: normalized.scope, status: 'pending-review' })],
+      )
+      await client.query('COMMIT')
+      const row = inserted.rows[0]
+      return { success: true, application: {
+        reference: row.reference,
+        scope: row.scope,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      } }
+    } catch (error) {
+      try { await client.query('ROLLBACK') } catch {}
+      if (error?.code === '23505') return { success: false, reason: 'duplicate-reference' }
+      console.error('Provider application write failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error('Provider application initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Public lookup exposes only an opaque reference and workflow status, never contact details. */
+export async function getSponsorProviderApplicationStatus(reference) {
+  if (typeof reference !== 'string' || !PROVIDER_APPLICATION_REFERENCE.test(reference.trim())) {
+    return { success: false, reason: 'invalid-reference' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      \`SELECT reference, scope, status, created_at, updated_at, reviewed_at
+         FROM \${schema}.sponsor_provider_applications
+        WHERE reference = $1::uuid\`,
+      [reference.trim()],
+    )
+    if (!result.rowCount) return { success: false, reason: 'application-not-found' }
+    const row = result.rows[0]
+    return { success: true, application: {
+      reference: row.reference,
+      scope: row.scope,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      reviewedAt: row.reviewed_at,
+    } }
+  } catch (error) {
+    console.error('Provider application status lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Admin-only listing helper; contact email is returned only to the protected operator route. */
+export async function listSponsorProviderApplications({ status = null, limit = 50 } = {}) {
+  const allowedStatuses = ['pending-review', 'in-review', 'accepted-for-due-diligence', 'declined', 'closed']
+  if ((status !== null && !allowedStatuses.includes(status))
+    || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-query', applications: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', applications: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      \`SELECT reference, provider_name, contact_email, scope, status, review_reference, created_at, updated_at, reviewed_at
+         FROM \${schema}.sponsor_provider_applications
+        WHERE ($1::text IS NULL OR status = $1)
+        ORDER BY created_at ASC
+        LIMIT $2\`,
+      [status, limit],
+    )
+    return { success: true, applications: result.rows.map((row) => ({
+      reference: row.reference,
+      providerName: row.provider_name,
+      contactEmail: row.contact_email,
+      scope: row.scope,
+      status: row.status,
+      reviewReference: row.review_reference,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      reviewedAt: row.reviewed_at,
+    })) }
+  } catch (error) {
+    console.error('Provider application admin listing failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', applications: [] }
+  }
+}
+
+/** Apply a protected, auditable onboarding decision. Acceptance is due diligence only. */
+export async function reviewSponsorProviderApplication({ reference, status, reviewReference = null } = {}) {
+  const normalizedReference = typeof reference === 'string' ? reference.trim() : ''
+  const allowedStatuses = new Set(['in-review', 'accepted-for-due-diligence', 'declined', 'closed'])
+  const normalizedReviewReference = typeof reviewReference === 'string' ? reviewReference.trim() : null
+  if (!PROVIDER_APPLICATION_REFERENCE.test(normalizedReference)
+    || !allowedStatuses.has(status)
+    || (normalizedReviewReference !== null && (normalizedReviewReference.length < 2 || normalizedReviewReference.length > 160))
+    || (status === 'accepted-for-due-diligence' && !normalizedReviewReference)) {
+    return { success: false, reason: 'invalid-review' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const current = await client.query(
+        \`SELECT reference, status, review_reference FROM \${schema}.sponsor_provider_applications
+          WHERE reference = $1::uuid FOR UPDATE\`,
+        [normalizedReference],
+      )
+      if (!current.rowCount) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'application-not-found' }
+      }
+      const row = current.rows[0]
+      if (row.status === status && row.review_reference === normalizedReviewReference) {
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, reference: row.reference, status: row.status }
+      }
+      if (!['pending-review', 'in-review'].includes(row.status)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'invalid-status-transition' }
+      }
+      const updated = await client.query(
+        \`UPDATE \${schema}.sponsor_provider_applications
+            SET status = $2, review_reference = $3, updated_at = now(), reviewed_at = now()
+          WHERE reference = $1::uuid
+          RETURNING reference, status, updated_at, reviewed_at\`,
+        [normalizedReference, status, normalizedReviewReference],
+      )
+      await client.query(
+        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-provider-application-reviewed', 'sponsor-provider-application', $1, $2::jsonb)\`,
+        [normalizedReference, JSON.stringify({ status, reviewReference: normalizedReviewReference })],
+      )
+      await client.query('COMMIT')
+      const reviewed = updated.rows[0]
+      return { success: true, duplicate: false, reference: reviewed.reference, status: reviewed.status, updatedAt: reviewed.updated_at, reviewedAt: reviewed.reviewed_at }
+    } catch (error) {
+      try { await client.query('ROLLBACK') } catch {}
+      console.error('Provider application review failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally {
+      client.release()
+    }
+  } catch (error) {
+    console.error('Provider application review initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
 }
