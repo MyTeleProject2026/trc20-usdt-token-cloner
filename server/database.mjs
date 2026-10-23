@@ -1021,6 +1021,11 @@ export async function activateSponsorBudget({
     || typeof reviewReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(reviewReference)) {
     return { success: false, reason: 'invalid-activation-request' }
   }
+  // Fast reject unknown references before doing provider or database work. The
+  // exact wallet/network/asset scope is checked against the locked row below.
+  if (!isSponsorAgreementReferenceConfigured(consentReference)) {
+    return { success: false, reason: 'agreement-reference-not-approved' }
+  }
   if (!fundingSnapshot || fundingSnapshot.status !== 'solidified-sponsor-balances-read'
     || fundingSnapshot.onChainBalanceRead !== true
     || fundingSnapshot.cache?.status !== 'fresh'
