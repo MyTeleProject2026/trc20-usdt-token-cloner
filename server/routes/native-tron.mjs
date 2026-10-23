@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -58,6 +58,68 @@ router.get('/sponsorship/funding-status', async (req, res) => {
       error: 'sponsor-balance-read-failed',
       message: 'Could not read the sponsor balance from the selected network.',
     })
+  }
+})
+
+function hasValidSponsorAdminToken(req) {
+  const configured = process.env.SPONSOR_ADMIN_API_TOKEN
+  const authorization = req.headers?.authorization
+  if (typeof configured !== 'string' || configured.length < 32
+    || typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return false
+  const supplied = Buffer.from(authorization.slice(7))
+  const expected = Buffer.from(configured)
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
+// Privileged, read-only view of configured sponsor budget caps and ledger usage.
+// Budget values are not chain balances and this endpoint cannot activate budgets or send transfers.
+router.get('/sponsorship/budgets', async (req, res) => {
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      message: 'The sponsor ledger view is disabled until a long server-only admin token is configured.',
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const network = req.query?.network === undefined ? null : req.query.network
+  const limitValue = req.query?.limit === undefined ? '50' : req.query.limit
+  const limit = Number(limitValue)
+  if (network !== null && (typeof network !== 'string' || !Object.hasOwn(networks, network))) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 100.' })
+  }
+  try {
+    const result = await listSponsorBudgets({ network, limit })
+    if (!result.success) {
+      const status = result.reason === 'invalid-network' || result.reason === 'invalid-limit' ? 400 : 503
+      return res.status(status).json({
+        success: false,
+        error: 'sponsor-budget-ledger-unavailable',
+        reason: result.reason,
+        message: 'Could not read the sponsor budget ledger.',
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'sponsor-budget-ledger-read',
+      network,
+      count: result.budgets.length,
+      budgets: result.budgets,
+      source: 'TRON Token Studio sponsor budget ledger',
+      limitations: [
+        'Ledger available base units are operator-configured budget minus reservations and recorded spend, not a live wallet balance.',
+        'A budget record does not verify sponsor consent, chain funding, signing authority, or permission to submit.',
+        'Budget listing is read-only and cannot activate a budget, reserve funds, or submit a transfer.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-budget-ledger-unavailable', message: 'Could not read the sponsor budget ledger.' })
   }
 })
 
