@@ -175,6 +175,62 @@ test('PostgreSQL refuses new reservations from a legacy active budget without sc
   }
 })
 
+test('PostgreSQL prevents authorizing a reservation after its sponsor budget is paused', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer, transitionSponsorTransfer, pauseSponsorBudget } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-pause-before-auth-${suffix}`
+  const idempotencyKey = `pg-pause-before-auth:${suffix}`
+  try {
+    await insertBudget(pool, sponsorReference, '100')
+    const reserved = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.equal(reserved.reserved, true)
+
+    const budgetLookup = await pool.query(
+      `SELECT id::text AS id FROM trc20_token_clone.sponsor_budgets
+        WHERE sponsor_reference = $1 AND purpose = 'asset-grant'`,
+      [sponsorReference],
+    )
+    const pause = await pauseSponsorBudget({
+      budgetId: budgetLookup.rows[0].id,
+      reasonCode: 'provider-incident',
+    })
+    assert.equal(pause.success, true)
+    assert.equal(pause.status, 'paused')
+
+    const authorization = await transitionSponsorTransfer({
+      idempotencyKey,
+      nextStatus: 'authorized',
+      authorizationReference: `wallet-approval-${suffix}`,
+    })
+    assert.deepEqual(authorization, { updated: false, reason: 'sponsor-budget-not-active' })
+
+    const transfer = await pool.query(
+      'SELECT status FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfer.rows[0].status, 'pending-review')
+    const budgetAfter = await pool.query(
+      `SELECT status, reserved_base_units::text AS reserved, spent_base_units::text AS spent
+        FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budgetAfter.rows[0], { status: 'paused', reserved: '25', spent: '0' })
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
 test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempotent', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
