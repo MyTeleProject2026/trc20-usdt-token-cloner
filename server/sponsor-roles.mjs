@@ -118,6 +118,12 @@ export function createSponsorRoleFundingReader({
         networkFeeSponsor,
         assetPrincipalSponsor,
       },
+      // Internal consumer inputs for exact-address budget reconciliation.
+      // HTTP handlers must omit this implementation field from public status.
+      fundingSnapshots: {
+        networkFeeSponsor: feeFunding,
+        assetPrincipalSponsor: assetFunding,
+      },
       canSubmitSponsoredTransfer: false,
       submissionEnabled: false,
       limitations: [

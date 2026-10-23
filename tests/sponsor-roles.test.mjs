@@ -101,6 +101,8 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
 
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(result.submissionEnabled, false)
+  assert.equal(result.fundingSnapshots.networkFeeSponsor.native.balanceTRX, '1.5')
+  assert.equal(result.fundingSnapshots.assetPrincipalSponsor.native.balanceTRX, '4.2')
   assert.ok(calls.every(({ url }) => url.startsWith('https://tron-nile.gateway.tatum.io/')))
   assert.ok(calls.every(({ options }) => options.headers?.['x-api-key'] === 'server-only-test-key'))
   assert.equal(JSON.stringify(result).includes('server-only-test-key'), false)

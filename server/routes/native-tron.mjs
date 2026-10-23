@@ -124,7 +124,9 @@ router.get('/sponsorship/roles', async (req, res) => {
   try {
     // A 200 response means diagnostics were returned, not that either sponsor is enabled.
     const result = await readSponsorRoleFunding(network, { refresh: refreshValue === '1' })
-    return res.status(result.success === true ? 200 : 503).json(result)
+    if (result.success !== true) return res.status(503).json(result)
+    const { fundingSnapshots: _fundingSnapshots, ...publicResult } = result
+    return res.status(200).json(publicResult)
   } catch {
     return res.status(503).json({
       success: false,
@@ -133,6 +135,130 @@ router.get('/sponsorship/roles', async (req, res) => {
       canSubmitSponsoredTransfer: false,
       submissionEnabled: false,
       message: 'Could not read both sponsor roles. No transfer was authorized or submitted.',
+    })
+  }
+})
+
+// Protected read-only reconciliation for the independent fee and asset sponsors.
+// Each sponsor is reconciled only against budget rows for its exact address.
+router.get('/sponsorship/roles/reconciliation', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured', canSubmitSponsoredTransfer: false, submissionEnabled: false })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', canSubmitSponsoredTransfer: false, submissionEnabled: false })
+  }
+  const network = req.query?.network
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.', canSubmitSponsoredTransfer: false })
+  }
+
+  try {
+    const roleResult = await readSponsorRoleFunding(network, { refresh: true })
+    if (roleResult?.success !== true || !roleResult.fundingSnapshots) {
+      return res.status(503).json({
+        success: false, error: 'sponsor-role-status-unavailable',
+        canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    if (roleResult.accountsConfigured !== true) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-role-addresses-missing',
+        accountsConfigured: false,
+        message: 'Configure both role-specific sponsor addresses before reconciling their separate ledgers.',
+        canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    if (roleResult.configuredAddressesDistinct !== true) {
+      return res.status(409).json({
+        success: false,
+        error: 'sponsor-role-addresses-not-distinct',
+        configuredAddressesDistinct: false,
+        message: 'The fee sponsor and asset-principal sponsor must have distinct addresses for separate reconciliation. No grouped totals were calculated.',
+        canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+
+    const scopes = [
+      { role: 'network-fee-sponsor', snapshot: roleResult.fundingSnapshots.networkFeeSponsor },
+      { role: 'asset-principal-sponsor', snapshot: roleResult.fundingSnapshots.assetPrincipalSponsor },
+    ]
+    const roles = await Promise.all(scopes.map(async ({ role, snapshot }) => {
+      if (snapshot?.onChainBalanceRead !== true || snapshot?.cache?.status !== 'fresh'
+        || snapshot.network !== network || typeof snapshot.sponsorAddress !== 'string') {
+        return {
+          role,
+          success: false,
+          status: snapshot?.cache?.status === 'refresh-throttled'
+            ? 'fresh-snapshot-required-refresh-throttled' : 'fresh-solidified-snapshot-required',
+          reconciliation: null,
+          budgetCount: null,
+          canSubmitSponsoredTransfer: false,
+        }
+      }
+      const ledger = await listSponsorBudgets({ network, sponsorAddress: snapshot.sponsorAddress, limit: 100 })
+      if (ledger?.success !== true) {
+        return {
+          role, success: false, status: ledger?.reason || 'sponsor-ledger-unavailable',
+          reconciliation: null, budgetCount: null, canSubmitSponsoredTransfer: false,
+        }
+      }
+      if (ledger.budgets.length >= 100) {
+        return {
+          role, success: false, status: 'sponsor-ledger-truncated',
+          reconciliation: null, budgetCount: ledger.budgets.length, canSubmitSponsoredTransfer: false,
+        }
+      }
+      const budgets = ledger.budgets.map((budget) => ({
+        ...budget,
+        approvalScopeVerified: budget.status === 'active'
+          && typeof budget.review_reference === 'string'
+          && budget.review_reference.length > 0
+          && budget.approved_at != null
+          && isApprovedSponsorAgreementScope({ consentReference: budget.approval_reference, budget }),
+      }))
+      const reconciliation = reconcileSponsorBudgets({ network, fundingSnapshot: snapshot, budgets })
+      return {
+        role,
+        success: reconciliation.success === true,
+        status: reconciliation.status,
+        budgetCount: reconciliation.budgetCount,
+        reconciliation,
+        canSubmitSponsoredTransfer: false,
+      }
+    }))
+    const complete = roles.every((item) => item.success === true)
+    const covered = complete && roles.every((item) => item.reconciliation?.covered === true)
+    return res.status(complete ? 200 : 503).json({
+      success: complete,
+      status: complete ? (covered ? 'both-sponsor-ledgers-covered' : 'role-reconciliation-complete-not-covered') : 'role-reconciliation-incomplete',
+      network,
+      checkedAt: new Date().toISOString(),
+      accountsConfigured: true,
+      configuredAddressesDistinct: true,
+      covered,
+      roles,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      limitations: [
+        'Each role is reconciled only against budget rows matching that role address and selected network.',
+        'A covered ledger is a point-in-time accounting check; it does not prove signer authorization or zero network fees.',
+        'Budget amounts are not receiver balances. No reservations, budgets, or transfer rows were changed.',
+        'This route never signs, delegates, submits, broadcasts, or charges user funds.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-role-reconciliation-unavailable',
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      message: 'Could not complete both role-scoped reconciliations. No budget or transfer row was changed.',
     })
   }
 })
