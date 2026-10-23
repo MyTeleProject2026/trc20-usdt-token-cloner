@@ -1101,7 +1101,7 @@ export default function App() {
             <Code2 className="size-4 shrink-0 text-fg-brand-primary" />
             6. Solidity Source Code & Spec
           </button>
-        </div>
+        </nav>
 
         {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else if (network !== 'mainnet') setActionMessage({ type: 'error', text: 'Official USDT transfers are only available on TRON Mainnet in this workflow. Mainnet USDT is not available on Shasta or Nile; testnet tokens are not Mainnet USDT.' }); else { setContractAddress(OFFICIAL_MAINNET_USDT_CONTRACT); setActionMessage(null); setActiveTab('interact'); } }} />}
         {activeTab === 'sponsors' && <SponsorProviderPage network={network} walletAddress={walletConnected ? walletAddress : ''} />}
