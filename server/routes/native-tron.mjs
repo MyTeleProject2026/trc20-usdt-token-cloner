@@ -358,6 +358,7 @@ router.get('/sponsorship/reconciliation', async (req, res) => {
     return res.status(200).json({
       success: reconciliation.success,
       status: reconciliation.status,
+      covered: reconciliation.covered === true,
       reconciliation,
       source: 'read-only Tatum solidified chain snapshot + TRON Token Studio sponsor ledger',
       limitations: [
