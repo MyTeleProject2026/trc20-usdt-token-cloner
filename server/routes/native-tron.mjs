@@ -1,6 +1,7 @@
 import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
+import { createSponsorFundingReader } from '../sponsor-funding.mjs'
 
 import { Router } from 'express'
 
@@ -25,6 +26,39 @@ router.get('/sponsorship/status', (_req, res) => {
       'An on-chain confirmation does not guarantee an exchange will credit a deposit.',
     ],
   })
+})
+
+// Read-only, network-scoped snapshot of the sponsor account's actual chain balances.
+// This never grants transfer authority and never converts balance visibility into budget approval.
+const readSponsorFundingStatus = createSponsorFundingReader()
+router.get('/sponsorship/funding-status', async (req, res) => {
+  const network = req.query?.network
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-network',
+      message: 'network must be mainnet, shasta, or nile.',
+    })
+  }
+  try {
+    const funding = await readSponsorFundingStatus(network)
+    const verifiedRead = funding?.onChainBalanceRead === true
+    return res.status(verifiedRead ? 200 : 503).json({
+      success: verifiedRead,
+      funding,
+      limitations: [
+        'This endpoint reads chain balances only. It does not verify sponsor consent, a spendable off-chain budget, signer authorization, or permission to submit.',
+        'Configured budget amounts and actual chain balances are different measurements; neither is receiver credit.',
+        'No transfer is signed, submitted, broadcast, or charged to user funds by this endpoint.',
+      ],
+    })
+  } catch {
+    return res.status(502).json({
+      success: false,
+      error: 'sponsor-balance-read-failed',
+      message: 'Could not read the sponsor balance from the selected network.',
+    })
+  }
 })
 
 // Keep SUN conversion exact; native balances can exceed Number's safe integer range.
