@@ -28,14 +28,14 @@ const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
 async function setup() {
-  const { initializeDatabase, reserveSponsorTransfer, transitionSponsorTransfer } =
+  const { initializeDatabase, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   const readiness = await initializeDatabase()
   assert.equal(readiness.ready, true)
   const identity = await pool.query('SELECT current_database() AS name')
   assert.equal(identity.rows[0].name, 'sponsor_test', 'tests must only touch the dedicated sponsor_test database')
-  return { pool, reserveSponsorTransfer, transitionSponsorTransfer }
+  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets }
 }
 
 async function insertBudget(pool, sponsorReference, budgetBaseUnits) {
@@ -72,6 +72,75 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
     [sponsorReferences],
   )
 }
+
+
+test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempotent', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, createSponsorBudgetDraft, listSponsorBudgets } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-draft-${suffix}`
+  const amount = '123456789'
+  try {
+    const created = await createSponsorBudgetDraft({
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: amount,
+      sponsorAddress,
+    })
+    assert.equal(created.success, true)
+    assert.equal(created.duplicate, false)
+    assert.equal(created.budget.status, 'pending-review')
+    assert.equal(created.budget.budget_base_units, amount)
+    assert.equal(created.budget.reserved_base_units, '0')
+    assert.equal(created.budget.spent_base_units, '0')
+    assert.equal(created.canReserve, false)
+
+    const duplicate = await createSponsorBudgetDraft({
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: amount,
+      sponsorAddress,
+    })
+    assert.deepEqual(duplicate, { success: false, reason: 'budget-already-exists' })
+
+    const listing = await listSponsorBudgets({ network, limit: 100 })
+    assert.equal(listing.success, true)
+    const listed = listing.budgets.find((item) => item.sponsor_reference === sponsorReference)
+    assert.ok(listed, 'created draft must be visible in the protected ledger query')
+    assert.equal(listed.status, 'pending-review')
+    assert.equal(listed.ledger_available_base_units, amount)
+
+    const audit = await pool.query(
+      `SELECT event_type, details
+         FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget'
+          AND entity_reference = $1`,
+      [`${sponsorReference}:${network}:asset-grant:TRX:`],
+    )
+    assert.equal(audit.rows.length, 1)
+    assert.equal(audit.rows[0].event_type, 'sponsor-budget-draft-created')
+    assert.equal(audit.rows[0].details.status, 'pending-review')
+    assert.equal(audit.rows[0].details.budgetBaseUnits, amount)
+  } finally {
+    await pool.query(
+      `DELETE FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget' AND entity_reference LIKE $1`,
+      [`${sponsorReference}:%`],
+    )
+    await pool.query(
+      'DELETE FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1',
+      [sponsorReference],
+    )
+    await pool.end()
+  }
+})
 
 test('fee coverage and asset-grant principal require independent TRX sponsor budgets', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
