@@ -187,3 +187,81 @@ test('GasFree explicitly refuses sponsored submission without contacting provide
   assert.ok(res.body.requiredBeforeEnablement.includes('atomic-separate-fee-and-principal-budget-reservation'))
   assert.equal(calls, 0)
 })
+
+
+test('GasFree trace route persists trace evidence only after independent chain verification', async () => {
+  const suppliedTrace = {
+    traceId: 'trace_verified_1',
+    state: 'SUCCEED',
+    transactionId: 'a'.repeat(64),
+    tokenAddress: '41' + '4'.repeat(40),
+    gasFreeAddress: '41' + '2'.repeat(40),
+    receiverAddress: '41' + '3'.repeat(40),
+    amountBaseUnits: '12345',
+    verifiedOnChain: false,
+  }
+  let verificationInput = null
+  let persistenceInput = null
+  const router = createGasFreeRouter({
+    getTrace: async (network, traceId) => ({
+      configured: true, reachable: true, network, traceLookupVerified: true,
+      trace: { ...suppliedTrace, traceId },
+    }),
+  }, {
+    verifyOnChain: async (input) => {
+      verificationInput = input
+      return {
+        verified: true,
+        status: 'verified-on-chain',
+        txId: 'a'.repeat(64),
+        blockNumber: 123,
+        tokenContractAddress: '41' + '4'.repeat(40),
+        fromAddress: '41' + '2'.repeat(40),
+        toAddress: '41' + '3'.repeat(40),
+        amountSun: '12345',
+        logIndex: 0,
+      }
+    },
+    persistVerifiedTrace: async (input) => {
+      persistenceInput = input
+      return { persisted: true }
+    },
+  })
+  const res = responseRecorder()
+  await getRoute(router, '/trace')({ query: { network: 'nile', traceId: suppliedTrace.traceId } }, res)
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(verificationInput.network, 'nile')
+  assert.equal(verificationInput.trace.traceId, suppliedTrace.traceId)
+  assert.equal(res.body.trace.verifiedOnChain, true)
+  assert.equal(res.body.trace.chainVerification.status, 'verified-on-chain')
+  assert.deepEqual(res.body.trace.verificationPersistence, { persisted: true })
+  assert.equal(persistenceInput.network, 'nile')
+  assert.equal(persistenceInput.status, 'verified-on-chain')
+  assert.equal(persistenceInput.logIndex, 0)
+  assert.equal(res.body.providerFundingVerified, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
+})
+
+test('GasFree trace route never persists or promotes an unverified chain result', async () => {
+  let persistCalls = 0
+  const router = createGasFreeRouter({
+    getTrace: async (network, traceId) => ({
+      configured: true, reachable: true, network,
+      trace: { traceId, transactionId: 'b'.repeat(64), verifiedOnChain: false },
+    }),
+  }, {
+    verifyOnChain: async () => ({
+      verified: false, status: 'not-verified', reason: 'matching-transfer-event-not-found',
+    }),
+    persistVerifiedTrace: async () => { persistCalls += 1; return { persisted: true } },
+  })
+  const res = responseRecorder()
+  await getRoute(router, '/trace')({ query: { network: 'mainnet', traceId: 'trace_mismatch' } }, res)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.trace.verifiedOnChain, false)
+  assert.equal(res.body.trace.chainVerification.verified, false)
+  assert.deepEqual(res.body.trace.verificationPersistence, { persisted: false, reason: 'transfer-not-verified' })
+  assert.equal(persistCalls, 0)
+})
