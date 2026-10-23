@@ -34,6 +34,16 @@ test('native TRX handler checks selected asset before any send attempt', () => {
   assert.match(handler, /network === 'mainnet'.*isShastaWallet/s, 'Mainnet selection must reject a Shasta wallet')
 })
 
+
+test('VTRC deployment uses TronLink and never constructs a signer from a pasted private key', () => {
+  const deploy = sectionBetween('const handleDeploy = async () => {', 'const handleQueryAccount = async () => {')
+  assert.match(deploy, /if \(network !== 'shasta'\)/, 'contract deployment must remain testnet-only')
+  assert.match(deploy, /const tronWeb = await getInjectedTronWeb\(\)/, 'deployment must use the authorized wallet provider')
+  assert.match(deploy, /getCurrentAuthorizedTronWeb\(sender\)/, 'deployment must revalidate the live signer account and network')
+  assert.match(appSource, /Connect TronLink and enter the address that should receive the initial supply/)
+  assert.doesNotMatch(deploy, /privateKey|new TronWeb\([^)]*privateKey:/, 'deployment must not take a private key as a signing input')
+})
+
 test('wallet network validation rejects a Shasta/Mainnet mismatch', () => {
   const guard = sectionBetween('const assertSelectedTronLinkNetwork =', 'const getInjectedTronWeb =')
   assert.match(guard, /network === 'shasta'.*shasta/s)
@@ -45,7 +55,7 @@ test('changing networks clears the previous wallet connection and account snapsh
   const effect = sectionBetween('// A network switch invalidates the prior wallet/network pairing.', '  }, [network])')
   assert.match(effect, /setWalletConnected\(false\)/, 'network changes must require wallet reconnection')
   assert.match(effect, /setAccountData\(null\)/, 'network-specific account details must be discarded')
-  assert.match(effect, /setPrivateKey\(''\)/, 'locally held signing material must not carry across network switches')
+  assert.doesNotMatch(appSource, /const \[privateKey, setPrivateKey\]|value=\{privateKey\}|setPrivateKey\(/, 'the UI must not collect or retain a pasted wallet private key')
   assert.match(effect, /setWalletAddress\(''\)/, 'the previous network wallet address must be cleared')
   assert.match(effect, /setNativeTransferRecord\(null\)/, 'native transfer context must not carry across networks')
   assert.match(effect, /setTokenTransferRecord\(null\)/, 'token transfer context must not carry across networks')
