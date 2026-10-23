@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, History, AlertCircle } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
@@ -55,10 +55,21 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [nextFingerprint, setNextFingerprint] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [notification, setNotification] = useState<{ key: string; message: string; transactionId: string | null } | null>(null)
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | 'unsupported'>(() =>
+    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+  )
+  const seenVerifiedKeys = useRef<Set<string>>(new Set())
+  const historyInitialized = useRef(false)
 
   useEffect(() => {
     let active = true
     let timer: ReturnType<typeof setInterval> | undefined
+    // Do not treat old transactions as new notifications when the watched
+    // address/network/filter changes or the user explicitly refreshes history.
+    seenVerifiedKeys.current.clear()
+    historyInitialized.current = false
+    setNotification(null)
     const load = async (showLoading: boolean) => {
       if (!address.trim()) {
         if (active) {
@@ -90,8 +101,59 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
           }
         } catch { /* The live indexer feed remains available independently. */ }
         if (active) {
+          const incoming = [...persistedRecords, ...payload.records]
+          const confirmedIncoming = incoming.filter((record) =>
+            record.verifiedOnChain === true && record.verificationStatus === 'verified-on-chain',
+          )
+          if (!historyInitialized.current) {
+            // Initial history is a baseline, not a stream of alerts for old transfers.
+            for (const record of confirmedIncoming) seenVerifiedKeys.current.add(recordKey(record))
+            historyInitialized.current = true
+          } else {
+            const newlyVerified = confirmedIncoming.filter((record) => !seenVerifiedKeys.current.has(recordKey(record)))
+            for (const record of confirmedIncoming) seenVerifiedKeys.current.add(recordKey(record))
+            if (newlyVerified.length > 0) {
+              const messages = newlyVerified.map((record) => {
+                const symbol = record.tokenSymbol || 'TRC-20 token'
+                const amount = formatUnits(record.amountBaseUnits, record.tokenDecimals)
+                return {
+                  record,
+                  key: recordKey(record),
+                  message: `Verified incoming ${amount} ${symbol} transfer observed on ${network}. Exchange credit is separate.`,
+                }
+              })
+
+              // Every newly observed verified event should be announced. Cap
+              // individual system alerts and summarize any burst to avoid
+              // flooding the device after a delayed poll or worker recovery.
+              if (browserPermission === 'granted' && typeof Notification !== 'undefined') {
+                try {
+                  for (const item of messages.slice(0, 5)) {
+                    new Notification('Verified incoming transfer', { body: item.message, tag: item.key })
+                  }
+                  if (messages.length > 5) {
+                    new Notification('Additional verified transfers', {
+                      body: `${messages.length - 5} more verified incoming transfers were detected on ${network}.`,
+                      tag: `verified-transfer-batch:${network}:${messages[messages.length - 1].key}`,
+                    })
+                  }
+                } catch {
+                  // In-app notification remains available if system notifications fail.
+                }
+              }
+
+              const latest = messages[0]
+              const batchMessage = messages.length === 1
+                ? latest.message
+                : `${messages.length} newly verified incoming transfers observed on ${network}. Latest: ${latest.message}`
+              setNotification({
+                key: latest.key,
+                message: batchMessage,
+                transactionId: latest.record.transactionId,
+              })
+            }
+          }
           setRecords((current) => {
-            const incoming = [...persistedRecords, ...payload.records]
             const merged = showLoading ? incoming : [...incoming, ...current]
             const unique = new Map<string, HistoryRecord>()
             for (const record of merged) {
@@ -139,7 +201,27 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
       active = false
       if (timer) clearInterval(timer)
     }
-  }, [network, address, contract, refreshNonce])
+  }, [network, address, contract, refreshNonce, browserPermission])
+
+  const enableBrowserNotifications = async () => {
+    if (typeof Notification === 'undefined') {
+      setBrowserPermission('unsupported')
+      return
+    }
+    try {
+      const permission = await Notification.requestPermission()
+      setBrowserPermission(permission)
+      if (permission !== 'granted') {
+        setError(permission === 'denied'
+          ? 'Device notifications are blocked in browser settings. In-app verified-transfer messages remain available while this panel is open.'
+          : 'Device notifications were not enabled. In-app verified-transfer messages remain available while this panel is open.')
+      } else {
+        setError('')
+      }
+    } catch {
+      setError('Could not request device notification permission. In-app verified-transfer messages remain available while this panel is open.')
+    }
+  }
 
   const loadOlder = async () => {
     if (!nextFingerprint || loadingMore || !address.trim()) return
@@ -178,20 +260,42 @@ export default function ReceiverHistory({ network, address, contract = '' }: Pro
             <p className="mt-xs text-xs text-tertiary">Selected network: {network} · Auto-refresh every 30 seconds while this panel is open.</p>
           </div>
         </div>
-        <button type="button" onClick={() => setRefreshNonce((n) => n + 1)} disabled={loading} className="inline-flex items-center gap-xs rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
-          <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
-          {loading ? 'Loading history…' : 'Refresh history'}
-        </button>
+        <div className="flex flex-wrap items-center gap-sm">
+          {browserPermission === 'granted' ? (
+            <span role="status" className="text-xs text-utility-success-700">Device notifications enabled</span>
+          ) : browserPermission === 'unsupported' ? (
+            <span className="text-xs text-tertiary">Device notifications unsupported; in-app messages still work.</span>
+          ) : (
+            <button type="button" onClick={() => void enableBrowserNotifications()} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary">
+              Enable device notifications
+            </button>
+          )}
+          <button type="button" onClick={() => setRefreshNonce((n) => n + 1)} disabled={loading} className="inline-flex items-center gap-xs rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">
+            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Loading history…' : 'Refresh history'}
+          </button>
+        </div>
       </div>
       <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-xs text-utility-warning-700">
         Indexer records are incoming-transfer candidates, not final proof. A row is not marked completed until its exact transaction, solidified receipt, contract, sender, receiver and amount are independently verified. This panel does not change balances or promise exchange credit.
       </div>
       {error && <div className="flex items-start gap-sm rounded-lg border border-secondary bg-secondary p-md text-sm text-secondary"><AlertCircle className="mt-xxs size-4 shrink-0" />{error}</div>}
+      {notification && <div role="status" aria-live="polite" className="rounded-lg border border-utility-success-200 bg-utility-success-50 p-md text-sm text-utility-success-700">
+        <div className="flex items-start justify-between gap-md">
+          <div className="min-w-0">
+            <p className="font-semibold">Verified incoming transfer notification</p>
+            <p className="mt-xs">{notification.message}</p>
+            {notification.transactionId && <p className="mt-xs break-all font-mono text-xs">Transaction: {notification.transactionId}</p>}
+            <p className="mt-xs text-xs">In-app notifications appear while this panel is open. Optional device notifications require browser permission and this page to be running; they are not push notifications from another wallet or exchange and do not prove exchange-account credit.</p>
+          </div>
+          <button type="button" onClick={() => setNotification(null)} className="shrink-0 rounded border border-current px-sm py-xs text-xs">Dismiss</button>
+        </div>
+      </div>}
       {lastChecked !== null && <p className="text-xs text-tertiary">Last successful check: {new Date(lastChecked).toLocaleString()} · Receiver: <span className="break-all font-mono">{address || 'not set'}</span></p>}
       {!error && records.length === 0 && <p className="rounded-lg border border-secondary bg-secondary p-lg text-sm text-tertiary">No incoming TRC-20 records were returned for this address and filter. Indexers may lag; this is not proof that no transfer exists.</p>}
       <div className="space-y-md">
         {records.map((record, index) => (
-          <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
+          <article key={`${record.network}:${record.transactionId || index}:${record.tokenContract || ''}:${record.eventIndex ?? ''}`} className="rounded-lg border border-secondary bg-secondary p-lg space-y-sm">
             <div className="flex flex-wrap items-center justify-between gap-sm">
               <p className="text-sm font-semibold text-primary">{record.tokenSymbol || record.tokenName || 'TRC-20 token'} · {formatUnits(record.amountBaseUnits, record.tokenDecimals)}</p>
               <span className={`rounded-full border px-sm py-xxs text-xs ${record.verifiedOnChain ? 'border-utility-success-200 text-utility-success-700' : record.verificationStatus === 'not-verified' ? 'border-utility-danger-200 text-utility-danger-700' : 'border-utility-warning-200 text-utility-warning-700'}`}>

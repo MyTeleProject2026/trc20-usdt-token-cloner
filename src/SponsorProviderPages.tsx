@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleDollarSign, ShieldCheck } from 'lucide-react'
+import GasFreeProviderDiscovery from './GasFreeProviderDiscovery'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
@@ -13,7 +14,7 @@ type SponsorStatus = {
   requiredBeforeEnablement?: string[]
 }
 
-type Props = { network: 'shasta' | 'mainnet' }
+type Props = { network: 'shasta' | 'mainnet'; walletAddress?: string }
 type Asset = 'VTRC' | 'TRX' | 'USDT'
 type TokenSelectionProps = Props & { asset: Asset; onAssetChange: (asset: Asset) => void; onContinue: () => void }
 
@@ -68,7 +69,7 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
   )
 }
 
-export default function SponsorProviderPage({ network }: Props) {
+export default function SponsorProviderPage({ network, walletAddress = '' }: Props) {
   const [status, setStatus] = useState<SponsorStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [providerName, setProviderName] = useState('')
@@ -109,6 +110,7 @@ export default function SponsorProviderPage({ network }: Props) {
 
   return (
     <div className="space-y-xl">
+      <GasFreeProviderDiscovery walletAddress={walletAddress} walletNetwork={network} />
       <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs space-y-lg">
         <div className="flex items-start gap-md">
           <ShieldCheck className="size-6 shrink-0 text-brand-primary" aria-hidden="true" />
