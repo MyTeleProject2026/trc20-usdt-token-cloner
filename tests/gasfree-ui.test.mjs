@@ -27,7 +27,7 @@ test('GasFree API secret remains a server-only variable and is not configured in
 })
 
 test('provider discovery UI never claims every exchange will credit a deposit', () => {
-  assert.ok(component.includes('does not authorize or submit a transfer'))
+  assert.ok(component.includes('do not authorize or submit a transfer'))
   assert.ok(component.includes('Not a confirmed free sponsor'))
   assert.ok(component.includes('Sponsor funding verification: not established.'))
 })
