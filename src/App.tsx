@@ -121,6 +121,34 @@ export default function App() {
     setVerifiedTransferLookup(null)
     setTransactionHistory([])
     fetchStatus()
+
+    // Invalidate data captured under a prior injected-wallet account or chain.
+    // A provider event is a signal to reconnect, never authority to keep sending
+    // against stale sender/network state.
+    const provider = (window as any).tron
+    if (!provider || typeof provider.on !== 'function') return
+    const invalidateWalletSession = (reason: string) => {
+      setWalletConnected(false)
+      setWalletAddress('')
+      setAccountData(null)
+      setNativeBalanceResult(null)
+      setTokenBalanceResult(null)
+      setNativeTransferRecord(null)
+      setTokenTransferRecord(null)
+      setNativeVerifyResult(null)
+      setTokenVerifyResult(null)
+      setVerifiedTransferLookup(null)
+      setTransactionHistory([])
+      setActionMessage({ type: 'error', text: `TronLink ${reason}. Reconnect the wallet and verify the selected network before sending or checking balances.` })
+    }
+    const onAccountsChanged = () => invalidateWalletSession('account changed')
+    const onChainChanged = () => invalidateWalletSession('network changed')
+    provider.on('accountsChanged', onAccountsChanged)
+    provider.on('chainChanged', onChainChanged)
+    return () => {
+      provider.removeListener?.('accountsChanged', onAccountsChanged)
+      provider.removeListener?.('chainChanged', onChainChanged)
+    }
   }, [network])
 
   const copyToClipboard = (text: string, id: string) => {
