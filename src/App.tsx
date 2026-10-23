@@ -313,7 +313,7 @@ export default function App() {
         success: true,
         txId,
         contractAddress,
-        message: 'Contract deployment submitted through TronLink. Verify the solidified transaction on Shasta before relying on the address.',
+        message: 'Deployment was submitted through TronLink, but it is not yet confirmed. Use “Verify on-chain deployment” and wait for a solidified SUCCESS receipt plus deployed bytecode before relying on the address.',
       })
       setContractAddress(contractAddress)
     } catch (err: any) {
@@ -1195,7 +1195,7 @@ export default function App() {
                     <div className="flex gap-lg rounded-xl bg-utility-success-50 p-xl">
                       <CheckCircle2 className="mt-xxs size-5 shrink-0 text-utility-success-600" aria-hidden="true" />
                       <div className="w-full">
-                        <p className="text-sm font-semibold text-utility-success-600">Contract Deployed Successfully!</p>
+                        <p className="text-sm font-semibold text-utility-success-600">Deployment Submitted — Verification Required</p>
                         {deployResult.txId && (
                           <div className="mt-sm flex flex-col gap-sm rounded-md bg-primary p-sm border border-primary">
                             <div className="flex items-start justify-between gap-sm text-xs font-mono">
