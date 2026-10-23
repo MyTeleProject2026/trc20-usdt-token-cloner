@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -497,6 +497,65 @@ const formatSun = (value) => {
 }
 
 // Read a receiver's native TRX balance from the selected network's solidified state.
+// Protected, read-only lifecycle history. It exposes no provider keys and cannot
+// mutate a transfer or infer confirmation from a transaction hash alone.
+router.get('/sponsorship/transfers', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const network = req.query?.network === undefined ? null : req.query.network
+  const status = req.query?.status === undefined ? null : req.query.status
+  const sponsorReference = req.query?.sponsorReference === undefined ? null : req.query.sponsorReference
+  const limit = req.query?.limit === undefined ? 50 : Number(req.query.limit)
+  if (network !== null && (typeof network !== 'string' || !Object.hasOwn(networks, network))) {
+    return res.status(400).json({ success: false, error: 'invalid-network' })
+  }
+  if (status !== null && (typeof status !== 'string'
+    || !['pending-review', 'authorized', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status))) {
+    return res.status(400).json({ success: false, error: 'invalid-status' })
+  }
+  if (sponsorReference !== null && (typeof sponsorReference !== 'string'
+    || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference))) {
+    return res.status(400).json({ success: false, error: 'invalid-sponsor-reference' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ success: false, error: 'invalid-limit' })
+  }
+  try {
+    const result = await listSponsorTransfers({ network, status, sponsorReference, limit })
+    if (!result.success) {
+      const code = ['invalid-network', 'invalid-status', 'invalid-sponsor-reference', 'invalid-limit'].includes(result.reason) ? 400 : 503
+      return res.status(code).json({
+        success: false,
+        error: 'sponsor-transfer-history-unavailable',
+        reason: result.reason,
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'sponsor-transfer-history-read',
+      count: result.transfers.length,
+      truncated: result.truncated,
+      transfers: result.transfers,
+      source: 'TRON Token Studio sponsor transfer ledger',
+      limitations: [
+        'These are internal lifecycle records, not independent proof of chain execution or receiver credit.',
+        'A submitted transaction remains pending until exact-network, exact-asset, sender, receiver and amount evidence is independently verified.',
+        'This endpoint is read-only; it cannot authorize, submit, cancel, confirm, or release reservations.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-transfer-history-unavailable' })
+  }
+})
+
 router.get('/native-balance', async (req, res) => {
   const { network, address } = req.query
   if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
