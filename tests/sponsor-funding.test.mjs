@@ -108,3 +108,53 @@ test('sponsor funding read does not treat a failed token query as a zero balance
   assert.equal(Object.hasOwn(result.tokens[0], 'balanceBaseUnits'), false)
   assert.equal(result.tokenBalancesComplete, false)
 })
+
+
+test('sponsor funding reader rejects a native balance response for a different sponsor address', async () => {
+  const reader = createSponsorFundingReader({
+    env: { TATUM_API_KEY: 'server-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    fetchImpl: async (url) => {
+      assert.ok(url.endsWith('/walletsolidity/getaccount'))
+      return { ok: true, json: async () => ({ address: '41' + 'c'.repeat(40), balance: '999999999' }) }
+    },
+  })
+  const result = await reader('nile')
+  assert.equal(result.status, 'solidified-balance-read-failed')
+  assert.equal(result.onChainBalanceRead, false)
+  assert.equal(Object.hasOwn(result, 'native'), false)
+  assert.equal(result.canSubmitSponsoredTransfer, false)
+})
+
+test('sponsorship funding HTTP route is read-only and reports missing sponsor address without querying a provider', async () => {
+  const nativeTronRoutes = (await import('../server/routes/native-tron.mjs')).default
+  const layer = nativeTronRoutes.stack.find((item) =>
+    item.route?.path === '/sponsorship/funding-status' && item.route.methods?.get,
+  )
+  assert.ok(layer, 'GET /sponsorship/funding-status route must be registered')
+
+  const savedAddress = process.env.SPONSOR_NILE_ADDRESS
+  const savedKey = process.env.TATUM_API_KEY
+  delete process.env.SPONSOR_NILE_ADDRESS
+  delete process.env.TATUM_API_KEY
+  try {
+    let statusCode = 200
+    let responseBody
+    const response = {
+      status(code) { statusCode = code; return this },
+      json(body) { responseBody = body; return this },
+    }
+    await layer.route.stack[0].handle({ query: { network: 'nile' } }, response)
+    assert.equal(statusCode, 503)
+    assert.equal(responseBody.success, false)
+    assert.equal(responseBody.funding.status, 'sponsor-address-not-configured')
+    assert.equal(responseBody.funding.onChainBalanceRead, false)
+    assert.equal(responseBody.funding.canSubmitSponsoredTransfer, false)
+    assert.ok(responseBody.limitations.some((item) => item.includes('never is signed') || item.includes('never signed') || item.includes('No transfer is signed')))
+  } finally {
+    if (savedAddress === undefined) delete process.env.SPONSOR_NILE_ADDRESS
+    else process.env.SPONSOR_NILE_ADDRESS = savedAddress
+    if (savedKey === undefined) delete process.env.TATUM_API_KEY
+    else process.env.TATUM_API_KEY = savedKey
+  }
+})
