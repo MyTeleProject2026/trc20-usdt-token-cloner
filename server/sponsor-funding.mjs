@@ -140,7 +140,16 @@ export function createSponsorFundingReader({
         // SolidityNode returns an empty object for an address without an account.
         balanceSun = '0'
       } else {
-        balanceSun = String(account.balance ?? '')
+        if (typeof account.balance !== 'string' && typeof account.balance !== 'number') {
+          throw new Error('invalid-native-balance-response')
+        }
+        // JSON numeric integers outside Number's safe range may already be rounded.
+        // Never publish rounded base-unit balances as chain facts; providers should
+        // return such very large values as digit strings.
+        if (typeof account.balance === 'number' && !Number.isSafeInteger(account.balance)) {
+          throw new Error('unsafe-native-balance-integer')
+        }
+        balanceSun = String(account.balance)
         if (!/^(0|[1-9][0-9]{0,77})$/.test(balanceSun)) throw new Error('invalid-native-balance-response')
       }
 
