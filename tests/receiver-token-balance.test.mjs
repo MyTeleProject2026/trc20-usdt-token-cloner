@@ -72,3 +72,14 @@ test('successful transfer verification rechecks the same receiver and token cont
   assert.match(app, /network: record\.network,[\s\S]*contract: record\.contractAddress,[\s\S]*address: record\.receiverAddress/)
   assert.match(app, /[Rr]eceiver balance could not be rechecked/)
 })
+
+
+
+test('official Mainnet USDT is independently verifiable without trusting arbitrary contracts', () => {
+  assert.match(routes, /OFFICIAL_MAINNET_USDT_HEX = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'/)
+  assert.match(routes, /const isOfficialMainnetUsdt = network === 'mainnet'/)
+  assert.match(routes, /normalizedContract === OFFICIAL_MAINNET_USDT_HEX/)
+  assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.length\)/)
+  assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.includes\(normalizedContract\)\)/)
+  assert.match(routes, /No other contract is implicitly trusted/)
+})
