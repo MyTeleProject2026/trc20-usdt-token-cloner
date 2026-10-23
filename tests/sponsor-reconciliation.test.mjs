@@ -32,6 +32,7 @@ function budget({
   reserved_base_units = '0',
   spent_base_units = '0',
   status = 'active',
+  approvalScopeVerified = true,
 } = {}) {
   return {
     sponsor_reference,
@@ -44,6 +45,7 @@ function budget({
     reserved_base_units,
     spent_base_units,
     status,
+    approvalScopeVerified,
   }
 }
 
@@ -167,4 +169,20 @@ test('reconciliation rejects invalid ledger numerics and never treats them as co
   })
   assert.equal(result.success, false)
   assert.equal(result.status, 'invalid-budget-ledger-record')
+})
+
+
+test('reconciliation does not report coverage for an unapproved active budget', () => {
+  const result = reconcileSponsorBudgets({
+    network: 'shasta',
+    fundingSnapshot: snapshot(),
+    budgets: [
+      budget({ budget_base_units: '100', approvalScopeVerified: false }),
+    ],
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'approval-required')
+  assert.equal(result.groups[0].unapprovedActiveBudgetCount, 1)
+  assert.equal(result.groups[0].onChainBalanceBaseUnits, '150')
+  assert.equal(result.canSubmitSponsoredTransfer, false)
 })
