@@ -179,6 +179,22 @@ export default function App() {
     }
   }
 
+  // Re-read the live injected provider immediately before signing or broadcasting.
+  // A wallet account/network event can arrive while asynchronous balance and
+  // contract reads are in flight; stale session state must never authorize a send.
+  const getCurrentAuthorizedTronWeb = (expectedAddress: string) => {
+    const provider = (window as any).tron
+    const currentTronWeb = provider?.isTronLink === true ? provider.tronWeb : null
+    if (!currentTronWeb || !currentTronWeb.defaultAddress?.base58) {
+      throw new Error('TronLink authorization is no longer available. Reconnect the wallet before sending.')
+    }
+    assertSelectedTronLinkNetwork(currentTronWeb)
+    if (currentTronWeb.defaultAddress.base58 !== expectedAddress) {
+      throw new Error('The active TronLink account changed during transfer preparation. Transfer cancelled; reconnect and review again.')
+    }
+    return currentTronWeb
+  }
+
   const getInjectedTronWeb = async () => {
     const provider = (window as any).tron
     if (!provider) throw new Error('TronLink was not detected. Open this site in a browser with TronLink installed.')
@@ -432,7 +448,20 @@ export default function App() {
         setActionMessage({ type: 'error', text: 'Token transfer cancelled before signing.' })
         return
       }
-      const txId = await contract.transfer(recipientAddress.trim(), rawAmount).send({
+      // Re-read the wallet and contract after the confirmation dialog. Do not
+      // submit using an instance captured before an account/network change.
+      const currentTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const currentContract = await currentTronWeb.contract().at(contractAddress.trim())
+      const currentDecimals = Number(await currentContract.decimals().call())
+      if (currentDecimals !== decimals) throw new Error('Token metadata changed during transfer preparation; transfer cancelled.')
+      const currentSymbol = String(await currentContract.symbol().call().catch(() => 'TRC-20'))
+      if (selectedAsset === 'USDT' && currentSymbol.toUpperCase() !== 'USDT') {
+        throw new Error('The live contract metadata no longer matches official USDT; transfer cancelled.')
+      }
+      const currentBalance = BigInt(String(await currentContract.balanceOf(sender).call()))
+      if (currentBalance < BigInt(rawAmount)) throw new Error('Sender token balance changed and is now insufficient; transfer cancelled.')
+      getCurrentAuthorizedTronWeb(sender)
+      const txId = await currentContract.transfer(recipientAddress.trim(), rawAmount).send({
         feeLimit: 100_000_000,
         callValue: 0,
         shouldPollResponse: true,
@@ -645,9 +674,14 @@ export default function App() {
       const sender = tronWeb.defaultAddress.base58
       if (!sender) throw new Error('TronLink has no authorized sender address.')
       setWalletAddress(sender)
-      const transaction = await tronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
-      const signed: any = await tronWeb.trx.sign(transaction)
-      const result: any = await tronWeb.trx.sendRawTransaction(signed)
+      const currentTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const transaction = await currentTronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
+      // Revalidate after transaction construction and immediately before wallet approval.
+      const signerTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const signed: any = await signerTronWeb.trx.sign(transaction)
+      // Do not broadcast a signed transaction if the user switched accounts/networks meanwhile.
+      const broadcasterTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const result: any = await broadcasterTronWeb.trx.sendRawTransaction(signed)
       const txid = signed?.txID || result?.txid || result?.txID || transaction?.txID
       if (!result?.result || typeof txid !== 'string' || !/^[0-9a-fA-F]{64}$/.test(txid)) {
         throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not return a valid accepted transaction ID. Check wallet activity and network fees before retrying; do not blindly resend.')
