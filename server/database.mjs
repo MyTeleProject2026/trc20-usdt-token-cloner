@@ -185,6 +185,9 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
       // Keep fee/resource budgets independent from asset principal budgets. Existing
       // rows default to asset-grant; fee sponsorship requires its own explicit budget.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
@@ -929,6 +932,222 @@ export async function createSponsorBudgetDraft(input) {
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
     throw error
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Fetch one sponsor budget for operator review. All of its amounts remain
+ * ledger values, not independent chain balance evidence.
+ */
+export async function getSponsorBudgetById(budgetId) {
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)) {
+    return { success: false, reason: 'invalid-budget-id' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
+              token_contract, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference, approved_at, created_at, updated_at
+         FROM ${schema}.sponsor_budgets WHERE id = $1::bigint`,
+      [budgetId],
+    )
+    return result.rows.length
+      ? { success: true, budget: result.rows[0] }
+      : { success: false, reason: 'budget-not-found' }
+  } catch {
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Activates a pending-review budget only after a server-allowlisted sponsor
+ * agreement reference, operator review reference, and a fresh exact-network
+ * on-chain balance snapshot are provided. An advisory lock serializes activations
+ * for the same sponsor wallet/network/asset so parallel approvals cannot allocate
+ * the same chain balance twice. This never signs or submits a transaction.
+ */
+export async function activateSponsorBudget({
+  budgetId,
+  consentReference,
+  reviewReference,
+  fundingSnapshot,
+} = {}) {
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)
+    || typeof consentReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(consentReference)
+    || typeof reviewReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(reviewReference)) {
+    return { success: false, reason: 'invalid-activation-request' }
+  }
+  const approvedReferences = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(',').map((value) => value.trim()).filter(Boolean)
+  if (!approvedReferences.includes(consentReference)) {
+    return { success: false, reason: 'agreement-reference-not-approved' }
+  }
+  if (!fundingSnapshot || fundingSnapshot.status !== 'solidified-sponsor-balances-read'
+    || fundingSnapshot.onChainBalanceRead !== true
+    || fundingSnapshot.cache?.status !== 'fresh'
+    || !['mainnet', 'shasta', 'nile'].includes(fundingSnapshot.network)
+    || fundingSnapshot.source !== 'Tatum TRON SolidityNode account and constant-contract queries'
+    || typeof fundingSnapshot.sponsorAddress !== 'string'
+    || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(fundingSnapshot.sponsorAddress)
+    || typeof fundingSnapshot.checkedAt !== 'string') {
+    return { success: false, reason: 'fresh-solidified-funding-snapshot-required' }
+  }
+  const checkedAtMs = Date.parse(fundingSnapshot.checkedAt)
+  const snapshotAgeMs = Date.now() - checkedAtMs
+  if (!Number.isFinite(checkedAtMs) || snapshotAgeMs < -5_000 || snapshotAgeMs > 15_000) {
+    return { success: false, reason: 'funding-snapshot-stale' }
+  }
+
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const targetResult = await client.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
+              token_contract, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference
+         FROM ${schema}.sponsor_budgets
+        WHERE id = $1::bigint
+        FOR UPDATE`,
+      [budgetId],
+    )
+    if (!targetResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-not-found' }
+    }
+    const budget = targetResult.rows[0]
+    if (budget.network !== fundingSnapshot.network
+      || budget.sponsor_address !== fundingSnapshot.sponsorAddress) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'funding-snapshot-identity-mismatch' }
+    }
+    if (budget.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'mainnet-budget-activation-disabled' }
+    }
+    if (budget.status === 'active') {
+      const sameApproval = budget.approval_reference === consentReference
+        && budget.review_reference === reviewReference
+      await client.query('COMMIT')
+      return sameApproval
+        ? { success: true, duplicate: true, status: 'active', budgetId, canReserve: true }
+        : { success: false, reason: 'budget-already-active' }
+    }
+    if (budget.status !== 'pending-review') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review' }
+    }
+
+    let chainBalanceBaseUnits = null
+    if (budget.asset === 'TRX') {
+      const raw = fundingSnapshot.native?.balanceSun
+      if (fundingSnapshot.native?.status !== 'verified'
+        || typeof raw !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(raw)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'exact-asset-balance-not-verified' }
+      }
+      chainBalanceBaseUnits = BigInt(raw)
+    } else {
+      const expectedDisplayAsset = budget.asset === 'USDT' && budget.network !== 'mainnet'
+        ? 'USDT (testnet)' : budget.asset
+      const token = Array.isArray(fundingSnapshot.tokens)
+        ? fundingSnapshot.tokens.find((item) => item?.tokenContract === budget.token_contract
+          && item?.asset === expectedDisplayAsset && item?.status === 'verified')
+        : null
+      if (!token || typeof token.balanceBaseUnits !== 'string'
+        || !/^(0|[1-9][0-9]{0,77})$/.test(token.balanceBaseUnits)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'exact-asset-balance-not-verified' }
+      }
+      if (budget.asset === 'USDT' && budget.network === 'mainnet' && token.decimals !== 6) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'official-mainnet-usdt-decimals-mismatch' }
+      }
+      chainBalanceBaseUnits = BigInt(token.balanceBaseUnits)
+    }
+
+    const lockIdentity = `sponsor-budget-activation:${budget.network}:${budget.sponsor_address}:${budget.asset}:${budget.token_contract || ''}`
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [lockIdentity])
+    const commitments = await client.query(
+      `SELECT id::text AS id, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status
+         FROM ${schema}.sponsor_budgets
+        WHERE sponsor_address = $1 AND network = $2 AND asset = $3
+          AND token_contract IS NOT DISTINCT FROM $4 AND id <> $5::bigint
+        FOR UPDATE`,
+      [budget.sponsor_address, budget.network, budget.asset, budget.token_contract, budgetId],
+    )
+    let committedBaseUnits = BigInt(budget.budget_base_units) - BigInt(budget.spent_base_units)
+    for (const item of commitments.rows) {
+      const reserved = BigInt(item.reserved_base_units)
+      const spent = BigInt(item.spent_base_units)
+      const total = BigInt(item.budget_base_units)
+      // Active/paused budgets reserve their remaining cap. Inactive budgets only
+      // contribute actual outstanding reservations, not an unapproved draft cap.
+      committedBaseUnits += ['active', 'paused'].includes(item.status) ? total - spent : reserved
+    }
+    if (chainBalanceBaseUnits < committedBaseUnits) {
+      await client.query('ROLLBACK')
+      return {
+        success: false,
+        reason: 'insufficient-onchain-funding',
+        chainBalanceBaseUnits: chainBalanceBaseUnits.toString(),
+        requiredBaseUnits: committedBaseUnits.toString(),
+      }
+    }
+
+    await client.query(
+      `UPDATE ${schema}.sponsor_budgets
+          SET status = 'active', approval_reference = $1, review_reference = $2,
+              approved_at = now(), updated_at = now()
+        WHERE id = $3::bigint`,
+      [consentReference, reviewReference, budgetId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-budget-activated', 'sponsor-budget', $1, $2::jsonb)`,
+      [budgetId, JSON.stringify({
+        sponsorReference: budget.sponsor_reference,
+        network: budget.network,
+        purpose: budget.purpose,
+        asset: budget.asset,
+        tokenContract: budget.token_contract,
+        budgetBaseUnits: budget.budget_base_units,
+        chainBalanceBaseUnits: chainBalanceBaseUnits.toString(),
+        committedBaseUnits: committedBaseUnits.toString(),
+        consentReference,
+        reviewReference,
+        fundingCheckedAt: fundingSnapshot.checkedAt,
+        status: 'active',
+      })],
+    )
+    await client.query('COMMIT')
+    return {
+      success: true,
+      duplicate: false,
+      status: 'active',
+      budgetId,
+      canReserve: true,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      chainBalanceBaseUnits: chainBalanceBaseUnits.toString(),
+      committedBaseUnits: committedBaseUnits.toString(),
+    }
+  } catch {
+    await client.query('ROLLBACK').catch(() => {})
+    throw new Error('Sponsor budget activation failed')
   } finally {
     client.release()
   }
