@@ -119,11 +119,18 @@ export default function IntegrationHealthPanel({ network }: { network: 'shasta' 
             ? asset.tokens.filter((token: any) => token?.status === 'verified').map((token: any) => token.asset).join(', ')
             : ''
           const feeResourceStatus = fee.resourceStatus?.resourceRead === true ? 'resource snapshot verified' : 'resource snapshot not verified'
+          const requiredAddressSettings = [
+            ...(fee.addressConfigured ? [] : (Array.isArray(fee.requiredEnvironment) ? fee.requiredEnvironment : [])),
+            ...(asset.addressConfigured ? [] : (Array.isArray(asset.requiredEnvironment) ? asset.requiredEnvironment : [])),
+          ]
+          const setupHint = requiredAddressSettings.length
+            ? ` Missing public address configuration: ${[...new Set(requiredAddressSettings)].join(', ')}. Configure these as Render environment variables for the selected network; never put API secrets in frontend variables.`
+            : ''
           return {
             title: 'Independent sponsor accounts',
             tone: 'warning',
             value: !bothConfigured ? 'Sponsor account addresses missing' : distinct ? 'Two distinct addresses configured' : 'Address separation failed',
-            detail: `Fee sponsor: address ${fee.addressConfigured ? 'configured' : 'missing'}, TRX balance ${feeNative}, ${feeResourceStatus}. Asset sponsor: address ${asset.addressConfigured ? 'configured' : 'missing'}, TRX balance ${assetNative}, token balances verified: ${tokenNames || 'none'} . Distinct public addresses: ${distinct ? 'yes' : 'no'}. Funding agreements, signer authorization, and permission to send remain unverified; submission remains disabled.`,
+            detail: `Fee sponsor: address ${fee.addressConfigured ? 'configured' : 'missing'}, TRX balance ${feeNative}, ${feeResourceStatus}. Asset sponsor: address ${asset.addressConfigured ? 'configured' : 'missing'}, TRX balance ${assetNative}, token balances verified: ${tokenNames || 'none'}. Distinct public addresses: ${distinct ? 'yes' : 'no'}.${setupHint} Funding agreements, signer authorization, and permission to send remain unverified; submission remains disabled.`,
           }
         }),
         statusItem('GasFree integration', gasFreeConfig, ({ httpStatus, payload }) => {
