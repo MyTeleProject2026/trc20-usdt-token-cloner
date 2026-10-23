@@ -78,7 +78,7 @@ async function insertActiveBudget(pool, {
     tokenContract,
   })
   await pool.query(
-    `INSERT INTO trc20_token_cloner.sponsor_budgets
+    `INSERT INTO trc20_token_clone.sponsor_budgets
       (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
        budget_base_units, reserved_base_units, spent_base_units, status,
        approval_reference, review_reference, approved_at)
@@ -137,6 +137,43 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
   }
 }
 
+
+test('PostgreSQL refuses new reservations from a legacy active budget without scope approval', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-legacy-active-${suffix}`
+  const idempotencyKey = `pg-legacy-active:${suffix}`
+  try {
+    await insertLegacyActiveBudget(pool, sponsorReference, '100')
+    const result = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.deepEqual(result, { reserved: false, reason: 'sponsor-budget-activation-required' })
+
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0', spent: '0' })
+    const transfers = await pool.query(
+      'SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfers.rows[0].count, 0)
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
 
 test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempotent', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
