@@ -44,3 +44,10 @@ The following administrative endpoints require `Authorization: Bearer <SPONSOR_A
 - `POST /api/tron/sponsorship/budgets` creates a budget draft for a configured server-side sponsor address. Required JSON fields are `network`, `sponsorReference`, `purpose` (`network-fee` or `asset-grant`), `asset` (`TRX`, `USDT`, or `VTRC`), `budgetBaseUnits` (positive integer string), and `tokenContract` for token assets.
 
 Creation always sets the row to `pending-review`; duplicate identities are rejected and audited in the same database transaction. The endpoint cannot activate, reserve, sign, submit, or broadcast a transfer. No public UI stores or sends the administrator token. The requested amount is a ledger cap, not a verified wallet balance; compare it with the read-only funding snapshot during operator review. Existing budgets are not edited by these endpoints.
+
+
+## Budget emergency pause
+
+`POST /api/tron/sponsorship/budgets/:id/pause` is protected by the same server-only administrator bearer token. It requires one controlled reason code: `operator-request`, `funding-mismatch`, `provider-incident`, or `emergency-stop`. It uses a row lock and a database transaction to change the configured budget to `paused` and record an audit event. Repeated pauses are idempotent. Depleted budgets remain terminal. A paused budget cannot be used for new reservations by the existing reservation function. Pausing cannot reverse or cancel transactions already submitted to TRON.
+
+The funding endpoint accepts `refresh=1` to bypass a fresh successful snapshot once per 10 seconds per network. Repeated forced refreshes are throttled; successful snapshots cache for up to 10 seconds and provider failures cache for 3 seconds to avoid retry storms. Responses carrying sponsor balances or ledger details include `Cache-Control: no-store`.
