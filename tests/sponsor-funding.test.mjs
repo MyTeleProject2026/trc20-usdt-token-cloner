@@ -453,3 +453,68 @@ test('sponsor funding reader briefly caches provider failures to avoid retry sto
   assert.equal(second.cache.status, 'cached')
   assert.equal(calls, 1, 'recent provider errors should be briefly cached instead of retried for every caller')
 })
+
+
+test('sponsor reconciliation endpoint is protected and refuses missing chain evidence', async () => {
+  const nativeTronRoutes = (await import('../server/routes/native-tron.mjs')).default
+  const layer = nativeTronRoutes.stack.find((item) =>
+    item.route?.path === '/sponsorship/reconciliation' && item.route.methods?.get,
+  )
+  assert.ok(layer, 'GET /sponsorship/reconciliation must be registered')
+
+  const keys = ['SPONSOR_ADMIN_API_TOKEN', 'SPONSOR_NILE_ADDRESS', 'TATUM_API_KEY']
+  const previous = new Map(keys.map((key) => [key, process.env[key]]))
+  let statusCode = 200
+  let responseBody
+  const headers = {}
+  const response = {
+    status(code) { statusCode = code; return this },
+    setHeader(name, value) { headers[name.toLowerCase()] = value; return this },
+    json(body) { responseBody = body; return this },
+  }
+  try {
+    for (const key of keys) delete process.env[key]
+    await layer.route.stack[0].handle({ query: { network: 'nile' }, headers: {} }, response)
+    assert.equal(statusCode, 503)
+    assert.equal(responseBody.error, 'sponsor-admin-not-configured')
+    assert.equal(headers['cache-control'], 'no-store')
+    assert.equal(headers.vary, 'Authorization')
+
+    process.env.SPONSOR_ADMIN_API_TOKEN = 'z'.repeat(40)
+    statusCode = 200
+    responseBody = null
+    await layer.route.stack[0].handle({
+      query: { network: 'nile' },
+      headers: { authorization: 'Bearer wrong-token' },
+    }, response)
+    assert.equal(statusCode, 401)
+    assert.equal(responseBody.error, 'unauthorized')
+
+    statusCode = 200
+    responseBody = null
+    await layer.route.stack[0].handle({
+      query: { network: 'attacker' },
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+    }, response)
+    assert.equal(statusCode, 400)
+    assert.equal(responseBody.error, 'invalid-network')
+
+    delete process.env.SPONSOR_NILE_ADDRESS
+    delete process.env.TATUM_API_KEY
+    statusCode = 200
+    responseBody = null
+    await layer.route.stack[0].handle({
+      query: { network: 'nile' },
+      headers: { authorization: 'Bearer ' + process.env.SPONSOR_ADMIN_API_TOKEN },
+    }, response)
+    assert.equal(statusCode, 503)
+    assert.equal(responseBody.success, false)
+    assert.equal(responseBody.error, 'fresh-sponsor-balance-unavailable')
+    assert.notEqual(responseBody.reconciliation?.status, 'covered')
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
