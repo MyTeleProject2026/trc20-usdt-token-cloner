@@ -1,0 +1,138 @@
+const NETWORKS = Object.freeze({
+  mainnet: { host: 'https://tron-mainnet.gateway.tatum.io', addressEnv: 'SPONSOR_MAINNET_ADDRESS' },
+  shasta: { host: 'https://tron-shasta.gateway.tatum.io', addressEnv: 'SPONSOR_SHASTA_ADDRESS' },
+  nile: { host: 'https://tron-nile.gateway.tatum.io', addressEnv: 'SPONSOR_NILE_ADDRESS' },
+})
+const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const BASE_UNITS_PATTERN = /^(0|[1-9][0-9]{0,77})$/
+
+function integerString(value) {
+  if (typeof value === 'string' && BASE_UNITS_PATTERN.test(value)) return value
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return String(value)
+  return null
+}
+
+/**
+ * Reads the configured sponsor's solidified TRON resources and current
+ * Stake-2.0 delegation ceilings. This never signs, delegates, reserves, or
+ * sends funds. The wallet owner must approve each actual delegation separately.
+ */
+export function createSponsorResourceReader({
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  tronWebFactory = async (host) => {
+    const { TronWeb } = await import('tronweb')
+    return new TronWeb({ fullHost: host })
+  },
+  timeoutMs = 8000,
+} = {}) {
+  const cache = new Map()
+  const inFlight = new Map()
+  const cacheTtlMs = 5000
+  const failedTtlMs = 1500
+
+  async function readFresh(network) {
+    const config = typeof network === 'string' && Object.hasOwn(NETWORKS, network)
+      ? NETWORKS[network] : null
+    if (!config) return { success: false, network: network ?? null, status: 'invalid-network' }
+
+    const sponsorAddress = typeof env[config.addressEnv] === 'string' ? env[config.addressEnv].trim() : ''
+    if (!sponsorAddress) {
+      return {
+        success: false, network, status: 'sponsor-address-not-configured',
+        requiredEnvironment: [config.addressEnv], resourceRead: false,
+        delegationEnabled: false,
+      }
+    }
+    if (!ADDRESS_PATTERN.test(sponsorAddress)) {
+      return { success: false, network, status: 'invalid-sponsor-address', requiredEnvironment: [config.addressEnv], resourceRead: false, delegationEnabled: false }
+    }
+    if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
+      return { success: false, network, status: 'provider-credentials-missing', sponsorAddress, requiredEnvironment: ['TATUM_API_KEY'], resourceRead: false, delegationEnabled: false }
+    }
+    if (typeof fetchImpl !== 'function') {
+      return { success: false, network, status: 'provider-unavailable', sponsorAddress, resourceRead: false, delegationEnabled: false }
+    }
+
+    try {
+      const tronWeb = await tronWebFactory(config.host)
+      if (typeof tronWeb?.isAddress !== 'function' || !tronWeb.isAddress(sponsorAddress)
+        || typeof tronWeb?.address?.toHex !== 'function') {
+        return { success: false, network, status: 'invalid-sponsor-address', sponsorAddress, resourceRead: false, delegationEnabled: false }
+      }
+      const addressHex = tronWeb.address.toHex(sponsorAddress)
+      const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
+      const post = async (path, body) => {
+        const response = await fetchImpl(config.host + path, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+        if (!response.ok) throw new Error('provider-http-error')
+        const payload = await response.json()
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
+          throw new Error('invalid-resource-response')
+        }
+        return payload
+      }
+      const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
+        post('/walletsolidity/getaccountresource', { address: addressHex, visible: false }),
+        post('/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
+        post('/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
+      ])
+      const energyLimit = integerString(resources.EnergyLimit)
+      const energyUsed = integerString(resources.EnergyUsed ?? 0)
+      const netLimit = integerString(resources.NetLimit ?? 0)
+      const netUsed = integerString(resources.NetUsed ?? 0)
+      const freeNetLimit = integerString(resources.freeNetLimit ?? 0)
+      const freeNetUsed = integerString(resources.freeNetUsed ?? 0)
+      const maxEnergyStakeSun = integerString(energyDelegation.max_size)
+      const maxBandwidthStakeSun = integerString(bandwidthDelegation.max_size)
+      if ([energyLimit, energyUsed, netLimit, netUsed, freeNetLimit, freeNetUsed, maxEnergyStakeSun, maxBandwidthStakeSun].some((v) => v === null)
+        || BigInt(energyUsed) > BigInt(energyLimit)
+        || BigInt(netUsed) > BigInt(netLimit)
+        || BigInt(freeNetUsed) > BigInt(freeNetLimit)) {
+        throw new Error('invalid-resource-response')
+      }
+      return {
+        success: true,
+        status: 'solidified-sponsor-resources-read',
+        network,
+        sponsorAddress,
+        checkedAt: new Date().toISOString(),
+        source: 'Tatum TRON SolidityNode resource and Stake-2.0 delegation queries',
+        resourceRead: true,
+        resources: {
+          energyLimit, energyUsed, currentlyAvailableEnergy: (BigInt(energyLimit) - BigInt(energyUsed)).toString(),
+          netLimit, netUsed, currentlyAvailableBandwidth: (BigInt(netLimit) - BigInt(netUsed)).toString(),
+          freeNetLimit, freeNetUsed, currentlyAvailableFreeBandwidth: (BigInt(freeNetLimit) - BigInt(freeNetUsed)).toString(),
+          maxDelegatableEnergyStakeSun: maxEnergyStakeSun,
+          maxDelegatableBandwidthStakeSun: maxBandwidthStakeSun,
+        },
+        delegationEnabled: false,
+        canSubmitSponsoredTransfer: false,
+        note: 'Solidified resource snapshot only. Delegatable stake is reported in SUN-equivalent staked TRX, not Energy units. It does not prove a transfer will be fully covered; the sponsor must sign and verify a delegation, and each transfer must independently check resource coverage.',
+      }
+    } catch {
+      return { success: false, network, status: 'resource-read-unavailable', sponsorAddress, resourceRead: false, delegationEnabled: false }
+    }
+  }
+
+  return async function readSponsorResourceStatus(network, { refresh = false } = {}) {
+    if (typeof network !== 'string' || !Object.hasOwn(NETWORKS, network)) {
+      return { success: false, network: network ?? null, status: 'invalid-network', resourceRead: false, delegationEnabled: false }
+    }
+    const cached = cache.get(network)
+    if (!refresh && cached && cached.expiresAt > Date.now()) return { ...cached.result, cache: { status: 'cached', ageMs: Date.now() - cached.checkedAt } }
+    if (inFlight.has(network)) return inFlight.get(network)
+    const promise = readFresh(network).then((result) => {
+      const ttl = result.success ? cacheTtlMs : failedTtlMs
+      cache.set(network, { result, checkedAt: Date.now(), expiresAt: Date.now() + ttl })
+      if (cache.size > 6) cache.delete(cache.keys().next().value)
+      return { ...result, cache: { status: result.success ? 'fresh' : 'failed' } }
+    }).finally(() => inFlight.delete(network))
+    inFlight.set(network, promise)
+    return promise
+  }
+}
