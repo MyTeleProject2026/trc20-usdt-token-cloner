@@ -617,6 +617,7 @@ export async function reserveSponsorTransfer(input) {
     // flow. This is checked at every reservation, not only at activation time.
     if (typeof budget.approval_reference !== 'string' || !budget.approval_reference
       || typeof budget.review_reference !== 'string' || !budget.review_reference
+      || budget.approved_at == null
       || !isApprovedSponsorAgreementScope({
         consentReference: budget.approval_reference,
         budget,
@@ -1120,6 +1121,7 @@ export async function activateSponsorBudget({
     if (budget.status === 'active') {
       const sameApproval = budget.approval_reference === consentReference
         && budget.review_reference === reviewReference
+        && budget.approved_at != null
       await client.query('COMMIT')
       return sameApproval
         ? { success: true, duplicate: true, status: 'active', budgetId, canReserve: true }
