@@ -135,7 +135,9 @@ main .overflow-x-auto { max-width: 100%; overscroll-behavior-x: contain; }
 main table { width: 100%; border-collapse: collapse; }
 main td, main th { overflow-wrap: anywhere; word-break: break-word; }
 main svg { flex-shrink: 0; }
-main .grid > *, main .flex > * { min-width: 0; }
+main .grid > * { min-width: 0; }
+/* Do not force every flex child to zero width; that causes the one-word-per-line mobile collapse. */
+main .flex > svg { flex: 0 0 auto; }
 
 /* The previous header tried to fit title, wallet and network controls in one row.
    Stack it on phones so it cannot force the entire page into a desktop-width canvas. */
