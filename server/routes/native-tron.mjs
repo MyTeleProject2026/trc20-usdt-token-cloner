@@ -1,8 +1,9 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
 import { createSponsorResourceReader } from '../sponsor-resources.mjs'
+import { createSponsorResourceDelegationVerifier } from '../sponsor-resource-delegation-verifier.mjs'
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 
 import { Router } from 'express'
@@ -135,6 +136,82 @@ router.get('/sponsorship/resource-status', async (req, res) => {
     })
   } catch {
     return res.status(502).json({ success: false, error: 'sponsor-resource-read-failed', message: 'Could not verify sponsor resources on the selected network.' })
+  }
+})
+
+// Independently verify a wallet-signed Stake-2.0 delegation on solidified chain state
+// before recording it in the project-scoped, idempotent audit ledger.
+const verifySponsorResourceDelegation = createSponsorResourceDelegationVerifier()
+router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  const allowedFields = new Set(['network', 'transactionId', 'sponsorAddress', 'receiverAddress', 'resourceType', 'stakeEquivalentSun'])
+  if (Object.keys(body).some((key) => !allowedFields.has(key))) {
+    return res.status(400).json({ success: false, verified: false, error: 'unexpected-fields', message: 'Submit only the public transaction ID, network, sponsor/receiver addresses, resource type, and stake-equivalent amount.' })
+  }
+  if (!['mainnet', 'shasta', 'nile'].includes(body.network)
+    || typeof body.transactionId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(body.transactionId)
+    || !addressPattern.test(body.sponsorAddress || '')
+    || !addressPattern.test(body.receiverAddress || '')
+    || body.sponsorAddress === body.receiverAddress
+    || !['ENERGY', 'BANDWIDTH'].includes(body.resourceType)
+    || typeof body.stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,15}$/.test(body.stakeEquivalentSun)) {
+    return res.status(400).json({ success: false, verified: false, error: 'invalid-delegation-details', message: 'The resource-delegation record is malformed; no record was written.' })
+  }
+  try {
+    const verification = await verifySponsorResourceDelegation({
+      network: body.network,
+      transactionId: body.transactionId,
+      sponsorAddress: body.sponsorAddress,
+      receiverAddress: body.receiverAddress,
+      resourceType: body.resourceType,
+      stakeEquivalentSun: body.stakeEquivalentSun,
+    })
+    if (verification?.verified !== true) {
+      const transient = ['pending-solidification', 'delegation-state-not-yet-confirmed', 'provider-credentials-missing', 'provider-unavailable', 'provider-auth-rejected', 'provider-http-error', 'provider-unreachable'].includes(verification?.status)
+      const code = ['pending-solidification', 'delegation-state-not-yet-confirmed'].includes(verification?.status) ? 409
+        : verification?.status === 'invalid-request' || verification?.status === 'invalid-network' ? 400
+          : transient ? 503 : 422
+      return res.status(code).json({
+        success: false,
+        verified: false,
+        verification,
+        persistence: { persisted: false, reason: 'solidified-verification-required' },
+        message: 'No sponsor resource delegation was recorded because the independent solidified-chain verification did not pass.',
+      })
+    }
+    const persistence = await recordSponsorResourceDelegation({
+      network: verification.network,
+      transactionHash: verification.transactionId,
+      sponsorAddress: verification.sponsorAddress,
+      receiverAddress: verification.receiverAddress,
+      resourceType: verification.resourceType,
+      stakeEquivalentSun: verification.stakeEquivalentSun,
+      blockNumber: verification.blockNumber,
+    })
+    if (persistence?.persisted !== true) {
+      return res.status(503).json({
+        success: false,
+        verified: true,
+        verification,
+        persistence,
+        message: 'The delegation was verified on solidified chain state, but its audit record was not persisted. Retry verification; do not treat the app audit history as complete yet.',
+      })
+    }
+    return res.status(200).json({
+      success: true,
+      verified: true,
+      verification,
+      persistence,
+      message: 'Solidified sponsor resource delegation verified and persisted to the project audit ledger.',
+      limitations: [
+        'This verifies resource delegation only; it does not verify a later token transfer, promise zero fees, or transfer token principal.',
+        'Resource delegation is not a GasFree/provider-relayed sponsored transfer.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({ success: false, verified: false, error: 'resource-delegation-verification-unavailable', persistence: { persisted: false, reason: 'verification-unavailable' }, message: 'Independent verification or audit persistence is unavailable. No verified record is confirmed.' })
   }
 })
 
