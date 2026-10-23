@@ -935,6 +935,71 @@ export async function createSponsorBudgetDraft(input) {
 }
 
 /**
+ * Atomically pause a sponsor budget and audit the operator reason. This is an
+ * emergency control only: it stops future reservations; it cannot reverse or
+ * cancel transfers already submitted to a blockchain.
+ */
+export async function pauseSponsorBudget({ budgetId, reasonCode } = {}) {
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)
+    || !['operator-request', 'funding-mismatch', 'provider-incident', 'emergency-stop'].includes(reasonCode)) {
+    return { success: false, reason: 'invalid-pause-request' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const selection = await client.query(
+      `SELECT id::text AS id, sponsor_reference, network, purpose, asset, token_contract, status
+         FROM ${schema}.sponsor_budgets
+        WHERE id = $1::bigint
+        FOR UPDATE`,
+      [budgetId],
+    )
+    if (!selection.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-not-found' }
+    }
+    const budget = selection.rows[0]
+    if (budget.status === 'paused') {
+      await client.query('COMMIT')
+      return { success: true, duplicate: true, status: 'paused', budgetId }
+    }
+    if (budget.status === 'depleted') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-already-depleted' }
+    }
+    await client.query(
+      `UPDATE ${schema}.sponsor_budgets
+          SET status = 'paused', updated_at = now()
+        WHERE id = $1::bigint`,
+      [budgetId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-budget-paused', 'sponsor-budget', $1, $2::jsonb)`,
+      [budgetId, JSON.stringify({
+        sponsorReference: budget.sponsor_reference,
+        network: budget.network,
+        purpose: budget.purpose,
+        asset: budget.asset,
+        previousStatus: budget.status,
+        status: 'paused',
+        reasonCode,
+      })],
+    )
+    await client.query('COMMIT')
+    return { success: true, duplicate: false, status: 'paused', budgetId, previousStatus: budget.status }
+  } catch {
+    await client.query('ROLLBACK').catch(() => {})
+    throw new Error('Sponsor budget pause failed')
+  } finally {
+    client.release()
+  }
+}
+
+/**
  * Return only the configured sponsor-ledger budget records for privileged operations.
  * These are operator-set caps, not proof of live on-chain balances or funded resources.
  */
