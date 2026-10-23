@@ -20,6 +20,7 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
   const router = Router()
   const capabilityCache = new Map()
   const detailCache = new Map()
+  const forcedTraceRefreshAt = new Map()
   const cacheTtlMs = 30_000
   const detailCacheTtlMs = 5_000
   const maxCacheEntries = 500
@@ -236,8 +237,35 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
     }
 
     const key = `trace:${network}:${traceId}`
+    const forceRefresh = req.query?.refresh === '1'
     const cached = getCached(detailCache, key)
-    if (cached) return res.status(cached.httpStatus).json(cached.body)
+    const lastForcedRefreshAt = forcedTraceRefreshAt.get(key) || 0
+    const refreshIsThrottled = forceRefresh
+      && lastForcedRefreshAt > 0
+      && Date.now() - lastForcedRefreshAt < detailCacheTtlMs
+
+    // The UI's explicit retry may bypass the cached trace once per TTL window.
+    // This both allows a real finality re-check and prevents one trace ID from
+    // causing unbounded provider calls. Ordinary reads remain cache-first.
+    if (cached && (!forceRefresh || refreshIsThrottled)) {
+      return res.status(cached.httpStatus).json(cached.body)
+    }
+    if (forceRefresh) {
+      if (refreshIsThrottled) {
+        return res.status(429).json({
+          success: false,
+          status: 'trace-refresh-rate-limited',
+          network,
+          retryAfterMs: Math.max(0, detailCacheTtlMs - (Date.now() - lastForcedRefreshAt)),
+          message: 'This trace was freshly rechecked recently. Retry after the refresh interval; do not resubmit the transfer.',
+        })
+      }
+      if (forcedTraceRefreshAt.size >= maxCacheEntries && !forcedTraceRefreshAt.has(key)) {
+        const oldestKey = forcedTraceRefreshAt.keys().next().value
+        if (oldestKey !== undefined) forcedTraceRefreshAt.delete(oldestKey)
+      }
+      forcedTraceRefreshAt.set(key, Date.now())
+    }
 
     try {
       const result = await client.getTrace(network, traceId)
