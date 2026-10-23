@@ -6,6 +6,8 @@
 
 The endpoint performs read-only queries against the selected Tatum TRON Solidity gateway. It reports the configured sponsor wallet's native TRX balance and, where the server has a reviewed network-specific contract list, the balance of those exact TRC-20 contracts. Token balances are returned as integer base units with the contract address and decimals. A failed token query is marked unavailable and is never converted into a zero balance.
 
+Successful solidified balance snapshots are cached for up to 10 seconds per network, and simultaneous reads for the same network share one in-flight provider request. The response labels a cached snapshot and its age so the UI can distinguish reused data from a fresh read.
+
 The endpoint does not sign, submit, or broadcast transactions. It deliberately returns `sponsorFundingVerified: false`, `canSubmitSponsoredTransfer: false`, and `submissionEnabled: false` even after a chain balance has been read. A public chain balance snapshot is not evidence of the sponsor's consent, control of a signing authority, availability of a separate approved budget, or permission to spend those assets.
 
 ## Backend environment
