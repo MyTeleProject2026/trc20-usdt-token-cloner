@@ -199,6 +199,7 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
     if (budget.status === 'active') {
       const sameApproval = budget.approval_reference === consentReference
         && budget.review_reference === reviewReference
+        && budget.approved_at != null
       return sameApproval
         ? res.json({
             success: true, duplicate: true, status: 'active', budgetId,
