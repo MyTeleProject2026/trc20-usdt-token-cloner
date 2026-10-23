@@ -100,3 +100,15 @@ test('native TRX validates amount and sender before displaying the final confirm
   assert.match(app, /Network fees depend on wallet resources and the network/)
   assert.match(app, /review the fee and the full transaction in TronLink before signing/i)
 })
+
+
+test('token confirmation discloses the configured maximum contract-call fee limit', () => {
+  assert.match(app, /Contract-call feeLimit: up to 100 TRX \(100,000,000 SUN/)
+  assert.match(app, /current contract-call feeLimit is up to 100 TRX/)
+  assert.match(app, /Review the transaction and fee in TronLink and cancel if anything differs/)
+})
+
+test('RPC validation rejects path-bearing URLs in addition to wrong hosts', () => {
+  assert.match(app, /\(parsed\.pathname !== '' && parsed\.pathname !== '\/'\)/)
+  assert.match(app, /protocol !== 'https:' \|\| hostname !== expectedHost/)
+})
