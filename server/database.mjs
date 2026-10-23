@@ -188,10 +188,36 @@ export async function initializeDatabase() {
       // Keep fee/resource budgets independent from asset principal budgets. Existing
       // rows default to asset-grant; fee sponsorship requires its own explicit budget.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
       // VTRC is an independent project token. Expand sponsor ledger constraints so
       // it can be budgeted separately from official USDT and native TRX.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
       // One sponsor may have independent budgets for each network/purpose/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
@@ -221,6 +247,30 @@ export async function initializeDatabase() {
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // The transfer ledger must preserve fee/principal separation and exact token identity too.
+      await db.query(`DO $sponsor_transfer_fee$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_transfer_fee$`)
+      await db.query(`DO $sponsor_transfer_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_contract$`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       await db.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_transfer_tx_identity
