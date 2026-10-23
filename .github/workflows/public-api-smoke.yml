@@ -87,3 +87,15 @@ jobs:
           if (http_code === '503' && data.success !== false) throw new Error('Readiness HTTP/body mismatch')
           NODE
           rm -f readiness.json
+      - name: Check out source for gate-contract validation
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js for gate-contract validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify sponsor and provider submission gates remain fail-closed
+        env:
+          PUBLIC_API_BASE_URL: https://trc20-usdt-token-cloner-api.onrender.com
+        run: node scripts/verify-sponsor-gates.mjs
