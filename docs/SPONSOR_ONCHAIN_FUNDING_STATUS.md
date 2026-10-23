@@ -60,3 +60,20 @@ The funding endpoint accepts `refresh=1` to bypass a fresh successful snapshot o
 Activation is serialized at the sponsor-wallet/network/asset level with a PostgreSQL transaction and advisory lock, stores the approval/review references and timestamp, and writes an audit event. Inactive drafts do not consume an allocation until approved, but outstanding reservations on other inactive records are still included. A successful activation makes the ledger budget eligible for internal reservations only; there is still no signing or submission capability.
 
 Mainnet activation additionally requires `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=true`, which defaults to `false`. Both the allowlisted agreement reference and this separate Mainnet gate are required in addition to administrator authentication and fresh balance reconciliation. These configuration settings never turn on the GasFree submission endpoint or a transfer broadcast path.
+
+
+## Read-only sponsor reconciliation
+
+`GET /api/tron/sponsorship/reconciliation?network=mainnet|shasta|nile` requires the server-only sponsor administrator bearer token. It obtains a fresh solidified-chain snapshot and compares TRX or exact-contract token balances with every sponsor budget recorded for that network. The ledger list is bounded to 99 records for this operation; when 100 records are present the endpoint stops and returns `sponsor-budget-ledger-truncated` rather than claiming the allocations are covered.
+
+The comparison groups allocations by exact token contract and network, counts active and paused remaining caps as commitments, and includes already-held reservations from other statuses. It reports `covered`, `underfunded`, `balance-unavailable`, `wallet-scope-mismatch`, or `approval-required` as applicable. It does not use a stale/cached snapshot when a forced refresh is throttled. An active record without an activation timestamp and currently configured exact-scope sponsor approval is not considered covered.
+
+This is a point-in-time report only. It does not pause budgets automatically, modify reservations, sign transactions, or turn an underfunded budget into an approved transfer. A chain balance may change immediately after the report; any future provider-submission flow needs its own just-in-time spend authorization and reconciliation.
+
+## Reservation authorization safety
+
+New reservations require an active sponsor budget with an activation timestamp, a review reference, and a still-configured agreement scope matching the exact sponsor reference, wallet, network, purpose, asset, and token contract. Legacy/manual active rows that lack this evidence cannot create new reservations. Moving a reservation to `authorized` or `submitted` also rechecks that the budget is active and its scope approval is still valid; pausing a budget therefore blocks later authorization/submission transitions for reserved-but-not-submitted transfers. Existing already-submitted transfers can still be confirmed or reconciled because a pause cannot reverse an on-chain transaction.
+
+## Still required before any real sponsor-funded broadcast
+
+The ledger and reconciliation controls are implemented as accounting and readiness safeguards only. A live transaction provider/signing adapter is not enabled; no sponsor private key is stored; no wallet signature is validated by this ledger path; and no transfer is broadcast. Before that work can safely begin, the project still needs an independently reviewed wallet/provider authorization model, recipient and daily spend limits, nonce/replay handling in the actual signing path, failure/fee reconciliation after broadcast, monitoring and alerting, and a complete test-network end-to-end run. Mainnet transaction sending must remain separately gated and should not be enabled until that entire path is reviewed and verified.
