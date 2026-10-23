@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { isCanonicalMainnetUsdtContract } from '../server/routes/tatum.mjs'
 
 const routes = await readFile(new URL('../server/routes/tatum.mjs', import.meta.url), 'utf8')
 
@@ -71,4 +72,26 @@ test('successful transfer verification rechecks the same receiver and token cont
   assert.match(app, /if \(payload\.verified && record\.contractAddress && record\.receiverAddress\)/)
   assert.match(app, /network: record\.network,[\s\S]*contract: record\.contractAddress,[\s\S]*address: record\.receiverAddress/)
   assert.match(app, /[Rr]eceiver balance could not be rechecked/)
+})
+
+
+
+test('official Mainnet USDT is independently verifiable without trusting arbitrary contracts', () => {
+  assert.match(routes, /OFFICIAL_MAINNET_USDT_HEX = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'/)
+  assert.match(routes, /const isOfficialMainnetUsdt = network === 'mainnet'/)
+  assert.match(routes, /normalizedContract === OFFICIAL_MAINNET_USDT_HEX/)
+  assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.length\)/)
+  assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.includes\(normalizedContract\)\)/)
+  assert.match(routes, /No other contract is implicitly trusted/)
+})
+
+
+test('built-in USDT verifier allowlist is exact and Mainnet-only', () => {
+  const contractPayload = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'
+  assert.equal(isCanonicalMainnetUsdtContract('mainnet', contractPayload), true)
+  assert.equal(isCanonicalMainnetUsdtContract('mainnet', '41' + contractPayload), true)
+  assert.equal(isCanonicalMainnetUsdtContract('shasta', contractPayload), false)
+  assert.equal(isCanonicalMainnetUsdtContract('nile', contractPayload), false)
+  assert.equal(isCanonicalMainnetUsdtContract('mainnet', 'b'.repeat(40)), false)
+  assert.equal(isCanonicalMainnetUsdtContract('mainnet', 'not-an-address'), false)
 })

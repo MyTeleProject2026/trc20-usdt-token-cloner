@@ -1,14 +1,26 @@
 import { Router } from 'express'
 import { createGasFreeClient } from '../gasfree-client.mjs'
+import { createGasFreeChainVerifier } from '../gasfree-chain-verifier.mjs'
+import { recordTransferVerification } from '../database.mjs'
 
 const ALLOWED_NETWORKS = ['mainnet', 'nile']
 const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
-export function createGasFreeRouter(client = createGasFreeClient()) {
+export function createGasFreeRouter(client = createGasFreeClient(), {
+  verifyOnChain = createGasFreeChainVerifier(),
+  persistVerifiedTrace = async (input) => {
+    try {
+      return await recordTransferVerification(input)
+    } catch {
+      return { persisted: false, reason: 'persistence-failed' }
+    }
+  },
+} = {}) {
   const router = Router()
   const capabilityCache = new Map()
   const detailCache = new Map()
+  const forcedTraceRefreshAt = new Map()
   const cacheTtlMs = 30_000
   const detailCacheTtlMs = 5_000
   const maxCacheEntries = 500
@@ -30,6 +42,35 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
     }
     cache.set(key, { ...value, expiresAt: Date.now() + ttl })
   }
+
+  // Report whether server-side credentials exist without exposing their values.
+  // This is configuration diagnostics only: it does not prove provider reachability,
+  // sponsor funding, transaction authorization, or permission to submit transfers.
+  router.get('/config-status', (_req, res) => {
+    const networks = Object.fromEntries(ALLOWED_NETWORKS.map((network) => {
+      const configured = typeof client.isConfigured === 'function'
+        && client.isConfigured(network) === true
+      const requiredEnvironment = network === 'mainnet'
+        ? ['GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET']
+        : ['GASFREE_NILE_API_KEY', 'GASFREE_NILE_API_SECRET']
+      return [network, {
+        configured,
+        status: configured ? 'credentials-configured' : 'credentials-missing',
+        ...(!configured ? { requiredEnvironment } : {}),
+      }]
+    }))
+    const allConfigured = Object.values(networks).every((network) => network.configured)
+    return res.json({
+      success: true,
+      status: allConfigured ? 'credentials-configured' : 'credentials-missing',
+      networks,
+      providerReachabilityVerified: false,
+      providerFundingVerified: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'Credential presence only. Use /capabilities to test provider API access; neither endpoint verifies sponsor funding or enables transfers.',
+    })
+  })
 
   // Provider discovery is read-only. This route never signs, submits, or
   // broadcasts any transfer and never returns server-side API credentials.
@@ -151,6 +192,38 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
     }
   })
 
+  // Explicit, fail-closed submission contract. This route deliberately does not
+  // validate or forward a user signature, call the provider, reserve budgets, or
+  // broadcast a transaction. GasFree's published token-denominated fees do not
+  // satisfy the project's external-sponsor-only policy without a separately
+  // verified sponsor agreement and fee funding model.
+  router.post('/submit', (_req, res) => {
+    return res.status(503).json({
+      success: false,
+      status: 'sponsored-submission-disabled',
+      enabled: false,
+      providerSubmissionAttempted: false,
+      transactionBroadcast: false,
+      providerFundingVerified: false,
+      externalSponsorConfirmed: false,
+      feePolicyConfirmed: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      unpaidFallbackToUserFunds: false,
+      requiredBeforeEnablement: [
+        'verified-external-sponsor-agreement-and-funded-account',
+        'fee-policy-compatible-with-external-sponsor-only',
+        'wallet-side-authorization-and-reviewed-signature-validation',
+        'provider-token-network-and-amount-allowlists',
+        'nonce-deadline-replay-and-idempotency-protection',
+        'atomic-separate-fee-and-principal-budget-reservation',
+        'Nile-end-to-end-tests-and-solidified-chain-reconciliation',
+        'security-review-and-explicit-Mainnet-operator-approval',
+      ],
+      message: 'Sponsored submission is disabled. This endpoint does not call GasFree, reserve funds, sign, or broadcast a transaction. No user-funded fallback is permitted.',
+    })
+  })
+
   // A trace ID is an opaque, provider-issued identifier. It is constrained to
   // safe path characters before the fixed-host provider client uses it.
   router.get('/trace', async (req, res) => {
@@ -164,8 +237,35 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
     }
 
     const key = `trace:${network}:${traceId}`
+    const forceRefresh = req.query?.refresh === '1'
     const cached = getCached(detailCache, key)
-    if (cached) return res.status(cached.httpStatus).json(cached.body)
+    const lastForcedRefreshAt = forcedTraceRefreshAt.get(key) || 0
+    const refreshIsThrottled = forceRefresh
+      && lastForcedRefreshAt > 0
+      && Date.now() - lastForcedRefreshAt < detailCacheTtlMs
+
+    // The UI's explicit retry may bypass the cached trace once per TTL window.
+    // This both allows a real finality re-check and prevents one trace ID from
+    // causing unbounded provider calls. Ordinary reads remain cache-first.
+    if (cached && (!forceRefresh || refreshIsThrottled)) {
+      return res.status(cached.httpStatus).json(cached.body)
+    }
+    if (forceRefresh) {
+      if (refreshIsThrottled) {
+        return res.status(429).json({
+          success: false,
+          status: 'trace-refresh-rate-limited',
+          network,
+          retryAfterMs: Math.max(0, detailCacheTtlMs - (Date.now() - lastForcedRefreshAt)),
+          message: 'This trace was freshly rechecked recently. Retry after the refresh interval; do not resubmit the transfer.',
+        })
+      }
+      if (forcedTraceRefreshAt.size >= maxCacheEntries && !forcedTraceRefreshAt.has(key)) {
+        const oldestKey = forcedTraceRefreshAt.keys().next().value
+        if (oldestKey !== undefined) forcedTraceRefreshAt.delete(oldestKey)
+      }
+      forcedTraceRefreshAt.set(key, Date.now())
+    }
 
     try {
       const result = await client.getTrace(network, traceId)
@@ -190,8 +290,60 @@ export function createGasFreeRouter(client = createGasFreeClient()) {
         setCached(detailCache, key, { body, httpStatus: 502 }, 3_000)
         return res.status(502).json(body)
       }
+      // The provider trace is only a transaction locator. Verify any reported
+      // transaction hash against the selected network's solidified transaction
+      // body and receipt before marking it verified or persisting it.
+      const sourceTrace = result.trace && typeof result.trace === 'object' ? result.trace : null
+      let chainVerification = {
+        verified: false,
+        status: 'not-attempted',
+        reason: 'provider-trace-missing',
+      }
+      if (sourceTrace) {
+        try {
+          chainVerification = await verifyOnChain({ network, trace: sourceTrace })
+        } catch {
+          chainVerification = {
+            verified: false,
+            status: 'verification-unavailable',
+            reason: 'solidified-chain-verification-failed',
+          }
+        }
+      }
+
+      let verificationPersistence = { persisted: false, reason: 'transfer-not-verified' }
+      if (chainVerification?.verified === true) {
+        try {
+          const saved = await persistVerifiedTrace({
+            network,
+            transactionHash: chainVerification.txId || sourceTrace?.transactionId,
+            tokenContract: chainVerification.tokenContractAddress,
+            fromAddress: chainVerification.fromAddress,
+            toAddress: chainVerification.toAddress,
+            amountBaseUnits: chainVerification.amountSun,
+            status: 'verified-on-chain',
+            logIndex: chainVerification.logIndex,
+            result: chainVerification,
+          })
+          verificationPersistence = saved?.persisted === true
+            ? { persisted: true }
+            : { persisted: false, reason: saved?.reason || 'persistence-unavailable' }
+        } catch {
+          verificationPersistence = { persisted: false, reason: 'persistence-failed' }
+        }
+      }
+
+      const verifiedTrace = sourceTrace
+        ? {
+            ...sourceTrace,
+            verifiedOnChain: chainVerification?.verified === true,
+            chainVerification,
+            verificationPersistence,
+          }
+        : null
       const body = {
         ...result,
+        ...(verifiedTrace ? { trace: verifiedTrace } : { chainVerification }),
         success: true,
         status: 'provider-trace-read',
         checkedAt: new Date().toISOString(),

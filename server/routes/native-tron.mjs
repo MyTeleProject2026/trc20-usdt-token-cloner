@@ -1,6 +1,8 @@
-import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet } from '../database.mjs'
+import { recordNativeTransferVerification, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../database.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
+import { createSponsorFundingReader } from '../sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 
 import { Router } from 'express'
 
@@ -27,6 +29,465 @@ router.get('/sponsorship/status', (_req, res) => {
   })
 })
 
+// Read-only, network-scoped snapshot of the sponsor account's actual chain balances.
+// This never grants transfer authority and never converts balance visibility into budget approval.
+const readSponsorFundingStatus = createSponsorFundingReader()
+router.get('/sponsorship/funding-status', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+
+  const network = req.query?.network
+  const refreshValue = req.query?.refresh
+  if (refreshValue !== undefined && refreshValue !== '1' && refreshValue !== '0') {
+    return res.status(400).json({ success: false, error: 'invalid-refresh', message: 'refresh must be 1 or 0.' })
+  }
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-network',
+      message: 'network must be mainnet, shasta, or nile.',
+    })
+  }
+  try {
+    const funding = await readSponsorFundingStatus(network, { refresh: refreshValue === '1' })
+    const verifiedRead = funding?.onChainBalanceRead === true
+    return res.status(verifiedRead ? 200 : 503).json({
+      success: verifiedRead,
+      funding,
+      limitations: [
+        'This endpoint reads chain balances only. It does not verify sponsor consent, a spendable off-chain budget, signer authorization, or permission to submit.',
+        'Configured budget amounts and actual chain balances are different measurements; neither is receiver credit.',
+        'No transfer is signed, submitted, broadcast, or charged to user funds by this endpoint.',
+      ],
+    })
+  } catch {
+    return res.status(502).json({
+      success: false,
+      error: 'sponsor-balance-read-failed',
+      message: 'Could not read the sponsor balance from the selected network.',
+    })
+  }
+})
+
+function hasValidSponsorAdminToken(req) {
+  const configured = process.env.SPONSOR_ADMIN_API_TOKEN
+  const authorization = req.headers?.authorization
+  if (typeof configured !== 'string' || configured.length < 32
+    || typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) return false
+  const supplied = Buffer.from(authorization.slice(7))
+  const expected = Buffer.from(configured)
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
+// Draft-only sponsor budget creation. An approved operator token is required;
+// each record starts pending-review and this route cannot activate or reserve a budget.
+router.post('/sponsorship/budgets', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      message: 'Sponsor budget drafting is disabled until a long server-only admin token is configured.',
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const { network, sponsorReference, purpose, asset, tokenContract = null, budgetBaseUnits } = req.body || {}
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  // Sponsor address is chosen from server-side configuration, never accepted from the client.
+  const addressEnv = network === 'mainnet' ? 'SPONSOR_MAINNET_ADDRESS'
+    : network === 'shasta' ? 'SPONSOR_SHASTA_ADDRESS' : 'SPONSOR_NILE_ADDRESS'
+  const sponsorAddress = process.env[addressEnv]
+  if (typeof sponsorAddress !== 'string' || !addressPattern.test(sponsorAddress.trim())) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-address-not-configured',
+      requiredEnvironment: [addressEnv],
+      message: 'Configure the public sponsor wallet address server-side for this network before creating a budget draft.',
+    })
+  }
+  try {
+    const result = await createSponsorBudgetDraft({
+      network, sponsorReference, purpose, asset, tokenContract,
+      budgetBaseUnits, sponsorAddress: sponsorAddress.trim(),
+    })
+    if (!result.success) {
+      const status = result.reason === 'budget-already-exists' ? 409
+        : result.reason === 'database-not-configured' ? 503
+          : result.reason === 'invalid-tron-address' ? 400
+            : 400
+      return res.status(status).json({
+        success: false,
+        error: result.reason || 'sponsor-budget-draft-failed',
+        message: result.reason === 'budget-already-exists'
+          ? 'A budget for this sponsor, network, purpose, asset and contract already exists; this endpoint does not modify existing budgets.'
+          : 'The sponsor budget draft was rejected. Verify network, asset, exact contract allowlist, address and integer base-unit amount.',
+      })
+    }
+    return res.status(201).json({
+      ...result,
+      status: 'pending-review',
+      canReserve: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'This draft records an operator-requested budget cap only. It is not a chain balance, funding attestation, sponsor consent, activation, reservation, or transfer.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-budget-draft-unavailable', message: 'Could not create the sponsor budget draft.' })
+  }
+})
+
+// Operator-only activation gate. The approved agreement reference must have been
+// reviewed and allowlisted server-side; the on-chain balance snapshot must be fresh,
+// exact-network, and sufficient for the total remaining allocation. This only makes
+// a ledger budget eligible for internal reservations; it never signs or submits.
+router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const budgetId = req.params?.id
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)) {
+    return res.status(400).json({ success: false, error: 'invalid-budget-id' })
+  }
+  const { consentReference, reviewReference } = req.body || {}
+  const referencePattern = /^[A-Za-z0-9._:-]{8,160}$/
+  if (typeof consentReference !== 'string' || !referencePattern.test(consentReference)
+    || typeof reviewReference !== 'string' || !referencePattern.test(reviewReference)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-activation-references',
+      message: 'Provide a server-allowlisted sponsor agreement reference and a bounded operator review/ticket reference.',
+    })
+  }
+  if (!isSponsorAgreementReferenceConfigured(consentReference)) {
+    return res.status(403).json({
+      success: false,
+      error: 'agreement-reference-not-approved',
+      message: 'This agreement reference has not been allowlisted after operator review.',
+    })
+  }
+
+  try {
+    const lookup = await getSponsorBudgetById(budgetId)
+    if (!lookup.success) {
+      const code = lookup.reason === 'budget-not-found' ? 404
+        : lookup.reason === 'database-not-configured' ? 503 : 400
+      return res.status(code).json({ success: false, error: lookup.reason || 'sponsor-budget-lookup-failed' })
+    }
+    const budget = lookup.budget
+    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
+      return res.status(403).json({
+        success: false,
+        error: 'agreement-reference-not-approved-for-budget',
+        message: 'The approved agreement does not cover this exact sponsor, network, purpose, asset, and token contract.',
+      })
+    }
+    if (budget.status === 'active') {
+      const sameApproval = budget.approval_reference === consentReference
+        && budget.review_reference === reviewReference
+        && budget.approved_at != null
+      return sameApproval
+        ? res.json({
+            success: true, duplicate: true, status: 'active', budgetId,
+            canReserve: true, canSubmitSponsoredTransfer: false, submissionEnabled: false,
+            note: 'The same approved budget request was already applied. No transaction was submitted.',
+          })
+        : res.status(409).json({ success: false, error: 'budget-already-active' })
+    }
+    if (budget.status !== 'pending-review') {
+      return res.status(409).json({
+        success: false,
+        error: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review',
+        message: 'Only a pending-review draft can be activated through this route.',
+      })
+    }
+    if (budget.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
+      return res.status(503).json({
+        success: false,
+        error: 'mainnet-budget-activation-disabled',
+        message: 'Mainnet budget activation remains off until an operator separately enables the reviewed Mainnet gate.',
+      })
+    }
+
+    const fundingSnapshot = await readSponsorFundingStatus(budget.network, { refresh: true })
+    if (fundingSnapshot?.cache?.status !== 'fresh') {
+      return res.status(503).json({
+        success: false,
+        error: 'funding-snapshot-refresh-throttled',
+        retryAfterMs: Math.max(0, Number(fundingSnapshot?.retryAfterMs) || 0),
+        message: 'A fresh solidified balance snapshot is required for activation. Wait for the per-network refresh interval and retry; the old snapshot was not used to activate this budget.',
+      })
+    }
+    if (fundingSnapshot?.onChainBalanceRead !== true) {
+      return res.status(503).json({
+        success: false,
+        error: 'fresh-sponsor-balance-unavailable',
+        message: 'The selected sponsor balance could not be verified from the selected network; the budget remains pending-review.',
+      })
+    }
+
+    const activated = await activateSponsorBudget({
+      budgetId,
+      consentReference,
+      reviewReference,
+      fundingSnapshot,
+    })
+    if (!activated.success) {
+      const statusCode = ['agreement-reference-not-approved'].includes(activated.reason) ? 403
+        : activated.reason === 'budget-not-found' ? 404
+          : ['budget-already-active', 'budget-paused', 'budget-not-pending-review', 'budget-already-depleted'].includes(activated.reason) ? 409
+            : activated.reason === 'insufficient-onchain-funding' ? 422
+              : ['mainnet-budget-activation-disabled', 'funding-snapshot-stale', 'fresh-solidified-funding-snapshot-required', 'exact-asset-balance-not-verified', 'official-mainnet-usdt-decimals-mismatch', 'database-not-configured'].includes(activated.reason) ? 503
+                : ['funding-snapshot-identity-mismatch', 'budget-identity-changed'].includes(activated.reason) ? 502 : 400
+      return res.status(statusCode).json({
+        success: false,
+        error: activated.reason || 'sponsor-budget-activation-failed',
+        ...(activated.requiredBaseUnits ? { requiredBaseUnits: activated.requiredBaseUnits } : {}),
+        ...(activated.chainBalanceBaseUnits ? { chainBalanceBaseUnits: activated.chainBalanceBaseUnits } : {}),
+        message: activated.reason === 'insufficient-onchain-funding'
+          ? 'The fresh chain balance cannot cover this budget plus existing active/paused allocations for the same wallet, network, and asset.'
+          : 'Budget activation was rejected; it remains unavailable for new reservations.',
+      })
+    }
+
+    return res.status(200).json({
+      success: true,
+      status: 'active',
+      ...activated,
+      chainBalanceReconciled: true,
+      canReserve: true,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      transactionSigned: false,
+      transactionSubmitted: false,
+      note: 'This approves the internal reservation cap only. It does not authorize a particular transfer, sign or broadcast a transaction, or prove exchange deposit credit.',
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-budget-activation-unavailable',
+      message: 'Could not complete sponsor budget activation. The budget was not reported active.',
+    })
+  }
+})
+
+// Read-only reconciliation compares the current chain snapshot with every
+// sponsor budget on the selected network. It never changes budget rows.
+router.get('/sponsorship/reconciliation', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const network = req.query?.network
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+
+  try {
+    const fundingSnapshot = await readSponsorFundingStatus(network, { refresh: true })
+    if (fundingSnapshot?.cache?.status !== 'fresh') {
+      return res.status(503).json({
+        success: false,
+        error: 'funding-snapshot-refresh-throttled',
+        retryAfterMs: Math.max(0, Number(fundingSnapshot?.retryAfterMs) || 0),
+        message: 'A fresh solidified balance snapshot is required. Wait for the per-network refresh interval and retry; no stale snapshot was used for reconciliation.',
+      })
+    }
+    if (fundingSnapshot?.onChainBalanceRead !== true) {
+      return res.status(503).json({
+        success: false,
+        error: 'fresh-sponsor-balance-unavailable',
+        message: 'The sponsor balance could not be verified on this network. The ledger was not reported as covered.',
+      })
+    }
+
+    const ledger = await listSponsorBudgets({ network, limit: 100 })
+    if (!ledger.success) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-budget-ledger-unavailable',
+        reason: ledger.reason,
+      })
+    }
+    // A full page may be truncated; do not say "covered" unless every budget
+    // on this network can be included in the reconciliation.
+    if (ledger.budgets.length >= 100) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-budget-ledger-truncated',
+        message: 'There are at least 100 sponsor budget records for this network. Narrow the ledger query or add pagination before reconciliation; coverage has not been asserted.',
+      })
+    }
+
+    const budgets = ledger.budgets.map((budget) => ({
+      ...budget,
+      approvalScopeVerified: budget.status === 'active'
+        && typeof budget.review_reference === 'string'
+        && budget.review_reference.length > 0
+        && budget.approved_at != null
+        && isApprovedSponsorAgreementScope({
+          consentReference: budget.approval_reference,
+          budget,
+        }),
+    }))
+    const reconciliation = reconcileSponsorBudgets({
+      network,
+      fundingSnapshot,
+      budgets,
+    })
+    return res.status(200).json({
+      success: reconciliation.success,
+      status: reconciliation.status,
+      covered: reconciliation.covered === true,
+      reconciliation,
+      source: 'read-only Tatum solidified chain snapshot + TRON Token Studio sponsor ledger',
+      limitations: [
+        'The result is a point-in-time reconciliation; funds may move after the snapshot.',
+        'Active budgets lacking an exact current agreement approval are flagged, not treated as eligible.',
+        'A covered ledger does not verify signing authority or authorize a transaction.',
+        'No budget or transfer row was changed, and no transaction was signed or submitted.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-reconciliation-unavailable',
+      message: 'Could not complete sponsor funding reconciliation. No budget was changed.',
+    })
+  }
+})
+
+// Emergency pause for a configured sponsor budget. Requires the protected admin token.
+// This prevents new reservations against the budget; it cannot reverse submitted transactions.
+router.post('/sponsorship/budgets/:id/pause', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const budgetId = req.params?.id
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)) {
+    return res.status(400).json({ success: false, error: 'invalid-budget-id' })
+  }
+  const reasonCode = req.body?.reasonCode
+  if (!['operator-request', 'funding-mismatch', 'provider-incident', 'emergency-stop'].includes(reasonCode)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-pause-reason',
+      allowedReasonCodes: ['operator-request', 'funding-mismatch', 'provider-incident', 'emergency-stop'],
+    })
+  }
+  try {
+    const result = await pauseSponsorBudget({ budgetId, reasonCode })
+    if (!result.success) {
+      const httpStatus = result.reason === 'budget-not-found' ? 404
+        : result.reason === 'budget-already-depleted' ? 409
+          : result.reason === 'database-not-configured' ? 503 : 400
+      return res.status(httpStatus).json({
+        success: false,
+        error: result.reason,
+        message: result.reason === 'budget-not-found'
+          ? 'No sponsor budget exists for this ID.'
+          : result.reason === 'budget-already-depleted'
+            ? 'This budget is already depleted.'
+            : 'The sponsor budget could not be paused.',
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'paused',
+      ...result,
+      canReserve: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'The budget is paused for new reservations. Any already-submitted on-chain transaction is not cancelled or reversed by this action.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-budget-pause-unavailable', message: 'Could not pause the sponsor budget.' })
+  }
+})
+
+// Privileged, read-only view of configured sponsor budget caps and ledger usage.
+// Budget values are not chain balances and this endpoint cannot activate budgets or send transfers.
+router.get('/sponsorship/budgets', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  res.setHeader?.('Pragma', 'no-cache')
+
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      message: 'The sponsor ledger view is disabled until a long server-only admin token is configured.',
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const network = req.query?.network === undefined ? null : req.query.network
+  const limitValue = req.query?.limit === undefined ? '50' : req.query.limit
+  const limit = Number(limitValue)
+  if (network !== null && (typeof network !== 'string' || !Object.hasOwn(networks, network))) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ success: false, error: 'invalid-limit', message: 'limit must be an integer from 1 to 100.' })
+  }
+  try {
+    const result = await listSponsorBudgets({ network, limit })
+    if (!result.success) {
+      const status = result.reason === 'invalid-network' || result.reason === 'invalid-limit' ? 400 : 503
+      return res.status(status).json({
+        success: false,
+        error: 'sponsor-budget-ledger-unavailable',
+        reason: result.reason,
+        message: 'Could not read the sponsor budget ledger.',
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'sponsor-budget-ledger-read',
+      network,
+      count: result.budgets.length,
+      budgets: result.budgets,
+      source: 'TRON Token Studio sponsor budget ledger',
+      limitations: [
+        'Ledger available base units are operator-configured budget minus reservations and recorded spend, not a live wallet balance.',
+        'A budget record does not verify sponsor consent, chain funding, signing authority, or permission to submit.',
+        'Budget listing is read-only and cannot activate a budget, reserve funds, or submit a transfer.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-budget-ledger-unavailable', message: 'Could not read the sponsor budget ledger.' })
+  }
+})
+
 // Keep SUN conversion exact; native balances can exceed Number's safe integer range.
 const formatSun = (value) => {
   const sun = BigInt(value)
@@ -36,6 +497,65 @@ const formatSun = (value) => {
 }
 
 // Read a receiver's native TRX balance from the selected network's solidified state.
+// Protected, read-only lifecycle history. It exposes no provider keys and cannot
+// mutate a transfer or infer confirmation from a transaction hash alone.
+router.get('/sponsorship/transfers', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const network = req.query?.network === undefined ? null : req.query.network
+  const status = req.query?.status === undefined ? null : req.query.status
+  const sponsorReference = req.query?.sponsorReference === undefined ? null : req.query.sponsorReference
+  const limit = req.query?.limit === undefined ? 50 : Number(req.query.limit)
+  if (network !== null && (typeof network !== 'string' || !Object.hasOwn(networks, network))) {
+    return res.status(400).json({ success: false, error: 'invalid-network' })
+  }
+  if (status !== null && (typeof status !== 'string'
+    || !['pending-review', 'authorized', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status))) {
+    return res.status(400).json({ success: false, error: 'invalid-status' })
+  }
+  if (sponsorReference !== null && (typeof sponsorReference !== 'string'
+    || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference))) {
+    return res.status(400).json({ success: false, error: 'invalid-sponsor-reference' })
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return res.status(400).json({ success: false, error: 'invalid-limit' })
+  }
+  try {
+    const result = await listSponsorTransfers({ network, status, sponsorReference, limit })
+    if (!result.success) {
+      const code = ['invalid-network', 'invalid-status', 'invalid-sponsor-reference', 'invalid-limit'].includes(result.reason) ? 400 : 503
+      return res.status(code).json({
+        success: false,
+        error: 'sponsor-transfer-history-unavailable',
+        reason: result.reason,
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'sponsor-transfer-history-read',
+      count: result.transfers.length,
+      truncated: result.truncated,
+      transfers: result.transfers,
+      source: 'TRON Token Studio sponsor transfer ledger',
+      limitations: [
+        'These are internal lifecycle records, not independent proof of chain execution or receiver credit.',
+        'A submitted transaction remains pending until exact-network, exact-asset, sender, receiver and amount evidence is independently verified.',
+        'This endpoint is read-only; it cannot authorize, submit, cancel, confirm, or release reservations.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'sponsor-transfer-history-unavailable' })
+  }
+})
+
 router.get('/native-balance', async (req, res) => {
   const { network, address } = req.query
   if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {

@@ -6,6 +6,9 @@ import { canTransitionTransferStatus, buildSolidifiedTransferEvidence } from '..
 const router = Router()
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const txPattern = /^[0-9a-fA-F]{64}$/
+// Canonical Mainnet Tether USDT contract; this exception is Mainnet-only.
+// Hex is the 20-byte address payload without TRON's 41 network prefix.
+const OFFICIAL_MAINNET_USDT_HEX = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'
 
 // Normalize TRON hex addresses for allowlist comparisons. The lifecycle module
 // has its own private normalizer for evidence checks; this route also needs one
@@ -15,6 +18,10 @@ function normalizeHexAddress(value) {
   const hex = value.replace(/^0x/i, '');
   if (!/^(?:41)?[0-9a-f]{40}$/i.test(hex)) return null;
   return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase();
+}
+
+export function isCanonicalMainnetUsdtContract(network, contract) {
+  return network === 'mainnet' && normalizeHexAddress(contract) === OFFICIAL_MAINNET_USDT_HEX;
 }
 
 async function persistVerification(input) {
@@ -199,10 +206,15 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
     .map((value) => value.trim())
     .filter((value) => hexAddress.test(value))
     .map(normalizeHexAddress)
-  if (!approvedContracts.length) {
-    return res.status(503).json({ success: false, error: 'verified-token-allowlist-not-configured', message: 'Configure TRON_VERIFIED_TOKEN_CONTRACTS with reviewed contract addresses before verifying token transfers.' })
+  const normalizedContract = normalizeHexAddress(contract)
+  // Verification of the fixed official USDT contract is safely enabled on
+  // Mainnet without an environment override. No other contract is implicitly
+  // trusted, and this exception must never apply to Shasta or Nile.
+  const isOfficialMainnetUsdt = isCanonicalMainnetUsdtContract(network, contract)
+  if (!isOfficialMainnetUsdt && !approvedContracts.length) {
+    return res.status(503).json({ success: false, error: 'verified-token-allowlist-not-configured', message: 'Configure TRON_VERIFIED_TOKEN_CONTRACTS with reviewed contract addresses before verifying transfers for non-default token contracts.' })
   }
-  if (!approvedContracts.includes(normalizeHexAddress(contract))) {
+  if (!isOfficialMainnetUsdt && !approvedContracts.includes(normalizedContract)) {
     return res.status(403).json({ success: false, error: 'token-contract-not-allowlisted', message: 'This token contract is not on the server-approved verification list.' })
   }
   const base = networkHosts[network]

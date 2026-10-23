@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 export default function App() {
   const [network, setNetwork] = useState<'shasta' | 'mainnet'>('shasta')
@@ -120,6 +121,34 @@ export default function App() {
     setVerifiedTransferLookup(null)
     setTransactionHistory([])
     fetchStatus()
+
+    // Invalidate data captured under a prior injected-wallet account or chain.
+    // A provider event is a signal to reconnect, never authority to keep sending
+    // against stale sender/network state.
+    const provider = (window as any).tron
+    if (!provider || typeof provider.on !== 'function') return
+    const invalidateWalletSession = (reason: string) => {
+      setWalletConnected(false)
+      setWalletAddress('')
+      setAccountData(null)
+      setNativeBalanceResult(null)
+      setTokenBalanceResult(null)
+      setNativeTransferRecord(null)
+      setTokenTransferRecord(null)
+      setNativeVerifyResult(null)
+      setTokenVerifyResult(null)
+      setVerifiedTransferLookup(null)
+      setTransactionHistory([])
+      setActionMessage({ type: 'error', text: `TronLink ${reason}. Reconnect the wallet and verify the selected network before sending or checking balances.` })
+    }
+    const onAccountsChanged = () => invalidateWalletSession('account changed')
+    const onChainChanged = () => invalidateWalletSession('network changed')
+    provider.on('accountsChanged', onAccountsChanged)
+    provider.on('chainChanged', onChainChanged)
+    return () => {
+      provider.removeListener?.('accountsChanged', onAccountsChanged)
+      provider.removeListener?.('chainChanged', onChainChanged)
+    }
   }, [network])
 
   const copyToClipboard = (text: string, id: string) => {
@@ -131,21 +160,48 @@ export default function App() {
   // Connect to TronLink. The wallet retains the private key and asks for approval
   // for every state-changing transaction.
   const assertSelectedTronLinkNetwork = (tronWeb: any) => {
-    const host = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
-    if (network === 'shasta' && !host.includes('shasta')) {
-      throw new Error('Safety check: TronLink must be connected to the Shasta testnet node for a Shasta transaction.')
+    const rawHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '')
+    let hostname = ''
+    let protocol = ''
+    try {
+      const parsed = new URL(rawHost)
+      hostname = parsed.hostname.toLowerCase()
+      protocol = parsed.protocol.toLowerCase()
+      if (parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
+        || (parsed.pathname !== '' && parsed.pathname !== '/')) hostname = ''
+    } catch {
+      hostname = ''
     }
-    if (network === 'mainnet' && (!host.includes('api.trongrid.io') || host.includes('shasta') || host.includes('nile'))) {
-      throw new Error('Safety check: Mainnet sending requires TronLink connected to the recognized TRON Mainnet node. Unknown/custom network endpoints are blocked in this workflow.')
+    const expectedHost = network === 'shasta' ? 'api.shasta.trongrid.io' : 'api.trongrid.io'
+    if (protocol !== 'https:' || hostname !== expectedHost) {
+      throw new Error(network === 'shasta'
+        ? 'Safety check: TronLink must use the recognized HTTPS Shasta node for this testnet transaction.'
+        : 'Safety check: Mainnet sending requires the exact recognized HTTPS TRON Mainnet node. Unknown/custom endpoints are blocked.')
     }
+  }
+
+  // Re-read the live injected provider immediately before signing or broadcasting.
+  // A wallet account/network event can arrive while asynchronous balance and
+  // contract reads are in flight; stale session state must never authorize a send.
+  const getCurrentAuthorizedTronWeb = (expectedAddress: string) => {
+    const provider = (window as any).tron
+    const currentTronWeb = provider?.isTronLink === true ? provider.tronWeb : null
+    if (!currentTronWeb || !currentTronWeb.defaultAddress?.base58) {
+      throw new Error('TronLink authorization is no longer available. Reconnect the wallet before sending.')
+    }
+    assertSelectedTronLinkNetwork(currentTronWeb)
+    if (currentTronWeb.defaultAddress.base58 !== expectedAddress) {
+      throw new Error('The active TronLink account changed during transfer preparation. Transfer cancelled; reconnect and review again.')
+    }
+    return currentTronWeb
   }
 
   const getInjectedTronWeb = async () => {
     const provider = (window as any).tron
     if (!provider) throw new Error('TronLink was not detected. Open this site in a browser with TronLink installed.')
-    if (typeof provider.request === 'function') {
-      await provider.request({ method: 'eth_requestAccounts' })
-    }
+    if (provider.isTronLink !== true) throw new Error('The injected wallet provider could not be confirmed as TronLink. No transfer will be signed by an unverified provider.')
+    if (typeof provider.request !== 'function') throw new Error('This TronLink provider does not support the standard wallet connection request.')
+    await provider.request({ method: 'eth_requestAccounts' })
     const tronWeb = provider.tronWeb
     if (!tronWeb || !tronWeb.defaultAddress?.base58) throw new Error('TronLink did not provide an authorized account. Unlock the wallet and approve connection.')
     return tronWeb
@@ -333,21 +389,24 @@ export default function App() {
       setActionMessage({ type: 'error', text: 'The selected asset is native TRX. Use the native TRX workflow instead of the TRC-20 contract transfer form.' })
       return
     }
-    if (selectedAsset === 'USDT') {
-      setActionMessage({ type: 'error', text: 'USDT transfers are blocked from this workflow until a network-specific official-contract allowlist and verification gate are implemented. Do not bypass this chooser using the contract field.' })
+    if (selectedAsset === 'USDT' && network !== 'mainnet') {
+      setActionMessage({ type: 'error', text: 'Official USDT transfer is restricted to TRON Mainnet. Mainnet USDT cannot be sent on Shasta or Nile, and testnet tokens are not official USDT.' })
       return
     }
-    if (network !== 'shasta') {
-      setActionMessage({ type: 'error', text: 'VTRC is an independent project token and this workflow currently permits VTRC transfers on Shasta testnet only. Switch to Shasta and verify the deployed VTRC contract.' })
+    if (selectedAsset === 'VTRC' && network !== 'shasta') {
+      setActionMessage({ type: 'error', text: 'VTRC is an independent project token and this workflow permits VTRC transfers on Shasta testnet only. Switch to Shasta and verify the deployed VTRC contract.' })
       return
     }
-    if (!contractAddress || !recipientAddress || !transferAmount) {
+    if (!contractAddress.trim() || !recipientAddress.trim() || !transferAmount.trim()) {
       setActionMessage({ type: 'error', text: 'Enter the token contract, recipient, and amount.' })
       return
     }
-    const officialMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-    if (contractAddress.trim() === officialMainnetUsdt) {
-      setActionMessage({ type: 'error', text: 'The selected asset is VTRC, but the entered contract is the known TRON Mainnet USDT address. Asset selection and contract do not match; transfer blocked.' })
+    if (selectedAsset === 'USDT' && contractAddress.trim() !== OFFICIAL_MAINNET_USDT_CONTRACT) {
+      setActionMessage({ type: 'error', text: 'Mainnet USDT transfers are restricted to the official TRON contract TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t. The selected contract does not match; transfer blocked.' })
+      return
+    }
+    if (selectedAsset === 'VTRC' && contractAddress.trim() === OFFICIAL_MAINNET_USDT_CONTRACT) {
+      setActionMessage({ type: 'error', text: 'VTRC is a separate project token, not official USDT. The entered contract is official TRON Mainnet USDT; asset selection and contract do not match, so the transfer is blocked.' })
       return
     }
     setTransferring(true)
@@ -358,7 +417,7 @@ export default function App() {
       if (!tronWeb.isAddress(contractAddress) || !tronWeb.isAddress(recipientAddress)) {
         throw new Error('Enter valid TRON Base58 addresses for the token contract and recipient.')
       }
-      if (network !== 'shasta') throw new Error('VTRC transfers are restricted to Shasta testnet in this workflow.')
+      if (selectedAsset === 'VTRC' && network !== 'shasta') throw new Error('VTRC transfers are restricted to Shasta testnet in this workflow.')
       const sender = tronWeb.defaultAddress.base58
       if (!sender) throw new Error('TronLink has no authorized sender address.')
       setWalletAddress(sender)
@@ -366,6 +425,9 @@ export default function App() {
       const decimals = Number(await contract.decimals().call())
       if (!Number.isInteger(decimals) || decimals < 0 || decimals > 30) {
         throw new Error('The token contract returned an unsupported decimals value.')
+      }
+      if (selectedAsset === 'USDT' && decimals !== 6) {
+        throw new Error('The official Mainnet USDT contract must report exactly 6 decimals; this contract response does not match.')
       }
       const normalizedAmount = transferAmount.trim()
       if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(normalizedAmount)) {
@@ -379,20 +441,41 @@ export default function App() {
       const senderBalance = BigInt(String(await contract.balanceOf(sender).call()))
       if (senderBalance < BigInt(rawAmount)) throw new Error('Sender token balance is insufficient for this transfer.')
       const tokenSymbolValue = String(await contract.symbol().call().catch(() => 'TRC-20'))
-      const confirmation = 'Confirm TRC-20 transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (test assets only)' : 'TRON MAINNET (real funds)') + '\nToken: ' + tokenSymbolValue + '\nContract: ' + contractAddress.trim() + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + normalizedAmount + ' (token decimals: ' + decimals + ')\n\nOnly proceed if the receiver supports this exact token and network. Exchange deposit credit is not guaranteed. Continue to TronLink approval?'
+      if (selectedAsset === 'USDT' && tokenSymbolValue.toUpperCase() !== 'USDT') {
+        throw new Error('The selected contract did not report the expected USDT symbol; transfer blocked.')
+      }
+      const confirmation = 'Confirm TRC-20 transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (test assets only)' : 'TRON MAINNET (real funds)') + '\nToken: ' + tokenSymbolValue + '\nContract: ' + contractAddress.trim() + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + normalizedAmount + ' (token decimals: ' + decimals + ')\nContract-call feeLimit: up to 100 TRX (100,000,000 SUN; the actual resource cost may differ).\n\nReview the transaction and fee in TronLink and cancel if anything differs. Only proceed if the receiver supports this exact token and network. Exchange deposit credit is not guaranteed. Continue to TronLink approval?'
       if (!window.confirm(confirmation)) {
         setActionMessage({ type: 'error', text: 'Token transfer cancelled before signing.' })
         return
       }
-      const txId = await contract.transfer(recipientAddress.trim(), rawAmount).send({
+      // Re-read the wallet and contract after the confirmation dialog. Do not
+      // submit using an instance captured before an account/network change.
+      const currentTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const currentContract = await currentTronWeb.contract().at(contractAddress.trim())
+      const currentDecimals = Number(await currentContract.decimals().call())
+      if (currentDecimals !== decimals) throw new Error('Token metadata changed during transfer preparation; transfer cancelled.')
+      const currentSymbol = String(await currentContract.symbol().call().catch(() => 'TRC-20'))
+      if (selectedAsset === 'USDT' && currentSymbol.toUpperCase() !== 'USDT') {
+        throw new Error('The live contract metadata no longer matches official USDT; transfer cancelled.')
+      }
+      const currentBalance = BigInt(String(await currentContract.balanceOf(sender).call()))
+      if (currentBalance < BigInt(rawAmount)) throw new Error('Sender token balance changed and is now insufficient; transfer cancelled.')
+      getCurrentAuthorizedTronWeb(sender)
+      const txId = await currentContract.transfer(recipientAddress.trim(), rawAmount).send({
         feeLimit: 100_000_000,
         callValue: 0,
         shouldPollResponse: true,
       })
-      const transactionId = typeof txId === 'string' ? txId : (txId as any)?.txid || (txId as any)?.transaction?.txID || JSON.stringify(txId)
-      // Pre-fill the on-chain verifier for a real transaction hash. A wallet's
-      // broadcast response is only submission; confirmation is checked separately.
-      if (/^[0-9a-fA-F]{64}$/.test(transactionId)) setVerifyTxId(transactionId)
+      const transactionId = typeof txId === 'string'
+        ? txId
+        : (txId as any)?.txid || (txId as any)?.transaction?.txID || (txId as any)?.txID
+      if (typeof transactionId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(transactionId)) {
+        throw new Error('Wallet response did not include a valid 64-character transaction ID. No confirmation can be claimed; check the wallet/provider activity before trying again.')
+      }
+      // A valid transaction ID proves submission only. Solidified chain verification
+      // and the exact Transfer event are still required before treating it as final.
+      setVerifyTxId(transactionId)
       setTokenTransferRecord({ network, transactionId, contractHex: tronWeb.address.toHex(contractAddress.trim()).replace(/^41/i, ''), fromHex: tronWeb.address.toHex(sender).replace(/^41/i, ''), toHex: tronWeb.address.toHex(recipientAddress.trim()).replace(/^41/i, ''), contractAddress: contractAddress.trim(), receiverAddress: recipientAddress.trim(), amountBaseUnits: rawAmount, tokenSymbol: tokenSymbolValue, amount: normalizedAmount })
       setTokenVerifyResult(null)
       setActionMessage({
@@ -574,34 +657,35 @@ export default function App() {
     setActionMessage(null)
     try {
       const tronWeb = await getInjectedTronWeb()
-      const fullNodeHost = String(tronWeb.fullNode?.host || tronWeb.fullNode?.nodeUrl || '').toLowerCase()
-      const isShastaWallet = fullNodeHost.includes('shasta')
-      if ((network === 'shasta' && !isShastaWallet) || (network === 'mainnet' && (isShastaWallet || fullNodeHost.includes('nile')))) {
-        throw new Error('Selected network does not match the network currently active in TronLink. Switch TronLink network and reconnect before sending.')
-      }
+      assertSelectedTronLinkNetwork(tronWeb)
       if (!tronWeb.isAddress(recipientAddress.trim())) throw new Error('Enter a valid TRON Base58 receiver address.')
       const amount = tronWeb.toBigNumber(trxAmount.trim())
       if (!amount.isFinite() || amount.lte(0) || amount.decimalPlaces() > 6) {
         throw new Error('TRX amount must be positive and may have at most 6 decimal places.')
       }
       const sun = amount.times(1_000_000).toFixed(0)
-      const confirmationMessage = 'Confirm native TRX transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\nSender: ' + (tronWeb.defaultAddress.base58 || 'unknown') + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + amount.toFixed() + ' TRX\n\nCheck the recipient supports TRX on this exact network. Exchange deposits are not guaranteed. Continue to TronLink signing?'
-      if (!window.confirm(confirmationMessage)) {
-        setActionMessage({ type: 'error', text: 'Transfer cancelled before signing.' })
-        return
-      }
       if (!Number.isSafeInteger(Number(sun))) {
         throw new Error('This TRX amount exceeds the safe transaction-builder range. Send a smaller amount.')
       }
       const sender = tronWeb.defaultAddress.base58
-      if (!sender) throw new Error('TronLink has no authorized sender address.')
+      if (!sender || !tronWeb.isAddress(sender)) throw new Error('TronLink has no valid authorized sender address.')
+      const confirmationMessage = 'Confirm native TRX transfer\nNetwork: ' + (network === 'shasta' ? 'Shasta testnet (no real-world value)' : 'TRON MAINNET (real funds)') + '\nSender: ' + sender + '\nReceiver: ' + recipientAddress.trim() + '\nAmount: ' + amount.toFixed() + ' TRX\n\nNetwork fees depend on wallet resources and the network. Review the fee and the full transaction in TronLink before signing. Exchange deposits are not guaranteed. Continue to TronLink signing?'
+      if (!window.confirm(confirmationMessage)) {
+        setActionMessage({ type: 'error', text: 'Transfer cancelled before signing.' })
+        return
+      }
       setWalletAddress(sender)
-      const transaction = await tronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
-      const signed: any = await tronWeb.trx.sign(transaction)
-      const result: any = await tronWeb.trx.sendRawTransaction(signed)
-      const txid = signed?.txID || result?.txid || transaction?.txID
-      if (!result?.result || !txid) {
-        throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not accept the signed transaction. Check balance and network fees.')
+      const currentTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const transaction = await currentTronWeb.transactionBuilder.sendTrx(recipientAddress.trim(), Number(sun), sender)
+      // Revalidate after transaction construction and immediately before wallet approval.
+      const signerTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const signed: any = await signerTronWeb.trx.sign(transaction)
+      // Do not broadcast a signed transaction if the user switched accounts/networks meanwhile.
+      const broadcasterTronWeb = getCurrentAuthorizedTronWeb(sender)
+      const result: any = await broadcasterTronWeb.trx.sendRawTransaction(signed)
+      const txid = signed?.txID || result?.txid || result?.txID || transaction?.txID
+      if (!result?.result || typeof txid !== 'string' || !/^[0-9a-fA-F]{64}$/.test(txid)) {
+        throw new Error(result?.message ? String(result.message) : 'The selected TRON node did not return a valid accepted transaction ID. Check wallet activity and network fees before retrying; do not blindly resend.')
       }
       setNativeTransferRecord({ network, from: sender, to: recipientAddress.trim(), amountSun: sun, amountTRX: amount.toFixed(), transactionId: txid })
       setNativeVerifyResult(null)
@@ -844,7 +928,7 @@ export default function App() {
           </button>
         </div>
 
-        {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else setActionMessage({ type: 'error', text: 'USDT transfer is blocked in this workflow until an independently verified official contract allowlist is implemented for the selected network.' }) }} />}
+        {activeTab === 'choose' && <TokenSelectionPage network={network} asset={selectedAsset} onAssetChange={setSelectedAsset} onContinue={() => { if (selectedAsset === 'TRX') setActiveTab('trx'); else if (selectedAsset === 'VTRC') setActiveTab('interact'); else if (network !== 'mainnet') setActionMessage({ type: 'error', text: 'Official USDT transfers are only available on TRON Mainnet in this workflow. Mainnet USDT is not available on Shasta or Nile; testnet tokens are not Mainnet USDT.' }); else { setContractAddress(OFFICIAL_MAINNET_USDT_CONTRACT); setActionMessage(null); setActiveTab('interact'); } }} />}
         {activeTab === 'sponsors' && <SponsorProviderPage network={network} walletAddress={walletConnected ? walletAddress : ''} />}
 
         {/* Tab 1: Deploy & Clone */}
@@ -1175,29 +1259,15 @@ export default function App() {
             <section className="rounded-xl border border-secondary bg-primary p-xl shadow-xs">
               <h2 className="text-heading-xs font-semibold text-primary mb-sm">Transfer TRC-20 Tokens</h2>
               <p className="text-xs text-tertiary mb-lg">
-                Sign a real TRC-20 transfer in this browser. Your private key is not sent to the backend.
+                Sign a real TRC-20 transfer in this browser. Your private key is not sent to the backend. The current contract-call feeLimit is up to 100 TRX; this is a maximum allowance for the call, not a quote of the final network cost.
               </p>
 
               <div className="space-y-md">
-                <div className="flex flex-col gap-sm">
-                  <div className="flex items-center justify-between gap-sm">
-                    <label className="text-sm font-medium text-secondary">Wallet Private Key (local signing only)</label>
-                    <button type="button" onClick={handleGenerateWallet} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary">Generate wallet</button>
-                  </div>
-                  <input
-                    type={showPrivateKey ? "text" : "password"}
-                    autoComplete="off"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    className="rounded-md bg-primary px-lg py-sm text-sm font-mono text-primary placeholder:text-placeholder border border-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    placeholder="Enter your own wallet private key"
-                  />
-                  <div className="flex flex-wrap items-center gap-sm">
-                    <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{showPrivateKey ? 'Hide key' : 'Show key'}</button>
-                    {privateKey && <button type="button" onClick={() => copyToClipboard(privateKey, 'wallet-private-key')} className="rounded-md border border-primary px-sm py-xs text-xs font-semibold text-secondary">{copied === 'wallet-private-key' ? 'Copied key' : 'Copy key backup'}</button>}
-                  </div>
-                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Current local wallet: {walletAddress}</p>}
-                  <p className="text-xs text-tertiary">Signing runs locally in this browser. The key is not sent to the backend. Back it up securely; it is not saved after you close or reload the app.</p>
+                <div className="flex flex-col gap-sm rounded-lg border border-secondary bg-secondary p-lg">
+                  <label className="text-sm font-medium text-primary">Wallet authorization</label>
+                  <p className="text-xs text-tertiary">This transfer handler uses TronLink for network validation and transaction signing. It does not need a private key pasted into this page.</p>
+                  <button type="button" onClick={handleConnectWallet} className="rounded-md border border-primary bg-primary px-sm py-xs text-xs font-semibold text-brand-primary">Connect / verify TronLink</button>
+                  {walletAddress && <p className="text-xs font-mono text-secondary break-all">Wallet: {walletAddress}</p>}
                 </div>
 
                 <div className="flex flex-col gap-sm">
@@ -1238,7 +1308,7 @@ export default function App() {
                   <p className="text-xs text-tertiary">Network: {tokenTransferRecord.network} · Token: {tokenTransferRecord.tokenSymbol} · Amount: {tokenTransferRecord.amount}</p>
                   <p className="break-all text-xs font-mono text-secondary">Tx: {tokenTransferRecord.transactionId}</p>
                   <button type="button" onClick={handleVerifyTokenTransfer} disabled={tokenVerifyLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{tokenVerifyLoading ? 'Verifying solidified token transfer…' : 'Verify token contract, sender, receiver & amount'}</button>
-                  {tokenVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{tokenVerifyResult.verified ? 'Solidified token transfer verified' : (tokenVerifyResult.status || tokenVerifyResult.reason || 'Not verified')}</p><p className="text-xs text-tertiary">Block: {tokenVerifyResult.blockNumber ?? 'not solidified yet'} · Exact event amount: {tokenVerifyResult.amountSun ?? tokenTransferRecord.amountBaseUnits} base units</p>{tokenVerifyResult.verified && <p className="text-xs text-tertiary">Verification history saved: {tokenVerifyResult.persistence?.persisted ? 'yes' : 'no — ' + (tokenVerifyResult.persistence?.reason || 'storage unavailable')}</p>}<p className="text-xs text-tertiary">This confirms a matching on-chain event for this contract. It does not prove the token is official USDT or that an exchange credited the deposit.</p>{tokenVerifyResult.verified && <button type="button" onClick={handleLookupVerifiedTransfer} disabled={verifiedTransferLookupLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{verifiedTransferLookupLoading ? 'Checking saved verification…' : 'Check saved verified-transfer record'}</button>}{verifiedTransferLookup && <p className="break-all text-xs text-tertiary">{verifiedTransferLookup.success ? 'Saved record found for exact network, contract, parties, amount and event index.' : 'Saved record lookup: ' + (verifiedTransferLookup.error || verifiedTransferLookup.message || 'not found')}</p>}</div>}
+                  {tokenVerifyResult && <div className="space-y-xs"><p className="text-sm font-semibold">{tokenVerifyResult.verified ? 'Solidified token transfer verified' : (tokenVerifyResult.status || tokenVerifyResult.reason || 'Not verified')}</p><p className="text-xs text-tertiary">Block: {tokenVerifyResult.blockNumber ?? 'not solidified yet'} · Exact event amount: {tokenVerifyResult.amountSun ?? tokenTransferRecord.amountBaseUnits} base units</p>{tokenVerifyResult.verified && <p className="text-xs text-tertiary">Verification history saved: {tokenVerifyResult.persistence?.persisted ? 'yes' : 'no — ' + (tokenVerifyResult.persistence?.reason || 'storage unavailable')}</p>}<p className="text-xs text-tertiary">This confirms a matching on-chain event for this exact network, contract, sender, receiver and amount. Contract identity determines the token; this does not confirm exchange deposit credit.</p>{tokenVerifyResult.verified && <button type="button" onClick={handleLookupVerifiedTransfer} disabled={verifiedTransferLookupLoading} className="w-full rounded-lg border border-primary px-lg py-sm text-sm font-semibold text-brand-primary disabled:opacity-50">{verifiedTransferLookupLoading ? 'Checking saved verification…' : 'Check saved verified-transfer record'}</button>}{verifiedTransferLookup && <p className="break-all text-xs text-tertiary">{verifiedTransferLookup.success ? 'Saved record found for exact network, contract, parties, amount and event index.' : 'Saved record lookup: ' + (verifiedTransferLookup.error || verifiedTransferLookup.message || 'not found')}</p>}</div>}
                 </div>}
                 {tokenBalanceResult && <div className="rounded-xl border border-secondary bg-secondary p-lg space-y-xs"><p className="text-sm font-semibold text-primary">Solidified receiver token balance</p><p className="break-all text-xs text-tertiary">Network: {tokenBalanceResult.network}</p><p className="break-all text-xs text-tertiary">Contract: {tokenBalanceResult.tokenContract}</p><p className="break-all text-xs text-tertiary">Receiver: {tokenBalanceResult.receiverAddress}</p><p className="text-lg font-semibold text-primary">Balance: {formatTokenUnits(tokenBalanceResult.balanceBaseUnits, tokenBalanceResult.decimals)} tokens</p><p className="text-xs text-tertiary">Raw units: {tokenBalanceResult.balanceBaseUnits} · Decimals: {tokenBalanceResult.decimals}. This is the balance of this exact contract only; it does not prove exchange deposit credit or that the token is official USDT.</p></div>}
 

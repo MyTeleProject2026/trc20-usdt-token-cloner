@@ -27,7 +27,7 @@ test('GasFree API secret remains a server-only variable and is not configured in
 })
 
 test('provider discovery UI never claims every exchange will credit a deposit', () => {
-  assert.ok(component.includes('does not authorize or submit a transfer'))
+  assert.ok(component.includes('do not authorize or submit a transfer'))
   assert.ok(component.includes('Not a confirmed free sponsor'))
   assert.ok(component.includes('Sponsor funding verification: not established.'))
 })
@@ -39,7 +39,10 @@ test('GasFree UI exposes account inspection and trace status but no transfer sub
   assert.ok(component.includes('Spendable balance not provided in the documented account response; it is unknown, not zero.'))
   assert.ok(component.includes('/api/gasfree/trace?'))
   assert.ok(component.includes('Query provider transfer status'))
-  assert.ok(component.includes('Chain verification: not established by this trace lookup.'))
+  assert.ok(component.includes('traceResult.trace.verifiedOnChain'))
+  assert.ok(component.includes('traceResult.trace.chainVerification?.status'))
+  assert.ok(component.includes('traceResult.trace.chainVerification?.status'))
+  assert.ok(component.includes('refresh: \'1\''))
   assert.ok(component.includes('Live transfer submission: disabled'))
   assert.ok(!component.includes('/api/gasfree/submit'))
 })
@@ -54,7 +57,9 @@ test('GasFree token list never treats a provider symbol alone as official Mainne
 
 
 test('GasFree trace UI has an explicit solidified-chain verification step before showing receiver balance as verified', () => {
-  assert.ok(component.includes('/api/tron/verify-transfer/'))
+  assert.ok(component.includes('/api/gasfree/trace?'))
+  assert.ok(component.includes('independent solidified-chain verification'))
+  assert.ok(!component.includes('/api/tron/verify-transfer/'))
   assert.ok(component.includes('Verify transaction and recheck receiver balance'))
   assert.ok(component.includes('matched a Transfer event in the solidified receipt'))
   assert.ok(component.includes('/api/tron/token-balance?'))
@@ -70,4 +75,16 @@ test('GasFree account lookup auto-refreshes for a connected Mainnet wallet witho
   assert.ok(component.includes('void inspectAccount(walletAddress)'))
   assert.ok(component.includes("if (walletNetwork !== 'mainnet')"))
   assert.ok(component.includes('no automatic cross-network account lookup was made.'))
+})
+
+
+test('UI distinguishes credential presence from provider authentication and sponsor funding', () => {
+  assert.ok(component.includes('/api/gasfree/config-status'))
+  assert.ok(component.includes('Server-side credential presence'))
+  assert.ok(component.includes('Presence only — not authenticated'))
+  assert.ok(component.includes('Sponsor funding verification: not established.'))
+  assert.ok(component.includes('TRON Mainnet'))
+  assert.ok(component.includes('Nile testnet'))
+  assert.ok(!component.includes('GASFREE_MAINNET_API_SECRET'))
+  assert.ok(!component.includes('GASFREE_NILE_API_SECRET'))
 })

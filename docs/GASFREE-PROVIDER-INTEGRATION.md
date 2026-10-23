@@ -17,6 +17,14 @@ This repository change implements authenticated, fixed-host, read-only calls thr
 
 These calls require approved server-side API credentials. They never sign, submit, or broadcast a transfer, create a wallet balance, or credit a sponsor ledger.
 
+### Independent trace verification
+
+When `GET /api/gasfree/trace?network=mainnet|nile&traceId=...` returns a trace with a transaction ID and complete token/gasFree-account/receiver/amount fields, the backend additionally queries that same network's TRON SolidityNode transaction body and receipt. It verifies the transaction ID, successful execution, solidified block, exact token contract, the GasFree account as the event sender, receiver, and exact base-unit amount in the TRC-20 `Transfer` event. A provider state such as `SUCCEED` is not enough.
+
+The response includes `trace.verifiedOnChain`, `trace.chainVerification`, and `trace.verificationPersistence`. Only a matching solidified event is passed to the existing network-scoped verification store. Missing fields, pending solidification, a mismatched log, provider error, or database persistence failure are surfaced without inventing success. On-chain verification does not prove sponsor funding or exchange deposit credit.
+
+`POST /api/gasfree/submit` is intentionally a fail-closed guard: it always returns HTTP 503, does not call the provider, reserve funds, sign, or broadcast. A real submission adapter is not enabled because the selected external-sponsor-only policy has no verified sponsor agreement/funding, and GasFree's documented fee is denominated in the transferred token.
+
 ## Fees and funding: do not label this as free
 
 The provider API's token configuration includes `activateFee` and `transferFee`, denominated in the transferred token's smallest unit. The documentation says these values may change. A user must explicitly review the live fees and maximum-fee authorization.
@@ -83,3 +91,12 @@ A standard TRON token transfer can arrive at a wallet without the receiver takin
 - Adds opt-in browser notifications for newly verified receiver-history events and event-index-specific display keys.
 - Keeps authorization submission, sponsor-funding claims and spendable sponsor-funded balances disabled.
 - Adds regression tests without altering live deployment configuration or database state.
+
+
+## Direct wallet-signed TRC-20 transfer path
+
+The browser transfer form supports an ordinary user-authorized contract transfer via TronLink. It does not use the sponsor ledger and it does not claim gas-free sending. For the official Mainnet USDT selection, the frontend fixes the contract to `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`, checks that the contract reports symbol `USDT` and exactly 6 decimals, checks the selected Mainnet network and token balance, and asks the user to review the exact transfer before the wallet signs. USDT is blocked on testnets; the project token VTRC remains a separate Shasta-only asset.
+
+The solidified-transfer verifier also recognizes only that exact Mainnet USDT contract by default; arbitrary token contracts still require the server-side `TRON_VERIFIED_TOKEN_CONTRACTS` allowlist. The transfer's wallet response is accepted into the UI only when it includes a 64-hex-character transaction ID. Submission is not finality: the verifier must still match the exact successful solidified `Transfer` event, and the receiver balance is queried separately. An exchange deposit is credited only by the receiving exchange.
+
+This direct wallet-signed path requires the user wallet to be connected to the selected network and to have the funds/resources required by the token contract call. It is not a sponsor-funded transaction path. The GasFree `POST /api/gasfree/submit` endpoint remains disabled because the current product policy is external-sponsor-only and the published GasFree flow charges token-denominated activation/transfer fees; enabling that path needs an explicit product-policy change or a compatible externally funded provider arrangement, as well as the remaining signed-intent, replay, budget, and testnet controls.

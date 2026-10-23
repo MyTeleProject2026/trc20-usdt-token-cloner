@@ -14,7 +14,30 @@ type SponsorStatus = {
   requiredBeforeEnablement?: string[]
 }
 
-type Props = { network: 'shasta' | 'mainnet'; walletAddress?: string }
+type Props = { network: 'shasta' | 'nile' | 'mainnet'; walletAddress?: string }
+type SponsorFunding = {
+  status?: string
+  sponsorAddress?: string
+  requiredEnvironment?: string[]
+  onChainBalanceRead?: boolean
+  tokenBalancesComplete?: boolean
+  tokenBalanceScope?: string
+  cache?: { status?: string; ageMs?: number }
+  checkedAt?: string
+  note?: string
+  native?: { status?: string; balanceTRX?: string; balanceSun?: string; accountExists?: boolean }
+  tokens?: Array<{ asset: string; tokenContract: string; status: string; balanceBaseUnits?: string; decimals?: number }>
+}
+function formatSponsorAssetUnits(value?: string, decimals?: number) {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)
+    || !Number.isInteger(decimals) || (decimals as number) < 0 || (decimals as number) > 255) return null
+  const amount = BigInt(value)
+  const scale = 10n ** BigInt(decimals as number)
+  const whole = amount / scale
+  const fraction = (amount % scale).toString().padStart(decimals as number, '0').replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole.toString()
+}
+
 type Asset = 'VTRC' | 'TRX' | 'USDT'
 type TokenSelectionProps = Props & { asset: Asset; onAssetChange: (asset: Asset) => void; onContinue: () => void }
 
@@ -23,7 +46,7 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
   const options = [
     { id: 'VTRC' as const, title: 'VTRC — independent project token', description: 'Your project token. It is not official Tether USDT. The exact deployed contract must be selected before sending.', badge: 'Project token' },
     { id: 'TRX' as const, title: 'TRX — native network asset', description: 'Used for native transfers and may be needed for TRON network fees. Shasta TRX has no Mainnet value.', badge: 'Network asset' },
-    { id: 'USDT' as const, title: 'USDT — external token contract', description: 'Only use a verified official contract for the selected network. This page does not assume a contract or exchange listing.', badge: 'Contract verification required' },
+    { id: 'USDT' as const, title: 'USDT — official Mainnet token', description: network === 'mainnet' ? 'Only the official TRON Mainnet USDT contract is allowlisted in this transfer flow. The app checks the exact address and six-decimal precision.' : 'Official Mainnet USDT is not available on this testnet. Test tokens are not Mainnet USDT and are not eligible in this transfer flow.', badge: network === 'mainnet' ? 'Official contract allowlisted' : 'Mainnet only' },
   ]
 
   return (
@@ -33,7 +56,7 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
           <CircleDollarSign className="size-6 shrink-0 text-brand-primary" aria-hidden="true" />
           <div>
             <h2 className="text-heading-xs font-semibold text-primary">Choose asset and transfer network</h2>
-            <p className="mt-xs text-sm text-tertiary">Selected network: <strong>{network === 'shasta' ? 'Shasta testnet' : 'TRON Mainnet'}</strong>. Asset identity and network must match the receiving wallet or exchange deposit instructions.</p>
+            <p className="mt-xs text-sm text-tertiary">Selected network: <strong>{network === 'shasta' ? 'Shasta testnet' : network === 'nile' ? 'Nile testnet' : 'TRON Mainnet'}</strong>. Asset identity and network must match the receiving wallet or exchange deposit instructions.</p>
           </div>
         </div>
         <div className="rounded-lg border border-utility-warning-200 bg-utility-warning-50 p-md text-sm text-utility-warning-700">
@@ -51,9 +74,9 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
         </div>
         <div className="rounded-lg border border-secondary bg-secondary p-lg">
           <p className="text-sm font-semibold text-primary">Current selection: {asset}</p>
-          <p className="mt-xs text-sm text-tertiary">{asset === 'VTRC' ? 'Before transfer, confirm the deployed VTRC contract address, token decimals, available balance, recipient and selected network.' : asset === 'TRX' ? 'Before transfer, confirm the sender has enough TRX for the transfer and any network fee.' : 'Sending is not enabled from this chooser until the official contract address is independently verified for this exact network.'}</p>
-          <p className="mt-sm text-xs text-tertiary">Your selection is shared with the main workflow. No transaction is submitted from this page. VTRC still requires the exact deployed contract and balance check; USDT remains blocked until a verified network-specific contract allowlist exists.</p>
-          <button type="button" onClick={onContinue} className="mt-md rounded-lg bg-brand-primary px-md py-sm text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-focus-ring">{asset === 'TRX' ? 'Continue to native TRX workflow' : asset === 'VTRC' ? 'Continue to token workflow' : 'Review USDT requirements'}</button>
+          <p className="mt-xs text-sm text-tertiary">{asset === 'VTRC' ? 'Before transfer, confirm the deployed VTRC contract address, token decimals, available balance, recipient and selected network.' : asset === 'TRX' ? 'Before transfer, confirm the sender has enough TRX for the transfer and any network fee.' : network === 'mainnet' ? 'The official TRON Mainnet USDT contract will be filled into the transfer form. Confirm the contract, six decimals, sender, receiver, amount, wallet network and fees before approving in TronLink.' : 'USDT transfers are Mainnet-only in this workflow. Switch the network selector to TRON Mainnet; testnet tokens are not official USDT.'}</p>
+          <p className="mt-sm text-xs text-tertiary">Your selection is shared with the main workflow. No transaction is submitted from this page. VTRC remains limited to its selected Shasta test contract. USDT can continue only on Mainnet to the fixed official contract; sponsor-paid fees are not enabled.</p>
+          <button type="button" onClick={onContinue} disabled={asset === 'USDT' && network !== 'mainnet'} className="mt-md rounded-lg bg-brand-primary px-md py-sm text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-50">{asset === 'TRX' ? 'Continue to native TRX workflow' : asset === 'VTRC' ? 'Continue to token workflow' : network === 'mainnet' ? 'Continue to official USDT transfer' : 'USDT transfer requires Mainnet'}</button>
         </div>
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-md">
@@ -71,6 +94,8 @@ export function TokenSelectionPage({ network, asset, onAssetChange, onContinue }
 
 export default function SponsorProviderPage({ network, walletAddress = '' }: Props) {
   const [status, setStatus] = useState<SponsorStatus | null>(null)
+  const [funding, setFunding] = useState<SponsorFunding | null>(null)
+  const [fundingLoading, setFundingLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [providerName, setProviderName] = useState('')
   const [contact, setContact] = useState('')
@@ -80,6 +105,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
   useEffect(() => {
     let active = true
     setLoading(true)
+    setFundingLoading(true)
     fetch(`${API_BASE}/api/tron/sponsorship/status`, { headers: { Accept: 'application/json' } })
       .then(async (response) => {
         if (!response.ok) throw new Error('Sponsor status endpoint unavailable')
@@ -88,23 +114,36 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
       .then((payload) => { if (active) setStatus(payload?.sponsorship || null) })
       .catch(() => { if (active) setStatus(null) })
       .finally(() => { if (active) setLoading(false) })
+
+    fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}`, {
+      headers: { Accept: 'application/json' },
+    })
+      .then((response) => response.json())
+      .then((payload) => { if (active) setFunding(payload?.funding || null) })
+      .catch(() => { if (active) setFunding({ status: 'balance-check-unavailable', onChainBalanceRead: false }) })
+      .finally(() => { if (active) setFundingLoading(false) })
     return () => { active = false }
-  }, [network])
+  }, [network, walletAddress])
 
   const liveSubmissionEnabled = Boolean(status?.enabled && status?.canSubmitSponsoredTransfer && (network !== 'mainnet' || status?.mainnetEnabled))
   const refreshStatus = async () => {
     setLoading(true)
+    setFundingLoading(true)
     setNotice('')
     try {
       const response = await fetch(`${API_BASE}/api/tron/sponsorship/status`, { headers: { Accept: 'application/json' } })
       const payload = await response.json()
       if (!response.ok) throw new Error(payload?.message || 'Could not refresh sponsor status.')
       setStatus(payload?.sponsorship || null)
-      setNotice('Status refreshed. No application or transfer was submitted.')
+      const fundingResponse = await fetch(`${API_BASE}/api/tron/sponsorship/funding-status?network=${encodeURIComponent(network)}&refresh=1`, { headers: { Accept: 'application/json' } })
+      const fundingPayload = await fundingResponse.json()
+      setFunding(fundingPayload?.funding || null)
+      setNotice('Provider status checked and latest funding snapshot loaded (balances may be cached for up to 10 seconds). No application or transfer was submitted.')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Sponsor status is unavailable.')
     } finally {
       setLoading(false)
+      setFundingLoading(false)
     }
   }
 
@@ -116,7 +155,7 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
           <ShieldCheck className="size-6 shrink-0 text-brand-primary" aria-hidden="true" />
           <div>
             <h2 className="text-heading-xs font-semibold text-primary">Sponsor provider directory and application</h2>
-            <p className="mt-xs text-sm text-tertiary">Network: {network === 'shasta' ? 'Shasta testnet' : 'TRON Mainnet'}. Review the live backend gate before treating any provider as available.</p>
+            <p className="mt-xs text-sm text-tertiary">Network: {network === 'shasta' ? 'Shasta testnet' : network === 'nile' ? 'Nile testnet' : 'TRON Mainnet'}. Review the live backend gate before treating any provider as available.</p>
           </div>
         </div>
         <div className={`flex items-start gap-sm rounded-lg border p-md text-sm ${liveSubmissionEnabled ? 'border-utility-success-200 bg-utility-success-50 text-utility-success-700' : 'border-utility-warning-200 bg-utility-warning-50 text-utility-warning-700'}`}>
@@ -132,7 +171,31 @@ export default function SponsorProviderPage({ network, walletAddress = '' }: Pro
           <div className="rounded-lg border border-secondary bg-secondary p-md"><p className="text-xs font-semibold text-primary">Exchange deposits</p><p className="mt-xs text-xs text-tertiary">Sponsors cannot guarantee exchange credit. Only the receiving platform can confirm its deposit accounting.</p></div>
         </div>
         {status?.requiredBeforeEnablement?.length ? <details className="rounded-lg border border-secondary p-md"><summary className="cursor-pointer text-sm font-semibold text-primary">Required activation gates</summary><ul className="mt-sm list-disc space-y-xs pl-lg text-xs text-tertiary">{status.requiredBeforeEnablement.map((item) => <li key={item}>{item.replaceAll('-', ' ')}</li>)}</ul></details> : null}
-        <button type="button" onClick={() => void refreshStatus()} disabled={loading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">{loading ? 'Checking…' : 'Refresh provider status'}</button>
+        <section aria-live="polite" className="rounded-lg border border-secondary p-md space-y-sm">
+          <h3 className="text-sm font-semibold text-primary">Sponsor wallet on-chain balances (read-only)</h3>
+          {fundingLoading ? <p className="text-xs text-tertiary">Checking the selected network's solidified chain state…</p>
+            : funding?.native?.status === 'verified'
+              ? <div className="space-y-xs">
+                  <p className="text-sm text-primary">Native TRX: <strong>{funding.native.balanceTRX} TRX</strong></p>
+                  <p className="text-xs text-tertiary">Source: Tatum TRON SolidityNode. Account present: {funding.native.accountExists ? 'yes' : 'no'}.</p>
+                  {funding.tokens?.length ? <div className="space-y-xs">
+                    {funding.tokens.map((item) => <p key={item.asset + item.tokenContract} className="break-all text-xs text-tertiary">
+                      <strong>{item.asset}</strong> ({item.tokenContract}): {item.status === 'verified' ? `${formatSponsorAssetUnits(item.balanceBaseUnits, item.decimals) ?? item.balanceBaseUnits} (base units: ${item.balanceBaseUnits}; ${item.decimals} decimals)` : 'balance unavailable; not treated as zero'}
+                    </p>)}
+                  </div> : <p className="text-xs text-tertiary">{funding.tokenBalanceScope === 'invalid-token-contract-allowlist' || funding.tokenBalanceScope === 'token-contract-allowlist-too-large' ? 'Token contract configuration is invalid; token balances are withheld.' : 'No token contracts were configured for read-only balance checks on this network.'}</p>}
+                  {funding.tokenBalancesComplete === false && Boolean(funding.tokens?.length) && <p className="text-xs text-tertiary">At least one token balance could not be verified; inspect each token result above.</p>}
+                  {funding.checkedAt && <p className="text-xs text-tertiary">Snapshot time: {funding.checkedAt}{funding.cache?.status === 'cached' ? ` · cached ${Math.ceil((funding.cache.ageMs || 0) / 1000)}s ago` : funding.cache?.status === 'refresh-throttled' ? ` · refresh throttled; snapshot ${Math.ceil((funding.cache.ageMs || 0) / 1000)}s old` : ' · fresh provider read'}</p>}
+                </div>
+              : <p className="text-xs text-tertiary">{funding?.status === 'sponsor-address-not-configured'
+                  ? `No sponsor address is configured for this network. Set ${funding.requiredEnvironment?.join(', ') || 'the network-specific sponsor address'} server-side before the balance can be checked.`
+                  : funding?.status === 'provider-credentials-missing'
+                    ? 'Sponsor address is configured, but the server-side Tatum credential is missing; no balance was inferred.'
+                    : funding?.status === 'invalid-token-contract-allowlist'
+                      ? 'Native TRX was queried, but the configured token contract allowlist is invalid; token balances are withheld.'
+                      : 'A fresh sponsor balance could not be verified from the selected network.'}</p>}
+          <p className="text-xs text-tertiary">A verified balance snapshot is not sponsor consent, signing authority, or a reserved spend budget. It does not enable transfers or imply receiver credit. Failed token queries are shown as unavailable, never as zero.</p>
+        </section>
+        <button type="button" onClick={() => void refreshStatus()} disabled={loading || fundingLoading} className="rounded-lg border border-primary px-md py-sm text-sm font-semibold text-secondary disabled:opacity-50">{loading || fundingLoading ? 'Checking…' : 'Refresh provider status and balances'}</button>
         {notice && <p role="status" className="text-xs text-tertiary">{notice}</p>}
       </section>
       <section className="rounded-xl border border-secondary bg-primary p-xl space-y-lg">

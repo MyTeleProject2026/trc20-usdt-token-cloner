@@ -27,41 +27,132 @@ const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
-async function setup() {
-  const { initializeDatabase, reserveSponsorTransfer, transitionSponsorTransfer } =
+async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = {}) {
+  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   const readiness = await initializeDatabase()
   assert.equal(readiness.ready, true)
   const identity = await pool.query('SELECT current_database() AS name')
   assert.equal(identity.rows[0].name, 'sponsor_test', 'tests must only touch the dedicated sponsor_test database')
-  return { pool, reserveSponsorTransfer, transitionSponsorTransfer }
+  // Integration tests exercise PostgreSQL lifecycle behavior with a deterministic
+  // test-only on-chain snapshot. Production defaults still require live provider
+  // reads and never accept this test fixture outside this test process.
+  const fundingSnapshotReader = injectedFundingSnapshotReader || (async (requestedNetwork, asset = 'TRX', tokenContract = null, address = sponsorAddress) => ({
+    status: 'solidified-sponsor-balances-read',
+    onChainBalanceRead: true,
+    network: requestedNetwork,
+    source: 'Tatum TRON SolidityNode account and constant-contract queries',
+    sponsorAddress: address,
+    checkedAt: new Date().toISOString(),
+    cache: { status: 'fresh', ageMs: 0 },
+    native: {
+      status: 'verified', asset: 'TRX',
+      balanceSun: '999999999999999999999999999999999999',
+      balanceTRX: '999999999999999999999999999999.999999',
+    },
+    tokens: asset === 'TRX' ? [] : [{
+      asset: asset === 'USDT' && requestedNetwork !== 'mainnet' ? 'USDT (testnet)' : asset,
+      tokenContract,
+      status: 'verified',
+      balanceBaseUnits: '999999999999999999999999999999999999',
+      decimals: asset === 'USDT' && requestedNetwork === 'mainnet' ? 6 : 18,
+    }],
+  }))
+  const reserveSponsorTransfer = (input) => reserveSponsorTransferWithFundingGate(input, {
+    fundingSnapshotReader: async (requestedNetwork) => fundingSnapshotReader(
+      requestedNetwork, input.asset, input.tokenContract,
+    ),
+  })
+  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
+}
+
+const testBudgetApprovals = new Map()
+
+function registerTestBudgetApproval({ sponsorReference, network, sponsorAddress, purpose, asset, tokenContract = null }) {
+  const consentReference = `pg-approval-${randomUUID()}`
+  const reviewReference = `pg-review-${randomUUID()}`
+  const scope = [
+    consentReference,
+    sponsorReference,
+    network,
+    sponsorAddress,
+    purpose,
+    asset,
+    tokenContract || '-',
+  ].join('|')
+  const previous = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(';').map((entry) => entry.trim()).filter(Boolean)
+  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [...new Set([...previous, scope])].join(';')
+  const approval = { sponsorReference, scope, consentReference, reviewReference }
+  testBudgetApprovals.set(scope, approval)
+  return approval
+}
+
+async function insertActiveBudget(pool, {
+  sponsorReference,
+  network: budgetNetwork = network,
+  sponsorAddress: budgetSponsorAddress = sponsorAddress,
+  purpose,
+  asset,
+  tokenContract = null,
+  budgetBaseUnits,
+}) {
+  const approval = registerTestBudgetApproval({
+    sponsorReference,
+    network: budgetNetwork,
+    sponsorAddress: budgetSponsorAddress,
+    purpose,
+    asset,
+    tokenContract,
+  })
+  await pool.query(
+    `INSERT INTO trc20_token_clone.sponsor_budgets
+      (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+       budget_base_units, reserved_base_units, spent_base_units, status,
+       approval_reference, review_reference, approved_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,0,0,'active',$8,$9,now())`,
+    [sponsorReference, budgetSponsorAddress, budgetNetwork, purpose, asset,
+      tokenContract, budgetBaseUnits, approval.consentReference, approval.reviewReference],
+  )
 }
 
 async function insertBudget(pool, sponsorReference, budgetBaseUnits) {
+  return insertActiveBudget(pool, {
+    sponsorReference, purpose: 'asset-grant', asset: 'TRX',
+    tokenContract: null, budgetBaseUnits,
+  })
+}
+
+async function insertUsdtBudget(pool, sponsorReference, tokenContract, budgetBaseUnits) {
+  return insertActiveBudget(pool, {
+    sponsorReference, purpose: 'asset-grant', asset: 'USDT',
+    tokenContract, budgetBaseUnits,
+  })
+}
+
+async function insertLegacyActiveBudget(pool, sponsorReference, budgetBaseUnits) {
   await pool.query(
     `INSERT INTO trc20_token_clone.sponsor_budgets
-      (sponsor_reference, sponsor_address, network, asset, token_contract,
+      (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
        budget_base_units, reserved_base_units, spent_base_units, status)
-     VALUES ($1,$2,$3,'TRX',NULL,$4,0,0,'active')`,
+     VALUES ($1,$2,$3,'asset-grant','TRX',NULL,$4,0,0,'active')`,
     [sponsorReference, sponsorAddress, network, budgetBaseUnits],
   )
 }
 
-async function insertUsdtBudget(pool, sponsorReference, tokenContract, budgetBaseUnits) {
-  await pool.query(
-    `INSERT INTO trc20_token_clone.sponsor_budgets
-      (sponsor_reference, sponsor_address, network, asset, token_contract,
-       budget_base_units, reserved_base_units, spent_base_units, status)
-     VALUES ($1,$2,$3,'USDT',$4,$5,0,0,'active')`,
-    [sponsorReference, sponsorAddress, network, tokenContract, budgetBaseUnits],
-  )
-}
-
 async function cleanup(pool, sponsorReferences, idempotencyKeys) {
+  // Clean transfer and budget lifecycle audit rows as well as rows whose own
+  // entity reference is an idempotency key; tests must leave no ledger residue.
   await pool.query(
-    'DELETE FROM trc20_token_clone.audit_events WHERE entity_reference = ANY($1::text[])',
-    [idempotencyKeys],
+    `DELETE FROM trc20_token_clone.audit_events AS a
+      WHERE a.entity_reference = ANY($2::text[])
+         OR a.details->>'sponsorReference' = ANY($1::text[])
+         OR (a.entity_type = 'sponsor-budget' AND a.entity_reference IN (
+           SELECT id::text FROM trc20_token_clone.sponsor_budgets
+            WHERE sponsor_reference = ANY($1::text[])
+         ))`,
+    [sponsorReferences, idempotencyKeys],
   )
   await pool.query(
     'DELETE FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = ANY($1::text[])',
@@ -71,7 +162,477 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
     'DELETE FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = ANY($1::text[])',
     [sponsorReferences],
   )
+  const removedScopes = [...testBudgetApprovals.values()]
+    .filter((approval) => sponsorReferences.includes(approval.sponsorReference))
+    .map((approval) => approval.scope)
+  if (removedScopes.length) {
+    const remaining = String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+      .split(';').map((entry) => entry.trim()).filter((entry) => entry && !removedScopes.includes(entry))
+    if (remaining.length) process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = remaining.join(';')
+    else delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    for (const scope of removedScopes) testBudgetApprovals.delete(scope)
+  }
 }
+
+
+test('PostgreSQL refuses new reservations from a legacy active budget without scope approval', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-legacy-active-${suffix}`
+  const idempotencyKey = `pg-legacy-active:${suffix}`
+  try {
+    await insertLegacyActiveBudget(pool, sponsorReference, '100')
+    const result = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.deepEqual(result, { reserved: false, reason: 'sponsor-budget-activation-required' })
+
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0', spent: '0' })
+    const transfers = await pool.query(
+      'SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfers.rows[0].count, 0)
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
+test('PostgreSQL prevents authorizing a reservation after its sponsor budget is paused', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer, transitionSponsorTransfer, pauseSponsorBudget } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-pause-before-auth-${suffix}`
+  const idempotencyKey = `pg-pause-before-auth:${suffix}`
+  try {
+    await insertBudget(pool, sponsorReference, '100')
+    const reserved = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.equal(reserved.reserved, true)
+
+    const budgetLookup = await pool.query(
+      `SELECT id::text AS id FROM trc20_token_clone.sponsor_budgets
+        WHERE sponsor_reference = $1 AND purpose = 'asset-grant'`,
+      [sponsorReference],
+    )
+    const pause = await pauseSponsorBudget({
+      budgetId: budgetLookup.rows[0].id,
+      reasonCode: 'provider-incident',
+    })
+    assert.equal(pause.success, true)
+    assert.equal(pause.status, 'paused')
+
+    const authorization = await transitionSponsorTransfer({
+      idempotencyKey,
+      nextStatus: 'authorized',
+      authorizationReference: `wallet-approval-${suffix}`,
+    })
+    assert.deepEqual(authorization, { updated: false, reason: 'sponsor-budget-not-active' })
+
+    const transfer = await pool.query(
+      'SELECT status FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfer.rows[0].status, 'pending-review')
+    const budgetAfter = await pool.query(
+      `SELECT status, reserved_base_units::text AS reserved, spent_base_units::text AS spent
+        FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budgetAfter.rows[0], { status: 'paused', reserved: '25', spent: '0' })
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
+test('PostgreSQL reservation refuses an underfunded sponsor wallet before creating ledger entries', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const lowBalanceReader = async (requestedNetwork) => ({
+    status: 'solidified-sponsor-balances-read',
+    onChainBalanceRead: true,
+    network: requestedNetwork,
+    source: 'Tatum TRON SolidityNode account and constant-contract queries',
+    sponsorAddress: receiverAddress,
+    checkedAt: new Date().toISOString(),
+    cache: { status: 'fresh', ageMs: 0 },
+    native: { status: 'verified', asset: 'TRX', balanceSun: '0', balanceTRX: '0' },
+    tokens: [],
+  })
+  const { pool, reserveSponsorTransfer } = await setup({ fundingSnapshotReader: lowBalanceReader })
+  const suffix = randomUUID()
+  const sponsorReference = `pg-underfunded-reserve-${suffix}`
+  const idempotencyKey = `pg-underfunded-reserve:${suffix}`
+  try {
+    await insertActiveBudget(pool, {
+      sponsorReference,
+      sponsorAddress: receiverAddress,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: '100',
+    })
+    const result = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.deepEqual(result, {
+      reserved: false,
+      reason: 'insufficient-onchain-funding',
+      requiredBaseUnits: '100',
+      chainBalanceBaseUnits: '0',
+      deficitBaseUnits: '100',
+    })
+
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0', spent: '0' })
+    const transfers = await pool.query(
+      'SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfers.rows[0].count, 0)
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
+test('PostgreSQL reservation rejects stale sponsor snapshots without reserving budget', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const staleReader = async (requestedNetwork) => ({
+    status: 'solidified-sponsor-balances-read',
+    onChainBalanceRead: true,
+    network: requestedNetwork,
+    source: 'Tatum TRON SolidityNode account and constant-contract queries',
+    sponsorAddress: receiverAddress,
+    checkedAt: '2020-01-01T00:00:00.000Z',
+    cache: { status: 'fresh', ageMs: 0 },
+    native: { status: 'verified', asset: 'TRX', balanceSun: '999999999', balanceTRX: '999.999999' },
+    tokens: [],
+  })
+  const { pool, reserveSponsorTransfer } = await setup({ fundingSnapshotReader: staleReader })
+  const suffix = randomUUID()
+  const sponsorReference = `pg-stale-reserve-${suffix}`
+  const idempotencyKey = `pg-stale-reserve:${suffix}`
+  try {
+    await insertActiveBudget(pool, {
+      sponsorReference,
+      sponsorAddress: receiverAddress,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: '100',
+    })
+    const result = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.deepEqual(result, { reserved: false, reason: 'fresh-sponsor-balance-unavailable' })
+
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0', spent: '0' })
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
+test('PostgreSQL reservation rejects a snapshot for a different sponsor wallet', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const mismatchedReader = async (requestedNetwork) => ({
+    status: 'solidified-sponsor-balances-read',
+    onChainBalanceRead: true,
+    network: requestedNetwork,
+    source: 'Tatum TRON SolidityNode account and constant-contract queries',
+    sponsorAddress,
+    checkedAt: new Date().toISOString(),
+    cache: { status: 'fresh', ageMs: 0 },
+    native: { status: 'verified', asset: 'TRX', balanceSun: '999999999', balanceTRX: '999.999999' },
+    tokens: [],
+  })
+  const { pool, reserveSponsorTransfer } = await setup({ fundingSnapshotReader: mismatchedReader })
+  const suffix = randomUUID()
+  const sponsorReference = `pg-wallet-mismatch-${suffix}`
+  const idempotencyKey = `pg-wallet-mismatch:${suffix}`
+  try {
+    await insertActiveBudget(pool, {
+      sponsorReference,
+      sponsorAddress: receiverAddress,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: '100',
+    })
+    const result = await reserveSponsorTransfer({
+      idempotencyKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '25',
+    })
+    assert.deepEqual(result, { reserved: false, reason: 'funding-snapshot-identity-mismatch' })
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0' })
+    const transfers = await pool.query(
+      'SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      [idempotencyKey],
+    )
+    assert.equal(transfers.rows[0].count, 0)
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.end()
+  }
+})
+
+test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempotent', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-draft-${suffix}`
+  const draftSponsorAddress = receiverAddress
+  const amount = '123456789'
+  const consentReference = `signed-sponsor-${suffix}`
+  const reviewReference = `review-ticket-${suffix}`
+  const pauseKey = `pg-pause:${suffix}`
+  const previousAgreementReferences = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+  process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES =
+    `${consentReference}|${sponsorReference}|${network}|${draftSponsorAddress}|asset-grant|TRX|-`
+  let created = null
+  try {
+    created = await createSponsorBudgetDraft({
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: amount,
+      sponsorAddress: draftSponsorAddress,
+    })
+    assert.equal(created.success, true)
+    assert.equal(created.duplicate, false)
+    assert.equal(created.budget.status, 'pending-review')
+    assert.equal(created.budget.budget_base_units, amount)
+    assert.equal(created.budget.reserved_base_units, '0')
+    assert.equal(created.budget.spent_base_units, '0')
+    assert.equal(created.canReserve, false)
+
+    const duplicate = await createSponsorBudgetDraft({
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: amount,
+      sponsorAddress: draftSponsorAddress,
+    })
+    assert.deepEqual(duplicate, { success: false, reason: 'budget-already-exists' })
+
+    const listing = await listSponsorBudgets({ network, limit: 100 })
+    assert.equal(listing.success, true)
+    const listed = listing.budgets.find((item) => item.sponsor_reference === sponsorReference)
+    assert.ok(listed, 'created draft must be visible in the protected ledger query')
+    assert.equal(listed.status, 'pending-review')
+    assert.equal(listed.ledger_available_base_units, amount)
+
+    const walletListing = await listSponsorBudgets({ network, sponsorAddress: draftSponsorAddress, limit: 100 })
+    assert.equal(walletListing.success, true)
+    assert.ok(walletListing.budgets.some((item) => item.sponsor_reference === sponsorReference))
+    assert.ok(walletListing.budgets.every((item) => item.sponsor_address === draftSponsorAddress))
+
+    const audit = await pool.query(
+      `SELECT event_type, details
+         FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget'
+          AND entity_reference = $1`,
+      [`${sponsorReference}:${network}:asset-grant:TRX:`],
+    )
+    assert.equal(audit.rows.length, 1)
+    assert.equal(audit.rows[0].event_type, 'sponsor-budget-draft-created')
+    assert.equal(audit.rows[0].details.status, 'pending-review')
+    assert.equal(audit.rows[0].details.budgetBaseUnits, amount)
+
+    const unapproved = await activateSponsorBudget({
+      budgetId: created.budget.id,
+      consentReference: `unapproved-${suffix}`,
+      reviewReference,
+      fundingSnapshot: {},
+    })
+    assert.deepEqual(unapproved, { success: false, reason: 'agreement-reference-not-approved' })
+
+    const lowFundingSnapshot = {
+      status: 'solidified-sponsor-balances-read',
+      onChainBalanceRead: true,
+      network,
+      source: 'Tatum TRON SolidityNode account and constant-contract queries',
+      sponsorAddress: draftSponsorAddress,
+      checkedAt: new Date().toISOString(),
+      cache: { status: 'fresh', ageMs: 0 },
+      native: { status: 'verified', asset: 'TRX', balanceSun: '100000000', balanceTRX: '100' },
+      tokens: [],
+    }
+    const underfunded = await activateSponsorBudget({
+      budgetId: created.budget.id, consentReference, reviewReference, fundingSnapshot: lowFundingSnapshot,
+    })
+    assert.deepEqual(underfunded, {
+      success: false,
+      reason: 'insufficient-onchain-funding',
+      chainBalanceBaseUnits: '100000000',
+      requiredBaseUnits: amount,
+    })
+    const stillPending = await getSponsorBudgetById(created.budget.id)
+    assert.equal(stillPending.budget.status, 'pending-review')
+
+    const fundingSnapshot = {
+      ...lowFundingSnapshot,
+      checkedAt: new Date().toISOString(),
+      native: { status: 'verified', asset: 'TRX', balanceSun: '250000000', balanceTRX: '250' },
+    }
+    const activated = await activateSponsorBudget({
+      budgetId: created.budget.id, consentReference, reviewReference, fundingSnapshot,
+    })
+    assert.deepEqual(activated, {
+      success: true,
+      duplicate: false,
+      status: 'active',
+      budgetId: created.budget.id,
+      canReserve: true,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      chainBalanceBaseUnits: '250000000',
+      committedBaseUnits: amount,
+    })
+
+    const duplicateActivation = await activateSponsorBudget({
+      budgetId: created.budget.id, consentReference, reviewReference, fundingSnapshot,
+    })
+    assert.deepEqual(duplicateActivation, {
+      success: true, duplicate: true, status: 'active', budgetId: created.budget.id, canReserve: true,
+    })
+    const activatedLookup = await getSponsorBudgetById(created.budget.id)
+    assert.equal(activatedLookup.budget.status, 'active')
+    assert.equal(activatedLookup.budget.approval_reference, consentReference)
+    assert.equal(activatedLookup.budget.review_reference, reviewReference)
+    assert.ok(activatedLookup.budget.approved_at)
+
+    const activationAudit = await pool.query(
+      `SELECT event_type, details FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget' AND entity_reference = $1`,
+      [created.budget.id],
+    )
+    assert.equal(activationAudit.rows.length, 1)
+    assert.equal(activationAudit.rows[0].event_type, 'sponsor-budget-activated')
+    assert.equal(activationAudit.rows[0].details.consentReference, consentReference)
+    assert.equal(activationAudit.rows[0].details.reviewReference, reviewReference)
+
+    const paused = await pauseSponsorBudget({ budgetId: created.budget.id, reasonCode: 'funding-mismatch' })
+    assert.deepEqual(paused, {
+      success: true,
+      duplicate: false,
+      status: 'paused',
+      budgetId: created.budget.id,
+      previousStatus: 'active',
+    })
+    const repeatedPause = await pauseSponsorBudget({ budgetId: created.budget.id, reasonCode: 'funding-mismatch' })
+    assert.deepEqual(repeatedPause, {
+      success: true, duplicate: true, status: 'paused', budgetId: created.budget.id,
+    })
+
+    const afterPause = await listSponsorBudgets({ network, limit: 100 })
+    const pausedBudget = afterPause.budgets.find((item) => item.sponsor_reference === sponsorReference)
+    assert.equal(pausedBudget.status, 'paused')
+    assert.equal(pausedBudget.ledger_available_base_units, amount)
+
+    const attemptedReservation = await reserveSponsorTransfer({
+      idempotencyKey: pauseKey,
+      sponsorReference,
+      network,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      receiverAddress,
+      amountBaseUnits: '1',
+    })
+    assert.deepEqual(attemptedReservation, { reserved: false, reason: 'sponsor-budget-not-active' })
+
+    const pauseAudit = await pool.query(
+      `SELECT event_type, details FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget' AND entity_reference = $1`,
+      [created.budget.id],
+    )
+    assert.equal(pauseAudit.rows.length, 2)
+    const pauseAuditRow = pauseAudit.rows.find((row) => row.event_type === 'sponsor-budget-paused')
+    assert.ok(pauseAuditRow)
+    assert.equal(pauseAuditRow.details.reasonCode, 'funding-mismatch')
+    assert.equal(pauseAuditRow.details.previousStatus, 'active')
+  } finally {
+    await cleanup(pool, [sponsorReference], [pauseKey])
+    await pool.query(
+      `DELETE FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget'
+          AND (entity_reference LIKE $1 OR entity_reference = $2)`,
+      [`${sponsorReference}:%`, created?.budget?.id ?? '0'],
+    )
+    await pool.query(
+      'DELETE FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1',
+      [sponsorReference],
+    )
+    await pool.end()
+    if (previousAgreementReferences === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previousAgreementReferences
+  }
+})
 
 test('fee coverage and asset-grant principal require independent TRX sponsor budgets', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
@@ -89,13 +650,13 @@ test('fee coverage and asset-grant principal require independent TRX sponsor bud
     })
     assert.deepEqual(feeWithoutBudget, { reserved: false, reason: 'sponsor-budget-not-found' })
 
-    await pool.query(
-      `INSERT INTO trc20_token_clone.sponsor_budgets
-        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
-         budget_base_units, reserved_base_units, spent_base_units, status)
-       VALUES ($1,$2,$3,'network-fee','TRX',NULL,50,0,0,'active')`,
-      [sponsorReference, sponsorAddress, network],
-    )
+    await insertActiveBudget(pool, {
+      sponsorReference,
+      purpose: 'network-fee',
+      asset: 'TRX',
+      tokenContract: null,
+      budgetBaseUnits: '50',
+    })
     const fee = await reserveSponsorTransfer({
       idempotencyKey: feeKey, sponsorReference, network, purpose: 'network-fee',
       asset: 'TRX', receiverAddress, amountBaseUnits: '20',

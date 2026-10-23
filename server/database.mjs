@@ -1,7 +1,11 @@
 import pg from 'pg'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
 const SPONSORED_TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
 const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
@@ -185,6 +189,9 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
       // Keep fee/resource budgets independent from asset principal budgets. Existing
       // rows default to asset-grant; fee sponsorship requires its own explicit budget.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
@@ -541,11 +548,13 @@ function validSponsorTransitionStatus(status) {
  * Atomically creates an idempotent sponsor transfer intent and reserves its
  * budget. This is accounting only: it never signs or broadcasts transactions.
  */
-export async function reserveSponsorTransfer(input) {
+export async function reserveSponsorTransfer(input, {
+  fundingSnapshotReader = readSponsorFundingStatusForReservation,
+} = {}) {
   const network = normalizeVerificationNetwork(input?.network)
   const { idempotencyKey, sponsorReference, purpose, asset, tokenContract = null, receiverAddress, amountBaseUnits } = input || {}
   if (!network || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
-    || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
+    || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorReference)
     || !['network-fee', 'asset-grant'].includes(purpose)
     || !['TRX', 'USDT', 'VTRC'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
@@ -556,66 +565,212 @@ export async function reserveSponsorTransfer(input) {
     return { reserved: false, reason: 'invalid-transfer-intent' }
   }
 
+  const normalizedTokenContract = SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null
   const { TronWeb } = await import('tronweb')
   const tronWeb = new TronWeb({ fullHost: network === 'mainnet'
     ? 'https://api.trongrid.io'
     : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io' })
   if (!tronWeb.isAddress(receiverAddress.trim())
-    || (SPONSORED_TOKEN_ASSETS.has(asset) && !tronWeb.isAddress(tokenContract.trim()))) {
+    || (SPONSORED_TOKEN_ASSETS.has(asset) && !tronWeb.isAddress(normalizedTokenContract))) {
     return { reserved: false, reason: 'invalid-tron-address' }
   }
 
   const db = getPool()
   if (!db) return { reserved: false, reason: 'database-not-configured' }
   await initializeDatabase()
+
+  // An idempotent retry of an already-recorded request must not need a fresh
+  // provider read and must never create a second reservation.
+  const readExisting = async (queryable, forUpdate = false) => queryable.query(
+    `SELECT idempotency_key, sponsor_reference, network, purpose, asset, token_contract,
+            receiver_address, amount_base_units::text AS amount_base_units, status
+       FROM ${schema}.sponsor_transfers
+      WHERE idempotency_key = $1${forUpdate ? ' FOR UPDATE' : ''}`,
+    [idempotencyKey],
+  )
+  const sameIntent = (row) => row.sponsor_reference === sponsorReference.trim()
+    && row.network === network && row.purpose === purpose && row.asset === asset
+    && (row.token_contract || null) === normalizedTokenContract
+    && row.receiver_address === receiverAddress.trim()
+    && row.amount_base_units === amountBaseUnits
+  const prior = await readExisting(db)
+  if (prior.rows.length) {
+    return sameIntent(prior.rows[0])
+      ? { reserved: true, duplicate: true, status: prior.rows[0].status, idempotencyKey }
+      : { reserved: false, reason: 'idempotency-key-conflict' }
+  }
+
+  // Preflight the requested budget before asking the chain provider. This does
+  // not authorize it: the same row and scoped agreement are rechecked under lock.
+  const preflightResult = await db.query(
+    `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+            budget_base_units::text AS budget_base_units,
+            reserved_base_units::text AS reserved_base_units,
+            spent_base_units::text AS spent_base_units, status,
+            approval_reference, review_reference, approved_at
+       FROM ${schema}.sponsor_budgets
+      WHERE sponsor_reference = $1 AND network = $2 AND purpose = $3 AND asset = $4
+        AND token_contract IS NOT DISTINCT FROM $5
+      LIMIT 1`,
+    [sponsorReference.trim(), network, purpose, asset, normalizedTokenContract],
+  )
+  if (!preflightResult.rows.length) return { reserved: false, reason: 'sponsor-budget-not-found' }
+  const preflight = preflightResult.rows[0]
+  if (preflight.status !== 'active') return { reserved: false, reason: 'sponsor-budget-not-active' }
+  if (typeof preflight.sponsor_address !== 'string' || !tronWeb.isAddress(preflight.sponsor_address.trim())) {
+    return { reserved: false, reason: 'invalid-sponsor-address' }
+  }
+  if (typeof preflight.approval_reference !== 'string' || !preflight.approval_reference
+    || typeof preflight.review_reference !== 'string' || !preflight.review_reference
+    || preflight.approved_at == null
+    || !isApprovedSponsorAgreementScope({
+      consentReference: preflight.approval_reference,
+      budget: preflight,
+    })) {
+    return { reserved: false, reason: 'sponsor-budget-activation-required' }
+  }
+  if (network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
+    return { reserved: false, reason: 'mainnet-budget-activation-disabled' }
+  }
+  if (typeof fundingSnapshotReader !== 'function') {
+    return { reserved: false, reason: 'sponsor-funding-reader-unavailable' }
+  }
+
+  let fundingSnapshot
+  try {
+    fundingSnapshot = await fundingSnapshotReader(network)
+  } catch {
+    return { reserved: false, reason: 'sponsor-funding-snapshot-unavailable' }
+  }
+  const snapshotAgeMs = Date.now() - Date.parse(fundingSnapshot?.checkedAt || '')
+  const snapshotCacheIsFresh = fundingSnapshot?.cache?.status === 'fresh'
+    || (fundingSnapshot?.cache?.status === 'cached'
+      && Number.isFinite(fundingSnapshot.cache.ageMs)
+      && fundingSnapshot.cache.ageMs >= 0
+      && fundingSnapshot.cache.ageMs <= 10_000)
+  if (!fundingSnapshot || fundingSnapshot.status !== 'solidified-sponsor-balances-read'
+    || fundingSnapshot.onChainBalanceRead !== true
+    || !snapshotCacheIsFresh
+    || !Number.isFinite(snapshotAgeMs) || snapshotAgeMs < -5_000 || snapshotAgeMs > 15_000
+    || fundingSnapshot.network !== network
+    || fundingSnapshot.source !== SPONSOR_CHAIN_SNAPSHOT_SOURCE) {
+    return { reserved: false, reason: 'fresh-sponsor-balance-unavailable' }
+  }
+  if (fundingSnapshot.sponsorAddress !== preflight.sponsor_address) {
+    return { reserved: false, reason: 'funding-snapshot-identity-mismatch' }
+  }
+
   const client = await db.connect()
   try {
     await client.query('BEGIN')
-    const existing = await client.query(
-      `SELECT idempotency_key, sponsor_reference, network, purpose, asset, token_contract,
-              receiver_address, amount_base_units::text AS amount_base_units, status
-         FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
-      [idempotencyKey],
-    )
+
+    const existing = await readExisting(client, true)
     if (existing.rows.length) {
       const row = existing.rows[0]
-      const same = row.sponsor_reference === sponsorReference.trim()
-        && row.network === network && row.purpose === purpose && row.asset === asset
-        && (row.token_contract || null) === (SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null)
-        && row.receiver_address === receiverAddress.trim() && row.amount_base_units === amountBaseUnits
       await client.query('COMMIT')
-      return same
+      return sameIntent(row)
         ? { reserved: true, duplicate: true, status: row.status, idempotencyKey }
         : { reserved: false, reason: 'idempotency-key-conflict' }
     }
 
-    const budgetResult = await client.query(
-      `SELECT id, sponsor_address, budget_base_units::text AS budget_base_units,
+    // Use the same per-wallet/network/asset advisory lock as activation. Lock the
+    // target and every related budget only after acquiring this common lock to
+    // avoid double allocation and inconsistent lock ordering between these paths.
+    const lockIdentity = `sponsor-budget-activation:${network}:${preflight.sponsor_address}:${asset}:${normalizedTokenContract || ''}`
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockIdentity])
+
+    const allocationResult = await client.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+              budget_base_units::text AS budget_base_units,
               reserved_base_units::text AS reserved_base_units,
-              spent_base_units::text AS spent_base_units, status
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference, approved_at
          FROM ${schema}.sponsor_budgets
-        WHERE sponsor_reference = $1 AND network = $2 AND purpose = $3 AND asset = $4
-          AND token_contract IS NOT DISTINCT FROM $5
+        WHERE sponsor_address = $1 AND network = $2 AND asset = $3
+          AND token_contract IS NOT DISTINCT FROM $4
+        ORDER BY id
+        LIMIT 101
         FOR UPDATE`,
-      [sponsorReference.trim(), network, purpose, asset, SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null],
+      [preflight.sponsor_address, network, asset, normalizedTokenContract],
     )
-    if (!budgetResult.rows.length) {
+    if (allocationResult.rows.length >= 101) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'sponsor-budget-ledger-truncated' }
+    }
+    const allocations = allocationResult.rows
+    const budget = allocations.find((row) =>
+      row.sponsor_reference === sponsorReference.trim()
+      && row.network === network && row.purpose === purpose && row.asset === asset
+      && (row.token_contract || null) === normalizedTokenContract)
+    if (!budget) {
       await client.query('ROLLBACK')
       return { reserved: false, reason: 'sponsor-budget-not-found' }
     }
-    const budget = budgetResult.rows[0]
     if (budget.status !== 'active') {
       await client.query('ROLLBACK')
       return { reserved: false, reason: 'sponsor-budget-not-active' }
     }
-    if (typeof budget.sponsor_address !== 'string' || !budget.sponsor_address.trim()) {
+    if (budget.sponsor_address !== preflight.sponsor_address
+      || budget.approved_at == null
+      || typeof budget.approval_reference !== 'string' || !budget.approval_reference
+      || typeof budget.review_reference !== 'string' || !budget.review_reference
+      || !isApprovedSponsorAgreementScope({
+        consentReference: budget.approval_reference,
+        budget,
+      })) {
       await client.query('ROLLBACK')
-      return { reserved: false, reason: 'sponsor-address-not-configured' }
+      return { reserved: false, reason: 'sponsor-budget-activation-required' }
     }
-    if (!tronWeb.isAddress(budget.sponsor_address.trim())) {
+    if (network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
       await client.query('ROLLBACK')
-      return { reserved: false, reason: 'invalid-sponsor-address' }
+      return { reserved: false, reason: 'mainnet-budget-activation-disabled' }
     }
+    const currentSnapshotAgeMs = Date.now() - Date.parse(fundingSnapshot.checkedAt)
+    if (!Number.isFinite(currentSnapshotAgeMs) || currentSnapshotAgeMs < -5_000 || currentSnapshotAgeMs > 15_000) {
+      await client.query('ROLLBACK')
+      return { reserved: false, reason: 'funding-snapshot-stale' }
+    }
+
+    const reconciliationBudgets = allocations.map((row) => ({
+      ...row,
+      approvalScopeVerified: row.status === 'active'
+        && typeof row.review_reference === 'string' && row.review_reference.length > 0
+        && row.approved_at != null
+        && isApprovedSponsorAgreementScope({
+          consentReference: row.approval_reference,
+          budget: row,
+        }),
+    }))
+    const reconciliation = reconcileSponsorBudgets({
+      network,
+      fundingSnapshot,
+      budgets: reconciliationBudgets,
+    })
+    if (reconciliation.covered !== true) {
+      await client.query('ROLLBACK')
+      const group = reconciliation.groups?.find((item) =>
+        item.asset === asset && (item.tokenContract || null) === normalizedTokenContract)
+      if (reconciliation.status === 'underfunded') {
+        return {
+          reserved: false,
+          reason: 'insufficient-onchain-funding',
+          requiredBaseUnits: group?.committedBaseUnits,
+          chainBalanceBaseUnits: group?.onChainBalanceBaseUnits,
+          deficitBaseUnits: group?.deficitBaseUnits,
+        }
+      }
+      if (reconciliation.status === 'approval-required') {
+        return { reserved: false, reason: 'sponsor-budget-activation-required' }
+      }
+      if (reconciliation.status === 'balance-unavailable') {
+        return { reserved: false, reason: 'exact-asset-balance-not-verified' }
+      }
+      if (reconciliation.status === 'wallet-scope-mismatch') {
+        return { reserved: false, reason: 'funding-snapshot-identity-mismatch' }
+      }
+      return { reserved: false, reason: 'sponsor-funding-reconciliation-incomplete' }
+    }
+
     const available = BigInt(budget.budget_base_units) - BigInt(budget.reserved_base_units) - BigInt(budget.spent_base_units)
     const amount = BigInt(amountBaseUnits)
     if (amount > available) {
@@ -626,7 +781,7 @@ export async function reserveSponsorTransfer(input) {
     await client.query(
       `UPDATE ${schema}.sponsor_budgets
           SET reserved_base_units = reserved_base_units + $1::numeric, updated_at = now()
-        WHERE id = $2`,
+        WHERE id = $2::bigint`,
       [amountBaseUnits, budget.id],
     )
     await client.query(
@@ -635,15 +790,25 @@ export async function reserveSponsorTransfer(input) {
          receiver_address, amount_base_units, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending-review')`,
       [idempotencyKey, sponsorReference.trim(), budget.sponsor_address, network, purpose, asset,
-       SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null, receiverAddress.trim(), amountBaseUnits],
+       normalizedTokenContract, receiverAddress.trim(), amountBaseUnits],
     )
     await client.query(
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
        VALUES ('sponsor-transfer-reserved', 'sponsor-transfer', $1, $2::jsonb)`,
-      [idempotencyKey, JSON.stringify({ sponsorReference: sponsorReference.trim(), network, purpose, asset, amountBaseUnits })],
+      [idempotencyKey, JSON.stringify({
+        sponsorReference: sponsorReference.trim(), network, purpose, asset,
+        tokenContract: normalizedTokenContract, amountBaseUnits,
+        fundingCheckedAt: fundingSnapshot.checkedAt,
+        fundingSnapshotAgeMs: currentSnapshotAgeMs,
+      })],
     )
     await client.query('COMMIT')
-    return { reserved: true, duplicate: false, status: 'pending-review', idempotencyKey }
+    return {
+      reserved: true, duplicate: false, status: 'pending-review', idempotencyKey,
+      fundingReconciled: true,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+    }
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
     if (error?.code === '23505') {
@@ -658,12 +823,7 @@ export async function reserveSponsorTransfer(input) {
       )
       if (!raced.rows.length) return { reserved: false, reason: 'reservation-conflict' }
       const row = raced.rows[0]
-      const same = row.sponsor_reference === sponsorReference.trim()
-        && row.network === network && row.purpose === purpose && row.asset === asset
-        && (row.token_contract || null) === (SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null)
-        && row.receiver_address === receiverAddress.trim()
-        && row.amount_base_units === amountBaseUnits
-      return same
+      return sameIntent(row)
         ? { reserved: true, duplicate: true, status: row.status, idempotencyKey }
         : { reserved: false, reason: 'idempotency-key-conflict' }
     }
@@ -789,8 +949,11 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
     }
 
     const budgetResult = await client.query(
-      `SELECT id, reserved_base_units::text AS reserved_base_units,
-              spent_base_units::text AS spent_base_units, budget_base_units::text AS budget_base_units
+      `SELECT id, sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units,
+              budget_base_units::text AS budget_base_units, status,
+              approval_reference, review_reference, approved_at
          FROM ${schema}.sponsor_budgets
         WHERE sponsor_reference = $1 AND network = $2 AND purpose = $3 AND asset = $4
           AND token_contract IS NOT DISTINCT FROM $5
@@ -802,6 +965,22 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       return { updated: false, reason: 'sponsor-budget-not-found' }
     }
     const budget = budgetResult.rows[0]
+    if (['authorized', 'submitted'].includes(nextStatus)) {
+      if (budget.status !== 'active') {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'sponsor-budget-not-active' }
+      }
+      if (typeof budget.approval_reference !== 'string' || !budget.approval_reference
+        || typeof budget.review_reference !== 'string' || !budget.review_reference
+        || budget.approved_at == null
+        || !isApprovedSponsorAgreementScope({
+          consentReference: budget.approval_reference,
+          budget,
+        })) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'sponsor-budget-activation-required' }
+      }
+    }
     const amount = BigInt(transfer.amount_base_units)
     const reserved = BigInt(budget.reserved_base_units)
     const spent = BigInt(budget.spent_base_units)
@@ -859,6 +1038,512 @@ export async function transitionSponsorTransfer(input) {
 }
 
  
+/**
+ * Creates an operator-requested sponsor budget draft. The row always starts as
+ * pending-review; this helper cannot activate budgets or submit transfers.
+ */
+export async function createSponsorBudgetDraft(input) {
+  const network = normalizeVerificationNetwork(input?.network)
+  const { sponsorReference, purpose, asset, budgetBaseUnits, sponsorAddress } = input || {}
+  const tokenContract = input?.tokenContract ?? null
+  if (!network
+    || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
+    || !['network-fee', 'asset-grant'].includes(purpose)
+    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || (purpose === 'network-fee' && asset !== 'TRX')
+    || (asset === 'TRX' && tokenContract !== null)
+    || (asset !== 'TRX' && (typeof tokenContract !== 'string'
+      || !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract)))
+    || typeof budgetBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(budgetBaseUnits)
+    || typeof sponsorAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)) {
+    return { success: false, reason: 'invalid-budget-draft' }
+  }
+
+  const { TronWeb } = await import('tronweb')
+  const host = network === 'mainnet' ? 'https://api.trongrid.io'
+    : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io'
+  const tronWeb = new TronWeb({ fullHost: host })
+  if (!tronWeb.isAddress(sponsorAddress)
+    || (asset !== 'TRX' && !tronWeb.isAddress(tokenContract))) {
+    return { success: false, reason: 'invalid-tron-address' }
+  }
+
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query(
+      `INSERT INTO ${schema}.sponsor_budgets
+        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+         budget_base_units, reserved_base_units, spent_base_units, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::numeric,0,0,'pending-review')
+       ON CONFLICT DO NOTHING
+       RETURNING id::text AS id, sponsor_reference, sponsor_address, network, purpose,
+                 asset, token_contract, budget_base_units::text AS budget_base_units,
+                 reserved_base_units::text AS reserved_base_units,
+                 spent_base_units::text AS spent_base_units, status, created_at, updated_at`,
+      [sponsorReference.trim(), sponsorAddress, network, purpose, asset, asset === 'TRX' ? null : tokenContract.trim(), budgetBaseUnits],
+    )
+    if (!result.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-already-exists' }
+    }
+    const budget = result.rows[0]
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-budget-draft-created', 'sponsor-budget', $1, $2::jsonb)`,
+      [`${sponsorReference.trim()}:${network}:${purpose}:${asset}:${asset === 'TRX' ? '' : tokenContract.trim()}`,
+       JSON.stringify({ network, purpose, asset, budgetBaseUnits, status: 'pending-review' })],
+    )
+    await client.query('COMMIT')
+    return {
+      success: true,
+      duplicate: false,
+      budget,
+      canReserve: false,
+      message: 'Budget draft recorded as pending-review. Operator approval, sponsor consent, actual funding reconciliation, and a reviewed transfer path are still required.',
+    }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+function approvedSponsorAgreementScopes() {
+  return String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(';').map((entry) => entry.trim()).filter(Boolean)
+    .map((entry) => {
+      const fields = entry.split('|')
+      if (fields.length !== 7) return null
+      const [reference, sponsorReference, network, sponsorAddress, purpose, asset, tokenContract] = fields
+      if (typeof reference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(reference)
+        || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorReference)
+        || !['mainnet', 'shasta', 'nile'].includes(network)
+        || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)
+        || !['network-fee', 'asset-grant'].includes(purpose)
+        || !['TRX', 'USDT', 'VTRC'].includes(asset)
+        || (purpose === 'network-fee' && asset !== 'TRX')
+        || (asset === 'TRX'
+          ? tokenContract !== '-'
+          : typeof tokenContract !== 'string'
+            || !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))) {
+        return null
+      }
+      return { reference, sponsorReference, network, sponsorAddress, purpose, asset, tokenContract }
+    })
+    .filter(Boolean)
+}
+
+export function isSponsorAgreementReferenceConfigured(reference) {
+  return typeof reference === 'string'
+    && approvedSponsorAgreementScopes().some((scope) => scope.reference === reference)
+}
+
+export function isApprovedSponsorAgreementScope({ consentReference, budget } = {}) {
+  if (typeof consentReference !== 'string' || !budget || typeof budget !== 'object') return false
+  return approvedSponsorAgreementScopes().some((scope) =>
+    scope.reference === consentReference
+      && scope.sponsorReference === budget.sponsor_reference
+      && scope.network === budget.network
+      && scope.sponsorAddress === budget.sponsor_address
+      && scope.purpose === budget.purpose
+      && scope.asset === budget.asset
+      && scope.tokenContract === (budget.token_contract || '-'))
+}
+
+/**
+ * Fetch one sponsor budget for operator review. All of its amounts remain
+ * ledger values, not independent chain balance evidence.
+ */
+export async function getSponsorBudgetById(budgetId) {
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)) {
+    return { success: false, reason: 'invalid-budget-id' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
+              token_contract, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference, approved_at, created_at, updated_at
+         FROM ${schema}.sponsor_budgets WHERE id = $1::bigint`,
+      [budgetId],
+    )
+    return result.rows.length
+      ? { success: true, budget: result.rows[0] }
+      : { success: false, reason: 'budget-not-found' }
+  } catch {
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Activates a pending-review budget only after a server-allowlisted sponsor
+ * agreement reference, operator review reference, and a fresh exact-network
+ * on-chain balance snapshot are provided. An advisory lock serializes activations
+ * for the same sponsor wallet/network/asset so parallel approvals cannot allocate
+ * the same chain balance twice. This never signs or submits a transaction.
+ */
+export async function activateSponsorBudget({
+  budgetId,
+  consentReference,
+  reviewReference,
+  fundingSnapshot,
+} = {}) {
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)
+    || typeof consentReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(consentReference)
+    || typeof reviewReference !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(reviewReference)) {
+    return { success: false, reason: 'invalid-activation-request' }
+  }
+  // Fast reject unknown references before doing provider or database work. The
+  // exact wallet/network/asset scope is checked against the locked row below.
+  if (!isSponsorAgreementReferenceConfigured(consentReference)) {
+    return { success: false, reason: 'agreement-reference-not-approved' }
+  }
+  if (!fundingSnapshot || fundingSnapshot.status !== 'solidified-sponsor-balances-read'
+    || fundingSnapshot.onChainBalanceRead !== true
+    || fundingSnapshot.cache?.status !== 'fresh'
+    || !['mainnet', 'shasta', 'nile'].includes(fundingSnapshot.network)
+    || fundingSnapshot.source !== 'Tatum TRON SolidityNode account and constant-contract queries'
+    || typeof fundingSnapshot.sponsorAddress !== 'string'
+    || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(fundingSnapshot.sponsorAddress)
+    || typeof fundingSnapshot.checkedAt !== 'string') {
+    return { success: false, reason: 'fresh-solidified-funding-snapshot-required' }
+  }
+  const checkedAtMs = Date.parse(fundingSnapshot.checkedAt)
+  const snapshotAgeMs = Date.now() - checkedAtMs
+  if (!Number.isFinite(checkedAtMs) || snapshotAgeMs < -5_000 || snapshotAgeMs > 15_000) {
+    return { success: false, reason: 'funding-snapshot-stale' }
+  }
+
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    // Read immutable allocation identity without locking the row first. Acquire
+    // the wallet/asset advisory lock before row locks, preventing two concurrent
+    // activations from deadlocking while each tries to lock the other's draft.
+    const identityResult = await client.query(
+      `SELECT id::text AS id, sponsor_address, network, asset, token_contract
+         FROM ${schema}.sponsor_budgets WHERE id = $1::bigint`,
+      [budgetId],
+    )
+    if (!identityResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-not-found' }
+    }
+    const identity = identityResult.rows[0]
+    if (identity.network !== fundingSnapshot.network
+      || identity.sponsor_address !== fundingSnapshot.sponsorAddress) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'funding-snapshot-identity-mismatch' }
+    }
+    if (identity.network === 'mainnet' && process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED !== 'true') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'mainnet-budget-activation-disabled' }
+    }
+    const lockIdentity = `sponsor-budget-activation:${identity.network}:${identity.sponsor_address}:${identity.asset}:${identity.token_contract || ''}`
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockIdentity])
+
+    const targetResult = await client.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
+              token_contract, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference, approved_at
+         FROM ${schema}.sponsor_budgets
+        WHERE id = $1::bigint
+        FOR UPDATE`,
+      [budgetId],
+    )
+    if (!targetResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-not-found' }
+    }
+    const budget = targetResult.rows[0]
+    if (budget.sponsor_address !== identity.sponsor_address
+      || budget.network !== identity.network
+      || budget.asset !== identity.asset
+      || budget.token_contract !== identity.token_contract) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-identity-changed' }
+    }
+    if (!isApprovedSponsorAgreementScope({ consentReference, budget })) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'agreement-reference-not-approved' }
+    }
+    if (budget.status === 'active') {
+      const sameApproval = budget.approval_reference === consentReference
+        && budget.review_reference === reviewReference
+        && budget.approved_at != null
+      await client.query('COMMIT')
+      return sameApproval
+        ? { success: true, duplicate: true, status: 'active', budgetId, canReserve: true }
+        : { success: false, reason: 'budget-already-active' }
+    }
+    if (budget.status !== 'pending-review') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: budget.status === 'paused' ? 'budget-paused' : 'budget-not-pending-review' }
+    }
+
+    let chainBalanceBaseUnits = null
+    if (budget.asset === 'TRX') {
+      const raw = fundingSnapshot.native?.balanceSun
+      if (fundingSnapshot.native?.status !== 'verified'
+        || typeof raw !== 'string' || !/^(0|[1-9][0-9]{0,77})$/.test(raw)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'exact-asset-balance-not-verified' }
+      }
+      chainBalanceBaseUnits = BigInt(raw)
+    } else {
+      const expectedDisplayAsset = budget.asset === 'USDT' && budget.network !== 'mainnet'
+        ? 'USDT (testnet)' : budget.asset
+      const token = Array.isArray(fundingSnapshot.tokens)
+        ? fundingSnapshot.tokens.find((item) => item?.tokenContract === budget.token_contract
+          && item?.asset === expectedDisplayAsset && item?.status === 'verified')
+        : null
+      if (!token || typeof token.balanceBaseUnits !== 'string'
+        || !/^(0|[1-9][0-9]{0,77})$/.test(token.balanceBaseUnits)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'exact-asset-balance-not-verified' }
+      }
+      if (budget.asset === 'USDT' && budget.network === 'mainnet' && token.decimals !== 6) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'official-mainnet-usdt-decimals-mismatch' }
+      }
+      chainBalanceBaseUnits = BigInt(token.balanceBaseUnits)
+    }
+
+    const commitments = await client.query(
+      `SELECT id::text AS id, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status
+         FROM ${schema}.sponsor_budgets
+        WHERE sponsor_address = $1 AND network = $2 AND asset = $3
+          AND token_contract IS NOT DISTINCT FROM $4 AND id <> $5::bigint
+        FOR UPDATE`,
+      [budget.sponsor_address, budget.network, budget.asset, budget.token_contract, budgetId],
+    )
+    let committedBaseUnits = BigInt(budget.budget_base_units) - BigInt(budget.spent_base_units)
+    for (const item of commitments.rows) {
+      const reserved = BigInt(item.reserved_base_units)
+      const spent = BigInt(item.spent_base_units)
+      const total = BigInt(item.budget_base_units)
+      // Active/paused budgets reserve their remaining cap. Inactive budgets only
+      // contribute actual outstanding reservations, not an unapproved draft cap.
+      committedBaseUnits += ['active', 'paused'].includes(item.status) ? total - spent : reserved
+    }
+    if (chainBalanceBaseUnits < committedBaseUnits) {
+      await client.query('ROLLBACK')
+      return {
+        success: false,
+        reason: 'insufficient-onchain-funding',
+        chainBalanceBaseUnits: chainBalanceBaseUnits.toString(),
+        requiredBaseUnits: committedBaseUnits.toString(),
+      }
+    }
+
+    await client.query(
+      `UPDATE ${schema}.sponsor_budgets
+          SET status = 'active', approval_reference = $1, review_reference = $2,
+              approved_at = now(), updated_at = now()
+        WHERE id = $3::bigint`,
+      [consentReference, reviewReference, budgetId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-budget-activated', 'sponsor-budget', $1, $2::jsonb)`,
+      [budgetId, JSON.stringify({
+        sponsorReference: budget.sponsor_reference,
+        network: budget.network,
+        purpose: budget.purpose,
+        asset: budget.asset,
+        tokenContract: budget.token_contract,
+        budgetBaseUnits: budget.budget_base_units,
+        chainBalanceBaseUnits: chainBalanceBaseUnits.toString(),
+        committedBaseUnits: committedBaseUnits.toString(),
+        consentReference,
+        reviewReference,
+        fundingCheckedAt: fundingSnapshot.checkedAt,
+        status: 'active',
+      })],
+    )
+    await client.query('COMMIT')
+    return {
+      success: true,
+      duplicate: false,
+      status: 'active',
+      budgetId,
+      canReserve: true,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      chainBalanceBaseUnits: chainBalanceBaseUnits.toString(),
+      committedBaseUnits: committedBaseUnits.toString(),
+    }
+  } catch {
+    await client.query('ROLLBACK').catch(() => {})
+    throw new Error('Sponsor budget activation failed')
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Atomically pause a sponsor budget and audit the operator reason. This is an
+ * emergency control only: it stops future reservations; it cannot reverse or
+ * cancel transfers already submitted to a blockchain.
+ */
+export async function pauseSponsorBudget({ budgetId, reasonCode } = {}) {
+  if (typeof budgetId !== 'string' || !/^[1-9][0-9]{0,18}$/.test(budgetId)
+    || !['operator-request', 'funding-mismatch', 'provider-incident', 'emergency-stop'].includes(reasonCode)) {
+    return { success: false, reason: 'invalid-pause-request' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const selection = await client.query(
+      `SELECT id::text AS id, sponsor_reference, network, purpose, asset, token_contract, status
+         FROM ${schema}.sponsor_budgets
+        WHERE id = $1::bigint
+        FOR UPDATE`,
+      [budgetId],
+    )
+    if (!selection.rows.length) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-not-found' }
+    }
+    const budget = selection.rows[0]
+    if (budget.status === 'paused') {
+      await client.query('COMMIT')
+      return { success: true, duplicate: true, status: 'paused', budgetId }
+    }
+    if (budget.status === 'depleted') {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'budget-already-depleted' }
+    }
+    await client.query(
+      `UPDATE ${schema}.sponsor_budgets
+          SET status = 'paused', updated_at = now()
+        WHERE id = $1::bigint`,
+      [budgetId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-budget-paused', 'sponsor-budget', $1, $2::jsonb)`,
+      [budgetId, JSON.stringify({
+        sponsorReference: budget.sponsor_reference,
+        network: budget.network,
+        purpose: budget.purpose,
+        asset: budget.asset,
+        previousStatus: budget.status,
+        status: 'paused',
+        reasonCode,
+      })],
+    )
+    await client.query('COMMIT')
+    return { success: true, duplicate: false, status: 'paused', budgetId, previousStatus: budget.status }
+  } catch {
+    await client.query('ROLLBACK').catch(() => {})
+    throw new Error('Sponsor budget pause failed')
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Return only the configured sponsor-ledger budget records for privileged operations.
+ * These are operator-set caps, not proof of live on-chain balances or funded resources.
+ */
+export async function listSponsorBudgets({ network = null, sponsorAddress = null, limit = 50 } = {}) {
+  if (network !== null && !normalizeVerificationNetwork(network)) {
+    return { success: false, reason: 'invalid-network', budgets: [] }
+  }
+  if (sponsorAddress !== null
+    && (typeof sponsorAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress))) {
+    return { success: false, reason: 'invalid-sponsor-address', budgets: [] }
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', budgets: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', budgets: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose,
+              asset, token_contract,
+              budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units,
+              (budget_base_units - reserved_base_units - spent_base_units)::text AS ledger_available_base_units,
+              status, approval_reference, review_reference, approved_at, created_at, updated_at
+         FROM ${schema}.sponsor_budgets
+        WHERE ($1::text IS NULL OR network = $1)
+          AND ($2::text IS NULL OR sponsor_address = $2)
+        ORDER BY updated_at DESC, id DESC
+        LIMIT $3`,
+      [network, sponsorAddress, limit],
+    )
+    return { success: true, budgets: result.rows }
+  } catch {
+    return { success: false, reason: 'database-unavailable', budgets: [] }
+  }
+}
+
+/**
+ * Read-only, bounded operator view of sponsor transfer lifecycle records.
+ * This does not transition states, release reservations, or submit transactions.
+ */
+export async function listSponsorTransfers({ network = null, status = null, sponsorReference = null, limit = 50 } = {}) {
+  if (network !== null && !normalizeVerificationNetwork(network)) {
+    return { success: false, reason: 'invalid-network', transfers: [] }
+  }
+  const allowedStatuses = new Set(['pending-review', 'authorized', 'submitted', 'confirmed', 'failed', 'cancelled'])
+  if (status !== null && (typeof status !== 'string' || !allowedStatuses.has(status))) {
+    return { success: false, reason: 'invalid-status', transfers: [] }
+  }
+  if (sponsorReference !== null
+    && (typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference))) {
+    return { success: false, reason: 'invalid-sponsor-reference', transfers: [] }
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', transfers: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', transfers: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, idempotency_key, sponsor_reference, network, purpose, asset,
+              token_contract, receiver_address, amount_base_units::text AS amount_base_units,
+              status, transaction_hash, authorization_reference, created_at, updated_at
+         FROM ${schema}.sponsor_transfers
+        WHERE ($1::text IS NULL OR network = $1)
+          AND ($2::text IS NULL OR status = $2)
+          AND ($3::text IS NULL OR sponsor_reference = $3)
+        ORDER BY updated_at DESC, id DESC
+        LIMIT $4`,
+      [network, status, sponsorReference, limit + 1],
+    )
+    const truncated = result.rows.length > limit
+    return { success: true, transfers: result.rows.slice(0, limit), truncated }
+  } catch {
+    return { success: false, reason: 'database-unavailable', transfers: [] }
+  }
+}
+
 /** Return bounded persisted receiver-history records. Indexed rows are candidates
  * unless the worker has independently verified a solidified receipt. */
 export async function listPersistedReceiverHistory({ network, address, contract = null, limit = 50 } = {}) {
