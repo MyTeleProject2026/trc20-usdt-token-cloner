@@ -20,6 +20,10 @@ function normalizeHexAddress(value) {
   return (hex.length === 42 && /^41/i.test(hex) ? hex.slice(2) : hex).toLowerCase();
 }
 
+export function isCanonicalMainnetUsdtContract(network, contract) {
+  return network === 'mainnet' && normalizeHexAddress(contract) === OFFICIAL_MAINNET_USDT_HEX;
+}
+
 async function persistVerification(input) {
   try {
     return await recordTransferVerification(input)
@@ -206,8 +210,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   // Verification of the fixed official USDT contract is safely enabled on
   // Mainnet without an environment override. No other contract is implicitly
   // trusted, and this exception must never apply to Shasta or Nile.
-  const isOfficialMainnetUsdt = network === 'mainnet'
-    && normalizedContract === OFFICIAL_MAINNET_USDT_HEX
+  const isOfficialMainnetUsdt = isCanonicalMainnetUsdtContract(network, contract)
   if (!isOfficialMainnetUsdt && !approvedContracts.length) {
     return res.status(503).json({ success: false, error: 'verified-token-allowlist-not-configured', message: 'Configure TRON_VERIFIED_TOKEN_CONTRACTS with reviewed contract addresses before verifying transfers for non-default token contracts.' })
   }
