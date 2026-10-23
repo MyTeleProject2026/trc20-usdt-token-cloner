@@ -52,3 +52,14 @@ test('transfer records require a valid transaction hash from the wallet or node'
   assert.match(app, /typeof txid !== 'string' \|\| !\/\^\[0-9a-fA-F\]\{64\}\$\/.test\(txid\)/)
   assert.match(app, /do not blindly resend/)
 })
+
+
+test('TronLink account or network changes invalidate stale transfer and balance state', () => {
+  assert.match(app, /provider\.on\('accountsChanged', onAccountsChanged\)/)
+  assert.match(app, /provider\.on\('chainChanged', onChainChanged\)/)
+  assert.match(app, /setWalletConnected\(false\)/)
+  assert.match(app, /setNativeTransferRecord\(null\)/)
+  assert.match(app, /setTokenTransferRecord\(null\)/)
+  assert.match(app, /provider\.removeListener\?\.\('accountsChanged', onAccountsChanged\)/)
+  assert.match(app, /provider\.removeListener\?\.\('chainChanged', onChainChanged\)/)
+})
