@@ -2,6 +2,7 @@ import { recordNativeTransferVerification, listPersistedReceiverHistory, registe
 import { timingSafeEqual } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 
 import { Router } from 'express'
 
@@ -279,6 +280,96 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
       success: false,
       error: 'sponsor-budget-activation-unavailable',
       message: 'Could not complete sponsor budget activation. The budget was not reported active.',
+    })
+  }
+})
+
+// Read-only reconciliation compares the current chain snapshot with every
+// sponsor budget on the selected network. It never changes budget rows.
+router.get('/sponsorship/reconciliation', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({ success: false, error: 'unauthorized', message: 'A valid sponsor ledger administrator token is required.' })
+  }
+  const network = req.query?.network
+  if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
+    return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+  }
+
+  try {
+    const fundingSnapshot = await readSponsorFundingStatus(network, { refresh: true })
+    if (fundingSnapshot?.cache?.status !== 'fresh') {
+      return res.status(503).json({
+        success: false,
+        error: 'funding-snapshot-refresh-throttled',
+        retryAfterMs: Math.max(0, Number(fundingSnapshot?.retryAfterMs) || 0),
+        message: 'A fresh solidified balance snapshot is required. Wait for the per-network refresh interval and retry; no stale snapshot was used for reconciliation.',
+      })
+    }
+    if (fundingSnapshot?.onChainBalanceRead !== true) {
+      return res.status(503).json({
+        success: false,
+        error: 'fresh-sponsor-balance-unavailable',
+        message: 'The sponsor balance could not be verified on this network. The ledger was not reported as covered.',
+      })
+    }
+
+    const ledger = await listSponsorBudgets({ network, limit: 100 })
+    if (!ledger.success) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-budget-ledger-unavailable',
+        reason: ledger.reason,
+      })
+    }
+    // A full page may be truncated; do not say "covered" unless every budget
+    // on this network can be included in the reconciliation.
+    if (ledger.budgets.length >= 100) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-budget-ledger-truncated',
+        message: 'There are at least 100 sponsor budget records for this network. Narrow the ledger query or add pagination before reconciliation; coverage has not been asserted.',
+      })
+    }
+
+    const budgets = ledger.budgets.map((budget) => ({
+      ...budget,
+      approvalScopeVerified: budget.status === 'active'
+        && typeof budget.review_reference === 'string'
+        && budget.review_reference.length > 0
+        && isApprovedSponsorAgreementScope({
+          consentReference: budget.approval_reference,
+          budget,
+        }),
+    }))
+    const reconciliation = reconcileSponsorBudgets({
+      network,
+      fundingSnapshot,
+      budgets,
+    })
+    return res.status(200).json({
+      success: reconciliation.success,
+      status: reconciliation.status,
+      reconciliation,
+      source: 'read-only Tatum solidified chain snapshot + TRON Token Studio sponsor ledger',
+      limitations: [
+        'The result is a point-in-time reconciliation; funds may move after the snapshot.',
+        'Active budgets lacking an exact current agreement approval are flagged, not treated as eligible.',
+        'A covered ledger does not verify signing authority or authorize a transaction.',
+        'No budget or transfer row was changed, and no transaction was signed or submitted.',
+      ],
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-reconciliation-unavailable',
+      message: 'Could not complete sponsor funding reconciliation. No budget was changed.',
     })
   }
 })
