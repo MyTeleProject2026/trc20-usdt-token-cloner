@@ -62,6 +62,10 @@ test('TronLink account or network changes invalidate stale transfer and balance 
   assert.match(app, /setTokenTransferRecord\(null\)/)
   assert.match(app, /provider\.removeListener\?\.\('accountsChanged', onAccountsChanged\)/)
   assert.match(app, /provider\.removeListener\?\.\('chainChanged', onChainChanged\)/)
+  assert.match(app, /provider\.on\('disconnect', onDisconnected\)/)
+  assert.match(app, /provider\.on\('lock', onLocked\)/)
+  assert.match(app, /provider\.removeListener\?\.\('disconnect', onDisconnected\)/)
+  assert.match(app, /provider\.removeListener\?\.\('lock', onLocked\)/)
 })
 
 
@@ -88,6 +92,8 @@ test('native and token transfers revalidate live TronLink account/network before
 test('connection requires recognized TronLink identity and the standard authorization prompt', () => {
   assert.match(app, /provider\.isTronLink !== true/)
   assert.match(app, /provider\.request\(\{ method: 'eth_requestAccounts' \}\)/)
+  assert.match(app, /const authorizedAccounts = await provider\.request\(\{ method: 'eth_requestAccounts' \}\)/)
+  assert.match(app, /authorizedAccounts\[0\] !== tronWeb\.defaultAddress\.base58/)
   assert.match(app, /No transfer will be signed by an unverified provider/)
 })
 
