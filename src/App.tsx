@@ -48,6 +48,13 @@ export default function App() {
     error?: string
     preparedPayload?: any
   } | null>(null)
+  const [deployVerifyLoading, setDeployVerifyLoading] = useState(false)
+  const [deployVerifyResult, setDeployVerifyResult] = useState<{
+    status: 'verified' | 'pending' | 'failed'
+    message: string
+    contractAddress?: string
+    txId?: string
+  } | null>(null)
 
   // Interact state
   const [contractAddress, setContractAddress] = useState('')
@@ -105,6 +112,7 @@ export default function App() {
     // explicit reconnect and discard network-specific account details before
     // any subsequent transfer or balance lookup.
     setTronBlock(null)
+    setDeployVerifyResult(null)
     setWalletConnected(false)
     setAccountData(null)
     setWalletAddress('')
@@ -312,6 +320,106 @@ export default function App() {
       setDeployResult({ success: false, error: 'deployment-failed', message: err?.message || 'Deployment failed. Check the selected Shasta network, TronLink approval, testnet resources, and fee limit.' })
     } finally {
       setDeploying(false)
+    }
+  }
+
+  const handleVerifyDeployment = async () => {
+    const txId = deployResult?.txId?.trim()
+    const expectedAddress = deployResult?.contractAddress?.trim()
+    if (network !== 'shasta') {
+      setDeployVerifyResult({ status: 'failed', message: 'Deployment verification is restricted to Shasta for this test deployment.' })
+      return
+    }
+    if (!txId || !/^[0-9a-fA-F]{64}$/.test(txId) || !expectedAddress) {
+      setDeployVerifyResult({ status: 'failed', message: 'The deployment response did not include a valid transaction ID and contract address. Check TronLink activity before retrying.' })
+      return
+    }
+
+    setDeployVerifyLoading(true)
+    setDeployVerifyResult(null)
+    try {
+      const fullHost = 'https://api.shasta.trongrid.io'
+      const infoResponse = await fetch(`${fullHost}/walletsolidity/gettransactioninfobyid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: txId }),
+      })
+      if (!infoResponse.ok) throw new Error(`Shasta solidity endpoint returned HTTP ${infoResponse.status}.`)
+      const info = await infoResponse.json()
+      if (!info || typeof info !== 'object' || Object.keys(info).length === 0) {
+        setDeployVerifyResult({
+          status: 'pending',
+          txId,
+          contractAddress: expectedAddress,
+          message: 'The deployment is not available from the solidified Shasta endpoint yet. It is not marked verified; wait for confirmation and check again.',
+        })
+        return
+      }
+      if (String(info.result || '').toUpperCase() === 'FAILED'
+        || String(info.receipt?.result || '').toUpperCase() === 'FAILED') {
+        setDeployVerifyResult({
+          status: 'failed',
+          txId,
+          contractAddress: expectedAddress,
+          message: `The solidified transaction reports failure${info.resMessage ? `: ${String(info.resMessage).slice(0, 180)}` : ''}. Do not rely on this contract address.`,
+        })
+        return
+      }
+      if (String(info.receipt?.result || '').toUpperCase() !== 'SUCCESS') {
+        setDeployVerifyResult({
+          status: 'pending',
+          txId,
+          contractAddress: expectedAddress,
+          message: 'The solidified receipt is not yet confirmed as SUCCESS. The deployment remains unverified.',
+        })
+        return
+      }
+
+      const returnedAddress = typeof info.contract_address === 'string' && info.contract_address
+        ? (info.contract_address.startsWith('T') ? info.contract_address : new TronWeb({ fullHost }).address.fromHex(info.contract_address))
+        : ''
+      if (!returnedAddress || returnedAddress !== expectedAddress) {
+        setDeployVerifyResult({
+          status: 'failed',
+          txId,
+          contractAddress: expectedAddress,
+          message: 'The solidified receipt did not confirm the same contract address returned by deployment. Treat this deployment as unverified.',
+        })
+        return
+      }
+
+      const contractResponse = await fetch(`${fullHost}/wallet/getcontract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: returnedAddress, visible: true }),
+      })
+      if (!contractResponse.ok) throw new Error(`Shasta contract lookup returned HTTP ${contractResponse.status}.`)
+      const contractData = await contractResponse.json()
+      const bytecode = typeof contractData?.bytecode === 'string' ? contractData.bytecode.replace(/^0x/i, '') : ''
+      if (!bytecode || !/[1-9a-f]/i.test(bytecode)) {
+        setDeployVerifyResult({
+          status: 'pending',
+          txId,
+          contractAddress: returnedAddress,
+          message: 'The receipt succeeded, but contract bytecode is not visible from the Shasta node yet. Check again before relying on the deployment.',
+        })
+        return
+      }
+      setDeployVerifyResult({
+        status: 'verified',
+        txId,
+        contractAddress: returnedAddress,
+        message: 'Verified on Shasta: the solidified receipt is SUCCESS, the confirmed contract address matches, and deployed bytecode is available.',
+      })
+    } catch (err: any) {
+      setDeployVerifyResult({
+        status: 'pending',
+        txId,
+        contractAddress: expectedAddress,
+        message: err?.message || 'Could not verify the deployment against the solidified Shasta node. No verified status was recorded.',
+      })
+    } finally {
+      setDeployVerifyLoading(false)
     }
   }
 
@@ -1089,7 +1197,39 @@ export default function App() {
                       <div className="w-full">
                         <p className="text-sm font-semibold text-utility-success-600">Contract Deployed Successfully!</p>
                         {deployResult.txId && (
-                          <div className="mt-sm flex items-center justify-between rounded-md bg-primary p-sm text-xs font-mono border border-primary">
+                          <div className="mt-sm flex flex-col gap-sm rounded-md bg-primary p-sm border border-primary">
+                            <div className="flex items-start justify-between gap-sm text-xs font-mono">
+                              <span className="break-all">Tx Hash: {deployResult.txId}</span>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(deployResult.txId || '', 'tx')}
+                                className="text-tertiary hover:text-primary focus-visible:ring-2 focus-visible:ring-focus-ring"
+                                aria-label="Copy deployment transaction hash"
+                              >
+                                <Copy className="size-4 shrink-0 text-fg-quaternary" />
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleVerifyDeployment}
+                              disabled={deployVerifyLoading}
+                              className="self-start rounded-md border border-primary px-sm py-xs text-xs font-semibold text-brand-primary disabled:opacity-50"
+                            >
+                              {deployVerifyLoading ? 'Checking solidified receipt…' : 'Verify on-chain deployment'}
+                            </button>
+                            {deployVerifyResult && (
+                              <div className="rounded-md border border-secondary p-sm text-xs" role="status" aria-live="polite">
+                                <p className="font-semibold">
+                                  {deployVerifyResult.status === 'verified' ? 'On-chain deployment verified' : deployVerifyResult.status === 'pending' ? 'Deployment not yet verified' : 'Deployment verification failed'}
+                                </p>
+                                <p className="mt-xs text-secondary">{deployVerifyResult.message}</p>
+                                {deployVerifyResult.contractAddress && (
+                                  <p className="mt-xs break-all font-mono">Contract: {deployVerifyResult.contractAddress}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                             <span>Tx Hash: {deployResult.txId}</span>
                             <button
                               type="button"
