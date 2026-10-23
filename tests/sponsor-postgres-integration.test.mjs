@@ -28,14 +28,14 @@ const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
 async function setup() {
-  const { initializeDatabase, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets } =
+  const { initializeDatabase, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   const readiness = await initializeDatabase()
   assert.equal(readiness.ready, true)
   const identity = await pool.query('SELECT current_database() AS name')
   assert.equal(identity.rows[0].name, 'sponsor_test', 'tests must only touch the dedicated sponsor_test database')
-  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets }
+  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget }
 }
 
 async function insertBudget(pool, sponsorReference, budgetBaseUnits) {
@@ -77,12 +77,13 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
 test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempotent', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
-  const { pool, createSponsorBudgetDraft, listSponsorBudgets } = await setup()
+  const { pool, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget } = await setup()
   const suffix = randomUUID()
   const sponsorReference = `pg-draft-${suffix}`
   const amount = '123456789'
+  let created = null
   try {
-    const created = await createSponsorBudgetDraft({
+    created = await createSponsorBudgetDraft({
       sponsorReference,
       network,
       purpose: 'asset-grant',
@@ -128,11 +129,40 @@ test('PostgreSQL sponsor budget drafts are audited, pending-review, and idempote
     assert.equal(audit.rows[0].event_type, 'sponsor-budget-draft-created')
     assert.equal(audit.rows[0].details.status, 'pending-review')
     assert.equal(audit.rows[0].details.budgetBaseUnits, amount)
+
+    const paused = await pauseSponsorBudget({ budgetId: created.budget.id, reasonCode: 'funding-mismatch' })
+    assert.deepEqual(paused, {
+      success: true,
+      duplicate: false,
+      status: 'paused',
+      budgetId: created.budget.id,
+      previousStatus: 'pending-review',
+    })
+    const repeatedPause = await pauseSponsorBudget({ budgetId: created.budget.id, reasonCode: 'funding-mismatch' })
+    assert.deepEqual(repeatedPause, {
+      success: true, duplicate: true, status: 'paused', budgetId: created.budget.id,
+    })
+
+    const afterPause = await listSponsorBudgets({ network, limit: 100 })
+    const pausedBudget = afterPause.budgets.find((item) => item.sponsor_reference === sponsorReference)
+    assert.equal(pausedBudget.status, 'paused')
+    assert.equal(pausedBudget.ledger_available_base_units, amount)
+
+    const pauseAudit = await pool.query(
+      `SELECT event_type, details FROM trc20_token_clone.audit_events
+        WHERE entity_type = 'sponsor-budget' AND entity_reference = $1`,
+      [created.budget.id],
+    )
+    assert.equal(pauseAudit.rows.length, 1)
+    assert.equal(pauseAudit.rows[0].event_type, 'sponsor-budget-paused')
+    assert.equal(pauseAudit.rows[0].details.reasonCode, 'funding-mismatch')
+    assert.equal(pauseAudit.rows[0].details.previousStatus, 'pending-review')
   } finally {
     await pool.query(
       `DELETE FROM trc20_token_clone.audit_events
-        WHERE entity_type = 'sponsor-budget' AND entity_reference LIKE $1`,
-      [`${sponsorReference}:%`],
+        WHERE entity_type = 'sponsor-budget'
+          AND (entity_reference LIKE $1 OR entity_reference = $2)`,
+      [`${sponsorReference}:%`, created?.budget?.id ?? '0'],
     )
     await pool.query(
       'DELETE FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1',
