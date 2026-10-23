@@ -26,6 +26,7 @@ test('Mainnet USDT sending is restricted to the official TRON contract and six d
   assert.match(app, /selectedAsset === 'USDT' && contractAddress\.trim\(\) !== OFFICIAL_MAINNET_USDT_CONTRACT/)
   assert.match(app, /selectedAsset === 'USDT' && decimals !== 6/)
   assert.match(app, /selectedAsset === 'USDT' && tokenSymbolValue\.toUpperCase\(\) !== 'USDT'/)
+  assert.match(app, /if \(selectedAsset === 'VTRC' && network !== 'shasta'\) throw new Error/)
   assert.match(app, /setContractAddress\(OFFICIAL_MAINNET_USDT_CONTRACT\)/)
 })
 
