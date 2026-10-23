@@ -344,3 +344,38 @@ test('sponsor funding reader rejects official USDT decimal mismatch', async () =
   assert.equal(result.tokens[0].status, 'unavailable')
   assert.equal(Object.hasOwn(result.tokens[0], 'balanceBaseUnits'), false)
 })
+
+
+test('sponsor funding reader rejects imprecise JSON numeric balances', async () => {
+  const reader = createSponsorFundingReader({
+    env: { TATUM_API_KEY: 'server-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ address: '41' + hex, balance: Number.MAX_SAFE_INTEGER + 2 }),
+    }),
+  })
+  const result = await reader('nile')
+  assert.equal(result.status, 'solidified-balance-read-failed')
+  assert.equal(result.onChainBalanceRead, false)
+  assert.equal(Object.hasOwn(result, 'native'), false)
+})
+
+test('sponsor funding reader briefly caches provider failures to avoid retry storms', async () => {
+  let calls = 0
+  const reader = createSponsorFundingReader({
+    env: { TATUM_API_KEY: 'server-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    fetchImpl: async () => {
+      calls += 1
+      return { ok: false, status: 503 }
+    },
+  })
+  const first = await reader('nile')
+  assert.equal(first.status, 'solidified-balance-read-failed')
+  assert.equal(first.cache.status, 'fresh')
+  const second = await reader('nile')
+  assert.equal(second.status, 'solidified-balance-read-failed')
+  assert.equal(second.cache.status, 'cached')
+  assert.equal(calls, 1, 'recent provider errors should be briefly cached instead of retried for every caller')
+})
