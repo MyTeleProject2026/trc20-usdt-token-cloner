@@ -78,6 +78,7 @@ export function createSponsorResourceDelegationVerifier({
       const post = async (path, body) => {
         const response = await fetchImpl(host + path, {
           method: 'POST',
+          redirect: 'error',
           headers,
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(timeoutMs),
