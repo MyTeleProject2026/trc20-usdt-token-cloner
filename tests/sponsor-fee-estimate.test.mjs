@@ -34,6 +34,8 @@ function createHarness({
     SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
     SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
   },
+  delegationPayload = { delegatedResource: [] },
+  delegationResponseOk = true,
 } = {}) {
   const calls = []
   const router = createSponsorFeeEstimateRouter({
@@ -41,6 +43,9 @@ function createHarness({
     tronWebFactory: async () => fakeTronWeb(),
     fetchImpl: async (url, init) => {
       calls.push({ url, init })
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
+        return { ok: delegationResponseOk, status: delegationResponseOk ? 200 : 503, json: async () => delegationPayload }
+      }
       if (url.endsWith('/wallet/triggerconstantcontract')) {
         return { ok: true, json: async () => ({ result: { result: true }, energy_used: energyRequired }) }
       }
@@ -157,6 +162,68 @@ test('labels an allowlisted USDT-like testnet contract as a testnet contract', a
   assert.equal(result.statusCode, 200)
   assert.equal(result.payload.asset, 'USDT (testnet contract)')
   assert.equal(result.payload.network, 'shasta')
+})
+
+test('reads live solidified fee-to-principal resource delegation separately from the transaction audit', async () => {
+  const expires = Date.now() + 60_000
+  const { router, calls } = createHarness({
+    env: {
+      SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
+      TATUM_API_KEY: 'server-only-test-key',
+    },
+    delegationPayload: {
+      delegatedResource: [{
+        from: feeHex,
+        to: assetHex,
+        frozen_balance_for_energy: '6000000',
+        frozen_balance_for_bandwidth: '3000000',
+        expire_time_for_energy: 0,
+        expire_time_for_bandwidth: expires,
+      }],
+    },
+  })
+  const result = await invoke(router, validBody())
+  assert.equal(result.statusCode, 200)
+  const delegation = result.payload.estimation.feeSponsorResourceDelegation
+  assert.equal(delegation.success, true)
+  assert.equal(delegation.status, 'solidified-delegation-state-read')
+  assert.equal(delegation.activeEnergyStakeSun, '6000000')
+  assert.equal(delegation.activeBandwidthStakeSun, '3000000')
+  assert.equal(delegation.activeBandwidthExpiry, expires)
+  assert.equal(delegation.transactionAuditVerified, false)
+  assert.equal(result.payload.estimation.resourceDelegationVerified, false)
+  assert.equal(result.payload.canSubmitSponsoredTransfer, false)
+  assert.ok(calls.some((call) => call.url.endsWith('/walletsolidity/getdelegatedresourcev2')))
+  assert.ok(calls.every((call) => !JSON.stringify(call).includes('server-only-test-key')))
+})
+
+test('distinguishes a successful solidified read with no delegation from an unavailable read', async () => {
+  const withNoDelegation = createHarness({
+    env: {
+      SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
+      TATUM_API_KEY: 'server-only-test-key',
+    },
+    delegationPayload: { delegatedResource: [] },
+  })
+  const empty = await invoke(withNoDelegation.router, validBody())
+  assert.equal(empty.payload.estimation.feeSponsorResourceDelegation.success, true)
+  assert.equal(empty.payload.estimation.feeSponsorResourceDelegation.status, 'solidified-no-delegation-observed')
+  assert.equal(empty.payload.estimation.feeSponsorResourceDelegation.activeEnergyStakeSun, '0')
+  assert.equal(empty.payload.estimation.feeSponsorResourceDelegation.activeBandwidthStakeSun, '0')
+
+  const unavailable = createHarness({
+    env: {
+      SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
+      TATUM_API_KEY: 'server-only-test-key',
+    },
+    delegationResponseOk: false,
+  })
+  const failed = await invoke(unavailable.router, validBody())
+  assert.equal(failed.payload.estimation.feeSponsorResourceDelegation.success, false)
+  assert.equal(failed.payload.estimation.feeSponsorResourceDelegation.status, 'solidified-delegation-read-unavailable')
 })
 
 test('does not count fee sponsor resources as delegated energy for the principal sponsor', async () => {
