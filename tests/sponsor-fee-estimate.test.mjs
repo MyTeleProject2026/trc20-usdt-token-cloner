@@ -26,12 +26,16 @@ function fakeTronWeb() {
   }
 }
 
-function createHarness({ energyRequired = '10000', principalEnergy = '4000', feeSponsorEnergy = '50000' } = {}) {
-  const calls = []
-  const env = {
+function createHarness({
+  energyRequired = '10000',
+  principalEnergy = '4000',
+  feeSponsorEnergy = '50000',
+  env = {
     SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
     SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
-  }
+  },
+} = {}) {
+  const calls = []
   const router = createSponsorFeeEstimateRouter({
     env,
     tronWebFactory: async () => fakeTronWeb(),
@@ -134,6 +138,25 @@ test('estimates current-node TRC-20 energy and reports shortfall without claimin
   assert.equal(result.payload.transactionBroadcast, false)
   assert.equal(calls.length, 4)
   assert.ok(calls.every((call) => call.url.startsWith('https://api.trongrid.io/')))
+})
+
+test('labels an allowlisted USDT-like testnet contract as a testnet contract', async () => {
+  const { router } = createHarness({
+    env: {
+      SPONSOR_ASSET_SHASTA_ADDRESS: assetSponsor,
+      SPONSOR_FEE_SHASTA_ADDRESS: feeSponsor,
+      SPONSOR_USDT_SHASTA_CONTRACTS: assetSponsor,
+    },
+  })
+  const result = await invoke(router, {
+    network: 'shasta',
+    tokenContract: assetSponsor,
+    receiverAddress: receiver,
+    amountBaseUnits: '1000000',
+  })
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.payload.asset, 'USDT (testnet contract)')
+  assert.equal(result.payload.network, 'shasta')
 })
 
 test('does not count fee sponsor resources as delegated energy for the principal sponsor', async () => {
