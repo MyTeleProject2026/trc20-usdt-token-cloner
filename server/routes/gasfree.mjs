@@ -312,13 +312,15 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
       const providerListed = Boolean(provider)
       const tokenSupported = token?.supported === true
       const accountAllowsSubmit = account.allowSubmit === true
+      const accountTokenListed = Boolean(accountAsset)
       const transferPolicyPreflightPassed = providerListed && tokenSupported
-        && accountAllowsSubmit && tokenFeePolicyCompatible
+        && accountTokenListed && accountAllowsSubmit && tokenFeePolicyCompatible
 
       const blockers = []
       if (!providerListed) blockers.push('selected-service-provider-not-listed')
       if (!token) blockers.push('token-contract-not-listed-by-provider')
       else if (!tokenSupported) blockers.push('token-not-supported-by-provider')
+      if (!accountTokenListed) blockers.push('token-not-enabled-on-provider-account')
       if (!accountAllowsSubmit) blockers.push('provider-account-does-not-allow-submit')
       if (!feeDataKnown) blockers.push('token-fee-metadata-incomplete')
       else if (!tokenFeePolicyCompatible) blockers.push('token-denominated-fees-conflict-with-external-sponsor-only-policy')
@@ -343,6 +345,7 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
         providerListed,
         tokenListed: Boolean(token),
         tokenSupported,
+        accountTokenListed,
         account: {
           active: account.active === true,
           allowSubmit: accountAllowsSubmit,
