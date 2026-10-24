@@ -100,9 +100,10 @@ Run these read-only checks after the backend restarts:
 1. `GET /health` — confirms the web service responds.
 2. `GET /api/readiness` — checks the database and authenticated read-only Tatum request.
 3. `GET /api/tron/sponsorship/status` — must honestly show sponsorship unavailable/disabled until the real adapter and approvals exist.
-4. `GET /api/tron/sponsorship/roles?network=nile&refresh=1` — reads two role-specific sponsor-account diagnostics, if both addresses are configured.
-5. `GET /api/gasfree/config-status` — reports credential presence only.
-6. `GET /api/gasfree/capabilities?network=nile` — when credentials are present, tests documented provider discovery; this is not funding or send authorization.
+4. `GET /api/tron/sponsorship/integration-readiness` — reports configured-variable/address-format booleans without returning secrets or public addresses. It must remain `preflight-only-not-production-ready` with submission disabled.
+5. `GET /api/tron/sponsorship/roles?network=nile&refresh=1` — reads two role-specific sponsor-account diagnostics, if both addresses are configured.
+6. `GET /api/gasfree/config-status` — reports credential presence only.
+7. `GET /api/gasfree/capabilities?network=nile` — when credentials are present, tests documented provider discovery; this is not funding or send authorization.
 
 A 200 response from a status/readiness/capabilities route is not evidence of a sponsored transfer.
 Never submit a mainnet transaction as a configuration test. First pass automated CI, then conduct
