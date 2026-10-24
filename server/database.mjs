@@ -1007,11 +1007,20 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
     || !validSponsorTransitionStatus(nextStatus)) {
     return { updated: false, reason: 'invalid-transition' }
   }
-  if (nextStatus === 'authorized' && (typeof authorizationReference !== 'string' || !authorizationReference.trim())) {
-    return { updated: false, reason: 'authorization-reference-required' }
+
+  // Do not let an opaque operator-supplied string stand in for a cryptographically
+  // verified wallet authorization. The live wallet-signature verification and
+  // nonce-replay storage path has not been integrated, so no new intent may enter
+  // the authorized state.
+  if (nextStatus === 'authorized') {
+    return { updated: false, reason: 'wallet-signature-verification-not-integrated' }
   }
-  if (nextStatus === 'submitted' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
-    return { updated: false, reason: 'submitted-transaction-hash-required' }
+
+  // A caller-supplied transaction hash is not proof that a provider actually
+  // accepted or broadcast a transfer. Until a provider submission adapter records
+  // its own result, no new transition may claim that a transfer was submitted.
+  if (nextStatus === 'submitted') {
+    return { updated: false, reason: 'provider-submission-adapter-disabled' }
   }
   if (nextStatus === 'confirmed' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
     return { updated: false, reason: 'finalized-transaction-hash-required' }
