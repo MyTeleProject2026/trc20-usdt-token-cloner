@@ -213,6 +213,15 @@ export function createSponsorFeeEstimateRouter({
       }
       const principalResources = parseResources(principalResourcesPayload)
       const feeSponsorResources = parseResources(feeSponsorResourcesPayload)
+      const feeSponsorResourceDelegation = await readFeeSponsorDelegationSnapshot({
+        env,
+        fetchImpl,
+        timeoutMs,
+        network,
+        tronWeb,
+        feeSponsorAddress,
+        principalSponsorAddress: assetSponsorAddress,
+      })
       // The unsigned raw_data length is exact for this draft. Include its
       // outer protobuf tag/length and one 65-byte signature field/tag/length.
       const unsignedRawDataBytes = rawDataHex.length / 2
@@ -254,6 +263,7 @@ export function createSponsorFeeEstimateRouter({
             availableFreeBandwidth: feeSponsorResources.availableFreeBandwidth,
             availableEnergy: feeSponsorResources.availableEnergy,
           },
+          feeSponsorResourceDelegation,
           totalPrincipalSponsorBandwidth: availableBandwidth.toString(),
           estimatedBandwidthShortfallBytes,
           estimatedBandwidthFeeSun,
@@ -264,7 +274,11 @@ export function createSponsorFeeEstimateRouter({
         },
         blockers: [
           'signature-and-exact-final-serialized-byte-size-not-yet-known',
-          'fee-sponsor-bandwidth-delegation-not-verified',
+          ...(feeSponsorResourceDelegation.success !== true
+            || BigInt(feeSponsorResourceDelegation.activeBandwidthStakeSun || '0') === 0n
+            ? ['fee-sponsor-bandwidth-delegation-not-observed']
+            : []),
+          'delegation-transaction-not-independently-audited',
           'provider-signing-and-broadcast-adapter-disabled',
         ],
         canSubmitSponsoredTransfer: false,
@@ -417,6 +431,15 @@ export function createSponsorFeeEstimateRouter({
       }
       const principalResources = parseResources(principalResourcesPayload)
       const feeSponsorResources = parseResources(feeSponsorResourcesPayload)
+      const feeSponsorResourceDelegation = await readFeeSponsorDelegationSnapshot({
+        env,
+        fetchImpl,
+        timeoutMs,
+        network,
+        tronWeb,
+        feeSponsorAddress,
+        principalSponsorAddress: assetSponsorAddress,
+      })
       const energyShortfall = BigInt(energyRequired) > BigInt(principalResources.availableEnergy)
         ? (BigInt(energyRequired) - BigInt(principalResources.availableEnergy)).toString()
         : '0'
@@ -447,12 +470,21 @@ export function createSponsorFeeEstimateRouter({
           totalNetworkFeeEstimated: false,
           principalSponsorResources: principalResources,
           feeSponsorResources: feeSponsorResources,
+          feeSponsorResourceDelegation,
           feeSponsorResourcesCountedTowardPrincipalTransfer: false,
           resourceDelegationVerified: false,
         },
         blockers: [
           ...(BigInt(energyShortfall) > 0n ? ['principal-sponsor-energy-shortfall'] : []),
-          'fee-sponsor-resource-delegation-not-verified',
+          ...(feeSponsorResourceDelegation.success !== true
+            || BigInt(feeSponsorResourceDelegation.activeEnergyStakeSun || '0') === 0n
+            ? ['fee-sponsor-energy-delegation-not-observed']
+            : []),
+          ...(feeSponsorResourceDelegation.success !== true
+            || BigInt(feeSponsorResourceDelegation.activeBandwidthStakeSun || '0') === 0n
+            ? ['fee-sponsor-bandwidth-delegation-not-observed']
+            : []),
+          'delegation-transaction-not-independently-audited',
           'exact-signed-transaction-bandwidth-not-estimated',
           'dynamic-energy-and-contract-resource-sharing-may-change-actual-cost',
           'provider-signing-and-broadcast-adapter-disabled',
