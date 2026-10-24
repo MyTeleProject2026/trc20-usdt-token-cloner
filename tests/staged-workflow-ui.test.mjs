@@ -41,7 +41,7 @@ test('wallet inspection is testnet-only and uses real read-only balance endpoint
 })
 
 test('the UI never submits a transfer or promises sponsor payment while backend capability is disabled', () => {
-  assert.ok(app.includes('sponsored transfer submission disabled'))
+  assert.ok(app.includes('sponsored submission disabled'))
   assert.ok(app.includes('No sender-funded fallback'))
   assert.ok(app.includes('Sponsored transfer unavailable'))
   assert.ok(app.includes('disabled aria-disabled="true"'))
