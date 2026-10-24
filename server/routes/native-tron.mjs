@@ -349,6 +349,29 @@ router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
     || typeof body.stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,15}$/.test(body.stakeEquivalentSun)) {
     return res.status(400).json({ success: false, verified: false, error: 'invalid-delegation-details', message: 'The resource-delegation record is malformed; no record was written.' })
   }
+  // Only record delegations from the configured fee sponsor for this exact network.
+  // Do not let a caller classify an arbitrary wallet's delegation as sponsor activity.
+  const sponsorAddressEnvironment = `SPONSOR_FEE_${body.network.toUpperCase()}_ADDRESS`
+  const configuredFeeSponsor = process.env[sponsorAddressEnvironment]?.trim()
+  if (!configuredFeeSponsor || !addressPattern.test(configuredFeeSponsor)) {
+    return res.status(503).json({
+      success: false,
+      verified: false,
+      error: 'fee-sponsor-address-not-configured',
+      requiredEnvironment: [sponsorAddressEnvironment],
+      persistence: { persisted: false, reason: 'authorized-sponsor-not-configured' },
+      message: 'Configure the network-specific fee-sponsor address before recording resource delegations.',
+    })
+  }
+  if (body.sponsorAddress !== configuredFeeSponsor) {
+    return res.status(403).json({
+      success: false,
+      verified: false,
+      error: 'sponsor-address-not-authorized',
+      persistence: { persisted: false, reason: 'sponsor-address-mismatch' },
+      message: 'The delegation sponsor must match the configured fee-sponsor address for the selected network. No record was written.',
+    })
+  }
   try {
     const verification = await verifySponsorResourceDelegation({
       network: body.network,
