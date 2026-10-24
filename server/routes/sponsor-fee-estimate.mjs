@@ -48,6 +48,150 @@ function protobufVarintLength(value) {
   return length
 }
 
+function normalizeProviderAddress(tronWeb, value) {
+  if (typeof value !== 'string') return null
+  try {
+    if (value.startsWith('T') && tronWeb.isAddress(value)) return asTronHex(tronWeb, value)
+  } catch {
+    return null
+  }
+  const raw = value.replace(/^0x/i, '').toLowerCase()
+  if (/^[0-9a-f]{40}$/.test(raw)) return '41' + raw
+  if (/^41[0-9a-f]{40}$/.test(raw)) return raw
+  return null
+}
+
+function readOptionalStakeSun(value) {
+  if (value === undefined || value === null) return '0'
+  const parsed = integerString(value)
+  if (parsed === null) throw new Error('invalid-delegation-balance')
+  return parsed
+}
+
+async function readFeeSponsorDelegationSnapshot({
+  env,
+  fetchImpl,
+  timeoutMs,
+  network,
+  tronWeb,
+  feeSponsorAddress,
+  principalSponsorAddress,
+}) {
+  const base = {
+    network,
+    fromAddress: feeSponsorAddress,
+    toAddress: principalSponsorAddress,
+    queriedAt: new Date().toISOString(),
+    transactionAuditVerified: false,
+  }
+  if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
+    return {
+      ...base,
+      success: false,
+      status: 'provider-credentials-missing',
+      requiredEnvironment: ['TATUM_API_KEY'],
+      activeEnergyStakeSun: null,
+      activeBandwidthStakeSun: null,
+    }
+  }
+  if (typeof fetchImpl !== 'function') {
+    return { ...base, success: false, status: 'provider-unavailable', activeEnergyStakeSun: null, activeBandwidthStakeSun: null }
+  }
+
+  try {
+    const host = TATUM_NETWORKS[network]
+    const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
+    const response = await fetchImpl(host + '/walletsolidity/getdelegatedresourcev2', {
+      method: 'POST',
+      redirect: 'error',
+      headers,
+      body: JSON.stringify({
+        fromAddress: tronWeb.address.toHex(feeSponsorAddress),
+        toAddress: tronWeb.address.toHex(principalSponsorAddress),
+        visible: false,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!response.ok) {
+      return {
+        ...base,
+        success: false,
+        status: 'solidified-delegation-read-unavailable',
+        providerStatus: response.status,
+        activeEnergyStakeSun: null,
+        activeBandwidthStakeSun: null,
+      }
+    }
+    const payload = await response.json()
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
+      throw new Error('invalid-delegation-response')
+    }
+    const rows = Array.isArray(payload.delegatedResource)
+      ? payload.delegatedResource
+      : (payload.from && payload.to ? [payload] : [])
+    const expectedFrom = asTronHex(tronWeb, feeSponsorAddress)
+    const expectedTo = asTronHex(tronWeb, principalSponsorAddress)
+    let energyTotal = 0n
+    let bandwidthTotal = 0n
+    let latestEnergyExpiry = null
+    let latestBandwidthExpiry = null
+    let matchedRows = 0
+    const now = Date.now()
+
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') throw new Error('invalid-delegation-row')
+      if (normalizeProviderAddress(tronWeb, row.from) !== expectedFrom
+        || normalizeProviderAddress(tronWeb, row.to) !== expectedTo) continue
+      matchedRows += 1
+      const energy = BigInt(readOptionalStakeSun(row.frozen_balance_for_energy))
+      const bandwidth = BigInt(readOptionalStakeSun(row.frozen_balance_for_bandwidth))
+      const energyExpiry = row.expire_time_for_energy == null ? null : Number(row.expire_time_for_energy)
+      const bandwidthExpiry = row.expire_time_for_bandwidth == null ? null : Number(row.expire_time_for_bandwidth)
+      if ((energyExpiry !== null && (!Number.isSafeInteger(energyExpiry) || energyExpiry < 0))
+        || (bandwidthExpiry !== null && (!Number.isSafeInteger(bandwidthExpiry) || bandwidthExpiry < 0))) {
+        throw new Error('invalid-delegation-expiry')
+      }
+      const energyActive = energyExpiry === null || energyExpiry === 0 || energyExpiry > now
+      const bandwidthActive = bandwidthExpiry === null || bandwidthExpiry === 0 || bandwidthExpiry > now
+      if (energyActive) {
+        energyTotal += energy
+        if (energy > 0n && energyExpiry !== null && energyExpiry > 0) {
+          latestEnergyExpiry = Math.max(latestEnergyExpiry || 0, energyExpiry)
+        }
+      }
+      if (bandwidthActive) {
+        bandwidthTotal += bandwidth
+        if (bandwidth > 0n && bandwidthExpiry !== null && bandwidthExpiry > 0) {
+          latestBandwidthExpiry = Math.max(latestBandwidthExpiry || 0, bandwidthExpiry)
+        }
+      }
+    }
+
+    return {
+      ...base,
+      success: true,
+      status: matchedRows > 0
+        ? (energyTotal > 0n || bandwidthTotal > 0n ? 'solidified-delegation-state-read' : 'solidified-no-active-delegation-observed')
+        : 'solidified-no-delegation-observed',
+      activeEnergyStakeSun: energyTotal.toString(),
+      activeBandwidthStakeSun: bandwidthTotal.toString(),
+      activeEnergyExpiry: latestEnergyExpiry,
+      activeBandwidthExpiry: latestBandwidthExpiry,
+      matchingDelegationRows: matchedRows,
+      source: 'Tatum SolidityNode getdelegatedresourcev2',
+      note: 'This is the current solidified resource allocation between the exact configured fee and principal sponsor addresses. It is not a transaction audit record or authorization to submit a transfer.',
+    }
+  } catch {
+    return {
+      ...base,
+      success: false,
+      status: 'solidified-delegation-read-unavailable',
+      activeEnergyStakeSun: null,
+      activeBandwidthStakeSun: null,
+    }
+  }
+}
+
 function parseResources(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
     throw new Error('invalid-resource-response')
