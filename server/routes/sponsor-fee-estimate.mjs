@@ -79,6 +79,192 @@ export function createSponsorFeeEstimateRouter({
 } = {}) {
   const router = Router()
 
+  router.post('/sponsorship/native-fee-estimate', async (req, res) => {
+    res.setHeader?.('Cache-Control', 'no-store')
+    res.setHeader?.('Pragma', 'no-cache')
+    res.setHeader?.('Vary', 'Origin')
+
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    const allowedFields = new Set(['network', 'receiverAddress', 'amountBaseUnits'])
+    if (Object.keys(body).some((field) => !allowedFields.has(field))) {
+      return res.status(400).json({ success: false, status: 'invalid-request', message: 'Only network, receiverAddress and amountBaseUnits are accepted.' })
+    }
+    const { network, receiverAddress, amountBaseUnits } = body
+    if (typeof network !== 'string' || !Object.hasOwn(NETWORKS, network)) {
+      return res.status(400).json({ success: false, status: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
+    }
+    if (typeof receiverAddress !== 'string' || !ADDRESS_PATTERN.test(receiverAddress)) {
+      return res.status(400).json({ success: false, status: 'invalid-address', message: 'receiverAddress must be a valid TRON Base58 address.' })
+    }
+    // TRON's TransferContract amount uses an int64 and provider JSON may return
+    // a number. Limit to safe integer SUN so no amount is rounded by JavaScript.
+    if (typeof amountBaseUnits !== 'string' || !BASE_UNITS_PATTERN.test(amountBaseUnits)
+      || BigInt(amountBaseUnits) > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return res.status(400).json({ success: false, status: 'invalid-amount', message: 'amountBaseUnits must be a positive SUN integer no greater than Number.MAX_SAFE_INTEGER for safe provider round-trip validation.' })
+    }
+
+    const key = network.toUpperCase()
+    const assetSponsorAddress = typeof env[`SPONSOR_ASSET_${key}_ADDRESS`] === 'string'
+      ? env[`SPONSOR_ASSET_${key}_ADDRESS`].trim() : ''
+    const feeSponsorAddress = typeof env[`SPONSOR_FEE_${key}_ADDRESS`] === 'string'
+      ? env[`SPONSOR_FEE_${key}_ADDRESS`].trim() : ''
+    if (!assetSponsorAddress || !feeSponsorAddress) {
+      return res.status(503).json({
+        success: false,
+        status: 'sponsor-role-addresses-not-configured',
+        network,
+        requiredEnvironment: [`SPONSOR_ASSET_${key}_ADDRESS`, `SPONSOR_FEE_${key}_ADDRESS`],
+        canSubmitSponsoredTransfer: false,
+        message: 'Both principal and fee sponsor accounts must be configured before estimating native TRX bandwidth fees.',
+      })
+    }
+    if (assetSponsorAddress === feeSponsorAddress) {
+      return res.status(409).json({
+        success: false,
+        status: 'sponsor-role-addresses-not-distinct',
+        network,
+        canSubmitSponsoredTransfer: false,
+        message: 'The principal sponsor and network-fee sponsor must be distinct for this product policy.',
+      })
+    }
+
+    try {
+      const tronWeb = await tronWebFactory(NETWORKS[network])
+      const principalHex = asTronHex(tronWeb, assetSponsorAddress)
+      const feeSponsorHex = asTronHex(tronWeb, feeSponsorAddress)
+      const receiverHex = asTronHex(tronWeb, receiverAddress)
+      if (!principalHex || !feeSponsorHex || !receiverHex) {
+        return res.status(400).json({ success: false, status: 'invalid-address-checksum', network, canSubmitSponsoredTransfer: false })
+      }
+
+      const headers = { accept: 'application/json', 'content-type': 'application/json' }
+      if (typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()) {
+        headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY.trim()
+      }
+      const post = async (path, payload) => {
+        const response = await fetchImpl(NETWORKS[network] + path, {
+          method: 'POST',
+          redirect: 'error',
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+        if (!response.ok) throw new Error('provider-http-error')
+        const result = await response.json()
+        if (!result || typeof result !== 'object' || Array.isArray(result) || result.Error) {
+          throw new Error('invalid-provider-response')
+        }
+        return result
+      }
+
+      const unsignedTransaction = await post('/wallet/createtransaction', {
+        owner_address: principalHex,
+        to_address: receiverHex,
+        amount: Number(amountBaseUnits),
+        visible: false,
+      })
+      const rawDataHex = unsignedTransaction?.raw_data_hex
+      const contractList = unsignedTransaction?.raw_data?.contract
+      const transfer = Array.isArray(contractList) && contractList.length === 1
+        && contractList[0]?.type === 'TransferContract'
+        ? contractList[0]?.parameter?.value
+        : null
+      const actualOwner = typeof transfer?.owner_address === 'string' ? transfer.owner_address.replace(/^0x/i, '').toLowerCase() : ''
+      const actualReceiver = typeof transfer?.to_address === 'string' ? transfer.to_address.replace(/^0x/i, '').toLowerCase() : ''
+      const actualAmount = integerString(transfer?.amount)
+      if (typeof rawDataHex !== 'string' || !/^(?:[0-9a-fA-F]{2})+$/.test(rawDataHex)
+        || actualOwner !== principalHex || actualReceiver !== receiverHex
+        || actualAmount !== amountBaseUnits) {
+        return res.status(502).json({
+          success: false,
+          status: 'unsigned-transaction-validation-failed',
+          network,
+          canSubmitSponsoredTransfer: false,
+          message: 'The provider did not return an unsigned native TRX transaction matching the exact principal sponsor, receiver and amount. No transaction was signed or broadcast.',
+        })
+      }
+
+      const [chainParameters, principalResourcesPayload, feeSponsorResourcesPayload] = await Promise.all([
+        post('/wallet/getchainparameters', {}),
+        post('/wallet/getaccountresource', { address: principalHex, visible: false }),
+        post('/wallet/getaccountresource', { address: feeSponsorHex, visible: false }),
+      ])
+      const params = Array.isArray(chainParameters.chainParameter) ? chainParameters.chainParameter : []
+      const bandwidthFeeEntry = params.find((item) => item?.key === 'getTransactionFee')
+      const bandwidthFeeSunPerByte = integerString(bandwidthFeeEntry?.value)
+      if (bandwidthFeeSunPerByte === null) {
+        return res.status(502).json({ success: false, status: 'chain-fee-parameters-unavailable', network, canSubmitSponsoredTransfer: false })
+      }
+      const principalResources = parseResources(principalResourcesPayload)
+      const feeSponsorResources = parseResources(feeSponsorResourcesPayload)
+      // The unsigned body length is exact for this draft; a single 65-byte
+      // signature plus protobuf field/tag/length bytes are added as an estimate.
+      const estimatedSignedTransactionBytes = rawDataHex.length / 2 + 67
+      const availableBandwidth = BigInt(principalResources.availableStakedBandwidth)
+        + BigInt(principalResources.availableFreeBandwidth)
+      const estimatedBandwidthShortfallBytes = BigInt(estimatedSignedTransactionBytes) > availableBandwidth
+        ? (BigInt(estimatedSignedTransactionBytes) - availableBandwidth).toString()
+        : '0'
+      const estimatedBandwidthFeeSun = (BigInt(estimatedBandwidthShortfallBytes) * BigInt(bandwidthFeeSunPerByte)).toString()
+      const estimatedBandwidthFeeTRX = (() => {
+        const whole = BigInt(estimatedBandwidthFeeSun) / 1_000_000n
+        const fraction = (BigInt(estimatedBandwidthFeeSun) % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+        return fraction ? whole.toString() + '.' + fraction : whole.toString()
+      })()
+
+      return res.json({
+        success: true,
+        status: 'read-only-native-bandwidth-estimate',
+        network,
+        asset: 'TRX',
+        receiverAddress,
+        amountBaseUnits,
+        checkedAt: new Date().toISOString(),
+        nativeEstimation: {
+          method: 'TRON wallet/createtransaction unsigned draft + current chain fee parameters',
+          estimatedUnsignedRawDataBytes: rawDataHex.length / 2,
+          estimatedSignedTransactionBytes,
+          bandwidthFeeSunPerByte,
+          principalSponsorResources: {
+            availableStakedBandwidth: principalResources.availableStakedBandwidth,
+            availableFreeBandwidth: principalResources.availableFreeBandwidth,
+            availableEnergy: principalResources.availableEnergy,
+          },
+          feeSponsorResources: {
+            availableStakedBandwidth: feeSponsorResources.availableStakedBandwidth,
+            availableFreeBandwidth: feeSponsorResources.availableFreeBandwidth,
+            availableEnergy: feeSponsorResources.availableEnergy,
+          },
+          totalPrincipalSponsorBandwidth: availableBandwidth.toString(),
+          estimatedBandwidthShortfallBytes,
+          estimatedBandwidthFeeSun,
+          estimatedBandwidthFeeTRX,
+          feeSponsorResourcesCountedTowardPrincipalTransfer: false,
+          resourceDelegationVerified: false,
+          totalNetworkFeeEstimated: false,
+        },
+        blockers: [
+          'signature-and-exact-final-serialized-byte-size-not-yet-known',
+          'fee-sponsor-bandwidth-delegation-not-verified',
+          'provider-signing-and-broadcast-adapter-disabled',
+        ],
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionBroadcast: false,
+        unpaidFallbackToUserFunds: false,
+        note: 'This endpoint creates only an unsigned draft for byte-size estimation. It never signs, broadcasts or reserves funds. Fee sponsor resources do not pay principal-sponsor fees unless the resource delegation is actually submitted and independently verified; this is not a total-fee guarantee.',
+      })
+    } catch {
+      return res.status(502).json({
+        success: false,
+        status: 'native-fee-estimate-unavailable',
+        network,
+        canSubmitSponsoredTransfer: false,
+        message: 'Could not complete the read-only native TRX fee estimate. No transaction was signed or broadcast.',
+      })
+    }
+  })
+
   router.post('/sponsorship/fee-estimate', async (req, res) => {
     res.setHeader?.('Cache-Control', 'no-store')
     res.setHeader?.('Pragma', 'no-cache')
