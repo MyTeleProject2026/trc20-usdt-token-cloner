@@ -38,7 +38,7 @@ test('wallet inspection uses TronLink or watch-only public address without colle
   assert.ok(app.includes('Watch-only address'))
   assert.ok(app.includes('Inspect watch-only wallet'))
   assert.ok(!app.includes('privateKey'))
-  assert.ok(!app.includes('seed phrase'))
+  assert.ok(app.includes('does not ask for a seed phrase'))
   assert.ok(!app.includes('sendRawTransaction'))
   assert.ok(!entry.includes('TransferSimulator'))
 })

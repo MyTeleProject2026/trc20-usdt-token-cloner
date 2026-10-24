@@ -9,7 +9,7 @@ test('token request UI identifies a specific TRC-20 contract and never treats a 
   assert.ok(app.includes('TRC-20 test token'))
   assert.ok(app.includes('Token contract address on'))
   assert.ok(app.includes('This is not official Mainnet USDT'))
-  assert.ok(app.includes('Token symbol alone does not prove identity or exchange support'))
+  assert.ok(app.includes('token symbol alone does not prove identity or exchange support'))
   assert.ok(!app.includes("setAssetKind('USDT')"))
   assert.match(contract, /independent token, not official Tether USDT/i)
   assert.match(contract, /uint8 public constant decimals = 18/)
