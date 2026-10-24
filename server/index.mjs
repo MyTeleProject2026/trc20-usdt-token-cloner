@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
+import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
@@ -110,6 +111,7 @@ app.get('/api/readiness', async (_req, res) => {
 })
 app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
+app.use('/api/tron', sponsorFeeEstimateRoutes)
 app.use('/api/tron', nativeTronRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 
