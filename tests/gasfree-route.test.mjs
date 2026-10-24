@@ -394,6 +394,47 @@ test('read-only GasFree preflight reports zero-fee policy facts but never enable
   assert.ok(res.body.blockers.includes('external-sponsor-agreement-and-funded-budget-not-verified'))
 })
 
+test('read-only GasFree preflight blocks a token absent from the provider account asset list', async () => {
+  const address = 'T' + 'A'.repeat(33)
+  const tokenAddress = 'T' + 'B'.repeat(33)
+  const providerAddress = 'T' + 'C'.repeat(33)
+  const receiverAddress = 'T' + 'D'.repeat(33)
+  const router = createGasFreeRouter({
+    getCapabilities: async (network) => ({
+      configured: true, reachable: true, network,
+      providers: [{ address: providerAddress, name: 'Provider' }],
+      tokens: [{
+        tokenAddress, symbol: 'TEST', supported: true,
+        activationFeeBaseUnits: '0', transferFeeBaseUnits: '0',
+      }],
+    }),
+    getAccount: async (network, accountAddress) => ({
+      configured: true, reachable: true, network,
+      account: {
+        accountAddress, active: true, nonce: 0, allowSubmit: true,
+        assets: [],
+      },
+    }),
+  })
+  const res = responseRecorder()
+  await getPostRoute(router, '/preflight')({
+    body: {
+      network: 'nile', address, tokenAddress,
+      serviceProvider: providerAddress, receiverAddress,
+      amountBaseUnits: '5000000',
+    },
+  }, res)
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.tokenSupported, true)
+  assert.equal(res.body.accountTokenListed, false)
+  assert.equal(res.body.transferPolicyPreflightPassed, false)
+  assert.equal(res.body.status, 'policy-preflight-blocked')
+  assert.ok(res.body.blockers.includes('token-not-enabled-on-provider-account'))
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
+})
+
 test('read-only GasFree preflight blocks nonzero token-denominated fees under external-sponsor-only policy', async () => {
   const address = 'T' + 'A'.repeat(33)
   const tokenAddress = 'T' + 'B'.repeat(33)
