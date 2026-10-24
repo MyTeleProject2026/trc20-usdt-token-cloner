@@ -105,3 +105,23 @@ test('rejects zero principal or zero fee requirements instead of treating them a
   assert.equal(zeroFee.eligible, false)
   assert.ok(zeroFee.blockers.includes('network-fee-coverage-insufficient-or-unverified'))
 })
+
+test('accepts the uint256 upper bound when separately reserved principal and fee exactly cover it', () => {
+  const max = ((1n << 256n) - 1n).toString()
+  const result = evaluateSponsorTransferEligibility(evidence({
+    principal: { ...evidence().principal, availableBaseUnits: max, requiredBaseUnits: max },
+    fee: { ...evidence().fee, availableBaseUnits: max, requiredBaseUnits: max },
+  }))
+  assert.equal(result.eligible, true)
+})
+
+test('rejects amounts outside positive canonical uint256 base-unit strings', () => {
+  const overflow = (1n << 256n).toString()
+  for (const invalid of ['0', '-1', '01', '1e3', '9'.repeat(79), overflow]) {
+    const result = evaluateSponsorTransferEligibility(evidence({
+      principal: { ...evidence().principal, availableBaseUnits: invalid },
+    }))
+    assert.equal(result.eligible, false, `expected invalid balance ${invalid} to be rejected`)
+    assert.ok(result.blockers.includes('asset-principal-funding-insufficient-or-unverified'))
+  }
+})
