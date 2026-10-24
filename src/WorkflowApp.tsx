@@ -747,14 +747,21 @@ export default function WorkflowApp() {
                 <div className="studio-verified-snapshot" role="status">
                   <CheckCircle2 size={19} aria-hidden="true" />
                   <div>
-                    <strong>Receiver balance read from solidified {receiverSnapshot.network} chain state</strong>
-                    <p>{assetKind === 'TRX'
-                      ? `Current native balance: ${receiverSnapshot.balanceTRX} TRX (${receiverSnapshot.balanceSun} sun)`
-                      : `Token balance: ${formatUnits(receiverSnapshot.balanceBaseUnits, receiverSnapshot.decimals)} units · decimals: ${receiverSnapshot.decimals} · raw base units: ${receiverSnapshot.balanceBaseUnits}`}</p>
-                    {assetKind === 'TRC20' && <small>Token contract: {receiverSnapshot.tokenContract || tokenContract.trim()}</small>}
+                    <strong>Receiver on-chain balance · solidified {receiverSnapshot.network} state</strong>
+                    <p className="studio-eyebrow">Current confirmed chain balance</p>
+                    <p className="studio-card-title">{assetKind === 'TRX'
+                      ? `${receiverSnapshot.balanceTRX ?? 'Unavailable'} TRX`
+                      : `${formatUnits(receiverSnapshot.balanceBaseUnits, receiverSnapshot.decimals)} token units`}</p>
+                    {assetKind === 'TRX'
+                      ? <small>{receiverSnapshot.balanceSun ?? 'SUN value unavailable'} SUN · native TRX</small>
+                      : <>
+                          <small>Token contract: {receiverSnapshot.tokenContract || tokenContract.trim()}</small>
+                          <small>Decimals: {receiverSnapshot.decimals} · raw base units: {receiverSnapshot.balanceBaseUnits}</small>
+                        </>}
+                    <small>Network: {receiverSnapshot.network}</small>
                     <small>Receiver: {receiverSnapshot.receiverAddress || receiverAddress.trim()}</small>
-                    <small>Snapshot checked: {receiverCheckedAt ? new Date(receiverCheckedAt).toLocaleString() : 'time unavailable'}</small>
-                    <small>This is a read-only balance for the exact network and contract. It is not proof of a new transfer, sponsor commitment, or exchange deposit credit.</small>
+                    <small>Last verified: {receiverCheckedAt ? new Date(receiverCheckedAt).toLocaleString() : 'time unavailable'}</small>
+                    <small>Live chain balance snapshot. A transfer is marked received only after its exact transaction and solidified transfer event are independently verified.</small>
                   </div>
                 </div>
               )}
