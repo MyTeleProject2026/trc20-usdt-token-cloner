@@ -40,6 +40,25 @@ function createHarness({ energyRequired = '10000', principalEnergy = '4000', fee
       if (url.endsWith('/wallet/triggerconstantcontract')) {
         return { ok: true, json: async () => ({ result: { result: true }, energy_used: energyRequired }) }
       }
+      if (url.endsWith('/wallet/createtransaction')) {
+        const body = JSON.parse(init.body)
+        return {
+          ok: true,
+          json: async () => ({
+            raw_data_hex: 'ab'.repeat(100),
+            raw_data: {
+              contract: [{
+                type: 'TransferContract',
+                parameter: { value: {
+                  owner_address: body.owner_address,
+                  to_address: body.to_address,
+                  amount: body.amount,
+                } },
+              }],
+            },
+          }),
+        }
+      }
       if (url.endsWith('/wallet/getchainparameters')) {
         return { ok: true, json: async () => ({
           chainParameter: [
@@ -55,9 +74,9 @@ function createHarness({ energyRequired = '10000', principalEnergy = '4000', fee
         return { ok: true, json: async () => ({
           EnergyLimit: energy,
           EnergyUsed: '0',
-          NetLimit: '120',
+          NetLimit: '80',
           NetUsed: '0',
-          freeNetLimit: '600',
+          freeNetLimit: '20',
           freeNetUsed: '0',
         }) }
       }
@@ -67,9 +86,9 @@ function createHarness({ energyRequired = '10000', principalEnergy = '4000', fee
   return { router, calls }
 }
 
-async function invoke(router, body) {
+async function invoke(router, body, endpoint = '/sponsorship/fee-estimate') {
   const layer = router.stack.find((item) =>
-    item.route?.path === '/sponsorship/fee-estimate' && item.route.methods?.post,
+    item.route?.path === endpoint && item.route.methods?.post,
   )
   assert.ok(layer, 'fee estimate endpoint should be registered')
   let statusCode = 200
@@ -141,6 +160,70 @@ test('does not accept caller-supplied sponsor addresses or transaction fields', 
   assert.equal(result.statusCode, 400)
   assert.equal(result.payload.status, 'invalid-request')
   assert.equal(calls.length, 0)
+})
+
+test('estimates native TRX bandwidth shortfall from a validated unsigned transaction draft', async () => {
+  const { router, calls } = createHarness()
+  const result = await invoke(router, {
+    network: 'mainnet',
+    receiverAddress: receiver,
+    amountBaseUnits: '3000000',
+  }, '/sponsorship/native-fee-estimate')
+
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.payload.success, true)
+  assert.equal(result.payload.status, 'read-only-native-bandwidth-estimate')
+  assert.equal(result.payload.asset, 'TRX')
+  assert.equal(result.payload.amountBaseUnits, '3000000')
+  assert.equal(result.payload.nativeEstimation.estimatedUnsignedRawDataBytes, 100)
+  assert.equal(result.payload.nativeEstimation.estimatedSignedTransactionBytes, 167)
+  assert.equal(result.payload.nativeEstimation.totalPrincipalSponsorBandwidth, '100')
+  assert.equal(result.payload.nativeEstimation.estimatedBandwidthShortfallBytes, '67')
+  assert.equal(result.payload.nativeEstimation.estimatedBandwidthFeeSun, '67000')
+  assert.equal(result.payload.nativeEstimation.estimatedBandwidthFeeTRX, '0.067')
+  assert.equal(result.payload.nativeEstimation.feeSponsorResourcesCountedTowardPrincipalTransfer, false)
+  assert.equal(result.payload.nativeEstimation.resourceDelegationVerified, false)
+  assert.equal(result.payload.nativeEstimation.totalNetworkFeeEstimated, false)
+  assert.equal(result.payload.canSubmitSponsoredTransfer, false)
+  assert.equal(result.payload.transactionBroadcast, false)
+  assert.ok(calls.some((call) => call.url.endsWith('/wallet/createtransaction')))
+})
+
+test('native TRX preflight rejects provider-created drafts with a mismatched receiver or amount', async () => {
+  const harness = createHarness()
+  harness.calls.length = 0
+  // Create a separate injected client whose unsigned draft does not match the request.
+  const mismatchedRouter = createSponsorFeeEstimateRouter({
+    env: {
+      SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
+    },
+    tronWebFactory: async () => fakeTronWeb(),
+    fetchImpl: async (url, init) => {
+      if (url.endsWith('/wallet/createtransaction')) {
+        const body = JSON.parse(init.body)
+        return { ok: true, json: async () => ({
+          raw_data_hex: 'ab'.repeat(100),
+          raw_data: { contract: [{
+            type: 'TransferContract',
+            parameter: { value: {
+              owner_address: body.owner_address,
+              to_address: body.to_address,
+              amount: Number(body.amount) + 1,
+            } },
+          }] },
+        }) }
+      }
+      throw new Error('should stop before reading resources')
+    },
+  })
+  const result = await invoke(mismatchedRouter, {
+    network: 'mainnet',
+    receiverAddress: receiver,
+    amountBaseUnits: '3000000',
+  }, '/sponsorship/native-fee-estimate')
+  assert.equal(result.statusCode, 502)
+  assert.equal(result.payload.status, 'unsigned-transaction-validation-failed')
 })
 
 test('blocks the estimate when either sponsor role is not configured', async () => {
