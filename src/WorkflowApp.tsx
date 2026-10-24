@@ -488,7 +488,7 @@ function SponsorIntegrationReadinessPanel({ readiness, network }: { readiness: S
         <p className="studio-role-snapshot-note">Environment variables belong in the backend Web Service's Render → Environment settings. Never put provider secrets, wallet private keys, or recovery phrases in this UI.</p>
         <p><strong>Release status:</strong> {readiness.status || 'Unknown'}. Sponsored submission remains disabled.</p>
         {(readiness.submission?.blockers ?? []).slice(0, 5).map((blocker) => (
-          <p className="studio-muted" key={blocker}>• {blocker.replaceAll('-', ' ')}</p>
+          <p className="studio-muted" key={blocker}>• {blocker.replace(/-/g, ' ')}</p>
         ))}
         {(readiness.submission?.blockerCount ?? 0) > 5 && (
           <p className="studio-muted">{readiness.submission?.blockerCount} production blockers remain in total.</p>
