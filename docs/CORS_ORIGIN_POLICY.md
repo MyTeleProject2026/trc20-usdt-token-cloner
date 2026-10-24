@@ -1,0 +1,28 @@
+# Browser CORS origin policy
+
+The API uses `server/cors-policy.mjs` to enforce an explicit origin allowlist.
+
+## Configuration
+
+Set the backend-only `FRONTEND_ORIGIN` environment variable to the exact browser frontend origin (scheme + hostname + optional port). Multiple explicit origins may be comma-separated:
+
+```text
+FRONTEND_ORIGIN=https://trc20-usdt-token-cloner.onrender.com
+```
+
+Do not include paths, query strings, fragments, credentials, or wildcards. A trailing slash in the configured origin is normalized to the origin itself. Only HTTP(S) origins are accepted; invalid entries are ignored.
+
+## Runtime behavior
+
+- An incoming browser request with an `Origin` header is allowed only when its normalized origin is explicitly configured.
+- When configuration is empty or invalid, browser-origin requests receive HTTP 403 and no `Access-Control-Allow-Origin` header is returned. The API never reflects arbitrary browser origins.
+- Requests without an `Origin` header remain available to non-browser clients and server-to-server callers; CORS is not authentication.
+- Allowed preflight requests receive HTTP 204 and advertise only `GET,POST,OPTIONS` and `Content-Type,Authorization`.
+- The API does not enable credentialed CORS. Do not add cookies, bearer-token exposure, or wildcard origins to solve a frontend issue.
+- The `/api/readiness` response reports `providers.frontendOrigin.configured` based on the normalized allowlist, so malformed entries do not appear configured.
+
+CORS is a browser-enforced isolation control, not an authorization boundary. All privileged operations still require server-side authentication, authorization, strict field validation, replay protection and ledger controls.
+
+## Verification
+
+The behavior is covered by `tests/cors-policy.test.mjs`, which exercises valid allowlisted origins, empty and malformed configuration, unknown origins, requests without an Origin header, and preflight handling. The test file is committed but must be run by functioning CI; the GitHub Actions runner-allocation problem is tracked separately and does not count as a passing test result.
