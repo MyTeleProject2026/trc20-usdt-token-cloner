@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { createCorsPolicy } from '../server/cors-policy.mjs'
 
 function responseRecorder() {
@@ -83,4 +84,13 @@ test('preflight succeeds only for an allowlisted origin', () => {
   }, denied, () => { nextCalled = true })
   assert.equal(denied.statusCode, 403)
   assert.equal(denied.ended, false)
+})
+
+
+test('server entrypoint uses the fail-closed CORS policy and reports valid configuration', async () => {
+  const entrypoint = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+  assert.match(entrypoint, /createCorsPolicy\(process\.env\.FRONTEND_ORIGIN/)
+  assert.match(entrypoint, /app\.use\(corsPolicy\)/)
+  assert.match(entrypoint, /frontendOrigin: \{ configured: allowedOrigins\.size > 0 \}/)
+  assert.doesNotMatch(entrypoint, /!allowedOrigins\.size\s*\|\|\s*allowedOrigins\.has\(origin\)/)
 })
