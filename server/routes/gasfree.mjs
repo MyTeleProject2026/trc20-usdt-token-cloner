@@ -192,6 +192,185 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
     }
   })
 
+  // Read-only preflight: report whether provider, token, account and token-fee
+  // metadata fit the product policy. This endpoint never signs or submits.
+  router.post('/preflight', async (req, res) => {
+    const body = req.body
+    const allowedFields = new Set([
+      'network', 'address', 'tokenAddress', 'serviceProvider',
+      'receiverAddress', 'amountBaseUnits',
+    ])
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).some((key) => !allowedFields.has(key))) {
+      return res.status(400).json({
+        success: false,
+        status: 'invalid-request',
+        message: 'Provide only network, address, tokenAddress, serviceProvider, receiverAddress and amountBaseUnits.',
+      })
+    }
+    const { network, address, tokenAddress, serviceProvider, receiverAddress, amountBaseUnits } = body
+    if (typeof network !== 'string' || !ALLOWED_NETWORKS.includes(network)) {
+      return res.status(400).json({
+        success: false,
+        status: 'invalid-network',
+        message: 'network must be mainnet or nile. GasFree does not document Shasta support.',
+      })
+    }
+    if (typeof address !== 'string' || !TRON_ADDRESS.test(address)
+      || typeof tokenAddress !== 'string' || !TRON_ADDRESS.test(tokenAddress)
+      || typeof serviceProvider !== 'string' || !TRON_ADDRESS.test(serviceProvider)
+      || typeof receiverAddress !== 'string' || !TRON_ADDRESS.test(receiverAddress)) {
+      return res.status(400).json({
+        success: false,
+        status: 'invalid-address',
+        message: 'address, tokenAddress, serviceProvider and receiverAddress must be valid TRON Base58 addresses.',
+      })
+    }
+    if (typeof amountBaseUnits !== 'string'
+      || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+      return res.status(400).json({
+        success: false,
+        status: 'invalid-amount',
+        message: 'amountBaseUnits must be a positive decimal integer string to preserve exact token units.',
+      })
+    }
+
+    try {
+      const [capabilities, accountResult] = await Promise.all([
+        client.getCapabilities(network),
+        client.getAccount(network, address),
+      ])
+      if (!capabilities?.configured) {
+        return res.status(503).json({
+          success: false,
+          status: 'credentials-not-configured',
+          network,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          message: 'GasFree API credentials are not configured for this network. No transfer was submitted.',
+        })
+      }
+      if (!capabilities?.reachable || !Array.isArray(capabilities.providers) || !Array.isArray(capabilities.tokens)) {
+        return res.status(502).json({
+          success: false,
+          status: capabilities?.reason || 'provider-capabilities-unavailable',
+          network,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          message: 'GasFree provider and token discovery could not be verified. No transfer was submitted.',
+        })
+      }
+      if (!accountResult?.configured) {
+        return res.status(503).json({
+          success: false,
+          status: accountResult?.reason || 'account-lookup-not-configured',
+          network,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          message: 'GasFree account lookup is not configured. No transfer was submitted.',
+        })
+      }
+      if (!accountResult?.reachable || !accountResult?.account
+        || accountResult.account.accountAddress !== address
+        || !Array.isArray(accountResult.account.assets)) {
+        return res.status(502).json({
+          success: false,
+          status: accountResult?.reason || 'account-metadata-unavailable',
+          network,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          message: 'GasFree account metadata could not be verified for the requested wallet. No transfer was submitted.',
+        })
+      }
+
+      const provider = capabilities.providers.find((item) => item?.address === serviceProvider)
+      const token = capabilities.tokens.find((item) => item?.tokenAddress === tokenAddress)
+      const account = accountResult.account
+      const accountAsset = account.assets.find((item) => item?.tokenAddress === tokenAddress)
+      const validFee = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+      const activationCandidate = accountAsset?.activationFeeBaseUnits ?? token?.activationFeeBaseUnits
+      const transferCandidate = accountAsset?.transferFeeBaseUnits ?? token?.transferFeeBaseUnits
+      const activationFeeBaseUnits = validFee(activationCandidate) ? activationCandidate : null
+      const transferFeeBaseUnits = validFee(transferCandidate) ? transferCandidate : null
+      const activationFeeApplicable = account.active !== true
+      const feeDataKnown = transferFeeBaseUnits !== null
+        && (!activationFeeApplicable || activationFeeBaseUnits !== null)
+      const requiredActivationFee = activationFeeApplicable ? activationFeeBaseUnits : '0'
+      const estimatedTokenFeeBaseUnits = feeDataKnown
+        ? (BigInt(requiredActivationFee) + BigInt(transferFeeBaseUnits)).toString()
+        : null
+      const tokenFeePolicyCompatible = feeDataKnown && estimatedTokenFeeBaseUnits === '0'
+      const providerListed = Boolean(provider)
+      const tokenSupported = token?.supported === true
+      const accountAllowsSubmit = account.allowSubmit === true
+      const transferPolicyPreflightPassed = providerListed && tokenSupported
+        && accountAllowsSubmit && tokenFeePolicyCompatible
+
+      const blockers = []
+      if (!providerListed) blockers.push('selected-service-provider-not-listed')
+      if (!token) blockers.push('token-contract-not-listed-by-provider')
+      else if (!tokenSupported) blockers.push('token-not-supported-by-provider')
+      if (!accountAllowsSubmit) blockers.push('provider-account-does-not-allow-submit')
+      if (!feeDataKnown) blockers.push('token-fee-metadata-incomplete')
+      else if (!tokenFeePolicyCompatible) blockers.push('token-denominated-fees-conflict-with-external-sponsor-only-policy')
+      // The current app deliberately does not sign EIP-712 authorizations or
+      // submit them to GasFree. Keep the final operational gates explicit.
+      blockers.push('gasfree-account-token-balance-not-independently-verified')
+      blockers.push('wallet-eip712-authorization-flow-not-integrated')
+      blockers.push('external-sponsor-agreement-and-funded-budget-not-verified')
+      blockers.push('provider-submission-adapter-disabled')
+
+      return res.json({
+        success: true,
+        status: transferPolicyPreflightPassed
+          ? 'policy-preflight-passed-submission-still-disabled'
+          : 'policy-preflight-blocked',
+        network,
+        address,
+        tokenAddress,
+        serviceProvider,
+        receiverAddress,
+        amountBaseUnits,
+        providerListed,
+        tokenListed: Boolean(token),
+        tokenSupported,
+        account: {
+          active: account.active === true,
+          allowSubmit: accountAllowsSubmit,
+          nonce: Number.isSafeInteger(account.nonce) && account.nonce >= 0 ? account.nonce : null,
+        },
+        fees: {
+          currency: 'transferred-token',
+          activationFeeApplicable,
+          activationFeeBaseUnits,
+          transferFeeBaseUnits,
+          estimatedTokenFeeBaseUnits,
+          externalSponsorOnlyCompatible: tokenFeePolicyCompatible,
+        },
+        transferPolicyPreflightPassed,
+        canPrepareWalletAuthorization: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        providerFundingVerified: false,
+        providerSubmissionAttempted: false,
+        transactionBroadcast: false,
+        unpaidFallbackToUserFunds: false,
+        blockers,
+        note: 'Preflight only. Provider metadata is not an on-chain balance proof, sponsorship agreement, user signature, transfer submission or settlement record.',
+        checkedAt: new Date().toISOString(),
+      })
+    } catch {
+      return res.status(502).json({
+        success: false,
+        status: 'preflight-unavailable',
+        network,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        message: 'GasFree preflight failed safely. No transfer was submitted.',
+      })
+    }
+  })
+
   // Explicit, fail-closed submission contract. This route deliberately does not
   // validate or forward a user signature, call the provider, reserve budgets, or
   // broadcast a transaction. GasFree's published token-denominated fees do not
