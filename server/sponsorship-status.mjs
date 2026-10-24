@@ -26,6 +26,35 @@ export function getSponsorshipStatus() {
     // No network is active while sponsorship is not integrated.
     network: null,
     provider: null,
+    // Both integration models are supported as design targets, but neither is
+    // connected or authorized by configuration alone. Each requires its own
+    // independently verified consent, funding, and signing path.
+    integrationModels: {
+      thirdPartyProvider: {
+        supportedAsDesign: true,
+        configured: false,
+        adapterVerified: false,
+        sponsorAccountVerified: false,
+        submissionEnabled: false,
+      },
+      sponsorOrganization: {
+        supportedAsDesign: true,
+        configured: false,
+        identityVerified: false,
+        spendingMandateVerified: false,
+        submissionEnabled: false,
+      },
+      sharedRequirements: [
+        'explicit-sponsor-consent',
+        'fresh-on-chain-principal-funding',
+        'fresh-on-chain-network-fee-funding-or-verified-resource-coverage',
+        'separate-principal-and-fee-reservations',
+        'cryptographic-intent-bound-authorization-and-replay-protection',
+        'operator-approval-and-emergency-pause',
+        'independent-solidified-chain-verification',
+        'no-user-funded-fallback',
+      ],
+    },
     mainnetEnabled: false,
     canSubmitSponsoredTransfer: false,
     receiverRestrictionsAvailable: false,
