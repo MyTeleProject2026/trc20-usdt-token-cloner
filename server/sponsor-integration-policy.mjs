@@ -6,7 +6,7 @@ function positiveInteger(value) {
 }
 
 function covered(balance, required) {
-  if (!positiveInteger(balance) || !positiveInteger(required)) return false
+  if (!positiveInteger(balance) || !positiveInteger(required) || BigInt(required) <= 0n) return false
   return BigInt(balance) >= BigInt(required)
 }
 
