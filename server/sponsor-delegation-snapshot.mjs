@@ -162,14 +162,20 @@ export async function readSponsorDelegationSnapshot({
       if (energyText === null || bandwidthText === null) throw new Error('invalid-delegation-balance')
       const energy = BigInt(energyText)
       const bandwidth = BigInt(bandwidthText)
-      const energyExpiry = row.expire_time_for_energy == null ? null : Number(row.expire_time_for_energy)
-      const bandwidthExpiry = row.expire_time_for_bandwidth == null ? null : Number(row.expire_time_for_bandwidth)
-      if ((energyExpiry !== null && (!Number.isSafeInteger(energyExpiry) || energyExpiry < 0))
-        || (bandwidthExpiry !== null && (!Number.isSafeInteger(bandwidthExpiry) || bandwidthExpiry < 0))) {
+      // Missing expiry fields are not evidence of an active delegation. Treat
+      // incomplete provider rows as unavailable rather than assuming they never expire.
+      if (row.expire_time_for_energy === undefined || row.expire_time_for_energy === null
+        || row.expire_time_for_bandwidth === undefined || row.expire_time_for_bandwidth === null) {
+        throw new Error('missing-delegation-expiry')
+      }
+      const energyExpiry = Number(row.expire_time_for_energy)
+      const bandwidthExpiry = Number(row.expire_time_for_bandwidth)
+      if (!Number.isSafeInteger(energyExpiry) || energyExpiry < 0
+        || !Number.isSafeInteger(bandwidthExpiry) || bandwidthExpiry < 0) {
         throw new Error('invalid-delegation-expiry')
       }
-      const energyActive = energyExpiry === null || energyExpiry === 0 || energyExpiry > now
-      const bandwidthActive = bandwidthExpiry === null || bandwidthExpiry === 0 || bandwidthExpiry > now
+      const energyActive = energyExpiry === 0 || energyExpiry > now
+      const bandwidthActive = bandwidthExpiry === 0 || bandwidthExpiry > now
       if (energyActive) {
         energyTotal += energy
         if (energy > 0n && energyExpiry !== null && energyExpiry > 0) {
