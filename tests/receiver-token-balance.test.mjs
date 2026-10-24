@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { isCanonicalMainnetUsdtContract } from '../server/routes/tatum.mjs'
 
 const routes = await readFile(new URL('../server/routes/tatum.mjs', import.meta.url), 'utf8')
+const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 
 test('receiver token balance endpoint is read-only and network-scoped', () => {
   assert.match(routes, /router\.get\('\/tron\/token-balance'/)
@@ -34,18 +35,18 @@ test('receiver balance endpoint does not sign or broadcast transfers', () => {
   assert.match(endpoint, /tron-nile\.gateway\.tatum\.io/)
 })
 
-
-test('frontend exposes a solidified receiver token balance check for the selected contract and network', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /handleQueryTokenBalance/)
-  assert.match(app, /\/api\/tron\/token-balance/)
-  assert.match(app, /Verify receiver token balance/)
-  assert.match(app, /formatTokenUnits\(tokenBalanceResult\.balanceBaseUnits, tokenBalanceResult\.decimals\)/)
-  assert.match(app, /does not prove exchange deposit credit or that the token is official USDT/)
+test('active workflow reads selected token balances from the exact contract and testnet', () => {
+  assert.ok(app.includes('/api/tron/token-balance?network='))
+  assert.ok(app.includes('contract: string'))
+  assert.ok(app.includes('Token contract address on'))
+  assert.ok(app.includes('selected testnet'))
+  assert.ok(app.includes('senderTokenSnapshot?.decimals'))
+  assert.ok(app.includes('Verify receiver on selected network'))
+  assert.ok(!app.includes('/api/tron/verified-transfer/'))
+  assert.ok(!app.includes('/api/gasfree/submit'))
 })
 
-
-test('verified transfer lookup is read-only and requires an exact event identity', () => {
+test('verified transfer lookup remains read-only and requires exact event identity', () => {
   assert.match(routes, /router\.get\('\/tron\/verified-transfer\/:hash'/)
   const start = routes.indexOf("router.get('/tron/verified-transfer/:hash'")
   const end = routes.indexOf("// Contract deployment is performed", start)
@@ -64,19 +65,7 @@ test('chain verification reports persistence separately from chain success', () 
   assert.match(routes, /reason: persistence\?\.reason \|\| 'persistence-unavailable'/)
 })
 
-
-test('successful transfer verification rechecks the same receiver and token contract balance', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /contractAddress: contractAddress\.trim\(\)/)
-  assert.match(app, /receiverAddress: recipientAddress\.trim\(\)/)
-  assert.match(app, /if \(payload\.verified && record\.contractAddress && record\.receiverAddress\)/)
-  assert.match(app, /network: record\.network,[\s\S]*contract: record\.contractAddress,[\s\S]*address: record\.receiverAddress/)
-  assert.match(app, /[Rr]eceiver balance could not be rechecked/)
-})
-
-
-
-test('official Mainnet USDT is independently verifiable without trusting arbitrary contracts', () => {
+test('official Mainnet USDT verification remains independently allowlisted on the backend only', () => {
   assert.match(routes, /OFFICIAL_MAINNET_USDT_HEX = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'/)
   assert.match(routes, /const isOfficialMainnetUsdt = network === 'mainnet'/)
   assert.match(routes, /normalizedContract === OFFICIAL_MAINNET_USDT_HEX/)
@@ -84,7 +73,6 @@ test('official Mainnet USDT is independently verifiable without trusting arbitra
   assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.includes\(normalizedContract\)\)/)
   assert.match(routes, /No other contract is implicitly trusted/)
 })
-
 
 test('built-in USDT verifier allowlist is exact and Mainnet-only', () => {
   const contractPayload = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'

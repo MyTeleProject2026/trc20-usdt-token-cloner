@@ -2,21 +2,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const simulator = await readFile(new URL('../src/TransferSimulator.tsx', import.meta.url), 'utf8')
 const token = await readFile(new URL('../contracts/IndependentTRC20.sol', import.meta.url), 'utf8')
+const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
+const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 
-test('simulator clearly labels records as fictional and not on-chain', () => {
-  assert.match(simulator, /SIMULATION ONLY/)
-  assert.match(simulator, /NOT ON-CHAIN/)
-  assert.match(simulator, /fictional balances and records/)
-  assert.match(simulator, /Demo reference/)
+test('the local-only simulator is no longer part of the live UI', () => {
+  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(!entry.includes('TransferSimulator'))
+  assert.ok(!app.includes('SIMULATION ONLY'))
+  assert.ok(!app.includes('fictional balances and records'))
 })
 
-test('simulator has no blockchain transaction submission or wallet signing calls', () => {
-  assert.doesNotMatch(simulator, /\.sendTransaction\s*\(/)
-  assert.doesNotMatch(simulator, /\.signTransaction\s*\(/)
-  assert.doesNotMatch(simulator, /tronWeb|TronWeb|window\.ethereum|window\.tronLink/)
-  assert.doesNotMatch(simulator, /fetch\s*\(|axios\./)
+test('the live staged frontend cannot sign or submit a transaction', () => {
+  assert.ok(!app.includes('sendRawTransaction'))
+  assert.ok(!app.includes('triggerSmartContract'))
+  assert.ok(!app.includes('eth_sendTransaction'))
+  assert.ok(!app.includes('/api/gasfree/submit'))
+  assert.ok(app.includes('Sponsored transfer unavailable'))
+  assert.ok(app.includes('No sender-funded fallback'))
 })
 
 test('token is explicitly distinct from official Tether', () => {

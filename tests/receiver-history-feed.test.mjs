@@ -3,11 +3,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const routes = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
-const ui = await readFile(new URL('../src/ReceiverHistory.tsx', import.meta.url), 'utf8')
-const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-const sponsorshipUi = await readFile(new URL('../src/SponsorshipStatus.tsx', import.meta.url), 'utf8')
+const activeUi = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
+const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 
-test('receiver history is a bounded, read-only, network-scoped indexer endpoint', () => {
+test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.match(routes, /router\.get\('\/receiver-history'/)
   assert.match(routes, /only_confirmed: 'true'/)
   assert.match(routes, /only_to: 'true'/)
@@ -27,39 +26,16 @@ test('receiver history is a bounded, read-only, network-scoped indexer endpoint'
   assert.doesNotMatch(endpoint, /fetch\(req\.query|new URL\(req\.query/i)
 })
 
-test('receiver history UI refreshes automatically and never labels indexer rows as verified', () => {
-  assert.match(ui, /setInterval\(\(\) => \{ void load\(false\) \}, 30000\)/)
-  assert.match(ui, /Refresh history/)
-  assert.match(ui, /Load older records/)
-  assert.match(ui, /fingerprint: nextFingerprint/)
-  assert.match(ui, /setNextFingerprint/)
-  assert.match(ui, /Awaiting solidified verification/)
-  assert.match(ui, /On-chain verified:/)
-  assert.match(ui, /does not change balances or promise exchange credit/)
-  assert.match(ui, /!\/\^\\d\+\$\//)
-  assert.match(app, /<ReceiverHistory network=\{network\}/)
-})
-
-test('sponsor UI keeps fee sponsorship, asset grants, and real spendable balance separate', () => {
-  assert.match(sponsorshipUi, /Network fee sponsorship/)
-  assert.match(sponsorshipUi, /Sponsor-funded TRX \/ USDT \/ VTRC grant/)
-  assert.match(sponsorshipUi, /Only the actual on-chain wallet balance is spendable/)
-  assert.match(sponsorshipUi, /No verified sponsor provider\/account or funded budget is integrated/)
-})
-
-test('persisted receiver history endpoint is bounded and uses stored verification state', () => {
+test('persisted receiver history API remains available but is not placed in the simplified wizard', () => {
   assert.ok(routes.includes("receiver-history/persisted"))
   assert.match(routes, /listPersistedReceiverHistory/)
   assert.match(routes, /persisted-history-unavailable/)
   assert.ok(routes.includes("eventIndex: item.event_index"))
-  assert.ok(ui.includes("receiver-history/persisted"))
-  assert.match(ui, /Solidified on-chain verified/)
-  assert.ok(ui.includes("record.verifiedOnChain"))
-  assert.match(ui, /showing saved receiver history/)
-  assert.match(ui, /persistedOnly = storedPayload.records/)
+  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(!activeUi.includes('ReceiverHistory'))
+  assert.ok(!activeUi.includes('receiver-history/persisted'))
 })
 
- 
 test('persistent watchlist registration is protected and does not imply monitoring is running', () => {
   assert.ok(routes.includes("router.post('/tracked-wallets'"))
   assert.match(routes, /RECEIVER_WATCHLIST_ADMIN_TOKEN/)
@@ -72,7 +48,9 @@ test('persistent watchlist registration is protected and does not imply monitori
   assert.doesNotMatch(routes.slice(routes.indexOf("router.post('/tracked-wallets'"), routes.indexOf("// Read-only incoming TRC-20 indexer feed.")), /privateKey|broadcasttransaction|sendRawTransaction/i)
 })
 
-
-test('receiver history React identity includes the event index for multiple token transfers in one transaction', () => {
-  assert.match(ui, /<article key=\{`\$\{record\.network\}:\$\{record\.transactionId \|\| index\}:\$\{record\.tokenContract \|\| ''\}:\$\{record\.eventIndex \?\? ''\}`\}/)
+test('receiver notifications and history screens are intentionally absent from the simple frontend', () => {
+  assert.ok(!activeUi.includes('Notification'))
+  assert.ok(!activeUi.includes('setInterval('))
+  assert.ok(!activeUi.includes('ReceiverHistory'))
+  assert.ok(!entry.includes('ReceiverHistory'))
 })

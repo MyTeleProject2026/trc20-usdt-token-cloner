@@ -2,64 +2,43 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
+const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 
-function sectionBetween(startMarker, endMarker) {
-  const start = appSource.indexOf(startMarker)
-  assert.notEqual(start, -1, `missing source marker: ${startMarker}`)
-  const end = appSource.indexOf(endMarker, start + startMarker.length)
-  assert.notEqual(end, -1, `missing end marker: ${endMarker}`)
-  return appSource.slice(start, end)
-}
-
-test('TRC-20 handler fails closed for native TRX and USDT asset selections', () => {
-  const handler = sectionBetween('const handleTransfer = async () => {', 'const handleVerifyTokenTransfer = async () => {')
-  const trxGuard = handler.indexOf("selectedAsset === 'TRX'")
-  const usdtGuard = handler.indexOf("selectedAsset === 'USDT'")
-  const sendStart = handler.indexOf('setTransferring(true)')
-  assert.ok(trxGuard >= 0 && trxGuard < sendStart, 'TRX selection must be rejected before transfer begins')
-  assert.ok(usdtGuard >= 0 && usdtGuard < sendStart, 'USDT selection must be rejected before transfer begins')
-  assert.match(handler, /network !== 'shasta'/, 'VTRC must be restricted to Shasta')
-  assert.match(handler, /TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t/, 'known Mainnet USDT contract must not pass as VTRC')
+test('the asset principal stage offers only a native TRX asset or an explicitly selected TRC-20 contract', () => {
+  assert.ok(app.includes("type AssetKind = 'TRX' | 'TRC20'"))
+  assert.ok(app.includes("setAssetKind('TRX')"))
+  assert.ok(app.includes("setAssetKind('TRC20')"))
+  assert.ok(app.includes('Token contract address on'))
+  assert.ok(app.includes('ADDRESS_PATTERN.test(tokenContract.trim())'))
+  assert.ok(app.includes('This is not official Mainnet USDT'))
+  assert.ok(!app.includes("setAssetKind('USDT')"))
 })
 
-test('native TRX handler checks selected asset before any send attempt', () => {
-  const handler = sectionBetween('const handleNativeTrxTransfer = async () => {', 'const handleVerifyTx = async () => {')
-  const assetGuard = handler.indexOf("selectedAsset !== 'TRX'")
-  assert.ok(assetGuard >= 0, 'native transfer must require TRX selection')
-  const walletAccess = handler.indexOf('getInjectedTronWeb()')
-  assert.ok(walletAccess < 0 || assetGuard < walletAccess, 'asset mismatch must be rejected before wallet access')
-  assert.match(handler, /fullNodeHost/, 'native transfer must inspect the connected wallet node')
-  assert.match(handler, /network === 'shasta'.*isShastaWallet/s, 'Shasta selection must reject a non-Shasta wallet')
-  assert.match(handler, /network === 'mainnet'.*isShastaWallet/s, 'Mainnet selection must reject a Shasta wallet')
+test('sender and receiver are validated on the selected testnet before the review stage opens', () => {
+  assert.ok(app.includes("type NetworkId = 'shasta' | 'nile'"))
+  assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
+  assert.ok(app.includes('const senderStageValid = ADDRESS_PATTERN.test(senderAddress)'))
+  assert.ok(app.includes('const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress)'))
+  assert.ok(app.includes('const canEnterStep = (index: number) => index === 0 || stageCompletion[index - 1] === true'))
+  assert.ok(app.includes('disabled={!stageCompletion[step]}'))
 })
 
-
-test('VTRC deployment uses TronLink and never constructs a signer from a pasted private key', () => {
-  const deploy = sectionBetween('const handleDeploy = async () => {', 'const handleQueryAccount = async () => {')
-  assert.match(deploy, /if \(network !== 'shasta'\)/, 'contract deployment must remain testnet-only')
-  assert.match(deploy, /const tronWeb = await getInjectedTronWeb\(\)/, 'deployment must use the authorized wallet provider')
-  assert.match(deploy, /getCurrentAuthorizedTronWeb\(sender\)/, 'deployment must revalidate the live signer account and network')
-  assert.match(appSource, /Connect TronLink and enter the address that should receive the initial supply/)
-  assert.doesNotMatch(deploy, /privateKey|new TronWeb\([^)]*privateKey:/, 'deployment must not take a private key as a signing input')
+test('changing test networks clears stale wallet and receiver data', () => {
+  assert.ok(app.includes('setNetwork(next)'))
+  assert.ok(app.includes('setSenderAddress(\'\')'))
+  assert.ok(app.includes('setNativeSnapshot(null)'))
+  assert.ok(app.includes('setSenderTokenSnapshot(null)'))
+  assert.ok(app.includes('setReceiverSnapshot(null)'))
+  assert.ok(app.includes('setReceiverAddress(\'\')'))
 })
 
-test('wallet network validation rejects a Shasta/Mainnet mismatch', () => {
-  const guard = sectionBetween('const assertSelectedTronLinkNetwork =', 'const getInjectedTronWeb =')
-  assert.match(guard, /network === 'shasta'.*shasta/s)
-  assert.match(guard, /network === 'mainnet'/)
-  assert.match(guard, /api\.trongrid\.io/)
-})
-
-test('changing networks clears the previous wallet connection and account snapshot', () => {
-  const effect = sectionBetween('// A network switch invalidates the prior wallet/network pairing.', '  }, [network])')
-  assert.match(effect, /setWalletConnected\(false\)/, 'network changes must require wallet reconnection')
-  assert.match(effect, /setAccountData\(null\)/, 'network-specific account details must be discarded')
-  assert.doesNotMatch(appSource, /const \[privateKey, setPrivateKey\]|value=\{privateKey\}|setPrivateKey\(/, 'the UI must not collect or retain a pasted wallet private key')
-  assert.match(effect, /setWalletAddress\(''\)/, 'the previous network wallet address must be cleared')
-  assert.match(effect, /setNativeTransferRecord\(null\)/, 'native transfer context must not carry across networks')
-  assert.match(effect, /setTokenTransferRecord\(null\)/, 'token transfer context must not carry across networks')
-  assert.match(effect, /setNativeVerifyResult\(null\)/, 'native verification result must not be reused across networks')
-  assert.match(effect, /setTokenVerifyResult\(null\)/, 'token verification result must not be reused across networks')
-  assert.match(effect, /fetchStatus\(\)/, 'the selected network status must be refreshed')
+test('wallet inspection uses TronLink or watch-only public address without collecting private keys', () => {
+  assert.ok(app.includes('Connect TronLink'))
+  assert.ok(app.includes('Watch-only address'))
+  assert.ok(app.includes('Inspect watch-only wallet'))
+  assert.ok(!app.includes('privateKey'))
+  assert.ok(!app.includes('seed phrase'))
+  assert.ok(!app.includes('sendRawTransaction'))
+  assert.ok(!entry.includes('TransferSimulator'))
 })

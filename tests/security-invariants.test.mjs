@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const contract = await readFile(new URL('../contracts/IndependentTRC20.sol', import.meta.url), 'utf8')
-const simulator = await readFile(new URL('../src/TransferSimulator.tsx', import.meta.url), 'utf8')
-const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
+const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 
 function functionBody(source, signature) {
   const start = source.indexOf(signature)
@@ -44,14 +44,10 @@ test('token contract exposes no arbitrary balance-edit or privileged transfer fu
   assert.match(contract, /symbol must be VTRC/)
 })
 
-test('transfer simulator is clearly labeled as local-only and fictional', () => {
-  assert.match(simulator, /SIMULATION ONLY/)
-  assert.match(simulator, /NOT ON-CHAIN/)
-  assert.match(simulator, /fictional balances and records/)
-  assert.match(simulator, /setRecords\(\(current\) =>/)
-})
-
-test('simulator does not submit network or wallet transactions', () => {
-  assert.doesNotMatch(simulator, /\bTronWeb\b|\bfetch\s*\(|sendRawTransaction|triggerSmartContract|\.trx\.send|eth_sendTransaction|requestAccounts/i)
-  assert.match(app, /activeTab === 'simulation' && <TransferSimulator\s*\/>/)
+test('the active frontend is the staged workflow and not the legacy simulator', () => {
+  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(!app.includes('TransferSimulator'))
+  assert.ok(!app.includes('fictional balances and records'))
+  assert.ok(!app.includes('/api/gasfree/submit'))
+  assert.ok(app.includes('disabled aria-disabled="true"'))
 })

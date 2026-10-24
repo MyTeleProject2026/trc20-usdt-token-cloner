@@ -2,89 +2,36 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const component = await readFile(new URL('../src/GasFreeProviderDiscovery.tsx', import.meta.url), 'utf8')
-const sponsorPage = await readFile(new URL('../src/SponsorProviderPages.tsx', import.meta.url), 'utf8')
+const workflow = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 const server = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
-const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+const gasfree = await readFile(new URL('../server/routes/gasfree.mjs', import.meta.url), 'utf8')
 
-test('sponsor UI requests live provider capabilities instead of showing fabricated balances', () => {
-  assert.ok(component.includes('/api/gasfree/capabilities?network='))
-  assert.ok(component.includes('Refresh provider inventory'))
-  assert.ok(component.includes('activationFeeBaseUnits'))
-  assert.ok(component.includes('transferFeeBaseUnits'))
-  assert.ok(component.includes('Provider listing and API reachability do not prove funding'))
-  assert.ok(component.includes('Live transfer submission: disabled'))
-  assert.ok(sponsorPage.includes("import GasFreeProviderDiscovery from './GasFreeProviderDiscovery'"))
-  assert.ok(sponsorPage.includes('<GasFreeProviderDiscovery walletAddress={walletAddress} walletNetwork={network} />'))
-  assert.ok(app.includes('<SponsorProviderPage network={network} walletAddress={walletConnected ? walletAddress : \'\'} />'))
-})
-
-test('GasFree API secret remains a server-only variable and is not configured in frontend source', () => {
-  assert.ok(!component.includes('GASFREE_API_SECRET'))
-  assert.ok(!component.includes('GASFREE_API_KEY'))
+test('GasFree provider diagnostics remain a backend capability and are not exposed as a send action', () => {
   assert.ok(server.includes("import gasFreeRoutes from './routes/gasfree.mjs'"))
   assert.ok(server.includes("app.use('/api/gasfree', gasFreeRoutes)"))
+  assert.ok(gasfree.includes("router.get('/capabilities'"))
+  assert.ok(gasfree.includes("router.get('/account'"))
+  assert.ok(gasfree.includes("router.get('/trace'"))
+  assert.ok(gasfree.includes("router.post('/submit'"))
+  assert.ok(gasfree.includes('sponsored-submission-disabled'))
+  assert.ok(gasfree.includes('submissionEnabled: false'))
 })
 
-test('provider discovery UI never claims every exchange will credit a deposit', () => {
-  assert.ok(component.includes('do not authorize or submit a transfer'))
-  assert.ok(component.includes('Not a confirmed free sponsor'))
-  assert.ok(component.includes('Sponsor funding verification: not established.'))
+test('active UI reads sponsor roles/status but never asks for provider secrets or submits through GasFree', () => {
+  assert.ok(workflow.includes('/api/tron/sponsorship/roles?network='))
+  assert.ok(workflow.includes('/api/tron/sponsorship/status'))
+  assert.ok(!workflow.includes('GASFREE_API_SECRET'))
+  assert.ok(!workflow.includes('GASFREE_API_KEY'))
+  assert.ok(!workflow.includes('/api/gasfree/submit'))
+  assert.ok(!workflow.includes('sendRawTransaction'))
+  assert.ok(workflow.includes('sponsored submission disabled'))
+  assert.ok(workflow.includes('No sender-funded fallback'))
 })
 
-
-test('GasFree UI exposes account inspection and trace status but no transfer submission control', () => {
-  assert.ok(component.includes('/api/gasfree/account?'))
-  assert.ok(component.includes('Inspect provider account'))
-  assert.ok(component.includes('Spendable balance not provided in the documented account response; it is unknown, not zero.'))
-  assert.ok(component.includes('/api/gasfree/trace?'))
-  assert.ok(component.includes('Query provider transfer status'))
-  assert.ok(component.includes('traceResult.trace.verifiedOnChain'))
-  assert.ok(component.includes('traceResult.trace.chainVerification?.status'))
-  assert.ok(component.includes('traceResult.trace.chainVerification?.status'))
-  assert.ok(component.includes('refresh: \'1\''))
-  assert.ok(component.includes('Live transfer submission: disabled'))
-  assert.ok(!component.includes('/api/gasfree/submit'))
-})
-
-
-test('GasFree token list never treats a provider symbol alone as official Mainnet USDT', () => {
-  assert.ok(component.includes("const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
-  assert.ok(component.includes('Exact contract matches Tether-published TRON Mainnet USDT.'))
-  assert.ok(component.includes('Symbol says USDT, but this is not the official Tether TRON Mainnet contract.'))
-  assert.ok(component.includes('Provider symbol only: testnet assets are separate from Mainnet USDT.'))
-})
-
-
-test('GasFree trace UI has an explicit solidified-chain verification step before showing receiver balance as verified', () => {
-  assert.ok(component.includes('/api/gasfree/trace?'))
-  assert.ok(component.includes('independent solidified-chain verification'))
-  assert.ok(!component.includes('/api/tron/verify-transfer/'))
-  assert.ok(component.includes('Verify transaction and recheck receiver balance'))
-  assert.ok(component.includes('matched a Transfer event in the solidified receipt'))
-  assert.ok(component.includes('/api/tron/token-balance?'))
-  assert.ok(component.includes('Solidified receiver token balance'))
-  assert.ok(component.includes('This still does not establish exchange-account credit.'))
-  assert.ok(!component.includes('/api/gasfree/submit'))
-})
-
-
-test('GasFree account lookup auto-refreshes for a connected Mainnet wallet without cross-network fallback', () => {
-  assert.ok(component.includes("walletNetwork === 'mainnet' ? 'mainnet' : 'nile'"))
-  assert.ok(component.includes('setNetwork(\'mainnet\')'))
-  assert.ok(component.includes('void inspectAccount(walletAddress)'))
-  assert.ok(component.includes("if (walletNetwork !== 'mainnet')"))
-  assert.ok(component.includes('no automatic cross-network account lookup was made.'))
-})
-
-
-test('UI distinguishes credential presence from provider authentication and sponsor funding', () => {
-  assert.ok(component.includes('/api/gasfree/config-status'))
-  assert.ok(component.includes('Server-side credential presence'))
-  assert.ok(component.includes('Presence only — not authenticated'))
-  assert.ok(component.includes('Sponsor funding verification: not established.'))
-  assert.ok(component.includes('TRON Mainnet'))
-  assert.ok(component.includes('Nile testnet'))
-  assert.ok(!component.includes('GASFREE_MAINNET_API_SECRET'))
-  assert.ok(!component.includes('GASFREE_NILE_API_SECRET'))
+test('provider credential presence and sponsor balance are not presented as transfer authorization', () => {
+  assert.match(gasfree, /providerFundingVerified: false/)
+  assert.match(gasfree, /canSubmitSponsoredTransfer: false/)
+  assert.match(gasfree, /No transfer was submitted/)
+  assert.ok(workflow.includes('does not prove'))
+  assert.ok(workflow.includes('The sponsor must cover eligible fees'))
 })

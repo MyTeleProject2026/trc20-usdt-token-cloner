@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises'
 
 const route = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
 const index = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
+const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 
 test('native TRX verification is mounted and network-scoped', () => {
   assert.match(index, /nativeTronRoutes from '\.\/routes\/native-tron\.mjs'/)
@@ -27,7 +29,6 @@ test('native TRX verification is read-only and makes no exchange-credit claim', 
   assert.match(route, /does not verify any TRC20 token balance or exchange deposit credit/)
 })
 
-
 test('native TRX receiver balance reads solidified state and preserves exact SUN values', () => {
   assert.match(route, /router\.get\('\/native-balance'/)
   assert.match(route, /walletsolidity\/getaccount/)
@@ -36,7 +37,6 @@ test('native TRX receiver balance reads solidified state and preserves exact SUN
   assert.match(route, /does not query TRC20 tokens or confirm exchange deposit credit/)
 })
 
-
 test('native TRX SUN formatting does not use floating-point conversion', () => {
   assert.match(route, /const formatSun = \(value\) => \{/)
   assert.match(route, /BigInt\(value\)/)
@@ -44,61 +44,25 @@ test('native TRX SUN formatting does not use floating-point conversion', () => {
   assert.doesNotMatch(route, /Number\(actualAmountSun\)\s*\/\s*1_000_000/)
 })
 
-
-test('UI queries and labels receiver native balance from the selected network', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /handleQueryNativeBalance/)
-  assert.match(app, /\/api\/tron\/native-balance/)
-  assert.match(app, /Verify receiver TRX balance/)
-  assert.match(app, /does not confirm exchange deposit credit/)
+test('current frontend reads native balances from the selected testnet', () => {
+  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(app.includes('/api/tron/native-balance?network='))
+  assert.ok(app.includes('Verify receiver on selected network'))
+  assert.ok(app.includes('Solidified TRX balance'))
+  assert.ok(app.includes('does not confirm exchange deposit credit') || app.includes('exchange credit'))
 })
 
-
-test('native transfer UI uses explicit TronLink approval and reflects selected network', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /Connect \/ verify TronLink/)
-  assert.match(app, /Send Native ' \+ \(network === 'shasta' \? 'Shasta Testnet' : 'Mainnet'\) \+ ' TRX/)
-  assert.match(app, /Never paste a seed phrase or private key into this tab/)
+test('current frontend connects or watches a testnet wallet without sending transactions', () => {
+  assert.ok(app.includes('Connect / refresh TronLink'))
+  assert.ok(app.includes('Watch-only address'))
+  assert.ok(app.includes('Network mismatch. Select'))
+  assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
+  assert.ok(!app.includes('sendRawTransaction'))
+  assert.ok(!app.includes('eth_sendTransaction'))
+  assert.ok(!app.includes('window.confirm('))
 })
 
-
-test('native transfer asks for explicit network, sender, receiver and amount confirmation', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /window\.confirm\(confirmationMessage\)/)
-  assert.match(app, /TRON MAINNET \(real funds\)/)
-  assert.match(app, /Check the recipient supports TRX on this exact network/)
-})
-
-
-test('native transfer verifies expected sender, receiver and exact SUN amount against solidified backend', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /\/api\/tron\/verify-native-transfer\//)
-  assert.match(app, /amountSun: record\.amountSun/)
-  assert.match(app, /Verify sender, receiver & amount/)
-  assert.match(app, /Solidified native TRX transaction matches sender, receiver and exact amount/)
-})
-
-
-test('wallet transfers fail closed for unknown mainnet endpoints and confirm token details before signing', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /assertSelectedTronLinkNetwork/)
-  assert.match(app, /Unknown\/custom network endpoints are blocked/)
-  assert.match(app, /const senderBalance = BigInt\(String\(await contract\.balanceOf\(sender\)\.call\(\)\)\)/)
-  assert.match(app, /window\.confirm\(confirmation\)/)
-  assert.match(app, /Exchange deposit credit is not guaranteed/)
-})
-
-
-test('verified native TRX transfer rechecks receiver balance on the same network', async () => {
-  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /if \(payload\.verified && record\.to\)/)
-  assert.match(app, /network: record\.network, address: record\.to/)
-  assert.match(app, /\/api\/tron\/native-balance\?/)
-  assert.match(app, /Native TRX transfer verified; receiver TRX balance rechecked on the same network/)
-  assert.match(app, /[Rr]eceiver TRX balance could not be rechecked/)
-})
-
-test('backend readiness probes the supported Tatum v4 TRON block endpoint without exposing secrets', async () => {
+test('backend readiness probes supported read-only Tatum data without exposing credentials', () => {
   assert.match(index, /const TATUM_TRON_HEALTH_PATH = '\/v4\/data\/blockchains\/block\/current\?chain=tron-mainnet'/)
   assert.match(index, /app\.get\('\/api\/status'/)
   assert.match(index, /await tatumFetch\(TATUM_TRON_HEALTH_PATH\)/)
