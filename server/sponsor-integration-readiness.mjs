@@ -8,8 +8,13 @@ function configuredAddress(env, key) {
   return typeof value === 'string' && TRON_ADDRESS.test(value.trim())
 }
 
-function configuredList(env, key) {
-  return typeof env[key] === 'string' && env[key].split(',').some((item) => item.trim().length > 0)
+function configuredContractList(env, key) {
+  const value = env[key]
+  if (typeof value !== 'string' || !value.trim()) return false
+  const entries = value.split(',').map((item) => item.trim())
+  // Reject empty entries and malformed addresses instead of reporting a
+  // partially valid allowlist as configured.
+  return entries.length > 0 && entries.every((address) => TRON_ADDRESS.test(address))
 }
 
 /**
@@ -26,9 +31,9 @@ export function getSponsorIntegrationReadiness({
     const feeAddressConfigured = configuredAddress(env, `SPONSOR_FEE_${key}_ADDRESS`)
     const assetAddressConfigured = configuredAddress(env, `SPONSOR_ASSET_${key}_ADDRESS`)
     const feeAddress = typeof env[`SPONSOR_FEE_${key}_ADDRESS`] === 'string'
-      ? env[`SPONSOR_FEE_${key}_ADDRESS`].trim() : ''
+      ? env[`SPONSOR_FEE_${key}_ADDRESS`.trim()] : ''
     const assetAddress = typeof env[`SPONSOR_ASSET_${key}_ADDRESS`] === 'string'
-      ? env[`SPONSOR_ASSET_${key}_ADDRESS`].trim() : ''
+      ? env[`SPONSOR_ASSET_${key}_ADDRESS`.trim()] : ''
     const gasFreeSupported = network === 'mainnet' || network === 'nile'
     const gasFreeCredentialsConfigured = gasFreeSupported
       && typeof gasFreeClient.isConfigured === 'function'
@@ -44,8 +49,8 @@ export function getSponsorIntegrationReadiness({
           ? feeAddress !== assetAddress : null,
       },
       tokenContractAllowlist: {
-        usdt: network === 'mainnet' || configuredList(env, `SPONSOR_USDT_${key}_CONTRACTS`),
-        vtrc: configuredList(env, `SPONSOR_VTRC_${key}_CONTRACTS`),
+        usdt: network === 'mainnet' || configuredContractList(env, `SPONSOR_USDT_${key}_CONTRACTS`),
+        vtrc: configuredContractList(env, `SPONSOR_VTRC_${key}_CONTRACTS`),
       },
       gasFree: {
         documentedNetwork: gasFreeSupported,
