@@ -41,21 +41,22 @@ function makeTransaction({ contractHexValue = tokenHex, ownerHex = senderHex, se
   }
 }
 
-function makeReceipt({ logAddress = tokenHex, fromBytes = '11'.repeat(20), toBytes = '22'.repeat(20), amountHexValue = amountHex, success = true, includeId = true } = {}) {
+function makeReceipt({ logAddress = tokenHex, fromBytes = '11'.repeat(20), toBytes = '22'.repeat(20), amountHexValue = amountHex, success = true, includeId = true, duplicateLog = false } = {}) {
+  const log = {
+    address: logAddress,
+    topics: [
+      eventTopic,
+      '0'.repeat(24) + fromBytes,
+      '0'.repeat(24) + toBytes,
+    ],
+    data: amountHexValue,
+  }
   return {
     ...(includeId ? { id: transactionId } : {}),
     blockNumber: 123,
     blockTimeStamp: 1720000000000,
     receipt: { result: success ? 'SUCCESS' : 'FAILED' },
-    log: [{
-      address: logAddress,
-      topics: [
-        eventTopic,
-        '0'.repeat(24) + fromBytes,
-        '0'.repeat(24) + toBytes,
-      ],
-      data: amountHexValue,
-    }],
+    log: duplicateLog ? [log, { ...log, topics: [...log.topics] }] : [log],
   }
 }
 
@@ -180,6 +181,27 @@ test('requires the exact amount, sender, receiver, token contract and direct tra
   const transferFrom = await invoke(badSelector.router, validQuery())
   assert.equal(transferFrom.payload.verified, false)
   assert.equal(transferFrom.payload.checks.directTokenTransferCall, false)
+})
+
+test('rejects ambiguous duplicate Transfer events rather than guessing which one was received', async () => {
+  const { router, persistenceCalls } = createTestRouter({
+    receipt: makeReceipt({ duplicateLog: true }),
+  })
+  const result = await invoke(router, validQuery())
+  assert.equal(result.payload.verified, false)
+  assert.equal(result.payload.status, 'ambiguous-matching-transfer-event')
+  assert.equal(result.payload.checks.eventNotAmbiguous, false)
+  assert.equal(persistenceCalls.length, 0)
+})
+
+test('rejects receipt events emitted by a different token contract', async () => {
+  const { router, persistenceCalls } = createTestRouter({
+    receipt: makeReceipt({ logAddress: '41' + '44'.repeat(20) }),
+  })
+  const result = await invoke(router, validQuery())
+  assert.equal(result.payload.verified, false)
+  assert.equal(result.payload.checks.transferEventMatches, false)
+  assert.equal(persistenceCalls.length, 0)
 })
 
 test('does not confirm before the solidified transaction body and receipt are both present', async () => {
