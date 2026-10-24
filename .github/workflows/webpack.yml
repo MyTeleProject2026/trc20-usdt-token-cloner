@@ -11,8 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # The package manifest includes Undici 8.x, which requires Node.js >=22.19.0.
+      # Keep CI aligned with the supported runtime instead of testing Node 20.
       matrix:
-        node-version: [20.x, 22.x, 24.x]
+        node-version: [22.x, 24.x]
 
     steps:
       - uses: actions/checkout@v4
