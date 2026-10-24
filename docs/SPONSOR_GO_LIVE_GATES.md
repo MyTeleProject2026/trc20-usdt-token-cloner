@@ -22,6 +22,7 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 - [ ] Database migration and integration tests covering duplicate requests, concurrent reservations, insufficient funds, provider timeouts, failed transactions, chain reorg/finality, and reconciliation drift.
 - [ ] Testnet end-to-end tests prove the sender/receiver/token/amount/fee policy from independently verified chain data; no test may depend on UI-only balances.
 - [ ] Security review of authorization, signing, API authentication, rate limits, secret handling, audit trails, and emergency pause.
+- [ ] Browser CORS is configured with the exact deployed frontend origins; empty/invalid origin configuration fails closed and never reflects arbitrary browser origins.
 - [ ] Explicit operator approval for any production launch after all prior gates pass.
 
 ## Release rule
