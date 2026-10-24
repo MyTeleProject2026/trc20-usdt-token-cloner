@@ -1737,41 +1737,109 @@ export async function listPersistedReceiverHistory({ network, address, contract 
   const db = getPool()
   if (!db) return { success: false, reason: 'database-not-configured' }
   await initializeDatabase()
-  const result = await db.query(
-    `SELECT network, wallet_address, transaction_hash, token_contract, from_address, to_address,
-            amount_base_units::text AS amount_base_units, token_name, token_symbol, token_decimals,
-            block_timestamp, verification_status, verified_on_chain, event_index, first_seen_at, last_seen_at
-       FROM ${schema}.receiver_history_events
-      WHERE network = $1 AND lower(wallet_address) = lower($2)
-        AND ($3::text IS NULL OR lower(token_contract) = lower($3))
-      ORDER BY block_timestamp DESC, id DESC
-      LIMIT $4`,
-    [network, address, contract, limit],
-  )
-  return {
-    success: true,
-    records: result.rows.map((row) => ({
+  const [historyResult, verifiedTransfersResult] = await Promise.all([
+    db.query(
+      `SELECT network, wallet_address, transaction_hash, token_contract, from_address, to_address,
+              amount_base_units::text AS amount_base_units, token_name, token_symbol, token_decimals,
+              block_timestamp, verification_status, verified_on_chain, event_index, first_seen_at, last_seen_at
+         FROM ${schema}.receiver_history_events
+        WHERE network = $1 AND lower(wallet_address) = lower($2)
+          AND ($3::text IS NULL OR lower(token_contract) = lower($3))
+        ORDER BY block_timestamp DESC, id DESC
+        LIMIT $4`,
+      [network, address, contract, limit],
+    ),
+    db.query(
+      `SELECT network, transaction_hash, token_contract, from_address, to_address,
+              amount_base_units::text AS amount_base_units, block_number, log_index, result, created_at
+         FROM ${schema}.transfer_verifications
+        WHERE network = $1 AND lower(to_address) = lower($2)
+          AND ($3::text IS NULL OR lower(token_contract) = lower($3))
+          AND verification_status = 'verified-on-chain'
+        ORDER BY block_number DESC NULLS LAST, created_at DESC, id DESC
+        LIMIT $4`,
+      [network, address, contract, limit],
+    ),
+  ])
+
+  const indexedAndWorkerRecords = historyResult.rows.map((row) => ({
+    transactionId: row.transaction_hash?.trim() || null,
+    network: row.network,
+    receiverAddress: row.to_address,
+    senderAddress: row.from_address,
+    tokenContract: row.token_contract,
+    tokenName: row.token_name,
+    tokenSymbol: row.token_symbol,
+    tokenDecimals: row.token_decimals === null ? null : Number(row.token_decimals),
+    amountBaseUnits: row.amount_base_units,
+    timestamp: Number(row.block_timestamp),
+    verificationStatus: row.verification_status,
+    verifiedOnChain: row.verified_on_chain === true,
+    eventIndex: row.event_index,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+  }))
+
+  const solidifiedVerifiedRecords = verifiedTransfersResult.rows.map((row) => {
+    const evidence = row.result && typeof row.result === 'object' ? row.result : {}
+    const evidenceTimestamp = Number.isSafeInteger(evidence.timestamp) && evidence.timestamp >= 0
+      ? evidence.timestamp
+      : new Date(row.created_at).getTime()
+    return {
       transactionId: row.transaction_hash?.trim() || null,
       network: row.network,
       receiverAddress: row.to_address,
       senderAddress: row.from_address,
       tokenContract: row.token_contract,
-      tokenName: row.token_name,
-      tokenSymbol: row.token_symbol,
-      tokenDecimals: row.token_decimals === null ? null : Number(row.token_decimals),
+      tokenName: null,
+      tokenSymbol: null,
+      tokenDecimals: null,
       amountBaseUnits: row.amount_base_units,
-      timestamp: Number(row.block_timestamp),
-      verificationStatus: row.verification_status,
-      verifiedOnChain: row.verified_on_chain === true,
-      eventIndex: row.event_index,
-      firstSeenAt: row.first_seen_at,
-      lastSeenAt: row.last_seen_at,
-    })),
+      timestamp: evidenceTimestamp,
+      verificationStatus: 'verified-on-chain',
+      verifiedOnChain: true,
+      eventIndex: row.log_index,
+      firstSeenAt: row.created_at,
+      lastSeenAt: row.created_at,
+    }
+  })
+
+  const sameTransfer = (left, right) =>
+    (left.transactionId || '').toLowerCase() === (right.transactionId || '').toLowerCase()
+    && (left.tokenContract || '').toLowerCase() === (right.tokenContract || '').toLowerCase()
+    && (left.senderAddress || '').toLowerCase() === (right.senderAddress || '').toLowerCase()
+    && (left.receiverAddress || '').toLowerCase() === (right.receiverAddress || '').toLowerCase()
+    && left.amountBaseUnits === right.amountBaseUnits
+
+  const merged = [...indexedAndWorkerRecords]
+  for (const verified of solidifiedVerifiedRecords) {
+    const matching = merged.filter((record) => sameTransfer(record, verified))
+    const retainedMetadata = matching[0] || {}
+    const authoritative = {
+      ...retainedMetadata,
+      ...verified,
+      tokenName: retainedMetadata.tokenName || verified.tokenName,
+      tokenSymbol: retainedMetadata.tokenSymbol || verified.tokenSymbol,
+      tokenDecimals: retainedMetadata.tokenDecimals ?? verified.tokenDecimals,
+    }
+    const remaining = merged.filter((record) => !sameTransfer(record, verified))
+    remaining.push(authoritative)
+    merged.splice(0, merged.length, ...remaining)
+  }
+
+  merged.sort((left, right) => {
+    const leftTimestamp = Number(left.timestamp) || 0
+    const rightTimestamp = Number(right.timestamp) || 0
+    return rightTimestamp - leftTimestamp
+  })
+
+  return {
+    success: true,
+    records: merged.slice(0, limit),
   }
 }
 
- 
-/** Register a receiver for the opt-in history worker. Caller authorization is
+ /** Register a receiver for the opt-in history worker. Caller authorization is
  * enforced by the route; this helper only performs a validated, idempotent DB write. */
 export async function registerTrackedWallet({ network, address, displayLabel = null } = {}) {
   if (!['mainnet', 'shasta', 'nile'].includes(network)
