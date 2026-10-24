@@ -70,7 +70,7 @@ test('rejects wrong network, expired quote, missing operator approval and active
     controls: { ...evidence().controls, emergencyPause: true, operatorApproval: false, quoteFresh: false },
   }))
   assert.ok(result.blockers.includes('asset-sponsor-network-mismatch'))
-  assert.ok(result.blockers.includes('network-fee-sponsor-network-mismatch'))
+  assert.ok(result.blockers.includes('fee-sponsor-network-mismatch'))
   assert.ok(result.blockers.includes('sponsor-submissions-paused-or-pause-state-unknown'))
   assert.ok(result.blockers.includes('operator-approval-missing'))
   assert.ok(result.blockers.includes('quote-missing-or-expired'))
@@ -90,4 +90,18 @@ test('never enables user-funded fallback and never claims a submission happened'
   assert.equal(result.eligible, false)
   assert.equal(result.userFundedFallbackAllowed, false)
   assert.equal(result.submissionPerformed, false)
+})
+
+test('rejects zero principal or zero fee requirements instead of treating them as funded transfers', () => {
+  const zeroPrincipal = evaluateSponsorTransferEligibility(evidence({
+    principal: { ...evidence().principal, requiredBaseUnits: '0' },
+  }))
+  assert.equal(zeroPrincipal.eligible, false)
+  assert.ok(zeroPrincipal.blockers.includes('asset-principal-funding-insufficient-or-unverified'))
+
+  const zeroFee = evaluateSponsorTransferEligibility(evidence({
+    fee: { ...evidence().fee, requiredBaseUnits: '0' },
+  }))
+  assert.equal(zeroFee.eligible, false)
+  assert.ok(zeroFee.blockers.includes('network-fee-coverage-insufficient-or-unverified'))
 })
