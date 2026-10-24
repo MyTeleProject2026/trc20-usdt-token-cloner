@@ -745,6 +745,53 @@ test('PostgreSQL refuses opaque wallet references and caller-supplied hashes as 
     await pool.end()
   }
 })
+test('PostgreSQL settles an already-submitted asset grant only with exact verified evidence and only once', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer, transitionSponsorTransfer } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-reconcile-seeded-${suffix}`
+  const idempotencyKey = `pg-reconcile-seeded:${suffix}`
+  const transactionHash = 'f'.repeat(64)
+  try {
+    await insertBudget(pool, sponsorReference, '100')
+    assert.equal((await reserveSponsorTransfer({
+      idempotencyKey, sponsorReference, network, purpose: 'asset-grant', asset: 'TRX',
+      receiverAddress, amountBaseUnits: '25',
+    })).reserved, true)
+    // This is a test fixture for an existing broadcast; production code cannot
+    // create this state while provider submission remains disabled.
+    await seedPreviouslySubmittedTransfer(pool, idempotencyKey, transactionHash)
+    await pool.query(
+      `INSERT INTO trc20_token_clone.native_transfer_verifications
+        (network, transaction_hash, from_address, to_address, amount_sun, block_number, verification_status)
+       VALUES ($1,$2,$3,$4,25,54321,'verified-on-chain')`,
+      [network, transactionHash, sponsorAddress, receiverAddress],
+    )
+
+    assert.deepEqual(await transitionSponsorTransfer({
+      idempotencyKey, nextStatus: 'confirmed', transactionHash,
+    }), { updated: true, duplicate: false, status: 'confirmed' })
+    assert.deepEqual(await transitionSponsorTransfer({
+      idempotencyKey, nextStatus: 'confirmed', transactionHash,
+    }), { updated: true, duplicate: true, status: 'confirmed' })
+
+    const budget = await pool.query(
+      `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
+         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
+      [sponsorReference],
+    )
+    assert.deepEqual(budget.rows[0], { reserved: '0', spent: '25' })
+  } finally {
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.query(
+      'DELETE FROM trc20_token_clone.native_transfer_verifications WHERE network = $1 AND transaction_hash = $2',
+      [network, transactionHash],
+    )
+    await pool.end()
+  }
+})
+
 test('concurrent reservations serialize on the budget row and cannot overspend', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
