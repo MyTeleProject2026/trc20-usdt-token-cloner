@@ -2,7 +2,10 @@ function normalizeOrigin(value) {
   if (typeof value !== 'string' || !value.trim()) return null
   try {
     const parsed = new URL(value.trim())
-    if (!['https:', 'http:'].includes(parsed.protocol)
+    const httpsOrigin = parsed.protocol === 'https:'
+    const loopbackHttpOrigin = parsed.protocol === 'http:'
+      && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname.toLowerCase())
+    if (!(httpsOrigin || loopbackHttpOrigin)
       || parsed.origin === 'null'
       || parsed.username
       || parsed.password
