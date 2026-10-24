@@ -9,13 +9,16 @@ The official GasFree developer documentation describes a TRON TRC-20 workflow wh
 - TRON resource model: https://developers.tron.network/docs/bandwidth-and-energy
 - TRON resource delegation: https://developers.tron.network/docs/delegation
 
-This repository change implements authenticated, fixed-host, read-only calls through:
+The source review is recorded in [`GASFREE_SDK_SOURCE_AUDIT.md`](./GASFREE_SDK_SOURCE_AUDIT.md). This repository implements authenticated, fixed-host, read-only calls through:
 
+- `GET /api/gasfree/config-status` — presence of the network-isolated server credentials only; it is not a reachability or funding check.
 - `GET /api/gasfree/capabilities?network=mainnet|nile` — provider directory and supported-token fee configuration.
 - `GET /api/gasfree/account?network=mainnet|nile&address={EOA}` — provider account status, recommended nonce, pending/frozen amounts and supported asset metadata. The documented response does not guarantee a spendable balance field; an absent balance is unknown, not zero.
-- `GET /api/gasfree/trace?network=mainnet|nile&traceId={id}` — provider trace state and reported transaction metadata. A provider state is not independent chain-finality verification.
+- `POST /api/gasfree/preflight` — validates an allowlisted read-only request and returns provider, token, account and token-fee-policy findings. A passed policy preflight is **not** signature readiness or transfer authorization.
+- `GET /api/gasfree/trace?network=mainnet|nile&traceId={id}` — provider trace state and reported transaction metadata, checked against the selected chain's solidified transaction and receipt when enough data is returned.
+- `POST /api/gasfree/submit` — fail-closed HTTP 503 response; no provider call, signing, reservation or broadcast.
 
-These calls require approved server-side API credentials. They never sign, submit, or broadcast a transfer, create a wallet balance, or credit a sponsor ledger.
+Authenticated provider reads reject HTTP redirects. These calls require approved server-side API credentials. They never sign, submit, or broadcast a transfer, create a wallet balance, or credit a sponsor ledger.
 
 ### Independent trace verification
 
@@ -85,7 +88,8 @@ A standard TRON token transfer can arrive at a wallet without the receiver takin
 
 ## What this PR changes
 
-- Adds HMAC-SHA256 authenticated, fixed-host, read-only provider/token discovery, account lookup and trace lookup for the documented Mainnet and Nile environments.
+- Adds HMAC-SHA256 authenticated, fixed-host, read-only provider/token discovery, account lookup, preflight and trace lookup for the documented Mainnet and Nile environments.
+- Rejects HTTP redirects for signed GasFree API reads and adds a source audit of the official developer docs and JavaScript, Java and Swift SDKs.
 - Normalizes provider/token records and returns token-denominated fee amounts without trusting a token symbol as proof of identity; the UI explicitly checks the official Mainnet USDT contract address rather than relying on its symbol.
 - Adds a follow-up from a provider trace to the existing independent solidified transaction/receipt verifier and, after exact Transfer-event verification, re-reads the receiver balance for the same network/contract/address.
 - Adds opt-in browser notifications for newly verified receiver-history events and event-index-specific display keys.
