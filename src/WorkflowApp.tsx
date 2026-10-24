@@ -499,7 +499,13 @@ export default function WorkflowApp() {
       setSenderAddress(address)
       setWatchAddress(address)
       setWalletSource('TronLink')
-      await readSenderSnapshots(address)
+      // Connecting or reconnecting a wallet is a refresh boundary for the
+      // sponsor snapshots too. Refresh the fee and principal roles alongside
+      // the sender's chain reads so the review stage never relies on stale UI data.
+      await Promise.all([
+        readSenderSnapshots(address),
+        loadSponsorStatus(true),
+      ])
     } catch (error) {
       setSenderAddress('')
       setWalletSource(null)
