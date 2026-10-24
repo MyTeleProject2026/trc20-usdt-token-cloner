@@ -2,8 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getSponsorIntegrationReadiness } from '../server/sponsor-integration-readiness.mjs'
 
-const addressA = `T${'a'.repeat(33)}`
-const addressB = `T${'b'.repeat(33)}`
+const addressA = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const addressB = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+const invalidChecksumAddress = `T${'a'.repeat(33)}`
 
 test('reports missing backend configuration without revealing secrets or addresses', () => {
   const secret = 'do-not-return-this-provider-secret'
@@ -49,6 +50,19 @@ test('invalid or missing sponsor addresses are not marked as configured', () => 
   assert.equal(status.assetPrincipalSponsorAddressConfigured, true)
   assert.equal(status.bothRoleAddressesConfigured, false)
   assert.equal(status.roleAddressesDistinct, null)
+  assert.equal(result.submission.canSubmitSponsoredTransfer, false)
+})
+
+test('rejects a Base58-shaped sponsor address with an invalid checksum', () => {
+  const result = getSponsorIntegrationReadiness({
+    env: {
+      SPONSOR_FEE_MAINNET_ADDRESS: invalidChecksumAddress,
+      SPONSOR_ASSET_MAINNET_ADDRESS: addressB,
+    },
+  })
+  const status = result.networks.mainnet.addressMonitoring
+  assert.equal(status.feeSponsorAddressConfigured, false)
+  assert.equal(status.bothRoleAddressesConfigured, false)
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
