@@ -1164,9 +1164,9 @@ export default function WorkflowApp() {
                           <p>Available principal sponsor bandwidth: {feeEstimate.nativeEstimation.totalPrincipalSponsorBandwidth ?? 'Unknown'} units.</p>
                         </div>
                         <div className="studio-balance">
-                          <span>Estimated bandwidth fee</span>
+                          <span>Principal sponsor's estimated bandwidth burn</span>
                           <strong>{feeEstimate.nativeEstimation.estimatedBandwidthFeeTRX ?? 'Unknown'} <small>TRX</small></strong>
-                          <p>{feeEstimate.nativeEstimation.estimatedBandwidthFeeSun ?? 'Unknown'} SUN at {feeEstimate.nativeEstimation.bandwidthFeeSunPerByte ?? 'unknown'} SUN per byte.</p>
+                          <p>{feeEstimate.nativeEstimation.estimatedBandwidthFeeSun ?? 'Unknown'} SUN at {feeEstimate.nativeEstimation.bandwidthFeeSunPerByte ?? 'unknown'} SUN per byte, based on the principal sponsor's current bandwidth snapshot.</p>
                         </div>
                         <div className="studio-balance">
                           <span>Principal sponsor resources</span>
@@ -1183,7 +1183,7 @@ export default function WorkflowApp() {
                         Fee sponsor resources counted toward principal: {feeEstimate.nativeEstimation.feeSponsorResourcesCountedTowardPrincipalTransfer === true ? 'yes' : 'no'}.
                         {' '}Verified delegation: {feeEstimate.nativeEstimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
                       </p>
-                      <p className="studio-footnote">Energy is not expected for a native TRX TransferContract; total cost may differ after wallet signing and network execution.</p>
+                      <p className="studio-footnote">This estimates the principal sponsor's own bandwidth burn. It does not demonstrate that the separate fee sponsor has paid or delegated resources. Energy is not expected for a native TRX TransferContract; total cost may differ after wallet signing and network execution.</p>
                     </div>
                   )}
                   {assetKind === 'TRC20' && feeEstimate?.success === true && feeEstimate.estimation && (
