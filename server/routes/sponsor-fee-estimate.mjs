@@ -5,6 +5,11 @@ const NETWORKS = Object.freeze({
   shasta: 'https://api.shasta.trongrid.io',
   nile: 'https://nile.trongrid.io',
 })
+const TATUM_NETWORKS = Object.freeze({
+  mainnet: 'https://tron-mainnet.gateway.tatum.io',
+  shasta: 'https://tron-shasta.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
+})
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const BASE_UNITS_PATTERN = /^[1-9][0-9]{0,77}$/
 const UINT256_MAX = (1n << 256n) - 1n
