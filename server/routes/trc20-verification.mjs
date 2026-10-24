@@ -14,6 +14,17 @@ const TRANSFER_SELECTOR = 'a9059cbb'
 const TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
+const VERIFIED_CACHE_TTL_MS = 15_000
+const VERIFIED_CACHE_MAX_ENTRIES = 1_000
+
+function cacheVerifiedResult(cache, key, body) {
+  if (cache.size >= VERIFIED_CACHE_MAX_ENTRIES && !cache.has(key)) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+  cache.set(key, { body, expiresAt: Date.now() + VERIFIED_CACHE_TTL_MS })
+}
+
 function canonicalHexAddress(value) {
   if (typeof value !== 'string') return null
   let hex = value.trim().replace(/^0x/i, '').toLowerCase()
@@ -74,6 +85,9 @@ export function createTRC20VerificationRouter({
   timeoutMs = 8000,
 } = {}) {
   const router = Router()
+  // Only fully verified and successfully persisted receipts are cached. Failed
+  // provider reads, mismatches and persistence failures remain retryable.
+  const verifiedCache = new Map()
 
   router.get('/verify-trc20-transfer/:hash', async (req, res) => {
     res.setHeader?.('Cache-Control', 'no-store')
@@ -101,6 +115,24 @@ export function createTRC20VerificationRouter({
       }
       eventIndex = Number(eventIndexText)
     }
+
+    const cacheKey = [
+      network,
+      hash.toLowerCase(),
+      contract,
+      from,
+      to,
+      amountBaseUnits,
+      eventIndex === null ? 'auto' : String(eventIndex),
+    ].join('|')
+    const cached = verifiedCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json({
+        ...cached.body,
+        cacheStatus: 'recently-verified-and-persisted',
+      })
+    }
+    if (cached) verifiedCache.delete(cacheKey)
 
     try {
       const tronWeb = await tronWebFactory(NETWORKS[network])
@@ -220,7 +252,7 @@ export function createTRC20VerificationRouter({
         }
       }
 
-      return res.status(200).json({
+      const responseBody = {
         success: true,
         verified,
         status,
@@ -245,7 +277,11 @@ export function createTRC20VerificationRouter({
         unpaidFallbackToUserFunds: false,
         note: 'This verifies only the specified direct TRC-20 transfer on the selected chain. Persisted history is recorded separately when database persistence succeeds. This does not enable sending or prove an exchange account has credited a deposit.',
         checkedAt: new Date().toISOString(),
-      })
+      }
+      if (verified && verificationPersistence?.persisted === true) {
+        cacheVerifiedResult(verifiedCache, cacheKey, responseBody)
+      }
+      return res.status(200).json(responseBody)
     } catch {
       return res.status(502).json({
         success: false,
