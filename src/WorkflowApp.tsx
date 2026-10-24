@@ -746,7 +746,16 @@ export default function WorkflowApp() {
               {receiverSnapshot && (
                 <div className="studio-verified-snapshot" role="status">
                   <CheckCircle2 size={19} aria-hidden="true" />
-                  <div><strong>Receiver address read from solidified chain state</strong><p>{assetKind === 'TRX' ? `Current native balance: ${receiverSnapshot.balanceTRX} TRX` : `Contract balance: ${formatUnits(receiverSnapshot.balanceBaseUnits, receiverSnapshot.decimals)} · decimals: ${receiverSnapshot.decimals}`}</p><small>This is a read-only balance snapshot, not a pending or credited sponsor grant.</small></div>
+                  <div>
+                    <strong>Receiver balance read from solidified {receiverSnapshot.network} chain state</strong>
+                    <p>{assetKind === 'TRX'
+                      ? `Current native balance: ${receiverSnapshot.balanceTRX} TRX (${receiverSnapshot.balanceSun} sun)`
+                      : `Token balance: ${formatUnits(receiverSnapshot.balanceBaseUnits, receiverSnapshot.decimals)} units · decimals: ${receiverSnapshot.decimals} · raw base units: ${receiverSnapshot.balanceBaseUnits}`}</p>
+                    {assetKind === 'TRC20' && <small>Token contract: {receiverSnapshot.tokenContract || tokenContract.trim()}</small>}
+                    <small>Receiver: {receiverSnapshot.receiverAddress || receiverAddress.trim()}</small>
+                    <small>Snapshot checked: {receiverCheckedAt ? new Date(receiverCheckedAt).toLocaleString() : 'time unavailable'}</small>
+                    <small>This is a read-only balance for the exact network and contract. It is not proof of a new transfer, sponsor commitment, or exchange deposit credit.</small>
+                  </div>
                 </div>
               )}
               <p className="studio-footnote">The requested amount cannot be reserved until a verified asset-principal sponsor, sponsor-specific authorization and transfer ledger are implemented. An on-chain transfer would not guarantee exchange credit.</p>
