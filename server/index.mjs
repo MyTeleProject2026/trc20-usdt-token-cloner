@@ -10,6 +10,7 @@ import gasFreeRoutes from './routes/gasfree.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
+import { isReadOnlyServiceReady } from './readiness-policy.mjs'
 import { initializeDatabase, getDatabaseStatus } from './database.mjs'
 import { tatumFetch, MissingApiKeyError } from './tatum-client.mjs'
 
@@ -93,7 +94,7 @@ app.get('/api/readiness', async (_req, res) => {
     tronGridApiKey: { configured: Boolean(process.env.TRONGRID_API_KEY) },
     frontendOrigin: { configured: allowedOrigins.size > 0 },
   }
-  const ready = database.ready && providers.tatum.reachable
+  const ready = isReadOnlyServiceReady({ database, providers })
   return res.status(ready ? 200 : 503).json({
     success: ready,
     status: ready ? 'read-only-dependencies-healthy' : 'dependency-check-failed',
