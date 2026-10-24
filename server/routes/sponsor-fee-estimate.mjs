@@ -33,6 +33,16 @@ function asTronHex(tronWeb, address) {
   return /^41[0-9a-f]{40}$/.test(value) ? value : null
 }
 
+function protobufVarintLength(value) {
+  let remaining = BigInt(value)
+  let length = 1
+  while (remaining >= 128n) {
+    remaining >>= 7n
+    length += 1
+  }
+  return length
+}
+
 function parseResources(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
     throw new Error('invalid-resource-response')
@@ -172,7 +182,8 @@ export function createSponsorFeeEstimateRouter({
       const actualOwner = typeof transfer?.owner_address === 'string' ? transfer.owner_address.replace(/^0x/i, '').toLowerCase() : ''
       const actualReceiver = typeof transfer?.to_address === 'string' ? transfer.to_address.replace(/^0x/i, '').toLowerCase() : ''
       const actualAmount = integerString(transfer?.amount)
-      if (typeof rawDataHex !== 'string' || !/^(?:[0-9a-fA-F]{2})+$/.test(rawDataHex)
+      if (typeof rawDataHex !== 'string' || rawDataHex.length > 32_768
+        || !/^(?:[0-9a-fA-F]{2})+$/.test(rawDataHex)
         || actualOwner !== principalHex || actualReceiver !== receiverHex
         || actualAmount !== amountBaseUnits) {
         return res.status(502).json({
@@ -197,9 +208,12 @@ export function createSponsorFeeEstimateRouter({
       }
       const principalResources = parseResources(principalResourcesPayload)
       const feeSponsorResources = parseResources(feeSponsorResourcesPayload)
-      // The unsigned body length is exact for this draft; a single 65-byte
-      // signature plus protobuf field/tag/length bytes are added as an estimate.
-      const estimatedSignedTransactionBytes = rawDataHex.length / 2 + 67
+      // The unsigned raw_data length is exact for this draft. Include its
+      // outer protobuf tag/length and one 65-byte signature field/tag/length.
+      const unsignedRawDataBytes = rawDataHex.length / 2
+      const estimatedSignedTransactionBytes = unsignedRawDataBytes
+        + 1 + protobufVarintLength(unsignedRawDataBytes)
+        + 1 + protobufVarintLength(65) + 65
       const availableBandwidth = BigInt(principalResources.availableStakedBandwidth)
         + BigInt(principalResources.availableFreeBandwidth)
       const estimatedBandwidthShortfallBytes = BigInt(estimatedSignedTransactionBytes) > availableBandwidth
@@ -222,7 +236,7 @@ export function createSponsorFeeEstimateRouter({
         checkedAt: new Date().toISOString(),
         nativeEstimation: {
           method: 'TRON wallet/createtransaction unsigned draft + current chain fee parameters',
-          estimatedUnsignedRawDataBytes: rawDataHex.length / 2,
+          estimatedUnsignedRawDataBytes: unsignedRawDataBytes,
           estimatedSignedTransactionBytes,
           bandwidthFeeSunPerByte,
           principalSponsorResources: {
