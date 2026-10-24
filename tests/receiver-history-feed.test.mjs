@@ -26,14 +26,19 @@ test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.doesNotMatch(endpoint, /fetch\(req\.query|new URL\(req\.query/i)
 })
 
-test('persisted receiver history API remains available but is not placed in the simplified wizard', () => {
+test('receiver history UI distinguishes solidified receipts from indexed candidates', () => {
   assert.ok(routes.includes("receiver-history/persisted"))
   assert.match(routes, /listPersistedReceiverHistory/)
   assert.match(routes, /persisted-history-unavailable/)
   assert.ok(routes.includes("eventIndex: item.event_index"))
   assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
-  assert.ok(!activeUi.includes('ReceiverHistory'))
-  assert.ok(!activeUi.includes('receiver-history/persisted'))
+  assert.ok(activeUi.includes('Incoming TRC-20 history'))
+  assert.ok(activeUi.includes('/api/tron/receiver-history/persisted'))
+  assert.ok(activeUi.includes('/api/tron/receiver-history?'))
+  assert.match(activeUi, /record\.verifiedOnChain === true && record\.verificationStatus === 'verified-on-chain'/)
+  assert.ok(activeUi.includes('indexed-candidate-awaiting-solidified-verification'))
+  assert.ok(activeUi.includes('Awaiting solidified verification'))
+  assert.ok(activeUi.includes('The verified-history store is unavailable'))
 })
 
 test('persistent watchlist registration is protected and does not imply monitoring is running', () => {
@@ -48,9 +53,8 @@ test('persistent watchlist registration is protected and does not imply monitori
   assert.doesNotMatch(routes.slice(routes.indexOf("router.post('/tracked-wallets'"), routes.indexOf("// Read-only incoming TRC-20 indexer feed.")), /privateKey|broadcasttransaction|sendRawTransaction/i)
 })
 
-test('receiver notifications and history screens are intentionally absent from the simple frontend', () => {
+test('receiver history does not start background polling or browser notifications', () => {
   assert.ok(!activeUi.includes('Notification'))
   assert.ok(!activeUi.includes('setInterval('))
-  assert.ok(!activeUi.includes('ReceiverHistory'))
-  assert.ok(!entry.includes('ReceiverHistory'))
+  assert.ok(activeUi.includes('loadReceiverHistory'))
 })

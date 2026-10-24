@@ -64,6 +64,50 @@ type BalanceSnapshot = {
   note?: string
   accountExists?: boolean
 }
+type ReceiverHistoryRecord = {
+  transactionId?: string | null
+  network?: string
+  receiverAddress?: string | null
+  senderAddress?: string | null
+  tokenContract?: string | null
+  tokenName?: string | null
+  tokenSymbol?: string | null
+  tokenDecimals?: number | null
+  amountBaseUnits?: string | null
+  timestamp?: number | string | null
+  verificationStatus?: string
+  verifiedOnChain?: boolean
+  eventIndex?: number | string | null
+  firstSeenAt?: string | null
+  lastSeenAt?: string | null
+  recordSource?: 'persisted' | 'indexer'
+}
+
+function isVerifiedHistoryRecord(record: ReceiverHistoryRecord) {
+  return record.verifiedOnChain === true && record.verificationStatus === 'verified-on-chain'
+}
+
+function historyTimestampMs(value: number | string | null | undefined) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? (value < 1_000_000_000_000 ? value * 1000 : value) : 0
+  }
+  if (typeof value !== 'string' || !value.trim()) return 0
+  const input = value.trim()
+  if (/^[0-9]+$/.test(input)) {
+    const numeric = Number(input)
+    if (!Number.isFinite(numeric)) return 0
+    return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+  }
+  const parsed = Date.parse(input)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatHistoryTimestamp(value: number | string | null | undefined) {
+  const milliseconds = historyTimestampMs(value)
+  if (!milliseconds) return 'Time unavailable'
+  try { return new Date(milliseconds).toLocaleString() } catch { return 'Time unavailable' }
+}
+
 type StageState = 'done' | 'current' | 'locked' | 'ready'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -259,11 +303,28 @@ export default function WorkflowApp() {
   const [receiverError, setReceiverError] = useState('')
   const [receiverCheckedAt, setReceiverCheckedAt] = useState<number | null>(null)
 
+  // Read-only TRC-20 history: persisted chain verification and live indexer
+  // candidates are kept distinct and merged without upgrading candidates to proof.
+  const [receiverHistoryRecords, setReceiverHistoryRecords] = useState<ReceiverHistoryRecord[]>([])
+  const [receiverHistoryLoading, setReceiverHistoryLoading] = useState(false)
+  const [receiverHistoryError, setReceiverHistoryError] = useState('')
+  const [receiverHistoryNotice, setReceiverHistoryNotice] = useState('')
+  const [receiverHistoryCheckedAt, setReceiverHistoryCheckedAt] = useState<number | null>(null)
+  const [receiverHistoryPersistedAvailable, setReceiverHistoryPersistedAvailable] = useState<boolean | null>(null)
+
   const [reviewRefreshing, setReviewRefreshing] = useState(false)
   const [reviewNotice, setReviewNotice] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
+
+  const clearReceiverHistory = () => {
+    setReceiverHistoryRecords([])
+    setReceiverHistoryError('')
+    setReceiverHistoryNotice('')
+    setReceiverHistoryCheckedAt(null)
+    setReceiverHistoryPersistedAvailable(null)
+  }
 
   const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError
   const feeStageValid = feeSponsorRequired && sponsorStageLoaded
@@ -331,6 +392,12 @@ export default function WorkflowApp() {
     setReceiverSnapshot(null)
     setReceiverError('')
     setReceiverCheckedAt(null)
+    setReceiverHistoryRecords([])
+    setReceiverHistoryLoading(false)
+    setReceiverHistoryError('')
+    setReceiverHistoryNotice('')
+    setReceiverHistoryCheckedAt(null)
+    setReceiverHistoryPersistedAvailable(null)
     setReviewNotice('')
     // loadSponsorStatus is intentionally invoked when the selected network changes.
   }, [network])
@@ -347,6 +414,11 @@ export default function WorkflowApp() {
       setSenderCheckedAt(null)
       setReceiverSnapshot(null)
       setReceiverCheckedAt(null)
+      setReceiverHistoryRecords([])
+      setReceiverHistoryError('')
+      setReceiverHistoryNotice('')
+      setReceiverHistoryCheckedAt(null)
+      setReceiverHistoryPersistedAvailable(null)
       setStep((current) => Math.min(current, 2))
     }
     provider.on('accountsChanged', invalidate)
@@ -473,6 +545,100 @@ export default function WorkflowApp() {
       setReceiverError(error instanceof Error ? error.message : 'Could not verify the receiver on the selected network.')
     } finally {
       setReceiverLoading(false)
+    }
+  }
+
+  const loadReceiverHistory = async () => {
+    const address = receiverAddress.trim()
+    const contract = tokenContract.trim()
+    clearReceiverHistory()
+    if (!ADDRESS_PATTERN.test(address)) {
+      setReceiverHistoryError('Enter a valid receiver address before loading history.')
+      return
+    }
+    if (!ADDRESS_PATTERN.test(contract)) {
+      setReceiverHistoryError('Enter a valid TRC-20 token contract before loading history.')
+      return
+    }
+
+    setReceiverHistoryLoading(true)
+    try {
+      const query = `network=${encodeURIComponent(network)}&address=${encodeURIComponent(address)}&contract=${encodeURIComponent(contract)}`
+      const results = await Promise.allSettled([
+        requestApi(`/api/tron/receiver-history?${query}&limit=20`),
+        requestApi(`/api/tron/receiver-history/persisted?${query}&limit=50`),
+      ])
+      const indexedResult = results[0].status === 'fulfilled' ? results[0].value : null
+      const persistedResult = results[1].status === 'fulfilled' ? results[1].value : null
+      const indexedOk = indexedResult?.ok === true
+        && indexedResult.payload?.success === true
+        && Array.isArray(indexedResult.payload?.records)
+      const persistedOk = persistedResult?.ok === true
+        && persistedResult.payload?.success === true
+        && Array.isArray(persistedResult.payload?.records)
+      setReceiverHistoryPersistedAvailable(persistedOk)
+
+      if (!indexedOk && !persistedOk) {
+        setReceiverHistoryError('Receiver history is temporarily unavailable. No empty-history result can be inferred from a failed lookup.')
+        setReceiverHistoryCheckedAt(Date.now())
+        return
+      }
+
+      const indexedRows: ReceiverHistoryRecord[] = indexedOk
+        ? indexedResult!.payload.records.map((record: ReceiverHistoryRecord) => ({
+            ...record,
+            network,
+            receiverAddress: address,
+            tokenContract: typeof record.tokenContract === 'string' ? record.tokenContract : contract,
+            // Indexer output is always a candidate here, even if a remote payload
+            // accidentally includes verification-like fields.
+            verifiedOnChain: false,
+            verificationStatus: 'indexed-candidate-awaiting-solidified-verification',
+            recordSource: 'indexer' as const,
+          }))
+        : []
+      const persistedRows: ReceiverHistoryRecord[] = persistedOk
+        ? persistedResult!.payload.records.map((record: ReceiverHistoryRecord) => ({
+            ...record,
+            network,
+            receiverAddress: typeof record.receiverAddress === 'string' ? record.receiverAddress : address,
+            tokenContract: typeof record.tokenContract === 'string' ? record.tokenContract : contract,
+            recordSource: 'persisted' as const,
+          }))
+        : []
+
+      const recordKey = (record: ReceiverHistoryRecord) => [
+        (record.transactionId || '').toLowerCase(),
+        (record.tokenContract || '').toLowerCase(),
+        record.eventIndex === null || record.eventIndex === undefined ? '' : String(record.eventIndex),
+      ].join('|')
+      const merged = new Map<string, ReceiverHistoryRecord>()
+      for (const record of indexedRows) {
+        merged.set(recordKey(record), record)
+      }
+      for (const record of persistedRows) {
+        const key = recordKey(record)
+        const current = merged.get(key)
+        // Persisted rows can replace indexer candidates, but a row is shown as
+        // verified only when both independent verification fields agree.
+        merged.set(key, { ...current, ...record })
+      }
+
+      const records = [...merged.values()].sort(
+        (left, right) => historyTimestampMs(right.timestamp) - historyTimestampMs(left.timestamp),
+      )
+      setReceiverHistoryRecords(records)
+      if (!persistedOk && indexedOk) {
+        setReceiverHistoryNotice('The verified-history store is unavailable. Every displayed indexer row remains an unverified candidate.')
+      } else if (persistedOk && !indexedOk) {
+        setReceiverHistoryNotice('Live indexer lookup is unavailable; only persisted records are shown.')
+      }
+      setReceiverHistoryCheckedAt(Date.now())
+    } catch {
+      setReceiverHistoryError('Receiver history could not be safely loaded from the selected network.')
+      setReceiverHistoryCheckedAt(Date.now())
+    } finally {
+      setReceiverHistoryLoading(false)
     }
   }
 
@@ -646,10 +812,10 @@ export default function WorkflowApp() {
               </button>
 
               <div className="studio-choice-grid">
-                <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); setSenderTokenSnapshot(null); setReceiverSnapshot(null) }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
+                <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory() }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
                   <span className="studio-asset-mark">T</span><strong>Native TRX</strong><small>Testnet TRX supplied by the asset sponsor; not Mainnet value.</small><span className="studio-asset-selected">{assetKind === 'TRX' ? 'Selected' : 'Choose TRX'}</span>
                 </button>
-                <button type="button" onClick={() => { setAssetKind('TRC20'); setSenderTokenSnapshot(null); setReceiverSnapshot(null) }} aria-pressed={assetKind === 'TRC20'} className={`studio-asset-choice ${assetKind === 'TRC20' ? 'is-picked' : ''}`}>
+                <button type="button" onClick={() => { setAssetKind('TRC20'); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory() }} aria-pressed={assetKind === 'TRC20'} className={`studio-asset-choice ${assetKind === 'TRC20' ? 'is-picked' : ''}`}>
                   <span className="studio-asset-mark">20</span><strong>TRC-20 test token</strong><small>Uses the exact token contract provided below. This is not official Mainnet USDT.</small><span className="studio-asset-selected">{assetKind === 'TRC20' ? 'Selected' : 'Choose TRC-20'}</span>
                 </button>
               </div>
@@ -657,7 +823,7 @@ export default function WorkflowApp() {
               {assetKind === 'TRC20' && (
                 <div className="studio-field-block">
                   <label htmlFor="token-contract">Token contract address on {network === 'nile' ? 'Nile' : 'Shasta'}</label>
-                  <input id="token-contract" value={tokenContract} onChange={(event) => { setTokenContract(event.target.value.trim()); setSenderTokenSnapshot(null); setReceiverSnapshot(null) }} placeholder="Enter a deployed test token contract (T…)" autoComplete="off" spellCheck={false} />
+                  <input id="token-contract" value={tokenContract} onChange={(event) => { setTokenContract(event.target.value.trim()); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory() }} placeholder="Enter a deployed test token contract (T…)" autoComplete="off" spellCheck={false} />
                   <p className="studio-field-hint">The app reads balance and decimals from this exact contract on the selected testnet. A token symbol alone does not prove identity or exchange support.</p>
                   {tokenContract && !ADDRESS_PATTERN.test(tokenContract) && <p className="studio-inline-error">The contract address format is invalid.</p>}
                 </div>
@@ -729,7 +895,7 @@ export default function WorkflowApp() {
               {assetKind === 'TRC20' && <div className="studio-field-block"><label>Selected token contract</label><div className="studio-readonly-value">{tokenContract}</div><p className="studio-field-hint">Exact contract is read from the selected testnet. Do not use a token symbol as proof of contract identity.</p></div>}
               <div className="studio-field-block">
                 <label htmlFor="receiver-address">Receiver TRON address</label>
-                <input id="receiver-address" value={receiverAddress} onChange={(event) => { setReceiverAddress(event.target.value.trim()); setReceiverSnapshot(null); setReceiverCheckedAt(null); setReceiverError('') }} placeholder="T…" autoComplete="off" spellCheck={false} />
+                <input id="receiver-address" value={receiverAddress} onChange={(event) => { setReceiverAddress(event.target.value.trim()); setReceiverSnapshot(null); setReceiverCheckedAt(null); setReceiverError(''); clearReceiverHistory() }} placeholder="T…" autoComplete="off" spellCheck={false} />
                 <p className="studio-field-hint">The receiver must be a valid address different from the sender/watch wallet.</p>
               </div>
               <div className="studio-field-block">
@@ -764,6 +930,62 @@ export default function WorkflowApp() {
                     <small>Live chain balance snapshot. A transfer is marked received only after its exact transaction and solidified transfer event are independently verified.</small>
                   </div>
                 </div>
+              )}
+              {assetKind === 'TRC20' && (
+                <section className="studio-history-panel" aria-labelledby="receiver-history-title">
+                  <div className="studio-snapshot-heading">
+                    <div>
+                      <h3 id="receiver-history-title">Incoming TRC-20 history</h3>
+                      <p>Read-only history for this receiver and exact contract on {network === 'nile' ? 'Nile' : 'Shasta'}.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="studio-button studio-button--secondary"
+                      onClick={() => void loadReceiverHistory()}
+                      disabled={receiverHistoryLoading || !ADDRESS_PATTERN.test(receiverAddress.trim()) || !ADDRESS_PATTERN.test(tokenContract.trim())}
+                    >
+                      <RefreshCw size={15} className={receiverHistoryLoading ? 'studio-spin' : ''} aria-hidden="true" />
+                      {receiverHistoryLoading ? 'Loading history…' : receiverHistoryCheckedAt ? 'Refresh history' : 'Load history'}
+                    </button>
+                  </div>
+                  <p className="studio-field-hint">A current token balance and an indexed history row are not proof that a particular transfer settled. Only rows with an independently verified solidified event are marked verified.</p>
+                  {receiverHistoryError && <p className="studio-inline-error" role="alert">{receiverHistoryError}</p>}
+                  {receiverHistoryNotice && <p className="studio-inline-note" role="status">{receiverHistoryNotice}</p>}
+                  {receiverHistoryCheckedAt !== null && !receiverHistoryLoading && !receiverHistoryError && (
+                    <p className="studio-history-summary">Checked {formatTimestamp(receiverHistoryCheckedAt)} · {receiverHistoryRecords.length} record{receiverHistoryRecords.length === 1 ? '' : 's'}</p>
+                  )}
+                  {receiverHistoryCheckedAt !== null && !receiverHistoryLoading && !receiverHistoryError && receiverHistoryRecords.length === 0 && (
+                    <div className="studio-history-empty">
+                      <Activity size={18} aria-hidden="true" />
+                      <p>No incoming records were returned for this query. This result is limited to the history providers and records currently available.</p>
+                    </div>
+                  )}
+                  {receiverHistoryRecords.length > 0 && (
+                    <div className="studio-history-list" aria-label="Incoming transfer records">
+                      {receiverHistoryRecords.map((record, index) => {
+                        const verified = isVerifiedHistoryRecord(record)
+                        const recordKey = `${record.transactionId || 'no-tx'}-${record.tokenContract || 'no-contract'}-${record.eventIndex ?? index}`
+                        return (
+                          <article className={`studio-history-item ${verified ? 'is-verified' : ''}`} key={recordKey}>
+                            <div className="studio-history-item-heading">
+                              <strong>{record.tokenSymbol || record.tokenName || 'TRC-20 token'} · {formatUnits(record.amountBaseUnits ?? undefined, record.tokenDecimals ?? undefined)}</strong>
+                              <Pill tone={verified ? 'good' : 'warning'}>{verified ? 'Verified on-chain' : 'Awaiting solidified verification'}</Pill>
+                            </div>
+                            <p className="studio-history-meta">From: <code>{record.senderAddress || 'Sender unavailable'}</code></p>
+                            <p className="studio-history-meta">Contract: <code>{record.tokenContract || tokenContract}</code></p>
+                            <p className="studio-history-meta">Time: {formatHistoryTimestamp(record.timestamp)}</p>
+                            <p className="studio-history-meta">Transaction: <code>{record.transactionId || 'Transaction ID unavailable'}</code>{record.eventIndex !== null && record.eventIndex !== undefined ? ` · event ${record.eventIndex}` : ''}</p>
+                            {!verified && <p className="studio-history-warning">Indexer or unverified database record only. Do not treat this row as a settled receipt or spendable balance.</p>}
+                          </article>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {receiverHistoryPersistedAvailable === false && !receiverHistoryNotice && (
+                    <p className="studio-inline-note" role="status">Verified-history storage is unavailable; indexer-only records remain unverified candidates.</p>
+                  )}
+                  <p className="studio-footnote">History is filtered by the exact receiver, network, and token contract. Token symbols are supplied by contract metadata and are not proof of official USDT identity or exchange deposit credit.</p>
+                </section>
               )}
               <p className="studio-footnote">The requested amount cannot be reserved until a verified asset-principal sponsor, sponsor-specific authorization and transfer ledger are implemented. An on-chain transfer would not guarantee exchange credit.</p>
             </section>

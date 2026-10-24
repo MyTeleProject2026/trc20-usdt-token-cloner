@@ -516,3 +516,28 @@ main .grid > button[aria-pressed] > span {
 .studio-role-snapshot-note, .studio-snapshot-unavailable { margin: .65rem 0 0; color: #819d94; font-size: .66rem; line-height: 1.55; }
 .studio-role-snapshot-note { grid-column: 1 / -1; }
 @media (max-width: 560px) { .studio-role-resource-grid { grid-template-columns: minmax(0, 1fr); } }
+
+
+/* Read-only receiver history: candidate rows never share the verified treatment. */
+.studio-history-panel { margin-top: 1.15rem; padding: 1rem; border: 1px solid rgba(167, 215, 203, .14); border-radius: 1rem; background: rgba(3, 12, 14, .28); }
+.studio-history-panel .studio-snapshot-heading { margin-top: 0; }
+.studio-history-panel .studio-snapshot-heading h3 { margin: 0; color: #dcefe8; font-size: .92rem; }
+.studio-history-panel .studio-snapshot-heading p { margin: .3rem 0 0; color: #89aaa0; font-size: .72rem; line-height: 1.5; }
+.studio-history-summary { margin: .85rem 0 .65rem; color: #88afa1; font-size: .7rem; }
+.studio-history-list { display: grid; gap: .65rem; margin-top: .8rem; }
+.studio-history-item { min-width: 0; padding: .85rem; border: 1px solid rgba(246, 194, 122, .18); border-radius: .8rem; background: rgba(255,255,255,.018); }
+.studio-history-item.is-verified { border-color: rgba(102, 229, 193, .24); background: rgba(55, 157, 123, .055); }
+.studio-history-item-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: .55rem; }
+.studio-history-item-heading > strong { color: #dcefe8; font-size: .81rem; overflow-wrap: anywhere; }
+.studio-history-meta { margin: .45rem 0 0; color: #8ba99f; font-size: .69rem; line-height: 1.55; overflow-wrap: anywhere; }
+.studio-history-meta code { color: #b4d8cb; font-size: .67rem; overflow-wrap: anywhere; word-break: break-word; }
+.studio-history-warning { margin: .6rem 0 0; color: #e8bd85; font-size: .68rem; line-height: 1.5; }
+.studio-history-empty { display: flex; align-items: flex-start; gap: .6rem; margin-top: .8rem; padding: .85rem; border: 1px dashed rgba(167, 215, 203, .18); border-radius: .8rem; color: #8ba99f; }
+.studio-history-empty svg { flex: 0 0 auto; margin-top: .1rem; }
+.studio-history-empty p { margin: 0; font-size: .74rem; line-height: 1.55; }
+@media (max-width: 680px) {
+  .studio-history-panel { padding: .8rem; }
+  .studio-history-panel .studio-snapshot-heading { align-items: flex-start; }
+  .studio-history-panel .studio-snapshot-heading .studio-button { flex: 0 0 auto; }
+  .studio-history-item-heading { flex-direction: column; align-items: flex-start; }
+}
