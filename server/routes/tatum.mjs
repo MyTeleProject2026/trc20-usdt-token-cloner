@@ -37,7 +37,7 @@ async function persistVerification(input) {
 router.get('/status', async (_req, res) => {
   if (!process.env.TATUM_API_KEY) return res.json({ status: 'no-api-key' })
   try {
-    const response = await fetch(tatumApiBase(), { signal: AbortSignal.timeout(8000), headers: { 'x-api-key': process.env.TATUM_API_KEY } })
+    const response = await fetch(tatumApiBase(), { signal: AbortSignal.timeout(8000), redirect: 'error', headers: { 'x-api-key': process.env.TATUM_API_KEY } })
     res.json({ status: response.ok ? 'connected' : 'provider-response', providerStatus: response.status })
   } catch (error) {
     // Keep provider diagnostics useful without exposing request headers or secrets.
@@ -131,6 +131,7 @@ router.get('/tron/token-balance', async (req, res) => {
     const readConstant = async (selector, parameter = '') => {
       const response = await fetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
         method: 'POST',
+        redirect: 'error',
         headers,
         body: JSON.stringify({
           owner_address: ownerHex,
@@ -223,6 +224,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   const querySolidified = async (path) => {
     const response = await fetch(base + path, {
       method: 'POST',
+      redirect: 'error',
       headers,
       body: JSON.stringify({ value: hash, visible: false }),
       signal: AbortSignal.timeout(8000),
