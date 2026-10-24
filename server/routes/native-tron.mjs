@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -1276,6 +1276,105 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
       providerSubmissionAttempted: false,
       transactionBroadcast: false,
       message: 'Could not reserve the approved testnet sponsor budget. No transfer was signed or broadcast.',
+    })
+  }
+})
+
+router.post('/sponsorship/transfers/:idempotencyKey/cancel', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      canSubmitSponsoredTransfer: false,
+      transactionBroadcast: false,
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'unauthorized',
+      canSubmitSponsoredTransfer: false,
+      transactionBroadcast: false,
+    })
+  }
+
+  const idempotencyKey = req.params?.idempotencyKey
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)) {
+    return res.status(400).json({ success: false, error: 'invalid-idempotency-key', canSubmitSponsoredTransfer: false })
+  }
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  if (Object.keys(body).some((key) => key !== 'cancellationReason')) {
+    return res.status(400).json({
+      success: false,
+      error: 'unexpected-fields',
+      canSubmitSponsoredTransfer: false,
+      message: 'Only a controlled cancellation reason is accepted.',
+    })
+  }
+  const cancellationReasons = new Set([
+    'operator-request',
+    'recipient-request',
+    'duplicate-request',
+    'eligibility-expired',
+    'emergency-stop',
+  ])
+  if (!cancellationReasons.has(body.cancellationReason)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-cancellation-reason',
+      canSubmitSponsoredTransfer: false,
+      message: 'Provide one approved cancellation reason code.',
+    })
+  }
+
+  try {
+    const result = await transitionSponsorTransfer({
+      idempotencyKey,
+      nextStatus: 'cancelled',
+      cancellationReason: body.cancellationReason,
+    })
+    if (result?.updated !== true) {
+      const reason = result?.reason || 'sponsor-transfer-cancellation-unavailable'
+      const status = reason === 'transfer-not-found' ? 404
+        : reason === 'invalid-transition' || reason === 'invalid-cancellation-reason' ? 400
+          : reason === 'invalid-state-transition' || reason === 'reservation-invariant-violated' ? 409
+            : 503
+      return res.status(status).json({
+        success: false,
+        error: reason,
+        canSubmitSponsoredTransfer: false,
+        transactionBroadcast: false,
+        message: reason === 'invalid-state-transition'
+          ? 'Only an unsubmitted pending-review or authorized reservation can be cancelled. Submitted transfers require chain-evidence reconciliation and cannot be released by this endpoint.'
+          : 'The sponsor reservation was not changed.',
+      })
+    }
+    return res.status(200).json({
+      success: true,
+      duplicate: result.duplicate === true,
+      status: 'cancelled',
+      reservationReleased: true,
+      auditReason: body.cancellationReason,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      transactionBroadcast: false,
+      unpaidFallbackToUserFunds: false,
+      message: result.duplicate
+        ? 'This reservation was already cancelled. No further ledger adjustment or transaction was performed.'
+        : 'The unsubmitted reservation was cancelled and its ledger reservation released atomically. No transaction was signed or broadcast.',
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-transfer-cancellation-unavailable',
+      canSubmitSponsoredTransfer: false,
+      transactionBroadcast: false,
+      message: 'Could not confirm cancellation. Treat the reservation as unchanged until the ledger can be checked.',
     })
   }
 })
