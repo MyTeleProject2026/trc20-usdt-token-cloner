@@ -70,6 +70,42 @@ type Sponsorship = {
   message?: string
   requiredBeforeEnablement?: string[]
 }
+type SponsorIntegrationReadiness = {
+  success?: boolean
+  status?: string
+  backendConfiguration?: {
+    tatumApiKeyConfigured?: boolean
+    databaseUrlConfigured?: boolean
+    frontendOriginConfigured?: boolean
+    sponsorAdminTokenConfigured?: boolean
+    approvedAgreementReferenceConfigured?: boolean
+  }
+  networks?: Record<string, {
+    addressMonitoring?: {
+      generalAddressConfigured?: boolean
+      feeSponsorAddressConfigured?: boolean
+      assetPrincipalSponsorAddressConfigured?: boolean
+      bothRoleAddressesConfigured?: boolean
+      roleAddressesDistinct?: boolean | null
+    }
+    tokenContractAllowlist?: { usdt?: boolean; vtrc?: boolean }
+    gasFree?: {
+      documentedNetwork?: boolean
+      credentialsConfigured?: boolean
+      discoveryReachabilityVerified?: boolean
+      submitSignBroadcastAdapterIntegrated?: boolean
+      providesAssetPrincipal?: boolean
+      noUserCostPolicySatisfied?: boolean
+    }
+  }>
+  submission?: {
+    enabled?: boolean
+    canSubmitSponsoredTransfer?: boolean
+    userFundedFallbackAllowed?: boolean
+    blockerCount?: number
+    blockers?: string[]
+  }
+}
 type FeeSponsorDelegationSnapshot = {
   success?: boolean
   status?: string
@@ -381,6 +417,88 @@ function ProviderResearchPanel({ research }: { research: ProviderResearch }) {
   )
 }
 
+
+function SponsorIntegrationReadinessPanel({ readiness, network }: { readiness: SponsorIntegrationReadiness | null; network: NetworkId }) {
+  if (!readiness) {
+    return (
+      <section className="studio-notice studio-notice--neutral" aria-label="Sponsor environment readiness">
+        <div className="studio-grow">
+          <strong>Backend environment readiness</strong>
+          <p>The readiness endpoint did not return a verified response. Check the backend deploy and retry. This does not mean sponsorship is active.</p>
+        </div>
+        <Pill tone="warning">Not checked</Pill>
+      </section>
+    )
+  }
+
+  const selected = readiness.networks?.[network]
+  const backendRows: Array<[string, boolean | undefined]> = [
+    ['Tatum API key', readiness.backendConfiguration?.tatumApiKeyConfigured],
+    ['PostgreSQL URL', readiness.backendConfiguration?.databaseUrlConfigured],
+    ['Frontend CORS origin', readiness.backendConfiguration?.frontendOriginConfigured],
+    ['Sponsor admin token (32+ chars)', readiness.backendConfiguration?.sponsorAdminTokenConfigured],
+    ['Reviewed agreement reference configured', readiness.backendConfiguration?.approvedAgreementReferenceConfigured],
+  ]
+  const networkRows: Array<[string, boolean | undefined]> = [
+    ['General sponsor address format', selected?.addressMonitoring?.generalAddressConfigured],
+    ['Network-fee sponsor address format', selected?.addressMonitoring?.feeSponsorAddressConfigured],
+    ['Asset-principal sponsor address format', selected?.addressMonitoring?.assetPrincipalSponsorAddressConfigured],
+    ['Both role addresses configured', selected?.addressMonitoring?.bothRoleAddressesConfigured],
+    ['USDT contract allowlist configured', selected?.tokenContractAllowlist?.usdt],
+    ['VTRC contract allowlist configured', selected?.tokenContractAllowlist?.vtrc],
+    ['GasFree credentials configured', selected?.gasFree?.credentialsConfigured],
+  ]
+  const stateText = (value: boolean | undefined) => value === true ? 'Present' : value === false ? 'Missing' : 'Not checked'
+
+  return (
+    <section className="studio-notice studio-notice--neutral" aria-label="Sponsor environment readiness">
+      <div className="studio-grow">
+        <strong>Backend environment readiness · {network === 'nile' ? 'Nile' : 'Shasta'} testnet</strong>
+        <p>Configuration presence only. These checks do not verify sponsor consent, account control, token funding, spend authority, or provider reachability.</p>
+        <div className="studio-role-resource-grid">
+          {backendRows.map(([label, value]) => (
+            <div className="studio-role-metric" key={label}>
+              <span>{label}</span>
+              <strong>{stateText(value)}</strong>
+            </div>
+          ))}
+        </div>
+        <p className="studio-eyebrow">Selected network configuration</p>
+        <div className="studio-role-resource-grid">
+          {networkRows.map(([label, value]) => (
+            <div className="studio-role-metric" key={label}>
+              <span>{label}</span>
+              <strong>{stateText(value)}</strong>
+            </div>
+          ))}
+          <div className="studio-role-metric">
+            <span>Fee and asset sponsor addresses are distinct</span>
+            <strong>{selected?.addressMonitoring?.roleAddressesDistinct === true
+              ? 'Distinct'
+              : selected?.addressMonitoring?.roleAddressesDistinct === false
+                ? 'Same address — blocked'
+                : 'Not enough data'}</strong>
+          </div>
+          <div className="studio-role-metric">
+            <span>GasFree submit/sign/broadcast adapter</span>
+            <strong>{selected?.gasFree?.submitSignBroadcastAdapterIntegrated === true ? 'Integrated' : 'Not integrated'}</strong>
+            <small>GasFree does not provide asset principal and its documented fee is paid in the transferred token.</small>
+          </div>
+        </div>
+        <p className="studio-role-snapshot-note">Environment variables belong in the backend Web Service's Render → Environment settings. Never put provider secrets, wallet private keys, or recovery phrases in this UI.</p>
+        <p><strong>Release status:</strong> {readiness.status || 'Unknown'}. Sponsored submission remains disabled.</p>
+        {(readiness.submission?.blockers ?? []).slice(0, 5).map((blocker) => (
+          <p className="studio-muted" key={blocker}>• {blocker.replaceAll('-', ' ')}</p>
+        ))}
+        {(readiness.submission?.blockerCount ?? 0) > 5 && (
+          <p className="studio-muted">{readiness.submission?.blockerCount} production blockers remain in total.</p>
+        )}
+      </div>
+      <Pill tone="warning">{readiness.submission?.canSubmitSponsoredTransfer === true ? 'Backend reports enabled' : 'Submission disabled'}</Pill>
+    </section>
+  )
+}
+
 function FeeSponsorDelegationCard({ snapshot }: { snapshot?: FeeSponsorDelegationSnapshot }) {
   const hasLiveEnergy = snapshot?.success === true
     && typeof snapshot.activeEnergyStakeSun === 'string'
@@ -439,6 +557,7 @@ export default function WorkflowApp() {
   const [feeSponsorRequired, setFeeSponsorRequired] = useState(false)
   const [roles, setRoles] = useState<SponsorRoles | null>(null)
   const [sponsorship, setSponsorship] = useState<Sponsorship | null>(null)
+  const [integrationReadiness, setIntegrationReadiness] = useState<SponsorIntegrationReadiness | null>(null)
   const [sponsorLoading, setSponsorLoading] = useState(true)
   const [sponsorError, setSponsorError] = useState('')
   const [sponsorCheckedAt, setSponsorCheckedAt] = useState<number | null>(null)
@@ -528,15 +647,17 @@ export default function WorkflowApp() {
     setSponsorError('')
     try {
       const refresh = forceRefresh ? '&refresh=1' : ''
-      const [roleResult, statusResult] = await Promise.all([
+      const [roleResult, statusResult, readinessResult] = await Promise.all([
         requestApi(`/api/tron/sponsorship/roles?network=${network}${refresh}`),
         requestApi('/api/tron/sponsorship/status'),
+        requestApi('/api/tron/sponsorship/integration-readiness'),
       ])
       if (requestGeneration !== sponsorRequestGeneration.current) return
       const rolePayload = roleResult.payload
       const statusPayload = statusResult.payload
       setRoles(rolePayload?.roles ? rolePayload as SponsorRoles : null)
       setSponsorship(statusPayload?.sponsorship || null)
+      setIntegrationReadiness(readinessResult.ok && readinessResult.payload?.success === true ? readinessResult.payload as SponsorIntegrationReadiness : null)
       if (!roleResult.ok || rolePayload?.success !== true) {
         setSponsorError(rolePayload?.message || rolePayload?.error || `Sponsor role checks are incomplete (HTTP ${roleResult.httpStatus}).`)
       } else if (!statusResult.ok || statusPayload?.success !== true) {
@@ -547,6 +668,7 @@ export default function WorkflowApp() {
       if (requestGeneration !== sponsorRequestGeneration.current) return
       setRoles(null)
       setSponsorship(null)
+      setIntegrationReadiness(null)
       setSponsorError(error instanceof Error ? error.message : 'Sponsor diagnostics are unavailable.')
       setSponsorCheckedAt(Date.now())
     } finally {
@@ -1006,9 +1128,10 @@ export default function WorkflowApp() {
     setReviewRefreshing(true)
     setReviewNotice('')
     try {
-      const [roleResult, statusResult] = await Promise.all([
+      const [roleResult, statusResult, readinessResult] = await Promise.all([
         requestApi(`/api/tron/sponsorship/roles?network=${network}&refresh=1`),
         requestApi('/api/tron/sponsorship/status'),
+        requestApi('/api/tron/sponsorship/integration-readiness'),
       ])
       if (requestGeneration !== sponsorRequestGeneration.current) return
       const rolePayload = roleResult.payload
@@ -1139,6 +1262,7 @@ export default function WorkflowApp() {
               <RoleSnapshotCard title="Network fee sponsor" role={roles?.roles?.networkFeeSponsor} icon={<Fuel size={19} aria-hidden="true" />} />
               <FeeSponsorDelegationCard snapshot={roles?.feeSponsorDelegationToPrincipal} />
               {sponsorship?.providerResearch && <ProviderResearchPanel research={sponsorship.providerResearch} />}
+              <SponsorIntegrationReadinessPanel readiness={integrationReadiness} network={network} />
               {sponsorError && <p className="studio-inline-error" role="alert">{sponsorError}</p>}
               <p className="studio-footnote">Last checked: {formatTimestamp(sponsorCheckedAt)}. A configured sponsor address or visible balance is not proof of signing authorization, spendable budget, or coverage for a future transaction.</p>
             </section>
