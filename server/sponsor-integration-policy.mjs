@@ -59,7 +59,11 @@ export function evaluateSponsorTransferEligibility(evidence = {}) {
   if (typeof principal?.sponsorId !== 'string' || !principal.sponsorId.trim()) blockers.push('asset-sponsor-identity-missing')
   if (typeof fee?.sponsorId !== 'string' || !fee.sponsorId.trim()) blockers.push('fee-sponsor-identity-missing')
   if (typeof authorization?.verifiedIntentDigest !== 'string'
-    || !/^[a-f0-9]{64}$/i.test(authorization.verifiedIntentDigest)) blockers.push('cryptographic-intent-authorization-unverified')
+    || !/^[a-f0-9]{64}$/i.test(authorization.verifiedIntentDigest)
+    || authorization?.signatureVerified !== true
+    || authorization?.intentBindingVerified !== true) {
+    blockers.push('cryptographic-intent-authorization-unverified')
+  }
   if (authorization?.unexpired !== true) blockers.push('authorization-expired-or-unknown')
   if (authorization?.nonceUnused !== true) blockers.push('authorization-nonce-replayed-or-unknown')
 
