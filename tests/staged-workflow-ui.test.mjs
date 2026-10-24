@@ -28,6 +28,15 @@ test('stages are gated by prior validation and live network reads', () => {
   assert.ok(app.includes('const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress)'))
 })
 
+test('late sponsor responses cannot overwrite a newer network selection', () => {
+  assert.ok(app.includes("useRef, useState } from 'react'"))
+  assert.ok(app.includes('const sponsorRequestGeneration = useRef(0)'))
+  assert.ok(app.includes('const requestGeneration = ++sponsorRequestGeneration.current'))
+  assert.ok(app.includes('if (requestGeneration !== sponsorRequestGeneration.current) return'))
+  assert.ok(app.includes('if (requestGeneration === sponsorRequestGeneration.current) setSponsorLoading(false)'))
+  assert.ok(app.includes('sponsorRequestGeneration.current += 1'))
+})
+
 test('wallet inspection is testnet-only and uses real read-only balance endpoints', () => {
   assert.ok(app.includes("shasta: 'api.shasta.trongrid.io'"))
   assert.ok(app.includes("nile: 'nile.trongrid.io'"))
