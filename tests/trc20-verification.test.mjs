@@ -61,9 +61,14 @@ function makeReceipt({ logAddress = tokenHex, fromBytes = '11'.repeat(20), toByt
 
 function createTestRouter({ transaction, receipt } = {}) {
   const requests = []
+  const persistenceCalls = []
   const router = createTRC20VerificationRouter({
     env: {},
     tronWebFactory: async () => fakeTronWeb(),
+    persistVerification: async (input) => {
+      persistenceCalls.push(input)
+      return { persisted: true }
+    },
     fetchImpl: async (url) => {
       requests.push(url)
       const isTransaction = url.endsWith('/walletsolidity/gettransactionbyid')
@@ -71,7 +76,7 @@ function createTestRouter({ transaction, receipt } = {}) {
       return { ok: true, json: async () => payload }
     },
   })
-  return { router, requests }
+  return { router, requests, persistenceCalls }
 }
 
 async function invoke(router, query, hash = transactionId) {
@@ -102,8 +107,8 @@ function validQuery(overrides = {}) {
   }
 }
 
-test('verifies a direct TRC-20 transfer against the matching solidified event', async () => {
-  const { router, requests } = createTestRouter()
+test('verifies a direct TRC-20 transfer against the matching solidified event and persists exact evidence', async () => {
+  const { router, requests, persistenceCalls } = createTestRouter()
   const result = await invoke(router, validQuery())
   assert.equal(result.statusCode, 200)
   assert.equal(result.payload.success, true)
@@ -113,6 +118,11 @@ test('verifies a direct TRC-20 transfer against the matching solidified event', 
   assert.equal(result.payload.checks.transferEventMatches, true)
   assert.equal(result.payload.checks.transactionBodyMatches, true)
   assert.equal(result.payload.checks.solidifiedReceiptPresent, true)
+  assert.equal(result.payload.verificationPersistence.persisted, true)
+  assert.equal(persistenceCalls.length, 1)
+  assert.equal(persistenceCalls[0].status, 'verified-on-chain')
+  assert.equal(persistenceCalls[0].logIndex, 0)
+  assert.equal(persistenceCalls[0].amountBaseUnits, amountBaseUnits)
   assert.equal(result.payload.transactionBroadcast, false)
   assert.equal(requests.length, 2, 'should read transaction body and receipt from the fixed solidity host')
 })
