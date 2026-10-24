@@ -16,9 +16,9 @@ At the time of inspection, GitHub's public status page listed Actions as operati
 
 ## Workflow changes already made
 
-- `.github/workflows/ci.yml` is the sole PR test/build workflow and tests on Node 22 and 24 with the isolated PostgreSQL service.
+- `.github/workflows/ci.yml` is the sole PR validation workflow, uses Node 24 with the isolated PostgreSQL service, and includes the critical/high dependency-audit gate in the same job to reduce hosted-runner demand.
 - `.github/workflows/verify.yml` and `.github/workflows/webpack.yml` only run on `main` or manual dispatch, avoiding duplicate full test/build runs on every PR.
-- The dependency audit remains a separate PR workflow, with concurrency cancellation to avoid accumulating stale attempts.
+- `.github/workflows/dependency-audit.yml` remains available on pushes to `main`, scheduled runs, and manual dispatch; it produces the detailed audit artifact there.
 - The dependency-audit summary's Total row formatting was corrected in commit `f343f101db8bc44e8c4ae45fdcae879ddbd8cd88`.
 
 These changes reduce duplicate runs and correct a report-format issue. They cannot fix an account-level or GitHub-hosted runner assignment problem.

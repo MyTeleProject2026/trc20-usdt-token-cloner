@@ -20,12 +20,6 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      # Keep test and build coverage on both supported Node majors while retaining
-      # the isolated PostgreSQL integration service in each matrix job.
-      matrix:
-        node-version: [22.x, 24.x]
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
       SPONSOR_PG_INTEGRATION: "1"
@@ -49,10 +43,28 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 24
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit dependencies (critical/high advisories block release)
+        shell: bash
+        run: |
+          npm audit --json > npm-audit-ci.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-ci.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities
+          if (report.error || !counts) {
+            console.error('npm audit did not return a valid vulnerability report.')
+            process.exit(1)
+          }
+          console.log(JSON.stringify(counts, null, 2))
+          if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
+            console.error('Blocking critical/high dependency advisories detected.')
+            process.exit(1)
+          }
+          NODE
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
       - name: Build frontend and compile contract
