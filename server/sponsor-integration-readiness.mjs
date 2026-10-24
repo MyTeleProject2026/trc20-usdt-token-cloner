@@ -78,7 +78,7 @@ export function getSponsorIntegrationReadiness({
       databaseUrlConfigured: typeof env.DATABASE_URL === 'string' && env.DATABASE_URL.trim().length > 0,
       frontendOriginConfigured: typeof env.FRONTEND_ORIGIN === 'string' && env.FRONTEND_ORIGIN.split(',').some((origin) => /^https?:\/\//i.test(origin.trim())),
       sponsorAdminTokenConfigured: typeof env.SPONSOR_ADMIN_API_TOKEN === 'string' && env.SPONSOR_ADMIN_API_TOKEN.length >= 32,
-      approvedAgreementReferenceConfigured: typeof env.SPONSOR_APPROVED_AGREEMENT_REFERENCES === 'string' && env.SPONSOR_APPROVED_AGREEMENT_REFERENCES.trim().length > 0,
+      agreementReferenceVariablePresent: typeof env.SPONSOR_APPROVED_AGREEMENT_REFERENCES === 'string' && env.SPONSOR_APPROVED_AGREEMENT_REFERENCES.trim().length > 0,
     },
     networks,
     submission: {
