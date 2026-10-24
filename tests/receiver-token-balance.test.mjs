@@ -55,6 +55,15 @@ test('active workflow reads selected token balances from the exact contract and 
   assert.ok(!app.includes('/api/gasfree/submit'))
 })
 
+test('receiver balance UI shows exact chain, contract, base units, and snapshot time', () => {
+  assert.match(app, /Receiver balance read from solidified/);
+  assert.match(app, /receiverSnapshot\.network/);
+  assert.match(app, /receiverSnapshot\.tokenContract \|\| tokenContract\.trim\(\)/);
+  assert.match(app, /receiverSnapshot\.balanceBaseUnits/);
+  assert.match(app, /receiverCheckedAt \? new Date\(receiverCheckedAt\)\.toLocaleString\(\)/);
+  assert.match(app, /not proof of a new transfer, sponsor commitment, or exchange deposit credit/);
+});
+
 test('verified transfer lookup remains read-only and requires exact event identity', () => {
   assert.match(routes, /router\.get\('\/tron\/verified-transfer\/:hash'/)
   const start = routes.indexOf("router.get('/tron/verified-transfer/:hash'")
