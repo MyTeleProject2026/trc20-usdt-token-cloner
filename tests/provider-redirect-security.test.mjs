@@ -19,6 +19,8 @@ test('all authenticated Tatum, TRON gateway, and GasFree reads reject redirects'
     'server/sponsor-resource-delegation-verifier.mjs',
     'server/gasfree-client.mjs',
     'server/gasfree-chain-verifier.mjs',
+    'server/receiver-history-worker.mjs',
+    'server/routes/native-tron.mjs',
   ]
   const sources = await Promise.all(paths.map(read))
   for (let index = 0; index < paths.length; index += 1) {
@@ -36,6 +38,8 @@ test('all authenticated Tatum, TRON gateway, and GasFree reads reject redirects'
   assert.equal(count(sources[4], /redirect:\s*'error'/g), 1)
   assert.equal(count(sources[5], /redirect:\s*'error'/g), 1)
   assert.equal(count(sources[6], /redirect:\s*'error'/g), 1)
+  assert.equal(count(sources[7], /redirect:\s*'error'/g), 2)
+  assert.equal(count(sources[8], /redirect:\s*'error'/g), 3)
 })
 
 test('Tatum KMS remains a separately approved custody service, not an implicit web-app dependency', async () => {
