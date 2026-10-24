@@ -195,7 +195,7 @@ test('reads live solidified fee-to-principal resource delegation separately from
   assert.equal(result.payload.estimation.resourceDelegationVerified, false)
   assert.equal(result.payload.canSubmitSponsoredTransfer, false)
   assert.ok(calls.some((call) => call.url.endsWith('/walletsolidity/getdelegatedresourcev2')))
-  assert.ok(calls.every((call) => !JSON.stringify(call).includes('server-only-test-key')))
+  assert.equal(JSON.stringify(result.payload).includes('server-only-test-key'), false)
 })
 
 test('distinguishes a successful solidified read with no delegation from an unavailable read', async () => {
