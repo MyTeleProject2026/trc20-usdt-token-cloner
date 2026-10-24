@@ -12,6 +12,7 @@ test('GasFree provider diagnostics remain a backend capability and are not expos
   assert.ok(gasfree.includes("router.get('/capabilities'"))
   assert.ok(gasfree.includes("router.get('/account'"))
   assert.ok(gasfree.includes("router.get('/trace'"))
+  assert.ok(gasfree.includes("router.post('/preflight'"))
   assert.ok(gasfree.includes("router.post('/submit'"))
   assert.ok(gasfree.includes('sponsored-submission-disabled'))
   assert.ok(gasfree.includes('submissionEnabled: false'))
