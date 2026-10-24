@@ -323,9 +323,11 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
 function FeeSponsorDelegationCard({ snapshot }: { snapshot?: FeeSponsorDelegationSnapshot }) {
   const hasLiveEnergy = snapshot?.success === true
     && typeof snapshot.activeEnergyStakeSun === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(snapshot.activeEnergyStakeSun)
     && BigInt(snapshot.activeEnergyStakeSun) > 0n
   const hasLiveBandwidth = snapshot?.success === true
     && typeof snapshot.activeBandwidthStakeSun === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(snapshot.activeBandwidthStakeSun)
     && BigInt(snapshot.activeBandwidthStakeSun) > 0n
   const hasLiveDelegation = hasLiveEnergy || hasLiveBandwidth
   return (
