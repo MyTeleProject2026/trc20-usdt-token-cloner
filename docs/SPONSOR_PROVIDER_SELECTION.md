@@ -13,9 +13,9 @@ The requested sponsored-transfer mode must deliver the exact approved asset prin
 
 Official docs: https://docs.gasfree.io/
 
-The documented flow requires the user's wallet to sign a token-transfer authorization. A service provider submits that authorization and pays the native network gas. The authorization contains maxFee, with activation and transfer fees denominated in the transferred token. The docs list Mainnet and Nile endpoints and describe server-side provider authentication.
+The documented flow uses a wallet-signed token-transfer authorization. A service provider submits that authorization and pays native network gas, while activation and transfer handling fees are denominated in the transferred token. The docs list Mainnet and Nile endpoints and describe server-side provider authentication.
 
-**Fit:** Not sufficient for the selected no-user-cost policy. The user still supplies the transferred token principal, and the documented transfer/activation fee is charged in that token. This cannot be presented as a free grant of USDT/TRX principal. A fee-token charged GasFree flow must remain a separately consented product, if ever enabled.
+**Fit:** GasFree alone is not an asset-principal grant: some account must first own and fund the token being transferred. A sponsor-controlled GasFree account could be evaluated as one part of a combined design only if that sponsor explicitly funds the full receiver principal plus a separate token-fee allowance, authorizes the exact transfer, and consents to the provider terms. This combined design is not connected or verified in this application; provider fees, eligibility, sponsor account flow, and transaction settlement all require testnet evidence before activation.
 
 ### TRONTransfer — published Energy-sponsored flow charges a separate sender fee
 
