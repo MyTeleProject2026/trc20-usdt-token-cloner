@@ -22,6 +22,15 @@ test('receiver token balance endpoint is read-only and network-scoped', () => {
   assert.match(routes, /does not imply exchange deposit credit/)
 })
 
+test('receiver token balance rejects malformed ABI results and decimals outside the UI-supported range', () => {
+  assert.match(routes, /typeof data\.constant_result\[0\] !== 'string'/)
+  assert.match(routes, /!\/\^\[0-9a-f\]\+\$\/i\.test\(data\.constant_result\[0\]\)/)
+  assert.match(routes, /const decimalsBigInt = BigInt\('0x' \+ decimalsHex\)/)
+  assert.match(routes, /decimalsBigInt > 30n/)
+  assert.match(routes, /error: 'unsupported-token-decimals'/)
+  assert.match(routes, /selected contract returned decimals outside the supported display range/)
+})
+
 test('receiver balance endpoint does not sign or broadcast transfers', () => {
   const start = routes.indexOf("router.get('/tron/token-balance'")
   const end = routes.indexOf("router.get('/tron/contract-by-tx/:hash'")
