@@ -1,11 +1,46 @@
+import { createHash } from 'node:crypto'
 import { createGasFreeClient } from './gasfree-client.mjs'
 
 const NETWORKS = ['mainnet', 'shasta', 'nile']
 const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+function isValidTronAddress(value) {
+  if (typeof value !== 'string') return false
+  const address = value.trim()
+  if (!TRON_ADDRESS.test(address)) return false
+
+  // TRON user-facing addresses are Base58Check encodings of a 0x41-prefixed
+  // 21-byte payload plus the first four bytes of double-SHA256(payload).
+  let decodedNumber = 0n
+  for (const character of address) {
+    const digit = BASE58_ALPHABET.indexOf(character)
+    if (digit < 0) return false
+    decodedNumber = decodedNumber * 58n + BigInt(digit)
+  }
+
+  const decodedBytes = []
+  while (decodedNumber > 0n) {
+    decodedBytes.unshift(Number(decodedNumber & 0xffn))
+    decodedNumber >>= 8n
+  }
+  let leadingZeroBytes = 0
+  while (leadingZeroBytes < address.length && address[leadingZeroBytes] === '1') {
+    leadingZeroBytes++
+  }
+  const bytes = [...Array(leadingZeroBytes).fill(0), ...decodedBytes]
+  if (bytes.length !== 25 || bytes[0] !== 0x41) return false
+
+  const payload = Buffer.from(bytes.slice(0, 21))
+  const expectedChecksum = createHash('sha256')
+    .update(createHash('sha256').update(payload).digest())
+    .digest()
+    .subarray(0, 4)
+  return Buffer.from(bytes.slice(21)).equals(expectedChecksum)
+}
 
 function configuredAddress(env, key) {
-  const value = env[key]
-  return typeof value === 'string' && TRON_ADDRESS.test(value.trim())
+  return isValidTronAddress(env[key])
 }
 
 function normalizedAddress(env, key) {
@@ -17,9 +52,9 @@ function configuredContractList(env, key) {
   const value = env[key]
   if (typeof value !== 'string' || !value.trim()) return false
   const entries = value.split(',').map((item) => item.trim())
-  // Reject empty entries and malformed addresses instead of reporting a
-  // partially valid allowlist as configured.
-  return entries.length > 0 && entries.every((address) => TRON_ADDRESS.test(address))
+  // Reject empty entries and malformed/checksum-invalid addresses instead of
+  // reporting a partially valid allowlist as configured.
+  return entries.length > 0 && entries.every(isValidTronAddress)
 }
 
 /**
@@ -99,8 +134,8 @@ export function getSponsorIntegrationReadiness({
       blockers,
     },
     limitations: [
-      'This route only reports configuration presence and address formatting; it does not read on-chain balances, verify sponsor consent, call provider discovery, sign, or submit transactions.',
-      'A configured address is not proof of account control, spend authority, spendable token balance, or network-fee coverage.',
+      'This route only reports configuration presence and TRON Base58Check address validity; it does not read on-chain balances, verify sponsor consent, call provider discovery, sign, or submit transactions.',
+      'A valid public address is not proof of account control, spend authority, spendable token balance, or network-fee coverage.',
       'A configured provider API key is not proof of provider reachability or approval for sponsored transfer submissions.',
       'A solidified on-chain transfer is not proof that an exchange credited a deposit.',
     ],
