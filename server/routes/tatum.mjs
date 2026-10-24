@@ -144,7 +144,8 @@ router.get('/tron/token-balance', async (req, res) => {
       });
       if (!response.ok) throw new Error('solidified-provider-unavailable');
       const data = await response.json();
-      if (data.Error || data.result?.result === false || !Array.isArray(data.constant_result) || !data.constant_result[0]) {
+      if (data.Error || data.result?.result === false || !Array.isArray(data.constant_result)
+        || typeof data.constant_result[0] !== 'string' || !/^[0-9a-f]+$/i.test(data.constant_result[0])) {
         throw new Error('solidified-contract-read-failed');
       }
       return data.constant_result[0];
@@ -154,10 +155,17 @@ router.get('/tron/token-balance', async (req, res) => {
       readConstant('decimals()'),
     ]);
     const balanceBaseUnits = BigInt('0x' + balanceHex).toString();
-    const decimals = Number(BigInt('0x' + decimalsHex));
-    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
-      return res.status(502).json({ success: false, error: 'invalid-token-decimals' });
+    const decimalsBigInt = BigInt('0x' + decimalsHex);
+    // The active UI deliberately supports up to 30 decimals. Reject out-of-range
+    // metadata instead of returning a "successful" balance the UI cannot display.
+    if (decimalsBigInt > 30n) {
+      return res.status(502).json({
+        success: false,
+        error: 'unsupported-token-decimals',
+        message: 'The selected contract returned decimals outside the supported display range (0–30).',
+      });
     }
+    const decimals = Number(decimalsBigInt);
     return res.json({
       success: true,
       status: 'solidified-balance-read',
