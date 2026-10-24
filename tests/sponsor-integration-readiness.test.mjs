@@ -64,6 +64,21 @@ test('same fee and asset address is flagged and never enables submission', () =>
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
+test('addresses are trimmed before distinct-role comparison', () => {
+  const result = getSponsorIntegrationReadiness({
+    env: {
+      SPONSOR_FEE_NILE_ADDRESS: `  ${addressA}  `,
+      SPONSOR_ASSET_NILE_ADDRESS: addressA,
+    },
+  })
+  const status = result.networks.nile.addressMonitoring
+  assert.equal(status.feeSponsorAddressConfigured, true)
+  assert.equal(status.assetPrincipalSponsorAddressConfigured, true)
+  assert.equal(status.bothRoleAddressesConfigured, true)
+  assert.equal(status.roleAddressesDistinct, false)
+  assert.equal(result.submission.canSubmitSponsoredTransfer, false)
+})
+
 test('GasFree credentials only show configuration presence, not zero-cost eligibility', () => {
   const result = getSponsorIntegrationReadiness({
     env: {
