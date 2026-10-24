@@ -21,6 +21,18 @@ test('backend sponsor budget and transfer audit endpoints are preserved', () => 
   assert.ok(routes.includes('Sponsored transaction submission is independently disabled') || routes.includes('This endpoint is read-only'))
 })
 
+test('budget activation uses a fresh snapshot for the exact sponsor role and address', () => {
+  const start = routes.indexOf("router.post('/sponsorship/budgets/:id/activate'")
+  const end = routes.indexOf("router.get('/sponsorship/reconciliation'", start)
+  assert.ok(start >= 0 && end > start, 'budget activation handler must be present')
+  const handler = routes.slice(start, end)
+  assert.ok(handler.includes('readSponsorRoleFunding(budget.network, { refresh: true })'))
+  assert.ok(handler.includes("budget.purpose === 'network-fee' ? 'networkFeeSponsor' : 'assetPrincipalSponsor'"))
+  assert.ok(handler.includes('fundingSnapshot.sponsorAddress !== budget.sponsor_address'))
+  assert.ok(handler.includes('roleResult.configuredAddressesDistinct !== true'))
+  assert.ok(!handler.includes('readSponsorFundingStatus(budget.network, { refresh: true })'))
+})
+
 test('active frontend stays non-submitting and does not turn ledger figures into spendable balance', () => {
   assert.ok(app.includes('Sponsored transfer unavailable'))
   assert.ok(app.includes('No receiver credit is inferred') || app.includes('pending sponsor grant'))
