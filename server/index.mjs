@@ -9,6 +9,7 @@ import nativeTronRoutes from './routes/native-tron.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
+import { createCorsPolicy } from './cors-policy.mjs'
 import { initializeDatabase, getDatabaseStatus } from './database.mjs'
 import { tatumFetch, MissingApiKeyError } from './tatum-client.mjs'
 
@@ -21,26 +22,8 @@ app.disable('x-powered-by')
 app.use(securityHeaders)
 app.use(express.json({ limit: '32kb' }))
 
-const allowedOrigins = new Set(
-  (process.env.FRONTEND_ORIGIN || '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
-)
-app.use((req, res, next) => {
-  const origin = req.headers.origin
-  if (origin && allowedOrigins.size && !allowedOrigins.has(origin)) {
-    return res.status(403).json({ success: false, error: 'origin-not-allowed' })
-  }
-  if (origin && (!allowedOrigins.size || allowedOrigins.has(origin))) {
-    res.setHeader('Access-Control-Allow-Origin', origin)
-    res.setHeader('Vary', 'Origin')
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-  }
-  if (req.method === 'OPTIONS') return res.status(204).end()
-  next()
-})
+const { allowedOrigins, middleware: corsPolicy } = createCorsPolicy(process.env.FRONTEND_ORIGIN || '')
+app.use(corsPolicy)
 
 app.use(credentialGuard)
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'tron-token-studio-api' }))
