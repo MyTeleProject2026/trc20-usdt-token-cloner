@@ -1107,6 +1107,73 @@ export default function WorkflowApp() {
                 {assetKind === 'TRC20' && senderTokenSnapshot?.decimals == null && <p className="studio-field-hint">Token decimals are not yet verified. Go back to the sender stage and refresh the token snapshot.</p>}
               </div>
 
+              {assetKind === 'TRC20' && (
+                <section className="studio-history-panel" aria-labelledby="sponsor-fee-estimate-title">
+                  <div className="studio-snapshot-heading">
+                    <div>
+                      <h3 id="sponsor-fee-estimate-title">Sponsor energy preflight</h3>
+                      <p>Read-only current-node simulation for this token contract, receiver and exact amount.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="studio-button studio-button--secondary"
+                      onClick={() => void estimateSponsoredFee()}
+                      disabled={feeEstimateLoading || !ADDRESS_PATTERN.test(tokenContract.trim()) || !ADDRESS_PATTERN.test(receiverAddress.trim()) || !amountBaseUnits}
+                    >
+                      <Fuel size={15} className={feeEstimateLoading ? 'studio-spin' : ''} aria-hidden="true" />
+                      {feeEstimateLoading ? 'Estimating energy…' : feeEstimate ? 'Refresh estimate' : 'Estimate sponsor energy'}
+                    </button>
+                  </div>
+                  <p className="studio-field-hint">This estimates contract Energy only. It does not include exact signed-transaction bandwidth or total fees, it does not move funds, and it does not authorize submission.</p>
+                  {feeEstimateError && <p className="studio-inline-error" role="alert">{feeEstimateError}</p>}
+                  {feeEstimate?.success === true && feeEstimate.estimation && (
+                    <div className="studio-account-summary" role="status">
+                      <div className="studio-account-heading">
+                        <div>
+                          <p className="studio-eyebrow">Current-node estimate · {feeEstimate.network}</p>
+                          <strong>Estimated Energy required: {feeEstimate.estimation.estimatedEnergyRequired ?? 'Unavailable'}</strong>
+                        </div>
+                        <Pill tone="warning">Not a total-fee quote</Pill>
+                      </div>
+                      <div className="studio-balance-grid">
+                        <div className="studio-balance">
+                          <span>Estimated Energy shortfall burn</span>
+                          <strong>{feeEstimate.estimation.estimatedEnergyBurnTRX ?? 'Unavailable'} <small>TRX</small></strong>
+                          <p>{feeEstimate.estimation.estimatedEnergyBurnSun ?? 'Unknown'} SUN at {feeEstimate.estimation.currentEnergyFeeSun ?? 'unknown'} SUN per Energy unit, based on the principal sponsor's current Energy snapshot.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Principal sponsor available Energy</span>
+                          <strong>{feeEstimate.estimation.principalSponsorResources?.availableEnergy ?? 'Unknown'}</strong>
+                          <p>Current-node resource snapshot only.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Fee sponsor available Energy</span>
+                          <strong>{feeEstimate.estimation.feeSponsorResources?.availableEnergy ?? 'Unknown'}</strong>
+                          <p>This is the fee sponsor's own resource snapshot—not delegated Energy for the principal transaction.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Bandwidth / total network fee</span>
+                          <strong>Not yet estimated</strong>
+                          <p>Actual total cost may differ after the signed transaction and chain execution.</p>
+                        </div>
+                      </div>
+                      <p className="studio-inline-note" role="status">
+                        Fee sponsor resources counted toward principal: {feeEstimate.estimation.feeSponsorResourcesCountedTowardPrincipalTransfer === true ? 'yes' : 'no'}.
+                        {' '}Verified delegation: {feeEstimate.estimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
+                      </p>
+                      {Array.isArray(feeEstimate.blockers) && feeEstimate.blockers.length > 0 && (
+                        <div className="studio-field-block">
+                          <strong>Remaining fee / submission blockers</strong>
+                          <ul>
+                            {feeEstimate.blockers.map((blocker) => <li key={blocker}>{blocker.replaceAll('-', ' ')}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
               <button type="button" className="studio-button studio-button--primary" onClick={() => void inspectReceiver()} disabled={receiverLoading || !ADDRESS_PATTERN.test(receiverAddress.trim()) || receiverAddress.trim() === senderAddress || !amountBaseUnits}>
                 <ShieldCheck size={16} aria-hidden="true" /> {receiverLoading ? 'Verifying receiver…' : 'Verify receiver on selected network'}
               </button>
