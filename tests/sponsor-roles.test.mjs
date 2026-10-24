@@ -68,6 +68,18 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
       if (url.endsWith('/walletsolidity/getcandelegatedmaxsize')) {
         return { ok: true, json: async () => ({ max_size: '5000000' }) }
       }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
+        return { ok: true, json: async () => ({
+          delegatedResource: [{
+            from: '41' + 'a'.repeat(40),
+            to: '41' + 'c'.repeat(40),
+            frozen_balance_for_energy: '9000000',
+            frozen_balance_for_bandwidth: '3000000',
+            expire_time_for_energy: 0,
+            expire_time_for_bandwidth: 0,
+          }],
+        }) }
+      }
       throw new Error('unexpected provider endpoint')
     },
   })
@@ -103,6 +115,12 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
   assert.equal(result.submissionEnabled, false)
   assert.equal(result.fundingSnapshots.networkFeeSponsor.native.balanceTRX, '1.5')
   assert.equal(result.fundingSnapshots.assetPrincipalSponsor.native.balanceTRX, '4.2')
+  assert.equal(result.feeSponsorDelegationToPrincipal.success, true)
+  assert.equal(result.feeSponsorDelegationToPrincipal.status, 'solidified-delegation-state-read')
+  assert.equal(result.feeSponsorDelegationToPrincipal.activeEnergyStakeSun, '9000000')
+  assert.equal(result.feeSponsorDelegationToPrincipal.activeBandwidthStakeSun, '3000000')
+  assert.equal(result.feeSponsorDelegationToPrincipal.transactionAuditVerified, false)
+  assert.ok(calls.some(({ url }) => url.endsWith('/walletsolidity/getdelegatedresourcev2')))
   assert.ok(calls.every(({ url }) => url.startsWith('https://tron-nile.gateway.tatum.io/')))
   assert.ok(calls.every(({ options }) => options.headers?.['x-api-key'] === 'server-only-test-key'))
   assert.equal(JSON.stringify(result).includes('server-only-test-key'), false)
