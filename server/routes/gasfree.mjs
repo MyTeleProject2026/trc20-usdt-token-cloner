@@ -6,6 +6,7 @@ import { recordTransferVerification } from '../database.mjs'
 const ALLOWED_NETWORKS = ['mainnet', 'nile']
 const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
+const UINT256_MAX = (1n << 256n) - 1n
 
 export function createGasFreeRouter(client = createGasFreeClient(), {
   verifyOnChain = createGasFreeChainVerifier(),
@@ -226,8 +227,16 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
         message: 'address, tokenAddress, serviceProvider and receiverAddress must be valid TRON Base58 addresses.',
       })
     }
+    if (address === receiverAddress) {
+      return res.status(400).json({
+        success: false,
+        status: 'self-transfer-not-allowed',
+        message: 'The receiver must be different from the initiating wallet.',
+      })
+    }
     if (typeof amountBaseUnits !== 'string'
-      || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+      || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)
+      || BigInt(amountBaseUnits) > UINT256_MAX) {
       return res.status(400).json({
         success: false,
         status: 'invalid-amount',
