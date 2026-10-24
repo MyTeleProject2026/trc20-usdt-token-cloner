@@ -202,6 +202,8 @@ export function createGasFreeClient({
     const response = await fetchImpl(`${networkConfig.origin}${path}`, {
       method: 'GET',
       headers,
+      // Never forward signed provider credentials through an HTTP redirect.
+      redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!response.ok) {
