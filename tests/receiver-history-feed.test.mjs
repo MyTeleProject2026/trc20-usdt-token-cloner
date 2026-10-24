@@ -39,6 +39,8 @@ test('receiver history UI distinguishes solidified receipts from indexed candida
   assert.ok(activeUi.includes('indexed-candidate-awaiting-solidified-verification'))
   assert.ok(activeUi.includes('Awaiting solidified verification'))
   assert.ok(activeUi.includes('The verified-history store is unavailable'))
+  assert.ok(activeUi.includes('receiverHistoryRequestGeneration'))
+  assert.ok(activeUi.includes('requestGeneration !== receiverHistoryRequestGeneration.current'))
 })
 
 test('persistent watchlist registration is protected and does not imply monitoring is running', () => {

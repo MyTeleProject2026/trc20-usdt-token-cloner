@@ -317,8 +317,11 @@ export default function WorkflowApp() {
   const [copyNotice, setCopyNotice] = useState('')
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
+  const receiverHistoryRequestGeneration = useRef(0)
 
   const clearReceiverHistory = () => {
+    receiverHistoryRequestGeneration.current += 1
+    setReceiverHistoryLoading(false)
     setReceiverHistoryRecords([])
     setReceiverHistoryError('')
     setReceiverHistoryNotice('')
@@ -392,6 +395,7 @@ export default function WorkflowApp() {
     setReceiverSnapshot(null)
     setReceiverError('')
     setReceiverCheckedAt(null)
+    receiverHistoryRequestGeneration.current += 1
     setReceiverHistoryRecords([])
     setReceiverHistoryLoading(false)
     setReceiverHistoryError('')
@@ -414,6 +418,7 @@ export default function WorkflowApp() {
       setSenderCheckedAt(null)
       setReceiverSnapshot(null)
       setReceiverCheckedAt(null)
+      receiverHistoryRequestGeneration.current += 1
       setReceiverHistoryRecords([])
       setReceiverHistoryError('')
       setReceiverHistoryNotice('')
@@ -552,6 +557,7 @@ export default function WorkflowApp() {
     const address = receiverAddress.trim()
     const contract = tokenContract.trim()
     clearReceiverHistory()
+    const requestGeneration = receiverHistoryRequestGeneration.current
     if (!ADDRESS_PATTERN.test(address)) {
       setReceiverHistoryError('Enter a valid receiver address before loading history.')
       return
@@ -568,6 +574,7 @@ export default function WorkflowApp() {
         requestApi(`/api/tron/receiver-history?${query}&limit=20`),
         requestApi(`/api/tron/receiver-history/persisted?${query}&limit=50`),
       ])
+      if (requestGeneration !== receiverHistoryRequestGeneration.current) return
       const indexedResult = results[0].status === 'fulfilled' ? results[0].value : null
       const persistedResult = results[1].status === 'fulfilled' ? results[1].value : null
       const indexedOk = indexedResult?.ok === true
@@ -638,7 +645,7 @@ export default function WorkflowApp() {
       setReceiverHistoryError('Receiver history could not be safely loaded from the selected network.')
       setReceiverHistoryCheckedAt(Date.now())
     } finally {
-      setReceiverHistoryLoading(false)
+      if (requestGeneration === receiverHistoryRequestGeneration.current) setReceiverHistoryLoading(false)
     }
   }
 
