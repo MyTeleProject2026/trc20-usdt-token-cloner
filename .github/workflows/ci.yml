@@ -1,16 +1,14 @@
 name: CI
 
 on:
-  # Run push validation on main. Feature branches are validated by their PR
-  # workflow below, avoiding duplicate CI jobs for every PR commit.
+  # One authoritative PR test/build workflow. Separate audit checks remain enabled.
   push:
     branches: [main]
   pull_request:
     branches: [main, "fix/**", "test/**", "feat/**"]
   workflow_dispatch:
 
-# New commits supersede older in-flight tests for the same PR. Required checks
-# still run for the current head; do not weaken test, build, or audit steps.
+# Supersede older runs for the same PR instead of exhausting hosted-runner capacity.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -21,7 +19,13 @@ permissions:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Keep test and build coverage on both supported Node majors while retaining
+      # the isolated PostgreSQL integration service in each matrix job.
+      matrix:
+        node-version: [22.x, 24.x]
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
       SPONSOR_PG_INTEGRATION: "1"
@@ -45,7 +49,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
       - name: Install locked dependencies
         run: npm ci
