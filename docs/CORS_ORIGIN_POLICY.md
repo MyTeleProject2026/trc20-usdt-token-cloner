@@ -19,7 +19,7 @@ Do not include paths, query strings, fragments, credentials, or wildcards. A tra
 - Requests without an `Origin` header remain available to non-browser clients and server-to-server callers; CORS is not authentication.
 - Allowed preflight requests receive HTTP 204 and advertise only `GET,POST,OPTIONS` and `Content-Type,Authorization`.
 - The API does not enable credentialed CORS. Do not add cookies, bearer-token exposure, or wildcard origins to solve a frontend issue.
-- The `/api/readiness` response reports `providers.frontendOrigin.configured` based on the normalized allowlist, so malformed entries do not appear configured.
+- The `/api/readiness` response reports `providers.frontendOrigin.configured` based on the normalized allowlist, so malformed entries do not appear configured. Browser-facing readiness is false until the database is ready, the read-only Tatum probe succeeds, and at least one valid browser origin is allowlisted; an API process that blocks every browser origin must not report full readiness.
 
 CORS is a browser-enforced isolation control, not an authorization boundary. All privileged operations still require server-side authentication, authorization, strict field validation, replay protection and ledger controls.
 
