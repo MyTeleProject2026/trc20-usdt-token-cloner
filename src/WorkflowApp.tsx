@@ -50,6 +50,31 @@ type Sponsorship = {
   message?: string
   requiredBeforeEnablement?: string[]
 }
+type FeeEstimate = {
+  success?: boolean
+  status?: string
+  network?: string
+  asset?: string
+  tokenContract?: string
+  receiverAddress?: string
+  amountBaseUnits?: string
+  estimation?: {
+    estimatedEnergyRequired?: string
+    currentEnergyFeeSun?: string
+    estimatedEnergyBurnSun?: string
+    estimatedEnergyBurnTRX?: string
+    bandwidthFeeSunPerByte?: string
+    bandwidthCostEstimated?: boolean
+    totalNetworkFeeEstimated?: boolean
+    feeSponsorResourcesCountedTowardPrincipalTransfer?: boolean
+    resourceDelegationVerified?: boolean
+    principalSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
+    feeSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
+  }
+  blockers?: string[]
+  message?: string
+  error?: string
+}
 type BalanceSnapshot = {
   success: true
   status: string
@@ -313,6 +338,9 @@ export default function WorkflowApp() {
   const [receiverHistoryPersistedAvailable, setReceiverHistoryPersistedAvailable] = useState<boolean | null>(null)
   const [receiverHistoryVerifyingKey, setReceiverHistoryVerifyingKey] = useState<string | null>(null)
   const [receiverHistoryVerificationMessages, setReceiverHistoryVerificationMessages] = useState<Record<string, string>>({})
+  const [feeEstimate, setFeeEstimate] = useState<FeeEstimate | null>(null)
+  const [feeEstimateLoading, setFeeEstimateLoading] = useState(false)
+  const [feeEstimateError, setFeeEstimateError] = useState('')
 
   const [reviewRefreshing, setReviewRefreshing] = useState(false)
   const [reviewNotice, setReviewNotice] = useState('')
@@ -320,6 +348,7 @@ export default function WorkflowApp() {
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
   const receiverHistoryRequestGeneration = useRef(0)
+  const feeEstimateRequestGeneration = useRef(0)
 
   const clearReceiverHistory = () => {
     receiverHistoryRequestGeneration.current += 1
@@ -331,6 +360,13 @@ export default function WorkflowApp() {
     setReceiverHistoryPersistedAvailable(null)
     setReceiverHistoryVerifyingKey(null)
     setReceiverHistoryVerificationMessages({})
+  }
+
+  const clearFeeEstimate = () => {
+    feeEstimateRequestGeneration.current += 1
+    setFeeEstimate(null)
+    setFeeEstimateLoading(false)
+    setFeeEstimateError('')
   }
 
   const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError
@@ -408,6 +444,7 @@ export default function WorkflowApp() {
     setReceiverHistoryPersistedAvailable(null)
     setReceiverHistoryVerifyingKey(null)
     setReceiverHistoryVerificationMessages({})
+    clearFeeEstimate()
     setReviewNotice('')
     // loadSponsorStatus is intentionally invoked when the selected network changes.
   }, [network])
@@ -535,6 +572,49 @@ export default function WorkflowApp() {
       await readSenderSnapshots(address)
     } catch {
       // readSenderSnapshots has already supplied the specific error.
+    }
+  }
+
+  const estimateSponsoredFee = async () => {
+    const contract = tokenContract.trim()
+    const receiver = receiverAddress.trim()
+    const exactAmountBaseUnits = amountBaseUnits
+    if (assetKind !== 'TRC20' || !ADDRESS_PATTERN.test(contract) || !ADDRESS_PATTERN.test(receiver) || !exactAmountBaseUnits) {
+      setFeeEstimateError('Select a valid TRC-20 contract, receiver and positive amount before estimating energy.')
+      return
+    }
+
+    const requestGeneration = ++feeEstimateRequestGeneration.current
+    setFeeEstimateLoading(true)
+    setFeeEstimateError('')
+    setFeeEstimate(null)
+    try {
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/fee-estimate', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        credentials: 'omit',
+        body: JSON.stringify({
+          network,
+          tokenContract: contract,
+          receiverAddress: receiver,
+          amountBaseUnits: exactAmountBaseUnits,
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (requestGeneration !== feeEstimateRequestGeneration.current) return
+      if (!response.ok || payload?.success !== true) {
+        setFeeEstimateError(payload?.message || payload?.status || payload?.error || ('Fee preflight unavailable (HTTP ' + response.status + ').'))
+        return
+      }
+      if (network !== payload.network || contract !== payload.tokenContract
+        || receiver !== payload.receiverAddress || exactAmountBaseUnits !== payload.amountBaseUnits) return
+      setFeeEstimate(payload as FeeEstimate)
+    } catch (error) {
+      if (requestGeneration !== feeEstimateRequestGeneration.current) return
+      setFeeEstimateError(error instanceof Error ? error.message : 'Could not read the current TRON energy estimate.')
+    } finally {
+      if (requestGeneration === feeEstimateRequestGeneration.current) setFeeEstimateLoading(false)
     }
   }
 
@@ -769,6 +849,7 @@ export default function WorkflowApp() {
     sponsorRequestGeneration.current += 1
     setSponsorLoading(false)
     setReviewRefreshing(false)
+    clearFeeEstimate()
     setNetwork(next)
   }
 
@@ -933,10 +1014,10 @@ export default function WorkflowApp() {
               </button>
 
               <div className="studio-choice-grid">
-                <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory() }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
+                <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
                   <span className="studio-asset-mark">T</span><strong>Native TRX</strong><small>Testnet TRX supplied by the asset sponsor; not Mainnet value.</small><span className="studio-asset-selected">{assetKind === 'TRX' ? 'Selected' : 'Choose TRX'}</span>
                 </button>
-                <button type="button" onClick={() => { setAssetKind('TRC20'); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory() }} aria-pressed={assetKind === 'TRC20'} className={`studio-asset-choice ${assetKind === 'TRC20' ? 'is-picked' : ''}`}>
+                <button type="button" onClick={() => { setAssetKind('TRC20'); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} aria-pressed={assetKind === 'TRC20'} className={`studio-asset-choice ${assetKind === 'TRC20' ? 'is-picked' : ''}`}>
                   <span className="studio-asset-mark">20</span><strong>TRC-20 test token</strong><small>Uses the exact token contract provided below. This is not official Mainnet USDT.</small><span className="studio-asset-selected">{assetKind === 'TRC20' ? 'Selected' : 'Choose TRC-20'}</span>
                 </button>
               </div>
@@ -944,7 +1025,7 @@ export default function WorkflowApp() {
               {assetKind === 'TRC20' && (
                 <div className="studio-field-block">
                   <label htmlFor="token-contract">Token contract address on {network === 'nile' ? 'Nile' : 'Shasta'}</label>
-                  <input id="token-contract" value={tokenContract} onChange={(event) => { setTokenContract(event.target.value.trim()); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory() }} placeholder="Enter a deployed test token contract (T…)" autoComplete="off" spellCheck={false} />
+                  <input id="token-contract" value={tokenContract} onChange={(event) => { setTokenContract(event.target.value.trim()); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} placeholder="Enter a deployed test token contract (T…)" autoComplete="off" spellCheck={false} />
                   <p className="studio-field-hint">The app reads balance and decimals from this exact contract on the selected testnet. A token symbol alone does not prove identity or exchange support.</p>
                   {tokenContract && !ADDRESS_PATTERN.test(tokenContract) && <p className="studio-inline-error">The contract address format is invalid.</p>}
                 </div>
@@ -1016,12 +1097,12 @@ export default function WorkflowApp() {
               {assetKind === 'TRC20' && <div className="studio-field-block"><label>Selected token contract</label><div className="studio-readonly-value">{tokenContract}</div><p className="studio-field-hint">Exact contract is read from the selected testnet. Do not use a token symbol as proof of contract identity.</p></div>}
               <div className="studio-field-block">
                 <label htmlFor="receiver-address">Receiver TRON address</label>
-                <input id="receiver-address" value={receiverAddress} onChange={(event) => { setReceiverAddress(event.target.value.trim()); setReceiverSnapshot(null); setReceiverCheckedAt(null); setReceiverError(''); clearReceiverHistory() }} placeholder="T…" autoComplete="off" spellCheck={false} />
+                <input id="receiver-address" value={receiverAddress} onChange={(event) => { setReceiverAddress(event.target.value.trim()); setReceiverSnapshot(null); setReceiverCheckedAt(null); setReceiverError(''); clearReceiverHistory(); clearFeeEstimate() }} placeholder="T…" autoComplete="off" spellCheck={false} />
                 <p className="studio-field-hint">The receiver must be a valid address different from the sender/watch wallet.</p>
               </div>
               <div className="studio-field-block">
                 <label htmlFor="transfer-amount">Requested amount {amountDecimals !== undefined && amountDecimals !== null ? `(up to ${amountDecimals} decimals)` : ''}</label>
-                <div className="studio-amount-entry"><input id="transfer-amount" value={amount} onChange={(event) => { setAmount(event.target.value); setReceiverSnapshot(null); setReceiverCheckedAt(null); setReceiverError('') }} inputMode="decimal" placeholder="1.00" /><span>{assetKind === 'TRX' ? 'TRX' : 'token units'}</span></div>
+                <div className="studio-amount-entry"><input id="transfer-amount" value={amount} onChange={(event) => { setAmount(event.target.value); setReceiverSnapshot(null); setReceiverCheckedAt(null); setReceiverError(''); clearFeeEstimate() }} inputMode="decimal" placeholder="1.00" /><span>{assetKind === 'TRX' ? 'TRX' : 'token units'}</span></div>
                 {amount && amountDecimals != null && !amountBaseUnits && <p className="studio-inline-error">Amount must be positive and contain no more than {amountDecimals} decimal places.</p>}
                 {assetKind === 'TRC20' && senderTokenSnapshot?.decimals == null && <p className="studio-field-hint">Token decimals are not yet verified. Go back to the sender stage and refresh the token snapshot.</p>}
               </div>
