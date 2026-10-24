@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getSponsorIntegrationReadiness } from '../server/routes/sponsor-integration-readiness.mjs'
+import { getSponsorIntegrationReadiness } from '../server/sponsor-integration-readiness.mjs'
 
 const addressA = `T${'a'.repeat(33)}`
 const addressB = `T${'b'.repeat(33)}`
