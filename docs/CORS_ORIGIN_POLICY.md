@@ -10,7 +10,7 @@ Set the backend-only `FRONTEND_ORIGIN` environment variable to the exact browser
 FRONTEND_ORIGIN=https://trc20-usdt-token-cloner.onrender.com
 ```
 
-Do not include paths, query strings, fragments, credentials, or wildcards. A trailing slash in the configured origin is normalized to the origin itself. Only HTTP(S) origins are accepted; invalid entries are ignored.
+Do not include paths, query strings, fragments, credentials, or wildcards. A trailing slash in the configured origin is normalized to the origin itself. HTTPS is required for non-local origins; plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1` development origins. Invalid entries are ignored.
 
 ## Runtime behavior
 
