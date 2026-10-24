@@ -36,13 +36,19 @@ function withKey(headers) {
   return result
 }
 
-export async function tatumFetch(path, init = {}) {
+export async function tatumFetch(path, init = {}, { fetchImpl = globalThis.fetch } = {}) {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) {
     throw new Error('Tatum API path must be an absolute path on the approved API origin')
   }
-  const response = await fetch(`${tatumApiBase()}${path}`, {
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('Tatum API fetch implementation is unavailable')
+  }
+  const response = await fetchImpl(`${tatumApiBase()}${path}`, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
     ...init,
+    // The x-api-key is sensitive. Never follow redirects with authenticated requests.
+    // Place this after ...init so a caller cannot override the redirect policy.
+    redirect: 'error',
     headers: withKey(init.headers),
   })
   const text = await response.text()
