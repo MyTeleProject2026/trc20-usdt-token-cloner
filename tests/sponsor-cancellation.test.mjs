@@ -41,7 +41,7 @@ function cancellationPool({ status = 'authorized' } = {}) {
     async connect() {
       return {
         async query(sql, values = []) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           state.queries.push({ sql: normalized, values })
           if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'COMMIT') {
