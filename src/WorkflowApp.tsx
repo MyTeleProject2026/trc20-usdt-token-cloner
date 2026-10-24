@@ -71,6 +71,20 @@ type FeeEstimate = {
     principalSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
     feeSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
   }
+  nativeEstimation?: {
+    estimatedUnsignedRawDataBytes?: number
+    estimatedSignedTransactionBytes?: number
+    bandwidthFeeSunPerByte?: string
+    totalPrincipalSponsorBandwidth?: string
+    estimatedBandwidthShortfallBytes?: string
+    estimatedBandwidthFeeSun?: string
+    estimatedBandwidthFeeTRX?: string
+    feeSponsorResourcesCountedTowardPrincipalTransfer?: boolean
+    resourceDelegationVerified?: boolean
+    totalNetworkFeeEstimated?: boolean
+    principalSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
+    feeSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
+  }
   blockers?: string[]
   message?: string
   error?: string
@@ -579,27 +593,30 @@ export default function WorkflowApp() {
     const contract = tokenContract.trim()
     const receiver = receiverAddress.trim()
     const exactAmountBaseUnits = amountBaseUnits
-    if (assetKind !== 'TRC20' || !ADDRESS_PATTERN.test(contract) || !ADDRESS_PATTERN.test(receiver) || !exactAmountBaseUnits) {
-      setFeeEstimateError('Select a valid TRC-20 contract, receiver and positive amount before estimating energy.')
+    if (!['TRC20', 'TRX'].includes(String(assetKind)) || !ADDRESS_PATTERN.test(receiver) || !exactAmountBaseUnits
+      || (assetKind === 'TRC20' && !ADDRESS_PATTERN.test(contract))) {
+      setFeeEstimateError('Select a supported asset, valid receiver and positive amount before estimating network fees.')
       return
     }
 
     const requestGeneration = ++feeEstimateRequestGeneration.current
+    const selectedAsset = assetKind
+    const endpoint = selectedAsset === 'TRX'
+      ? '/api/tron/sponsorship/native-fee-estimate'
+      : '/api/tron/sponsorship/fee-estimate'
+    const requestBody = selectedAsset === 'TRX'
+      ? { network, receiverAddress: receiver, amountBaseUnits: exactAmountBaseUnits }
+      : { network, tokenContract: contract, receiverAddress: receiver, amountBaseUnits: exactAmountBaseUnits }
     setFeeEstimateLoading(true)
     setFeeEstimateError('')
     setFeeEstimate(null)
     try {
-      const response = await fetch(API_BASE + '/api/tron/sponsorship/fee-estimate', {
+      const response = await fetch(API_BASE + endpoint, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         cache: 'no-store',
         credentials: 'omit',
-        body: JSON.stringify({
-          network,
-          tokenContract: contract,
-          receiverAddress: receiver,
-          amountBaseUnits: exactAmountBaseUnits,
-        }),
+        body: JSON.stringify(requestBody),
       })
       const payload = await response.json().catch(() => null)
       if (requestGeneration !== feeEstimateRequestGeneration.current) return
@@ -607,12 +624,13 @@ export default function WorkflowApp() {
         setFeeEstimateError(payload?.message || payload?.status || payload?.error || ('Fee preflight unavailable (HTTP ' + response.status + ').'))
         return
       }
-      if (network !== payload.network || contract !== payload.tokenContract
-        || receiver !== payload.receiverAddress || exactAmountBaseUnits !== payload.amountBaseUnits) return
+      if (network !== payload.network || receiver !== payload.receiverAddress || exactAmountBaseUnits !== payload.amountBaseUnits
+        || (selectedAsset === 'TRC20' && contract !== payload.tokenContract)
+        || (selectedAsset === 'TRX' && payload.asset !== 'TRX')) return
       setFeeEstimate(payload as FeeEstimate)
     } catch (error) {
       if (requestGeneration !== feeEstimateRequestGeneration.current) return
-      setFeeEstimateError(error instanceof Error ? error.message : 'Could not read the current TRON energy estimate.')
+      setFeeEstimateError(error instanceof Error ? error.message : 'Could not read the current TRON fee estimate.')
     } finally {
       if (requestGeneration === feeEstimateRequestGeneration.current) setFeeEstimateLoading(false)
     }
@@ -1107,26 +1125,68 @@ export default function WorkflowApp() {
                 {assetKind === 'TRC20' && senderTokenSnapshot?.decimals == null && <p className="studio-field-hint">Token decimals are not yet verified. Go back to the sender stage and refresh the token snapshot.</p>}
               </div>
 
-              {assetKind === 'TRC20' && (
+              {(assetKind === 'TRC20' || assetKind === 'TRX') && (
                 <section className="studio-history-panel" aria-labelledby="sponsor-fee-estimate-title">
                   <div className="studio-snapshot-heading">
                     <div>
-                      <h3 id="sponsor-fee-estimate-title">Sponsor energy preflight</h3>
-                      <p>Read-only current-node simulation for this token contract, receiver and exact amount.</p>
+                      <h3 id="sponsor-fee-estimate-title">{assetKind === 'TRX' ? 'Sponsor bandwidth preflight' : 'Sponsor energy preflight'}</h3>
+                      <p>{assetKind === 'TRX'
+                        ? 'Read-only unsigned native TRX transaction draft to estimate bandwidth requirements.'
+                        : 'Read-only current-node simulation for this token contract, receiver and exact amount.'}</p>
                     </div>
                     <button
                       type="button"
                       className="studio-button studio-button--secondary"
                       onClick={() => void estimateSponsoredFee()}
-                      disabled={feeEstimateLoading || !ADDRESS_PATTERN.test(tokenContract.trim()) || !ADDRESS_PATTERN.test(receiverAddress.trim()) || !amountBaseUnits}
+                      disabled={feeEstimateLoading || (assetKind === 'TRC20' && !ADDRESS_PATTERN.test(tokenContract.trim())) || !ADDRESS_PATTERN.test(receiverAddress.trim()) || !amountBaseUnits}
                     >
                       <Fuel size={15} className={feeEstimateLoading ? 'studio-spin' : ''} aria-hidden="true" />
-                      {feeEstimateLoading ? 'Estimating energy…' : feeEstimate ? 'Refresh estimate' : 'Estimate sponsor energy'}
+                      {feeEstimateLoading ? 'Estimating network fees…' : feeEstimate ? 'Refresh estimate' : assetKind === 'TRX' ? 'Estimate sponsor bandwidth' : 'Estimate sponsor energy'}
                     </button>
                   </div>
-                  <p className="studio-field-hint">This estimates contract Energy only. It does not include exact signed-transaction bandwidth or total fees, it does not move funds, and it does not authorize submission.</p>
+                  <p className="studio-field-hint">{assetKind === 'TRX'
+                    ? 'This estimates signed transaction size and bandwidth using one 65-byte signature allowance. The exact signed bytes and total fees may differ; no transaction is signed or broadcast.'
+                    : 'This estimates contract Energy only. It does not include exact signed-transaction bandwidth or total fees, it does not move funds, and it does not authorize submission.'}</p>
                   {feeEstimateError && <p className="studio-inline-error" role="alert">{feeEstimateError}</p>}
-                  {feeEstimate?.success === true && feeEstimate.estimation && (
+                  {assetKind === 'TRX' && feeEstimate?.success === true && feeEstimate.nativeEstimation && (
+                    <div className="studio-account-summary" role="status">
+                      <div className="studio-account-heading">
+                        <div>
+                          <p className="studio-eyebrow">Native TRX bandwidth estimate · {feeEstimate.network}</p>
+                          <strong>Estimated signed transaction: {feeEstimate.nativeEstimation.estimatedSignedTransactionBytes ?? 'Unknown'} bytes</strong>
+                        </div>
+                        <Pill tone="warning">Estimated, not final</Pill>
+                      </div>
+                      <div className="studio-balance-grid">
+                        <div className="studio-balance">
+                          <span>Estimated bandwidth shortfall</span>
+                          <strong>{feeEstimate.nativeEstimation.estimatedBandwidthShortfallBytes ?? 'Unknown'} <small>bytes</small></strong>
+                          <p>Available principal sponsor bandwidth: {feeEstimate.nativeEstimation.totalPrincipalSponsorBandwidth ?? 'Unknown'} units.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Estimated bandwidth fee</span>
+                          <strong>{feeEstimate.nativeEstimation.estimatedBandwidthFeeTRX ?? 'Unknown'} <small>TRX</small></strong>
+                          <p>{feeEstimate.nativeEstimation.estimatedBandwidthFeeSun ?? 'Unknown'} SUN at {feeEstimate.nativeEstimation.bandwidthFeeSunPerByte ?? 'unknown'} SUN per byte.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Principal sponsor resources</span>
+                          <strong>{feeEstimate.nativeEstimation.principalSponsorResources?.availableStakedBandwidth ?? 'Unknown'} + {feeEstimate.nativeEstimation.principalSponsorResources?.availableFreeBandwidth ?? 'Unknown'}</strong>
+                          <p>Staked bandwidth + free bandwidth, current-node snapshot.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Fee sponsor resources</span>
+                          <strong>{feeEstimate.nativeEstimation.feeSponsorResources?.availableStakedBandwidth ?? 'Unknown'} + {feeEstimate.nativeEstimation.feeSponsorResources?.availableFreeBandwidth ?? 'Unknown'}</strong>
+                          <p>Not counted toward the principal transaction unless a delegation is independently verified.</p>
+                        </div>
+                      </div>
+                      <p className="studio-inline-note" role="status">
+                        Fee sponsor resources counted toward principal: {feeEstimate.nativeEstimation.feeSponsorResourcesCountedTowardPrincipalTransfer === true ? 'yes' : 'no'}.
+                        {' '}Verified delegation: {feeEstimate.nativeEstimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
+                      </p>
+                      <p className="studio-footnote">Energy is not expected for a native TRX TransferContract; total cost may differ after wallet signing and network execution.</p>
+                    </div>
+                  )}
+                  {assetKind === 'TRC20' && feeEstimate?.success === true && feeEstimate.estimation && (
                     <div className="studio-account-summary" role="status">
                       <div className="studio-account-heading">
                         <div>
