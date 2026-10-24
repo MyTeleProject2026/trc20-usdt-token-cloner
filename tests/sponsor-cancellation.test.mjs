@@ -148,5 +148,12 @@ test('sponsor cancellation reason rejects unsupported values before database wor
 
   assert.deepEqual(result, { updated: false, reason: 'invalid-cancellation-reason' })
   assert.equal(connected, false)
+
+  const missingReason = await transitionSponsorTransferWithPool({
+    idempotencyKey: 'cancel-test-request-0001',
+    nextStatus: 'cancelled',
+  }, pool, { initialize: false })
+  assert.deepEqual(missingReason, { updated: false, reason: 'invalid-cancellation-reason' })
+  assert.equal(connected, false)
   assert.match(database, /cancellationReason/)
 })
