@@ -215,7 +215,7 @@ export default function WorkflowApp() {
 
   const feeStageValid = feeSponsorRequired
   const assetStageValid = assetSponsorRequired && assetKind !== null && (assetKind === 'TRX' || ADDRESS_PATTERN.test(tokenContract.trim()))
-  const senderStageValid = ADDRESS_PATTERN.test(senderAddress) && nativeSnapshot?.success === true && nativeSnapshot.network === network && !senderLoading
+  const senderStageValid = ADDRESS_PATTERN.test(senderAddress) && nativeSnapshot?.success === true && nativeSnapshot.network === network && (assetKind === 'TRX' || (senderTokenSnapshot?.success === true && Number.isInteger(senderTokenSnapshot.decimals))) && !senderLoading
   const amountDecimals = assetKind === 'TRX' ? 6 : senderTokenSnapshot?.decimals
   const amountBaseUnits = amountDecimals == null ? null : amountToBaseUnits(amount, amountDecimals)
   const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress) && receiverAddress !== senderAddress && amountBaseUnits !== null && receiverSnapshot?.success === true && receiverSnapshot.network === network && !receiverLoading
@@ -421,10 +421,23 @@ export default function WorkflowApp() {
     setReviewRefreshing(true)
     setReviewNotice('')
     try {
-      await loadSponsorStatus(true)
-      setReviewNotice('Latest sponsorship status was requested from the backend. The server currently keeps sponsored transfer submission disabled; no transaction was created or broadcast.')
+      const [roleResult, statusResult] = await Promise.all([
+        requestApi(`/api/tron/sponsorship/roles?network=${network}&refresh=1`),
+        requestApi('/api/tron/sponsorship/status'),
+      ])
+      const rolePayload = roleResult.payload
+      const statusPayload = statusResult.payload
+      setRoles(rolePayload?.roles ? rolePayload as SponsorRoles : null)
+      setSponsorship(statusPayload?.sponsorship || null)
+      const checked = roleResult.ok && rolePayload?.success === true && statusResult.ok && statusPayload?.success === true
+      setReviewNotice(checked
+        ? 'Sponsor status refreshed successfully. The backend still reports sponsored submission disabled; no transaction was created or broadcast.'
+        : 'Sponsor readiness could not be fully verified. Submission remains blocked and no transaction was created.')
+      if (!checked) setSponsorError(rolePayload?.message || statusPayload?.message || 'One or more sponsorship checks are unavailable.')
+      else setSponsorError('')
+      setSponsorCheckedAt(Date.now())
     } catch (error) {
-      setReviewNotice(error instanceof Error ? error.message : 'Sponsor status refresh failed.')
+      setReviewNotice(error instanceof Error ? error.message : 'Sponsor status refresh failed. Submission remains blocked.')
     } finally {
       setReviewRefreshing(false)
     }
@@ -549,6 +562,12 @@ export default function WorkflowApp() {
                 <div><p className="studio-eyebrow">Sponsor B</p><h2 id="asset-stage-title">Who supplies the asset principal?</h2><p>This is separate from network fees. The principal sponsor must own and authorize the asset transfer.</p></div>
                 <Pill tone={roles?.roles?.assetPrincipalSponsor?.sponsorFundingVerified ? 'good' : 'warning'}>{roles?.roles?.assetPrincipalSponsor?.sponsorFundingVerified ? 'Snapshot verified' : 'Not verified'}</Pill>
               </div>
+
+              <button type="button" onClick={() => setAssetSponsorRequired(true)} aria-pressed={assetSponsorRequired} className={`studio-choice-card ${assetSponsorRequired ? 'is-picked' : ''}`}>
+                <span className="studio-choice-check">{assetSponsorRequired && <Check size={16} aria-hidden="true" />}</span>
+                <span className="studio-grow"><strong>External asset-principal sponsor required</strong><small>The sponsor must supply the requested asset from its own verified balance. The sender wallet is never a fallback source.</small></span>
+                <Pill tone="warning">Required</Pill>
+              </button>
 
               <div className="studio-choice-grid">
                 <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); setSenderTokenSnapshot(null); setReceiverSnapshot(null) }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
