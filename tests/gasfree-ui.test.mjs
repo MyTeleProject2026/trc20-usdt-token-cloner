@@ -36,3 +36,14 @@ test('provider credential presence and sponsor balance are not presented as tran
   assert.ok(workflow.includes('does not prove'))
   assert.ok(workflow.includes('The sponsor must cover eligible fees'))
 })
+
+test('provider research panel surfaces candidate limits without exposing credentials or enabling submission', () => {
+  assert.ok(workflow.includes('ProviderResearchPanel'))
+  assert.ok(workflow.includes('sponsorship?.providerResearch'))
+  assert.ok(workflow.includes('No verified full sponsor'))
+  assert.ok(workflow.includes('Does not provide asset principal.'))
+  assert.ok(workflow.includes('Not integrated'))
+  assert.ok(!workflow.includes('GASFREE_API_SECRET'))
+  assert.ok(!workflow.includes('GASFREE_API_KEY'))
+  assert.ok(!workflow.includes('/api/gasfree/submit'))
+})
