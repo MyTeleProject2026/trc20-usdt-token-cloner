@@ -357,7 +357,9 @@ function FeeSponsorDelegationCard({ snapshot }: { snapshot?: FeeSponsorDelegatio
         )}
         <p className="studio-role-snapshot-note">This is a live allocation snapshot, not proof that a specific transfer was audited, not a zero-fee guarantee, and not permission to sign or broadcast.</p>
       </div>
-      <Pill tone={hasLiveDelegation ? 'good' : 'warning'}>{hasLiveDelegation ? 'Delegation observed' : 'Not verified / none observed'}</Pill>
+      <Pill tone={hasLiveDelegation ? 'good' : 'warning'}>{hasLiveDelegation
+        ? 'Delegation observed'
+        : snapshot?.success === true ? 'No active delegation' : 'Not verified'}</Pill>
     </div>
   )
 }
