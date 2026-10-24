@@ -684,6 +684,7 @@ export default function WorkflowApp() {
   }
 
   const verifyReceiverHistoryRecord = async (record: ReceiverHistoryRecord, recordKey: string) => {
+    const requestGeneration = receiverHistoryRequestGeneration.current
     const transactionId = record.transactionId
     const contract = record.tokenContract || tokenContract.trim()
     const from = record.senderAddress
@@ -718,6 +719,7 @@ export default function WorkflowApp() {
     try {
       const query = new URLSearchParams({ network, contract, from, to, amountBaseUnits })
       const result = await requestApi('/api/tron/verify-trc20-transfer/' + encodeURIComponent(transactionId) + '?' + query.toString())
+      if (requestGeneration !== receiverHistoryRequestGeneration.current) return
       const payload = result.payload
       if (!result.ok || payload?.success !== true || payload?.verified !== true
         || payload?.status !== 'solidified-trc20-transfer-verified') {
@@ -755,7 +757,9 @@ export default function WorkflowApp() {
         [recordKey]: 'Solidified verification is temporarily unavailable. The row remains unverified; retry the same transaction ID later.',
       }))
     } finally {
-      setReceiverHistoryVerifyingKey((current) => current === recordKey ? null : current)
+      if (requestGeneration === receiverHistoryRequestGeneration.current) {
+        setReceiverHistoryVerifyingKey((current) => current === recordKey ? null : current)
+      }
     }
   }
 
