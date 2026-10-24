@@ -316,3 +316,150 @@ test('GasFree trace retry bypasses cache once per refresh window and then thrott
   assert.equal(throttled.body.status, 'provider-trace-read')
   assert.equal(throttled.body.trace.verifiedOnChain, false)
 })
+
+
+function getPostRoute(router, routePath) {
+  const layer = router.stack.find((item) =>
+    item.route?.path === routePath && item.route.methods?.post,
+  )
+  assert.ok(layer, `POST ${routePath} must be registered`)
+  return layer.route.stack[0].handle
+}
+
+test('read-only GasFree preflight reports zero-fee policy facts but never enables signing or submission', async () => {
+  const address = 'T' + 'A'.repeat(33)
+  const tokenAddress = 'T' + 'B'.repeat(33)
+  const providerAddress = 'T' + 'C'.repeat(33)
+  const receiverAddress = 'T' + 'D'.repeat(33)
+  const router = createGasFreeRouter({
+    getCapabilities: async (network) => ({
+      configured: true,
+      reachable: true,
+      network,
+      providers: [{ address: providerAddress, name: 'Verified test provider' }],
+      tokens: [{
+        tokenAddress,
+        symbol: 'TEST',
+        supported: true,
+        activationFeeBaseUnits: '0',
+        transferFeeBaseUnits: '0',
+      }],
+    }),
+    getAccount: async (network, accountAddress) => ({
+      configured: true,
+      reachable: true,
+      network,
+      accountLookupVerified: true,
+      account: {
+        accountAddress,
+        gasFreeAddress: 'T' + 'E'.repeat(33),
+        active: true,
+        nonce: 3,
+        allowSubmit: true,
+        assets: [{
+          tokenAddress,
+          activationFeeBaseUnits: '0',
+          transferFeeBaseUnits: '0',
+        }],
+      },
+    }),
+  })
+  const res = responseRecorder()
+  await getPostRoute(router, '/preflight')({
+    body: {
+      network: 'nile',
+      address,
+      tokenAddress,
+      serviceProvider: providerAddress,
+      receiverAddress,
+      amountBaseUnits: '1234567',
+    },
+  }, res)
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.success, true)
+  assert.equal(res.body.status, 'policy-preflight-passed-submission-still-disabled')
+  assert.equal(res.body.providerListed, true)
+  assert.equal(res.body.tokenSupported, true)
+  assert.equal(res.body.account.allowSubmit, true)
+  assert.equal(res.body.fees.externalSponsorOnlyCompatible, true)
+  assert.equal(res.body.transferPolicyPreflightPassed, true)
+  assert.equal(res.body.canPrepareWalletAuthorization, false)
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+  assert.equal(res.body.submissionEnabled, false)
+  assert.equal(res.body.providerSubmissionAttempted, false)
+  assert.equal(res.body.transactionBroadcast, false)
+  assert.equal(res.body.unpaidFallbackToUserFunds, false)
+  assert.ok(res.body.blockers.includes('gasfree-account-token-balance-not-independently-verified'))
+  assert.ok(res.body.blockers.includes('external-sponsor-agreement-and-funded-budget-not-verified'))
+})
+
+test('read-only GasFree preflight blocks nonzero token-denominated fees under external-sponsor-only policy', async () => {
+  const address = 'T' + 'A'.repeat(33)
+  const tokenAddress = 'T' + 'B'.repeat(33)
+  const providerAddress = 'T' + 'C'.repeat(33)
+  const receiverAddress = 'T' + 'D'.repeat(33)
+  const router = createGasFreeRouter({
+    getCapabilities: async (network) => ({
+      configured: true, reachable: true, network,
+      providers: [{ address: providerAddress, name: 'Provider' }],
+      tokens: [{
+        tokenAddress, symbol: 'TEST', supported: true,
+        activationFeeBaseUnits: '1000', transferFeeBaseUnits: '250',
+      }],
+    }),
+    getAccount: async (network, accountAddress) => ({
+      configured: true, reachable: true, network,
+      account: {
+        accountAddress, active: false, nonce: 0, allowSubmit: true,
+        assets: [{
+          tokenAddress,
+          activationFeeBaseUnits: '1000',
+          transferFeeBaseUnits: '250',
+        }],
+      },
+    }),
+  })
+  const res = responseRecorder()
+  await getPostRoute(router, '/preflight')({
+    body: {
+      network: 'mainnet', address, tokenAddress,
+      serviceProvider: providerAddress, receiverAddress,
+      amountBaseUnits: '5000000',
+    },
+  }, res)
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.fees.estimatedTokenFeeBaseUnits, '1250')
+  assert.equal(res.body.fees.externalSponsorOnlyCompatible, false)
+  assert.equal(res.body.transferPolicyPreflightPassed, false)
+  assert.ok(res.body.blockers.includes('token-denominated-fees-conflict-with-external-sponsor-only-policy'))
+  assert.equal(res.body.canSubmitSponsoredTransfer, false)
+})
+
+test('read-only GasFree preflight rejects signature fields and malformed amounts before provider access', async () => {
+  let calls = 0
+  const router = createGasFreeRouter({
+    getCapabilities: async () => { calls += 1; throw new Error('must not call') },
+    getAccount: async () => { calls += 1; throw new Error('must not call') },
+  })
+  const base = {
+    network: 'nile',
+    address: 'T' + 'A'.repeat(33),
+    tokenAddress: 'T' + 'B'.repeat(33),
+    serviceProvider: 'T' + 'C'.repeat(33),
+    receiverAddress: 'T' + 'D'.repeat(33),
+    amountBaseUnits: '100',
+  }
+
+  const signatureAttempt = responseRecorder()
+  await getPostRoute(router, '/preflight')({ body: { ...base, sig: 'not-accepted-here' } }, signatureAttempt)
+  assert.equal(signatureAttempt.statusCode, 400)
+  assert.equal(signatureAttempt.body.status, 'invalid-request')
+
+  const impreciseAmount = responseRecorder()
+  await getPostRoute(router, '/preflight')({ body: { ...base, amountBaseUnits: 1e30 } }, impreciseAmount)
+  assert.equal(impreciseAmount.statusCode, 400)
+  assert.equal(impreciseAmount.body.status, 'invalid-amount')
+  assert.equal(calls, 0)
+})
