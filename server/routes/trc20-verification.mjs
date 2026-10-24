@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { recordTransferVerification } from '../database.mjs'
 
 const NETWORKS = Object.freeze({
   mainnet: 'https://api.trongrid.io',
@@ -69,6 +70,7 @@ export function createTRC20VerificationRouter({
     const { TronWeb } = await import('tronweb')
     return new TronWeb({ fullHost: host })
   },
+  persistVerification = recordTransferVerification,
   timeoutMs = 8000,
 } = {}) {
   const router = Router()
@@ -192,6 +194,32 @@ export function createTRC20VerificationRouter({
         : verified ? 'solidified-trc20-transfer-verified'
           : matchingEvents.length > 1 ? 'ambiguous-matching-transfer-event' : 'solidified-transfer-mismatch'
 
+      let verificationPersistence = { persisted: false, reason: 'transfer-not-verified' }
+      if (verified && uniqueEvent) {
+        try {
+          verificationPersistence = await persistVerification({
+            network,
+            transactionHash: hash,
+            tokenContract: contract,
+            fromAddress: from,
+            toAddress: to,
+            amountBaseUnits,
+            status: 'verified-on-chain',
+            logIndex: uniqueEvent.eventIndex,
+            result: {
+              blockNumber: receipt.blockNumber,
+              timestamp: Number.isSafeInteger(receipt.blockTimeStamp) ? receipt.blockTimeStamp : null,
+              receiptResult: receipt?.receipt?.result,
+              transactionResult: transaction?.ret?.[0]?.contractRet || null,
+              eventIndex: uniqueEvent.eventIndex,
+              source: 'TRON SolidityNode transaction body, receipt and exact Transfer event',
+            },
+          })
+        } catch {
+          verificationPersistence = { persisted: false, reason: 'database-persistence-failed' }
+        }
+      }
+
       return res.status(200).json({
         success: true,
         verified,
@@ -200,6 +228,7 @@ export function createTRC20VerificationRouter({
         transactionId: hash,
         blockNumber: receipt.blockNumber,
         timestamp: receipt.blockTimeStamp ?? null,
+        verificationPersistence,
         contract,
         assetIdentity: network === 'mainnet' && contract === OFFICIAL_MAINNET_USDT
           ? 'official-mainnet-usdt-contract'
@@ -214,7 +243,7 @@ export function createTRC20VerificationRouter({
         submissionEnabled: false,
         transactionBroadcast: false,
         unpaidFallbackToUserFunds: false,
-        note: 'This verifies only the specified direct TRC-20 transfer on the selected chain. It does not enable sending, prove an exchange account has credited a deposit, or identify arbitrary tokens as official USDT.',
+        note: 'This verifies only the specified direct TRC-20 transfer on the selected chain. Persisted history is recorded separately when database persistence succeeds. This does not enable sending or prove an exchange account has credited a deposit.',
         checkedAt: new Date().toISOString(),
       })
     } catch {
