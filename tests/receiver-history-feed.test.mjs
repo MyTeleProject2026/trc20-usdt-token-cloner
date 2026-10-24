@@ -43,6 +43,17 @@ test('receiver history UI distinguishes solidified receipts from indexed candida
   assert.ok(activeUi.includes('requestGeneration !== receiverHistoryRequestGeneration.current'))
 })
 
+test('history verification ignores stale responses after the selected receiver or network changes', () => {
+  const start = activeUi.indexOf('  const verifyReceiverHistoryRecord = async (record: ReceiverHistoryRecord, recordKey: string) => {')
+  const end = activeUi.indexOf('  const chooseNetwork = (next: NetworkId) => {', start)
+  assert.ok(start >= 0 && end > start, 'history verification handler should exist')
+  const handler = activeUi.slice(start, end)
+  assert.match(handler, /const requestGeneration = receiverHistoryRequestGeneration\.current/)
+  assert.match(handler, /requestGeneration !== receiverHistoryRequestGeneration\.current\) return/)
+  assert.match(handler, /if \(requestGeneration === receiverHistoryRequestGeneration\.current\)/)
+  assert.match(handler, /server history was not saved/)
+})
+
 test('persistent watchlist registration is protected and does not imply monitoring is running', () => {
   assert.ok(routes.includes("router.post('/tracked-wallets'"))
   assert.match(routes, /RECEIVER_WATCHLIST_ADMIN_TOKEN/)
