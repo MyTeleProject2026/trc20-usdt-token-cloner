@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -1087,6 +1087,164 @@ const formatSun = (value) => {
 // Read a receiver's native TRX balance from the selected network's solidified state.
 // Protected, read-only lifecycle history. It exposes no provider keys and cannot
 // mutate a transfer or infer confirmation from a transaction hash alone.
+// Reserve an explicitly approved testnet sponsor transfer against the correct sponsor role.
+ // Reservation is an internal budget mutation only; this route never signs or broadcasts.
+router.post('/sponsorship/transfers/reserve', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string'
+    || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-admin-not-configured',
+      canSubmitSponsoredTransfer: false,
+      message: 'Transfer reservations require the server-only sponsor administrator token.',
+    })
+  }
+  if (!hasValidSponsorAdminToken(req)) {
+    return res.status(401).json({
+      success: false,
+      error: 'unauthorized',
+      canSubmitSponsoredTransfer: false,
+    })
+  }
+
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  const allowed = new Set([
+    'idempotencyKey', 'network', 'sponsorReference', 'purpose',
+    'asset', 'tokenContract', 'receiverAddress', 'amountBaseUnits',
+  ])
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    return res.status(400).json({
+      success: false,
+      error: 'unexpected-fields',
+      canSubmitSponsoredTransfer: false,
+      message: 'Only the reservation identity, approved budget scope, recipient, asset contract and integer base-unit amount are accepted. Signing material and transaction payloads are not accepted.',
+    })
+  }
+  if (!['shasta', 'nile'].includes(body.network)) {
+    return res.status(400).json({
+      success: false,
+      error: 'testnet-only-reservation',
+      canSubmitSponsoredTransfer: false,
+      message: 'Sponsor reservations are restricted to Shasta and Nile until separate production approval exists.',
+    })
+  }
+  if (typeof body.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.idempotencyKey)
+    || typeof body.sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sponsorReference)
+    || !['network-fee', 'asset-grant'].includes(body.purpose)
+    || !['TRX', 'USDT', 'VTRC'].includes(body.asset)
+    || (body.purpose === 'network-fee' && body.asset !== 'TRX')
+    || (body.asset === 'TRX' && body.tokenContract != null && body.tokenContract !== '')
+    || (body.asset !== 'TRX' && (typeof body.tokenContract !== 'string' || !body.tokenContract.trim()))
+    || typeof body.receiverAddress !== 'string' || !addressPattern.test(body.receiverAddress)
+    || typeof body.amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(body.amountBaseUnits)) {
+    return res.status(400).json({
+      success: false,
+      error: 'invalid-transfer-intent',
+      canSubmitSponsoredTransfer: false,
+      message: 'The reservation request is malformed. Amounts must be positive integer base units; use an allowlisted contract for token assets.',
+    })
+  }
+
+  const roleName = body.purpose === 'network-fee' ? 'networkFeeSponsor' : 'assetPrincipalSponsor'
+  try {
+    // The database helper checks for a matching idempotency record before invoking
+    // this reader. Therefore retries do not need a new provider request or create a
+    // second reservation. New requests require a fresh snapshot from the exact role.
+    const reservation = await reserveSponsorTransfer({
+      idempotencyKey: body.idempotencyKey,
+      sponsorReference: body.sponsorReference,
+      network: body.network,
+      purpose: body.purpose,
+      asset: body.asset,
+      tokenContract: body.asset === 'TRX' ? null : body.tokenContract.trim(),
+      receiverAddress: body.receiverAddress,
+      amountBaseUnits: body.amountBaseUnits,
+    }, {
+      fundingSnapshotReader: async (network) => {
+        if (network !== body.network) return { status: 'invalid-network', network, onChainBalanceRead: false }
+        const roleResult = await readSponsorRoleFunding(network, { refresh: true })
+        if (roleResult?.success !== true || roleResult?.accountsConfigured !== true
+          || roleResult?.configuredAddressesDistinct !== true) {
+          return {
+            status: roleResult?.accountsConfigured === false ? 'sponsor-role-addresses-missing' : 'sponsor-role-status-unavailable',
+            network,
+            onChainBalanceRead: false,
+            sponsorFundingVerified: false,
+            canSubmitSponsoredTransfer: false,
+            submissionEnabled: false,
+          }
+        }
+        const snapshot = roleResult.fundingSnapshots?.[roleName]
+        if (!snapshot || snapshot.network !== network) {
+          return { status: 'sponsor-role-snapshot-unavailable', network, onChainBalanceRead: false }
+        }
+        return snapshot
+      },
+    })
+
+    if (reservation?.reserved !== true) {
+      const reason = reservation?.reason || 'reservation-unavailable'
+      const conflictReasons = new Set([
+        'sponsor-budget-not-found', 'sponsor-budget-not-active',
+        'sponsor-budget-activation-required', 'mainnet-budget-activation-disabled',
+        'insufficient-sponsor-budget', 'insufficient-onchain-funding',
+        'funding-snapshot-identity-mismatch', 'idempotency-key-conflict',
+        'sponsor-role-addresses-not-distinct', 'invalid-request',
+      ])
+      const clientErrorReasons = new Set([
+        'invalid-transfer-intent', 'invalid-tron-address', 'invalid-network',
+      ])
+      const httpStatus = clientErrorReasons.has(reason) ? 400
+        : conflictReasons.has(reason) ? 409
+          : 503
+      return res.status(httpStatus).json({
+        success: false,
+        error: reason,
+        canSubmitSponsoredTransfer: false,
+        transactionBroadcast: false,
+        message: reason === 'fresh-sponsor-balance-unavailable' || reason === 'sponsor-funding-snapshot-unavailable'
+          ? 'A fresh solidified balance snapshot for the exact sponsor role could not be verified. No reservation was created.'
+          : 'The reservation was rejected by sponsor authorization, budget, funding or idempotency checks. No transaction was signed or broadcast.',
+      })
+    }
+
+    return res.status(reservation.duplicate ? 200 : 201).json({
+      success: true,
+      status: reservation.status || 'pending-review',
+      reservation: {
+        idempotencyKey: body.idempotencyKey,
+        sponsorReference: body.sponsorReference,
+        network: body.network,
+        purpose: body.purpose,
+        asset: body.asset,
+        tokenContract: body.asset === 'TRX' ? null : body.tokenContract.trim(),
+        receiverAddress: body.receiverAddress,
+        amountBaseUnits: body.amountBaseUnits,
+        duplicate: reservation.duplicate === true,
+        fundingReconciled: reservation.fundingReconciled === true,
+      },
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      providerSubmissionAttempted: false,
+      transactionBroadcast: false,
+      unpaidFallbackToUserFunds: false,
+      message: 'The approved testnet budget reservation is recorded. This is not a transfer: provider submission remains disabled and no funds were signed or broadcast.',
+    })
+  } catch {
+    return res.status(503).json({
+      success: false,
+      error: 'sponsor-transfer-reservation-unavailable',
+      canSubmitSponsoredTransfer: false,
+      providerSubmissionAttempted: false,
+      transactionBroadcast: false,
+      message: 'Could not reserve the approved testnet sponsor budget. No transfer was signed or broadcast.',
+    })
+  }
+})
+
 router.get('/sponsorship/transfers', async (req, res) => {
   res.setHeader?.('Cache-Control', 'no-store')
   res.setHeader?.('Pragma', 'no-cache')
