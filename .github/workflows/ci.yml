@@ -47,8 +47,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
       - name: Build frontend and compile contract
