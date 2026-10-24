@@ -16,7 +16,8 @@ function evidence(overrides = {}) {
       coverageVerified: true, network: 'nile', availableBaseUnits: '50', requiredBaseUnits: '25',
     },
     authorization: {
-      verifiedIntentDigest: 'a'.repeat(64), unexpired: true, nonceUnused: true,
+      verifiedIntentDigest: 'a'.repeat(64), signatureVerified: true,
+      intentBindingVerified: true, unexpired: true, nonceUnused: true,
     },
     controls: {
       emergencyPause: false, operatorApproval: true, destinationAllowed: true,
@@ -76,13 +77,19 @@ test('rejects wrong network, expired quote, missing operator approval and active
   assert.ok(result.blockers.includes('quote-missing-or-expired'))
 })
 
-test('rejects invalid, replayed, or expired intent authorization', () => {
+test('rejects invalid, replayed, expired, or unbound intent authorization', () => {
   const result = evaluateSponsorTransferEligibility(evidence({
-    authorization: { verifiedIntentDigest: 'not-a-digest', unexpired: false, nonceUnused: false },
+    authorization: { verifiedIntentDigest: 'not-a-digest', signatureVerified: false,
+      intentBindingVerified: false, unexpired: false, nonceUnused: false },
   }))
   assert.ok(result.blockers.includes('cryptographic-intent-authorization-unverified'))
   assert.ok(result.blockers.includes('authorization-expired-or-unknown'))
   assert.ok(result.blockers.includes('authorization-nonce-replayed-or-unknown'))
+
+  const unbound = evaluateSponsorTransferEligibility(evidence({
+    authorization: { ...evidence().authorization, intentBindingVerified: false },
+  }))
+  assert.ok(unbound.blockers.includes('cryptographic-intent-authorization-unverified'))
 })
 
 test('never enables user-funded fallback and never claims a submission happened', () => {
