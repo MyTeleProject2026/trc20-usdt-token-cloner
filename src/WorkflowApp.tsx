@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2,
   CircleDollarSign, Copy, Fuel, Layers, LockKeyhole, Network, RefreshCw,
@@ -54,6 +55,7 @@ type BalanceSnapshot = {
   decimals?: number
   source?: string
   note?: string
+  accountExists?: boolean
 }
 type StageState = 'done' | 'current' | 'locked' | 'ready'
 
@@ -148,11 +150,11 @@ function roleDetail(role?: SponsorRoleSnapshot) {
   return 'No verified sponsor address and funded budget are established for this role.'
 }
 
-function Pill({ tone = 'neutral', children }: { tone?: 'neutral' | 'good' | 'warning' | 'bad'; children: React.ReactNode }) {
+function Pill({ tone = 'neutral', children }: { tone?: 'neutral' | 'good' | 'warning' | 'bad'; children: ReactNode }) {
   return <span className={`studio-pill studio-pill--${tone}`}>{children}</span>
 }
 
-function RoleSnapshotCard({ title, role, icon }: { title: string; role?: SponsorRoleSnapshot; icon: React.ReactNode }) {
+function RoleSnapshotCard({ title, role, icon }: { title: string; role?: SponsorRoleSnapshot; icon: ReactNode }) {
   const tone = role?.sponsorFundingVerified === true && role?.onChainBalanceRead === true ? 'good' : 'warning'
   return (
     <div className="studio-role-card">
@@ -213,12 +215,13 @@ export default function WorkflowApp() {
   const [reviewNotice, setReviewNotice] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
 
-  const feeStageValid = feeSponsorRequired
-  const assetStageValid = assetSponsorRequired && assetKind !== null && (assetKind === 'TRX' || ADDRESS_PATTERN.test(tokenContract.trim()))
+  const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading
+  const feeStageValid = feeSponsorRequired && sponsorStageLoaded
+  const assetStageValid = assetSponsorRequired && assetKind !== null && (assetKind === 'TRX' || ADDRESS_PATTERN.test(tokenContract.trim())) && sponsorStageLoaded
   const senderStageValid = ADDRESS_PATTERN.test(senderAddress) && nativeSnapshot?.success === true && nativeSnapshot.network === network && (assetKind === 'TRX' || (senderTokenSnapshot?.success === true && Number.isInteger(senderTokenSnapshot.decimals))) && !senderLoading
   const amountDecimals = assetKind === 'TRX' ? 6 : senderTokenSnapshot?.decimals
   const amountBaseUnits = amountDecimals == null ? null : amountToBaseUnits(amount, amountDecimals)
-  const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress) && receiverAddress !== senderAddress && amountBaseUnits !== null && receiverSnapshot?.success === true && receiverSnapshot.network === network && !receiverLoading
+  const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress) && receiverAddress !== senderAddress && amountBaseUnits !== null && receiverSnapshot?.success === true && receiverSnapshot.network === network && (assetKind === 'TRX' || receiverSnapshot.decimals === senderTokenSnapshot?.decimals) && !receiverLoading
   const reviewStageValid = feeStageValid && assetStageValid && senderStageValid && receiverStageValid
 
   const stageCompletion = useMemo(() => [feeStageValid, assetStageValid, senderStageValid, receiverStageValid, reviewStageValid], [feeStageValid, assetStageValid, senderStageValid, receiverStageValid, reviewStageValid])
@@ -259,6 +262,11 @@ export default function WorkflowApp() {
     void loadSponsorStatus(false)
     // Do not retain account or balance state when changing networks.
     setStep(0)
+    setFeeSponsorRequired(false)
+    setAssetSponsorRequired(false)
+    setAssetKind(null)
+    setTokenContract('')
+    setAmount('1')
     setSenderAddress('')
     setWatchAddress('')
     setWalletSource(null)
