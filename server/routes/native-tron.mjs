@@ -1352,7 +1352,7 @@ router.get('/native-balance', async (req, res) => {
     const headers = { 'content-type': 'application/json' }
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
     const response = await fetch(networks[network] + '/walletsolidity/getaccount', {
-      method: 'POST', headers,
+      method: 'POST', redirect: 'error', headers,
       body: JSON.stringify({ address: tronWeb.address.toHex(address), visible: false }),
       signal: AbortSignal.timeout(8000),
     })
@@ -1411,6 +1411,7 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
     const query = async (path) => {
       const response = await fetch(networks[network] + path, {
         method: 'POST',
+        redirect: 'error',
         headers,
         body: JSON.stringify({ value: hash, visible: false }),
         signal: AbortSignal.timeout(8000),
@@ -1641,6 +1642,7 @@ router.get('/receiver-history', async (req, res) => {
     const headers = { accept: 'application/json' }
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
     const response = await fetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {
+      redirect: 'error',
       headers,
       signal: AbortSignal.timeout(10000),
     })
