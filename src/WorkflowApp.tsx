@@ -163,6 +163,7 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
         <p className="studio-eyebrow">{title}</p>
         <p className="studio-card-title">{roleLabel(role)}</p>
         <p className="studio-muted">{roleDetail(role)}</p>
+        {role?.sponsorAddress && <code className="studio-role-address">Configured sponsor: {role.sponsorAddress}</code>}
       </div>
       <Pill tone={tone}>{role?.sponsorFundingVerified === true ? 'Snapshot verified' : 'Not enabled'}</Pill>
     </div>
@@ -345,8 +346,16 @@ export default function WorkflowApp() {
       if (typeof provider.request === 'function') {
         try {
           await provider.request({ method: 'tron_requestAccounts' })
-        } catch {
-          await provider.request({ method: 'eth_requestAccounts' })
+        } catch (error) {
+          const code = Number((error as any)?.code)
+          const message = error instanceof Error ? error.message : ''
+          // Fall back only when the injected provider does not implement this
+          // request method. A user denial must not trigger a second prompt.
+          if (code === -32601 || /method not found|unsupported method/i.test(message)) {
+            await provider.request({ method: 'eth_requestAccounts' })
+          } else {
+            throw error
+          }
         }
       } else {
         throw new Error('TronLink account authorization is not available in this browser.')
