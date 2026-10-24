@@ -40,6 +40,7 @@ type SponsorRoles = {
     networkFeeSponsor?: SponsorRoleSnapshot
     assetPrincipalSponsor?: SponsorRoleSnapshot
   }
+  feeSponsorDelegationToPrincipal?: FeeSponsorDelegationSnapshot
 }
 type Sponsorship = {
   enabled?: boolean
@@ -315,6 +316,46 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
         )}
       </div>
       <Pill tone={tone}>{hasVerifiedFundingSnapshot(role) ? 'Funding snapshot verified' : 'Not enabled'}</Pill>
+    </div>
+  )
+}
+
+function FeeSponsorDelegationCard({ snapshot }: { snapshot?: FeeSponsorDelegationSnapshot }) {
+  const hasLiveEnergy = snapshot?.success === true
+    && typeof snapshot.activeEnergyStakeSun === 'string'
+    && BigInt(snapshot.activeEnergyStakeSun) > 0n
+  const hasLiveBandwidth = snapshot?.success === true
+    && typeof snapshot.activeBandwidthStakeSun === 'string'
+    && BigInt(snapshot.activeBandwidthStakeSun) > 0n
+  const hasLiveDelegation = hasLiveEnergy || hasLiveBandwidth
+  return (
+    <div className="studio-role-card">
+      <div className="studio-role-icon"><Network size={19} aria-hidden="true" /></div>
+      <div className="studio-grow">
+        <p className="studio-eyebrow">Fee sponsor → asset-principal sponsor</p>
+        <p className="studio-card-title">Live solidified resource delegation</p>
+        <p className="studio-muted">{snapshot?.status || 'delegation-state-not-checked'} · {snapshot?.success === true ? 'read from solidified chain state' : 'current delegation could not be verified'}</p>
+        <div className="studio-role-resource-grid">
+          <div className="studio-role-metric">
+            <span>Delegated Energy stake equivalent</span>
+            <strong>{snapshot?.success === true ? (snapshot.activeEnergyStakeSun ?? '0') + ' SUN' : 'Not verified'}</strong>
+            <small>SUN-equivalent staked TRX, not Energy units.</small>
+          </div>
+          <div className="studio-role-metric">
+            <span>Delegated Bandwidth stake equivalent</span>
+            <strong>{snapshot?.success === true ? (snapshot.activeBandwidthStakeSun ?? '0') + ' SUN' : 'Not verified'}</strong>
+            <small>SUN-equivalent staked TRX, not Bandwidth units.</small>
+          </div>
+        </div>
+        {snapshot?.fromAddress && snapshot?.toAddress && (
+          <p className="studio-role-snapshot-note">From <code>{snapshot.fromAddress}</code> to <code>{snapshot.toAddress}</code>.</p>
+        )}
+        {snapshot?.success === true && snapshot.source && (
+          <p className="studio-role-snapshot-note">Source: {snapshot.source}. Checked {snapshot.checkedAt ? new Date(snapshot.checkedAt).toLocaleString() : 'time unavailable'}.</p>
+        )}
+        <p className="studio-role-snapshot-note">This is a live allocation snapshot, not proof that a specific transfer was audited, not a zero-fee guarantee, and not permission to sign or broadcast.</p>
+      </div>
+      <Pill tone={hasLiveDelegation ? 'good' : 'warning'}>{hasLiveDelegation ? 'Delegation observed' : 'Not verified / none observed'}</Pill>
     </div>
   )
 }
@@ -1031,6 +1072,7 @@ export default function WorkflowApp() {
                 <button type="button" onClick={() => void loadSponsorStatus(true)} disabled={sponsorLoading} className="studio-button studio-button--secondary"><RefreshCw size={15} className={sponsorLoading ? 'studio-spin' : ''} aria-hidden="true" /> Refresh</button>
               </div>
               <RoleSnapshotCard title="Network fee sponsor" role={roles?.roles?.networkFeeSponsor} icon={<Fuel size={19} aria-hidden="true" />} />
+              <FeeSponsorDelegationCard snapshot={roles?.feeSponsorDelegationToPrincipal} />
               {sponsorError && <p className="studio-inline-error" role="alert">{sponsorError}</p>}
               <p className="studio-footnote">Last checked: {formatTimestamp(sponsorCheckedAt)}. A configured sponsor address or visible balance is not proof of signing authorization, spendable budget, or coverage for a future transaction.</p>
             </section>
