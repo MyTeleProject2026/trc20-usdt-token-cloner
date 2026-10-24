@@ -811,20 +811,55 @@ router.post('/sponsorship/budgets/:id/activate', async (req, res) => {
       })
     }
 
-    const fundingSnapshot = await readSponsorFundingStatus(budget.network, { refresh: true })
+    const roleResult = await readSponsorRoleFunding(budget.network, { refresh: true })
+    if (roleResult?.success !== true || roleResult?.accountsConfigured !== true) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-role-addresses-not-configured',
+        requiredEnvironment: [
+          `SPONSOR_FEE_${budget.network.toUpperCase()}_ADDRESS`,
+          `SPONSOR_ASSET_${budget.network.toUpperCase()}_ADDRESS`,
+        ],
+        message: 'Both network-fee and asset-principal sponsor addresses must be configured before a role budget can be activated.',
+      })
+    }
+    if (roleResult.configuredAddressesDistinct !== true) {
+      return res.status(409).json({
+        success: false,
+        error: 'sponsor-role-addresses-not-distinct',
+        message: 'The fee sponsor and asset-principal sponsor must be distinct accounts before activating a role budget.',
+      })
+    }
+
+    const roleName = budget.purpose === 'network-fee' ? 'networkFeeSponsor' : 'assetPrincipalSponsor'
+    const fundingSnapshot = roleResult.fundingSnapshots?.[roleName]
+    if (!fundingSnapshot || fundingSnapshot.network !== budget.network) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-role-snapshot-unavailable',
+        message: 'The matching sponsor role did not return a snapshot for this network. The budget remains pending-review.',
+      })
+    }
+    if (fundingSnapshot.sponsorAddress !== budget.sponsor_address) {
+      return res.status(409).json({
+        success: false,
+        error: 'sponsor-budget-role-address-mismatch',
+        message: 'The budget address does not match the configured sponsor for its purpose and network. No budget was activated.',
+      })
+    }
     if (fundingSnapshot?.cache?.status !== 'fresh') {
       return res.status(503).json({
         success: false,
         error: 'funding-snapshot-refresh-throttled',
         retryAfterMs: Math.max(0, Number(fundingSnapshot?.retryAfterMs) || 0),
-        message: 'A fresh solidified balance snapshot is required for activation. Wait for the per-network refresh interval and retry; the old snapshot was not used to activate this budget.',
+        message: 'A fresh solidified snapshot for the exact sponsor role is required. The old snapshot was not used to activate this budget.',
       })
     }
     if (fundingSnapshot?.onChainBalanceRead !== true) {
       return res.status(503).json({
         success: false,
         error: 'fresh-sponsor-balance-unavailable',
-        message: 'The selected sponsor balance could not be verified from the selected network; the budget remains pending-review.',
+        message: 'The matching sponsor role balance could not be verified from solidified chain state; the budget remains pending-review.',
       })
     }
 
