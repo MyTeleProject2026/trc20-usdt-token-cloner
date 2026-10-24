@@ -1,5 +1,6 @@
 import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { createSponsorResourceReader } from './sponsor-resources.mjs'
+import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs'
 
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
 
@@ -98,10 +99,19 @@ export function createSponsorRoleFundingReader({
     const assetAddress = typeof env[`SPONSOR_ASSET_${networkKey}_ADDRESS`] === 'string'
       ? env[`SPONSOR_ASSET_${networkKey}_ADDRESS`].trim() : ''
 
-    const [feeFunding, assetFunding, feeResources] = await Promise.all([
+    const [feeFunding, assetFunding, feeResources, feeSponsorDelegationToPrincipal] = await Promise.all([
       readFeeFunding(network, { refresh }),
       readAssetFunding(network, { refresh }),
       readFeeResources(network, { refresh }),
+      readSponsorDelegationSnapshot({
+        env,
+        fetchImpl,
+        tronWebFactory,
+        timeoutMs,
+        network,
+        feeSponsorAddress: feeAddress,
+        principalSponsorAddress: assetAddress,
+      }),
     ])
     const configuredAddressesDistinct = Boolean(feeAddress && assetAddress && feeAddress !== assetAddress)
     const networkFeeSponsor = buildRoleSnapshot('FEE', network, feeAddress, feeFunding, feeResources)
@@ -118,6 +128,7 @@ export function createSponsorRoleFundingReader({
         networkFeeSponsor,
         assetPrincipalSponsor,
       },
+      feeSponsorDelegationToPrincipal,
       // Internal consumer inputs for exact-address budget reconciliation.
       // HTTP handlers must omit this implementation field from public status.
       fundingSnapshots: {
