@@ -125,6 +125,12 @@ test('verifies a direct TRC-20 transfer against the matching solidified event an
   assert.equal(persistenceCalls[0].amountBaseUnits, amountBaseUnits)
   assert.equal(result.payload.transactionBroadcast, false)
   assert.equal(requests.length, 2, 'should read transaction body and receipt from the fixed solidity host')
+
+  const repeated = await invoke(router, validQuery())
+  assert.equal(repeated.payload.verified, true)
+  assert.equal(repeated.payload.cacheStatus, 'recently-verified-and-persisted')
+  assert.equal(requests.length, 2, 'a recently verified and persisted transfer should reuse the short-lived cache')
+  assert.equal(persistenceCalls.length, 1, 'the cache should not create another database write')
 })
 
 test('does not persist a mismatched transfer as verified', async () => {
@@ -133,6 +139,19 @@ test('does not persist a mismatched transfer as verified', async () => {
   assert.equal(result.payload.verified, false)
   assert.equal(result.payload.verificationPersistence.persisted, false)
   assert.equal(persistenceCalls.length, 0)
+})
+
+test('does not cache a chain verification when persistence fails', async () => {
+  const { router, requests, persistenceCalls } = createTestRouter({
+    persistenceResult: { persisted: false, reason: 'database-not-configured' },
+  })
+  const first = await invoke(router, validQuery())
+  const second = await invoke(router, validQuery())
+  assert.equal(first.payload.verified, true)
+  assert.equal(second.payload.verified, true)
+  assert.equal(second.payload.cacheStatus, undefined)
+  assert.equal(requests.length, 4, 'failed persistence must allow a fresh chain check on retry')
+  assert.equal(persistenceCalls.length, 2, 'failed persistence must be retried')
 })
 
 test('reports verified chain evidence separately when the database write fails', async () => {
