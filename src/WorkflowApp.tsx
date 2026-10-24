@@ -311,6 +311,8 @@ export default function WorkflowApp() {
   const [receiverHistoryNotice, setReceiverHistoryNotice] = useState('')
   const [receiverHistoryCheckedAt, setReceiverHistoryCheckedAt] = useState<number | null>(null)
   const [receiverHistoryPersistedAvailable, setReceiverHistoryPersistedAvailable] = useState<boolean | null>(null)
+  const [receiverHistoryVerifyingKey, setReceiverHistoryVerifyingKey] = useState<string | null>(null)
+  const [receiverHistoryVerificationMessages, setReceiverHistoryVerificationMessages] = useState<Record<string, string>>({})
 
   const [reviewRefreshing, setReviewRefreshing] = useState(false)
   const [reviewNotice, setReviewNotice] = useState('')
@@ -327,6 +329,8 @@ export default function WorkflowApp() {
     setReceiverHistoryNotice('')
     setReceiverHistoryCheckedAt(null)
     setReceiverHistoryPersistedAvailable(null)
+    setReceiverHistoryVerifyingKey(null)
+    setReceiverHistoryVerificationMessages({})
   }
 
   const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError
@@ -402,6 +406,8 @@ export default function WorkflowApp() {
     setReceiverHistoryNotice('')
     setReceiverHistoryCheckedAt(null)
     setReceiverHistoryPersistedAvailable(null)
+    setReceiverHistoryVerifyingKey(null)
+    setReceiverHistoryVerificationMessages({})
     setReviewNotice('')
     // loadSponsorStatus is intentionally invoked when the selected network changes.
   }, [network])
@@ -652,6 +658,77 @@ export default function WorkflowApp() {
       setReceiverHistoryCheckedAt(Date.now())
     } finally {
       if (requestGeneration === receiverHistoryRequestGeneration.current) setReceiverHistoryLoading(false)
+    }
+  }
+
+  const verifyReceiverHistoryRecord = async (record: ReceiverHistoryRecord, recordKey: string) => {
+    const transactionId = record.transactionId
+    const contract = record.tokenContract || tokenContract.trim()
+    const from = record.senderAddress
+    const to = record.receiverAddress || receiverAddress.trim()
+    const amountBaseUnits = record.amountBaseUnits
+    if (typeof transactionId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(transactionId)
+      || typeof from !== 'string' || !ADDRESS_PATTERN.test(from)
+      || typeof to !== 'string' || !ADDRESS_PATTERN.test(to)
+      || typeof contract !== 'string' || !ADDRESS_PATTERN.test(contract)
+      || typeof amountBaseUnits !== 'string' || !/^(0|[1-9][0-9]*)$/.test(amountBaseUnits)
+      || BigInt(amountBaseUnits) <= 0n) {
+      setReceiverHistoryVerificationMessages((current) => ({
+        ...current,
+        [recordKey]: 'Cannot verify this row: transaction ID, addresses, contract, or exact base-unit amount is missing or invalid.',
+      }))
+      return
+    }
+    if (record.network && record.network !== network) {
+      setReceiverHistoryVerificationMessages((current) => ({
+        ...current,
+        [recordKey]: 'Network changed since this history row was loaded. Reload history on the selected network before verifying it.',
+      }))
+      return
+    }
+
+    setReceiverHistoryVerifyingKey(recordKey)
+    setReceiverHistoryVerificationMessages((current) => {
+      const next = { ...current }
+      delete next[recordKey]
+      return next
+    })
+    try {
+      const query = new URLSearchParams({ network, contract, from, to, amountBaseUnits })
+      const result = await requestApi('/api/tron/verify-trc20-transfer/' + encodeURIComponent(transactionId) + '?' + query.toString())
+      const payload = result.payload
+      if (!result.ok || payload?.success !== true || payload?.verified !== true
+        || payload?.status !== 'solidified-trc20-transfer-verified') {
+        const detail = payload?.status || payload?.error || ('HTTP ' + result.httpStatus)
+        setReceiverHistoryVerificationMessages((current) => ({
+          ...current,
+          [recordKey]: 'Solidified verification did not confirm this transfer (' + detail + '). The row remains unverified.',
+        }))
+        return
+      }
+
+      // Session-only state update. This does not write the database ledger.
+      setReceiverHistoryRecords((current) => current.map((item) => {
+        const sameTransfer = item.transactionId?.toLowerCase() === transactionId.toLowerCase()
+          && (item.tokenContract || '').toLowerCase() === contract.toLowerCase()
+          && item.senderAddress === from
+          && (item.receiverAddress || receiverAddress.trim()) === to
+          && item.amountBaseUnits === amountBaseUnits
+        return sameTransfer
+          ? { ...item, verifiedOnChain: true, verificationStatus: 'verified-on-chain' }
+          : item
+      }))
+      setReceiverHistoryVerificationMessages((current) => ({
+        ...current,
+        [recordKey]: 'Verified against the solidified ' + network + ' transaction body, receipt and exact Transfer event. This does not confirm exchange credit.',
+      }))
+    } catch {
+      setReceiverHistoryVerificationMessages((current) => ({
+        ...current,
+        [recordKey]: 'Solidified verification is temporarily unavailable. The row remains unverified; retry the same transaction ID later.',
+      }))
+    } finally {
+      setReceiverHistoryVerifyingKey((current) => current === recordKey ? null : current)
     }
   }
 
@@ -989,6 +1066,22 @@ export default function WorkflowApp() {
                             <p className="studio-history-meta">Time: {formatHistoryTimestamp(record.timestamp)}</p>
                             <p className="studio-history-meta">Transaction: <code>{record.transactionId || 'Transaction ID unavailable'}</code>{record.eventIndex !== null && record.eventIndex !== undefined ? ` · event ${record.eventIndex}` : ''}</p>
                             {!verified && <p className="studio-history-warning">Indexer or unverified database record only. Do not treat this row as a settled receipt or spendable balance.</p>}
+                            {!verified && (
+                              <div className="studio-inline-actions">
+                                <button
+                                  type="button"
+                                  className="studio-button studio-button--secondary"
+                                  onClick={() => void verifyReceiverHistoryRecord(record, recordKey)}
+                                  disabled={receiverHistoryVerifyingKey !== null || !/^[0-9a-fA-F]{64}$/.test(record.transactionId || '')}
+                                >
+                                  <ShieldCheck size={15} aria-hidden="true" />
+                                  {receiverHistoryVerifyingKey === recordKey ? 'Verifying solidified receipt…' : 'Verify solidified receipt'}
+                                </button>
+                              </div>
+                            )}
+                            {receiverHistoryVerificationMessages[recordKey] && (
+                              <p className="studio-inline-note" role="status">{receiverHistoryVerificationMessages[recordKey]}</p>
+                            )}
                           </article>
                         )
                       })}
