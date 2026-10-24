@@ -461,5 +461,17 @@ test('read-only GasFree preflight rejects signature fields and malformed amounts
   await getPostRoute(router, '/preflight')({ body: { ...base, amountBaseUnits: 1e30 } }, impreciseAmount)
   assert.equal(impreciseAmount.statusCode, 400)
   assert.equal(impreciseAmount.body.status, 'invalid-amount')
+
+  const uint256Overflow = responseRecorder()
+  await getPostRoute(router, '/preflight')({ body: { ...base, amountBaseUnits: '9'.repeat(78) } }, uint256Overflow)
+  assert.equal(uint256Overflow.statusCode, 400)
+  assert.equal(uint256Overflow.body.status, 'invalid-amount')
+
+  const selfTransfer = responseRecorder()
+  await getPostRoute(router, '/preflight')({
+    body: { ...base, receiverAddress: base.address },
+  }, selfTransfer)
+  assert.equal(selfTransfer.statusCode, 400)
+  assert.equal(selfTransfer.body.status, 'self-transfer-not-allowed')
   assert.equal(calls, 0)
 })
