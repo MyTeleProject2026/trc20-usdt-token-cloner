@@ -637,10 +637,32 @@ export default function WorkflowApp() {
       }
       for (const record of persistedRows) {
         const key = recordKey(record)
-        const current = merged.get(key)
-        // Persisted rows can replace indexer candidates, but a row is shown as
-        // verified only when both independent verification fields agree.
-        merged.set(key, { ...current, ...record })
+        let current = merged.get(key)
+        let targetKey = key
+        // TRONGrid event_index and SolidityNode receipt-log index are not
+        // guaranteed to share the same numbering. Match a verified receipt to
+        // its exact transaction/contract/sender/receiver/amount before adding a
+        // second row for the same transfer.
+        if (!current && record.verifiedOnChain === true) {
+          const matchingEntry = [...merged.entries()].find(([, candidate]) =>
+            (candidate.transactionId || '').toLowerCase() === (record.transactionId || '').toLowerCase()
+            && (candidate.tokenContract || '').toLowerCase() === (record.tokenContract || '').toLowerCase()
+            && (candidate.senderAddress || '').toLowerCase() === (record.senderAddress || '').toLowerCase()
+            && (candidate.receiverAddress || '').toLowerCase() === (record.receiverAddress || '').toLowerCase()
+            && candidate.amountBaseUnits === record.amountBaseUnits
+          )
+          if (matchingEntry) {
+            targetKey = matchingEntry[0]
+            current = matchingEntry[1]
+          }
+        }
+        merged.set(targetKey, {
+          ...current,
+          ...record,
+          tokenName: record.tokenName || current?.tokenName,
+          tokenSymbol: record.tokenSymbol || current?.tokenSymbol,
+          tokenDecimals: record.tokenDecimals ?? current?.tokenDecimals,
+        })
       }
 
       const records = [...merged.values()].sort(
