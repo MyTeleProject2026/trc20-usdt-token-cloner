@@ -8,6 +8,11 @@ function configuredAddress(env, key) {
   return typeof value === 'string' && TRON_ADDRESS.test(value.trim())
 }
 
+function normalizedAddress(env, key) {
+  const value = env[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function configuredContractList(env, key) {
   const value = env[key]
   if (typeof value !== 'string' || !value.trim()) return false
@@ -30,10 +35,10 @@ export function getSponsorIntegrationReadiness({
     const generalAddressConfigured = configuredAddress(env, `SPONSOR_${key}_ADDRESS`)
     const feeAddressConfigured = configuredAddress(env, `SPONSOR_FEE_${key}_ADDRESS`)
     const assetAddressConfigured = configuredAddress(env, `SPONSOR_ASSET_${key}_ADDRESS`)
-    const feeAddress = typeof env[`SPONSOR_FEE_${key}_ADDRESS`] === 'string'
-      ? env[`SPONSOR_FEE_${key}_ADDRESS`.trim()] : ''
-    const assetAddress = typeof env[`SPONSOR_ASSET_${key}_ADDRESS`] === 'string'
-      ? env[`SPONSOR_ASSET_${key}_ADDRESS`.trim()] : ''
+    // Configuration validity trims whitespace; identity comparisons must use
+    // the same canonical values, or identical addresses can look distinct.
+    const feeAddress = normalizedAddress(env, `SPONSOR_FEE_${key}_ADDRESS`)
+    const assetAddress = normalizedAddress(env, `SPONSOR_ASSET_${key}_ADDRESS`)
     const gasFreeSupported = network === 'mainnet' || network === 'nile'
     const gasFreeCredentialsConfigured = gasFreeSupported
       && typeof gasFreeClient.isConfigured === 'function'
