@@ -50,6 +50,23 @@ type Sponsorship = {
   message?: string
   requiredBeforeEnablement?: string[]
 }
+type FeeSponsorDelegationSnapshot = {
+  success?: boolean
+  status?: string
+  network?: string
+  fromAddress?: string
+  toAddress?: string
+  activeEnergyStakeSun?: string | null
+  activeBandwidthStakeSun?: string | null
+  activeEnergyExpiry?: number | null
+  activeBandwidthExpiry?: number | null
+  matchingDelegationRows?: number
+  source?: string
+  queriedAt?: string
+  transactionAuditVerified?: boolean
+  requiredEnvironment?: string[]
+  note?: string
+}
 type FeeEstimate = {
   success?: boolean
   status?: string
@@ -59,6 +76,7 @@ type FeeEstimate = {
   receiverAddress?: string
   amountBaseUnits?: string
   estimation?: {
+    feeSponsorResourceDelegation?: FeeSponsorDelegationSnapshot
     estimatedEnergyRequired?: string
     currentEnergyFeeSun?: string
     estimatedEnergyBurnSun?: string
@@ -72,6 +90,7 @@ type FeeEstimate = {
     feeSponsorResources?: { availableEnergy?: string; availableStakedBandwidth?: string; availableFreeBandwidth?: string }
   }
   nativeEstimation?: {
+    feeSponsorResourceDelegation?: FeeSponsorDelegationSnapshot
     estimatedUnsignedRawDataBytes?: number
     estimatedSignedTransactionBytes?: number
     bandwidthFeeSunPerByte?: string
@@ -1174,16 +1193,24 @@ export default function WorkflowApp() {
                           <p>Staked bandwidth + free bandwidth, current-node snapshot.</p>
                         </div>
                         <div className="studio-balance">
-                          <span>Fee sponsor resources</span>
+                          <span>Fee sponsor's own resources</span>
                           <strong>{feeEstimate.nativeEstimation.feeSponsorResources?.availableStakedBandwidth ?? 'Unknown'} + {feeEstimate.nativeEstimation.feeSponsorResources?.availableFreeBandwidth ?? 'Unknown'}</strong>
-                          <p>Not counted toward the principal transaction unless a delegation is independently verified.</p>
+                          <p>These are the fee sponsor's own available resources, not a delegated balance for the principal sponsor.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Live delegated Bandwidth stake</span>
+                          <strong>{feeEstimate.nativeEstimation.feeSponsorResourceDelegation?.success === true
+                            ? (feeEstimate.nativeEstimation.feeSponsorResourceDelegation.activeBandwidthStakeSun ?? '0') + ' SUN'
+                            : 'Not verified'}</strong>
+                          <p>{feeEstimate.nativeEstimation.feeSponsorResourceDelegation?.status || 'Solidified delegation query has not succeeded'}; values are SUN-equivalent staked TRX, not Bandwidth units.</p>
                         </div>
                       </div>
                       <p className="studio-inline-note" role="status">
                         Fee sponsor resources counted toward principal: {feeEstimate.nativeEstimation.feeSponsorResourcesCountedTowardPrincipalTransfer === true ? 'yes' : 'no'}.
-                        {' '}Verified delegation: {feeEstimate.nativeEstimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
+                        {' '}Transaction audit record verified: {feeEstimate.nativeEstimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
+                        {' '}Live solidified delegation query: {feeEstimate.nativeEstimation.feeSponsorResourceDelegation?.status || 'not available'}.
                       </p>
-                      <p className="studio-footnote">This estimates the principal sponsor's own bandwidth burn. It does not demonstrate that the separate fee sponsor has paid or delegated resources. Energy is not expected for a native TRX TransferContract; total cost may differ after wallet signing and network execution.</p>
+                      <p className="studio-footnote">The current delegation snapshot is a live resource-state read, not transaction authorization or proof that this proposed transfer will be fully covered. Energy is not expected for a native TRX TransferContract; total cost may differ after wallet signing and network execution.</p>
                     </div>
                   )}
                   {assetKind === 'TRC20' && feeEstimate?.success === true && feeEstimate.estimation && (
@@ -1207,9 +1234,23 @@ export default function WorkflowApp() {
                           <p>Current-node resource snapshot only.</p>
                         </div>
                         <div className="studio-balance">
-                          <span>Fee sponsor available Energy</span>
+                          <span>Fee sponsor's own available Energy</span>
                           <strong>{feeEstimate.estimation.feeSponsorResources?.availableEnergy ?? 'Unknown'}</strong>
-                          <p>This is the fee sponsor's own resource snapshot—not delegated Energy for the principal transaction.</p>
+                          <p>This is the fee sponsor's own resource snapshot; it is not automatically available to the principal sponsor.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Live delegated Energy stake</span>
+                          <strong>{feeEstimate.estimation.feeSponsorResourceDelegation?.success === true
+                            ? (feeEstimate.estimation.feeSponsorResourceDelegation.activeEnergyStakeSun ?? '0') + ' SUN'
+                            : 'Not verified'}</strong>
+                          <p>{feeEstimate.estimation.feeSponsorResourceDelegation?.status || 'Solidified delegation query has not succeeded'}; SUN is stake-equivalent units, not Energy units.</p>
+                        </div>
+                        <div className="studio-balance">
+                          <span>Live delegated Bandwidth stake</span>
+                          <strong>{feeEstimate.estimation.feeSponsorResourceDelegation?.success === true
+                            ? (feeEstimate.estimation.feeSponsorResourceDelegation.activeBandwidthStakeSun ?? '0') + ' SUN'
+                            : 'Not verified'}</strong>
+                          <p>Solidified current delegation between the configured fee sponsor and principal sponsor only.</p>
                         </div>
                         <div className="studio-balance">
                           <span>Bandwidth / total network fee</span>
@@ -1219,7 +1260,8 @@ export default function WorkflowApp() {
                       </div>
                       <p className="studio-inline-note" role="status">
                         Fee sponsor resources counted toward principal: {feeEstimate.estimation.feeSponsorResourcesCountedTowardPrincipalTransfer === true ? 'yes' : 'no'}.
-                        {' '}Verified delegation: {feeEstimate.estimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
+                        {' '}Transaction audit record verified: {feeEstimate.estimation.resourceDelegationVerified === true ? 'yes' : 'no'}.
+                        {' '}Live solidified delegation query: {feeEstimate.estimation.feeSponsorResourceDelegation?.status || 'not available'}.
                       </p>
                       {Array.isArray(feeEstimate.blockers) && feeEstimate.blockers.length > 0 && (
                         <div className="studio-field-block">
