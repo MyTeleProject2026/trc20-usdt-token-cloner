@@ -41,7 +41,7 @@ test('configured origins are normalized and only exact allowlisted browser origi
 })
 
 test('empty or invalid configuration fails closed for browser origins', () => {
-  for (const configured of ['', 'not-a-url', 'javascript:alert(1)', 'https://user:pass@admin.example']) {
+  for (const configured of ['', 'not-a-url', 'javascript:alert(1)', 'http://studio.example', 'https://user:pass@admin.example']) {
     const { allowedOrigins, middleware } = createCorsPolicy(configured)
     assert.equal(allowedOrigins.size, 0)
     const res = responseRecorder()
@@ -93,4 +93,17 @@ test('server entrypoint uses the fail-closed CORS policy and reports valid confi
   assert.match(entrypoint, /app\.use\(corsPolicy\)/)
   assert.match(entrypoint, /frontendOrigin: \{ configured: allowedOrigins\.size > 0 \}/)
   assert.doesNotMatch(entrypoint, /!allowedOrigins\.size\s*\|\|\s*allowedOrigins\.has\(origin\)/)
+})
+
+
+test('plain HTTP is accepted only for local development origins', () => {
+  const { allowedOrigins, middleware } = createCorsPolicy('http://localhost:5173')
+  assert.deepEqual([...allowedOrigins], ['http://localhost:5173'])
+  const res = responseRecorder()
+  let nextCalled = false
+  middleware({ headers: { origin: 'http://localhost:5173' }, method: 'GET' }, res, () => {
+    nextCalled = true
+  })
+  assert.equal(nextCalled, true)
+  assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:5173')
 })
