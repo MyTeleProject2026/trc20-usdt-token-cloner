@@ -199,15 +199,19 @@ export function createTRC20VerificationRouter({
       const receiptSucceeded = receipt?.receipt?.result === 'SUCCESS'
       const logs = Array.isArray(receipt?.log) ? receipt.log : []
       const matchingEvents = []
+      // Inspect every receipt log even when a caller supplies an event index.
+      // An index is a selector, not permission to ignore duplicate matching events.
       for (let index = 0; index < logs.length; index += 1) {
-        if (eventIndex !== null && index !== eventIndex) continue
         const transfer = readTransferLog(logs[index], contractBytes)
         if (!transfer) continue
         if (transfer.fromBytes === fromBytes && transfer.toBytes === toBytes && transfer.amountBaseUnits === amountBaseUnits) {
           matchingEvents.push({ eventIndex: index, ...transfer })
         }
       }
-      const uniqueEvent = matchingEvents.length === 1 ? matchingEvents[0] : null
+      const uniqueEvent = matchingEvents.length === 1
+        && (eventIndex === null || matchingEvents[0].eventIndex === eventIndex)
+        ? matchingEvents[0]
+        : null
       const checks = {
         transactionBodyMatches: bodyMatches,
         solidifiedReceiptPresent: hasSolidifiedReceipt,
@@ -219,6 +223,7 @@ export function createTRC20VerificationRouter({
         amountMatches: encodedAmountBaseUnits === amountBaseUnits,
         transferEventMatches: Boolean(uniqueEvent),
         eventNotAmbiguous: matchingEvents.length === 1,
+        requestedEventIndexMatches: eventIndex === null || uniqueEvent?.eventIndex === eventIndex,
       }
       const verified = Object.values(checks).every(Boolean)
       const status = !transactionSucceeded || !receiptSucceeded
