@@ -1,6 +1,6 @@
 # Sponsor transfer reconciliation — implementation gates
 
-Status: specification only. Sponsor execution must remain disabled until the gates below are implemented and verified.
+Status: partial implementation, not production-ready. Reservation and evidence-gated settlement logic exist, but sponsor execution must remain disabled until every gate below has been implemented and verified. New ledger transitions to authorized and submitted currently fail closed because wallet-signature verification and provider submission are not integrated.
 
 ## Non-negotiable separation
 
@@ -13,6 +13,12 @@ Treat these as distinct ledger operations and balances:
 5. **Exchange deposit credit** — confirmed only by the receiving exchange, not inferred from a chain receipt.
 
 Never label a reservation, pending grant, submitted transaction, or sponsor budget as a spendable receiver balance.
+
+## Implemented safeguards and remaining gaps
+
+Current source enforces reservation/idempotency and on-chain reconciliation checks. New authorized status requests are refused until a wallet signature is cryptographically verified against server-reconstructed intent and protected against nonce replay. New submitted status requests are refused until a provider adapter can prove its own accepted broadcast result. A test-only seeded submitted row is used only to exercise settlement rollback and idempotency; it is not provider or chain evidence.
+
+Still not complete: signed legal sponsor consent and account-ownership verification; live two-role sponsor funding verified for the actual operator-controlled wallets; a wallet-side permit flow with durable nonce-use storage; a real provider broadcast adapter and idempotency/retry contract; fee-aware finalized failure reconciliation; an externally witnessed Nile end-to-end transfer; a passing full CI run; and closure of the protobuf security advisory. None of these should be inferred from a configured environment variable, a test fixture, or a successful Render start.
 
 ## Required transaction state machine
 
