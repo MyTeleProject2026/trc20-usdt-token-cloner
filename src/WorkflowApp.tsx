@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2,
@@ -258,6 +258,8 @@ export default function WorkflowApp() {
   const [reviewRefreshing, setReviewRefreshing] = useState(false)
   const [reviewNotice, setReviewNotice] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
+  // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
+  const sponsorRequestGeneration = useRef(0)
 
   const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError
   const feeStageValid = feeSponsorRequired && sponsorStageLoaded
@@ -274,6 +276,7 @@ export default function WorkflowApp() {
   const currentStageState = (index: number): StageState => index < step ? (stageCompletion[index] ? 'done' : 'ready') : index === step ? 'current' : canEnterStep(index) ? 'ready' : 'locked'
 
   const loadSponsorStatus = async (forceRefresh = false) => {
+    const requestGeneration = ++sponsorRequestGeneration.current
     setSponsorLoading(true)
     setSponsorError('')
     try {
@@ -282,6 +285,7 @@ export default function WorkflowApp() {
         requestApi(`/api/tron/sponsorship/roles?network=${network}${refresh}`),
         requestApi('/api/tron/sponsorship/status'),
       ])
+      if (requestGeneration !== sponsorRequestGeneration.current) return
       const rolePayload = roleResult.payload
       const statusPayload = statusResult.payload
       setRoles(rolePayload?.roles ? rolePayload as SponsorRoles : null)
@@ -293,12 +297,13 @@ export default function WorkflowApp() {
       }
       setSponsorCheckedAt(Date.now())
     } catch (error) {
+      if (requestGeneration !== sponsorRequestGeneration.current) return
       setRoles(null)
       setSponsorship(null)
       setSponsorError(error instanceof Error ? error.message : 'Sponsor diagnostics are unavailable.')
       setSponsorCheckedAt(Date.now())
     } finally {
-      setSponsorLoading(false)
+      if (requestGeneration === sponsorRequestGeneration.current) setSponsorLoading(false)
     }
   }
 
@@ -469,6 +474,10 @@ export default function WorkflowApp() {
 
   const chooseNetwork = (next: NetworkId) => {
     if (next === network) return
+    // Invalidate in-flight reads synchronously before React changes networks.
+    sponsorRequestGeneration.current += 1
+    setSponsorLoading(false)
+    setReviewRefreshing(false)
     setNetwork(next)
   }
 
@@ -478,6 +487,7 @@ export default function WorkflowApp() {
   const goBack = () => setStep((value) => Math.max(0, value - 1))
 
   const refreshReview = async () => {
+    const requestGeneration = ++sponsorRequestGeneration.current
     setReviewRefreshing(true)
     setReviewNotice('')
     try {
@@ -485,6 +495,7 @@ export default function WorkflowApp() {
         requestApi(`/api/tron/sponsorship/roles?network=${network}&refresh=1`),
         requestApi('/api/tron/sponsorship/status'),
       ])
+      if (requestGeneration !== sponsorRequestGeneration.current) return
       const rolePayload = roleResult.payload
       const statusPayload = statusResult.payload
       setRoles(rolePayload?.roles ? rolePayload as SponsorRoles : null)
@@ -497,9 +508,10 @@ export default function WorkflowApp() {
       else setSponsorError('')
       setSponsorCheckedAt(Date.now())
     } catch (error) {
+      if (requestGeneration !== sponsorRequestGeneration.current) return
       setReviewNotice(error instanceof Error ? error.message : 'Sponsor status refresh failed. Submission remains blocked.')
     } finally {
-      setReviewRefreshing(false)
+      if (requestGeneration === sponsorRequestGeneration.current) setReviewRefreshing(false)
     }
   }
 
