@@ -1359,7 +1359,7 @@ router.post('/sponsorship/transfers/:idempotencyKey/cancel', async (req, res) =>
       duplicate: result.duplicate === true,
       status: 'cancelled',
       reservationReleased: true,
-      auditReason: body.cancellationReason,
+      auditReason: result.duplicate ? null : body.cancellationReason,
       canSubmitSponsoredTransfer: false,
       submissionEnabled: false,
       transactionBroadcast: false,
