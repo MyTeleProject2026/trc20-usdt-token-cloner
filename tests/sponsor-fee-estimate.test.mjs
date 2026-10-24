@@ -279,6 +279,38 @@ test('estimates native TRX bandwidth shortfall from a validated unsigned transac
   assert.ok(calls.some((call) => call.url.endsWith('/wallet/createtransaction')))
 })
 
+test('native TRX preflight reports an observed fee-to-principal bandwidth delegation without enabling submission', async () => {
+  const { router } = createHarness({
+    env: {
+      SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
+      TATUM_API_KEY: 'server-only-test-key',
+    },
+    delegationPayload: {
+      delegatedResource: [{
+        from: feeHex,
+        to: assetHex,
+        frozen_balance_for_energy: '0',
+        frozen_balance_for_bandwidth: '7000000',
+        expire_time_for_bandwidth: 0,
+      }],
+    },
+  })
+  const result = await invoke(router, {
+    network: 'mainnet',
+    receiverAddress: receiver,
+    amountBaseUnits: '3000000',
+  }, '/sponsorship/native-fee-estimate')
+
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.payload.nativeEstimation.feeSponsorResourceDelegation.success, true)
+  assert.equal(result.payload.nativeEstimation.feeSponsorResourceDelegation.activeBandwidthStakeSun, '7000000')
+  assert.equal(result.payload.nativeEstimation.resourceDelegationVerified, false)
+  assert.equal(result.payload.canSubmitSponsoredTransfer, false)
+  assert.equal(result.payload.submissionEnabled, false)
+  assert.equal(result.payload.transactionBroadcast, false)
+})
+
 test('native TRX preflight rejects provider-created drafts with a mismatched receiver or amount', async () => {
   const harness = createHarness()
   harness.calls.length = 0
