@@ -10,6 +10,7 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 - Sponsor account balances and resource snapshots are diagnostics only. They are not an approved budget, an authorization to spend, or a receiver balance.
 - Receiver spendability is derived from verified on-chain assets. A normal transfer to an external wallet cannot impose app-defined restrictions after receipt.
 - GasFree network support in this integration is Mainnet and Nile. Shasta must not be treated as Nile.
+- Tatum KMS is not part of the current web/API runtime. Any future KMS use must be a separately operated sponsor-wallet signer with encrypted persistent storage, managed secrets, mandatory four-eye approval, and a dedicated testnet pilot; see [the Tatum KMS integration audit](./TATUM_KMS_INTEGRATION_AUDIT.md).
 
 ## Required evidence before any sponsored submission can be considered
 
