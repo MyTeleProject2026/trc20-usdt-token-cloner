@@ -27,6 +27,11 @@ function allowlistedAsset(env, network, contract) {
   return null
 }
 
+function displayAssetLabel(network, asset) {
+  if (network !== 'mainnet' && asset === 'USDT') return 'USDT (testnet contract)'
+  return asset
+}
+
 function asTronHex(tronWeb, address) {
   if (typeof address !== 'string' || !ADDRESS_PATTERN.test(address) || !tronWeb.isAddress(address)) return null
   const value = String(tronWeb.address.toHex(address) || '').replace(/^0x/i, '').toLowerCase()
@@ -390,7 +395,7 @@ export function createSponsorFeeEstimateRouter({
           success: false,
           status: 'contract-simulation-failed',
           network,
-          asset,
+          asset: displayAssetLabel(network, asset),
           tokenContract,
           receiverAddress,
           canSubmitSponsoredTransfer: false,
@@ -426,7 +431,7 @@ export function createSponsorFeeEstimateRouter({
         success: true,
         status: 'read-only-energy-estimate-incomplete-total-fee',
         network,
-        asset,
+        asset: displayAssetLabel(network, asset),
         tokenContract,
         receiverAddress,
         amountBaseUnits,
