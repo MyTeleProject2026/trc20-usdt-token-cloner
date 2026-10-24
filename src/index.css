@@ -503,3 +503,5 @@ main .grid > button[aria-pressed] > span {
 @media (prefers-reduced-motion: reduce) {
   .studio-root *, .studio-root *::before, .studio-root *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+
+.studio-role-address { display: block; margin-top: .45rem; color: #a4d9c8; font-size: .67rem; line-height: 1.55; overflow-wrap: anywhere; }
