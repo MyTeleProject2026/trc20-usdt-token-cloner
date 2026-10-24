@@ -154,6 +154,7 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
       })
       if (fingerprint) params.set('fingerprint', fingerprint)
       const response = await fetchImpl(`${host}/v1/accounts/${encodeURIComponent(walletAddress)}/transactions/trc20?${params.toString()}`, {
+        redirect: 'error',
         headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
@@ -270,6 +271,7 @@ async function verifyPendingCandidates(db, { env, fetchImpl }) {
     const query = async (path) => {
       const response = await fetchImpl(host + path, {
         method: 'POST',
+        redirect: 'error',
         headers,
         body: JSON.stringify({ value: row.transaction_hash.trim(), visible: false }),
         signal: AbortSignal.timeout(8000),
