@@ -78,7 +78,7 @@ type SponsorIntegrationReadiness = {
     databaseUrlConfigured?: boolean
     frontendOriginConfigured?: boolean
     sponsorAdminTokenConfigured?: boolean
-    approvedAgreementReferenceConfigured?: boolean
+    agreementReferenceVariablePresent?: boolean
   }
   networks?: Record<string, {
     addressMonitoring?: {
@@ -437,7 +437,7 @@ function SponsorIntegrationReadinessPanel({ readiness, network }: { readiness: S
     ['PostgreSQL URL', readiness.backendConfiguration?.databaseUrlConfigured],
     ['Frontend CORS origin', readiness.backendConfiguration?.frontendOriginConfigured],
     ['Sponsor admin token (32+ chars)', readiness.backendConfiguration?.sponsorAdminTokenConfigured],
-    ['Reviewed agreement reference configured', readiness.backendConfiguration?.approvedAgreementReferenceConfigured],
+    ['Agreement reference variable present', readiness.backendConfiguration?.agreementReferenceVariablePresent],
   ]
   const networkRows: Array<[string, boolean | undefined]> = [
     ['General sponsor address format', selected?.addressMonitoring?.generalAddressConfigured],
@@ -650,7 +650,7 @@ export default function WorkflowApp() {
       const [roleResult, statusResult, readinessResult] = await Promise.all([
         requestApi(`/api/tron/sponsorship/roles?network=${network}${refresh}`),
         requestApi('/api/tron/sponsorship/status'),
-        requestApi('/api/tron/sponsorship/integration-readiness'),
+        requestApi('/api/tron/sponsorship/integration-readiness').catch(() => ({ ok: false, httpStatus: 0, payload: null })),
       ])
       if (requestGeneration !== sponsorRequestGeneration.current) return
       const rolePayload = roleResult.payload
