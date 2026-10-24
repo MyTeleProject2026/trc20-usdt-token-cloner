@@ -48,6 +48,14 @@ The following administrative endpoints require `Authorization: Bearer <SPONSOR_A
 Creation always sets the row to `pending-review`; duplicate identities are rejected and audited in the same database transaction. The endpoint cannot activate, reserve, sign, submit, or broadcast a transfer. No public UI stores or sends the administrator token. The requested amount is a ledger cap, not a verified wallet balance; compare it with the read-only funding snapshot during operator review. Existing budgets are not edited by these endpoints.
 
 
+## Safe cancellation of unsubmitted reservations
+
+`POST /api/tron/sponsorship/transfers/:idempotencyKey/cancel` requires the same server-only sponsor administrator bearer token as the ledger endpoints. The JSON body must contain exactly one `cancellationReason` selected from `operator-request`, `recipient-request`, `duplicate-request`, `eligibility-expired`, or `emergency-stop`.
+
+The endpoint uses the database's locked state transition so the transfer status, release of the reserved budget, and audit event commit atomically. Repeating cancellation for an already-cancelled reservation is idempotent. Only `pending-review` or `authorized` reservations can be cancelled. A `submitted` transaction cannot be cancelled or have its reservation released through this endpoint because a broadcast transaction may still consume fees or settle on-chain; it must remain held for evidence-based reconciliation.
+
+This is an administrative ledger operation only. It cannot sign or broadcast a transaction and does not enable sponsored submission. If the endpoint returns an unavailable/ambiguous response, check the protected transfer list before retrying with the same reservation identity.
+
 ## Budget emergency pause
 
 `POST /api/tron/sponsorship/budgets/:id/pause` is protected by the same server-only administrator bearer token. It requires one controlled reason code: `operator-request`, `funding-mismatch`, `provider-incident`, or `emergency-stop`. It uses a row lock and a database transaction to change the configured budget to `paused` and record an audit event. Repeated pauses are idempotent. Depleted budgets remain terminal. A paused budget cannot be used for new reservations by the existing reservation function. Pausing cannot reverse or cancel transactions already submitted to TRON.
