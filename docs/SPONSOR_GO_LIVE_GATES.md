@@ -5,6 +5,8 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 ## Current verified contract
 
 - The backend sponsorship status is fail-closed.
+- The sponsor ledger refuses new `authorized` transitions with `wallet-signature-verification-not-integrated` and refuses new `submitted` transitions with `provider-submission-adapter-disabled`. A text reference and caller-supplied transaction hash are not treated as proof of signature or broadcast.
+- Settlement logic is tested separately from submission. PostgreSQL reconciliation tests seed a prior `submitted` row only as a test fixture, then check exact persisted chain evidence; that fixture is not real provider-broadcast evidence or a live Nile end-to-end test.
 - GasFree routes are read-only for capability, account and trace lookup; `POST /api/gasfree/submit` returns HTTP 503 without calling the provider.
 - Fee sponsor and asset-principal sponsor are separate roles and are read independently.
 - Sponsor account balances and resource snapshots are diagnostics only. They are not an approved budget, an authorization to spend, or a receiver balance.
