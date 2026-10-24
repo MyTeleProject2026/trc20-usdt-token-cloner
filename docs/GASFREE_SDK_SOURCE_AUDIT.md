@@ -12,7 +12,7 @@
 - [Official JavaScript SDK](https://github.com/gasfreeio/gasfree-sdk-js)
 - [Application's JavaScript SDK copy](https://github.com/MyTeleProject2026/gasfree-sdk-js)
 
-The user's JavaScript repository identifies `https://github.com/gasfreeio/gasfree-sdk-js.git` as its upstream and declares package version 1.1.4. Its `TronGasFree` implementation exposes deterministic GasFree address derivation and EIP-712 typed-data assembly/validation. The Java and Swift README files likewise describe address generation and message-hash functionality. These are useful wallet-side SDK building blocks; they are not proof of service-provider funding, transfer balance, or a working provider session.
+The application-maintained JavaScript repository identifies `https://github.com/gasfreeio/gasfree-sdk-js.git` as its upstream and declares package version 1.1.4. Its `TronGasFree` implementation exposes deterministic GasFree address derivation and EIP-712 typed-data assembly/validation. The Java and Swift README files likewise describe address generation and message-hash functionality. These are useful wallet-side SDK building blocks; they are not proof of service-provider funding, transfer balance, or a working provider session.
 
 ## What GasFree documents
 
