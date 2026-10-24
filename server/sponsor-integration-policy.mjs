@@ -1,12 +1,16 @@
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
 const MODELS = new Set(['third-party-provider', 'sponsor-organization'])
+const UINT256_MAX = (1n << 256n) - 1n
 
-function positiveInteger(value) {
-  return typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)
+function positiveUint256(value) {
+  if (typeof value !== 'string'
+    || value.length > 78
+    || !/^[1-9][0-9]*$/.test(value)) return false
+  return BigInt(value) <= UINT256_MAX
 }
 
 function covered(balance, required) {
-  if (!positiveInteger(balance) || !positiveInteger(required) || BigInt(required) <= 0n) return false
+  if (!positiveUint256(balance) || !positiveUint256(required)) return false
   return BigInt(balance) >= BigInt(required)
 }
 
@@ -40,8 +44,7 @@ export function evaluateSponsorTransferEligibility(evidence = {}) {
   if (principal?.consentVerified !== true) blockers.push('asset-sponsor-consent-unverified')
   if (principal?.fundingSnapshotFresh !== true) blockers.push('asset-sponsor-funding-snapshot-not-fresh')
   if (principal?.network !== network) blockers.push('asset-sponsor-network-mismatch')
-  if (!covered(principal?.availableBaseUnits, principal?.requiredBaseUnits)
-    || BigIntSafe(principal?.availableBaseUnits) < BigIntSafe(principal?.requiredBaseUnits)) {
+  if (!covered(principal?.availableBaseUnits, principal?.requiredBaseUnits)) {
     blockers.push('asset-principal-funding-insufficient-or-unverified')
   }
 
@@ -84,8 +87,4 @@ export function evaluateSponsorTransferEligibility(evidence = {}) {
     submissionPerformed: false,
     note: 'Eligibility is not a transfer, signature, broadcast, or settlement claim. A separate audited submit path must revalidate this evidence and independently verify solidified chain settlement.',
   }
-}
-
-function BigIntSafe(value) {
-  return positiveInteger(value) ? BigInt(value) : -1n
 }
