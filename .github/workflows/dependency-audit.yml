@@ -36,10 +36,10 @@ jobs:
           import fs from 'node:fs'
           const report = JSON.parse(fs.readFileSync('npm-audit-report.json', 'utf8'))
           if (report.error || !report.metadata?.vulnerabilities) {
-    console.error('npm audit did not return a valid vulnerability report.')
-    process.exitCode = 1
-  }
-  const counts = report.metadata?.vulnerabilities ?? {}
+            console.error('npm audit did not return a valid vulnerability report.')
+            process.exitCode = 1
+          }
+          const counts = report.metadata?.vulnerabilities ?? {}
           const clean = value => String(value).replaceAll('|', '\\|').replaceAll('\\n', ' ')
           const rank = { critical: 0, high: 1, moderate: 2, low: 3, info: 4 }
           const packages = Object.entries(report.vulnerabilities ?? {}).sort((a, b) =>
