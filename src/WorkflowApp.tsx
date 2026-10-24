@@ -142,9 +142,13 @@ async function readTokenBalance(network: NetworkId, contract: string, address: s
   return requireSuccess(result, 'Could not read the selected token contract from solidified chain state') as BalanceSnapshot
 }
 
+function hasVerifiedFundingSnapshot(role?: SponsorRoleSnapshot) {
+  return role?.sponsorFundingVerified === true && role?.onChainBalanceRead === true
+}
+
 function roleLabel(role?: SponsorRoleSnapshot) {
   if (!role) return 'Not verified'
-  if (role.sponsorFundingVerified === true && role.onChainBalanceRead === true) return 'Funding snapshot verified'
+  if (hasVerifiedFundingSnapshot(role)) return 'Funding snapshot verified'
   if (role.onChainBalanceRead === true) return 'Balance readable; authorization not verified'
   if (role.addressConfigured === true) return 'Sponsor configured; funding not verified'
   return role.status ? role.status.replaceAll('-', ' ') : 'Not verified'
@@ -162,7 +166,7 @@ function Pill({ tone = 'neutral', children }: { tone?: 'neutral' | 'good' | 'war
 }
 
 function RoleSnapshotCard({ title, role, icon }: { title: string; role?: SponsorRoleSnapshot; icon: ReactNode }) {
-  const tone = role?.sponsorFundingVerified === true && role?.onChainBalanceRead === true ? 'good' : 'warning'
+  const tone = hasVerifiedFundingSnapshot(role) ? 'good' : 'warning'
   const nativeVerified = role?.native?.status === 'verified' && typeof role?.native?.balanceTRX === 'string'
   const verifiedTokens = (role?.tokens ?? []).filter((token) =>
     token.status === 'verified' && typeof token.balanceBaseUnits === 'string' && Number.isInteger(token.decimals),
@@ -208,7 +212,7 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
           <p className="studio-snapshot-unavailable">No current on-chain balance or fee-resource value has been verified for this sponsor role.</p>
         )}
       </div>
-      <Pill tone={tone}>{role?.sponsorFundingVerified === true ? 'Funding snapshot verified' : 'Not enabled'}</Pill>
+      <Pill tone={tone}>{hasVerifiedFundingSnapshot(role) ? 'Funding snapshot verified' : 'Not enabled'}</Pill>
     </div>
   )
 }
@@ -632,7 +636,7 @@ export default function WorkflowApp() {
               <div className="studio-panel-heading">
                 <div className="studio-panel-icon"><CircleDollarSign size={20} aria-hidden="true" /></div>
                 <div><p className="studio-eyebrow">Sponsor B</p><h2 id="asset-stage-title">Who supplies the asset principal?</h2><p>This is separate from network fees. The principal sponsor must own and authorize the asset transfer.</p></div>
-                <Pill tone={roles?.roles?.assetPrincipalSponsor?.sponsorFundingVerified ? 'good' : 'warning'}>{roles?.roles?.assetPrincipalSponsor?.sponsorFundingVerified ? 'Snapshot verified' : 'Not verified'}</Pill>
+                <Pill tone={hasVerifiedFundingSnapshot(roles?.roles?.assetPrincipalSponsor) ? 'good' : 'warning'}>{hasVerifiedFundingSnapshot(roles?.roles?.assetPrincipalSponsor) ? 'Snapshot verified' : 'Not verified'}</Pill>
               </div>
 
               <button type="button" onClick={() => setAssetSponsorRequired(true)} aria-pressed={assetSponsorRequired} className={`studio-choice-card ${assetSponsorRequired ? 'is-picked' : ''}`}>
@@ -758,8 +762,8 @@ export default function WorkflowApp() {
 
               <div className="studio-review-list">
                 <div className="studio-review-row"><span>Network</span><strong>{network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</strong><Pill>{'Read-only testnet'}</Pill></div>
-                <div className="studio-review-row"><span>Network fee sponsor</span><strong>{feeSponsorRequired ? roleLabel(roles?.roles?.networkFeeSponsor) : 'Not selected'}</strong><Pill tone={roles?.roles?.networkFeeSponsor?.sponsorFundingVerified ? 'good' : 'warning'}>{roles?.roles?.networkFeeSponsor?.sponsorFundingVerified ? 'Snapshot verified' : 'Not enabled'}</Pill></div>
-                <div className="studio-review-row"><span>Asset principal sponsor</span><strong>{assetSponsorRequired ? roleLabel(roles?.roles?.assetPrincipalSponsor) : 'Not selected'}</strong><Pill tone={roles?.roles?.assetPrincipalSponsor?.sponsorFundingVerified ? 'good' : 'warning'}>{roles?.roles?.assetPrincipalSponsor?.sponsorFundingVerified ? 'Snapshot verified' : 'Not enabled'}</Pill></div>
+                <div className="studio-review-row"><span>Network fee sponsor</span><strong>{feeSponsorRequired ? roleLabel(roles?.roles?.networkFeeSponsor) : 'Not selected'}</strong><Pill tone={hasVerifiedFundingSnapshot(roles?.roles?.networkFeeSponsor) ? 'good' : 'warning'}>{hasVerifiedFundingSnapshot(roles?.roles?.networkFeeSponsor) ? 'Snapshot verified' : 'Not enabled'}</Pill></div>
+                <div className="studio-review-row"><span>Asset principal sponsor</span><strong>{assetSponsorRequired ? roleLabel(roles?.roles?.assetPrincipalSponsor) : 'Not selected'}</strong><Pill tone={hasVerifiedFundingSnapshot(roles?.roles?.assetPrincipalSponsor) ? 'good' : 'warning'}>{hasVerifiedFundingSnapshot(roles?.roles?.assetPrincipalSponsor) ? 'Snapshot verified' : 'Not enabled'}</Pill></div>
                 <div className="studio-review-row"><span>Asset / requested amount</span><strong>{amount} {assetKind === 'TRX' ? 'TRX' : 'token units'}</strong><Pill tone={amountBaseUnits ? 'good' : 'bad'}>{amountBaseUnits ? 'Valid format' : 'Invalid amount'}</Pill></div>
                 {assetKind === 'TRC20' && <div className="studio-review-row"><span>TRC-20 contract</span><code>{tokenContract}</code></div>}
                 <div className="studio-review-row"><span>Sender / watch wallet</span><code>{senderAddress}</code></div>
