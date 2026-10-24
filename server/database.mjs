@@ -997,9 +997,14 @@ export async function reserveSponsorTransfer(input, {
 }
 
 /**
- * Applies an explicit, audited lifecycle transition and reconciles budget
- * reservation atomically. Authorization requires a non-empty approval reference.
- * A confirmed transition requires an externally verified finalized transaction hash.
+ * Applies audited sponsor lifecycle transitions and reconciles budget reservation.
+ * Confirmation requires independently verified persisted chain evidence.
+ *
+ * The current release intentionally rejects new authorized and submitted
+ * transitions: a text reference is not a cryptographically verified wallet
+ * signature, and a caller-supplied transaction hash is not a provider broadcast
+ * receipt. Re-enable those transitions only alongside durable signature
+ * verification, replay protection, and provider-adapter implementations and tests.
  */
 export async function transitionSponsorTransferWithPool(input, db, { initialize = true } = {}) {
   const { idempotencyKey, nextStatus, authorizationReference = null, transactionHash = null, cancellationReason = null } = input || {}
