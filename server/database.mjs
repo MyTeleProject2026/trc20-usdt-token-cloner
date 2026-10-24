@@ -1002,7 +1002,7 @@ export async function reserveSponsorTransfer(input, {
  * A confirmed transition requires an externally verified finalized transaction hash.
  */
 export async function transitionSponsorTransferWithPool(input, db, { initialize = true } = {}) {
-  const { idempotencyKey, nextStatus, authorizationReference = null, transactionHash = null } = input || {}
+  const { idempotencyKey, nextStatus, authorizationReference = null, transactionHash = null, cancellationReason = null } = input || {}
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
     || !validSponsorTransitionStatus(nextStatus)) {
     return { updated: false, reason: 'invalid-transition' }
@@ -1015,6 +1015,10 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
   }
   if (nextStatus === 'confirmed' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
     return { updated: false, reason: 'finalized-transaction-hash-required' }
+  }
+  if (nextStatus === 'cancelled' && cancellationReason != null
+    && !['operator-request', 'recipient-request', 'duplicate-request', 'eligibility-expired', 'emergency-stop'].includes(cancellationReason)) {
+    return { updated: false, reason: 'invalid-cancellation-reason' }
   }
 
   if (!db) return { updated: false, reason: 'database-not-configured' }
@@ -1180,7 +1184,7 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
     await client.query(
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
        VALUES ('sponsor-transfer-status-changed', 'sponsor-transfer', $1, $2::jsonb)`,
-      [idempotencyKey, JSON.stringify({ fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset })],
+      [idempotencyKey, JSON.stringify({ fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset, ...(nextStatus === 'cancelled' && cancellationReason ? { cancellationReason } : {}) })],
     )
     await client.query('COMMIT')
     return { updated: true, duplicate: false, status: nextStatus }
