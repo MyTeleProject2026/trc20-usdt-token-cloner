@@ -183,7 +183,7 @@ test('requires the exact amount, sender, receiver, token contract and direct tra
   assert.equal(transferFrom.payload.checks.directTokenTransferCall, false)
 })
 
-test('rejects ambiguous duplicate Transfer events rather than guessing which one was received', async () => {
+test('rejects ambiguous duplicate Transfer events even when an event index is supplied', async () => {
   const { router, persistenceCalls } = createTestRouter({
     receipt: makeReceipt({ duplicateLog: true }),
   })
@@ -192,6 +192,13 @@ test('rejects ambiguous duplicate Transfer events rather than guessing which one
   assert.equal(result.payload.status, 'ambiguous-matching-transfer-event')
   assert.equal(result.payload.checks.eventNotAmbiguous, false)
   assert.equal(persistenceCalls.length, 0)
+
+  const indexed = createTestRouter({ receipt: makeReceipt({ duplicateLog: true }) })
+  const selectedOneDuplicate = await invoke(indexed.router, validQuery({ eventIndex: '0' }))
+  assert.equal(selectedOneDuplicate.payload.verified, false)
+  assert.equal(selectedOneDuplicate.payload.status, 'ambiguous-matching-transfer-event')
+  assert.equal(selectedOneDuplicate.payload.checks.eventNotAmbiguous, false)
+  assert.equal(indexed.persistenceCalls.length, 0)
 })
 
 test('rejects receipt events emitted by a different token contract', async () => {
