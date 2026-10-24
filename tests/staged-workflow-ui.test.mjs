@@ -22,6 +22,7 @@ test('stages are gated by prior validation and live network reads', () => {
   assert.ok(app.includes('const canEnterStep = (index: number) => index === 0 || stageCompletion[index - 1] === true'))
   assert.ok(app.includes('disabled={!canEnterStep(index)}'))
   assert.ok(app.includes('disabled={!stageCompletion[step]}'))
+  assert.ok(app.includes('const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError'))
   assert.ok(app.includes('const feeStageValid = feeSponsorRequired && sponsorStageLoaded'))
   assert.ok(app.includes('const senderStageValid = ADDRESS_PATTERN.test(senderAddress)'))
   assert.ok(app.includes('const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress)'))

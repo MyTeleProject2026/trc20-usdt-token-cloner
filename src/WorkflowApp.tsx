@@ -16,9 +16,16 @@ type SponsorRoleSnapshot = {
   sponsorFundingVerified?: boolean
   canSubmitSponsoredTransfer?: boolean
   submissionEnabled?: boolean
-  sponsorAddress?: string
-  native?: { balanceTRX?: string; balanceSun?: string; status?: string }
-  tokens?: Array<{ asset?: string; balanceBaseUnits?: string; decimals?: number; status?: string }>
+  native?: { balanceTRX?: string; balanceSun?: string; status?: string; accountExists?: boolean }
+  tokens?: Array<{ asset?: string; tokenContract?: string; balanceBaseUnits?: string; decimals?: number; status?: string }>
+  resourceStatus?: {
+    status?: string
+    resourceRead?: boolean
+    currentlyAvailableEnergy?: string | number
+    currentlyAvailableBandwidth?: string | number
+    maxDelegatableEnergyStakeSun?: string
+    maxDelegatableBandwidthStakeSun?: string
+  }
 }
 type SponsorRoles = {
   success?: boolean
@@ -156,6 +163,13 @@ function Pill({ tone = 'neutral', children }: { tone?: 'neutral' | 'good' | 'war
 
 function RoleSnapshotCard({ title, role, icon }: { title: string; role?: SponsorRoleSnapshot; icon: ReactNode }) {
   const tone = role?.sponsorFundingVerified === true && role?.onChainBalanceRead === true ? 'good' : 'warning'
+  const nativeVerified = role?.native?.status === 'verified' && typeof role?.native?.balanceTRX === 'string'
+  const verifiedTokens = (role?.tokens ?? []).filter((token) =>
+    token.status === 'verified' && typeof token.balanceBaseUnits === 'string' && Number.isInteger(token.decimals),
+  )
+  const resources = role?.resourceStatus?.resourceRead === true ? role.resourceStatus : null
+  const hasVerifiedSnapshot = nativeVerified || verifiedTokens.length > 0 || resources !== null
+
   return (
     <div className="studio-role-card">
       <div className="studio-role-icon">{icon}</div>
@@ -163,9 +177,38 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
         <p className="studio-eyebrow">{title}</p>
         <p className="studio-card-title">{roleLabel(role)}</p>
         <p className="studio-muted">{roleDetail(role)}</p>
-        {role?.sponsorAddress && <code className="studio-role-address">Configured sponsor: {role.sponsorAddress}</code>}
+
+        {nativeVerified && (
+          <div className="studio-role-metric">
+            <span>Verified on-chain TRX balance</span>
+            <strong>{role?.native?.balanceTRX} TRX</strong>
+            <small>{role?.native?.balanceSun ?? 'SUN value unavailable'} SUN · read-only snapshot</small>
+          </div>
+        )}
+
+        {verifiedTokens.map((token) => (
+          <div key={token.tokenContract || token.asset || 'verified-token'} className="studio-role-metric">
+            <span>Verified {token.asset || 'TRC-20'} balance</span>
+            <strong>{formatUnits(token.balanceBaseUnits, token.decimals)} {token.asset || ''}</strong>
+            {token.tokenContract && <code>{token.tokenContract}</code>}
+          </div>
+        ))}
+
+        {resources && (
+          <div className="studio-role-resource-grid">
+            <div className="studio-role-metric"><span>Available Energy</span><strong>{resources.currentlyAvailableEnergy ?? 'Unknown'}</strong></div>
+            <div className="studio-role-metric"><span>Available Bandwidth</span><strong>{resources.currentlyAvailableBandwidth ?? 'Unknown'}</strong></div>
+            <div className="studio-role-metric"><span>Max delegatable Energy stake</span><strong>{resources.maxDelegatableEnergyStakeSun ?? 'Unknown'} SUN</strong></div>
+            <div className="studio-role-metric"><span>Max delegatable Bandwidth stake</span><strong>{resources.maxDelegatableBandwidthStakeSun ?? 'Unknown'} SUN</strong></div>
+            <p className="studio-role-snapshot-note">Provider snapshot only. Resource availability does not authorize a fee-sponsored transfer or guarantee full future fee coverage.</p>
+          </div>
+        )}
+
+        {!hasVerifiedSnapshot && (
+          <p className="studio-snapshot-unavailable">No current on-chain balance or fee-resource value has been verified for this sponsor role.</p>
+        )}
       </div>
-      <Pill tone={tone}>{role?.sponsorFundingVerified === true ? 'Snapshot verified' : 'Not enabled'}</Pill>
+      <Pill tone={tone}>{role?.sponsorFundingVerified === true ? 'Funding snapshot verified' : 'Not enabled'}</Pill>
     </div>
   )
 }
@@ -216,7 +259,7 @@ export default function WorkflowApp() {
   const [reviewNotice, setReviewNotice] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
 
-  const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading
+  const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError
   const feeStageValid = feeSponsorRequired && sponsorStageLoaded
   const assetStageValid = assetSponsorRequired && assetKind !== null && (assetKind === 'TRX' || ADDRESS_PATTERN.test(tokenContract.trim())) && sponsorStageLoaded
   const senderStageValid = ADDRESS_PATTERN.test(senderAddress) && nativeSnapshot?.success === true && nativeSnapshot.network === network && (assetKind === 'TRX' || (senderTokenSnapshot?.success === true && Number.isInteger(senderTokenSnapshot.decimals))) && !senderLoading
