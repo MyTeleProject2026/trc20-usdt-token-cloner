@@ -707,7 +707,8 @@ export default function WorkflowApp() {
         return
       }
 
-      // Session-only state update. This does not write the database ledger.
+      // Update the current UI after solidified verification. The API separately
+      // reports whether the verified evidence was saved to server-side history.
       setReceiverHistoryRecords((current) => current.map((item) => {
         const sameTransfer = item.transactionId?.toLowerCase() === transactionId.toLowerCase()
           && (item.tokenContract || '').toLowerCase() === contract.toLowerCase()
@@ -718,9 +719,13 @@ export default function WorkflowApp() {
           ? { ...item, verifiedOnChain: true, verificationStatus: 'verified-on-chain' }
           : item
       }))
+      const persisted = payload?.verificationPersistence?.persisted === true
+      const persistenceReason = payload?.verificationPersistence?.reason || 'persistence-unavailable'
       setReceiverHistoryVerificationMessages((current) => ({
         ...current,
-        [recordKey]: 'Verified against the solidified ' + network + ' transaction body, receipt and exact Transfer event. This does not confirm exchange credit.',
+        [recordKey]: persisted
+          ? 'Verified against the solidified ' + network + ' transaction body, receipt and exact Transfer event; server history saved. This does not confirm exchange credit.'
+          : 'Verified against the solidified ' + network + ' transaction body, receipt and exact Transfer event, but server history was not saved (' + persistenceReason + '). It may not appear after reload. This does not confirm exchange credit.',
       }))
     } catch {
       setReceiverHistoryVerificationMessages((current) => ({
