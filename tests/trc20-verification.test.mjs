@@ -59,7 +59,7 @@ function makeReceipt({ logAddress = tokenHex, fromBytes = '11'.repeat(20), toByt
   }
 }
 
-function createTestRouter({ transaction, receipt } = {}) {
+function createTestRouter({ transaction, receipt, persistenceResult = { persisted: true } } = {}) {
   const requests = []
   const persistenceCalls = []
   const router = createTRC20VerificationRouter({
@@ -67,7 +67,7 @@ function createTestRouter({ transaction, receipt } = {}) {
     tronWebFactory: async () => fakeTronWeb(),
     persistVerification: async (input) => {
       persistenceCalls.push(input)
-      return { persisted: true }
+      return persistenceResult
     },
     fetchImpl: async (url) => {
       requests.push(url)
@@ -125,6 +125,25 @@ test('verifies a direct TRC-20 transfer against the matching solidified event an
   assert.equal(persistenceCalls[0].amountBaseUnits, amountBaseUnits)
   assert.equal(result.payload.transactionBroadcast, false)
   assert.equal(requests.length, 2, 'should read transaction body and receipt from the fixed solidity host')
+})
+
+test('does not persist a mismatched transfer as verified', async () => {
+  const { router, persistenceCalls } = createTestRouter()
+  const result = await invoke(router, validQuery({ amountBaseUnits: '101' }))
+  assert.equal(result.payload.verified, false)
+  assert.equal(result.payload.verificationPersistence.persisted, false)
+  assert.equal(persistenceCalls.length, 0)
+})
+
+test('reports verified chain evidence separately when the database write fails', async () => {
+  const { router, persistenceCalls } = createTestRouter({
+    persistenceResult: { persisted: false, reason: 'database-not-configured' },
+  })
+  const result = await invoke(router, validQuery())
+  assert.equal(result.payload.verified, true, 'chain verification is independent from persistence')
+  assert.equal(result.payload.verificationPersistence.persisted, false)
+  assert.equal(result.payload.verificationPersistence.reason, 'database-not-configured')
+  assert.equal(persistenceCalls.length, 1)
 })
 
 test('requires the exact amount, sender, receiver, token contract and direct transfer calldata', async () => {
