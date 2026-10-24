@@ -28,6 +28,15 @@ test('stages are gated by prior validation and live network reads', () => {
   assert.ok(app.includes('const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress)'))
 })
 
+test('sponsor funding badges require both a successful on-chain read and verified funding', () => {
+  assert.ok(app.includes('function hasVerifiedFundingSnapshot(role?: SponsorRoleSnapshot)'))
+  assert.ok(app.includes('return role?.sponsorFundingVerified === true && role?.onChainBalanceRead === true'))
+  assert.ok(app.includes('hasVerifiedFundingSnapshot(roles?.roles?.networkFeeSponsor)'))
+  assert.ok(app.includes('hasVerifiedFundingSnapshot(roles?.roles?.assetPrincipalSponsor)'))
+  assert.ok(app.includes("if (hasVerifiedFundingSnapshot(role)) return 'Funding snapshot verified'"))
+  assert.ok(!app.includes("role?.sponsorFundingVerified ? 'Snapshot verified'"))
+})
+
 test('late sponsor responses cannot overwrite a newer network selection', () => {
   assert.ok(app.includes("useRef, useState } from 'react'"))
   assert.ok(app.includes('const sponsorRequestGeneration = useRef(0)'))
