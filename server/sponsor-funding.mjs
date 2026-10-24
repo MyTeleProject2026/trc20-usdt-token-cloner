@@ -121,6 +121,7 @@ export function createSponsorFundingReader({
       }
       const accountResponse = await fetchImpl(config.host + '/walletsolidity/getaccount', {
         method: 'POST',
+        redirect: 'error',
         headers,
         body: JSON.stringify({ address: tronWeb.address.toHex(sponsorAddress), visible: false }),
         signal: AbortSignal.timeout(8000),
@@ -179,6 +180,7 @@ export function createSponsorFundingReader({
           const readConstant = async (selector, parameter = '') => {
             const response = await fetchImpl(config.host + '/walletsolidity/triggerconstantcontract', {
               method: 'POST',
+              redirect: 'error',
               headers,
               body: JSON.stringify({
                 owner_address: ownerHex,
