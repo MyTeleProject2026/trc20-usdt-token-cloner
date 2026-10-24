@@ -97,6 +97,7 @@ test('GasFree capabilities return live provider list and token-denominated fee f
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(requested.length, 2)
   assert.ok(requested.every((item) => item.options.headers.Authorization.startsWith('ApiKey mainnet-key:')))
+  assert.ok(requested.every((item) => item.options.redirect === 'error'), 'signed provider requests must reject redirects')
   assert.ok(requested.every((item) => !item.url.includes('mainnet-secret')))
   assert.ok(requested.every((item) => !JSON.stringify(item.options).includes('mainnet-secret')))
 })
