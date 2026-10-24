@@ -1016,7 +1016,7 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
   if (nextStatus === 'confirmed' && (typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash))) {
     return { updated: false, reason: 'finalized-transaction-hash-required' }
   }
-  if (nextStatus === 'cancelled' && cancellationReason != null
+  if (nextStatus === 'cancelled'
     && !['operator-request', 'recipient-request', 'duplicate-request', 'eligibility-expired', 'emergency-stop'].includes(cancellationReason)) {
     return { updated: false, reason: 'invalid-cancellation-reason' }
   }
