@@ -57,7 +57,7 @@ The funding endpoint accepts `refresh=1` to bypass a fresh successful snapshot o
 
 ## Budget activation gate
 
-`POST /api/tron/sponsorship/budgets/:id/activate` requires the protected administrator token, a review/ticket reference, and an agreement reference that has already been placed in server-only `SPONSOR_APPROVED_AGREEMENT_REFERENCES` after an operator independently reviews the signed sponsor agreement. Merely supplying a string is not sufficient. The allowlist is semicolon-separated, with each entry encoded as `reference|sponsorReference|network|sponsorAddress|purpose|asset|tokenContract`; use `-` for `tokenContract` on TRX budgets. The reference, sponsor reference, wallet, network, purpose, asset, and token contract must all match the exact draft. The same scope comparison runs again inside the locked database transaction. The endpoint refreshes the exact network's chain snapshot and rejects throttled/stale reads, mismatched sponsor accounts, missing exact-asset balances, and caps that exceed the chain balance after other active/paused allocations for the same wallet/network/asset are included.
+`POST /api/tron/sponsorship/budgets/:id/activate` requires the protected administrator token, a review/ticket reference, and an agreement reference that has already been placed in server-only `SPONSOR_APPROVED_AGREEMENT_REFERENCES` after an operator independently reviews the signed sponsor agreement. Merely supplying a string is not sufficient. The allowlist is semicolon-separated, with each entry encoded as `reference|sponsorReference|network|sponsorAddress|purpose|asset|tokenContract`; use `-` for `tokenContract` on TRX budgets. The reference, sponsor reference, wallet, network, purpose, asset, and token contract must all match the exact draft. The same scope comparison runs again inside the locked database transaction. The endpoint selects the funding reader from the budget purpose (`network-fee` uses `networkFeeSponsor`; `asset-grant` uses `assetPrincipalSponsor`), requires both role addresses to be configured and distinct, refreshes the exact role's solidified snapshot, and rejects throttled/stale reads, budget-address mismatches, missing exact-asset balances, and caps that exceed the chain balance after other active/paused allocations for that wallet/network/asset are included.
 
 Activation is serialized at the sponsor-wallet/network/asset level with a PostgreSQL transaction and advisory lock, stores the approval/review references and timestamp, and writes an audit event. Inactive drafts do not consume an allocation until approved, but outstanding reservations on other inactive records are still included. A successful activation makes the ledger budget eligible for internal reservations only; there is still no signing or submission capability.
 
@@ -84,3 +84,27 @@ The ledger and reconciliation controls are implemented as accounting and readine
 ## Protected transfer lifecycle history
 
 `GET /api/tron/sponsorship/transfers` requires the same server-only administrator bearer token as the sponsor budget ledger. Optional filters are `network`, `status`, `sponsorReference`, and `limit` (1–100). The response is bounded, marks truncation, and is sent with `Cache-Control: no-store`. It reports internal intent lifecycle fields only; it does not prove a transaction was mined or credited, and cannot mutate transfer state or release reservations. Only the independent solidified-chain verifier may supply evidence for final confirmation.
+
+
+## Protected testnet sponsor reservation endpoint
+
+`POST /api/tron/sponsorship/transfers/reserve` is protected by `Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>`. It accepts only the following fields:
+
+```json
+{
+  "idempotencyKey": "testnet-usdt-grant-0001",
+  "network": "nile",
+  "sponsorReference": "approved-sponsor-reference",
+  "purpose": "asset-grant",
+  "asset": "USDT",
+  "tokenContract": "T...",
+  "receiverAddress": "T...",
+  "amountBaseUnits": "1000000"
+}
+```
+
+Use `purpose: "network-fee"` with `asset: "TRX"` for a separate fee/resource budget. Asset grants use `purpose: "asset-grant"` and an allowlisted `TRX`, `USDT`, or `VTRC` contract as applicable. The API rejects unknown fields, signing material, malformed integer amounts, Mainnet requests, and fee budgets that use a non-TRX asset. It never accepts a client-supplied sponsor address: the budget and funding snapshot must match the configured role address.
+
+The endpoint chooses the network-fee sponsor for `network-fee` reservations and the asset-principal sponsor for `asset-grant` reservations. For a new reservation it requests a fresh, exact-network role snapshot and delegates to the existing atomic PostgreSQL reservation helper. The helper requires an active budget, a still-allowlisted exact-scope agreement, a fresh solidified balance for the same sponsor wallet, exact token-contract identity, sufficient remaining ledger cap, and sufficient chain balance after other allocations. The `idempotencyKey` is unique; a retry with the same full intent is returned as a duplicate rather than creating another reservation, while a different intent under the same key is rejected.
+
+A successful response means only that the internal budget reservation was recorded as `pending-review`; it does not mean an operator approved the individual transfer, the sponsor signed anything, or the chain received a transaction. The response explicitly keeps `canSubmitSponsoredTransfer` and `submissionEnabled` false. No provider call for transaction submission, signing, or broadcast is made by this route. The GasFree submit endpoint remains disabled, and the asset-principal and fee/resource paths still require a separately reviewed real signing/submission implementation and testnet end-to-end evidence.
