@@ -72,6 +72,7 @@ export function createGasFreeChainVerifier({
       async function querySolidified(path) {
         const response = await fetchImpl(host + path, {
           method: 'POST',
+          redirect: 'error',
           headers,
           body: JSON.stringify({ value: trace.transactionId, visible: false }),
           signal: AbortSignal.timeout(8000),
