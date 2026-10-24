@@ -171,3 +171,24 @@ test('rejects malformed resource quantities instead of treating them as a funded
   assert.equal(result.status, 'solidified-delegation-read-unavailable')
   assert.equal(result.activeEnergyStakeSun, null)
 })
+
+test('fails closed when a provider delegation row omits expiry timestamps', async () => {
+  const result = await readSponsorDelegationSnapshot(baseInput({
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        delegatedResource: [{
+          from: feeHex,
+          to: principalHex,
+          frozen_balance_for_energy: '5000000',
+          frozen_balance_for_bandwidth: '7000000',
+          // Missing expiry fields must not be interpreted as never-expiring.
+        }],
+      }),
+    }),
+  }))
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'solidified-delegation-read-unavailable')
+  assert.equal(result.activeEnergyStakeSun, null)
+  assert.equal(result.activeBandwidthStakeSun, null)
+})
