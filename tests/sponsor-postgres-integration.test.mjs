@@ -131,6 +131,19 @@ async function insertUsdtBudget(pool, sponsorReference, tokenContract, budgetBas
   })
 }
 
+// Reconciliation integration tests may need to model a previously accepted provider
+// broadcast. Seed that persisted state directly in the isolated test database rather
+// than calling the production transition API, which correctly refuses to fabricate it.
+async function seedPreviouslySubmittedTransfer(pool, idempotencyKey, transactionHash) {
+  const result = await pool.query(
+    `UPDATE trc20_token_clone.sponsor_transfers
+        SET status = 'submitted', transaction_hash = $2, updated_at = now()
+      WHERE idempotency_key = $1 AND status = 'pending-review'`,
+    [idempotencyKey, transactionHash],
+  )
+  assert.equal(result.rowCount, 1, 'test fixture must seed exactly one pending transfer')
+}
+
 async function insertLegacyActiveBudget(pool, sponsorReference, budgetBaseUnits) {
   await pool.query(
     `INSERT INTO trc20_token_clone.sponsor_budgets
@@ -212,7 +225,7 @@ test('PostgreSQL refuses new reservations from a legacy active budget without sc
   }
 })
 
-test('PostgreSQL prevents authorizing a reservation after its sponsor budget is paused', {
+test('PostgreSQL does not treat an opaque reference as verified wallet authorization', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
   const { pool, reserveSponsorTransfer, transitionSponsorTransfer, pauseSponsorBudget } = await setup()
@@ -249,7 +262,7 @@ test('PostgreSQL prevents authorizing a reservation after its sponsor budget is 
       nextStatus: 'authorized',
       authorizationReference: `wallet-approval-${suffix}`,
     })
-    assert.deepEqual(authorization, { updated: false, reason: 'sponsor-budget-not-active' })
+    assert.deepEqual(authorization, { updated: false, reason: 'wallet-signature-verification-not-integrated' })
 
     const transfer = await pool.query(
       'SELECT status FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
@@ -685,13 +698,13 @@ test('fee coverage and asset-grant principal require independent TRX sponsor bud
   }
 })
 
-test('PostgreSQL sponsor reservation is idempotent and confirmed ledger changes persist atomically', {
+test('PostgreSQL refuses opaque wallet references and caller-supplied hashes as authorization or submission evidence', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
   const { pool, reserveSponsorTransfer, transitionSponsorTransfer } = await setup()
   const suffix = randomUUID()
-  const sponsorReference = `pg-it-${suffix}`
-  const idempotencyKey = `pg-it:${suffix}`
+  const sponsorReference = `pg-no-fake-transition-${suffix}`
+  const idempotencyKey = `pg-no-fake-transition:${suffix}`
   const transactionHash = 'a'.repeat(64)
   try {
     await insertBudget(pool, sponsorReference, '100')
@@ -704,61 +717,34 @@ test('PostgreSQL sponsor reservation is idempotent and confirmed ledger changes 
       receiverAddress,
       amountBaseUnits: '25',
     }
-    const first = await reserveSponsorTransfer(intent)
-    assert.equal(first.reserved, true)
-    assert.equal(first.duplicate, false)
+    assert.equal((await reserveSponsorTransfer(intent)).reserved, true)
+    assert.equal((await reserveSponsorTransfer(intent)).duplicate, true)
 
-    const retry = await reserveSponsorTransfer(intent)
-    assert.equal(retry.reserved, true)
-    assert.equal(retry.duplicate, true)
+    assert.deepEqual(await transitionSponsorTransfer({
+      idempotencyKey, nextStatus: 'authorized', authorizationReference: `wallet-approval-${suffix}`,
+    }), { updated: false, reason: 'wallet-signature-verification-not-integrated' })
 
-    let budget = await pool.query(
+    assert.deepEqual(await transitionSponsorTransfer({
+      idempotencyKey, nextStatus: 'submitted', transactionHash,
+    }), { updated: false, reason: 'provider-submission-adapter-disabled' })
+
+    const budget = await pool.query(
       `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
          FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
       [sponsorReference],
     )
     assert.deepEqual(budget.rows[0], { reserved: '25', spent: '0' })
-
-    assert.equal((await transitionSponsorTransfer({
-      idempotencyKey, nextStatus: 'authorized', authorizationReference: `approval-${suffix}`,
-    })).updated, true)
-    assert.equal((await transitionSponsorTransfer({
-      idempotencyKey, nextStatus: 'submitted', transactionHash,
-    })).updated, true)
-
-    await pool.query(
-      `INSERT INTO trc20_token_clone.native_transfer_verifications
-        (network, transaction_hash, from_address, to_address, amount_sun, block_number, verification_status)
-       VALUES ($1,$2,$3,$4,25,12345,'verified-on-chain')`,
-      [network, transactionHash, sponsorAddress, receiverAddress],
-    )
-    const confirmed = await transitionSponsorTransfer({ idempotencyKey, nextStatus: 'confirmed', transactionHash })
-    assert.deepEqual(confirmed, { updated: true, duplicate: false, status: 'confirmed' })
-
-    const duplicateConfirmation = await transitionSponsorTransfer({ idempotencyKey, nextStatus: 'confirmed', transactionHash })
-    assert.deepEqual(duplicateConfirmation, { updated: true, duplicate: true, status: 'confirmed' })
-
-    budget = await pool.query(
-      `SELECT reserved_base_units::text AS reserved, spent_base_units::text AS spent
-         FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1`,
-      [sponsorReference],
-    )
-    assert.deepEqual(budget.rows[0], { reserved: '0', spent: '25' })
     const transfer = await pool.query(
-      'SELECT status FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
+      'SELECT status, transaction_hash FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1',
       [idempotencyKey],
     )
-    assert.equal(transfer.rows[0].status, 'confirmed')
+    assert.equal(transfer.rows[0].status, 'pending-review')
+    assert.equal(transfer.rows[0].transaction_hash, null)
   } finally {
     await cleanup(pool, [sponsorReference], [idempotencyKey])
-    await pool.query(
-      'DELETE FROM trc20_token_clone.native_transfer_verifications WHERE network = $1 AND transaction_hash = $2',
-      [network, transactionHash],
-    )
     await pool.end()
   }
 })
-
 test('concurrent reservations serialize on the budget row and cannot overspend', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
@@ -817,12 +803,7 @@ test('PostgreSQL rolls back sponsor ledger and status when the audit insert fail
       receiverAddress, amountBaseUnits: '25',
     })
     assert.equal(reserved.reserved, true)
-    assert.equal((await transitionSponsorTransfer({
-      idempotencyKey, nextStatus: 'authorized', authorizationReference: `approval-${suffix}`,
-    })).updated, true)
-    assert.equal((await transitionSponsorTransfer({
-      idempotencyKey, nextStatus: 'submitted', transactionHash,
-    })).updated, true)
+    await seedPreviouslySubmittedTransfer(pool, idempotencyKey, transactionHash)
     await pool.query(
       `INSERT INTO trc20_token_clone.native_transfer_verifications
         (network, transaction_hash, from_address, to_address, amount_sun, block_number, verification_status)
@@ -911,12 +892,7 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
         tokenContract, receiverAddress, amountBaseUnits: '25',
       })
       assert.equal(reserved.reserved, true, `${item.name}: reservation should be created`)
-      assert.equal((await transitionSponsorTransfer({
-        idempotencyKey, nextStatus: 'authorized', authorizationReference: `approval-${suffix}-${item.name}`,
-      })).updated, true)
-      assert.equal((await transitionSponsorTransfer({
-        idempotencyKey, nextStatus: 'submitted', transactionHash: item.hash,
-      })).updated, true)
+      await seedPreviouslySubmittedTransfer(pool, idempotencyKey, item.hash)
       await pool.query(
         `INSERT INTO trc20_token_clone.transfer_verifications
           (network, transaction_hash, token_contract, from_address, to_address,
