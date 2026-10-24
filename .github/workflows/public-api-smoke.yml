@@ -88,7 +88,7 @@ jobs:
           NODE
           rm -f readiness.json
       - name: Check out source for gate-contract validation
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js for gate-contract validation
         uses: actions/setup-node@v4
