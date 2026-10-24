@@ -42,12 +42,31 @@ type SponsorRoles = {
   }
   feeSponsorDelegationToPrincipal?: FeeSponsorDelegationSnapshot
 }
+type ProviderResearchCandidate = {
+  id: string
+  role?: string
+  applicationIntegrated?: boolean
+  productionEnabled?: boolean
+  providesAssetPrincipal?: boolean
+  feeAsset?: string
+  documentedNetworks?: string[]
+  senderSignedFeeTransactionRequiredByPublishedFlow?: boolean
+  suitableAsFeeResourceOnly?: boolean
+}
+type ProviderResearch = {
+  status?: string
+  selectedArchitecture?: string
+  publicSponsorVerifiedForPrincipalAndNetworkFees?: boolean
+  conclusion?: string
+  candidates?: ProviderResearchCandidate[]
+}
 type Sponsorship = {
   enabled?: boolean
   status?: string
   mainnetEnabled?: boolean
   canSubmitSponsoredTransfer?: boolean
   fundingPolicy?: { mode?: string; unpaidFallbackToUserFunds?: boolean }
+  providerResearch?: ProviderResearch
   message?: string
   requiredBeforeEnablement?: string[]
 }
@@ -317,6 +336,48 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
       </div>
       <Pill tone={tone}>{hasVerifiedFundingSnapshot(role) ? 'Funding snapshot verified' : 'Not enabled'}</Pill>
     </div>
+  )
+}
+
+function ProviderResearchPanel({ research }: { research: ProviderResearch }) {
+  const candidateLabel = (candidate: ProviderResearchCandidate) => {
+    if (candidate.id === 'gasfree') return 'GasFree'
+    if (candidate.id === 'trontransfer') return 'TRONTransfer'
+    if (candidate.id === 'tron-stake-2.0-resource-delegation') return 'TRON Stake 2.0 delegation'
+    return candidate.id
+  }
+  const candidateDetail = (candidate: ProviderResearchCandidate) => {
+    if (candidate.id === 'gasfree') {
+      return 'Can relay a wallet-authorized TRC-20 transfer and pay native gas, but handling fees are charged in the transferred token and the service does not supply the asset principal. Documented networks: Mainnet and Nile.'
+    }
+    if (candidate.id === 'trontransfer') {
+      return 'Published flow includes a separate signed TRX fee transaction. It is not verified to fund the asset principal or meet the no-user-cost policy; provider due diligence remains required.'
+    }
+    if (candidate.id === 'tron-stake-2.0-resource-delegation') {
+      return 'Can provide delegated Bandwidth/Energy from sponsor-controlled stake. It does not fund USDT/TRX principal and requires a verified, authorized on-chain delegation.'
+    }
+    return 'Research only; not configured or approved for transfer submission.'
+  }
+
+  return (
+    <section className="studio-notice studio-notice--neutral" aria-label="Sponsor provider research">
+      <div className="studio-grow">
+        <strong>Provider selection: research only</strong>
+        <p>{research.conclusion || 'No public provider has been verified to fund both the full requested asset principal and network fees without user-funded fallback.'}</p>
+        <p className="studio-muted">Selected architecture: separately authorized asset-principal and network-fee sponsor roles. Provider discovery, wallet balances, or public API documentation do not grant permission to spend funds.</p>
+        <div className="studio-role-resource-grid">
+          {(research.candidates ?? []).map((candidate) => (
+            <div className="studio-role-metric" key={candidate.id}>
+              <span>{candidateLabel(candidate)}</span>
+              <strong>{candidate.productionEnabled === true && candidate.applicationIntegrated === true ? 'Integrated' : 'Not integrated'}</strong>
+              <p>{candidateDetail(candidate)}</p>
+              {candidate.providesAssetPrincipal === false && <small>Does not provide asset principal.</small>}
+            </div>
+          ))}
+        </div>
+      </div>
+      <Pill tone="warning">{research.publicSponsorVerifiedForPrincipalAndNetworkFees === true ? 'Sponsor verified' : 'No verified full sponsor'}</Pill>
+    </section>
   )
 }
 
@@ -1077,6 +1138,7 @@ export default function WorkflowApp() {
               </div>
               <RoleSnapshotCard title="Network fee sponsor" role={roles?.roles?.networkFeeSponsor} icon={<Fuel size={19} aria-hidden="true" />} />
               <FeeSponsorDelegationCard snapshot={roles?.feeSponsorDelegationToPrincipal} />
+              {sponsorship?.providerResearch && <ProviderResearchPanel research={sponsorship.providerResearch} />}
               {sponsorError && <p className="studio-inline-error" role="alert">{sponsorError}</p>}
               <p className="studio-footnote">Last checked: {formatTimestamp(sponsorCheckedAt)}. A configured sponsor address or visible balance is not proof of signing authorization, spendable budget, or coverage for a future transaction.</p>
             </section>
