@@ -1,0 +1,155 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { createSponsorFeeEstimateRouter } from '../server/routes/sponsor-fee-estimate.mjs'
+
+const assetSponsor = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+const feeSponsor = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const receiver = 'T111111111111111111111111111111111'
+const mainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const assetHex = '41' + '11'.repeat(20)
+const feeHex = '41' + '22'.repeat(20)
+const receiverHex = '41' + '33'.repeat(20)
+const tokenHex = '41' + '44'.repeat(20)
+
+function fakeTronWeb() {
+  const addresses = new Map([
+    [assetSponsor, assetHex],
+    [feeSponsor, feeHex],
+    [receiver, receiverHex],
+    [mainnetUsdt, tokenHex],
+  ])
+  return {
+    isAddress(value) { return addresses.has(value) },
+    address: {
+      toHex(value) { return addresses.get(value) || '' },
+    },
+  }
+}
+
+function createHarness({ energyRequired = '10000', principalEnergy = '4000', feeSponsorEnergy = '50000' } = {}) {
+  const calls = []
+  const env = {
+    SPONSOR_ASSET_MAINNET_ADDRESS: assetSponsor,
+    SPONSOR_FEE_MAINNET_ADDRESS: feeSponsor,
+  }
+  const router = createSponsorFeeEstimateRouter({
+    env,
+    tronWebFactory: async () => fakeTronWeb(),
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      if (url.endsWith('/wallet/triggerconstantcontract')) {
+        return { ok: true, json: async () => ({ result: { result: true }, energy_used: energyRequired }) }
+      }
+      if (url.endsWith('/wallet/getchainparameters')) {
+        return { ok: true, json: async () => ({
+          chainParameter: [
+            { key: 'getEnergyFee', value: 100 },
+            { key: 'getTransactionFee', value: 1000 },
+          ],
+        }) }
+      }
+      if (url.endsWith('/wallet/getaccountresource')) {
+        const body = JSON.parse(init.body)
+        const principal = body.address === assetHex
+        const energy = principal ? principalEnergy : feeSponsorEnergy
+        return { ok: true, json: async () => ({
+          EnergyLimit: energy,
+          EnergyUsed: '0',
+          NetLimit: '120',
+          NetUsed: '0',
+          freeNetLimit: '600',
+          freeNetUsed: '0',
+        }) }
+      }
+      throw new Error('unexpected-provider-path')
+    },
+  })
+  return { router, calls }
+}
+
+async function invoke(router, body) {
+  const layer = router.stack.find((item) =>
+    item.route?.path === '/sponsorship/fee-estimate' && item.route.methods?.post,
+  )
+  assert.ok(layer, 'fee estimate endpoint should be registered')
+  let statusCode = 200
+  let payload
+  const headers = {}
+  const response = {
+    setHeader(name, value) { headers[name.toLowerCase()] = value; return this },
+    status(code) { statusCode = code; return this },
+    json(value) { payload = value; return this },
+  }
+  await layer.route.stack[0].handle({ body }, response)
+  return { statusCode, payload, headers }
+}
+
+function validBody(overrides = {}) {
+  return {
+    network: 'mainnet',
+    tokenContract: mainnetUsdt,
+    receiverAddress: receiver,
+    amountBaseUnits: '1000000',
+    ...overrides,
+  }
+}
+
+test('estimates current-node TRC-20 energy and reports shortfall without claiming total fee coverage', async () => {
+  const { router, calls } = createHarness()
+  const result = await invoke(router, validBody())
+  assert.equal(result.statusCode, 200)
+  assert.equal(result.payload.success, true)
+  assert.equal(result.payload.status, 'read-only-energy-estimate-incomplete-total-fee')
+  assert.equal(result.payload.asset, 'USDT')
+  assert.equal(result.payload.estimation.estimatedEnergyRequired, '10000')
+  assert.equal(result.payload.estimation.currentEnergyFeeSun, '100')
+  assert.equal(result.payload.estimation.estimatedEnergyBurnSun, '600000')
+  assert.equal(result.payload.estimation.estimatedEnergyBurnTRX, '0.6')
+  assert.equal(result.payload.estimation.principalSponsorResources.availableEnergy, '4000')
+  assert.equal(result.payload.estimation.feeSponsorResources.availableEnergy, '50000')
+  assert.equal(result.payload.estimation.feeSponsorResourcesCountedTowardPrincipalTransfer, false)
+  assert.equal(result.payload.estimation.resourceDelegationVerified, false)
+  assert.equal(result.payload.estimation.bandwidthCostEstimated, false)
+  assert.equal(result.payload.estimation.totalNetworkFeeEstimated, false)
+  assert.equal(result.payload.canSubmitSponsoredTransfer, false)
+  assert.equal(result.payload.transactionBroadcast, false)
+  assert.equal(calls.length, 4)
+  assert.ok(calls.every((call) => call.url.startsWith('https://api.trongrid.io/')))
+})
+
+test('does not count fee sponsor resources as delegated energy for the principal sponsor', async () => {
+  const { router } = createHarness({ principalEnergy: '20000', feeSponsorEnergy: '900000' })
+  const result = await invoke(router, validBody())
+  assert.equal(result.payload.estimation.estimatedEnergyBurnSun, '0')
+  assert.equal(result.payload.estimation.feeSponsorResources.availableEnergy, '900000')
+  assert.equal(result.payload.estimation.feeSponsorResourcesCountedTowardPrincipalTransfer, false)
+  assert.equal(result.payload.estimation.resourceDelegationVerified, false)
+  assert.ok(result.payload.blockers.includes('fee-sponsor-resource-delegation-not-verified'))
+})
+
+test('rejects arbitrary token contracts before calling the chain provider', async () => {
+  const { router, calls } = createHarness()
+  const result = await invoke(router, validBody({ tokenContract: receiver }))
+  assert.equal(result.statusCode, 403)
+  assert.equal(result.payload.status, 'token-contract-not-allowlisted')
+  assert.equal(calls.length, 0)
+})
+
+test('does not accept caller-supplied sponsor addresses or transaction fields', async () => {
+  const { router, calls } = createHarness()
+  const result = await invoke(router, validBody({ assetSponsorAddress: receiver }))
+  assert.equal(result.statusCode, 400)
+  assert.equal(result.payload.status, 'invalid-request')
+  assert.equal(calls.length, 0)
+})
+
+test('blocks the estimate when either sponsor role is not configured', async () => {
+  const router = createSponsorFeeEstimateRouter({
+    env: {},
+    tronWebFactory: async () => fakeTronWeb(),
+    fetchImpl: async () => { throw new Error('must-not-call-provider') },
+  })
+  const result = await invoke(router, validBody())
+  assert.equal(result.statusCode, 503)
+  assert.equal(result.payload.status, 'sponsor-role-addresses-not-configured')
+})
