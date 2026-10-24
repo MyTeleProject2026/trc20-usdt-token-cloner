@@ -618,3 +618,29 @@ test('sponsor token contract allowlists are exact and network-scoped', () => {
   assert.equal(isSponsorTokenContractAllowed('mainnet', 'VTRC', vtrcShasta, ['TAnotherContract']), false)
   assert.equal(isSponsorTokenContractAllowed('TRON', 'VTRC', vtrcShasta, [vtrcShasta]), false)
 })
+
+
+test('sponsor status transitions fail closed without verified wallet authorization and provider broadcast', async () => {
+  const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')
+  const idempotencyKey = 'unit-fail-closed:001'
+
+  const authorization = await transitionSponsorTransferWithPool({
+    idempotencyKey,
+    nextStatus: 'authorized',
+    authorizationReference: 'operator-entered-approval-is-not-a-signature',
+  }, null, { initialize: false })
+  assert.deepEqual(authorization, {
+    updated: false,
+    reason: 'wallet-signature-verification-not-integrated',
+  })
+
+  const submission = await transitionSponsorTransferWithPool({
+    idempotencyKey,
+    nextStatus: 'submitted',
+    transactionHash: 'a'.repeat(64),
+  }, null, { initialize: false })
+  assert.deepEqual(submission, {
+    updated: false,
+    reason: 'provider-submission-adapter-disabled',
+  })
+})
