@@ -1,0 +1,29 @@
+name: Isolated checkout action test
+
+on:
+  push:
+    branches: ["diagnostic/actions-runner-validation"]
+    paths:
+      - ".github/workflows/checkout-action-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkout-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm hosted runner
+        run: |
+          test -n "${RUNNER_NAME:-}"
+          echo "runner startup succeeded"
+
+      - name: Invoke the standard checkout action
+        uses: actions/checkout@v4
+
+      - name: Confirm checkout completed
+        run: |
+          test -f package.json
+          echo "checkout action completed"
