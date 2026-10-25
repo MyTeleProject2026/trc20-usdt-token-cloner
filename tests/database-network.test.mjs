@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { buildTransferVerificationUpsert, findVerifiedTransfer, isSponsorTokenContractAllowed, normalizeVerificationNetwork, recordTransferVerification, reserveSponsorTransfer } from '../server/database.mjs'
 
 test('refuses to persist a transfer when the network is missing or unsupported', async () => {
-  for (const network of [  assert.match(reserve, /WHERE idempotency_key = \$1\$\{forUpdate \? ' FOR UPDATE' : ''\}/)
+  assert.match(reserve, /WHERE idempotency_key = \$1\$\{forUpdate \? ' FOR UPDATE' : ''\}/)
   assert.match(reserve, /readExisting\(client, true\)/), null, '', 'TRON', 'ethereum', 'MAINNET']) {
     const input = {
       network,
