@@ -5,7 +5,7 @@ import { createHmac } from 'node:crypto'
 import { buildGasFreeAuthHeaders, createGasFreeClient, getGasFreeNetwork } from '../server/gasfree-client.mjs'
 import { credentialGuard } from '../server/credential-guard.mjs'
 
-const validAddress = 'T' + 'A'.repeat(33)
+const validAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const mainnetEnv = { GASFREE_MAINNET_API_KEY: 'mainnet-key', GASFREE_MAINNET_API_SECRET: 'mainnet-secret' }
 const nileEnv = { GASFREE_NILE_API_KEY: 'nile-key', GASFREE_NILE_API_SECRET: 'nile-secret' }
 
@@ -60,7 +60,7 @@ test('GasFree capabilities return live provider list and token-denominated fee f
         code: 200,
         data: { providers: [{ address: validAddress, name: 'Provider A', website: 'https://provider.example', config: {
           maxPendingTransfer: 1, minDeadlineDuration: 60, maxDeadlineDuration: 600, defaultDeadlineDuration: 180,
-        } }, { address: 'not-an-address', name: 'spoofed' }] },
+        } }, { address: 'not-an-address', name: 'spoofed' }, { address: 'T' + 'A'.repeat(33), name: 'bad-checksum' }] },
       }) }
     }
     return { ok: true, status: 200, json: async () => ({
@@ -137,12 +137,12 @@ test('GasFree account lookup is read-only, network-isolated, and marks provider 
           code: 200,
           data: {
             accountAddress: validAddress,
-            gasFreeAddress: 'T' + 'B'.repeat(33),
+            gasFreeAddress: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
             active: true,
             nonce: 7,
             allowSubmit: false,
             assets: [{
-              tokenAddress: 'T' + 'C'.repeat(33),
+              tokenAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
               tokenSymbol: 'USDT',
               decimal: 6,
               activateFee: 10000000,
@@ -164,7 +164,7 @@ test('GasFree account lookup is read-only, network-isolated, and marks provider 
   assert.equal(result.account.allowSubmit, false)
   assert.equal(result.account.chainFinalityVerified, false)
   assert.deepEqual(result.account.assets[0], {
-    tokenAddress: 'T' + 'C'.repeat(33),
+    tokenAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
     tokenSymbol: 'USDT',
     decimals: 6,
     activationFeeBaseUnits: '10000000',
@@ -189,6 +189,8 @@ test('GasFree account lookup rejects malformed provider responses and invalid EO
   })
   const invalid = await client.getAccount('mainnet', 'not-an-address')
   assert.equal(invalid.reason, 'invalid-account-address')
+  const badChecksum = await client.getAccount('mainnet', 'T' + 'A'.repeat(33))
+  assert.equal(badChecksum.reason, 'invalid-account-address')
   assert.equal(calls, 0)
   const malformed = await client.getAccount('mainnet', validAddress)
   assert.equal(malformed.reachable, false)
@@ -211,10 +213,10 @@ test('GasFree trace lookup sanitizes status and reports provider trace separatel
             id: 'abc_123-safe',
             state: 'SUCCEED',
             accountAddress: validAddress,
-            gasFreeAddress: 'T' + 'B'.repeat(33),
-            targetAddress: 'T' + 'C'.repeat(33),
-            providerAddress: 'T' + 'D'.repeat(33),
-            tokenAddress: 'T' + 'E'.repeat(33),
+            gasFreeAddress: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+            targetAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
+            providerAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+            tokenAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
             amount: '5000000',
             maxFee: 1000000,
             // `txnHash` is the field name used by the official GasFree trace API.
