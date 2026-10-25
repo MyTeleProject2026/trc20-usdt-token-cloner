@@ -56,6 +56,7 @@ test('readiness runs configured provider probes but never enables transfer submi
   assert.equal(res.body.networks.mainnet.gasFree.discoveryReachabilityVerified, true)
   assert.equal(res.body.networks.mainnet.gasFree.discoveryStatus, 'reachable')
   assert.equal(res.body.networks.mainnet.gasFree.providerCount, 3)
+  assert.ok(Number.isFinite(Date.parse(res.body.networks.mainnet.gasFree.discoveryCheckedAt)))
   assert.equal(res.body.networks.nile.gasFree.discoveryReachabilityVerified, false)
   assert.equal(res.body.networks.nile.gasFree.discoveryStatus, 'provider-auth-rejected')
   assert.equal(res.body.networks.nile.gasFree.providerStatus, 403)
@@ -76,6 +77,7 @@ test('readiness runs configured provider probes but never enables transfer submi
   assert.equal(secondResponse.statusCode, 200)
   assert.equal(calls.length, 2, 'second request must reuse the recent provider probe')
   assert.equal(secondResponse.body.networks.mainnet.gasFree.discoveryReachabilityVerified, true)
+  assert.equal(secondResponse.body.networks.mainnet.gasFree.discoveryCheckedAt, res.body.networks.mainnet.gasFree.discoveryCheckedAt)
 })
 
 test('readiness does not call provider when credentials are missing', async () => {
