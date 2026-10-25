@@ -5,7 +5,8 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 ## Current verified contract
 
 - The backend sponsorship status is fail-closed.
-- The sponsor ledger refuses new `authorized` transitions with `wallet-signature-verification-not-integrated` and refuses new `submitted` transitions with `provider-submission-adapter-disabled`. A text reference and caller-supplied transaction hash are not treated as proof of signature or broadcast.
+- The generic sponsor ledger transition API remains fail-closed for caller-supplied authorized/submitted changes. A separate Shasta/Nile-only sponsor-wallet path now persists one unsigned transaction, validates the exact signed bytes against that persisted intent, checks TRON signature permission and current resource capacity, atomically binds the transaction ID before broadcast, and only then marks the row submitted when the selected node accepts that exact ID.
+- The testnet signing/broadcast route is disabled by default via SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false. No Mainnet path is present. The path is not production-ready: resource preflight is not final fee settlement, and accepted broadcast is not proof of solidification or recipient credit.
 - Settlement logic is tested separately from submission. PostgreSQL reconciliation tests seed a prior `submitted` row only as a test fixture, then check exact persisted chain evidence; that fixture is not real provider-broadcast evidence or a live Nile end-to-end test.
 - GasFree routes are read-only for capability, account and trace lookup; `POST /api/gasfree/submit` returns HTTP 503 without calling the provider.
 - Fee sponsor and asset-principal sponsor are separate roles and are read independently.
@@ -20,9 +21,9 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 - [ ] Written sponsor consent, legal/account ownership confirmation, and an actual funded sponsor account for each role.
 - [ ] Provider contract and fee model independently verified against the desired external-sponsor-only policy. Token-denominated fees paid from the transfer amount do not meet a requirement that the receiver receive the full requested amount.
 - [ ] Provider-specific signing authorization, transaction allowlists, recipient and token restrictions, maximum amount/fee limits, expiry, replay protection, and idempotency.
-- [ ] Separate fee-resource/fee budget and asset-principal budget with atomic reservation, release on failure, and reconciliation against final chain evidence.
+- [ ] Separate fee-resource/fee budget and asset-principal budget with atomic reservation, release on failure, and reconciliation against final chain evidence. The current testnet route checks observed delegation and point-in-time capacity but does not yet settle a distinct fee-resource budget after a confirmed transaction.
 - [ ] Database migration and integration tests covering duplicate requests, concurrent reservations, insufficient funds, provider timeouts, failed transactions, chain reorg/finality, and reconciliation drift.
-- [ ] Testnet end-to-end tests prove the sender/receiver/token/amount/fee policy from independently verified chain data; no test may depend on UI-only balances.
+- [ ] Testnet end-to-end tests prove the sender/receiver/token/amount/fee policy from independently verified chain data; no test may depend on UI-only balances. The new transaction path has unit-level adapter/route guards, but no supported live Shasta/Nile end-to-end run is yet recorded.
 - [ ] Security review of authorization, signing, API authentication, rate limits, secret handling, audit trails, and emergency pause.
 - [ ] Browser CORS is configured with the exact deployed frontend origins; empty/invalid origin configuration fails closed and never reflects arbitrary browser origins. See [CORS origin policy](./CORS_ORIGIN_POLICY.md).
 - [ ] Explicit operator approval for any production launch after all prior gates pass.
