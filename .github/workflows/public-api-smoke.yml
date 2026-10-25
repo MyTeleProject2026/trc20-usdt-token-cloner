@@ -95,7 +95,7 @@ jobs:
             throw new Error('Readiness provider fields have unexpected shape')
           }
           const serialized = JSON.stringify(data)
-          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\\s+[A-Za-z0-9._-]{12,}|api[_-]?key\\s*[:=]\\s*["'][^"']+/i.test(serialized)) {
+          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key\s*[:=]\s*["'][^"']+/i.test(serialized)) {
             throw new Error('Readiness response may expose sensitive material')
           }
           const summary = {
