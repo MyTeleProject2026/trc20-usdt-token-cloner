@@ -68,7 +68,7 @@ test('backend readiness probes supported read-only Tatum data without exposing c
   assert.match(index, /await tatumFetch\(TATUM_TRON_HEALTH_PATH\)/)
   assert.match(index, /tatum\.reachable = true/)
   assert.match(index, /provider-unreachable/)
-  assert.match(index, /isReadOnlyServiceReady from '\.\/readiness-policy\.mjs'/)
+  assert.match(index, /isReadOnlyServiceReady\s*}\s*from '\.\/readiness-policy\.mjs'/)
   assert.match(index, /isReadOnlyServiceReady\(\{ database, providers \}\)/)
   assert.match(index, /This endpoint tests database connectivity and a read-only Tatum API request/)
   assert.doesNotMatch(index, /TATUM_API_KEY:\s*process\.env\.TATUM_API_KEY/)
