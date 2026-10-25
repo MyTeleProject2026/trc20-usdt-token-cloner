@@ -237,11 +237,12 @@ export async function validateSponsorSignedTransaction({
       const amountArgument = BigInt(transfer.amountBaseUnits).toString(16).padStart(64, '0')
       const expectedData = `a9059cbb${receiverArgument.padStart(64, '0')}${amountArgument}`
       const maxFee = maxFeeLimitSun(env)
+      const feeLimit = raw.fee_limit
       if (String(value.contract_address || '').toLowerCase() !== expectedContract
         || callData !== expectedData
         || BigInt(String(value.call_value || 0)) !== 0n
-        || !Number.isSafeInteger(value.fee_limit) || value.fee_limit <= 0
-        || maxFee === null || value.fee_limit > maxFee) {
+        || !Number.isSafeInteger(feeLimit) || feeLimit <= 0
+        || maxFee === null || feeLimit > maxFee) {
         return fail('transaction-token-transfer-intent-mismatch')
       }
     }
@@ -451,7 +452,10 @@ export async function verifySponsorFeeResourceCapacity({
         visible: false,
       })
       const energyUsedEstimate = integer(simulation.energy_used)
-      if (simulation.result?.result !== true || energyUsedEstimate === null || energyUsedEstimate <= 0n) {
+      const simulatedContractRet = simulation.transaction?.ret?.[0]?.contractRet
+      if (simulation.result?.result !== true
+        || (simulatedContractRet !== undefined && simulatedContractRet !== 'SUCCESS')
+        || energyUsedEstimate === null || energyUsedEstimate <= 0n) {
         return fail('token-energy-estimate-unavailable')
       }
       // Reserve a 25% safety margin for dynamic token execution paths.
