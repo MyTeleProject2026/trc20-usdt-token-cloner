@@ -7,12 +7,12 @@ import { createSponsorResourceReader } from '../sponsor-resources.mjs'
 import { createSponsorResourceDelegationVerifier } from '../sponsor-resource-delegation-verifier.mjs'
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
+import { isPositiveUint256 } from '../base-units.mjs'
 
 import { Router } from 'express'
 
 const router = Router()
 const txPattern = /^[0-9a-fA-F]{64}$/
-const UINT256_MAX = (1n << 256n) - 1n
 const networks = {
   shasta: 'https://api.shasta.trongrid.io',
   nile: 'https://nile.trongrid.io',
@@ -1176,8 +1176,7 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
     || (body.asset === 'TRX' && body.tokenContract != null && body.tokenContract !== '')
     || (body.asset !== 'TRX' && !isValidTronAddress(body.tokenContract))
     || !isValidTronAddress(body.receiverAddress)
-    || typeof body.amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(body.amountBaseUnits)
-    || BigInt(body.amountBaseUnits) > UINT256_MAX) {
+    || !isPositiveUint256(body.amountBaseUnits)) {
     return res.status(400).json({
       success: false,
       error: 'invalid-transfer-intent',
