@@ -132,3 +132,18 @@ test('token contract allowlists reject empty list entries and whitespace-only va
   assert.equal(result.networks.nile.tokenContractAllowlist.usdt, false)
   assert.equal(result.networks.nile.tokenContractAllowlist.vtrc, false)
 })
+
+test('production readiness lists unresolved CI, dependency, sponsor-funding and settlement release gates', () => {
+  const result = getSponsorIntegrationReadiness({ env: {} })
+  const blockers = result.submission.blockers
+  assert.ok(blockers.includes('github-actions-runner-allocation-and-full-ci-validation-not-passing'))
+  assert.ok(blockers.includes('high-severity-google-protobuf-advisory-unresolved'))
+  assert.ok(blockers.includes('external-sponsor-agreement-and-funded-accounts-not-independently-verified'))
+  assert.ok(blockers.includes('provider-not-verified-to-provide-asset-principal-and-all-fees'))
+  assert.ok(blockers.includes('secure-managed-signer-or-provider-authorization-path-not-integrated'))
+  assert.ok(blockers.includes('independent-solidified-settlement-and-receiver-balance-reconciliation-not-end-to-end-verified'))
+  assert.equal(result.submission.blockerCount, blockers.length)
+  assert.equal(result.submission.enabled, false)
+  assert.equal(result.submission.canSubmitSponsoredTransfer, false)
+  assert.equal(result.submission.userFundedFallbackAllowed, false)
+})
