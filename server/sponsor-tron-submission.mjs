@@ -14,6 +14,14 @@ const DEFAULT_MAX_FEE_LIMIT_SUN = '50000000'
 const TX_ID = /^[0-9a-f]{64}$/i
 const HEX = /^(?:[0-9a-f]{2})+$/i
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]))
+  }
+  return value
+}
+
 function fail(reason, extra = {}) {
   return { success: false, status: reason, reason, ...extra }
 }
@@ -155,6 +163,7 @@ export async function buildSponsorUnsignedTransaction({
 export async function validateSponsorSignedTransaction({
   transfer,
   signedTransaction,
+  expectedUnsignedTransaction = null,
   env = process.env,
   fetchImpl = globalThis.fetch,
   tronWebFactory,
@@ -173,6 +182,16 @@ export async function validateSponsorSignedTransaction({
 
   const rawDataHex = signedTransaction.raw_data_hex
   const claimedTxId = signedTransaction.txID
+  if (expectedUnsignedTransaction) {
+    if (typeof expectedUnsignedTransaction.raw_data_hex !== 'string'
+      || typeof expectedUnsignedTransaction.txID !== 'string'
+      || String(rawDataHex || '').toLowerCase() !== expectedUnsignedTransaction.raw_data_hex.toLowerCase()
+      || String(claimedTxId || '').toLowerCase() !== expectedUnsignedTransaction.txID.toLowerCase()
+      || JSON.stringify(canonicalJson(signedTransaction.raw_data))
+        !== JSON.stringify(canonicalJson(expectedUnsignedTransaction.raw_data))) {
+      return fail('signed-transaction-does-not-match-persisted-signing-intent')
+    }
+  }
   if (typeof rawDataHex !== 'string' || !HEX.test(rawDataHex)
     || typeof claimedTxId !== 'string' || !TX_ID.test(claimedTxId)
     || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length === 0
@@ -279,12 +298,14 @@ export async function validateSponsorSignedTransaction({
   }
   const resultDetail = detail?.result
   const resultCode = typeof resultDetail?.code === 'string' ? resultDetail.code : null
-  const explicitFailure = resultDetail?.result === false
-    || resultDetail === false
-    || (resultCode !== null && !['ENOUGH_PERMISSION', 'OK', 'SUCCESS'].includes(resultCode))
+  const enoughPermission = resultCode === 'ENOUGH_PERMISSION'
+    || (resultCode === null && resultDetail?.result === true)
+    || (resultCode === null && detail?.result === true)
+  const explicitFailure = resultDetail?.result === false || resultDetail === false
+    || (resultCode !== null && resultCode !== 'ENOUGH_PERMISSION')
   const threshold = detail?.permission?.threshold
   const currentWeight = detail?.current_weight
-  if (explicitFailure || !Number.isSafeInteger(threshold) || threshold <= 0
+  if (!enoughPermission || explicitFailure || !Number.isSafeInteger(threshold) || threshold <= 0
     || !Number.isSafeInteger(currentWeight) || currentWeight < threshold) {
     return fail('sponsor-signature-permission-not-satisfied')
   }
