@@ -1,6 +1,7 @@
 import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { createSponsorResourceReader } from './sponsor-resources.mjs'
 import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
 
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
 
@@ -50,6 +51,8 @@ function buildRoleSnapshot(role, network, configuredAddress, funding, resources 
     network,
     status: funding?.status || 'sponsor-status-unavailable',
     addressConfigured,
+    address: isValidTronAddress(typeof configuredAddress === 'string' ? configuredAddress.trim() : '')
+      ? configuredAddress.trim() : null,
     onChainBalanceRead: funding?.onChainBalanceRead === true,
     native: cleanNative(funding),
     tokens: cleanTokens(funding),
