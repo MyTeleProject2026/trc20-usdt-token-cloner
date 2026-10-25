@@ -1,8 +1,12 @@
 # Sponsor-owned TRON testnet signing and broadcast
 
-## What was added
+## What is implemented
 
-The sponsor operator console is available from the frontend route #/sponsor-operator. It connects a sponsor-owned TronLink wallet, verifies the injected node host is exactly Shasta or Nile, and automatically refreshes the read-only fee-sponsor and asset-principal role diagnostics on load, after wallet connection, and when Recheck is used. It retrieves a server-created signing intent, checks that the connected account equals the approved asset-principal sponsor address, asks the sponsor wallet to sign, and posts only the signed transaction back to the backend.
+The sponsor operator console is available from the frontend route #/sponsor-operator. It exposes the configured fee and asset-principal sponsor addresses as public blockchain addresses only, refreshes read-only sponsor-role diagnostics, and keeps all signing in the corresponding connected TronLink wallet.
+
+The resource-delegation panel is Shasta/Nile-only. It checks the active node host and configured fee-sponsor wallet, validates a distinct asset-principal recipient and the current solidified stake-equivalent delegation ceiling, constructs an unlocked Stake-2.0 delegation draft, validates the contract type, owner, recipient, resource, amount, expiry, raw bytes and transaction ID, then requests an explicit wallet signature. It broadcasts no more than once per click and retains the exact transaction ID when the node outcome is unknown. The separate verification request is read-only until the backend independently confirms the resulting delegation in solidified chain state and persists its audit record.
+
+Resource delegation is not an asset transfer, does not supply token principal, and is not proof of zero fees for a later transfer. The separate fee-budget ledger and post-transfer expense settlement remain unfinished.
 
 Backend routes:
 
@@ -37,8 +41,9 @@ TRONGRID_API_KEY is optional and server-only; the endpoints use fixed Shasta/Nil
 
 - This route does not send Mainnet transactions. The global production readiness response remains enabled=false and canSubmitSponsoredTransfer=false.
 - Resource availability and a visible delegation are preflight evidence, not final fee settlement. The separate fee-resource budget ledger and after-confirmation expense reconciliation remain unfinished.
-- No full supported Shasta/Nile end-to-end run, security approval, dependency-audit clearance, or production sponsor agreement has been recorded.
-- GitHub Actions hosted runners have recently failed before checkout (runner allocation, no steps), so the full repository test/build/audit suite has not yet completed on CI.
+- The CI workflow now includes PostgreSQL-backed integration tests, dependency severity gating, contract compilation, frontend build, pinned-action policy checks and a public API smoke check. Prior main commits have passed these checks; the current commit must independently pass all required workflows before release.
+- A complete, supported Shasta/Nile end-to-end run covering sponsor resource delegation, an asset-principal transfer, independent solidification, receiver balance, fee consumption and ledger settlement has not been recorded.
+- Independent security approval and a production sponsor agreement/funding mandate are still missing. Do not enable Mainnet or treat provider reachability and resource snapshots as authorization or final fee settlement.
 - Do not merge or deploy this PR as a production-ready sponsor sender until the go-live checklist is closed.
 
 See SPONSOR_GO_LIVE_GATES.md for the release decision list.
