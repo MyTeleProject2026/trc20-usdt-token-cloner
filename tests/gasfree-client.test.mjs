@@ -86,6 +86,7 @@ test('GasFree capabilities return live provider list and token-denominated fee f
   const result = await client.getCapabilities('mainnet')
   assert.equal(result.reachable, true)
   assert.equal(result.providerCount, 1)
+  assert.equal(result.tokens.length, 1, 'invalid-shape and invalid-checksum token metadata must be filtered')
   assert.equal(result.supportedTokenCount, 1)
   assert.deepEqual(result.tokens[0], {
     tokenAddress: validAddress,
@@ -173,6 +174,7 @@ test('GasFree account lookup is read-only, network-isolated, and marks provider 
   assert.equal(result.account.nonce, 7)
   assert.equal(result.account.allowSubmit, false)
   assert.equal(result.account.chainFinalityVerified, false)
+  assert.equal(result.account.assets.length, 1, 'checksum-invalid provider asset metadata must be filtered')
   assert.deepEqual(result.account.assets[0], {
     tokenAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
     tokenSymbol: 'USDT',
