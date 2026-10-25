@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -1386,19 +1386,33 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
         feeCoverageVerified: false, message: 'The separate fee sponsor and active resource delegation could not be independently verified. No unsigned transaction was prepared.',
       })
     }
-    const prepared = await buildSponsorUnsignedTransaction({ transfer })
+    const prepared = transfer.preparedTransaction
+      ? { success: true, transaction: transfer.preparedTransaction }
+      : await buildSponsorUnsignedTransaction({ transfer })
     if (prepared?.success !== true) {
       return res.status(503).json({ success: false, error: prepared?.reason || 'transaction-preparation-failed', canSubmitSponsoredTransfer: false })
     }
+    const persisted = await persistSponsorUnsignedTransaction({
+      idempotencyKey,
+      transaction: prepared.transaction,
+    })
+    if (persisted?.persisted !== true || !persisted.transaction) {
+      return res.status(503).json({
+        success: false, error: persisted?.reason || 'unsigned-transaction-persistence-failed',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        message: 'The exact unsigned transaction could not be durably bound to this reservation. Do not sign or broadcast an unpersisted transaction.',
+      })
+    }
+    const signingTransaction = persisted.transaction
     const feeCapacity = await verifySponsorFeeResourceCapacity({
       transfer,
-      transaction: prepared.transaction,
+      transaction: signingTransaction,
     })
     if (feeCapacity?.success !== true) {
       return res.status(503).json({
         success: false, error: feeCapacity?.reason || 'sponsor-fee-capacity-not-verified',
         feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
-        message: 'Fresh chain resource capacity for the exact sponsor transaction could not be proven. The sponsor must not sign or broadcast this request.',
+        message: 'Fresh chain resource capacity for the exact sponsor transaction could not be proven. The transaction is persisted but is not authorized for signing or broadcast.',
       })
     }
     return res.json({
@@ -1415,11 +1429,16 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
         amountBaseUnits: transfer.amountBaseUnits,
         transactionHash: transfer.transactionHash,
       },
-      transaction: prepared.transaction,
+      transaction: signingTransaction,
+      signingIntentPersisted: true,
       signatureRequiredFrom: transfer.sponsorAddress,
       feeResourceDelegation: {
         observed: true,
-        exactFeeCapacityVerified: false,
+        exactFeeCapacityVerified: true,
+        availableEnergyUnits: feeCapacity.availableEnergyUnits,
+        requiredEnergyUnits: feeCapacity.requiredEnergyUnits,
+        availableBandwidthUnits: feeCapacity.availableBandwidthUnits,
+        requiredBandwidthUnits: feeCapacity.requiredBandwidthUnits,
         checkedAt: feeCoverage.checkedAt,
       },
       canSubmitSponsoredTransfer: false,
@@ -1475,9 +1494,17 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
         feeCoverageVerified: false, providerSubmissionAttempted: false, transactionBroadcast: false,
       })
     }
+    if (!transfer.preparedTransaction || !transfer.preparedRawDataHex || !transfer.preparedTxID) {
+      return res.status(409).json({
+        success: false, error: 'persisted-signing-intent-required',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
+        message: 'The server has no persisted unsigned transaction bound to this reservation. Retrieve a new signing intent before signing.',
+      })
+    }
     const signature = await validateSponsorSignedTransaction({
       transfer,
       signedTransaction: body.signedTransaction,
+      expectedUnsignedTransaction: transfer.preparedTransaction,
     })
     if (signature?.success !== true) {
       const reason = signature?.reason || 'sponsor-signature-validation-failed'
