@@ -8,7 +8,7 @@ test('submitted sponsor reservations stay held when a provider response is missi
   assert.ok(start >= 0)
   const transition = source.slice(start)
   const guard = transition.indexOf("transfer.status === 'submitted' && nextStatus === 'failed'")
-  const budgetLookup = transition.indexOf('SELECT id, reserved_base_units::text AS reserved_base_units')
+  const budgetLookup = transition.indexOf('const budgetResult = await client.query')
   const reservationRelease = transition.indexOf('reserved_base_units = reserved_base_units - $1::numeric')
   assert.ok(guard >= 0, 'submitted-to-failed guard must exist')
   assert.ok(budgetLookup > guard, 'failed submitted transfers must be rejected before budget accounting')
