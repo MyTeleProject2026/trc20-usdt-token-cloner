@@ -61,7 +61,7 @@ test('receiver balance UI shows exact chain, contract, base units, and snapshot 
   assert.match(app, /receiverSnapshot\.tokenContract \|\| tokenContract\.trim\(\)/);
   assert.match(app, /receiverSnapshot\.balanceBaseUnits/);
   assert.match(app, /receiverCheckedAt \? new Date\(receiverCheckedAt\)\.toLocaleString\(\)/);
-  assert.match(app, /not proof of a new transfer, sponsor commitment, or exchange deposit credit/);
+  assert.match(app, /transfer is marked received only after its exact transaction and solidified transfer event are independently verified/);
 });
 
 test('verified transfer lookup remains read-only and requires exact event identity', () => {
