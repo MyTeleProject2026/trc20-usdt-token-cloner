@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 const roleReader = await readFile(new URL('../server/sponsor-roles.mjs', import.meta.url), 'utf8')
+const sponsorConsole = await readFile(new URL('../src/SponsorSignerConsole.tsx', import.meta.url), 'utf8')
 
 test('staged workflow loads separate fee and principal sponsor roles from the backend', () => {
   assert.ok(app.includes('/api/tron/sponsorship/roles?network='))
@@ -27,4 +28,19 @@ test('sponsor role snapshots never enable transfer submission by themselves', ()
   assert.ok(roleReader.includes('resourceRead'))
   assert.ok(roleReader.includes('submissionEnabled: false'))
   assert.ok(roleReader.toLowerCase().includes('no user-funded fallback is permitted'))
+})
+
+test('fee-sponsored resource delegation is testnet-only and remains wallet-signed and verifiable', () => {
+  assert.match(sponsorConsole, /type Network = 'shasta' \| 'nile'/)
+  assert.ok(sponsorConsole.includes('tronWeb.transactionBuilder.delegateResource'))
+  assert.ok(sponsorConsole.includes('tronWeb.trx.sign(unsigned)'))
+  assert.ok(sponsorConsole.includes('tronWeb.trx.sendRawTransaction(signed)'))
+  assert.ok(sponsorConsole.includes('/api/tron/sponsorship/resource-delegations/verify'))
+  assert.ok(sponsorConsole.includes('maxDelegatableEnergyStakeSun'))
+  assert.ok(sponsorConsole.includes('maxDelegatableBandwidthStakeSun'))
+  assert.ok(sponsorConsole.includes("contracts[0]?.type !== 'DelegateResourceContract'"))
+  assert.ok(sponsorConsole.includes('No signature was requested.'))
+  assert.ok(sponsorConsole.includes('Do not resubmit or create a replacement delegation'))
+  assert.doesNotMatch(sponsorConsole, /privateKey\s*[:=]/i)
+  assert.ok(roleReader.includes('canSubmitSponsoredTransfer: false'))
 })
