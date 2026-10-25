@@ -5,6 +5,7 @@ import { getSponsorIntegrationReadiness } from '../sponsor-integration-readiness
 export { getSponsorIntegrationReadiness } from '../sponsor-integration-readiness.mjs'
 
 const PROVIDER_NETWORKS = ['mainnet', 'nile']
+const PROVIDER_PROBE_CACHE_TTL_MS = 15_000
 
 function safeReason(value) {
   return typeof value === 'string' && /^[a-z0-9-]{1,64}$/.test(value)
@@ -72,25 +73,48 @@ export function createSponsorIntegrationReadinessRouter(options = {}) {
   const router = Router()
   const env = options.env ?? process.env
   const client = options.gasFreeClient ?? createGasFreeClient({ env })
+  let providerProbeCache = null
+  let providerProbeCacheExpiresAt = 0
+  let providerProbeInFlight = null
+
+  async function getProviderChecks(baseNetworks) {
+    if (providerProbeCache && providerProbeCacheExpiresAt > Date.now()) {
+      return providerProbeCache
+    }
+    if (providerProbeInFlight) return providerProbeInFlight
+
+    const probe = Promise.all(PROVIDER_NETWORKS.map(async (network) => {
+      const checked = await checkProviderDiscovery(network, baseNetworks[network].gasFree, client)
+      return [network, { ...baseNetworks[network], gasFree: {
+        ...baseNetworks[network].gasFree,
+        ...checked,
+        submitSignBroadcastAdapterIntegrated: false,
+        providesAssetPrincipal: false,
+        noUserCostPolicySatisfied: false,
+      } }]
+    })).then((entries) => {
+      providerProbeCache = Object.fromEntries(entries)
+      providerProbeCacheExpiresAt = Date.now() + PROVIDER_PROBE_CACHE_TTL_MS
+      return providerProbeCache
+    })
+
+    providerProbeInFlight = probe
+    try {
+      return await probe
+    } finally {
+      if (providerProbeInFlight === probe) providerProbeInFlight = null
+    }
+  }
 
   router.get('/sponsorship/integration-readiness', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('Pragma', 'no-cache')
 
     const base = getSponsorIntegrationReadiness({ ...options, env, gasFreeClient: client })
-    const networkChecks = await Promise.all(PROVIDER_NETWORKS.map(async (network) => {
-      const checked = await checkProviderDiscovery(network, base.networks[network].gasFree, client)
-      return [network, { ...base.networks[network], gasFree: {
-        ...base.networks[network].gasFree,
-        ...checked,
-        submitSignBroadcastAdapterIntegrated: false,
-        providesAssetPrincipal: false,
-        noUserCostPolicySatisfied: false,
-      } }]
-    }))
+    const providerNetworks = await getProviderChecks(base.networks)
     const networks = {
       ...base.networks,
-      ...Object.fromEntries(networkChecks),
+      ...providerNetworks,
       shasta: {
         ...base.networks.shasta,
         gasFree: {
