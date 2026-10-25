@@ -6,8 +6,6 @@ on:
     paths:
       - package.json
       - .github/workflows/refresh-lockfile.yml
-      - .github/workflows/verify.yml
-      - .github/workflows/webpack.yml
   workflow_dispatch:
 
 permissions:
