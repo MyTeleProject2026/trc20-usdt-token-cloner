@@ -1,46 +1,11 @@
-import { createHash } from 'node:crypto'
 import { createGasFreeClient } from './gasfree-client.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
 
 const NETWORKS = ['mainnet', 'shasta', 'nile']
-const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-
-function isValidTronAddress(value) {
-  if (typeof value !== 'string') return false
-  const address = value.trim()
-  if (!TRON_ADDRESS.test(address)) return false
-
-  // TRON user-facing addresses are Base58Check encodings of a 0x41-prefixed
-  // 21-byte payload plus the first four bytes of double-SHA256(payload).
-  let decodedNumber = 0n
-  for (const character of address) {
-    const digit = BASE58_ALPHABET.indexOf(character)
-    if (digit < 0) return false
-    decodedNumber = decodedNumber * 58n + BigInt(digit)
-  }
-
-  const decodedBytes = []
-  while (decodedNumber > 0n) {
-    decodedBytes.unshift(Number(decodedNumber & 0xffn))
-    decodedNumber >>= 8n
-  }
-  let leadingZeroBytes = 0
-  while (leadingZeroBytes < address.length && address[leadingZeroBytes] === '1') {
-    leadingZeroBytes++
-  }
-  const bytes = [...Array(leadingZeroBytes).fill(0), ...decodedBytes]
-  if (bytes.length !== 25 || bytes[0] !== 0x41) return false
-
-  const payload = Buffer.from(bytes.slice(0, 21))
-  const expectedChecksum = createHash('sha256')
-    .update(createHash('sha256').update(payload).digest())
-    .digest()
-    .subarray(0, 4)
-  return Buffer.from(bytes.slice(21)).equals(expectedChecksum)
-}
 
 function configuredAddress(env, key) {
-  return isValidTronAddress(env[key])
+  const value = env[key]
+  return isValidTronAddress(typeof value === 'string' ? value.trim() : value)
 }
 
 function normalizedAddress(env, key) {
