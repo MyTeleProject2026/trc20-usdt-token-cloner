@@ -2,6 +2,11 @@ name: Public API smoke and readiness check
 
 on:
   workflow_dispatch:
+  # Run live API contract checks after the authoritative CI workflow passes on main.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   schedule:
     - cron: "17 */6 * * *"
 
@@ -14,15 +19,27 @@ concurrency:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
     steps:
       - name: Check public API health
         id: health
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 --silent --show-error --fail https://trc20-usdt-token-cloner-api.onrender.com/health)"
+          response=""
+          for attempt in {1..12}; do
+            if response="$(curl --connect-timeout 5 --max-time 10 --silent --show-error --fail https://trc20-usdt-token-cloner-api.onrender.com/health 2>/dev/null)"; then
+              break
+            fi
+            echo "Public API not ready yet (attempt $attempt/12); retrying in 10 seconds."
+            sleep 10
+          done
+          if [[ -z "$response" ]]; then
+            echo "Public API health endpoint did not become ready within 2 minutes." >&2
+            exit 1
+          fi
           echo "$response" | node --input-type=module -e '
             let body = "";
             for await (const chunk of process.stdin) body += chunk;
