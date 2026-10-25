@@ -19,6 +19,20 @@ This document is the implementation contract for the next stage of TRC-20 Token 
 6. **Exchange status** — report only on-chain status from the chain. Exchange credit is a separate state that can only be confirmed from the exchange's own account/deposit history or an authorized official API. Do not label a deposit "credited" based solely on a successful transaction.
 7. **Persist audit evidence** — store the network, transaction ID, contract, addresses, base-unit amount, verification result, block number, and timestamps. Enforce uniqueness on network + transaction ID + contract to make retries idempotent. Never store wallet secrets.
 
+## Implemented sponsor-ledger confirmation endpoint (testnet only)
+
+For an already node-accepted sponsored **asset-grant**, the authenticated operator route is:
+
+`POST /api/tron/sponsorship/transfers/{idempotencyKey}/confirm`
+
+Use the server-side `SPONSOR_ADMIN_API_TOKEN` as a Bearer token. Do not send a client-supplied status, amount, recipient, or success flag. The route reads the immutable transfer identity from the ledger and asks the database transition to confirm only if an exact persisted solidified verifier record matches the stored network, transaction ID, sender sponsor address, receiver, and base-unit amount (and, for TRC-20, the exact token contract). If evidence is missing, the response points to the appropriate native/TRC-20 verification route and leaves the reservation unchanged. Fee-purpose budgets, Mainnet, mismatched hashes, unsubmitted transfers and ambiguous broadcasts are rejected. A success records the principal transfer ledger state; it is **not** confirmation of fee sponsorship or exchange deposit credit.
+
+After confirmation, the response supplies a read-only receiver balance query path:
+- Native TRX: `GET /api/tron/native-balance?network=...&address=...`
+- TRC-20: `GET /api/tron/token-balance?network=...&contract=...&address=...`
+
+These reads are separate from the transaction receipt and report the current on-chain balance for that exact network and contract. They do not prove exchange account credit.
+
 ## Recommended explicit states
 
 - `draft`: no transaction broadcast.
