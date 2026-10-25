@@ -375,6 +375,7 @@ export default function SponsorSignerConsole() {
         && payload.success === true
         && payload.verified === true
         && payload.persistence?.persisted === true) {
+        setDelegationIntent({ ...record, status: 'verified-solidified-audit-persisted' })
         setMessage('Resource delegation is independently verified in solidified chain state and its audit record was persisted. This does not prove any later token transfer is fee-free.')
         await refreshSponsorRoles(record.network)
         return true
@@ -588,7 +589,7 @@ export default function SponsorSignerConsole() {
               <option value="ENERGY">Energy</option>
             </select>
             <label className="sponsor-console-label" htmlFor="delegation-amount-trx">Stake-equivalent amount (TRX)</label>
-            <input id="delegation-amount-trx" inputMode="decimal" value={resourceAmountTRX} onChange={event => setResourceAmountTRX(event.target.value)} disabled={busy !== null} autoComplete="off" spellCheck={false} />
+            <input id="delegation-amount-trx" inputMode="decimal" value={resourceAmountTRX} onChange={event => setResourceAmountTRX(event.target.value)} disabled={busy !== null} autoComplete="off" spellCheck={false} maxLength={24} />
             <p className="sponsor-console-field-note">The backend must report a fresh solidified delegation ceiling. Minimum: 1 TRX; up to 6 decimals. The signed transaction delegates resource capacity, not token principal, and does not promise zero transfer fees.</p>
             <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void delegateTestnetResource()} disabled={busy !== null || !feeWallet || feeWallet.network !== network || feeRole?.resourceStatus?.resourceRead !== true || !feeRole?.address || !assetRole?.address || feeRole.address === assetRole.address}><Zap size={16} aria-hidden="true" /> {busy === 'delegating' ? 'Preparing / submitting…' : 'Review and delegate testnet resources'}</button>
             {delegationIntent && <div className="sponsor-console-result-note">
