@@ -207,8 +207,9 @@ export async function validateSponsorSignedTransaction({
 
   const contract = raw.contract[0]
   const value = contract?.parameter?.value
-  if (!value || contract.parameter.type_url !== 'type.googleapis.com/protocol.Transaction.Contract'
-    || contract.type !== (transfer.asset === 'TRX' ? 'TransferContract' : 'TriggerSmartContract')) {
+  const expectedContractType = transfer.asset === 'TRX' ? 'TransferContract' : 'TriggerSmartContract'
+  if (!value || contract.parameter.type_url !== `type.googleapis.com/protocol.${expectedContractType}`
+    || contract.type !== expectedContractType) {
     return fail('transaction-contract-type-mismatch')
   }
 
