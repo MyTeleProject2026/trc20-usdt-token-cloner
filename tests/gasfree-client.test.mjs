@@ -71,6 +71,9 @@ test('GasFree capabilities return live provider list and token-denominated fee f
       }, {
         tokenAddress: 'bad', symbol: 'OTHER', decimal: 6, supported: true,
         activateFee: 1, transferFee: 2,
+      }, {
+        tokenAddress: 'T' + 'A'.repeat(33), symbol: 'BAD_CHECKSUM', decimal: 6, supported: true,
+        activateFee: 1, transferFee: 2,
       }] },
     }) }
   }
@@ -148,6 +151,13 @@ test('GasFree account lookup is read-only, network-isolated, and marks provider 
               activateFee: 10000000,
               transferFee: '5000000',
               frozen: '2500000',
+            }, {
+              tokenAddress: 'T' + 'A'.repeat(33),
+              tokenSymbol: 'BAD_CHECKSUM',
+              decimal: 6,
+              activateFee: 1,
+              transferFee: 2,
+              frozen: 0,
             }],
           },
         }),
