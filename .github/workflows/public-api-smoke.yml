@@ -171,6 +171,78 @@ jobs:
             blockers: data.submission.blockers
           }, null, 2))
           NODE
+      - name: Verify live Nile and Shasta pilot preflight remains read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f testnet-pilot-readiness.json' EXIT
+          http_code="000"
+          for attempt in {1..24}; do
+            http_code="$(curl --connect-timeout 5 --max-time 25 --silent --show-error --output testnet-pilot-readiness.json --write-out '%{http_code}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/testnet-pilot-readiness?network=both' 2>/dev/null)" || http_code="000"
+            if [[ "$http_code" == "200" ]]; then
+              break
+            fi
+            echo "Dual-testnet pilot endpoint returned HTTP $http_code (attempt $attempt/24); waiting for live deployment."
+            sleep 10
+          done
+          if [[ "$http_code" != "200" ]]; then
+            echo "Dual-testnet pilot preflight did not return HTTP 200 after deployment retries." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('testnet-pilot-readiness.json', 'utf8'))
+          if (data.success !== true || !data.networks?.nile || !data.networks?.shasta || !data.submission) {
+            throw new Error('Dual-testnet preflight response is missing the expected network contract')
+          }
+          if (data.submission.enabled !== false
+            || data.submission.canSubmitSponsoredTransfer !== false
+            || data.submission.userFundedFallbackAllowed !== false) {
+            throw new Error('Pilot diagnostics unexpectedly enabled transfer submission or user-funded fallback')
+          }
+          for (const network of ['nile', 'shasta']) {
+            const item = data.networks[network]
+            if (typeof item.networkNode?.reachable !== 'boolean'
+              || !item.roleConfiguration
+              || !item.sponsors?.networkFeeSponsor
+              || !item.sponsors?.assetPrincipalSponsor
+              || !item.feeSponsorResources
+              || !Array.isArray(item.blockers)
+              || item.canSubmitSponsoredTransfer !== false
+              || item.submissionEnabled !== false
+              || item.userFundedFallbackAllowed !== false) {
+              throw new Error('Pilot preflight is missing required fail-closed fields for ' + network)
+            }
+          }
+          const serialized = JSON.stringify(data)
+          if (/TATUM_API_KEY|TRONGRID_API_KEY|postgres(ql)?:\/\/|Bearer\s+[A-Za-z0-9._~-]{12,}/i.test(serialized)
+            || /"address"\s*:\s*"T[1-9A-HJ-NP-Za-km-z]{33}"/i.test(serialized)) {
+            throw new Error('Pilot preflight exposed a provider secret, database URL, bearer token or sponsor address')
+          }
+          const summary = Object.fromEntries(['nile', 'shasta'].map((network) => {
+            const item = data.networks[network]
+            return [network, {
+              preflightStatus: item.preflightStatus,
+              solidifiedNodeReachable: item.networkNode.reachable,
+              feeSponsorAddressConfigured: item.roleConfiguration.feeSponsorAddressConfigured,
+              assetPrincipalSponsorAddressConfigured: item.roleConfiguration.assetPrincipalSponsorAddressConfigured,
+              sponsorRolesDistinct: item.roleConfiguration.rolesDistinct,
+              feeSponsorBalanceRead: item.roleConfiguration.feeSponsorOnChainBalanceRead,
+              assetPrincipalBalanceRead: item.roleConfiguration.assetPrincipalSponsorOnChainBalanceRead,
+              feeResourcesRead: item.feeSponsorResources.read,
+              activeDelegationObserved: item.feeSponsorResources.delegation.activeDelegationObserved,
+              blockerCount: item.blockers.length,
+              blockers: item.blockers
+            }]
+          }))
+          console.log(JSON.stringify({
+            status: data.status,
+            networks: summary,
+            submissionEnabled: data.submission.enabled,
+            userFundedFallbackAllowed: data.submission.userFundedFallbackAllowed
+          }, null, 2))
+          NODE
+
       - name: Check out source for gate-contract validation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
