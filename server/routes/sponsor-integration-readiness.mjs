@@ -88,6 +88,7 @@ export function createSponsorIntegrationReadinessRouter(options = {}) {
       return [network, { ...baseNetworks[network], gasFree: {
         ...baseNetworks[network].gasFree,
         ...checked,
+        discoveryCheckedAt: new Date().toISOString(),
         submitSignBroadcastAdapterIntegrated: false,
         providesAssetPrincipal: false,
         noUserCostPolicySatisfied: false,
