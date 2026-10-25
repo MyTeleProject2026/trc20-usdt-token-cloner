@@ -1553,7 +1553,7 @@ export default function WorkflowApp() {
                     </button>
                   </div>
                   <p className="studio-field-hint">A current token balance and an indexed history row are not proof that a particular transfer settled. Only rows with an independently verified solidified event are marked verified.</p>
-                  <p className="studio-inline-note" role="note">Network boundary: Nile and Shasta are isolated test networks; their test tokens cannot be converted to Mainnet assets. These TronScan links are read-only and do not move assets or create an exchange deposit. Only a real Mainnet transfer of the exchange-accepted token contract can be considered for a Mainnet deposit.</p>
+                  <p className="studio-inline-note" role="note">Network boundary: Nile and Shasta are isolated test networks; their test tokens cannot be converted to Mainnet assets. The explorer integration is read-only, does not move assets, cannot convert tokens, and cannot create an exchange deposit. Only a real Mainnet transfer of the exchange-accepted token contract can be considered for a Mainnet deposit.</p>
                   {receiverHistoryError && <p className="studio-inline-error" role="alert">{receiverHistoryError}</p>}
                   {receiverHistoryNotice && <p className="studio-inline-note" role="status">{receiverHistoryNotice}</p>}
                   {receiverHistoryCheckedAt !== null && !receiverHistoryLoading && !receiverHistoryError && (
