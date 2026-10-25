@@ -3,9 +3,9 @@ import { createGasFreeClient } from '../gasfree-client.mjs'
 import { createGasFreeChainVerifier } from '../gasfree-chain-verifier.mjs'
 import { recordTransferVerification } from '../database.mjs'
 import { isPositiveUint256 } from '../base-units.mjs'
+import { isValidTronAddress } from '../tron-address.mjs'
 
 const ALLOWED_NETWORKS = ['mainnet', 'nile']
-const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 export function createGasFreeRouter(client = createGasFreeClient(), {
@@ -141,7 +141,7 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
     if (typeof network !== 'string' || !ALLOWED_NETWORKS.includes(network)) {
       return res.status(400).json({ success: false, status: 'invalid-network', message: 'network must be mainnet or nile.' })
     }
-    if (typeof address !== 'string' || !TRON_ADDRESS.test(address)) {
+    if (!isValidTronAddress(address)) {
       return res.status(400).json({ success: false, status: 'invalid-address', message: 'Provide a valid TRON Base58 wallet address.' })
     }
 
@@ -217,10 +217,10 @@ export function createGasFreeRouter(client = createGasFreeClient(), {
         message: 'network must be mainnet or nile. GasFree does not document Shasta support.',
       })
     }
-    if (typeof address !== 'string' || !TRON_ADDRESS.test(address)
-      || typeof tokenAddress !== 'string' || !TRON_ADDRESS.test(tokenAddress)
-      || typeof serviceProvider !== 'string' || !TRON_ADDRESS.test(serviceProvider)
-      || typeof receiverAddress !== 'string' || !TRON_ADDRESS.test(receiverAddress)) {
+    if (!isValidTronAddress(address)
+      || !isValidTronAddress(tokenAddress)
+      || !isValidTronAddress(serviceProvider)
+      || !isValidTronAddress(receiverAddress)) {
       return res.status(400).json({
         success: false,
         status: 'invalid-address',
