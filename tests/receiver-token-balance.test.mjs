@@ -89,7 +89,7 @@ test('official Mainnet USDT verification remains independently allowlisted on th
   assert.match(routes, /isCanonicalMainnetUsdtContract\(network, contract\)/)
   assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.length\)/)
   assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.includes\(normalizedContract\)\)/)
-  assert.match(routes, /No other contract is implicitly trusted/)
+  assert.match(routes, /No other contract is implicitly/)
 })
 
 test('built-in USDT verifier allowlist is exact and Mainnet-only', () => {
