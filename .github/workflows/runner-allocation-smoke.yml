@@ -2,7 +2,7 @@ name: Hosted runner allocation smoke test
 
 on:
   push:
-    branches: ["feat/**"]
+    branches: ["main", "feat/**"]
     paths:
       - ".github/workflows/runner-allocation-smoke.yml"
   pull_request:
