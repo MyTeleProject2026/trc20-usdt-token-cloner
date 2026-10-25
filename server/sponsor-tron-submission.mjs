@@ -466,10 +466,15 @@ export async function verifySponsorFeeResourceCapacity({
         || !HEX.test(value.data)) {
         return fail('token-contract-call-missing')
       }
+      const callData = String(value.data).toLowerCase()
+      if (callData.length < 8 || !/^[0-9a-f]+$/.test(callData)) {
+        return fail('token-contract-call-missing')
+      }
       const simulation = await postJson('/wallet/triggerconstantcontract', {
         owner_address: senderHex,
         contract_address: value.contract_address,
-        data: value.data,
+        function_selector: callData.slice(0, 8),
+        parameter: callData.slice(8),
         visible: false,
       })
       const energyUsedEstimate = integer(simulation.energy_used)
