@@ -1,8 +1,7 @@
 name: Verify application
 
 on:
-  push:
-    branches: [main]
+  # Kept for a manual diagnostic run; the authoritative CI workflow runs on pushes.
   workflow_dispatch:
 
 permissions:
