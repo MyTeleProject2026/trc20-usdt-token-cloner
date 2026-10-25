@@ -4,6 +4,17 @@ import { Activity, ArrowLeft, CheckCircle2, CircleAlert, ExternalLink, LockKeyho
 type Network = 'shasta' | 'nile'
 type WalletSnapshot = { address: string; host: string; network: Network; checkedAt: string }
 type ApiPayload = { success?: boolean; status?: string; error?: string; message?: string; [key: string]: any }
+type SponsorRolesSnapshot = ApiPayload & {
+  network?: Network
+  checkedAt?: string
+  accountsConfigured?: boolean
+  configuredAddressesDistinct?: boolean
+  roles?: {
+    networkFeeSponsor?: ApiPayload
+    assetPrincipalSponsor?: ApiPayload
+  }
+  feeSponsorDelegationToPrincipal?: ApiPayload
+}
 
 declare global {
   interface Window {
@@ -51,11 +62,27 @@ export default function SponsorSignerConsole() {
   const [idempotencyKey, setIdempotencyKey] = useState('')
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null)
   const [serverStatus, setServerStatus] = useState<ApiPayload | null>(null)
+  const [roleStatus, setRoleStatus] = useState<SponsorRolesSnapshot | null>(null)
   const [busy, setBusy] = useState<'connecting' | 'checking' | 'signing' | null>(null)
   const [message, setMessage] = useState('Connect the asset-principal sponsor wallet on the selected testnet.')
   const [error, setError] = useState('')
   const [lastIntent, setLastIntent] = useState<ApiPayload | null>(null)
   const [lastResult, setLastResult] = useState<ApiPayload | null>(null)
+
+  const refreshSponsorRoles = useCallback(async (selectedNetwork: Network): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const result = await requestJson(API_BASE + '/api/tron/sponsorship/roles?network=' + encodeURIComponent(selectedNetwork) + '&refresh=1')
+      if (!result.response.ok || result.payload.success !== true || result.payload.network !== selectedNetwork) {
+        setRoleStatus(null)
+        return { ok: false, message: result.payload.message || result.payload.error || 'Sponsor role diagnostics could not be verified.' }
+      }
+      setRoleStatus(result.payload as SponsorRolesSnapshot)
+      return { ok: true }
+    } catch (caught) {
+      setRoleStatus(null)
+      return { ok: false, message: caught instanceof Error ? caught.message : 'Sponsor role diagnostics could not be loaded.' }
+    }
+  }, [])
 
   const refreshServerStatus = useCallback(async () => {
     setBusy('checking')
@@ -71,7 +98,7 @@ export default function SponsorSignerConsole() {
     }
   }, [])
 
-  useEffect(() => { void refreshServerStatus() }, [refreshServerStatus])
+  useEffect(() => { void refreshServerStatus(); void refreshSponsorRoles(network) }, [refreshServerStatus, refreshSponsorRoles, network])
 
   const connectWallet = async () => {
     setError('')
@@ -84,7 +111,11 @@ export default function SponsorSignerConsole() {
       await window.tronLink.request({ method: 'tron_requestAccounts' })
       const next = readInjectedWallet(network)
       setWallet(next)
-      setMessage('Sponsor wallet connected and ' + (network === 'nile' ? 'Nile' : 'Shasta') + ' network verified. No transaction has been signed.')
+      const rolesResult = await refreshSponsorRoles(network)
+      setMessage(rolesResult.ok
+        ? 'Sponsor wallet connected; network and live read-only sponsor-role diagnostics refreshed. No transaction has been signed.'
+        : 'Wallet and network verified, but live sponsor-role diagnostics could not be verified. Signing remains blocked until those checks are healthy.')
+      if (!rolesResult.ok) setError(rolesResult.message || 'Sponsor role diagnostics unavailable.')
     } catch (caught) {
       setWallet(null)
       setMessage('Wallet connection not verified.')
@@ -97,6 +128,7 @@ export default function SponsorSignerConsole() {
   const changeNetwork = (value: Network) => {
     setNetwork(value)
     setWallet(null)
+    setRoleStatus(null)
     setLastIntent(null)
     setLastResult(null)
     setError('')
@@ -185,8 +217,19 @@ export default function SponsorSignerConsole() {
               <strong>{globalProductionEnabled ? 'Production capability reports enabled' : 'Global production sponsorship remains gated'}</strong>
               <span>{serverStatus?.status || 'Backend status not yet verified'} · Mainnet is not available in this console.</span>
             </div>
-            <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => void refreshServerStatus()} disabled={busy !== null}><RefreshCw size={15} aria-hidden="true" /> Recheck</button>
+            <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => { void refreshServerStatus(); void refreshSponsorRoles(network) }} disabled={busy !== null}><RefreshCw size={15} aria-hidden="true" /> Recheck</button>
           </section>
+
+          {roleStatus && <section className="sponsor-console-card">
+            <div className="sponsor-console-step"><span>LIVE</span><div><h2>Live sponsor-role diagnostics</h2><p>Automatically reloaded after wallet connection. These are read-only chain observations, not authorization or final fee settlement.</p></div></div>
+            <div className="sponsor-console-detail"><span>Network / checked at</span><strong>{roleStatus.network} · {roleStatus.checkedAt ? new Date(roleStatus.checkedAt).toLocaleTimeString() : 'timestamp unavailable'}</strong></div>
+            <div className="sponsor-console-detail"><span>Fee sponsor</span><strong>{roleStatus.roles?.networkFeeSponsor?.status || 'not verified'} · {roleStatus.roles?.networkFeeSponsor?.native?.status === 'verified' ? String(roleStatus.roles.networkFeeSponsor.native.balanceTRX) + ' TRX' : 'native balance not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Fee sponsor resources</span><strong>{roleStatus.roles?.networkFeeSponsor?.resourceStatus?.resourceRead === true ? String(roleStatus.roles.networkFeeSponsor.resourceStatus.currentlyAvailableEnergy ?? 'unknown') + ' energy / ' + String(roleStatus.roles.networkFeeSponsor.resourceStatus.currentlyAvailableBandwidth ?? 'unknown') + ' bandwidth' : 'resources not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Asset-principal sponsor</span><strong>{roleStatus.roles?.assetPrincipalSponsor?.status || 'not verified'} · {roleStatus.roles?.assetPrincipalSponsor?.native?.status === 'verified' ? String(roleStatus.roles.assetPrincipalSponsor.native.balanceTRX) + ' TRX' : 'native balance not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Token balances</span><strong>{Array.isArray(roleStatus.roles?.assetPrincipalSponsor?.tokens) ? roleStatus.roles.assetPrincipalSponsor.tokens.map((token: ApiPayload) => token.asset + ': ' + (token.status === 'verified' ? String(token.balanceBaseUnits) + ' base units' : 'not verified')).join(' · ') : 'not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Fee-to-principal delegation</span><strong>{roleStatus.feeSponsorDelegationToPrincipal?.status || 'not verified'} · {roleStatus.feeSponsorDelegationToPrincipal?.success === true ? 'observed' : 'not confirmed'}</strong></div>
+            <div className="sponsor-console-result-note">Configured accounts: {roleStatus.accountsConfigured === true ? 'both present' : 'incomplete'}; distinct roles: {roleStatus.configuredAddressesDistinct === true ? 'verified' : 'not verified'}. A positive balance or delegation is not proof of a funded agreement, transaction authorization, final fee consumption, or recipient credit.</div>
+          </section>}
 
           <section className="sponsor-console-card">
             <div className="sponsor-console-step"><span>01</span><div><h2>Connect sponsor wallet</h2><p>Use the wallet that owns the asset-principal sponsor address on the same testnet.</p></div></div>
