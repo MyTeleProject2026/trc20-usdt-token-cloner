@@ -1,5 +1,6 @@
+import { isValidTronAddress } from './tron-address.mjs'
+
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
-const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const BASE_UNITS = /^(0|[1-9][0-9]{0,77})$/
 
 function parseBaseUnits(value) {
@@ -32,7 +33,7 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
     || !cacheIsFresh
     || fundingSnapshot.network !== network
     || typeof fundingSnapshot.sponsorAddress !== 'string'
-    || !ADDRESS.test(fundingSnapshot.sponsorAddress)
+    || !isValidTronAddress(fundingSnapshot.sponsorAddress)
     || typeof fundingSnapshot.checkedAt !== 'string'
     || fundingSnapshot.source !== 'Tatum TRON SolidityNode account and constant-contract queries') {
     return fail('fresh-solidified-funding-snapshot-required')
@@ -57,7 +58,7 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
     if (!['TRX', 'USDT', 'VTRC'].includes(budget.asset)
       || !['active', 'paused', 'pending-review', 'disabled', 'depleted'].includes(budget.status)
       || (budget.asset === 'TRX' ? budget.token_contract != null
-        : typeof budget.token_contract !== 'string' || !ADDRESS.test(budget.token_contract))) {
+        : typeof budget.token_contract !== 'string' || !isValidTronAddress(budget.token_contract))) {
       return fail('invalid-budget-ledger-record', { walletMismatchCount })
     }
     const total = parseBaseUnits(budget.budget_base_units)
