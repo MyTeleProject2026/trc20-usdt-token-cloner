@@ -1,0 +1,44 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import {
+  getTronScanAddressUrl,
+  getTronScanNetworkLabel,
+  getTronScanTransactionUrl,
+} from '../src/tron-explorer.mjs'
+
+const txId = 'A'.repeat(64)
+const address = 'T' + 'A'.repeat(33)
+
+test('transaction links stay on the exact network and use the official explorer origin', () => {
+  assert.equal(getTronScanTransactionUrl('mainnet', txId), `https://tronscan.org/#/transaction/${txId.toLowerCase()}`)
+  assert.equal(getTronScanTransactionUrl('nile', txId), `https://nile.tronscan.org/#/transaction/${txId.toLowerCase()}`)
+  assert.equal(getTronScanTransactionUrl('shasta', txId), `https://shasta.tronscan.org/#/transaction/${txId.toLowerCase()}`)
+  assert.equal(getTronScanTransactionUrl('shasta', 'not-a-transaction-id'), null)
+  assert.equal(getTronScanTransactionUrl('https://attacker.invalid', txId), null)
+  assert.equal(getTronScanTransactionUrl('mainnet\n', txId), null)
+})
+
+test('address links are limited to known networks and TRON-shaped addresses', () => {
+  assert.equal(getTronScanAddressUrl('nile', address), `https://nile.tronscan.org/#/address/${address}`)
+  assert.equal(getTronScanAddressUrl('shasta', address), `https://shasta.tronscan.org/#/address/${address}`)
+  assert.equal(getTronScanAddressUrl('mainnet', address), `https://tronscan.org/#/address/${address}`)
+  assert.equal(getTronScanAddressUrl('nile', 'https://attacker.invalid'), null)
+  assert.equal(getTronScanAddressUrl('invalid', address), null)
+})
+
+test('explorer labels make the selected chain explicit', () => {
+  assert.equal(getTronScanNetworkLabel('mainnet'), 'Mainnet TronScan')
+  assert.equal(getTronScanNetworkLabel('nile'), 'Nile TronScan')
+  assert.equal(getTronScanNetworkLabel('shasta'), 'Shasta TronScan')
+  assert.equal(getTronScanNetworkLabel('unknown'), null)
+})
+
+test('the app explains testnet isolation and does not present explorer links as conversion', async () => {
+  const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
+  assert.ok(app.includes('getTronScanTransactionUrl'))
+  assert.ok(app.includes('getTronScanAddressUrl'))
+  assert.match(app, /cannot be converted to Mainnet/i)
+  assert.match(app, /does not move assets|cannot convert tokens/i)
+  assert.match(app, /This does not confirm exchange credit/)
+})
