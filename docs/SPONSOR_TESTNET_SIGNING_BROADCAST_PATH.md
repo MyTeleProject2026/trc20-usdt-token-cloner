@@ -2,7 +2,7 @@
 
 ## What was added
 
-The sponsor operator console is available from the frontend route #/sponsor-operator. It connects a sponsor-owned TronLink wallet, verifies the injected node host is exactly Shasta or Nile, retrieves a server-created signing intent, checks that the connected account equals the approved asset-principal sponsor address, asks the sponsor wallet to sign, and posts only the signed transaction back to the backend.
+The sponsor operator console is available from the frontend route #/sponsor-operator. It connects a sponsor-owned TronLink wallet, verifies the injected node host is exactly Shasta or Nile, and automatically refreshes the read-only fee-sponsor and asset-principal role diagnostics on load, after wallet connection, and when Recheck is used. It retrieves a server-created signing intent, checks that the connected account equals the approved asset-principal sponsor address, asks the sponsor wallet to sign, and posts only the signed transaction back to the backend.
 
 Backend routes:
 
@@ -27,7 +27,7 @@ TRONGRID_API_KEY is optional and server-only; the endpoints use fixed Shasta/Nil
 ## Exact state machine and safe retry behavior
 
 1. A budget reservation remains pending-review until the sponsor's own wallet signs the exact transaction built by the server.
-2. The unsigned transaction is durably persisted before it is returned. Requests for the same reservation reuse the same saved bytes and transaction ID.
+2. The unsigned transaction is durably persisted before it is returned. Requests for the same reservation reuse the same saved bytes and transaction ID while valid. An expired unsigned intent may be replaced only while the reservation remains pending-review; the expiry is audited, and the old transaction is past protocol expiry.
 3. The server checks the transaction's raw bytes and ID against that stored intent and asks the selected network node to validate signature permission. It also checks current sponsor resource capacity before broadcast.
 4. Before sending the transaction, the database row is locked and bound to the exact transaction ID as broadcasting. That prevents a different transaction from replacing it in a race.
 5. The server marks it submitted only when the fixed Shasta/Nile node explicitly accepts the same transaction ID. A network timeout or failed response is ambiguous; the reservation is retained and must not be replaced by a different transaction.
