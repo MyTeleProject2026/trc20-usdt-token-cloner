@@ -5,6 +5,7 @@ import {
   CircleDollarSign, Copy, Fuel, Layers, LockKeyhole, Network, RefreshCw,
   ShieldCheck, Wallet, Eye, EyeOff,
 } from 'lucide-react'
+import { getTronScanAddressUrl, getTronScanNetworkLabel, getTronScanTransactionUrl } from './tron-explorer.mjs'
 
 type NetworkId = 'shasta' | 'nile'
 type AssetKind = 'TRX' | 'TRC20'
@@ -1552,6 +1553,7 @@ export default function WorkflowApp() {
                     </button>
                   </div>
                   <p className="studio-field-hint">A current token balance and an indexed history row are not proof that a particular transfer settled. Only rows with an independently verified solidified event are marked verified.</p>
+                  <p className="studio-inline-note" role="note">Network boundary: Nile and Shasta are isolated test networks; their test tokens cannot be converted to Mainnet assets. These TronScan links are read-only and do not move assets or create an exchange deposit. Only a real Mainnet transfer of the exchange-accepted token contract can be considered for a Mainnet deposit.</p>
                   {receiverHistoryError && <p className="studio-inline-error" role="alert">{receiverHistoryError}</p>}
                   {receiverHistoryNotice && <p className="studio-inline-note" role="status">{receiverHistoryNotice}</p>}
                   {receiverHistoryCheckedAt !== null && !receiverHistoryLoading && !receiverHistoryError && (
@@ -1568,6 +1570,9 @@ export default function WorkflowApp() {
                       {receiverHistoryRecords.map((record, index) => {
                         const verified = isVerifiedHistoryRecord(record)
                         const recordKey = `${record.transactionId || 'no-tx'}-${record.tokenContract || 'no-contract'}-${record.eventIndex ?? index}`
+                        const transactionExplorerUrl = getTronScanTransactionUrl(record.network, record.transactionId)
+                        const receiverExplorerUrl = getTronScanAddressUrl(record.network, record.receiverAddress)
+                        const explorerLabel = getTronScanNetworkLabel(record.network)
                         return (
                           <article className={`studio-history-item ${verified ? 'is-verified' : ''}`} key={recordKey}>
                             <div className="studio-history-item-heading">
@@ -1575,9 +1580,10 @@ export default function WorkflowApp() {
                               <Pill tone={verified ? 'good' : 'warning'}>{verified ? 'Verified on-chain' : 'Awaiting solidified verification'}</Pill>
                             </div>
                             <p className="studio-history-meta">From: <code>{record.senderAddress || 'Sender unavailable'}</code></p>
+                            <p className="studio-history-meta">Receiver: <code>{record.receiverAddress || 'Receiver unavailable'}</code>{receiverExplorerUrl && explorerLabel && <> · <a className="studio-history-explorer-link" href={receiverExplorerUrl} target="_blank" rel="noopener noreferrer">View address on {explorerLabel}</a></>}</p>
                             <p className="studio-history-meta">Contract: <code>{record.tokenContract || tokenContract}</code></p>
                             <p className="studio-history-meta">Time: {formatHistoryTimestamp(record.timestamp)}</p>
-                            <p className="studio-history-meta">Transaction: <code>{record.transactionId || 'Transaction ID unavailable'}</code>{record.eventIndex !== null && record.eventIndex !== undefined ? ` · event ${record.eventIndex}` : ''}</p>
+                            <p className="studio-history-meta">Transaction: <code>{record.transactionId || 'Transaction ID unavailable'}</code>{record.eventIndex !== null && record.eventIndex !== undefined ? ` · event ${record.eventIndex}` : ''}{transactionExplorerUrl && explorerLabel && <> · <a className="studio-history-explorer-link" href={transactionExplorerUrl} target="_blank" rel="noopener noreferrer">Open in {explorerLabel}</a></>}</p>
                             {!verified && <p className="studio-history-warning">Indexer or unverified database record only. Do not treat this row as a settled receipt or spendable balance.</p>}
                             {!verified && (
                               <div className="studio-inline-actions">
