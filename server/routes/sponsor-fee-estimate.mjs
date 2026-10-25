@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { readSponsorDelegationSnapshot } from '../sponsor-delegation-snapshot.mjs'
+import { isPositiveUint256 } from '../base-units.mjs'
 
 const NETWORKS = Object.freeze({
   mainnet: 'https://api.trongrid.io',
@@ -8,7 +9,6 @@ const NETWORKS = Object.freeze({
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const BASE_UNITS_PATTERN = /^[1-9][0-9]{0,77}$/
-const UINT256_MAX = (1n << 256n) - 1n
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 function integerString(value, optional = false) {
@@ -317,8 +317,7 @@ export function createSponsorFeeEstimateRouter({
       || typeof receiverAddress !== 'string' || !ADDRESS_PATTERN.test(receiverAddress)) {
       return res.status(400).json({ success: false, status: 'invalid-address', message: 'tokenContract and receiverAddress must be valid TRON Base58 addresses.' })
     }
-    if (typeof amountBaseUnits !== 'string' || !BASE_UNITS_PATTERN.test(amountBaseUnits)
-      || BigInt(amountBaseUnits) > UINT256_MAX) {
+    if (!isPositiveUint256(amountBaseUnits)) {
       return res.status(400).json({ success: false, status: 'invalid-amount', message: 'amountBaseUnits must be a positive uint256 integer string.' })
     }
     const asset = allowlistedAsset(env, network, tokenContract)
