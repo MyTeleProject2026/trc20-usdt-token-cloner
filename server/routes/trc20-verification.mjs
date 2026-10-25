@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { recordTransferVerification } from '../database.mjs'
+import { isPositiveUint256 } from '../base-units.mjs'
 
 const NETWORKS = Object.freeze({
   mainnet: 'https://api.trongrid.io',
@@ -8,8 +9,6 @@ const NETWORKS = Object.freeze({
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-fA-F]{64}$/
-const BASE_UNITS_PATTERN = /^[1-9][0-9]{0,77}$/
-const UINT256_MAX = (1n << 256n) - 1n
 const TRANSFER_SELECTOR = 'a9059cbb'
 const TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
@@ -104,8 +103,7 @@ export function createTRC20VerificationRouter({
     if (![contract, from, to].every((value) => typeof value === 'string' && ADDRESS_PATTERN.test(value))) {
       return res.status(400).json({ success: false, verified: false, error: 'invalid-address', message: 'contract, from and to must be valid TRON Base58 addresses.' })
     }
-    if (typeof amountBaseUnits !== 'string' || !BASE_UNITS_PATTERN.test(amountBaseUnits)
-      || BigInt(amountBaseUnits) > UINT256_MAX) {
+    if (!isPositiveUint256(amountBaseUnits)) {
       return res.status(400).json({ success: false, verified: false, error: 'invalid-amount', message: 'amountBaseUnits must be a positive uint256 decimal string.' })
     }
     let eventIndex = null
