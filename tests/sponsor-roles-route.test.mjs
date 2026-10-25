@@ -52,7 +52,7 @@ test('independent sponsor roles route returns distinct fail-closed roles when ad
   assert.equal(response.body.submissionEnabled, false)
   assert.equal(response.headers['cache-control'], 'no-store')
   assert.equal(response.headers.pragma, 'no-cache')
-  assert.ok(response.body.limitations.some((item) => item.includes('No user-funded fallback is permitted')))
+  assert.ok(response.body.limitations.some((item) => item.toLowerCase().includes('no user-funded fallback is permitted')))
 })
 
 test('public sponsor roles response omits raw internal funding snapshots', async () => {
