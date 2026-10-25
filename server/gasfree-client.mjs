@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto'
+import { isValidTronAddress } from './tron-address.mjs'
 
 const NETWORKS = Object.freeze({
   mainnet: {
@@ -17,7 +18,6 @@ const NETWORKS = Object.freeze({
   },
 })
 
-const TRON_ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TRACE_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 export function getGasFreeNetwork(network) {
@@ -61,7 +61,7 @@ function normalizeProviders(payload) {
   if (!Array.isArray(payload?.data?.providers)) return null
   return payload.data.providers
     .filter((item) => item && typeof item.address === 'string'
-      && TRON_ADDRESS.test(item.address)
+      && isValidTronAddress(item.address)
       && typeof item.name === 'string' && item.name.trim().length > 0)
     .map((item) => ({
       address: item.address,
@@ -86,7 +86,7 @@ function normalizeTokens(payload) {
   if (!Array.isArray(payload?.data?.tokens)) return null
   return payload.data.tokens
     .filter((item) => item && typeof item.tokenAddress === 'string'
-      && TRON_ADDRESS.test(item.tokenAddress)
+      && isValidTronAddress(item.tokenAddress)
       && typeof item.symbol === 'string' && item.symbol.trim().length > 0
       && Number.isInteger(item.decimal) && item.decimal >= 0 && item.decimal <= 255
       && validIntegerString(item.activateFee) !== null
@@ -107,7 +107,7 @@ function normalizeAccount(payload, requestedAddress) {
   if (!account || typeof account !== 'object'
     || account.accountAddress !== requestedAddress
     || typeof account.gasFreeAddress !== 'string'
-    || !TRON_ADDRESS.test(account.gasFreeAddress)
+    || !isValidTronAddress(account.gasFreeAddress)
     || typeof account.active !== 'boolean'
     || !Number.isSafeInteger(account.nonce) || account.nonce < 0
     || typeof account.allowSubmit !== 'boolean'
@@ -115,7 +115,7 @@ function normalizeAccount(payload, requestedAddress) {
 
   const assets = account.assets
     .filter((item) => item && typeof item.tokenAddress === 'string'
-      && TRON_ADDRESS.test(item.tokenAddress)
+      && isValidTronAddress(item.tokenAddress)
       && typeof item.tokenSymbol === 'string'
       && Number.isInteger(item.decimal) && item.decimal >= 0 && item.decimal <= 255)
     .map((item) => ({
@@ -159,7 +159,7 @@ function normalizeTrace(payload, requestedTraceId) {
     .find((value) => typeof value === 'string' && /^[0-9a-fA-F]{64}$/.test(value))
   const amount = validIntegerString(data.amount)
   const maxFee = validIntegerString(data.maxFee)
-  const normalizeAddress = (value) => typeof value === 'string' && TRON_ADDRESS.test(value) ? value : null
+  const normalizeAddress = (value) => isValidTronAddress(value) ? value : null
   return {
     traceId: returnedId.slice(0, 128),
     state: state ? state.toUpperCase().slice(0, 32) : 'UNKNOWN',
@@ -282,7 +282,7 @@ export function createGasFreeClient({
       })
     },
     async getAccount(network, accountAddress) {
-      if (typeof accountAddress !== 'string' || !TRON_ADDRESS.test(accountAddress)) {
+      if (!isValidTronAddress(accountAddress)) {
         return { configured: false, reachable: false, network, reason: 'invalid-account-address' }
       }
       return withReadOnlyAccess(network, async (config, auth) => {
