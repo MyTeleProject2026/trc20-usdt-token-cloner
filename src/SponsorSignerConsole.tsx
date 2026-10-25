@@ -588,12 +588,19 @@ export default function SponsorSignerConsole() {
             {(['nile', 'shasta'] as const).map((pilotNetwork) => {
               const item = pilotPreflight?.networks?.[pilotNetwork]
               const blockers: string[] = Array.isArray(item?.blockers) ? item.blockers : []
+              const feeNative = item?.sponsors?.networkFeeSponsor?.native
+              const principalNative = item?.sponsors?.assetPrincipalSponsor?.native
+              const principalTokens: ApiPayload[] = Array.isArray(item?.sponsors?.assetPrincipalSponsor?.tokens)
+                ? item.sponsors.assetPrincipalSponsor.tokens : []
               return (
                 <div key={pilotNetwork} className="sponsor-console-pilot-network">
                   <div className="sponsor-console-detail"><span>{pilotNetwork === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</span><strong>{item?.preflightStatus || 'not checked'}</strong></div>
                   <div className="sponsor-console-detail"><span>Solidified node</span><strong>{item?.networkNode?.reachable === true ? 'Reachable · block ' + String(item.networkNode.latestSolidifiedBlockNumber ?? 'unknown') : String(item?.networkNode?.status || 'not verified')}</strong></div>
                   <div className="sponsor-console-detail"><span>Sponsor roles / chain reads</span><strong>{item?.roleConfiguration?.feeSponsorAddressConfigured === true ? 'Fee address configured' : 'Fee address missing'} · {item?.roleConfiguration?.assetPrincipalSponsorAddressConfigured === true ? 'Principal address configured' : 'Principal address missing'} · {item?.roleConfiguration?.rolesDistinct === true ? 'distinct' : 'not verified distinct'}</strong></div>
                   <div className="sponsor-console-detail"><span>Live funding/resources</span><strong>Fee balance {item?.roleConfiguration?.feeSponsorOnChainBalanceRead === true ? 'read' : 'not verified'} · Principal balance {item?.roleConfiguration?.assetPrincipalSponsorOnChainBalanceRead === true ? 'read' : 'not verified'} · Resources {item?.feeSponsorResources?.read === true ? 'read' : 'not verified'} · Delegation {item?.feeSponsorResources?.delegation?.activeDelegationObserved === true ? 'observed' : 'not observed'}</strong></div>
+                  <div className="sponsor-console-detail"><span>Observed native balances</span><strong>Fee sponsor {feeNative?.status === 'verified' ? String(feeNative.balanceTRX) + ' TRX' : 'not verified'} · Asset-principal sponsor {principalNative?.status === 'verified' ? String(principalNative.balanceTRX) + ' TRX' : 'not verified'}</strong></div>
+                  <div className="sponsor-console-detail"><span>Principal token balances</span><strong>{principalTokens.length > 0 ? principalTokens.map((token: ApiPayload) => token.asset + ': ' + (token.status === 'verified' ? String(token.balanceBaseUnits) + ' base units' + (Number.isSafeInteger(token.decimals) ? ' (decimals ' + String(token.decimals) + ')' : '') : 'not verified')).join(' · ') : 'No configured token balances reported'}</strong></div>
+                  <div className="sponsor-console-detail"><span>Token allowlists</span><strong>Testnet USDT contract {item?.tokenContractAllowlistConfigured?.USDT === true ? 'configured' : 'not configured'} · VTRC contract {item?.tokenContractAllowlistConfigured?.VTRC === true ? 'configured' : 'not configured'}</strong></div>
                   {blockers.length > 0 && <div className="sponsor-console-result-note"><strong>Blockers ({blockers.length})</strong><ul>{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></div>}
                 </div>
               )
