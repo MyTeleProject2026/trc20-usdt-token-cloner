@@ -307,7 +307,7 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -f sponsor-solidified-reconciliation-guard.json' EXIT
-          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output sponsor-solidified-reconciliation-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-solidified-reconciliation-guard-0000000001/reconcile-solidified')"
+          http_code="$(curl --retry 4 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 20 --silent --show-error --output sponsor-solidified-reconciliation-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-solidified-reconciliation-guard-0000000001/reconcile-solidified')"
           if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
             echo "Unauthenticated solidified reconciliation route returned unexpected HTTP $http_code." >&2
             exit 1
