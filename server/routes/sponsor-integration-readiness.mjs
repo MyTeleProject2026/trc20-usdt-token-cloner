@@ -88,7 +88,20 @@ export function createSponsorIntegrationReadinessRouter(options = {}) {
         noUserCostPolicySatisfied: false,
       } }]
     }))
-    const networks = { ...base.networks, ...Object.fromEntries(networkChecks) }
+    const networks = {
+      ...base.networks,
+      ...Object.fromEntries(networkChecks),
+      shasta: {
+        ...base.networks.shasta,
+        gasFree: {
+          ...base.networks.shasta.gasFree,
+          discoveryReachabilityVerified: false,
+          discoveryStatus: 'unsupported-network',
+          providerCount: null,
+          supportedTokenCount: null,
+        },
+      },
+    }
 
     return res.status(200).json({
       ...base,
