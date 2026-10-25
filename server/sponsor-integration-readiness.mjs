@@ -69,13 +69,18 @@ export function getSponsorIntegrationReadiness({
   }))
 
   const blockers = [
+    'github-actions-runner-allocation-and-full-ci-validation-not-passing',
+    'high-severity-google-protobuf-advisory-unresolved',
+    'external-sponsor-agreement-and-funded-accounts-not-independently-verified',
+    'provider-not-verified-to-provide-asset-principal-and-all-fees',
     'provider-specific-sign-submit-and-broadcast-adapter-not-integrated',
     'secure-managed-signer-or-provider-authorization-path-not-integrated',
     'transaction-time-sponsor-consent-and-spending-mandate-verification-not-integrated',
     'transaction-time-atomic-principal-and-fee-reservation-not-connected-to-submission',
     'independent-solidified-settlement-and-receiver-balance-reconciliation-not-end-to-end-verified',
     'authenticated-exchange-deposit-credit-verification-not-integrated',
-    'successful-supported-testnet-end-to-end-run-and-security-review-not-recorded',
+    'successful-supported-testnet-end-to-end-run-not-recorded',
+    'independent-security-review-not-recorded',
     'mainnet-operator-release-approval-not-recorded',
   ]
 
