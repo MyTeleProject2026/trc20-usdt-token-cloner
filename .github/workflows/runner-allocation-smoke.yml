@@ -1,4 +1,4 @@
-name: Hosted runner allocation smoke test
+name: Hosted runner and application CI diagnostic
 
 on:
   push:
@@ -19,18 +19,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  runner-smoke:
+  runner-and-app-check:
     runs-on: ubuntu-22.04
-    timeout-minutes: 3
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
+      SPONSOR_PG_INTEGRATION: "1"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sponsor_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sponsor_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
-      - name: Confirm a hosted runner was actually allocated
+      - name: Confirm hosted runner allocation
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${RUNNER_NAME:-}" ]]; then
-            echo "RUNNER_NAME is empty; the job did not establish a runner environment." >&2
-            exit 1
-          fi
+          test -n "${RUNNER_NAME:-}"
           printf 'Runner name: %s\n' "$RUNNER_NAME"
           printf 'Runner OS: %s\n' "${RUNNER_OS:-unknown}"
-          echo "Hosted runner reached a workflow step successfully."
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run tests including PostgreSQL integration tests
+        run: npm test
+      - name: Build frontend and compile contract
+        run: npm run build
