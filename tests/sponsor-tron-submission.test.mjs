@@ -5,6 +5,7 @@ import {
   broadcastValidatedSponsorTransaction,
   buildSponsorUnsignedTransaction,
   validateSponsorSignedTransaction,
+  verifySponsorFeeResourceCapacity,
 } from '../server/sponsor-tron-submission.mjs'
 
 const sponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
@@ -170,7 +171,7 @@ test('signed exact sponsor intent is verified against the selected testnet node 
     now: () => now,
     fetchImpl: async (url, options) => {
       calls.push({ url, options })
-      return response(200, { result: {}, permission: { threshold: 1 }, current_weight: 1 })
+      return response(200, { result: { code: 'ENOUGH_PERMISSION' }, permission: { threshold: 1 }, current_weight: 1 })
     },
     tronWebFactory: fakeTronWeb,
   })
@@ -211,4 +212,100 @@ test('broadcast requires the node to accept the exact expected transaction id', 
   assert.equal(calls[0].url, 'https://nile.trongrid.io/wallet/broadcasttransaction')
   assert.equal(calls[0].options.method, 'POST')
   assert.equal(calls[0].options.redirect, 'error')
+})
+
+
+test('signed transaction JSON must match the exact persisted unsigned signing intent', async () => {
+  let called = false
+  const original = signedTransfer()
+  const altered = signedTransfer({
+    raw_data: {
+      ...original.raw_data,
+      contract: [{
+        ...original.raw_data.contract[0],
+        parameter: {
+          ...original.raw_data.contract[0].parameter,
+          value: { ...original.raw_data.contract[0].parameter.value, amount: 2000000 },
+        },
+      }],
+    },
+  })
+  const result = await validateSponsorSignedTransaction({
+    transfer: transfer(),
+    signedTransaction: altered,
+    expectedUnsignedTransaction: original,
+    env: {},
+    now: () => now,
+    fetchImpl: async () => { called = true; return response(200, {}) },
+    tronWebFactory: fakeTronWeb,
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'signed-transaction-does-not-match-persisted-signing-intent')
+  assert.equal(called, false)
+})
+
+test('native sponsor capacity checks live available bandwidth and rejects inadequate resources', async () => {
+  const transaction = {
+    txID,
+    raw_data_hex: rawDataHex,
+    raw_data: {
+      contract: [{ type: 'TransferContract', parameter: { value: {} } }],
+    },
+  }
+  const enough = await verifySponsorFeeResourceCapacity({
+    transfer: transfer(),
+    transaction,
+    env: {},
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async () => response(200, {
+      NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
+      EnergyLimit: 0, EnergyUsed: 0,
+    }),
+  })
+  assert.equal(enough.success, true)
+  assert.equal(enough.status, 'sponsor-resource-capacity-verified')
+  assert.ok(BigInt(enough.availableBandwidthUnits) >= BigInt(enough.requiredBandwidthUnits))
+
+  const tooLittle = await verifySponsorFeeResourceCapacity({
+    transfer: transfer(),
+    transaction,
+    env: {},
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async () => response(200, {
+      NetLimit: 1, NetUsed: 1, freeNetLimit: 0, freeNetUsed: 0,
+      EnergyLimit: 0, EnergyUsed: 0,
+    }),
+  })
+  assert.equal(tooLittle.success, false)
+  assert.equal(tooLittle.reason, 'sponsor-bandwidth-capacity-insufficient')
+})
+
+test('TRC20 sponsor capacity fails closed when live constant-contract simulation cannot estimate energy', async () => {
+  const tokenTransfer = transfer({ asset: 'USDT', tokenContract, amountBaseUnits: '1000' })
+  const transaction = {
+    txID,
+    raw_data_hex: rawDataHex,
+    raw_data: {
+      fee_limit: 10000000,
+      contract: [{
+        type: 'TriggerSmartContract',
+        parameter: { value: { contract_address: '41' + '33'.repeat(20), data: 'a9059cbb' + '0'.repeat(128) } },
+      }],
+    },
+  }
+  const result = await verifySponsorFeeResourceCapacity({
+    transfer: tokenTransfer,
+    transaction,
+    env: {},
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/wallet/getaccountresource')) return response(200, {
+        NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
+        EnergyLimit: 100000, EnergyUsed: 0,
+      })
+      return response(200, { result: { result: false }, energy_used: 20000 })
+    },
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'token-energy-estimate-unavailable')
 })
