@@ -45,7 +45,7 @@ jobs:
             process.exitCode = 1
           }
           const counts = report.metadata?.vulnerabilities ?? {}
-          const clean = value => String(value).replaceAll('|', '\\|').replaceAll('\\n', ' ')
+          const clean = value => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
           const rank = { critical: 0, high: 1, moderate: 2, low: 3, info: 4 }
           const packages = Object.entries(report.vulnerabilities ?? {}).sort((a, b) =>
             (rank[a[1].severity] ?? 5) - (rank[b[1].severity] ?? 5) || a[0].localeCompare(b[0]))
@@ -78,8 +78,8 @@ jobs:
             ...rows,
             '',
             'Detailed npm audit JSON is attached as a workflow artifact. Review major upgrades for runtime compatibility before applying.'
-          ].join('\\n')
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\\n')
+          ].join('\n')
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n')
           console.log(summary)
           if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
             console.error('Blocking dependency advisories detected: resolve critical/high findings before release.')
