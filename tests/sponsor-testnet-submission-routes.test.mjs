@@ -57,7 +57,7 @@ test('testnet signed-broadcast endpoint fails closed with the feature flag unset
   }
 })
 
-test('signed-broadcast route rejects Mainnet before transaction or provider work', async () => {
+test('signed-broadcast route rejects private-key fields before database/provider calls', async () => {
   const previous = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
   try {
     process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
@@ -65,12 +65,10 @@ test('signed-broadcast route rejects Mainnet before transaction or provider work
     await route('/sponsorship/transfers/:idempotencyKey/submit-signed', 'post')({
       params: { idempotencyKey: 'reservation-intent-key-00000001' },
       query: {}, headers: {},
-      body: { signedTransaction: { txID: 'a'.repeat(64), raw_data_hex: '01', signature: ['a'.repeat(130)] } },
+      body: { signedTransaction: { txID: 'a'.repeat(64) }, privateKey: 'must-not-be-accepted' },
     }, response)
-    // With no live database configured in this unit test the request fails before
-    // any broadcast. Mainnet remains impossible because the request must resolve
-    // to a persisted Shasta/Nile transfer and the adapter rejects any other network.
-    assert.ok([400, 503].includes(response.statusCode))
+    assert.equal(response.statusCode, 400)
+    assert.equal(response.body.error, 'signed-transaction-only')
     assert.notEqual(response.body?.transactionBroadcast, true)
   } finally {
     if (previous === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
