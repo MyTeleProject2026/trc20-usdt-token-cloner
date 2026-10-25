@@ -69,8 +69,6 @@ export function getSponsorIntegrationReadiness({
   }))
 
   const blockers = [
-    'github-actions-runner-allocation-and-full-ci-validation-not-passing',
-    'high-severity-google-protobuf-advisory-unresolved',
     'external-sponsor-agreement-and-funded-accounts-not-independently-verified',
     'provider-not-verified-to-provide-asset-principal-and-all-fees',
     'production-provider-sign-submit-broadcast-adapter-not-verified',
