@@ -198,6 +198,10 @@ export default function SponsorSignerConsole() {
   const globalProductionEnabled = serverStatus?.enabled === true
     && serverStatus?.canSubmitSponsoredTransfer === true
     && serverStatus?.mainnetEnabled === true
+  const feeRole = roleStatus?.roles?.networkFeeSponsor
+  const assetRole = roleStatus?.roles?.assetPrincipalSponsor
+  const delegation = roleStatus?.feeSponsorDelegationToPrincipal
+  const assetTokens: ApiPayload[] = Array.isArray(assetRole?.tokens) ? assetRole.tokens : []
 
   return (
     <div className="sponsor-console-page">
@@ -223,11 +227,11 @@ export default function SponsorSignerConsole() {
           {roleStatus && <section className="sponsor-console-card">
             <div className="sponsor-console-step"><span>LIVE</span><div><h2>Live sponsor-role diagnostics</h2><p>Automatically reloaded after wallet connection. These are read-only chain observations, not authorization or final fee settlement.</p></div></div>
             <div className="sponsor-console-detail"><span>Network / checked at</span><strong>{roleStatus.network} · {roleStatus.checkedAt ? new Date(roleStatus.checkedAt).toLocaleTimeString() : 'timestamp unavailable'}</strong></div>
-            <div className="sponsor-console-detail"><span>Fee sponsor</span><strong>{roleStatus.roles?.networkFeeSponsor?.status || 'not verified'} · {roleStatus.roles?.networkFeeSponsor?.native?.status === 'verified' ? String(roleStatus.roles.networkFeeSponsor.native.balanceTRX) + ' TRX' : 'native balance not verified'}</strong></div>
-            <div className="sponsor-console-detail"><span>Fee sponsor resources</span><strong>{roleStatus.roles?.networkFeeSponsor?.resourceStatus?.resourceRead === true ? String(roleStatus.roles.networkFeeSponsor.resourceStatus.currentlyAvailableEnergy ?? 'unknown') + ' energy / ' + String(roleStatus.roles.networkFeeSponsor.resourceStatus.currentlyAvailableBandwidth ?? 'unknown') + ' bandwidth' : 'resources not verified'}</strong></div>
-            <div className="sponsor-console-detail"><span>Asset-principal sponsor</span><strong>{roleStatus.roles?.assetPrincipalSponsor?.status || 'not verified'} · {roleStatus.roles?.assetPrincipalSponsor?.native?.status === 'verified' ? String(roleStatus.roles.assetPrincipalSponsor.native.balanceTRX) + ' TRX' : 'native balance not verified'}</strong></div>
-            <div className="sponsor-console-detail"><span>Token balances</span><strong>{Array.isArray(roleStatus.roles?.assetPrincipalSponsor?.tokens) ? roleStatus.roles.assetPrincipalSponsor.tokens.map((token: ApiPayload) => token.asset + ': ' + (token.status === 'verified' ? String(token.balanceBaseUnits) + ' base units' : 'not verified')).join(' · ') : 'not verified'}</strong></div>
-            <div className="sponsor-console-detail"><span>Fee-to-principal delegation</span><strong>{roleStatus.feeSponsorDelegationToPrincipal?.status || 'not verified'} · {roleStatus.feeSponsorDelegationToPrincipal?.success === true ? 'observed' : 'not confirmed'}</strong></div>
+            <div className="sponsor-console-detail"><span>Fee sponsor</span><strong>{feeRole?.status || 'not verified'} · {feeRole?.native?.status === 'verified' ? String(feeRole.native.balanceTRX) + ' TRX' : 'native balance not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Fee sponsor resources</span><strong>{feeRole?.resourceStatus?.resourceRead === true ? String(feeRole.resourceStatus.currentlyAvailableEnergy ?? 'unknown') + ' energy / ' + String(feeRole.resourceStatus.currentlyAvailableBandwidth ?? 'unknown') + ' bandwidth' : 'resources not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Asset-principal sponsor</span><strong>{assetRole?.status || 'not verified'} · {assetRole?.native?.status === 'verified' ? String(assetRole.native.balanceTRX) + ' TRX' : 'native balance not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Token balances</span><strong>{assetTokens.length > 0 ? assetTokens.map((token: ApiPayload) => token.asset + ': ' + (token.status === 'verified' ? String(token.balanceBaseUnits) + ' base units' : 'not verified')).join(' · ') : 'not verified'}</strong></div>
+            <div className="sponsor-console-detail"><span>Fee-to-principal delegation</span><strong>{delegation?.status || 'not verified'} · {delegation?.success === true ? 'observed' : 'not confirmed'}</strong></div>
             <div className="sponsor-console-result-note">Configured accounts: {roleStatus.accountsConfigured === true ? 'both present' : 'incomplete'}; distinct roles: {roleStatus.configuredAddressesDistinct === true ? 'verified' : 'not verified'}. A positive balance or delegation is not proof of a funded agreement, transaction authorization, final fee consumption, or recipient credit.</div>
           </section>}
 
