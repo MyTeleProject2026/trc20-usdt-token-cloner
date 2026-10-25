@@ -253,6 +253,10 @@ export async function initializeDatabase() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_status_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers
+        ADD CONSTRAINT sponsor_transfers_status_check
+        CHECK (status IN ('pending-review','authorized','broadcasting','submitted','confirmed','failed','cancelled'))`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
       // The transfer ledger must preserve fee/principal separation and exact token identity too.
@@ -1212,6 +1216,262 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
 }
 
 
+/**
+ * Returns one reserved sponsor intent with its currently approved budget scope.
+ * This is an internal signing/broadcast adapter input, never a wallet secret.
+ */
+export async function getSponsorTransferForSubmission(idempotencyKey) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return { success: false, reason: 'invalid-idempotency-key' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT t.idempotency_key, t.sponsor_reference, t.sponsor_address, t.network, t.purpose,
+              t.asset, t.token_contract, t.receiver_address, t.amount_base_units::text AS amount_base_units,
+              t.status, t.transaction_hash, b.status AS budget_status,
+              b.budget_base_units::text AS budget_base_units,
+              b.reserved_base_units::text AS budget_reserved_base_units,
+              b.spent_base_units::text AS budget_spent_base_units,
+              b.approval_reference, b.review_reference, b.approved_at
+         FROM ${schema}.sponsor_transfers t
+         JOIN ${schema}.sponsor_budgets b
+           ON b.sponsor_reference = t.sponsor_reference
+          AND b.sponsor_address = t.sponsor_address
+          AND b.network = t.network AND b.purpose = t.purpose AND b.asset = t.asset
+          AND b.token_contract IS NOT DISTINCT FROM t.token_contract
+        WHERE t.idempotency_key = $1
+        LIMIT 1`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) return { success: false, reason: 'transfer-not-found' }
+    const row = result.rows[0]
+    const budgetApproved = row.budget_status === 'active'
+      && typeof row.approval_reference === 'string' && row.approval_reference.length > 0
+      && typeof row.review_reference === 'string' && row.review_reference.length > 0
+      && row.approved_at != null
+      && isApprovedSponsorAgreementScope({
+        consentReference: row.approval_reference,
+        budget: {
+          sponsor_reference: row.sponsor_reference,
+          sponsor_address: row.sponsor_address,
+          network: row.network,
+          purpose: row.purpose,
+          asset: row.asset,
+          token_contract: row.token_contract,
+          status: row.budget_status,
+          review_reference: row.review_reference,
+          approved_at: row.approved_at,
+        },
+      })
+    return {
+      success: true,
+      transfer: {
+        idempotencyKey: row.idempotency_key,
+        sponsorReference: row.sponsor_reference,
+        sponsorAddress: row.sponsor_address,
+        network: row.network,
+        purpose: row.purpose,
+        asset: row.asset,
+        tokenContract: row.token_contract,
+        receiverAddress: row.receiver_address,
+        amountBaseUnits: row.amount_base_units,
+        status: row.status,
+        transactionHash: row.transaction_hash?.trim() || null,
+        budgetStatus: row.budget_status,
+        budgetApproved,
+        budgetBaseUnits: row.budget_base_units,
+        budgetReservedBaseUnits: row.budget_reserved_base_units,
+        budgetSpentBaseUnits: row.budget_spent_base_units,
+      },
+    }
+  } catch (error) {
+    console.error('Sponsor transfer submission lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Atomically claims an already signature-verified testnet transfer before
+ * network broadcast. Binding its txid first prevents a concurrent cancel or a
+ * second, different transaction from racing the broadcaster.
+ */
+export async function claimSponsorTransferBroadcast({
+  idempotencyKey,
+  transactionHash,
+  sponsorAddress,
+} = {}) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || typeof sponsorAddress !== 'string' || !isValidTronAddress(sponsorAddress)) {
+    return { claimed: false, reason: 'invalid-broadcast-claim' }
+  }
+  const db = getPool()
+  if (!db) return { claimed: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query(
+      `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset,
+              token_contract, receiver_address, amount_base_units::text AS amount_base_units,
+              status, transaction_hash
+         FROM ${schema}.sponsor_transfers
+        WHERE idempotency_key = $1
+        FOR UPDATE`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'transfer-not-found' }
+    }
+    const transfer = result.rows[0]
+    if (!['shasta', 'nile'].includes(transfer.network)) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'testnet-only-broadcast' }
+    }
+    if (transfer.purpose !== 'asset-grant' || transfer.sponsor_address !== sponsorAddress) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'sponsor-intent-identity-mismatch' }
+    }
+    const txId = transactionHash.toLowerCase()
+    if (transfer.status === 'submitted' && transfer.transaction_hash?.trim().toLowerCase() === txId) {
+      await client.query('COMMIT')
+      return { claimed: true, duplicate: true, alreadySubmitted: true, status: 'submitted' }
+    }
+    if (transfer.status === 'broadcasting') {
+      if (transfer.transaction_hash?.trim().toLowerCase() !== txId) {
+        await client.query('ROLLBACK')
+        return { claimed: false, reason: 'transaction-hash-conflict' }
+      }
+      await client.query('COMMIT')
+      return { claimed: true, duplicate: true, retry: true, status: 'broadcasting' }
+    }
+    if (transfer.status !== 'pending-review') {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'invalid-state-transition' }
+    }
+
+    const budgetResult = await client.query(
+      `SELECT id::text AS id, sponsor_reference, sponsor_address, network, purpose, asset,
+              token_contract, budget_base_units::text AS budget_base_units,
+              reserved_base_units::text AS reserved_base_units,
+              spent_base_units::text AS spent_base_units, status,
+              approval_reference, review_reference, approved_at
+         FROM ${schema}.sponsor_budgets
+        WHERE sponsor_reference = $1 AND sponsor_address = $2 AND network = $3
+          AND purpose = $4 AND asset = $5 AND token_contract IS NOT DISTINCT FROM $6
+        FOR UPDATE`,
+      [transfer.sponsor_reference, transfer.sponsor_address, transfer.network,
+        transfer.purpose, transfer.asset, transfer.token_contract],
+    )
+    if (!budgetResult.rows.length) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'sponsor-budget-not-found' }
+    }
+    const budget = budgetResult.rows[0]
+    if (budget.status !== 'active'
+      || !budget.approval_reference || !budget.review_reference || budget.approved_at == null
+      || !isApprovedSponsorAgreementScope({ consentReference: budget.approval_reference, budget })) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'sponsor-budget-activation-required' }
+    }
+    if (BigInt(budget.reserved_base_units) < BigInt(transfer.amount_base_units)) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'reservation-invariant-violated' }
+    }
+
+    await client.query(
+      `UPDATE ${schema}.sponsor_transfers
+          SET status = 'broadcasting', transaction_hash = $1,
+              authorization_reference = $2, updated_at = now()
+        WHERE idempotency_key = $3 AND status = 'pending-review'`,
+      [txId, `verified-wallet-signature:${sponsorAddress}`, idempotencyKey],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-transfer-broadcast-claimed', 'sponsor-transfer', $1, $2::jsonb)`,
+      [idempotencyKey, JSON.stringify({
+        network: transfer.network, sponsorAddress, transactionHash: txId,
+        asset: transfer.asset, amountBaseUnits: transfer.amount_base_units,
+      })],
+    )
+    await client.query('COMMIT')
+    return { claimed: true, duplicate: false, status: 'broadcasting', transactionHash: txId }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    console.error('Sponsor transfer broadcast claim failed:', error?.code || 'unknown')
+    return { claimed: false, reason: 'database-unavailable' }
+  } finally {
+    client.release()
+  }
+}
+
+/** Persist only an exact node-accepted txid after the chain node's broadcast response. */
+export async function finalizeSponsorTransferBroadcast({
+  idempotencyKey,
+  transactionHash,
+  sponsorAddress,
+} = {}) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || typeof sponsorAddress !== 'string' || !isValidTronAddress(sponsorAddress)) {
+    return { updated: false, reason: 'invalid-broadcast-result' }
+  }
+  const db = getPool()
+  if (!db) return { updated: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query(
+      `SELECT sponsor_address, network, status, transaction_hash
+         FROM ${schema}.sponsor_transfers
+        WHERE idempotency_key = $1
+        FOR UPDATE`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'transfer-not-found' }
+    }
+    const row = result.rows[0]
+    const txId = transactionHash.toLowerCase()
+    if (row.status === 'submitted' && row.transaction_hash?.trim().toLowerCase() === txId) {
+      await client.query('COMMIT')
+      return { updated: true, duplicate: true, status: 'submitted' }
+    }
+    if (!['shasta', 'nile'].includes(row.network) || row.status !== 'broadcasting'
+      || row.sponsor_address !== sponsorAddress
+      || row.transaction_hash?.trim().toLowerCase() !== txId) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'broadcast-claim-mismatch' }
+    }
+    await client.query(
+      `UPDATE ${schema}.sponsor_transfers
+          SET status = 'submitted', updated_at = now()
+        WHERE idempotency_key = $1 AND status = 'broadcasting'
+          AND lower(transaction_hash) = $2`,
+      [idempotencyKey, txId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-transfer-broadcast-accepted', 'sponsor-transfer', $1, $2::jsonb)`,
+      [idempotencyKey, JSON.stringify({ network: row.network, sponsorAddress, transactionHash: txId })],
+    )
+    await client.query('COMMIT')
+    return { updated: true, duplicate: false, status: 'submitted' }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    console.error('Sponsor transfer broadcast finalization failed:', error?.code || 'unknown')
+    return { updated: false, reason: 'database-unavailable' }
+  } finally {
+    client.release()
+  }
+}
+
 /** Production entry point: use the configured pool and initialize the schema. */
 export async function transitionSponsorTransfer(input) {
   const db = getPool()
@@ -1692,7 +1952,7 @@ export async function listSponsorTransfers({ network = null, status = null, spon
   if (network !== null && !normalizeVerificationNetwork(network)) {
     return { success: false, reason: 'invalid-network', transfers: [] }
   }
-  const allowedStatuses = new Set(['pending-review', 'authorized', 'submitted', 'confirmed', 'failed', 'cancelled'])
+  const allowedStatuses = new Set(['pending-review', 'authorized', 'broadcasting', 'submitted', 'confirmed', 'failed', 'cancelled'])
   if (status !== null && (typeof status !== 'string' || !allowedStatuses.has(status))) {
     return { success: false, reason: 'invalid-status', transfers: [] }
   }
