@@ -198,10 +198,10 @@ export function createSponsorChainCostObservationRouter(options = {}) {
     res.setHeader('Pragma', 'no-cache')
     res.setHeader('Vary', 'Authorization')
     if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
-      return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured', canSubmitSponsoredTransfer: false })
+      return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured', canSubmitSponsoredTransfer: false, feeSponsorBudgetSettled: false, sponsorFeeBudgetSettled: false })
     }
     if (!adminAuthorized(req, env)) {
-      return res.status(401).json({ success: false, error: 'unauthorized', canSubmitSponsoredTransfer: false })
+      return res.status(401).json({ success: false, error: 'unauthorized', canSubmitSponsoredTransfer: false, feeSponsorBudgetSettled: false, sponsorFeeBudgetSettled: false })
     }
     const idempotencyKey = req.params?.idempotencyKey
     if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
