@@ -272,6 +272,36 @@ jobs:
           }))
           NODE
 
+      - name: Verify sponsor chain-cost observation route is mounted and fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f chain-cost-observation-guard.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output chain-cost-observation-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-chain-cost-observation-guard-0000000001/observe-chain-costs')"
+          if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
+            echo "Unauthenticated chain-cost observation route returned unexpected HTTP $http_code." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('chain-cost-observation-guard.json', 'utf8'))
+          if (data.success !== false
+            || !['unauthorized', 'sponsor-admin-not-configured'].includes(data.error)
+            || data.canSubmitSponsoredTransfer !== false
+            || data.feeSponsorBudgetSettled !== false) {
+            throw new Error('Chain-cost observation endpoint is not fail-closed without operator authorization')
+          }
+          if (data.transactionBroadcast === true || data.sponsorFeeBudgetSettled === true) {
+            throw new Error('Read-only cost observation endpoint reported a spend/settlement side effect')
+          }
+          console.log(JSON.stringify({
+            route: 'sponsor-chain-cost-observation',
+            guard: data.error,
+            canSubmitSponsoredTransfer: data.canSubmitSponsoredTransfer,
+            feeSponsorBudgetSettled: data.feeSponsorBudgetSettled
+          }))
+          NODE
+
       - name: Check out source for gate-contract validation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 

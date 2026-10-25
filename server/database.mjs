@@ -298,6 +298,42 @@ export async function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_transfers_status_created
           ON ${schema}.sponsor_transfers (status, created_at DESC)
       `)
+      // Records immutable, transaction-specific costs observed from the selected testnet's
+      // solidified node. These observations are not proof that the distinct resource sponsor
+      // was economically debited; resource attribution and fee-budget settlement remain separate.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_chain_cost_observations (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          idempotency_key TEXT NOT NULL REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          sponsor_reference TEXT NOT NULL,
+          fee_sponsor_address TEXT NOT NULL,
+          asset_principal_address TEXT NOT NULL,
+          receiver_address TEXT NOT NULL,
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT','VTRC')),
+          token_contract TEXT,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          execution_result TEXT NOT NULL CHECK (execution_result = 'SUCCESS'),
+          reported_fee_sun NUMERIC(78,0) NOT NULL CHECK (reported_fee_sun >= 0),
+          energy_fee_sun NUMERIC(78,0),
+          net_fee_sun NUMERIC(78,0),
+          energy_usage_total NUMERIC(78,0),
+          energy_usage NUMERIC(78,0),
+          net_usage NUMERIC(78,0),
+          energy_penalty_total NUMERIC(78,0),
+          evidence_source TEXT NOT NULL DEFAULT 'Tatum TRON SolidityNode transaction body and receipt',
+          observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_chain_cost_observations_created
+        ON ${schema}.sponsor_chain_cost_observations (network, observed_at DESC)`)
+      await db.query(`COMMENT ON TABLE ${schema}.sponsor_chain_cost_observations IS
+        'TRC20 Token Clone project only: immutable solidified transaction cost observations. Not, by itself, proof of fee-sponsor debit or a settled fee budget.'`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.audit_events (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -2479,5 +2515,248 @@ export async function reviewSponsorProviderApplication({ reference, status, revi
   } catch (error) {
     console.error('Provider application review initialization failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/**
+ * Persist observed costs only for a transfer that has already reached confirmed
+ * state through the exact-match solidified-chain verifier. This table is an
+ * observation log, not a claim that a separate resource sponsor paid those costs.
+ */
+export async function recordSponsorChainCostObservation(input = {}) {
+  const network = input.network;
+  const transactionHash = typeof input.transactionHash === 'string' ? input.transactionHash.toLowerCase() : '';
+  const idempotencyKey = input.idempotencyKey;
+  const feeSponsorAddress = typeof input.feeSponsorAddress === 'string' ? input.feeSponsorAddress.trim() : '';
+  const blockNumber = input.blockNumber;
+  const amounts = ['amountBaseUnits', 'reportedFeeSun', 'energyFeeSun', 'netFeeSun',
+    'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'];
+  const integerValues = {};
+  for (const key of amounts) {
+    const value = input[key];
+    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
+      integerValues[key] = null;
+    } else if (typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)) {
+      integerValues[key] = value;
+    } else if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+      integerValues[key] = String(value);
+    } else {
+      return { success: false, reason: 'invalid-chain-cost-observation' };
+    }
+  }
+  const asset = input.asset;
+  const tokenContract = asset === 'TRX' ? null : (typeof input.tokenContract === 'string' ? input.tokenContract.trim() : '');
+  if (!['nile', 'shasta'].includes(network)
+    || !/^[0-9a-f]{64}$/.test(transactionHash)
+    || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || typeof input.sponsorReference !== 'string' || input.sponsorReference.length < 1 || input.sponsorReference.length > 128
+    || !isValidTronAddress(feeSponsorAddress)
+    || !isValidTronAddress(input.assetPrincipalAddress)
+    || !isValidTronAddress(input.receiverAddress)
+    || feeSponsorAddress === input.assetPrincipalAddress
+    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || (asset === 'TRX' && input.tokenContract != null)
+    || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
+    || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
+    || input.executionResult !== 'SUCCESS'
+    || integerValues.amountBaseUnits === '0') {
+    return { success: false, reason: 'invalid-chain-cost-observation' };
+  }
+
+  const db = getPool();
+  if (!db) return { success: false, reason: 'database-not-configured' };
+  try {
+    await initializeDatabase();
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const transferResult = await client.query(
+        `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset,
+                token_contract, receiver_address, amount_base_units::text AS amount_base_units,
+                status, transaction_hash
+           FROM ${schema}.sponsor_transfers
+          WHERE idempotency_key = $1
+          FOR UPDATE`,
+        [idempotencyKey],
+      );
+      if (!transferResult.rows.length) {
+        await client.query('ROLLBACK');
+        return { success: false, reason: 'transfer-not-found' };
+      }
+      const transfer = transferResult.rows[0];
+      if (transfer.network !== network
+        || transfer.purpose !== 'asset-grant'
+        || transfer.status !== 'confirmed'
+        || String(transfer.transaction_hash || '').trim().toLowerCase() !== transactionHash
+        || transfer.sponsor_reference !== input.sponsorReference
+        || transfer.sponsor_address !== input.assetPrincipalAddress
+        || transfer.receiver_address !== input.receiverAddress
+        || transfer.asset !== asset
+        || (transfer.token_contract || null) !== tokenContract
+        || String(transfer.amount_base_units) !== integerValues.amountBaseUnits) {
+        await client.query('ROLLBACK');
+        return { success: false, reason: 'confirmed-transfer-identity-mismatch' };
+      }
+
+      let evidence;
+      if (asset === 'TRX') {
+        evidence = await client.query(
+          `SELECT block_number::text AS block_number
+             FROM ${schema}.native_transfer_verifications
+            WHERE network = $1 AND transaction_hash = $2
+              AND lower(from_address) = lower($3) AND lower(to_address) = lower($4)
+              AND amount_sun = $5::numeric AND verification_status = 'verified-on-chain'
+            LIMIT 1`,
+          [network, transactionHash, input.assetPrincipalAddress, input.receiverAddress, integerValues.amountBaseUnits],
+        );
+      } else {
+        evidence = await client.query(
+          `SELECT block_number::text AS block_number
+             FROM ${schema}.transfer_verifications
+            WHERE network = $1 AND transaction_hash = $2
+              AND lower(token_contract) = lower($3)
+              AND lower(from_address) = lower($4) AND lower(to_address) = lower($5)
+              AND amount_base_units = $6::numeric AND verification_status = 'verified-on-chain'
+            LIMIT 1`,
+          [network, transactionHash, tokenContract, input.assetPrincipalAddress, input.receiverAddress, integerValues.amountBaseUnits],
+        );
+      }
+      if (!evidence.rows.length || String(evidence.rows[0].block_number) !== String(blockNumber)) {
+        await client.query('ROLLBACK');
+        return { success: false, reason: 'matching-solidified-transfer-evidence-required' };
+      }
+
+      const existingResult = await client.query(
+        `SELECT network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
+                asset_principal_address, receiver_address, asset, token_contract,
+                amount_base_units::text AS amount_base_units, block_number::text AS block_number,
+                execution_result, reported_fee_sun::text AS reported_fee_sun,
+                energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
+                energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+                net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total
+           FROM ${schema}.sponsor_chain_cost_observations
+          WHERE network = $1 AND transaction_hash = $2
+          FOR UPDATE`,
+        [network, transactionHash],
+      );
+      const incoming = {
+        network, transaction_hash: transactionHash, idempotency_key: idempotencyKey,
+        sponsor_reference: input.sponsorReference, fee_sponsor_address: feeSponsorAddress,
+        asset_principal_address: input.assetPrincipalAddress, receiver_address: input.receiverAddress,
+        asset, token_contract: tokenContract, amount_base_units: integerValues.amountBaseUnits,
+        block_number: String(blockNumber), execution_result: 'SUCCESS',
+        reported_fee_sun: integerValues.reportedFeeSun,
+        energy_fee_sun: integerValues.energyFeeSun, net_fee_sun: integerValues.netFeeSun,
+        energy_usage_total: integerValues.energyUsageTotal, energy_usage: integerValues.energyUsage,
+        net_usage: integerValues.netUsage, energy_penalty_total: integerValues.energyPenaltyTotal,
+      };
+      const same = (row) => Object.keys(incoming).every((key) => {
+        const left = row[key] == null ? null : String(row[key]).trim().toLowerCase();
+        const right = incoming[key] == null ? null : String(incoming[key]).trim().toLowerCase();
+        return left === right;
+      });
+      if (existingResult.rows.length) {
+        if (!same(existingResult.rows[0])) {
+          await client.query('ROLLBACK');
+          return { success: false, reason: 'chain-cost-observation-conflict' };
+        }
+        await client.query('COMMIT');
+        return { success: true, duplicate: true, observation: incoming };
+      }
+
+      await client.query(
+        `INSERT INTO ${schema}.sponsor_chain_cost_observations
+          (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
+           asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
+           block_number, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
+           energy_usage_total, energy_usage, net_usage, energy_penalty_total)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13::numeric,
+                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19::numeric)`,
+        [network, transactionHash, idempotencyKey, input.sponsorReference, feeSponsorAddress,
+          input.assetPrincipalAddress, input.receiverAddress, asset, tokenContract,
+          integerValues.amountBaseUnits, blockNumber, 'SUCCESS', integerValues.reportedFeeSun,
+          integerValues.energyFeeSun, integerValues.netFeeSun, integerValues.energyUsageTotal,
+          integerValues.energyUsage, integerValues.netUsage, integerValues.energyPenaltyTotal],
+      );
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-chain-cost-observed', 'sponsor-transfer', $1, $2::jsonb)`,
+        [idempotencyKey, JSON.stringify({
+          network, transactionHash, blockNumber, reportedFeeSun: integerValues.reportedFeeSun,
+          energyFeeSun: integerValues.energyFeeSun, netFeeSun: integerValues.netFeeSun,
+          observationOnly: true, sponsorFeeBudgetSettled: false,
+        })],
+      );
+      await client.query('COMMIT');
+      return { success: true, duplicate: false, observation: incoming };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('Sponsor chain cost observation persistence failed:', error?.code || 'unknown');
+      return { success: false, reason: 'database-unavailable' };
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Sponsor chain cost observation initialization failed:', error?.code || 'unknown');
+    return { success: false, reason: 'database-unavailable' };
+  }
+}
+
+/** Read-only list of chain cost observations; it never settles or adjusts budgets. */
+export async function listSponsorChainCostObservations({ network = null, limit = 50 } = {}) {
+  if (network !== null && !['nile', 'shasta'].includes(network)) {
+    return { success: false, reason: 'invalid-network', observations: [] };
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', observations: [] };
+  }
+  const db = getPool();
+  if (!db) return { success: false, reason: 'database-not-configured', observations: [] };
+  try {
+    await initializeDatabase();
+    const result = await db.query(
+      `SELECT network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
+              asset_principal_address, receiver_address, asset, token_contract,
+              amount_base_units::text AS amount_base_units, block_number::text AS block_number,
+              execution_result, reported_fee_sun::text AS reported_fee_sun,
+              energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
+              energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+              net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total,
+              evidence_source, observed_at
+         FROM ${schema}.sponsor_chain_cost_observations
+        WHERE ($1::text IS NULL OR network = $1)
+        ORDER BY observed_at DESC, id DESC
+        LIMIT $2`,
+      [network, limit],
+    );
+    const observations = result.rows.map((row) => ({
+      network: row.network,
+      transactionHash: String(row.transaction_hash).trim().toLowerCase(),
+      idempotencyKey: row.idempotency_key,
+      sponsorReference: row.sponsor_reference,
+      feeSponsorAddress: row.fee_sponsor_address,
+      assetPrincipalAddress: row.asset_principal_address,
+      receiverAddress: row.receiver_address,
+      asset: row.asset,
+      tokenContract: row.token_contract,
+      amountBaseUnits: row.amount_base_units,
+      blockNumber: row.block_number,
+      executionResult: row.execution_result,
+      reportedFeeSun: row.reported_fee_sun,
+      energyFeeSun: row.energy_fee_sun,
+      netFeeSun: row.net_fee_sun,
+      energyUsageTotal: row.energy_usage_total,
+      energyUsage: row.energy_usage,
+      netUsage: row.net_usage,
+      energyPenaltyTotal: row.energy_penalty_total,
+      evidenceSource: row.evidence_source,
+      observedAt: row.observed_at,
+      sponsorFeeBudgetSettled: false,
+    }));
+    return { success: true, observations };
+  } catch (error) {
+    console.error('Sponsor chain cost observation list failed:', error?.code || 'unknown');
+    return { success: false, reason: 'database-unavailable', observations: [] };
   }
 }
