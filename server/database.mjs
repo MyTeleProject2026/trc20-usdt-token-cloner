@@ -1366,17 +1366,9 @@ export async function persistSponsorUnsignedTransaction({
         },
       })
     if (!['shasta', 'nile'].includes(row.network) || row.purpose !== 'asset-grant'
-      || row.status !== 'pending-review' || row.budget_status !== 'active' || !approved
-      || row.sponsor_address !== transaction.raw_data.contract?.[0]?.parameter?.value?.owner_address
-        && row.asset === 'TRX') {
-      // Exact semantic/address verification is repeated by the signing and
-      // signature-validation layers; this fast gate only authorizes storing
-      // a fresh unsigned testnet candidate against a pending approved row.
-      if (!['shasta','nile'].includes(row.network) || row.status !== 'pending-review'
-        || row.budget_status !== 'active' || !approved || row.purpose !== 'asset-grant') {
-        await client.query('ROLLBACK')
-        return { persisted: false, reason: 'approved-testnet-pending-transfer-required' }
-      }
+      || row.status !== 'pending-review' || row.budget_status !== 'active' || !approved) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'approved-testnet-pending-transfer-required' }
     }
     if (row.sponsor_address === null || row.receiver_address === null
       || !['TRX','USDT','VTRC'].includes(row.asset)
