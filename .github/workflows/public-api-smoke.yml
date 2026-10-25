@@ -243,6 +243,35 @@ jobs:
           }, null, 2))
           NODE
 
+      - name: Verify sponsor settlement route stays admin-gated and read-only without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f sponsor-settlement-guard.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 20 --silent --show-error --output sponsor-settlement-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-read-only-settlement-route-smoke-0001/confirm')"
+          if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
+            echo "Unauthenticated sponsor settlement route returned unexpected HTTP $http_code." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('sponsor-settlement-guard.json', 'utf8'))
+          if (data.success !== false
+            || !['unauthorized', 'sponsor-admin-not-configured'].includes(data.error)
+            || data.submissionEnabled !== false) {
+            throw new Error('Sponsor settlement route is not fail-closed for unauthenticated requests')
+          }
+          if (data.status === 'confirmed' || data.transactionBroadcast === true || data.principalSpendRecorded === true) {
+            throw new Error('Unauthenticated settlement route attempted to report a transfer as settled')
+          }
+          console.log(JSON.stringify({
+            route: 'sponsor-transfer-confirmation',
+            httpStatus: Number(process.env.HTTP_CODE || 0) || undefined,
+            guard: data.error,
+            submissionEnabled: data.submissionEnabled
+          }))
+          NODE
+
       - name: Check out source for gate-contract validation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
