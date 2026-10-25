@@ -66,3 +66,7 @@ These variables authorize contract identity for ledger reservation only. They do
 ## Separate fee and principal budgets
 
 Sponsor budgets are keyed by sponsor, network, purpose, asset, and token contract. A `network-fee` reservation must match a separately configured `network-fee` budget; it cannot consume an `asset-grant` budget, even when both are denominated in TRX. Existing budget rows migrate as `asset-grant` by default. An external sponsor must separately approve and fund the fee/resource allocation and each asset-principal allocation.
+
+## Reconciliation input validation
+
+The read-only budget reconciliation path rejects sponsor and token-contract addresses that fail TRON Base58Check checksum validation; a Base58-looking address is not sufficient. It also rejects malformed budget rows where a `network-fee` allocation is not denominated in TRX, where TRX carries a token contract, or where a token allocation lacks a checksum-valid contract address. Such rows must never be counted as covered funding, even if a live balance snapshot is otherwise fresh. These checks validate ledger shape only; they do not authorize spending or change the disabled submission gate.
