@@ -1,0 +1,30 @@
+name: Checkout action permission diagnostic
+
+on:
+  push:
+    branches: ["diagnostic/actions-runner-validation"]
+    paths:
+      - ".github/workflows/checkout-action-permission-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  checkout-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_NAME:-}"
+          echo "runner startup succeeded"
+
+      - name: Invoke checkout action
+        uses: actions/checkout@v4
+
+      - name: Confirm repository content is present
+        run: test -f package.json
