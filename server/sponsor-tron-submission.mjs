@@ -354,4 +354,133 @@ export async function broadcastValidatedSponsorTransaction({
   }
 }
 
+/**
+ * Read actual current account resources and, for TRC-20, simulate contract
+ * execution before a sponsor signs or broadcasts. An active delegation alone
+ * is not capacity evidence, so callers must require this check to pass too.
+ */
+export async function verifySponsorFeeResourceCapacity({
+  transfer,
+  transaction,
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  tronWebFactory,
+}) {
+  const invalid = transferShape(transfer)
+  if (invalid) return fail(invalid)
+  if (!transaction || typeof transaction.raw_data_hex !== 'string' || !HEX.test(transaction.raw_data_hex)
+    || !transaction.raw_data?.contract?.[0]?.parameter?.value) {
+    return fail('unsigned-transaction-required')
+  }
+  let host, tronWeb
+  try {
+    ({ host, tronWeb } = tronWebFor(transfer.network, tronWebFactory))
+  } catch { return fail('unsupported-testnet') }
+
+  let senderHex
+  try { senderHex = addressHex(tronWeb, transfer.sponsorAddress) } catch { return fail('invalid-sponsor-address') }
+  const signedBytesEstimate = Buffer.from(transaction.raw_data_hex, 'hex').length
+    + Math.max(1, Array.isArray(transaction.signature) ? transaction.signature.length : 1) * 67
+    + 32
+  const postJson = async (path, body) => {
+    const response = await fetchImpl(`${host}${path}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}),
+      },
+      body: JSON.stringify(body),
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) throw Object.assign(new Error('resource-provider-http-error'), { providerStatus: response.status })
+    const payload = await response.json()
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
+      throw new Error('invalid-resource-provider-response')
+    }
+    return payload
+  }
+  const integer = (value) => {
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value)
+    if (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)) return BigInt(value)
+    return null
+  }
+
+  try {
+    const resources = await postJson('/wallet/getaccountresource', {
+      address: senderHex,
+      visible: false,
+    })
+    const energyLimit = integer(resources.EnergyLimit)
+    const energyUsed = integer(resources.EnergyUsed ?? 0)
+    const netLimit = integer(resources.NetLimit ?? 0)
+    const netUsed = integer(resources.NetUsed ?? 0)
+    const freeNetLimit = integer(resources.freeNetLimit ?? 0)
+    const freeNetUsed = integer(resources.freeNetUsed ?? 0)
+    if (energyLimit === null || energyUsed === null || netLimit === null || netUsed === null
+      || freeNetLimit === null || freeNetUsed === null) {
+      return fail('sponsor-resource-response-incomplete')
+    }
+    const availableEnergy = energyLimit > energyUsed ? energyLimit - energyUsed : 0n
+    const delegatedBandwidthAndFree = (netLimit > netUsed ? netLimit - netUsed : 0n)
+      + (freeNetLimit > freeNetUsed ? freeNetLimit - freeNetUsed : 0n)
+    let requiredEnergy = 0n
+    if (transfer.asset !== 'TRX') {
+      const contract = transaction.raw_data.contract[0]
+      const value = contract?.parameter?.value
+      if (contract.type !== 'TriggerSmartContract' || !value
+        || typeof value.contract_address !== 'string' || typeof value.data !== 'string'
+        || !HEX.test(value.data)) {
+        return fail('token-contract-call-missing')
+      }
+      const simulation = await postJson('/wallet/triggerconstantcontract', {
+        owner_address: senderHex,
+        contract_address: value.contract_address,
+        data: value.data,
+        visible: false,
+      })
+      const energyUsedEstimate = integer(simulation.energy_used)
+      if (simulation.result?.result !== true || energyUsedEstimate === null || energyUsedEstimate <= 0n) {
+        return fail('token-energy-estimate-unavailable')
+      }
+      // Reserve a 25% safety margin for dynamic token execution paths.
+      requiredEnergy = (energyUsedEstimate * 125n + 99n) / 100n
+    }
+    if (delegatedBandwidthAndFree < BigInt(signedBytesEstimate)) {
+      return fail('sponsor-bandwidth-capacity-insufficient', {
+        requiredBandwidthUnits: String(signedBytesEstimate),
+        availableBandwidthUnits: delegatedBandwidthAndFree.toString(),
+      })
+    }
+    if (availableEnergy < requiredEnergy) {
+      return fail('sponsor-energy-capacity-insufficient', {
+        requiredEnergyUnits: requiredEnergy.toString(),
+        availableEnergyUnits: availableEnergy.toString(),
+      })
+    }
+    return {
+      success: true,
+      status: 'sponsor-resource-capacity-verified',
+      network: transfer.network,
+      sponsorAddress: transfer.sponsorAddress,
+      availableEnergyUnits: availableEnergy.toString(),
+      requiredEnergyUnits: requiredEnergy.toString(),
+      availableBandwidthUnits: delegatedBandwidthAndFree.toString(),
+      requiredBandwidthUnits: String(signedBytesEstimate),
+      signedTransactionBytesEstimated: true,
+      resourceSource: 'selected testnet wallet/getaccountresource plus token constant-contract simulation',
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      note: 'This is a point-in-time capacity preflight, not final fee evidence. Recheck after sponsor signing and reconcile actual resource/fee consumption after confirmation.',
+    }
+  } catch (error) {
+    return fail(Number.isInteger(error?.providerStatus)
+      ? 'sponsor-resource-provider-http-error'
+      : 'sponsor-resource-provider-unavailable', {
+      ...(Number.isInteger(error?.providerStatus) ? { providerStatus: error.providerStatus } : {}),
+    })
+  }
+}
+
 export const SPONSOR_TESTNET_NETWORKS = Object.freeze(Object.keys(NETWORKS))
