@@ -1,0 +1,29 @@
+name: Pinned checkout action policy test
+
+on:
+  push:
+    branches: ["diagnostic/actions-runner-validation"]
+    paths:
+      - ".github/workflows/pinned-checkout-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkout-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_NAME:-}"
+          echo "runner startup succeeded"
+
+      - name: Invoke checkout pinned to full commit SHA (v4.2.2)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Confirm repository content is present
+        run: test -f package.json
