@@ -118,6 +118,59 @@ jobs:
             throw new Error('Production read-only dependency readiness is not healthy')
           }
           NODE
+      - name: Report sponsor integration prerequisites without exposing addresses
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f sponsor-readiness.json' EXIT
+          curl --retry 2 --retry-delay 3 --connect-timeout 10 --max-time 25 --silent --show-error --fail --output sponsor-readiness.json https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/integration-readiness
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('sponsor-readiness.json', 'utf8'))
+          if (data.success !== true || data.status !== 'preflight-only-not-production-ready'
+            || !data.backendConfiguration || !data.networks || !data.submission) {
+            throw new Error('Sponsor integration readiness returned an unexpected contract')
+          }
+          if (data.submission.enabled !== false
+            || data.submission.canSubmitSponsoredTransfer !== false
+            || data.submission.userFundedFallbackAllowed !== false) {
+            throw new Error('Sponsor submission or user-funded fallback was unexpectedly enabled')
+          }
+          const booleanFields = [
+            'tatumApiKeyConfigured', 'databaseUrlConfigured', 'frontendOriginConfigured',
+            'sponsorAdminTokenConfigured', 'testnetSignedBroadcastExplicitlyEnabled',
+            'agreementReferenceVariablePresent'
+          ]
+          for (const field of booleanFields) {
+            if (typeof data.backendConfiguration[field] !== 'boolean') {
+              throw new Error('Sponsor readiness is missing a boolean deployment diagnostic')
+            }
+          }
+          const networks = {}
+          for (const network of ['mainnet', 'shasta', 'nile']) {
+            const value = data.networks[network]
+            if (!value?.addressMonitoring || !value?.tokenContractAllowlist || !value?.gasFree) {
+              throw new Error('Sponsor readiness is missing a network diagnostic')
+            }
+            networks[network] = {
+              feeSponsorAddressConfigured: value.addressMonitoring.feeSponsorAddressConfigured,
+              assetPrincipalSponsorAddressConfigured: value.addressMonitoring.assetPrincipalSponsorAddressConfigured,
+              roleAddressesDistinct: value.addressMonitoring.roleAddressesDistinct,
+              usdtContractAllowlisted: value.tokenContractAllowlist.usdt,
+              vtrcContractAllowlisted: value.tokenContractAllowlist.vtrc,
+              gasFreeCredentialsConfigured: value.gasFree.credentialsConfigured,
+              gasFreeDiscoveryReachabilityVerified: value.gasFree.discoveryReachabilityVerified
+            }
+          }
+          console.log(JSON.stringify({
+            status: data.status,
+            backendConfiguration: Object.fromEntries(booleanFields.map(key => [key, data.backendConfiguration[key]])),
+            networks,
+            submissionEnabled: data.submission.enabled,
+            blockerCount: data.submission.blockerCount,
+            blockers: data.submission.blockers
+          }, null, 2))
+          NODE
       - name: Check out source for gate-contract validation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
