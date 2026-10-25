@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { validateSponsorBudget, validateSponsorTransferIntent } from '../server/sponsor-policy.mjs'
-import { createSponsorBudgetDraft, listSponsorBudgets, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../server/database.mjs'
+import { createSponsorBudgetDraft, listSponsorBudgets, listSponsorTransfers, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope } from '../server/database.mjs'
 
 test('sponsor budget database constraint enforces TRX-only network-fee budgets', async () => {
   const source = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
