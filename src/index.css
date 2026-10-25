@@ -531,6 +531,8 @@ main .grid > button[aria-pressed] > span {
 .studio-history-item-heading > strong { color: #dcefe8; font-size: .81rem; overflow-wrap: anywhere; }
 .studio-history-meta { margin: .45rem 0 0; color: #8ba99f; font-size: .69rem; line-height: 1.55; overflow-wrap: anywhere; }
 .studio-history-meta code { color: #b4d8cb; font-size: .67rem; overflow-wrap: anywhere; word-break: break-word; }
+.studio-history-explorer-link { margin-left: .25rem; color: #f2c77f; text-decoration: underline; text-underline-offset: 3px; font-size: .69rem; }
+.studio-history-explorer-link:focus-visible { outline: 2px solid #f2c77f; outline-offset: 3px; border-radius: .15rem; }
 .studio-history-warning { margin: .6rem 0 0; color: #e8bd85; font-size: .68rem; line-height: 1.5; }
 .studio-history-empty { display: flex; align-items: flex-start; gap: .6rem; margin-top: .8rem; padding: .85rem; border: 1px dashed rgba(167, 215, 203, .18); border-radius: .8rem; color: #8ba99f; }
 .studio-history-empty svg { flex: 0 0 auto; margin-top: .1rem; }
