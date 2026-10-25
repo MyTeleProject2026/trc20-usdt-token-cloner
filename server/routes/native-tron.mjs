@@ -8,7 +8,7 @@ import { createSponsorResourceDelegationVerifier } from '../sponsor-resource-del
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { isPositiveUint256 } from '../base-units.mjs'
-import { buildSponsorUnsignedTransaction, validateSponsorSignedTransaction, broadcastValidatedSponsorTransaction } from '../sponsor-tron-submission.mjs'
+import { buildSponsorUnsignedTransaction, validateSponsorSignedTransaction, verifySponsorFeeResourceCapacity, broadcastValidatedSponsorTransaction } from '../sponsor-tron-submission.mjs'
 
 import { Router } from 'express'
 
@@ -1163,7 +1163,11 @@ async function verifyTestnetSponsorFeeDelegation(transfer) {
     || delegation.network !== transfer.network
     || delegation.fromAddress !== feeAddress
     || delegation.toAddress !== assetAddress
-    || delegation.status !== 'solidified-delegation-state-read') {
+    || delegation.status !== 'solidified-delegation-state-read'
+    || typeof delegation.checkedAt !== 'string'
+    || !Number.isFinite(Date.parse(delegation.checkedAt))
+    || current - Date.parse(delegation.checkedAt) < -5_000
+    || current - Date.parse(delegation.checkedAt) > 15_000) {
     return { verified: false, reason: 'solidified-sponsor-resource-delegation-not-verified' }
   }
   const bandwidthStake = /^(0|[1-9][0-9]*)$/.test(String(delegation.activeBandwidthStakeSun))
@@ -1386,6 +1390,17 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
     if (prepared?.success !== true) {
       return res.status(503).json({ success: false, error: prepared?.reason || 'transaction-preparation-failed', canSubmitSponsoredTransfer: false })
     }
+    const feeCapacity = await verifySponsorFeeResourceCapacity({
+      transfer,
+      transaction: prepared.transaction,
+    })
+    if (feeCapacity?.success !== true) {
+      return res.status(503).json({
+        success: false, error: feeCapacity?.reason || 'sponsor-fee-capacity-not-verified',
+        feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
+        message: 'Fresh chain resource capacity for the exact sponsor transaction could not be proven. The sponsor must not sign or broadcast this request.',
+      })
+    }
     return res.json({
       success: true,
       status: 'unsigned-testnet-transaction-prepared',
@@ -1469,6 +1484,18 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
       return res.status(reason.includes('provider-unreachable') || reason.includes('provider-http-error') ? 502 : 400).json({
         success: false, error: reason, canSubmitSponsoredTransfer: false,
         providerSubmissionAttempted: false, transactionBroadcast: false,
+      })
+    }
+    const feeCapacity = await verifySponsorFeeResourceCapacity({
+      transfer,
+      transaction: body.signedTransaction,
+    })
+    if (feeCapacity?.success !== true) {
+      return res.status(503).json({
+        success: false, error: feeCapacity?.reason || 'sponsor-fee-capacity-not-verified',
+        feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
+        providerSubmissionAttempted: false, transactionBroadcast: false,
+        message: 'Fresh sponsor bandwidth/energy capacity no longer covers this exact signed transaction. No broadcast was attempted; review the reservation and prepare a fresh signing intent if still pending.',
       })
     }
     if (transfer.status === 'submitted' && transfer.transactionHash?.toLowerCase() === signature.txID.toLowerCase()) {
