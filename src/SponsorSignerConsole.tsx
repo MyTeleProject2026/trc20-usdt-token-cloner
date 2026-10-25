@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, ArrowLeft, CheckCircle2, CircleAlert, ExternalLink, LockKeyhole, RefreshCw, ShieldCheck, Wallet, Zap } from 'lucide-react'
+import { Activity, ArrowLeft, CheckCircle2, CircleAlert, Copy, ExternalLink, LockKeyhole, RefreshCw, ShieldCheck, Wallet, Zap } from 'lucide-react'
 
 type Network = 'shasta' | 'nile'
 type WalletSnapshot = { address: string; host: string; network: Network; checkedAt: string }
@@ -176,6 +176,7 @@ export default function SponsorSignerConsole() {
   const [error, setError] = useState('')
   const [lastIntent, setLastIntent] = useState<ApiPayload | null>(null)
   const [lastResult, setLastResult] = useState<ApiPayload | null>(null)
+  const [reconciliationCommandStatus, setReconciliationCommandStatus] = useState('')
 
   const refreshSponsorRoles = useCallback(async (selectedNetwork: Network): Promise<{ ok: boolean; message?: string; payload?: SponsorRolesSnapshot }> => {
     try {
@@ -553,6 +554,24 @@ export default function SponsorSignerConsole() {
     }
   }
 
+  const copyReconciliationCommand = async () => {
+    const key = idempotencyKey.trim()
+    if (!/^[A-Za-z0-9._:-]{24,160}$/.test(key)) {
+      setReconciliationCommandStatus('Enter a valid reservation idempotency key before generating the reconciliation command.')
+      return
+    }
+    // The privileged admin token stays in a trusted terminal environment; it is never
+    // read by or embedded in browser code. Only the opaque stored-intent key is copied.
+    const command = "SPONSOR_API_BASE_URL='https://trc20-usdt-token-cloner-api.onrender.com' npm run sponsor:reconcile -- '" + key + "'"
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.')
+      await navigator.clipboard.writeText(command)
+      setReconciliationCommandStatus('Command copied. Run it in a trusted checkout terminal where SPONSOR_ADMIN_API_TOKEN is already set; do not put the token in this page or source control.')
+    } catch (caught) {
+      setReconciliationCommandStatus(caught instanceof Error ? caught.message : 'Could not copy the reconciliation command.')
+    }
+  }
+
   const globalProductionEnabled = serverStatus?.enabled === true
     && serverStatus?.canSubmitSponsoredTransfer === true
     && serverStatus?.mainnetEnabled === true
@@ -697,6 +716,13 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-detail"><span>Status</span><strong>{lastResult.status || lastResult.error || 'No status returned'}</strong></div>
             {lastResult.transactionHash && <div className="sponsor-console-detail"><span>Transaction ID</span><code>{lastResult.transactionHash}</code></div>}
             <div className="sponsor-console-result-note">{lastResult.transactionBroadcast === true ? 'The node accepted this transaction. Independently check exact-network solidification, contract execution, receiver amount and fee/resource usage.' : 'No accepted broadcast was confirmed. If the outcome is unknown, check the bound transaction ID before trying another request.'}</div>
+            {lastResult.transactionHash && <div className="sponsor-console-result-note">
+              <strong>Reconcile the saved transaction</strong>
+              <p>Reconciliation re-reads the stored transaction from solidified Nile/Shasta state before updating the principal ledger. It does not accept a browser-supplied transaction hash and never marks the separate fee budget settled by itself.</p>
+              <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => void copyReconciliationCommand()} disabled={!/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey.trim())}><Copy size={15} aria-hidden="true" /> Copy secure operator reconciliation command</button>
+              {reconciliationCommandStatus && <p className="sponsor-console-field-note" role="status">{reconciliationCommandStatus}</p>}
+              <div className="sponsor-console-field-note">The copied command contains no admin token. Run it only in a trusted terminal with SPONSOR_ADMIN_API_TOKEN already configured.</div>
+            </div>}
           </section>}
 
           <div className="sponsor-console-notice">
