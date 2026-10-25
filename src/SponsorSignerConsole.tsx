@@ -39,6 +39,32 @@ const HOSTS: Record<Network, string> = {
   shasta: 'api.shasta.trongrid.io',
   nile: 'nile.trongrid.io',
 }
+const DELEGATION_STORAGE_KEY = 'trc20-usdt-token-cloner:sponsor-delegation:v1'
+
+function loadSavedDelegationIntent(): DelegationIntent | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const saved = window.localStorage.getItem(DELEGATION_STORAGE_KEY)
+    if (!saved) return null
+    const value = JSON.parse(saved)
+    if (!value || typeof value !== 'object' || Array.isArray(value)
+      || !['shasta', 'nile'].includes(value.network)
+      || typeof value.transactionId !== 'string' || !/^[0-9a-f]{64}$/i.test(value.transactionId)
+      || typeof value.sponsorAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value.sponsorAddress)
+      || typeof value.receiverAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value.receiverAddress)
+      || value.sponsorAddress === value.receiverAddress
+      || !['ENERGY', 'BANDWIDTH'].includes(value.resourceType)
+      || typeof value.stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,15}$/.test(value.stakeEquivalentSun)
+      || typeof value.status !== 'string' || value.status.length > 64
+      || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) {
+      window.localStorage.removeItem(DELEGATION_STORAGE_KEY)
+      return null
+    }
+    return value as DelegationIntent
+  } catch {
+    return null
+  }
+}
 
 function trxAmountToSun(value: string): string | null {
   const input = value.trim()
@@ -92,7 +118,7 @@ function validateUnsignedDelegation(
   if (normalizedResource !== resourceType) {
     throw new Error('The unsigned delegation resource type does not match the selected resource.')
   }
-  if (value.lock === true || value.lock === 1 || String(value.lock).toLowerCase() === 'true') {
+  if (value.lock === true || value.lock === 1 || ['true', '1'].includes(String(value.lock).toLowerCase())) {
     throw new Error('Locked resource delegation is not permitted by this console. No signature was requested.')
   }
   const expiration = Number(transaction?.raw_data?.expiration)
@@ -140,7 +166,7 @@ export default function SponsorSignerConsole() {
   const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(null)
   const [resourceType, setResourceType] = useState<ResourceKind>('BANDWIDTH')
   const [resourceAmountTRX, setResourceAmountTRX] = useState('1')
-  const [delegationIntent, setDelegationIntent] = useState<DelegationIntent | null>(null)
+  const [delegationIntent, setDelegationIntent] = useState<DelegationIntent | null>(() => loadSavedDelegationIntent())
   const [delegationResult, setDelegationResult] = useState<ApiPayload | null>(null)
   const [serverStatus, setServerStatus] = useState<ApiPayload | null>(null)
   const [roleStatus, setRoleStatus] = useState<SponsorRolesSnapshot | null>(null)
@@ -180,6 +206,17 @@ export default function SponsorSignerConsole() {
   }, [])
 
   useEffect(() => { void refreshServerStatus(); void refreshSponsorRoles(network) }, [refreshServerStatus, refreshSponsorRoles, network])
+
+  // Persist only public transaction metadata (never a signature, raw transaction or key)
+  // so a pending/ambiguous broadcast can be rechecked after the page is reopened.
+  useEffect(() => {
+    try {
+      if (delegationIntent) window.localStorage.setItem(DELEGATION_STORAGE_KEY, JSON.stringify(delegationIntent))
+      else window.localStorage.removeItem(DELEGATION_STORAGE_KEY)
+    } catch {
+      // Private browsing or storage policy may disable persistence; in-memory verification still works.
+    }
+  }, [delegationIntent])
 
   const connectWallet = async () => {
     setError('')
