@@ -59,7 +59,7 @@ test('readiness runs configured provider probes but never enables transfer submi
   assert.equal(res.body.networks.nile.gasFree.discoveryReachabilityVerified, false)
   assert.equal(res.body.networks.nile.gasFree.discoveryStatus, 'provider-auth-rejected')
   assert.equal(res.body.networks.nile.gasFree.providerStatus, 403)
-  assert.equal(res.body.networks.shasta.gasFree.discoveryStatus, 'credentials-missing')
+  assert.equal(res.body.networks.shasta.gasFree.discoveryStatus, 'unsupported-network')
   assert.equal(res.body.submission.enabled, false)
   assert.equal(res.body.submission.canSubmitSponsoredTransfer, false)
   assert.equal(res.body.submission.userFundedFallbackAllowed, false)
