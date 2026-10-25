@@ -6,10 +6,12 @@ const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), '
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const routes = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
 
-test('incoming-history notification UI has been removed from the simplified workflow', () => {
-  assert.ok(!app.includes('Notification'))
+test('receiver history UI is available without background polling or server-side broadcasts', () => {
+  assert.ok(app.includes('ReceiverHistoryRecord'))
+  assert.ok(app.includes('isVerifiedHistoryRecord'))
+  assert.ok(app.includes('verifiedOnChain'))
   assert.ok(!app.includes('setInterval('))
-  assert.ok(!app.includes('ReceiverHistory'))
+  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
   assert.ok(!entry.includes('ReceiverHistory'))
 })
 
