@@ -170,7 +170,7 @@ test('signed exact sponsor intent is verified against the selected testnet node 
     now: () => now,
     fetchImpl: async (url, options) => {
       calls.push({ url, options })
-      return response(200, { result: { result: true }, permission: { threshold: 1 }, current_weight: 1 })
+      return response(200, { result: {}, permission: { threshold: 1 }, current_weight: 1 })
     },
     tronWebFactory: fakeTronWeb,
   })
