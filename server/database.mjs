@@ -8,6 +8,7 @@ const readSponsorFundingStatusForReservation = createSponsorFundingReader()
 const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
 const SPONSORED_TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
 const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const UINT256_MAX = (1n << 256n) - 1n
 
 export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
   if (!['mainnet', 'shasta', 'nile'].includes(network)
@@ -724,7 +725,8 @@ export async function reserveSponsorTransfer(input, {
     || (asset === 'TRX' && tokenContract)
     || (SPONSORED_TOKEN_ASSETS.has(asset) && !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))
     || typeof receiverAddress !== 'string' || !receiverAddress.trim() || receiverAddress.length > 128
-    || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]*$/.test(amountBaseUnits) || amountBaseUnits.length > 78) {
+    || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]*$/.test(amountBaseUnits) || amountBaseUnits.length > 78
+    || BigInt(amountBaseUnits) > UINT256_MAX) {
     return { reserved: false, reason: 'invalid-transfer-intent' }
   }
 
