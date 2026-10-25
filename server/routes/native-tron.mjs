@@ -1386,7 +1386,18 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
         feeCoverageVerified: false, message: 'The separate fee sponsor and active resource delegation could not be independently verified. No unsigned transaction was prepared.',
       })
     }
-    const prepared = transfer.preparedTransaction
+    const savedExpiration = transfer.preparedTransaction?.raw_data?.expiration
+    if (Number.isSafeInteger(savedExpiration) && savedExpiration > Date.now()
+      && savedExpiration <= Date.now() + 15_000) {
+      return res.status(409).json({
+        success: false, status: 'saved-signing-intent-expiring',
+        error: 'saved-signing-intent-expiring',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        message: 'The saved transaction is too close to expiry to sign safely. Retry after it expires; the server will then prepare and persist a new intent.',
+      })
+    }
+    const savedIntentStillValid = Number.isSafeInteger(savedExpiration) && savedExpiration > Date.now()
+    const prepared = savedIntentStillValid
       ? { success: true, transaction: transfer.preparedTransaction }
       : await buildSponsorUnsignedTransaction({ transfer })
     if (prepared?.success !== true) {
