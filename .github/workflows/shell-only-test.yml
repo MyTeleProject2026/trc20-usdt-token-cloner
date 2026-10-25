@@ -1,0 +1,25 @@
+name: Isolated shell-only Actions test
+
+on:
+  push:
+    branches: ["diagnostic/actions-runner-validation"]
+    paths:
+      - ".github/workflows/shell-only-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 3
+    steps:
+      - name: Print runner details without marketplace actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_NAME:-}"
+          printf 'Runner: %s\n' "$RUNNER_NAME"
+          printf 'OS: %s\n' "$RUNNER_OS"
+          echo "Shell-only hosted runner job reached steps successfully."
