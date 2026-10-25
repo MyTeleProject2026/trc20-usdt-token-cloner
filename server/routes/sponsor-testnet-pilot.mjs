@@ -116,7 +116,7 @@ function summarizeRole(role) {
   }
 }
 
-function buildNetworkSummary({ network, head, roleResult, env }) {
+export function buildNetworkSummary({ network, head, roleResult, env }) {
   const roles = roleResult?.roles || {}
   const feeRole = roles.networkFeeSponsor
   const assetRole = roles.assetPrincipalSponsor
@@ -133,7 +133,6 @@ function buildNetworkSummary({ network, head, roleResult, env }) {
   const delegationObserved = delegation?.success === true
     && (positiveInteger(activeEnergy) || positiveInteger(activeBandwidth))
 
-  const networkKey = network.toUpperCase()
   const allowlists = Object.fromEntries(Object.entries(TOKEN_ALLOWLIST_ENV[network]).map(([asset, key]) => [
     asset, tokenAllowlistConfigured(env, key),
   ]))
@@ -246,10 +245,13 @@ export function createSponsorTestnetPilotRouter(options = {}) {
     }
 
     const results = await Promise.all(selectedNetworks.map(async (network) => {
-      const [head, roleResult] = await Promise.all([
+      const [headResult, roleResultValue] = await Promise.allSettled([
         readHead(network),
         readRoles(network, { refresh: refreshValue === '1' }),
       ])
+      const head = headResult.status === 'fulfilled'
+        ? headResult.value : { success: false, network, status: 'provider-unavailable' }
+      const roleResult = roleResultValue.status === 'fulfilled' ? roleResultValue.value : null
       return [network, buildNetworkSummary({ network, head, roleResult, env })]
     }))
     const networks = Object.fromEntries(results)
