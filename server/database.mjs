@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
