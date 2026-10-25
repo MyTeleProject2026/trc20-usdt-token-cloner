@@ -302,6 +302,34 @@ jobs:
           }))
           NODE
 
+      - name: Verify automated solidified sponsor reconciliation route is mounted and fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f sponsor-solidified-reconciliation-guard.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output sponsor-solidified-reconciliation-guard.json --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/transfers/ci-solidified-reconciliation-guard-0000000001/reconcile-solidified')"
+          if [[ "$http_code" != "401" && "$http_code" != "503" ]]; then
+            echo "Unauthenticated solidified reconciliation route returned unexpected HTTP $http_code." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('sponsor-solidified-reconciliation-guard.json', 'utf8'))
+          if (data.success !== false
+            || !['unauthorized', 'sponsor-admin-not-configured'].includes(data.error)
+            || data.canSubmitSponsoredTransfer !== false
+            || data.feeSponsorBudgetSettled !== false
+            || data.userFundedFallbackAllowed !== false) {
+            throw new Error('Automated solidified reconciliation is not fail-closed without operator authorization')
+          }
+          console.log(JSON.stringify({
+            route: 'sponsor-solidified-reconciliation',
+            guard: data.error,
+            canSubmitSponsoredTransfer: data.canSubmitSponsoredTransfer,
+            feeSponsorBudgetSettled: data.feeSponsorBudgetSettled
+          }))
+          NODE
+
       - name: Check out source for gate-contract validation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 

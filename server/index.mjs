@@ -10,6 +10,7 @@ import sponsorIntegrationReadinessRoutes from './routes/sponsor-integration-read
 import sponsorTestnetPilotRoutes from './routes/sponsor-testnet-pilot.mjs'
 import sponsorSettlementRoutes from './routes/sponsor-settlement.mjs'
 import sponsorChainCostObservationRoutes from './routes/sponsor-chain-cost-observations.mjs'
+import sponsorSolidifiedReconciliationRoutes from './routes/sponsor-solidified-reconciliation.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
 import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
@@ -121,6 +122,7 @@ app.use('/api/tron', sponsorIntegrationReadinessRoutes)
 app.use('/api/tron', sponsorTestnetPilotRoutes)
 app.use('/api/tron', sponsorSettlementRoutes)
 app.use('/api/tron', sponsorChainCostObservationRoutes)
+app.use('/api/tron', sponsorSolidifiedReconciliationRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 
 if (process.env.DATABASE_URL) {
