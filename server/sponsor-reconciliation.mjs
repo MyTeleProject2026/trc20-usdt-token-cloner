@@ -56,6 +56,8 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
       continue
     }
     if (!['TRX', 'USDT', 'VTRC'].includes(budget.asset)
+      || !['network-fee', 'asset-grant'].includes(budget.purpose)
+      || (budget.purpose === 'network-fee' && budget.asset !== 'TRX')
       || !['active', 'paused', 'pending-review', 'disabled', 'depleted'].includes(budget.status)
       || (budget.asset === 'TRX' ? budget.token_contract != null
         : typeof budget.token_contract !== 'string' || !isValidTronAddress(budget.token_contract))) {
