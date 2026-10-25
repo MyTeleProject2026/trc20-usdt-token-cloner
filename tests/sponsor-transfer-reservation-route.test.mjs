@@ -106,6 +106,48 @@ test('reservation route rejects unexpected fields and signing material', async (
   }
 })
 
+test('reservation route rejects checksum-invalid receiver and token addresses before reserving funds', async () => {
+  assert.ok(layer)
+  const previous = process.env.SPONSOR_ADMIN_API_TOKEN
+  try {
+    process.env.SPONSOR_ADMIN_API_TOKEN = adminToken
+    const base = {
+      idempotencyKey: 'reservation-address-check',
+      network: 'nile',
+      sponsorReference: 'test-sponsor',
+      purpose: 'asset-grant',
+      asset: 'USDT',
+      tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      receiverAddress: 'TAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      amountBaseUnits: '1000000',
+    }
+
+    const badReceiver = await callReservation({
+      body: base,
+      headers: { authorization: `Bearer ${adminToken}` },
+    })
+    assert.equal(badReceiver.statusCode, 400)
+    assert.equal(badReceiver.body.error, 'invalid-transfer-intent')
+    assert.equal(badReceiver.body.canSubmitSponsoredTransfer, false)
+
+    const badTokenContract = await callReservation({
+      body: {
+        ...base,
+        idempotencyKey: 'reservation-token-check',
+        receiverAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+        tokenContract: 'TBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      },
+      headers: { authorization: `Bearer ${adminToken}` },
+    })
+    assert.equal(badTokenContract.statusCode, 400)
+    assert.equal(badTokenContract.body.error, 'invalid-transfer-intent')
+    assert.equal(badTokenContract.body.canSubmitSponsoredTransfer, false)
+  } finally {
+    if (previous === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
+    else process.env.SPONSOR_ADMIN_API_TOKEN = previous
+  }
+})
+
 test('reservation route validates intent shape and blocks incompatible fee assets', async () => {
   assert.ok(layer)
   const previous = process.env.SPONSOR_ADMIN_API_TOKEN
