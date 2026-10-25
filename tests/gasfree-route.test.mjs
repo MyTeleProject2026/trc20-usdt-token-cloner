@@ -111,7 +111,7 @@ test('GasFree account route exposes only read-only provider metadata and no subm
       canSubmitSponsoredTransfer: true,
       submissionEnabled: true,
       account: {
-        accountAddress, gasFreeAddress: 'T' + 'B'.repeat(33),
+        accountAddress, gasFreeAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
         active: true, nonce: 4, allowSubmit: true, assets: [],
         chainFinalityVerified: false,
       },
