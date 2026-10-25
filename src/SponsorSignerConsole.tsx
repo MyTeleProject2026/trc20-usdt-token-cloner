@@ -12,14 +12,14 @@ declare global {
   }
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const HOSTS: Record<Network, string> = {
   shasta: 'api.shasta.trongrid.io',
   nile: 'nile.trongrid.io',
 }
 
 function readInjectedWallet(network: Network): WalletSnapshot {
-  const tronWeb = window.tronWeb || window.tronLink?.tronWeb
+  const tronWeb = window.tronLink?.tronWeb || window.tronWeb
   const address = String(tronWeb?.defaultAddress?.base58 || '').trim()
   const rawHost = String(tronWeb?.fullNode?.host || tronWeb?.fullNode?.nodeUrl || '').trim()
   let host: URL
