@@ -75,6 +75,7 @@ export function getSponsorIntegrationReadiness({
     'provider-not-verified-to-provide-asset-principal-and-all-fees',
     'production-provider-sign-submit-broadcast-adapter-not-verified',
     'production-managed-signer-security-review-not-complete',
+    'secure-managed-signer-or-provider-authorization-path-not-integrated',
     'transaction-time-sponsor-consent-and-spending-mandate-verification-not-integrated',
     'atomic-fee-resource-budget-reservation-and-settlement-not-integrated',
     'independent-solidified-settlement-and-receiver-balance-reconciliation-not-end-to-end-verified',
