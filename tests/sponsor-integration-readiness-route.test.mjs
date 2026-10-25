@@ -68,6 +68,14 @@ test('readiness runs configured provider probes but never enables transfer submi
   for (const hidden of [secret, 'hidden-key', 'hidden-nile-key', 'hidden-nile-secret', sponsorAddress]) {
     assert.equal(serialized.includes(hidden), false, `readiness must not return ${hidden}`)
   }
+
+  // The handler's own cache prevents an unauthenticated readiness page from
+  // repeatedly consuming provider quota when clients refresh in quick succession.
+  const secondResponse = responseRecorder()
+  await handlerFor(router)({}, secondResponse)
+  assert.equal(secondResponse.statusCode, 200)
+  assert.equal(calls.length, 2, 'second request must reuse the recent provider probe')
+  assert.equal(secondResponse.body.networks.mainnet.gasFree.discoveryReachabilityVerified, true)
 })
 
 test('readiness does not call provider when credentials are missing', async () => {
