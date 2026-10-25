@@ -91,7 +91,7 @@ test('GasFree account route validates network/address before provider access', a
     getAccount: async () => { calls += 1; return { configured: true, reachable: true } },
   })
   const badNetwork = responseRecorder()
-  await getRoute(router, '/account')({ query: { network: 'shasta', address: 'T' + 'A'.repeat(33) } }, badNetwork)
+  await getRoute(router, '/account')({ query: { network: 'shasta', address: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2' } }, badNetwork)
   assert.equal(badNetwork.statusCode, 400)
   assert.equal(calls, 0)
 
@@ -103,7 +103,7 @@ test('GasFree account route validates network/address before provider access', a
 })
 
 test('GasFree account route exposes only read-only provider metadata and no submission capability', async () => {
-  const address = 'T' + 'A'.repeat(33)
+  const address = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
   const router = createGasFreeRouter({
     getAccount: async (network, accountAddress) => ({
       configured: true, reachable: true, network, accountLookupVerified: true,
@@ -111,7 +111,7 @@ test('GasFree account route exposes only read-only provider metadata and no subm
       canSubmitSponsoredTransfer: true,
       submissionEnabled: true,
       account: {
-        accountAddress, gasFreeAddress: 'T' + 'B'.repeat(33),
+        accountAddress, gasFreeAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
         active: true, nonce: 4, allowSubmit: true, assets: [],
         chainFinalityVerified: false,
       },
@@ -327,10 +327,10 @@ function getPostRoute(router, routePath) {
 }
 
 test('read-only GasFree preflight reports zero-fee policy facts but never enables signing or submission', async () => {
-  const address = 'T' + 'A'.repeat(33)
-  const tokenAddress = 'T' + 'B'.repeat(33)
-  const providerAddress = 'T' + 'C'.repeat(33)
-  const receiverAddress = 'T' + 'D'.repeat(33)
+  const address = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+  const tokenAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const providerAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+  const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
   const router = createGasFreeRouter({
     getCapabilities: async (network) => ({
       configured: true,
@@ -352,7 +352,7 @@ test('read-only GasFree preflight reports zero-fee policy facts but never enable
       accountLookupVerified: true,
       account: {
         accountAddress,
-        gasFreeAddress: 'T' + 'E'.repeat(33),
+        gasFreeAddress: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
         active: true,
         nonce: 3,
         allowSubmit: true,
@@ -395,10 +395,10 @@ test('read-only GasFree preflight reports zero-fee policy facts but never enable
 })
 
 test('read-only GasFree preflight blocks a token absent from the provider account asset list', async () => {
-  const address = 'T' + 'A'.repeat(33)
-  const tokenAddress = 'T' + 'B'.repeat(33)
-  const providerAddress = 'T' + 'C'.repeat(33)
-  const receiverAddress = 'T' + 'D'.repeat(33)
+  const address = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+  const tokenAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const providerAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+  const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
   const router = createGasFreeRouter({
     getCapabilities: async (network) => ({
       configured: true, reachable: true, network,
@@ -436,10 +436,10 @@ test('read-only GasFree preflight blocks a token absent from the provider accoun
 })
 
 test('read-only GasFree preflight blocks nonzero token-denominated fees under external-sponsor-only policy', async () => {
-  const address = 'T' + 'A'.repeat(33)
-  const tokenAddress = 'T' + 'B'.repeat(33)
-  const providerAddress = 'T' + 'C'.repeat(33)
-  const receiverAddress = 'T' + 'D'.repeat(33)
+  const address = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+  const tokenAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const providerAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+  const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
   const router = createGasFreeRouter({
     getCapabilities: async (network) => ({
       configured: true, reachable: true, network,
@@ -478,6 +478,37 @@ test('read-only GasFree preflight blocks nonzero token-denominated fees under ex
   assert.equal(res.body.canSubmitSponsoredTransfer, false)
 })
 
+test('GasFree rejects checksum-invalid request addresses before any provider lookup', async () => {
+  let calls = 0
+  const router = createGasFreeRouter({
+    getCapabilities: async () => { calls += 1; throw new Error('must not call') },
+    getAccount: async () => { calls += 1; throw new Error('must not call') },
+  })
+  const valid = {
+    network: 'nile',
+    address: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
+    tokenAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    serviceProvider: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+    receiverAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+    amountBaseUnits: '100',
+  }
+
+  const invalidAccount = responseRecorder()
+  await getRoute(router, '/account')({
+    query: { network: 'nile', address: 'T' + 'A'.repeat(33) },
+  }, invalidAccount)
+  assert.equal(invalidAccount.statusCode, 400)
+  assert.equal(invalidAccount.body.status, 'invalid-address')
+
+  const invalidIntent = responseRecorder()
+  await getPostRoute(router, '/preflight')({
+    body: { ...valid, receiverAddress: 'T' + 'B'.repeat(33) },
+  }, invalidIntent)
+  assert.equal(invalidIntent.statusCode, 400)
+  assert.equal(invalidIntent.body.status, 'invalid-address')
+  assert.equal(calls, 0)
+})
+
 test('read-only GasFree preflight rejects signature fields and malformed amounts before provider access', async () => {
   let calls = 0
   const router = createGasFreeRouter({
@@ -486,10 +517,10 @@ test('read-only GasFree preflight rejects signature fields and malformed amounts
   })
   const base = {
     network: 'nile',
-    address: 'T' + 'A'.repeat(33),
-    tokenAddress: 'T' + 'B'.repeat(33),
-    serviceProvider: 'T' + 'C'.repeat(33),
-    receiverAddress: 'T' + 'D'.repeat(33),
+    address: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
+    tokenAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    serviceProvider: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+    receiverAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
     amountBaseUnits: '100',
   }
 

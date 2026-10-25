@@ -1,16 +1,14 @@
 name: CI
 
 on:
-  # Run push validation on main. Feature branches are validated by their PR
-  # workflow below, avoiding duplicate CI jobs for every PR commit.
+  # One authoritative PR test/build workflow. Separate audit checks remain enabled.
   push:
     branches: [main]
   pull_request:
     branches: [main, "fix/**", "test/**", "feat/**"]
   workflow_dispatch:
 
-# New commits supersede older in-flight tests for the same PR. Required checks
-# still run for the current head; do not weaken test, build, or audit steps.
+# Supersede older runs for the same PR instead of exhausting hosted-runner capacity.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -20,8 +18,8 @@ permissions:
 
 jobs:
   test-and-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
       SPONSOR_PG_INTEGRATION: "1"
@@ -45,10 +43,28 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Audit dependencies (critical/high advisories block release)
+        shell: bash
+        run: |
+          npm audit --json > npm-audit-ci.json || true
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const report = JSON.parse(fs.readFileSync('npm-audit-ci.json', 'utf8'))
+          const counts = report.metadata?.vulnerabilities
+          if (report.error || !counts) {
+            console.error('npm audit did not return a valid vulnerability report.')
+            process.exit(1)
+          }
+          console.log(JSON.stringify(counts, null, 2))
+          if ((counts.critical ?? 0) > 0 || (counts.high ?? 0) > 0) {
+            console.error('Blocking critical/high dependency advisories detected.')
+            process.exit(1)
+          }
+          NODE
       - name: Run security, regression, and isolated PostgreSQL integration tests
         run: npm test
       - name: Build frontend and compile contract

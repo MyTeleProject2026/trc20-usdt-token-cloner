@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { reconcileSponsorBudgets } from '../server/sponsor-reconciliation.mjs'
 
-const sponsorAddress = 'T' + 'A'.repeat(33)
-const tokenAddress = 'T' + 'B'.repeat(33)
+const sponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const tokenAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
 const officialUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 function snapshot(network = 'shasta', overrides = {}) {
@@ -157,7 +157,7 @@ test('reconciliation rejects stale, wrong-network, and wallet-mismatched inputs 
   const mismatch = reconcileSponsorBudgets({
     network: 'shasta',
     fundingSnapshot: snapshot(),
-    budgets: [budget({ sponsor_address: 'T' + 'C'.repeat(33) })],
+    budgets: [budget({ sponsor_address: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp' })],
   })
   assert.equal(mismatch.success, false)
   assert.equal(mismatch.status, 'wallet-scope-mismatch')
@@ -216,4 +216,46 @@ test('draft-only ledgers are not reported as funded coverage', () => {
   assert.equal(result.status, 'no-committed-allocations')
   assert.equal(result.covered, false)
   assert.equal(result.groups[0].committedBaseUnits, '0')
+})
+
+test('reconciliation rejects checksum-invalid sponsor addresses even when Base58-shaped', () => {
+  const result = reconcileSponsorBudgets({
+    network: 'shasta',
+    fundingSnapshot: snapshot('shasta', { sponsorAddress: 'T' + 'A'.repeat(33) }),
+    budgets: [budget()],
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'fresh-solidified-funding-snapshot-required')
+  assert.equal(result.covered, undefined)
+})
+
+test('reconciliation rejects checksum-invalid token contract addresses in budget records', () => {
+  const result = reconcileSponsorBudgets({
+    network: 'shasta',
+    fundingSnapshot: snapshot(),
+    budgets: [budget({ asset: 'VTRC', token_contract: 'T' + 'B'.repeat(33) })],
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'invalid-budget-ledger-record')
+  assert.equal(result.covered, undefined)
+})
+
+test('reconciliation rejects inconsistent fee-purpose and token-contract ledger rows', () => {
+  const invalidBudgets = [
+    budget({ purpose: 'network-fee', asset: 'USDT', token_contract: officialUsdt }),
+    budget({ purpose: 'network-fee', asset: 'VTRC', token_contract: tokenAddress }),
+    budget({ purpose: 'asset-grant', asset: 'TRX', token_contract: tokenAddress }),
+    budget({ purpose: 'asset-grant', asset: 'USDT', token_contract: null }),
+  ]
+
+  for (const invalidBudget of invalidBudgets) {
+    const result = reconcileSponsorBudgets({
+      network: 'shasta',
+      fundingSnapshot: snapshot(),
+      budgets: [invalidBudget],
+    })
+    assert.equal(result.success, false)
+    assert.equal(result.status, 'invalid-budget-ledger-record')
+    assert.equal(result.covered, undefined)
+  }
 })

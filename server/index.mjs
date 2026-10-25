@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
+import sponsorIntegrationReadinessRoutes from './routes/sponsor-integration-readiness.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
 import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
@@ -113,6 +114,7 @@ app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', sponsorFeeEstimateRoutes)
 app.use('/api/tron', nativeTronRoutes)
+app.use('/api/tron', sponsorIntegrationReadinessRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 
 if (process.env.DATABASE_URL) {

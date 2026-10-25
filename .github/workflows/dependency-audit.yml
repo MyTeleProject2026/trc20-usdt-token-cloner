@@ -1,7 +1,6 @@
 name: Dependency security audit
 
 on:
-  pull_request:
   push:
     branches: [main]
   schedule:
@@ -10,6 +9,12 @@ on:
 
 permissions:
   contents: read
+
+# Keep only the newest audit for a given PR or branch while preserving the
+# required critical/high-severity release gate and report artifact.
+concurrency:
+  group: dependency-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   audit:
@@ -40,7 +45,7 @@ jobs:
             process.exitCode = 1
           }
           const counts = report.metadata?.vulnerabilities ?? {}
-          const clean = value => String(value).replaceAll('|', '\\|').replaceAll('\\n', ' ')
+          const clean = value => String(value).replaceAll('|', '\\|').replace(/[\r\n]+/g, ' ')
           const rank = { critical: 0, high: 1, moderate: 2, low: 3, info: 4 }
           const packages = Object.entries(report.vulnerabilities ?? {}).sort((a, b) =>
             (rank[a[1].severity] ?? 5) - (rank[b[1].severity] ?? 5) || a[0].localeCompare(b[0]))

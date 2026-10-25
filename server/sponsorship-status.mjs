@@ -26,6 +26,79 @@ export function getSponsorshipStatus() {
     // No network is active while sponsorship is not integrated.
     network: null,
     provider: null,
+    // Both integration models are supported as design targets, but neither is
+    // connected or authorized by configuration alone. Each requires its own
+    // independently verified consent, funding, and signing path.
+    integrationModels: {
+      thirdPartyProvider: {
+        supportedAsDesign: true,
+        configured: false,
+        adapterVerified: false,
+        sponsorAccountVerified: false,
+        submissionEnabled: false,
+      },
+      sponsorOrganization: {
+        supportedAsDesign: true,
+        configured: false,
+        identityVerified: false,
+        spendingMandateVerified: false,
+        submissionEnabled: false,
+      },
+      sharedRequirements: [
+        'explicit-sponsor-consent',
+        'fresh-on-chain-principal-funding',
+        'fresh-on-chain-network-fee-funding-or-verified-resource-coverage',
+        'separate-principal-and-fee-reservations',
+        'cryptographic-intent-bound-authorization-and-replay-protection',
+        'operator-approval-and-emergency-pause',
+        'independent-solidified-chain-verification',
+        'no-user-funded-fallback',
+      ],
+    },
+    // Research findings are exposed as diagnostics, not live provider configuration.
+    // Candidate listing and public API documentation do not establish a sponsor agreement,
+    // funded account, permission to spend, or permission to submit.
+    providerResearch: {
+      assessedAt: '2026-10-24',
+      status: 'research-only-no-verified-public-full-sponsor',
+      selectedArchitecture: 'dual-sponsored-roles',
+      publicSponsorVerifiedForPrincipalAndNetworkFees: false,
+      candidates: [
+        {
+          id: 'gasfree',
+          role: 'provider-relayed-trc20-transfer-and-native-gas',
+          applicationIntegrated: false,
+          productionEnabled: false,
+          providesAssetPrincipal: false,
+          feeAsset: 'transferred-token',
+          documentedNetworks: ['mainnet', 'nile'],
+          suitableForNoUserCostPolicyAlone: false,
+          sourceUrl: 'https://docs.gasfree.io/',
+        },
+        {
+          id: 'trontransfer',
+          role: 'paid-energy-sponsored-usdt-transfer',
+          applicationIntegrated: false,
+          productionEnabled: false,
+          providesAssetPrincipal: false,
+          senderSignedFeeTransactionRequiredByPublishedFlow: true,
+          suitableForNoUserCostPolicy: false,
+          dueDiligenceRequired: true,
+          sourceUrl: 'https://doc.trontransfer.com/',
+        },
+        {
+          id: 'tron-stake-2.0-resource-delegation',
+          role: 'bandwidth-and-energy-resource-delegation',
+          applicationIntegrated: false,
+          productionEnabled: false,
+          providesAssetPrincipal: false,
+          requiresSponsorStakedResourcesAndAuthorizedDelegation: true,
+          suitableAsFeeResourceOnly: true,
+          sourceUrl: 'https://developers.tron.network/docs/delegation',
+        },
+      ],
+      conclusion: 'No reviewed candidate is verified to provide this application both arbitrary asset principal and full network-fee coverage without user-funded fallback. Provider discovery alone does not enable submission.',
+    },
     mainnetEnabled: false,
     canSubmitSponsoredTransfer: false,
     receiverRestrictionsAvailable: false,

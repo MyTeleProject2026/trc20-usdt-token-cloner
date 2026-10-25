@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTransferVerificationUpsert, findVerifiedTransfer, isSponsorTokenContractAllowed, normalizeVerificationNetwork, recordTransferVerification } from '../server/database.mjs'
+import { buildTransferVerificationUpsert, findVerifiedTransfer, isSponsorTokenContractAllowed, normalizeVerificationNetwork, recordTransferVerification, reserveSponsorTransfer } from '../server/database.mjs'
 
 test('refuses to persist a transfer when the network is missing or unsupported', async () => {
   for (const network of [undefined, null, '', 'TRON', 'ethereum', 'MAINNET']) {
@@ -619,6 +619,20 @@ test('sponsor token contract allowlists are exact and network-scoped', () => {
   assert.equal(isSponsorTokenContractAllowed('TRON', 'VTRC', vtrcShasta, [vtrcShasta]), false)
 })
 
+
+test('database reservation invariant rejects amounts above uint256 before importing a signer or touching storage', async () => {
+  const result = await reserveSponsorTransfer({
+    network: 'nile',
+    idempotencyKey: 'uint256-overflow-test-0001',
+    sponsorReference: 'test-sponsor',
+    purpose: 'network-fee',
+    asset: 'TRX',
+    tokenContract: null,
+    receiverAddress: 'TAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    amountBaseUnits: '115792089237316195423570985008687907853269984665640564039457584007913129639936',
+  })
+  assert.deepEqual(result, { reserved: false, reason: 'invalid-transfer-intent' })
+})
 
 test('sponsor status transitions fail closed without verified wallet authorization and provider broadcast', async () => {
   const { transitionSponsorTransferWithPool } = await import('../server/database.mjs')

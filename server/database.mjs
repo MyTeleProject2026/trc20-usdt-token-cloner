@@ -1,6 +1,7 @@
 import pg from 'pg'
 import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
@@ -724,7 +725,7 @@ export async function reserveSponsorTransfer(input, {
     || (asset === 'TRX' && tokenContract)
     || (SPONSORED_TOKEN_ASSETS.has(asset) && !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))
     || typeof receiverAddress !== 'string' || !receiverAddress.trim() || receiverAddress.length > 128
-    || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]*$/.test(amountBaseUnits) || amountBaseUnits.length > 78) {
+    || !isPositiveUint256(amountBaseUnits)) {
     return { reserved: false, reason: 'invalid-transfer-intent' }
   }
 
