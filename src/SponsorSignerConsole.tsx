@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, ArrowLeft, CheckCircle2, CircleAlert, ExternalLink, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { Activity, ArrowLeft, CheckCircle2, CircleAlert, ExternalLink, LockKeyhole, RefreshCw, ShieldCheck, Wallet, Zap } from 'lucide-react'
 
 type Network = 'shasta' | 'nile'
 type WalletSnapshot = { address: string; host: string; network: Network; checkedAt: string }
+type ResourceKind = 'ENERGY' | 'BANDWIDTH'
+type DelegationIntent = {
+  network: Network
+  transactionId: string
+  sponsorAddress: string
+  receiverAddress: string
+  resourceType: ResourceKind
+  stakeEquivalentSun: string
+  status: string
+  createdAt: string
+}
 type ApiPayload = { success?: boolean; status?: string; error?: string; message?: string; [key: string]: any }
 type SponsorRolesSnapshot = ApiPayload & {
   network?: Network
@@ -27,6 +38,71 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? ''
 const HOSTS: Record<Network, string> = {
   shasta: 'api.shasta.trongrid.io',
   nile: 'nile.trongrid.io',
+}
+
+function trxAmountToSun(value: string): string | null {
+  const input = value.trim()
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(input)) return null
+  const [whole, fraction = ''] = input.split('.')
+  const sun = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
+  if (sun < 1_000_000n || sun > BigInt(Number.MAX_SAFE_INTEGER)) return null
+  return sun.toString()
+}
+
+function tronAddressMatches(tronWeb: any, actual: unknown, expected: string): boolean {
+  if (actual === expected) return true
+  if (typeof actual !== 'string' || !actual.trim()) return false
+  try {
+    const expectedHex = String(tronWeb.address.toHex(expected) || '').replace(/^0x/i, '').toLowerCase()
+    let actualHex = actual.trim().replace(/^0x/i, '').toLowerCase()
+    if (/^[0-9a-f]{40}$/i.test(actualHex)) actualHex = '41' + actualHex
+    if (actualHex === expectedHex) return true
+    if (typeof tronWeb.address.fromHex === 'function' && /^41[0-9a-f]{40}$/i.test(actualHex)) {
+      return tronWeb.address.fromHex(actualHex) === expected
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+function validateUnsignedDelegation(
+  tronWeb: any,
+  transaction: any,
+  sponsorAddress: string,
+  receiverAddress: string,
+  resourceType: ResourceKind,
+  stakeEquivalentSun: string,
+) {
+  const contracts = transaction?.raw_data?.contract
+  if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'DelegateResourceContract') {
+    throw new Error('The local wallet provider returned an unexpected transaction type; no signature was requested.')
+  }
+  const value = contracts[0]?.parameter?.value
+  if (!value
+    || !tronAddressMatches(tronWeb, value.owner_address ?? value.ownerAddress, sponsorAddress)
+    || !tronAddressMatches(tronWeb, value.receiver_address ?? value.receiverAddress, receiverAddress)
+    || String(value.balance ?? '') !== stakeEquivalentSun) {
+    throw new Error('The unsigned delegation does not match the selected fee sponsor, principal sponsor, and exact stake amount.')
+  }
+  const rawResource = value.resource ?? value.resourceType
+  const normalizedResource = typeof rawResource === 'number'
+    ? (rawResource === 1 ? 'ENERGY' : rawResource === 0 ? 'BANDWIDTH' : '')
+    : String(rawResource ?? '').toUpperCase()
+  if (normalizedResource !== resourceType) {
+    throw new Error('The unsigned delegation resource type does not match the selected resource.')
+  }
+  if (value.lock === true || value.lock === 1 || String(value.lock).toLowerCase() === 'true') {
+    throw new Error('Locked resource delegation is not permitted by this console. No signature was requested.')
+  }
+  const expiration = Number(transaction?.raw_data?.expiration)
+  if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 2_000 || expiration > Date.now() + 10 * 60 * 1000) {
+    throw new Error('The unsigned delegation expiration is missing or outside the allowed 10-minute window.')
+  }
+  if (!/^[0-9a-f]{64}$/i.test(String(transaction?.txID || ''))
+    || !/^(?:[0-9a-f]{2})+$/i.test(String(transaction?.raw_data_hex || ''))) {
+    throw new Error('The unsigned delegation has no valid transaction ID or raw bytes.')
+  }
 }
 
 function readInjectedWallet(network: Network): WalletSnapshot {
@@ -61,15 +137,20 @@ export default function SponsorSignerConsole() {
   const [network, setNetwork] = useState<Network>('nile')
   const [idempotencyKey, setIdempotencyKey] = useState('')
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null)
+  const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(null)
+  const [resourceType, setResourceType] = useState<ResourceKind>('BANDWIDTH')
+  const [resourceAmountTRX, setResourceAmountTRX] = useState('1')
+  const [delegationIntent, setDelegationIntent] = useState<DelegationIntent | null>(null)
+  const [delegationResult, setDelegationResult] = useState<ApiPayload | null>(null)
   const [serverStatus, setServerStatus] = useState<ApiPayload | null>(null)
   const [roleStatus, setRoleStatus] = useState<SponsorRolesSnapshot | null>(null)
-  const [busy, setBusy] = useState<'connecting' | 'checking' | 'signing' | null>(null)
+  const [busy, setBusy] = useState<'connecting' | 'checking' | 'signing' | 'delegating' | 'verifying' | null>(null)
   const [message, setMessage] = useState('Connect the asset-principal sponsor wallet on the selected testnet.')
   const [error, setError] = useState('')
   const [lastIntent, setLastIntent] = useState<ApiPayload | null>(null)
   const [lastResult, setLastResult] = useState<ApiPayload | null>(null)
 
-  const refreshSponsorRoles = useCallback(async (selectedNetwork: Network): Promise<{ ok: boolean; message?: string }> => {
+  const refreshSponsorRoles = useCallback(async (selectedNetwork: Network): Promise<{ ok: boolean; message?: string; payload?: SponsorRolesSnapshot }> => {
     try {
       const result = await requestJson(API_BASE + '/api/tron/sponsorship/roles?network=' + encodeURIComponent(selectedNetwork) + '&refresh=1')
       if (!result.response.ok || result.payload.success !== true || result.payload.network !== selectedNetwork) {
@@ -77,7 +158,7 @@ export default function SponsorSignerConsole() {
         return { ok: false, message: result.payload.message || result.payload.error || 'Sponsor role diagnostics could not be verified.' }
       }
       setRoleStatus(result.payload as SponsorRolesSnapshot)
-      return { ok: true }
+      return { ok: true, payload: result.payload as SponsorRolesSnapshot }
     } catch (caught) {
       setRoleStatus(null)
       return { ok: false, message: caught instanceof Error ? caught.message : 'Sponsor role diagnostics could not be loaded.' }
@@ -128,6 +209,7 @@ export default function SponsorSignerConsole() {
   const changeNetwork = (value: Network) => {
     setNetwork(value)
     setWallet(null)
+    setFeeWallet(null)
     setRoleStatus(null)
     setLastIntent(null)
     setLastResult(null)
@@ -195,6 +277,225 @@ export default function SponsorSignerConsole() {
     }
   }
 
+  const connectFeeSponsorWallet = async () => {
+    setError('')
+    setMessage('Requesting connection to the fee-sponsor wallet…')
+    setBusy('connecting')
+    setFeeWallet(null)
+    try {
+      if (typeof window.tronLink?.request !== 'function') {
+        throw new Error('TronLink is not detected. Connect from a browser with the sponsor wallet available.')
+      }
+      await window.tronLink.request({ method: 'tron_requestAccounts' })
+      const next = readInjectedWallet(network)
+      const rolesResult = await refreshSponsorRoles(network)
+      const feeAddress = rolesResult.payload?.roles?.networkFeeSponsor?.address
+      const assetAddress = rolesResult.payload?.roles?.assetPrincipalSponsor?.address
+      if (!rolesResult.ok || !feeAddress || !assetAddress) {
+        throw new Error(rolesResult.message || 'Both configured sponsor addresses must be valid before resource delegation.')
+      }
+      if (feeAddress === assetAddress) throw new Error('Fee sponsor and asset-principal sponsor must be different accounts.')
+      if (next.address !== feeAddress) {
+        throw new Error('The active wallet is not the configured fee sponsor. Switch the selected account in TronLink, then reconnect; no automatic account change is performed.')
+      }
+      setFeeWallet(next)
+      setMessage('Fee-sponsor wallet and testnet verified. Resource delegation will still require explicit wallet approval.')
+    } catch (caught) {
+      setFeeWallet(null)
+      setError(caught instanceof Error ? caught.message : 'Could not verify the fee-sponsor wallet.')
+      setMessage('Fee-sponsor wallet was not verified; no delegation was signed.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const verifyResourceDelegation = async (record: DelegationIntent | null = delegationIntent): Promise<boolean> => {
+    if (!record) {
+      setError('No resource-delegation transaction is available to verify.')
+      return false
+    }
+    setBusy('verifying')
+    setError('')
+    try {
+      const verification = await requestJson(API_BASE + '/api/tron/sponsorship/resource-delegations/verify', {
+        method: 'POST',
+        body: JSON.stringify({
+          network: record.network,
+          transactionId: record.transactionId,
+          sponsorAddress: record.sponsorAddress,
+          receiverAddress: record.receiverAddress,
+          resourceType: record.resourceType,
+          stakeEquivalentSun: record.stakeEquivalentSun,
+        }),
+      })
+      const payload = {
+        ...verification.payload,
+        transactionHash: record.transactionId,
+        verificationHttpStatus: verification.response.status,
+      }
+      setDelegationResult(payload)
+      if (verification.response.ok
+        && payload.success === true
+        && payload.verified === true
+        && payload.persistence?.persisted === true) {
+        setMessage('Resource delegation is independently verified in solidified chain state and its audit record was persisted. This does not prove any later token transfer is fee-free.')
+        await refreshSponsorRoles(record.network)
+        return true
+      }
+      setMessage('The exact delegation transaction has been rechecked, but solidified verification and/or audit persistence is not complete. Recheck this same transaction later; do not broadcast it again.')
+      return false
+    } catch (caught) {
+      setDelegationResult({
+        success: false,
+        status: 'delegation-verification-unavailable',
+        transactionHash: record.transactionId,
+      })
+      setError(caught instanceof Error ? caught.message : 'Could not verify this delegation.')
+      setMessage('The transaction ID is retained. Retry verification for the same ID later; do not create a duplicate delegation.')
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const delegateTestnetResource = async () => {
+    setError('')
+    setDelegationResult(null)
+    setBusy('delegating')
+    try {
+      if (!feeWallet) throw new Error('Connect and verify the configured fee-sponsor wallet first.')
+      const before = readInjectedWallet(network)
+      if (before.address !== feeWallet.address || before.host !== feeWallet.host) {
+        throw new Error('The active wallet account or network changed. Reconnect the fee sponsor before continuing.')
+      }
+      const rolesResult = await refreshSponsorRoles(network)
+      const feeRole = rolesResult.payload?.roles?.networkFeeSponsor
+      const assetRole = rolesResult.payload?.roles?.assetPrincipalSponsor
+      const feeAddress = feeRole?.address
+      const principalAddress = assetRole?.address
+      if (!rolesResult.ok || !feeRole || !assetRole || !feeAddress || !principalAddress) {
+        throw new Error(rolesResult.message || 'Both validated sponsor role addresses are required.')
+      }
+      if (feeAddress === principalAddress || before.address !== feeAddress) {
+        throw new Error('The active wallet must equal the configured fee sponsor, and the principal sponsor must be a distinct address.')
+      }
+      if (feeRole?.resourceStatus?.resourceRead !== true) {
+        throw new Error('Fresh solidified resource metadata is unavailable. No delegation transaction was prepared.')
+      }
+      const maxStake = resourceType === 'ENERGY'
+        ? feeRole.resourceStatus.maxDelegatableEnergyStakeSun
+        : feeRole.resourceStatus.maxDelegatableBandwidthStakeSun
+      if (typeof maxStake !== 'string' || !/^(0|[1-9][0-9]*)$/.test(maxStake)) {
+        throw new Error('The selected resource delegation limit could not be verified. No transaction was prepared.')
+      }
+      const stakeEquivalentSun = trxAmountToSun(resourceAmountTRX)
+      if (!stakeEquivalentSun) {
+        throw new Error('Enter an amount of at least 1 TRX with no more than 6 decimal places and within the safe transaction range.')
+      }
+      if (BigInt(stakeEquivalentSun) > BigInt(maxStake)) {
+        throw new Error('The requested stake-equivalent amount exceeds the current solidified delegation limit for this resource.')
+      }
+      const tronWeb = window.tronWeb || window.tronLink?.tronWeb
+      if (typeof tronWeb?.transactionBuilder?.delegateResource !== 'function'
+        || typeof tronWeb?.trx?.sign !== 'function'
+        || typeof tronWeb?.trx?.sendRawTransaction !== 'function') {
+        throw new Error('The connected wallet does not expose the required TronWeb transaction builder, signer, and broadcaster.')
+      }
+      const unsigned = await tronWeb.transactionBuilder.delegateResource(
+        Number(stakeEquivalentSun),
+        principalAddress,
+        resourceType,
+        feeAddress,
+        false,
+      )
+      validateUnsignedDelegation(tronWeb, unsigned, feeAddress, principalAddress, resourceType, stakeEquivalentSun)
+      setMessage('Review the fee sponsor, recipient, resource type, and stake-equivalent amount in TronLink. Approve only if every field is correct.')
+      const signed = await tronWeb.trx.sign(unsigned)
+      if (!signed || !Array.isArray(signed.signature) || signed.signature.length === 0) {
+        throw new Error('The wallet returned no signature. No broadcast was attempted.')
+      }
+      if (String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex).toLowerCase()
+        || String(signed.txID || '').toLowerCase() !== String(unsigned.txID).toLowerCase()) {
+        throw new Error('The wallet changed the prepared delegation bytes or transaction ID. No broadcast was attempted.')
+      }
+      const after = readInjectedWallet(network)
+      if (after.address !== before.address || after.host !== before.host) {
+        throw new Error('The active wallet or network changed after signing. No broadcast was attempted.')
+      }
+      const record: DelegationIntent = {
+        network,
+        transactionId: String(unsigned.txID),
+        sponsorAddress: feeAddress,
+        receiverAddress: principalAddress,
+        resourceType,
+        stakeEquivalentSun,
+        status: 'broadcast-pending',
+        createdAt: new Date().toISOString(),
+      }
+      setDelegationIntent(record)
+      setDelegationResult({
+        success: false,
+        status: 'broadcast-pending',
+        transactionHash: record.transactionId,
+        message: 'The signed transaction is prepared locally. Confirm the result before considering it broadcast.',
+      })
+      let broadcast: any
+      try {
+        broadcast = await tronWeb.trx.sendRawTransaction(signed)
+      } catch {
+        setDelegationIntent({ ...record, status: 'broadcast-outcome-unknown' })
+        setDelegationResult({
+          success: false,
+          status: 'broadcast-outcome-unknown',
+          transactionHash: record.transactionId,
+          message: 'The network response was ambiguous. Do not sign or broadcast a second transaction; verify this same transaction ID after chain propagation.',
+        })
+        setError('Broadcast outcome is unknown. The exact transaction ID was retained for read-only verification.')
+        setMessage('Do not resubmit or create a replacement delegation until the existing transaction is reconciled.')
+        return
+      }
+      if (broadcast?.result !== true) {
+        setDelegationIntent({ ...record, status: 'broadcast-rejected' })
+        setDelegationResult({
+          success: false,
+          status: 'broadcast-rejected',
+          transactionHash: record.transactionId,
+          providerResponse: typeof broadcast?.code === 'string' ? broadcast.code : undefined,
+          message: 'The selected testnet node did not confirm acceptance. Verify this exact transaction ID before any retry.',
+        })
+        setError('The node did not confirm this transaction. Do not immediately create a replacement; first verify the same transaction ID.')
+        setMessage('No accepted broadcast was confirmed. Use the same transaction ID for reconciliation.')
+        return
+      }
+      if (typeof broadcast.txid === 'string' && broadcast.txid.toLowerCase() !== record.transactionId.toLowerCase()) {
+        setDelegationIntent({ ...record, status: 'broadcast-id-mismatch' })
+        setDelegationResult({
+          success: false,
+          status: 'broadcast-id-mismatch',
+          transactionHash: record.transactionId,
+          message: 'The node returned a transaction ID that differs from the signed intent. Do not retry; reconcile both identifiers with the node.',
+        })
+        setError('Node transaction ID mismatch. No second broadcast was attempted.')
+        return
+      }
+      const accepted = { ...record, status: 'broadcast-accepted' }
+      setDelegationIntent(accepted)
+      setDelegationResult({
+        success: true,
+        status: 'broadcast-accepted',
+        transactionHash: record.transactionId,
+        message: 'The selected testnet node accepted the signed delegation. Solidification and audit persistence are still unverified.',
+      })
+      setMessage('The node accepted the delegation. Checking solidified chain state now; an accepted broadcast is not yet a verified delegation.')
+      await verifyResourceDelegation(accepted)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not prepare or submit the resource delegation.')
+      setMessage('No successful delegation was confirmed. Review the exact transaction and wallet/network state before trying again.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const globalProductionEnabled = serverStatus?.enabled === true
     && serverStatus?.canSubmitSponsoredTransfer === true
     && serverStatus?.mainnetEnabled === true
@@ -234,6 +535,43 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-detail"><span>Fee-to-principal delegation</span><strong>{delegation?.status || 'not verified'} · {delegation?.success === true ? 'observed' : 'not confirmed'}</strong></div>
             <div className="sponsor-console-result-note">Configured accounts: {roleStatus.accountsConfigured === true ? 'both present' : 'incomplete'}; distinct roles: {roleStatus.configuredAddressesDistinct === true ? 'verified' : 'not verified'}. A positive balance or delegation is not proof of a funded agreement, transaction authorization, final fee consumption, or recipient credit.</div>
           </section>}
+
+          <section className="sponsor-console-card">
+            <div className="sponsor-console-step"><span><Zap size={15} aria-hidden="true" /></span><div><h2>Delegate testnet resources to the asset sponsor</h2><p>Connect the distinct fee-sponsor account, choose Energy or Bandwidth, and delegate an exact stake-equivalent amount. The delegation is signed in the fee sponsor’s wallet and remains revocable because this console never creates a locked delegation.</p></div></div>
+            <div className="sponsor-console-detail"><span>Configured fee sponsor</span><strong>{feeRole?.address || 'Valid fee-sponsor address not configured'}</strong></div>
+            <div className="sponsor-console-detail"><span>Configured asset principal</span><strong>{assetRole?.address || 'Valid asset-principal address not configured'}</strong></div>
+            <div className="sponsor-console-actions">
+              <button type="button" className="sponsor-console-button" onClick={() => void connectFeeSponsorWallet()} disabled={busy !== null}><Wallet size={16} aria-hidden="true" /> {busy === 'connecting' && !feeWallet ? 'Connecting…' : 'Connect fee sponsor wallet'}</button>
+              <span className={feeWallet && feeWallet.network === network ? 'sponsor-console-pill sponsor-console-pill--ok' : 'sponsor-console-pill'}>{feeWallet && feeWallet.network === network ? 'Testnet verified' : 'Fee wallet not connected'}</span>
+            </div>
+            {feeWallet && <div className="sponsor-console-wallet"><span>Fee-sponsor signer</span><code>{feeWallet.address}</code><span>{feeWallet.host} · checked {new Date(feeWallet.checkedAt).toLocaleTimeString()}</span></div>}
+            <label className="sponsor-console-label" htmlFor="delegation-resource-type">Resource type</label>
+            <select id="delegation-resource-type" value={resourceType} onChange={event => setResourceType(event.target.value as ResourceKind)} disabled={busy !== null}>
+              <option value="BANDWIDTH">Bandwidth</option>
+              <option value="ENERGY">Energy</option>
+            </select>
+            <label className="sponsor-console-label" htmlFor="delegation-amount-trx">Stake-equivalent amount (TRX)</label>
+            <input id="delegation-amount-trx" inputMode="decimal" value={resourceAmountTRX} onChange={event => setResourceAmountTRX(event.target.value)} disabled={busy !== null} autoComplete="off" spellCheck={false} />
+            <p className="sponsor-console-field-note">The backend must report a fresh solidified delegation ceiling. Minimum: 1 TRX; up to 6 decimals. The signed transaction delegates resource capacity, not token principal, and does not promise zero transfer fees.</p>
+            <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void delegateTestnetResource()} disabled={busy !== null || !feeWallet || feeWallet.network !== network || feeRole?.resourceStatus?.resourceRead !== true || !feeRole?.address || !assetRole?.address || feeRole.address === assetRole.address}><Zap size={16} aria-hidden="true" /> {busy === 'delegating' ? 'Preparing / submitting…' : 'Review and delegate testnet resources'}</button>
+            {delegationIntent && <div className="sponsor-console-result-note">
+              <strong>Delegation transaction: {delegationIntent.status}</strong>
+              <div>Network: {delegationIntent.network} · Resource: {delegationIntent.resourceType} · Stake equivalent: {delegationIntent.stakeEquivalentSun} SUN</div>
+              <div>Fee sponsor: <code>{delegationIntent.sponsorAddress}</code></div>
+              <div>Recipient principal: <code>{delegationIntent.receiverAddress}</code></div>
+              <div>Transaction ID: <code>{delegationIntent.transactionId}</code></div>
+              <a href={(delegationIntent.network === 'nile' ? 'https://nile.tronscan.org' : 'https://shasta.tronscan.org') + '/#/transaction/' + encodeURIComponent(delegationIntent.transactionId)} target="_blank" rel="noreferrer">Open testnet transaction explorer <ExternalLink size={13} aria-hidden="true" /></a>
+              <div className="sponsor-console-actions">
+                <button type="button" className="sponsor-console-button" onClick={() => void verifyResourceDelegation()} disabled={busy !== null}>{busy === 'verifying' ? 'Verifying…' : 'Recheck same delegation'}</button>
+              </div>
+            </div>}
+            {delegationResult && <div className={delegationResult.success === true && delegationResult.verified === true && delegationResult.persistence?.persisted === true ? 'sponsor-console-result-note sponsor-console-result-note--ok' : 'sponsor-console-result-note'}>
+              <strong>{delegationResult.status || 'delegation-status-unavailable'}</strong>
+              <p>{delegationResult.message || (delegationResult.success === true ? 'The selected node accepted the transaction.' : 'The delegation is not yet verified. Recheck the same transaction ID; do not broadcast it again.')}</p>
+              {delegationResult.verificationHttpStatus && <small>Verification HTTP status: {delegationResult.verificationHttpStatus}</small>}
+            </div>}
+            <div className="sponsor-console-notice"><CircleAlert size={16} aria-hidden="true" /><div><strong>Testnet-only, wallet-signed action.</strong><p>No Mainnet option is present. A successful node response is not finality; the delegation becomes verified only after independent solidified-chain verification and a persisted audit record.</p></div></div>
+          </section>
 
           <section className="sponsor-console-card">
             <div className="sponsor-console-step"><span>01</span><div><h2>Connect sponsor wallet</h2><p>Use the wallet that owns the asset-principal sponsor address on the same testnet.</p></div></div>
