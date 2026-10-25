@@ -233,7 +233,7 @@ export async function validateSponsorSignedTransaction({
     } else {
       const expectedContract = addressHex(tronWeb, transfer.tokenContract)
       const callData = String(value.data || '').toLowerCase()
-      const receiverArgument = expectedReceiver.slice(2 + 2) // Drop TRON's 0x41 version byte.
+      const receiverArgument = expectedReceiver.slice(2) // Drop TRON's 0x41 version byte.
       const amountArgument = BigInt(transfer.amountBaseUnits).toString(16).padStart(64, '0')
       const expectedData = `a9059cbb${receiverArgument.padStart(64, '0')}${amountArgument}`
       const maxFee = maxFeeLimitSun(env)
@@ -412,7 +412,7 @@ export async function verifySponsorFeeResourceCapacity({
       address: senderHex,
       visible: false,
     })
-    const energyLimit = integer(resources.EnergyLimit)
+    const energyLimit = integer(resources.EnergyLimit ?? 0)
     const energyUsed = integer(resources.EnergyUsed ?? 0)
     const netLimit = integer(resources.NetLimit ?? 0)
     const netUsed = integer(resources.NetUsed ?? 0)
