@@ -1,4 +1,4 @@
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -8,6 +8,7 @@ import { createSponsorResourceDelegationVerifier } from '../sponsor-resource-del
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { isPositiveUint256 } from '../base-units.mjs'
+import { buildSponsorUnsignedTransaction, validateSponsorSignedTransaction, verifySponsorFeeResourceCapacity, broadcastValidatedSponsorTransaction } from '../sponsor-tron-submission.mjs'
 
 import { Router } from 'express'
 
@@ -1124,6 +1125,73 @@ const formatSun = (value) => {
 // Read a receiver's native TRX balance from the selected network's solidified state.
 // Protected, read-only lifecycle history. It exposes no provider keys and cannot
 // mutate a transfer or infer confirmation from a transaction hash alone.
+async function verifyTestnetSponsorFeeDelegation(transfer) {
+  const networkKey = transfer.network.toUpperCase()
+  const feeAddress = typeof process.env[`SPONSOR_FEE_${networkKey}_ADDRESS`] === 'string'
+    ? process.env[`SPONSOR_FEE_${networkKey}_ADDRESS`].trim() : ''
+  const assetAddress = typeof process.env[`SPONSOR_ASSET_${networkKey}_ADDRESS`] === 'string'
+    ? process.env[`SPONSOR_ASSET_${networkKey}_ADDRESS`].trim() : ''
+  if (!isValidTronAddress(feeAddress) || !isValidTronAddress(assetAddress)
+    || feeAddress === assetAddress || transfer.sponsorAddress !== assetAddress) {
+    return { verified: false, reason: 'sponsor-role-addresses-not-distinct-or-mismatched' }
+  }
+
+  let roles
+  try {
+    roles = await readSponsorRoleFunding(transfer.network, { refresh: true })
+  } catch {
+    return { verified: false, reason: 'sponsor-role-read-unavailable' }
+  }
+  const feeSnapshot = roles?.fundingSnapshots?.networkFeeSponsor
+  const assetSnapshot = roles?.fundingSnapshots?.assetPrincipalSponsor
+  const delegation = roles?.feeSponsorDelegationToPrincipal
+  const current = Date.now()
+  const freshSnapshot = (snapshot) => snapshot?.network === transfer.network
+    && snapshot?.onChainBalanceRead === true
+    && snapshot?.status === 'solidified-sponsor-balances-read'
+    && typeof snapshot?.sponsorAddress === 'string'
+    && typeof snapshot?.checkedAt === 'string'
+    && Number.isFinite(Date.parse(snapshot.checkedAt))
+    && current - Date.parse(snapshot.checkedAt) >= -5_000
+    && current - Date.parse(snapshot.checkedAt) <= 15_000
+  if (roles?.success !== true || roles.accountsConfigured !== true
+    || roles.configuredAddressesDistinct !== true
+    || !freshSnapshot(feeSnapshot) || !freshSnapshot(assetSnapshot)
+    || feeSnapshot.sponsorAddress !== feeAddress
+    || assetSnapshot.sponsorAddress !== assetAddress
+    || delegation?.success !== true
+    || delegation.network !== transfer.network
+    || delegation.fromAddress !== feeAddress
+    || delegation.toAddress !== assetAddress
+    || delegation.status !== 'solidified-delegation-state-read'
+    || typeof delegation.checkedAt !== 'string'
+    || !Number.isFinite(Date.parse(delegation.checkedAt))
+    || current - Date.parse(delegation.checkedAt) < -5_000
+    || current - Date.parse(delegation.checkedAt) > 15_000) {
+    return { verified: false, reason: 'solidified-sponsor-resource-delegation-not-verified' }
+  }
+  const bandwidthStake = /^(0|[1-9][0-9]*)$/.test(String(delegation.activeBandwidthStakeSun))
+    ? BigInt(String(delegation.activeBandwidthStakeSun)) : 0n
+  const energyStake = /^(0|[1-9][0-9]*)$/.test(String(delegation.activeEnergyStakeSun))
+    ? BigInt(String(delegation.activeEnergyStakeSun)) : 0n
+  if (bandwidthStake <= 0n || (transfer.asset !== 'TRX' && energyStake <= 0n)) {
+    return { verified: false, reason: 'required-sponsor-resource-delegation-missing' }
+  }
+  return {
+    verified: true,
+    status: 'solidified-sponsor-resource-delegation-read',
+    network: transfer.network,
+    feeSponsorAddress: feeAddress,
+    assetPrincipalSponsorAddress: assetAddress,
+    bandwidthDelegationObserved: bandwidthStake > 0n,
+    energyDelegationObserved: energyStake > 0n,
+    checkedAt: delegation.checkedAt,
+    // Delegated stake balances are not themselves Energy/Bandwidth units. The
+    // post-submit chain reconciliation remains a release gate for production.
+    exactFeeCapacityVerified: false,
+  }
+}
+
 // Reserve an explicitly approved testnet sponsor transfer against the correct sponsor role.
  // Reservation is an internal budget mutation only; this route never signs or broadcasts.
 router.post('/sponsorship/transfers/reserve', async (req, res) => {
@@ -1282,6 +1350,264 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
   }
 })
 
+// Read-only transaction preparation for a reserved testnet sponsor intent.
+// The sponsor must sign in its own wallet; no private key enters this API.
+router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const idempotencyKey = req.params?.idempotencyKey
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return res.status(400).json({ success: false, error: 'invalid-idempotency-key', canSubmitSponsoredTransfer: false })
+  }
+  if (process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED !== 'true') {
+    return res.status(503).json({
+      success: false, status: 'testnet-signed-broadcast-disabled',
+      canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      message: 'The testnet signing/broadcast gate is disabled until sponsor resource coverage, settlement, and end-to-end tests are reviewed.',
+    })
+  }
+  try {
+    const found = await getSponsorTransferForSubmission(idempotencyKey)
+    if (found?.success !== true) {
+      const reason = found?.reason || 'sponsor-transfer-unavailable'
+      return res.status(reason === 'transfer-not-found' ? 404 : 503).json({ success: false, error: reason, canSubmitSponsoredTransfer: false })
+    }
+    const transfer = found.transfer
+    if (!['shasta', 'nile'].includes(transfer.network)) {
+      return res.status(400).json({ success: false, error: 'testnet-only-signing', canSubmitSponsoredTransfer: false })
+    }
+    if (transfer.status !== 'pending-review' || transfer.budgetStatus !== 'active' || transfer.budgetApproved !== true) {
+      return res.status(409).json({ success: false, error: 'approved-pending-sponsor-reservation-required', canSubmitSponsoredTransfer: false })
+    }
+    const feeCoverage = await verifyTestnetSponsorFeeDelegation(transfer)
+    if (!feeCoverage.verified) {
+      return res.status(503).json({
+        success: false, error: feeCoverage.reason, canSubmitSponsoredTransfer: false,
+        feeCoverageVerified: false, message: 'The separate fee sponsor and active resource delegation could not be independently verified. No unsigned transaction was prepared.',
+      })
+    }
+    const savedExpiration = transfer.preparedTransaction?.raw_data?.expiration
+    if (Number.isSafeInteger(savedExpiration) && savedExpiration > Date.now()
+      && savedExpiration <= Date.now() + 15_000) {
+      return res.status(409).json({
+        success: false, status: 'saved-signing-intent-expiring',
+        error: 'saved-signing-intent-expiring',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        message: 'The saved transaction is too close to expiry to sign safely. Retry after it expires; the server will then prepare and persist a new intent.',
+      })
+    }
+    const savedIntentStillValid = Number.isSafeInteger(savedExpiration) && savedExpiration > Date.now()
+    const prepared = savedIntentStillValid
+      ? { success: true, transaction: transfer.preparedTransaction }
+      : await buildSponsorUnsignedTransaction({ transfer })
+    if (prepared?.success !== true) {
+      return res.status(503).json({ success: false, error: prepared?.reason || 'transaction-preparation-failed', canSubmitSponsoredTransfer: false })
+    }
+    const persisted = await persistSponsorUnsignedTransaction({
+      idempotencyKey,
+      transaction: prepared.transaction,
+    })
+    if (persisted?.persisted !== true || !persisted.transaction) {
+      return res.status(503).json({
+        success: false, error: persisted?.reason || 'unsigned-transaction-persistence-failed',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        message: 'The exact unsigned transaction could not be durably bound to this reservation. Do not sign or broadcast an unpersisted transaction.',
+      })
+    }
+    const signingTransaction = persisted.transaction
+    const feeCapacity = await verifySponsorFeeResourceCapacity({
+      transfer,
+      transaction: signingTransaction,
+    })
+    if (feeCapacity?.success !== true) {
+      return res.status(503).json({
+        success: false, error: feeCapacity?.reason || 'sponsor-fee-capacity-not-verified',
+        feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
+        message: 'Fresh chain resource capacity for the exact sponsor transaction could not be proven. The transaction is persisted but is not authorized for signing or broadcast.',
+      })
+    }
+    return res.json({
+      success: true,
+      status: 'unsigned-testnet-transaction-prepared',
+      reservation: {
+        idempotencyKey: transfer.idempotencyKey,
+        network: transfer.network,
+        sponsorReference: transfer.sponsorReference,
+        sponsorAddress: transfer.sponsorAddress,
+        receiverAddress: transfer.receiverAddress,
+        asset: transfer.asset,
+        tokenContract: transfer.tokenContract,
+        amountBaseUnits: transfer.amountBaseUnits,
+        transactionHash: transfer.transactionHash,
+      },
+      transaction: signingTransaction,
+      signingIntentPersisted: true,
+      signatureRequiredFrom: transfer.sponsorAddress,
+      feeResourceDelegation: {
+        observed: true,
+        exactFeeCapacityVerified: false,
+        resourceCapacityPreflightPassed: true,
+        availableEnergyUnits: feeCapacity.availableEnergyUnits,
+        requiredEnergyUnits: feeCapacity.requiredEnergyUnits,
+        availableBandwidthUnits: feeCapacity.availableBandwidthUnits,
+        requiredBandwidthUnits: feeCapacity.requiredBandwidthUnits,
+        checkedAt: feeCoverage.checkedAt,
+      },
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      providerSubmissionAttempted: false,
+      transactionBroadcast: false,
+      unpaidFallbackToUserFunds: false,
+      message: 'Preparation only. The reserved principal sponsor must sign the exact transaction with its own connected wallet. Submission rechecks the signature, sponsor budget, resource delegation, and testnet node response; chain finality is verified separately.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'signing-intent-unavailable', canSubmitSponsoredTransfer: false, transactionBroadcast: false })
+  }
+})
+
+// Validate the exact signed transfer, claim the ledger row to avoid cancellation
+// races, then broadcast to the selected fixed testnet node.
+router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Pragma', 'no-cache')
+  const idempotencyKey = req.params?.idempotencyKey
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return res.status(400).json({ success: false, error: 'invalid-idempotency-key', canSubmitSponsoredTransfer: false })
+  }
+  if (process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED !== 'true') {
+    return res.status(503).json({
+      success: false, status: 'testnet-signed-broadcast-disabled',
+      canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      providerSubmissionAttempted: false, transactionBroadcast: false,
+    })
+  }
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'signedTransaction')) {
+    return res.status(400).json({ success: false, error: 'signed-transaction-only', canSubmitSponsoredTransfer: false })
+  }
+  try {
+    const found = await getSponsorTransferForSubmission(idempotencyKey)
+    if (found?.success !== true) {
+      const reason = found?.reason || 'sponsor-transfer-unavailable'
+      return res.status(reason === 'transfer-not-found' ? 404 : 503).json({ success: false, error: reason, canSubmitSponsoredTransfer: false })
+    }
+    const transfer = found.transfer
+    if (!['shasta', 'nile'].includes(transfer.network)) {
+      return res.status(400).json({ success: false, error: 'testnet-only-broadcast', canSubmitSponsoredTransfer: false })
+    }
+    if (!['pending-review', 'broadcasting', 'submitted'].includes(transfer.status)
+      || transfer.budgetStatus !== 'active' || transfer.budgetApproved !== true) {
+      return res.status(409).json({ success: false, error: 'approved-sponsor-reservation-required', canSubmitSponsoredTransfer: false })
+    }
+    const feeCoverage = await verifyTestnetSponsorFeeDelegation(transfer)
+    if (!feeCoverage.verified) {
+      return res.status(503).json({
+        success: false, error: feeCoverage.reason, canSubmitSponsoredTransfer: false,
+        feeCoverageVerified: false, providerSubmissionAttempted: false, transactionBroadcast: false,
+      })
+    }
+    if (!transfer.preparedTransaction || !transfer.preparedRawDataHex || !transfer.preparedTxID) {
+      return res.status(409).json({
+        success: false, error: 'persisted-signing-intent-required',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
+        message: 'The server has no persisted unsigned transaction bound to this reservation. Retrieve a new signing intent before signing.',
+      })
+    }
+    const signature = await validateSponsorSignedTransaction({
+      transfer,
+      signedTransaction: body.signedTransaction,
+      expectedUnsignedTransaction: transfer.preparedTransaction,
+    })
+    if (signature?.success !== true) {
+      const reason = signature?.reason || 'sponsor-signature-validation-failed'
+      return res.status(reason.includes('provider-unreachable') || reason.includes('provider-http-error') ? 502 : 400).json({
+        success: false, error: reason, canSubmitSponsoredTransfer: false,
+        providerSubmissionAttempted: false, transactionBroadcast: false,
+      })
+    }
+    const feeCapacity = await verifySponsorFeeResourceCapacity({
+      transfer,
+      transaction: body.signedTransaction,
+    })
+    if (feeCapacity?.success !== true) {
+      return res.status(503).json({
+        success: false, error: feeCapacity?.reason || 'sponsor-fee-capacity-not-verified',
+        feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
+        providerSubmissionAttempted: false, transactionBroadcast: false,
+        message: 'Fresh sponsor bandwidth/energy capacity no longer covers this exact signed transaction. No broadcast was attempted; review the reservation and prepare a fresh signing intent if still pending.',
+      })
+    }
+    if (transfer.status === 'submitted' && transfer.transactionHash?.toLowerCase() === signature.txID.toLowerCase()) {
+      return res.json({
+        success: true, status: 'submitted', duplicate: true, network: transfer.network,
+        transactionHash: signature.txID, transactionBroadcast: true, chainFinalityVerified: false,
+        canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    const claim = await claimSponsorTransferBroadcast({
+      idempotencyKey, transactionHash: signature.txID, sponsorAddress: transfer.sponsorAddress,
+    })
+    if (claim?.claimed !== true) {
+      const reason = claim?.reason || 'broadcast-claim-rejected'
+      return res.status(reason === 'invalid-state-transition' || reason === 'transaction-hash-conflict' ? 409 : 503).json({
+        success: false, error: reason, canSubmitSponsoredTransfer: false,
+        providerSubmissionAttempted: false, transactionBroadcast: false,
+      })
+    }
+    if (claim.alreadySubmitted) {
+      return res.json({
+        success: true, status: 'submitted', duplicate: true, network: transfer.network,
+        transactionHash: signature.txID, transactionBroadcast: true, chainFinalityVerified: false,
+        canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    const broadcast = await broadcastValidatedSponsorTransaction({
+      network: transfer.network,
+      signedTransaction: body.signedTransaction,
+      expectedTxID: signature.txID,
+    })
+    if (broadcast?.success !== true) {
+      // Do not release the reservation after an ambiguous timeout: the node might
+      // have accepted it. Only the same signed txid may retry this broadcasting row.
+      return res.status(502).json({
+        success: false, status: 'broadcast-outcome-unverified',
+        error: broadcast?.reason || 'broadcast-outcome-unverified',
+        network: transfer.network, transactionHash: signature.txID,
+        providerSubmissionAttempted: true, transactionBroadcast: 'unknown',
+        reservationRetained: true, canSubmitSponsoredTransfer: false,
+        message: 'Broadcast outcome is not confirmed. The reservation is retained and bound to this exact txid. Retry only the same signed transaction or reconcile it from chain state; do not submit a different transaction.',
+      })
+    }
+    const finalized = await finalizeSponsorTransferBroadcast({
+      idempotencyKey, transactionHash: signature.txID, sponsorAddress: transfer.sponsorAddress,
+    })
+    if (finalized?.updated !== true) {
+      return res.status(503).json({
+        success: false, status: 'broadcast-accepted-ledger-finalization-pending',
+        transactionHash: signature.txID, providerSubmissionAttempted: true,
+        transactionBroadcast: true, chainFinalityVerified: false,
+        reservationRetained: true, canSubmitSponsoredTransfer: false,
+        message: 'The testnet node accepted the transaction, but the ledger update is not yet confirmed. Reconcile this exact txid before retrying any action.',
+      })
+    }
+    return res.status(202).json({
+      success: true, status: 'submitted', duplicate: finalized.duplicate === true,
+      network: transfer.network, transactionHash: signature.txID,
+      providerSubmissionAttempted: true, transactionBroadcast: true,
+      chainFinalityVerified: false, feeResourceDelegationObserved: true,
+      feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
+      submissionEnabled: false, unpaidFallbackToUserFunds: false,
+      message: 'The selected testnet node accepted this exact sponsor-signed transaction. This is not proof of solidification or receiver balance; use independent chain verification before settlement.',
+    })
+  } catch {
+    return res.status(503).json({
+      success: false, status: 'sponsor-testnet-submit-unavailable',
+      providerSubmissionAttempted: false, transactionBroadcast: false,
+      canSubmitSponsoredTransfer: false, unpaidFallbackToUserFunds: false,
+    })
+  }
+})
+
 router.post('/sponsorship/transfers/:idempotencyKey/cancel', async (req, res) => {
   res.setHeader?.('Cache-Control', 'no-store')
   res.setHeader?.('Pragma', 'no-cache')
@@ -1400,7 +1726,7 @@ router.get('/sponsorship/transfers', async (req, res) => {
     return res.status(400).json({ success: false, error: 'invalid-network' })
   }
   if (status !== null && (typeof status !== 'string'
-    || !['pending-review', 'authorized', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status))) {
+    || !['pending-review', 'authorized', 'broadcasting', 'submitted', 'confirmed', 'failed', 'cancelled'].includes(status))) {
     return res.status(400).json({ success: false, error: 'invalid-status' })
   }
   if (sponsorReference !== null && (typeof sponsorReference !== 'string'

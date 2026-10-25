@@ -1658,7 +1658,8 @@ export default function WorkflowApp() {
           <footer className="studio-footer-note">
             <span><ShieldCheck size={15} aria-hidden="true" /> Read-only wallet inspection</span>
             <span><EyeOff size={15} aria-hidden="true" /> No private keys requested</span>
-            <span>External sponsors must cover fees and asset principal</span>
+            <span>External sponsors must cover fees and asset principal
+            <a className="studio-footer-link" href="#/sponsor-operator">Sponsor operator console</a></span>
           </footer>
         </main>
       </div>

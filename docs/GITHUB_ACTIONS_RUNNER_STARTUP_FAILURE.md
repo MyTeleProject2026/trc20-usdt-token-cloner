@@ -42,3 +42,14 @@ Useful official documentation:
 ## Release rule
 
 Do not treat a green-looking PR, a queued rerun, or a status endpoint as a successful test run. Production release remains blocked until test/build jobs actually execute and pass, a supported testnet end-to-end flow has real independently verified evidence, and sponsor consent, fee funding, signer authorization, and settlement verification have been reviewed. No user-funded fallback is allowed.
+
+
+## Follow-up PR #51 check (25 October 2026)
+
+A further CI attempt for the sponsor signing/broadcast follow-up also failed before actionable test output was available:
+
+- Run: https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40181147500
+- Job ID: 121132300386 (`test-and-build`)
+- The workflow-jobs response contained no step list (`steps: null`); fetching that job's log archive returned no log blob. No source test, build, or audit result can be inferred from this run.
+
+Keep the PR in draft until a repository/account owner restores hosted-runner allocation and the complete checks can actually execute. Do not treat this pre-step failure as evidence that the code passes.
