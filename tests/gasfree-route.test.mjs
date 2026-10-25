@@ -478,6 +478,37 @@ test('read-only GasFree preflight blocks nonzero token-denominated fees under ex
   assert.equal(res.body.canSubmitSponsoredTransfer, false)
 })
 
+test('GasFree rejects checksum-invalid request addresses before any provider lookup', async () => {
+  let calls = 0
+  const router = createGasFreeRouter({
+    getCapabilities: async () => { calls += 1; throw new Error('must not call') },
+    getAccount: async () => { calls += 1; throw new Error('must not call') },
+  })
+  const valid = {
+    network: 'nile',
+    address: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
+    tokenAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    serviceProvider: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+    receiverAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+    amountBaseUnits: '100',
+  }
+
+  const invalidAccount = responseRecorder()
+  await getRoute(router, '/account')({
+    query: { network: 'nile', address: 'T' + 'A'.repeat(33) },
+  }, invalidAccount)
+  assert.equal(invalidAccount.statusCode, 400)
+  assert.equal(invalidAccount.body.status, 'invalid-address')
+
+  const invalidIntent = responseRecorder()
+  await getPostRoute(router, '/preflight')({
+    body: { ...valid, receiverAddress: 'T' + 'B'.repeat(33) },
+  }, invalidIntent)
+  assert.equal(invalidIntent.statusCode, 400)
+  assert.equal(invalidIntent.body.status, 'invalid-address')
+  assert.equal(calls, 0)
+})
+
 test('read-only GasFree preflight rejects signature fields and malformed amounts before provider access', async () => {
   let calls = 0
   const router = createGasFreeRouter({
