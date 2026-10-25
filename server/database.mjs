@@ -1,4 +1,5 @@
 import pg from 'pg'
+import { createHash } from 'node:crypto'
 import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 import { isPositiveUint256 } from './base-units.mjs'
@@ -253,6 +254,9 @@ export async function initializeDatabase() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_transaction JSONB`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_raw_data_hex TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_txid CHAR(64)`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_status_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers
         ADD CONSTRAINT sponsor_transfers_status_check
@@ -1231,7 +1235,7 @@ export async function getSponsorTransferForSubmission(idempotencyKey) {
     const result = await db.query(
       `SELECT t.idempotency_key, t.sponsor_reference, t.sponsor_address, t.network, t.purpose,
               t.asset, t.token_contract, t.receiver_address, t.amount_base_units::text AS amount_base_units,
-              t.status, t.transaction_hash, b.status AS budget_status,
+              t.status, t.transaction_hash, t.prepared_transaction, t.prepared_raw_data_hex, t.prepared_txid, b.status AS budget_status,
               b.budget_base_units::text AS budget_base_units,
               b.reserved_base_units::text AS budget_reserved_base_units,
               b.spent_base_units::text AS budget_spent_base_units,
@@ -1280,6 +1284,9 @@ export async function getSponsorTransferForSubmission(idempotencyKey) {
         amountBaseUnits: row.amount_base_units,
         status: row.status,
         transactionHash: row.transaction_hash?.trim() || null,
+        preparedTransaction: row.prepared_transaction,
+        preparedRawDataHex: row.prepared_raw_data_hex,
+        preparedTxID: row.prepared_txid?.trim() || null,
         budgetStatus: row.budget_status,
         budgetApproved,
         budgetBaseUnits: row.budget_base_units,
@@ -1290,6 +1297,131 @@ export async function getSponsorTransferForSubmission(idempotencyKey) {
   } catch (error) {
     console.error('Sponsor transfer submission lookup failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Persist the exact server-built unsigned transaction before returning it to the
+ * sponsor wallet. Repeated signing-intent requests must reuse these bytes rather
+ * than silently create a second transaction with a different TAPOS/expiration.
+ */
+export async function persistSponsorUnsignedTransaction({
+  idempotencyKey,
+  transaction,
+} = {}) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || !transaction || typeof transaction !== 'object' || Array.isArray(transaction)
+    || typeof transaction.raw_data_hex !== 'string' || !/^(?:[0-9a-f]{2})+$/i.test(transaction.raw_data_hex)
+    || typeof transaction.txID !== 'string' || !/^[0-9a-f]{64}$/i.test(transaction.txID)
+    || !transaction.raw_data || typeof transaction.raw_data !== 'object'
+    || Array.isArray(transaction.raw_data) || (Array.isArray(transaction.signature) && transaction.signature.length > 0)) {
+    return { persisted: false, reason: 'invalid-unsigned-transaction' }
+  }
+  const computedTxID = createHash('sha256')
+    .update(Buffer.from(transaction.raw_data_hex, 'hex'))
+    .digest('hex')
+  if (computedTxID.toLowerCase() !== transaction.txID.toLowerCase()) {
+    return { persisted: false, reason: 'transaction-id-mismatch' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query(
+      `SELECT t.status, t.network, t.purpose, t.sponsor_address, t.receiver_address,
+              t.asset, t.token_contract, t.amount_base_units::text AS amount_base_units,
+              t.prepared_transaction, t.prepared_raw_data_hex, t.prepared_txid,
+              b.status AS budget_status, b.approval_reference, b.review_reference, b.approved_at,
+              b.sponsor_reference, b.sponsor_address AS budget_sponsor_address, b.network AS budget_network,
+              b.purpose AS budget_purpose, b.asset AS budget_asset, b.token_contract AS budget_token_contract
+         FROM ${schema}.sponsor_transfers t
+         JOIN ${schema}.sponsor_budgets b
+           ON b.sponsor_reference = t.sponsor_reference
+          AND b.sponsor_address = t.sponsor_address
+          AND b.network = t.network AND b.purpose = t.purpose AND b.asset = t.asset
+          AND b.token_contract IS NOT DISTINCT FROM t.token_contract
+        WHERE t.idempotency_key = $1 FOR UPDATE OF t, b`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'transfer-not-found' }
+    }
+    const row = result.rows[0]
+    const approved = row.budget_status === 'active'
+      && typeof row.approval_reference === 'string' && row.approval_reference.length > 0
+      && typeof row.review_reference === 'string' && row.review_reference.length > 0
+      && row.approved_at != null
+      && isApprovedSponsorAgreementScope({
+        consentReference: row.approval_reference,
+        budget: {
+          sponsor_reference: row.sponsor_reference,
+          sponsor_address: row.budget_sponsor_address,
+          network: row.budget_network,
+          purpose: row.budget_purpose,
+          asset: row.budget_asset,
+          token_contract: row.budget_token_contract,
+        },
+      })
+    if (!['shasta', 'nile'].includes(row.network) || row.purpose !== 'asset-grant'
+      || row.status !== 'pending-review' || row.budget_status !== 'active' || !approved
+      || row.sponsor_address !== transaction.raw_data.contract?.[0]?.parameter?.value?.owner_address
+        && row.asset === 'TRX') {
+      // Exact semantic/address verification is repeated by the signing and
+      // signature-validation layers; this fast gate only authorizes storing
+      // a fresh unsigned testnet candidate against a pending approved row.
+      if (!['shasta','nile'].includes(row.network) || row.status !== 'pending-review'
+        || row.budget_status !== 'active' || !approved || row.purpose !== 'asset-grant') {
+        await client.query('ROLLBACK')
+        return { persisted: false, reason: 'approved-testnet-pending-transfer-required' }
+      }
+    }
+    if (row.sponsor_address === null || row.receiver_address === null
+      || !['TRX','USDT','VTRC'].includes(row.asset)
+      || !/^(0|[1-9][0-9]*)$/.test(row.amount_base_units)) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'transfer-identity-incomplete' }
+    }
+    if (row.prepared_transaction && row.prepared_raw_data_hex && row.prepared_txid) {
+      const oldTx = row.prepared_transaction
+      const oldHash = String(row.prepared_txid).trim().toLowerCase()
+      if (oldHash !== String(oldTx.txID || '').toLowerCase()
+        || String(row.prepared_raw_data_hex).toLowerCase() !== String(oldTx.raw_data_hex || '').toLowerCase()) {
+        await client.query('ROLLBACK')
+        return { persisted: false, reason: 'persisted-unsigned-transaction-integrity-failed' }
+      }
+      await client.query('COMMIT')
+      return { persisted: true, duplicate: true, transaction: oldTx, txID: oldHash }
+    }
+    const serialized = JSON.stringify(transaction)
+    if (serialized.length > 128 * 1024) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'unsigned-transaction-too-large' }
+    }
+    await client.query(
+      `UPDATE ${schema}.sponsor_transfers
+          SET prepared_transaction = $1::jsonb, prepared_raw_data_hex = $2, prepared_txid = $3,
+              updated_at = now()
+        WHERE idempotency_key = $4 AND status = 'pending-review'`,
+      [serialized, transaction.raw_data_hex.toLowerCase(), transaction.txID.toLowerCase(), idempotencyKey],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('sponsor-unsigned-transaction-prepared', 'sponsor-transfer', $1, $2::jsonb)`,
+      [idempotencyKey, JSON.stringify({ network: row.network, sponsorAddress: row.sponsor_address,
+        asset: row.asset, receiverAddress: row.receiver_address, amountBaseUnits: row.amount_base_units,
+        txID: transaction.txID.toLowerCase() })],
+    )
+    await client.query('COMMIT')
+    return { persisted: true, duplicate: false, transaction, txID: transaction.txID.toLowerCase() }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    console.error('Sponsor unsigned transaction persistence failed:', error?.code || 'unknown')
+    return { persisted: false, reason: 'database-unavailable' }
+  } finally {
+    client.release()
   }
 }
 
