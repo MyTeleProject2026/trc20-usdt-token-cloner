@@ -233,7 +233,8 @@ test('does not count fee sponsor resources as delegated energy for the principal
   assert.equal(result.payload.estimation.feeSponsorResources.availableEnergy, '900000')
   assert.equal(result.payload.estimation.feeSponsorResourcesCountedTowardPrincipalTransfer, false)
   assert.equal(result.payload.estimation.resourceDelegationVerified, false)
-  assert.ok(result.payload.blockers.includes('fee-sponsor-resource-delegation-not-verified'))
+  assert.ok(result.payload.blockers.includes('fee-sponsor-energy-delegation-not-observed'))
+  assert.ok(result.payload.blockers.includes('fee-sponsor-bandwidth-delegation-not-observed'))
 })
 
 test('rejects arbitrary token contracts before calling the chain provider', async () => {
@@ -291,6 +292,7 @@ test('native TRX preflight reports an observed fee-to-principal bandwidth delega
         from: feeHex,
         to: assetHex,
         frozen_balance_for_energy: '0',
+        expire_time_for_energy: 0,
         frozen_balance_for_bandwidth: '7000000',
         expire_time_for_bandwidth: 0,
       }],
