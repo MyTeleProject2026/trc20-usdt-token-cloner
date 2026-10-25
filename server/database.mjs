@@ -1377,16 +1377,36 @@ export async function persistSponsorUnsignedTransaction({
       await client.query('ROLLBACK')
       return { persisted: false, reason: 'transfer-identity-incomplete' }
     }
-    if (row.prepared_transaction && row.prepared_raw_data_hex && row.prepared_txid) {
-      const oldTx = row.prepared_transaction
-      const oldHash = String(row.prepared_txid).trim().toLowerCase()
-      if (oldHash !== String(oldTx.txID || '').toLowerCase()
-        || String(row.prepared_raw_data_hex).toLowerCase() !== String(oldTx.raw_data_hex || '').toLowerCase()) {
+    const hasPreparedMetadata = Boolean(row.prepared_transaction || row.prepared_raw_data_hex || row.prepared_txid)
+    if (hasPreparedMetadata) {
+      if (!row.prepared_transaction || !row.prepared_raw_data_hex || !row.prepared_txid) {
         await client.query('ROLLBACK')
         return { persisted: false, reason: 'persisted-unsigned-transaction-integrity-failed' }
       }
-      await client.query('COMMIT')
-      return { persisted: true, duplicate: true, transaction: oldTx, txID: oldHash }
+      const oldTx = row.prepared_transaction
+      const oldHash = String(row.prepared_txid).trim().toLowerCase()
+      const oldRawHash = typeof oldTx.raw_data_hex === 'string' && /^(?:[0-9a-f]{2})+$/i.test(oldTx.raw_data_hex)
+        ? createHash('sha256').update(Buffer.from(oldTx.raw_data_hex, 'hex')).digest('hex')
+        : null
+      const oldExpiration = oldTx.raw_data?.expiration
+      if (oldHash !== String(oldTx.txID || '').toLowerCase()
+        || oldRawHash !== oldHash
+        || String(row.prepared_raw_data_hex).toLowerCase() !== String(oldTx.raw_data_hex || '').toLowerCase()
+        || !Number.isSafeInteger(oldExpiration)) {
+        await client.query('ROLLBACK')
+        return { persisted: false, reason: 'persisted-unsigned-transaction-integrity-failed' }
+      }
+      if (oldExpiration > Date.now()) {
+        await client.query('COMMIT')
+        return { persisted: true, duplicate: true, transaction: oldTx, txID: oldHash }
+      }
+      // Replacing an expired unsigned intent is safe only while the reservation
+      // is still pending-review. The old transaction is past its protocol expiry.
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-unsigned-transaction-expired', 'sponsor-transfer', $1, $2::jsonb)`,
+        [idempotencyKey, JSON.stringify({ network: row.network, expiredTxID: oldHash })],
+      )
     }
     const serialized = JSON.stringify(transaction)
     if (serialized.length > 128 * 1024) {
