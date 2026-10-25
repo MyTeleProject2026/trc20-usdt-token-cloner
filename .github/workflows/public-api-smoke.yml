@@ -66,12 +66,21 @@ jobs:
             if (Number.isInteger(data.providerStatus)) console.log("Provider HTTP status:", data.providerStatus);
           '
 
-      - name: Report dependency readiness without leaking provider data
+      - name: Require healthy read-only dependencies without leaking provider data
         shell: bash
         run: |
           set -euo pipefail
-          http_code="$(curl --connect-timeout 10 --max-time 30 --silent --show-error --output readiness.json --write-out '%{http_code}' https://trc20-usdt-token-cloner-api.onrender.com/api/readiness)"
-          echo "Readiness HTTP status: $http_code"
+          trap 'rm -f readiness.json' EXIT
+          http_code="000"
+          for attempt in {1..12}; do
+            http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output readiness.json --write-out '%{http_code}' https://trc20-usdt-token-cloner-api.onrender.com/api/readiness)" || http_code="000"
+            if [[ "$http_code" == "200" ]]; then
+              break
+            fi
+            echo "Readiness returned HTTP $http_code (attempt $attempt/12); retrying in 10 seconds."
+            sleep 10
+          done
+          echo "Readiness HTTP status after retry window: $http_code"
           READINESS_HTTP_STATUS="$http_code" node --input-type=module <<'NODE'
           import fs from 'node:fs'
           const data = JSON.parse(fs.readFileSync('readiness.json', 'utf8'))
@@ -86,10 +95,10 @@ jobs:
             throw new Error('Readiness provider fields have unexpected shape')
           }
           const serialized = JSON.stringify(data)
-          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key\s*[:=]\s*["'][^"']+/i.test(serialized)) {
+          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\\s+[A-Za-z0-9._-]{12,}|api[_-]?key\\s*[:=]\\s*["'][^"']+/i.test(serialized)) {
             throw new Error('Readiness response may expose sensitive material')
           }
-          console.log(JSON.stringify({
+          const summary = {
             success: data.success,
             status: data.status,
             database: { configured: data.database.configured, ready: data.database.ready },
@@ -98,13 +107,17 @@ jobs:
               tronGridApiKey: { configured: data.providers.tronGridApiKey?.configured ?? false },
               frontendOrigin: { configured: data.providers.frontendOrigin?.configured ?? false }
             }
-          }, null, 2))
-          const httpCode = process.env.READINESS_HTTP_STATUS
-          if (httpCode !== '200' && httpCode !== '503') throw new Error('Unexpected readiness HTTP status')
-          if (httpCode === '200' && data.success !== true) throw new Error('Readiness HTTP/body mismatch')
-          if (httpCode === '503' && data.success !== false) throw new Error('Readiness HTTP/body mismatch')
+          }
+          console.log(JSON.stringify(summary, null, 2))
+          if (process.env.READINESS_HTTP_STATUS !== '200'
+            || data.success !== true
+            || data.status !== 'read-only-dependencies-healthy'
+            || data.database.ready !== true
+            || tatum.reachable !== true
+            || data.providers.frontendOrigin?.configured !== true) {
+            throw new Error('Production read-only dependency readiness is not healthy')
+          }
           NODE
-          rm -f readiness.json
       - name: Check out source for gate-contract validation
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
