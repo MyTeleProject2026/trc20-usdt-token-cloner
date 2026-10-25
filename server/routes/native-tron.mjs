@@ -6,6 +6,7 @@ import { createSponsorRoleFundingReader } from '../sponsor-roles.mjs'
 import { createSponsorResourceReader } from '../sponsor-resources.mjs'
 import { createSponsorResourceDelegationVerifier } from '../sponsor-resource-delegation-verifier.mjs'
 import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
+import { isValidTronAddress } from '../tron-address.mjs'
 
 import { Router } from 'express'
 
@@ -1172,8 +1173,8 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
     || !['TRX', 'USDT', 'VTRC'].includes(body.asset)
     || (body.purpose === 'network-fee' && body.asset !== 'TRX')
     || (body.asset === 'TRX' && body.tokenContract != null && body.tokenContract !== '')
-    || (body.asset !== 'TRX' && (typeof body.tokenContract !== 'string' || !body.tokenContract.trim()))
-    || typeof body.receiverAddress !== 'string' || !addressPattern.test(body.receiverAddress)
+    || (body.asset !== 'TRX' && !isValidTronAddress(body.tokenContract))
+    || !isValidTronAddress(body.receiverAddress)
     || typeof body.amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(body.amountBaseUnits)) {
     return res.status(400).json({
       success: false,
