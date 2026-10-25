@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   runner-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 3
     steps:
       - name: Confirm a hosted runner was actually allocated
