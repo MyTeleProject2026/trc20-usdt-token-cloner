@@ -239,3 +239,23 @@ test('reconciliation rejects checksum-invalid token contract addresses in budget
   assert.equal(result.status, 'invalid-budget-ledger-record')
   assert.equal(result.covered, undefined)
 })
+
+test('reconciliation rejects inconsistent fee-purpose and token-contract ledger rows', () => {
+  const invalidBudgets = [
+    budget({ purpose: 'network-fee', asset: 'USDT', token_contract: officialUsdt }),
+    budget({ purpose: 'network-fee', asset: 'VTRC', token_contract: tokenAddress }),
+    budget({ purpose: 'asset-grant', asset: 'TRX', token_contract: tokenAddress }),
+    budget({ purpose: 'asset-grant', asset: 'USDT', token_contract: null }),
+  ]
+
+  for (const invalidBudget of invalidBudgets) {
+    const result = reconcileSponsorBudgets({
+      network: 'shasta',
+      fundingSnapshot: snapshot(),
+      budgets: [invalidBudget],
+    })
+    assert.equal(result.success, false)
+    assert.equal(result.status, 'invalid-budget-ledger-record')
+    assert.equal(result.covered, undefined)
+  }
+})
