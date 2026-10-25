@@ -170,6 +170,7 @@ export default function SponsorSignerConsole() {
   const [delegationResult, setDelegationResult] = useState<ApiPayload | null>(null)
   const [serverStatus, setServerStatus] = useState<ApiPayload | null>(null)
   const [roleStatus, setRoleStatus] = useState<SponsorRolesSnapshot | null>(null)
+  const [pilotPreflight, setPilotPreflight] = useState<ApiPayload | null>(null)
   const [busy, setBusy] = useState<'connecting' | 'checking' | 'signing' | 'delegating' | 'verifying' | null>(null)
   const [message, setMessage] = useState('Connect the asset-principal sponsor wallet on the selected testnet.')
   const [error, setError] = useState('')
@@ -191,6 +192,22 @@ export default function SponsorSignerConsole() {
     }
   }, [])
 
+  const refreshPilotPreflight = useCallback(async () => {
+    try {
+      const result = await requestJson(API_BASE + '/api/tron/sponsorship/testnet-pilot-readiness?network=both&refresh=1')
+      if (!result.response.ok || result.payload.success !== true || !result.payload.networks) {
+        throw new Error(result.payload.message || result.payload.error || 'Dual-testnet pilot preflight could not be verified.')
+      }
+      setPilotPreflight(result.payload)
+    } catch (caught) {
+      setPilotPreflight({
+        success: false,
+        status: 'testnet-pilot-preflight-unavailable',
+        error: caught instanceof Error ? caught.message : 'Could not load Nile and Shasta pilot diagnostics.',
+      })
+    }
+  }, [])
+
   const refreshServerStatus = useCallback(async () => {
     setBusy('checking')
     try {
@@ -206,6 +223,8 @@ export default function SponsorSignerConsole() {
   }, [])
 
   useEffect(() => { void refreshServerStatus(); void refreshSponsorRoles(network) }, [refreshServerStatus, refreshSponsorRoles, network])
+
+  useEffect(() => { void refreshPilotPreflight() }, [refreshPilotPreflight])
 
   // Persist only public transaction metadata (never a signature, raw transaction or key)
   // so a pending/ambiguous broadcast can be rechecked after the page is reopened.
@@ -561,6 +580,29 @@ export default function SponsorSignerConsole() {
               <span>{serverStatus?.status || 'Backend status not yet verified'} · Mainnet is not available in this console.</span>
             </div>
             <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => { void refreshServerStatus(); void refreshSponsorRoles(network) }} disabled={busy !== null}><RefreshCw size={15} aria-hidden="true" /> Recheck</button>
+          </section>
+
+          <section className="sponsor-console-card" aria-live="polite">
+            <div className="sponsor-console-step"><span>DUAL</span><div><h2>Nile + Shasta pilot preflight</h2><p>Automatically checks both testnets against the latest solidified node state, configured sponsor-role balances, fee resources, and any observed fee-to-principal delegation. This diagnostic never authorizes or broadcasts a transfer.</p></div></div>
+            <div className="sponsor-console-detail"><span>Preflight status</span><strong>{pilotPreflight?.status || 'Loading live testnet diagnostics…'}</strong></div>
+            {(['nile', 'shasta'] as const).map((pilotNetwork) => {
+              const item = pilotPreflight?.networks?.[pilotNetwork]
+              const blockers: string[] = Array.isArray(item?.blockers) ? item.blockers : []
+              return (
+                <div key={pilotNetwork} className="sponsor-console-pilot-network">
+                  <div className="sponsor-console-detail"><span>{pilotNetwork === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</span><strong>{item?.preflightStatus || 'not checked'}</strong></div>
+                  <div className="sponsor-console-detail"><span>Solidified node</span><strong>{item?.networkNode?.reachable === true ? 'Reachable · block ' + String(item.networkNode.latestSolidifiedBlockNumber ?? 'unknown') : String(item?.networkNode?.status || 'not verified')}</strong></div>
+                  <div className="sponsor-console-detail"><span>Sponsor roles / chain reads</span><strong>{item?.roleConfiguration?.feeSponsorAddressConfigured === true ? 'Fee address configured' : 'Fee address missing'} · {item?.roleConfiguration?.assetPrincipalSponsorAddressConfigured === true ? 'Principal address configured' : 'Principal address missing'} · {item?.roleConfiguration?.rolesDistinct === true ? 'distinct' : 'not verified distinct'}</strong></div>
+                  <div className="sponsor-console-detail"><span>Live funding/resources</span><strong>Fee balance {item?.roleConfiguration?.feeSponsorOnChainBalanceRead === true ? 'read' : 'not verified'} · Principal balance {item?.roleConfiguration?.assetPrincipalSponsorOnChainBalanceRead === true ? 'read' : 'not verified'} · Resources {item?.feeSponsorResources?.read === true ? 'read' : 'not verified'} · Delegation {item?.feeSponsorResources?.delegation?.activeDelegationObserved === true ? 'observed' : 'not observed'}</strong></div>
+                  {blockers.length > 0 && <div className="sponsor-console-result-note"><strong>Blockers ({blockers.length})</strong><ul>{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></div>}
+                </div>
+              )
+            })}
+            <div className="sponsor-console-actions">
+              <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => void refreshPilotPreflight()} disabled={busy !== null}><RefreshCw size={15} aria-hidden="true" /> Refresh both testnets</button>
+              <span className="sponsor-console-pill">Signing and submission remain disabled</span>
+            </div>
+            <div className="sponsor-console-result-note">A funded-looking balance is not proof of sponsor ownership, consent, or a spending mandate. A node-accepted transaction is not final fee settlement or proof of receiver/exchange credit. No private key or sponsor address is sent to this diagnostic endpoint.</div>
           </section>
 
           {roleStatus && <section className="sponsor-console-card">
