@@ -268,12 +268,22 @@ export async function validateSponsorSignedTransaction({
     return fail('signature-verification-provider-unreachable')
   }
 
-  const detail = weight?.result && typeof weight.result === 'object' ? weight : weight?.data
-  const approved = detail?.result?.result === true
-    || (detail?.result === true)
+  const detail = weight?.data && typeof weight.data === 'object' ? weight.data : weight
+  const nodeTx = detail?.transaction?.transaction || detail?.transaction || null
+  if (nodeTx?.txID && String(nodeTx.txID).toLowerCase() !== computedTxId.toLowerCase()) {
+    return fail('node-signature-check-transaction-id-mismatch')
+  }
+  if (nodeTx?.raw_data_hex && String(nodeTx.raw_data_hex).toLowerCase() !== rawDataHex.toLowerCase()) {
+    return fail('node-signature-check-raw-data-mismatch')
+  }
+  const resultDetail = detail?.result
+  const resultCode = typeof resultDetail?.code === 'string' ? resultDetail.code : null
+  const explicitFailure = resultDetail?.result === false
+    || resultDetail === false
+    || (resultCode !== null && !['ENOUGH_PERMISSION', 'OK', 'SUCCESS'].includes(resultCode))
   const threshold = detail?.permission?.threshold
   const currentWeight = detail?.current_weight
-  if (!approved || !Number.isSafeInteger(threshold) || threshold <= 0
+  if (explicitFailure || !Number.isSafeInteger(threshold) || threshold <= 0
     || !Number.isSafeInteger(currentWeight) || currentWeight < threshold) {
     return fail('sponsor-signature-permission-not-satisfied')
   }
