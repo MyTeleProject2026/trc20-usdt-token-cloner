@@ -76,7 +76,7 @@ function signedTransfer(overrides = {}) {
     contract: [{
       type: 'TransferContract',
       parameter: {
-        type_url: 'type.googleapis.com/protocol.Transaction.Contract',
+        type_url: 'type.googleapis.com/protocol.TransferContract',
         value: {
           owner_address: '41' + '11'.repeat(20),
           to_address: '41' + '22'.repeat(20),
@@ -157,8 +157,28 @@ test('signature verification rejects an intent mismatch before contacting the no
     tronWebFactory: fakeTronWeb,
   })
   assert.equal(result.success, false)
-  assert.equal(result.reason, 'transaction-id-mismatch')
+  assert.equal(result.reason, 'transaction-transfer-intent-mismatch')
   assert.equal(called, false)
+})
+
+test('signed exact sponsor intent is verified against the selected testnet node before broadcast', async () => {
+  const calls = []
+  const result = await validateSponsorSignedTransaction({
+    transfer: transfer(),
+    signedTransaction: signedTransfer(),
+    env: {},
+    now: () => now,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options })
+      return response(200, { result: { result: true }, permission: { threshold: 1 }, current_weight: 1 })
+    },
+    tronWebFactory: fakeTronWeb,
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.status, 'sponsor-signature-verified')
+  assert.equal(result.signaturePermissionVerified, true)
+  assert.equal(calls[0].url, 'https://nile.trongrid.io/wallet/getsignweight')
+  assert.equal(calls[0].options.redirect, 'error')
 })
 
 test('broadcast refuses Mainnet and never issues a request to a caller-supplied host', async () => {
