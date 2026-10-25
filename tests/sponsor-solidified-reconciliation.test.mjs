@@ -111,9 +111,9 @@ test('reconciliation resolves an ambiguous broadcasting row only after a matchin
   assert.deepEqual(order, ['chain', 'persist', 'finalize', 'confirm'])
 })
 
-test('reconciliation rejects mainnet, pending-review, failed, and mismatched transfer identities', async (t) => {
+test('reconciliation rejects mainnet, pending-review, and failed transfer identities before chain reads', async (t) => {
   for (const override of [
-    { network: 'mainnet' }, { status: 'pending-review' }, { status: 'failed' }, { receiverAddress: sponsor },
+    { network: 'mainnet' }, { status: 'pending-review' }, { status: 'failed' },
   ]) {
     let read = false
     const base = await testServer(t, {
@@ -126,6 +126,18 @@ test('reconciliation rejects mainnet, pending-review, failed, and mismatched tra
     assert.equal(payload.canSubmitSponsoredTransfer, false)
     assert.equal(read, false)
   }
+})
+
+test('reconciliation rejects chain evidence that changes the persisted receiver', async (t) => {
+  const base = await testServer(t, {
+    readEvidence: async (item) => ({ ...baseEvidence(item), toAddress: sponsor }),
+    confirmTransfer: async () => { throw new Error('ledger confirmation must not run for mismatched evidence') },
+  })
+  const response = await reconcile(base)
+  const payload = await response.json()
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'solidified-evidence-identity-mismatch')
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
 })
 
 test('reconciliation stores token log index and does not confirm when evidence persistence fails', async (t) => {
