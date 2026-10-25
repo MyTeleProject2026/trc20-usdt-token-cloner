@@ -518,9 +518,9 @@ test('read-only GasFree preflight rejects signature fields and malformed amounts
   const base = {
     network: 'nile',
     address: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
-    tokenAddress: 'T' + 'B'.repeat(33),
-    serviceProvider: 'T' + 'C'.repeat(33),
-    receiverAddress: 'T' + 'D'.repeat(33),
+    tokenAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    serviceProvider: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+    receiverAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
     amountBaseUnits: '100',
   }
 
