@@ -112,6 +112,14 @@ an approved Nile testnet end-to-end test using controlled test assets and a sign
 the integration. Retain sanitized transaction IDs and independently verify the solidified receipt,
 exact recipient amount, fee behavior, duplicate-request handling, and timeout reconciliation.
 
+## 4a. Confirming a submitted testnet principal grant
+
+After a stored Nile/Shasta asset-grant has status `submitted`, run the corresponding existing solidified verifier:
+- Native TRX: `GET /api/tron/verify-native-transfer/{storedTxId}?network=...&from=...&to=...&amountSun=...`
+- TRC-20: `GET /api/tron/verify-trc20-transfer/{storedTxId}?network=...&contract=...&from=...&to=...&amountBaseUnits=...`
+
+Only then call the new administrator-protected `POST /api/tron/sponsorship/transfers/{idempotencyKey}/confirm`. It trusts no client-supplied success state; the database requires persisted verified-on-chain evidence with exact asset identity. The response provides a separate receiver-balance read path. A confirmation failure must leave the reservation reserved until it is reconciled. This route is only for principal grants on Nile/Shasta; it does not settle network-fee budgets, enable broadcast, or verify exchange credit.
+
 ## 5. Provider research decision
 
 Official GasFree documentation describes provider-paid on-chain gas for a signed TRC-20 transfer,
