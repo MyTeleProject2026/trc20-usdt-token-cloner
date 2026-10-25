@@ -85,7 +85,7 @@ test('chain verification reports persistence separately from chain success', () 
 
 test('official Mainnet USDT verification remains independently allowlisted on the backend only', () => {
   assert.match(routes, /OFFICIAL_MAINNET_USDT_HEX = 'a614f803b6fd780986a42c78ec9c7f77e6ded13c'/)
-  assert.match(routes, /const isOfficialMainnetUsdt = network === 'mainnet'/)
+  assert.match(routes, /const isOfficialMainnetUsdt = isCanonicalMainnetUsdtContract\(network, contract\)/)
   assert.match(routes, /normalizedContract === OFFICIAL_MAINNET_USDT_HEX/)
   assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.length\)/)
   assert.match(routes, /if \(!isOfficialMainnetUsdt && !approvedContracts\.includes\(normalizedContract\)\)/)
