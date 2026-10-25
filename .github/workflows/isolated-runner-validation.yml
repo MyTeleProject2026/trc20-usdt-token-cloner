@@ -1,0 +1,42 @@
+name: Isolated Actions runner validation
+
+on:
+  push:
+    branches: ["diagnostic/actions-runner-validation"]
+    paths:
+      - ".github/workflows/isolated-runner-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Confirm runner startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_NAME:-}"
+          printf 'Runner: %s\n' "$RUNNER_NAME"
+          printf 'OS: %s\n' "$RUNNER_OS"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build frontend and compile contract
+        run: npm run build
