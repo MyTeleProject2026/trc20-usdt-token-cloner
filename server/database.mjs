@@ -39,21 +39,44 @@ let initPromise
  * internal URLs; do not force strict public-CA validation for those hosts.
  * External hosts keep strict certificate verification when DATABASE_SSL=true.
  */
-export function databaseSslConfig(connectionString, env = process.env) {
-  if (env.DATABASE_SSL !== 'true') return undefined
+export function isRenderInternalDatabaseUrl(connectionString) {
   try {
     const host = new URL(connectionString).hostname.toLowerCase()
-    if (/^dpg-[a-z0-9-]+$/.test(host)) return undefined
+    return /^dpg-[a-z0-9-]+$/.test(host)
   } catch {
-    // Pool will report malformed connection strings without exposing them.
+    return false
   }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
   return { rejectUnauthorized: true }
 }
 
 function getPool() {
   if (pool) return pool
-  const connectionString = process.env.DATABASE_URL
-  if (!connectionString) return null
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
   pool = new Pool({
     connectionString,
     connectionTimeoutMillis: 5000,
