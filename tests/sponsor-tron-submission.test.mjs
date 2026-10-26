@@ -11,6 +11,7 @@ import {
 const sponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
 const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const tokenContract = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+const feeSponsorAddress = 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH'
 const now = 1_800_000_000_000
 const rawDataHex = Buffer.from('fixed test raw data').toString('hex')
 const txID = createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest('hex')
@@ -28,6 +29,7 @@ function fakeTronWeb(host) {
           [sponsorAddress]: '41' + '11'.repeat(20),
           [receiverAddress]: '41' + '22'.repeat(20),
           [tokenContract]: '41' + '33'.repeat(20),
+          [feeSponsorAddress]: '41' + '44'.repeat(20),
         }
         if (!values[address]) throw new Error('bad-address')
         return values[address]
@@ -244,52 +246,119 @@ test('signed transaction JSON must match the exact persisted unsigned signing in
   assert.equal(called, false)
 })
 
-test('native sponsor capacity checks live available bandwidth and rejects inadequate resources', async () => {
+test('native sponsor capacity requires active fee-sponsor delegation and does not count free quota', async () => {
   const transaction = {
     txID,
     raw_data_hex: rawDataHex,
-    raw_data: {
-      contract: [{ type: 'TransferContract', parameter: { value: {} } }],
+    raw_data: { expiration: now + 60_000, contract: [{ type: 'TransferContract', parameter: { value: {} } }] },
+  }
+  const principalHex = '41' + '11'.repeat(20)
+  const receiverHex = '41' + '22'.repeat(20)
+  const feeHex = '41' + '44'.repeat(20)
+  const account = {
+    address: principalHex,
+    frozenV2: [],
+    acquired_delegated_frozenV2_balance_for_bandwidth: '1000000',
+    acquired_delegated_frozen_balance_for_bandwidth: '0',
+    account_resource: {
+      acquired_delegated_frozenV2_balance_for_energy: '1000000',
+      acquired_delegated_frozen_balance_for_energy: '0',
     },
   }
+  const delegation = {
+    delegatedResource: [{
+      from: feeHex, to: principalHex,
+      frozen_balance_for_bandwidth: '1000000',
+      frozen_balance_for_energy: '1000000',
+      expire_time_for_bandwidth: 0,
+      expire_time_for_energy: 0,
+    }],
+  }
+  const baseEnv = { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress }
   const enough = await verifySponsorFeeResourceCapacity({
     transfer: transfer(),
     transaction,
-    env: {},
+    env: baseEnv,
     tronWebFactory: fakeTronWeb,
-    fetchImpl: async (url) => url.endsWith('/walletsolidity/getaccount')
-      ? response(200, { address: '41' + '22'.repeat(20) })
-      : response(200, {
-          NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
-          EnergyLimit: 0, EnergyUsed: 0,
-        }),
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        const body = JSON.parse(options.body)
+        return response(200, body.address === receiverHex ? { address: receiverHex } : account)
+      }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) return response(200, delegation)
+      return response(200, {
+        NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
+        EnergyLimit: 100000, EnergyUsed: 0,
+      })
+    },
   })
   assert.equal(enough.success, true)
   assert.equal(enough.status, 'sponsor-resource-capacity-verified')
+  assert.equal(enough.feeSponsorResourceSourceVerified, true)
+  assert.equal(enough.freeBandwidthUsedAsSponsorCoverage, false)
   assert.ok(BigInt(enough.availableBandwidthUnits) >= BigInt(enough.requiredBandwidthUnits))
 
-  const tooLittle = await verifySponsorFeeResourceCapacity({
+  const freeQuotaOnly = await verifySponsorFeeResourceCapacity({
     transfer: transfer(),
     transaction,
-    env: {},
+    env: baseEnv,
     tronWebFactory: fakeTronWeb,
-    fetchImpl: async (url) => url.endsWith('/walletsolidity/getaccount')
-      ? response(200, { address: '41' + '22'.repeat(20) })
-      : response(200, {
-          NetLimit: 1, NetUsed: 1, freeNetLimit: 0, freeNetUsed: 0,
-          EnergyLimit: 0, EnergyUsed: 0,
-        }),
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        const body = JSON.parse(options.body)
+        return response(200, body.address === receiverHex ? { address: receiverHex } : account)
+      }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) return response(200, delegation)
+      return response(200, {
+        NetLimit: 1, NetUsed: 1, freeNetLimit: 10000, freeNetUsed: 0,
+        EnergyLimit: 0, EnergyUsed: 0,
+      })
+    },
   })
-  assert.equal(tooLittle.success, false)
-  assert.equal(tooLittle.reason, 'sponsor-bandwidth-capacity-insufficient')
+  assert.equal(freeQuotaOnly.success, false)
+  assert.equal(freeQuotaOnly.reason, 'sponsor-bandwidth-capacity-insufficient')
 })
 
+test('sponsor capacity refuses to attribute principal self-stake to the separate fee sponsor', async () => {
+  const transaction = {
+    txID, raw_data_hex: rawDataHex,
+    raw_data: { expiration: now + 60_000, contract: [{ type: 'TransferContract', parameter: { value: {} } }] },
+  }
+  const principalHex = '41' + '11'.repeat(20)
+  const receiverHex = '41' + '22'.repeat(20)
+  const feeHex = '41' + '44'.repeat(20)
+  const account = {
+    address: principalHex,
+    frozenV2: [{ amount: '2000000' }],
+    acquired_delegated_frozenV2_balance_for_bandwidth: '1000000',
+    account_resource: { acquired_delegated_frozenV2_balance_for_energy: '1000000' },
+  }
+  const delegation = { delegatedResource: [{
+    from: feeHex, to: principalHex,
+    frozen_balance_for_bandwidth: '1000000', frozen_balance_for_energy: '1000000',
+    expire_time_for_bandwidth: 0, expire_time_for_energy: 0,
+  }] }
+  const result = await verifySponsorFeeResourceCapacity({
+    transfer: transfer(), transaction, env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        const body = JSON.parse(options.body)
+        return response(200, body.address === receiverHex ? { address: receiverHex } : account)
+      }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) return response(200, delegation)
+      return response(200, { NetLimit: 10000, NetUsed: 0, EnergyLimit: 100000, EnergyUsed: 0 })
+    },
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'fee-sponsor-only-bandwidth-source-required')
+})
 
 test('native sponsor capacity rejects an unactivated or unverifiable recipient before resource preflight', async () => {
   const transaction = {
     txID,
     raw_data_hex: rawDataHex,
-    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {} } }] },
+    raw_data: { expiration: now + 60_000, contract: [{ type: 'TransferContract', parameter: { value: {} } }] },
   }
   let resourceQueryMade = false
   const result = await verifySponsorFeeResourceCapacity({
@@ -325,12 +394,31 @@ test('TRC20 sponsor capacity fails closed when live constant-contract simulation
       }],
     },
   }
+  const principalHex = '41' + '11'.repeat(20)
+  const receiverHex = '41' + '22'.repeat(20)
+  const feeHex = '41' + '44'.repeat(20)
+  const account = {
+    address: principalHex,
+    frozenV2: [],
+    acquired_delegated_frozenV2_balance_for_bandwidth: '1000000',
+    account_resource: { acquired_delegated_frozenV2_balance_for_energy: '1000000' },
+  }
+  const delegation = { delegatedResource: [{
+    from: feeHex, to: principalHex,
+    frozen_balance_for_bandwidth: '1000000', frozen_balance_for_energy: '1000000',
+    expire_time_for_bandwidth: 0, expire_time_for_energy: 0,
+  }] }
   const result = await verifySponsorFeeResourceCapacity({
     transfer: tokenTransfer,
     transaction,
-    env: {},
+    env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
     tronWebFactory: fakeTronWeb,
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        const body = JSON.parse(options.body)
+        return response(200, body.address === receiverHex ? { address: receiverHex } : account)
+      }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) return response(200, delegation)
       if (url.endsWith('/wallet/getaccountresource')) return response(200, {
         NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
         EnergyLimit: 100000, EnergyUsed: 0,

@@ -59,6 +59,75 @@ function addressHex(tronWeb, address) {
   return hex.toLowerCase()
 }
 
+function canonicalAddressHex(tronWeb, value) {
+  if (typeof value !== 'string') return null
+  const raw = value.trim().replace(/^0x/i, '').toLowerCase()
+  if (/^41[0-9a-f]{40}$/.test(raw)) return raw
+  if (/^[0-9a-f]{40}$/.test(raw)) return '41' + raw
+  try {
+    if (typeof tronWeb?.isAddress === 'function' && tronWeb.isAddress(value)) return addressHex(tronWeb, value)
+  } catch {
+    return null
+  }
+  return null
+}
+
+function nonNegativeUint(value) {
+  if (value === undefined || value === null) return 0n
+  if (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)) return BigInt(value)
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value)
+  return null
+}
+
+function sponsorResourceSourceProfile(account) {
+  if (!account || typeof account !== 'object' || Array.isArray(account)) return null
+  const frozenV2 = account.frozenV2 === undefined ? [] : account.frozenV2
+  const frozenLegacy = account.frozen === undefined ? [] : account.frozen
+  if (!Array.isArray(frozenV2) || !Array.isArray(frozenLegacy)) return null
+
+  let ownBandwidthV2 = 0n
+  let ownEnergyV2 = 0n
+  for (const item of frozenV2) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const kind = item.type === undefined || item.type === null || item.type === '' ? 'BANDWIDTH' : item.type
+    if (kind === 'TRON_POWER') continue
+    if (!['BANDWIDTH', 'ENERGY'].includes(kind)) return null
+    const amount = nonNegativeUint(item.amount)
+    if (amount === null) return null
+    if (kind === 'BANDWIDTH') ownBandwidthV2 += amount
+    else ownEnergyV2 += amount
+  }
+
+  let ownBandwidthLegacy = 0n
+  for (const item of frozenLegacy) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const amount = nonNegativeUint(item.frozen_balance)
+    if (amount === null) return null
+    ownBandwidthLegacy += amount
+  }
+  const accountResource = account.account_resource === undefined ? {} : account.account_resource
+  if (!accountResource || typeof accountResource !== 'object' || Array.isArray(accountResource)) return null
+  const legacyEnergy = accountResource.frozen_balance_for_energy
+  const ownEnergyLegacy = legacyEnergy && typeof legacyEnergy === 'object'
+    ? nonNegativeUint(legacyEnergy.frozen_balance)
+    : legacyEnergy === undefined || legacyEnergy === null ? 0n : null
+
+  const incomingBandwidthV2 = nonNegativeUint(account.acquired_delegated_frozenV2_balance_for_bandwidth)
+  const incomingBandwidthLegacy = nonNegativeUint(account.acquired_delegated_frozen_balance_for_bandwidth)
+  const incomingEnergyV2 = nonNegativeUint(accountResource.acquired_delegated_frozenV2_balance_for_energy)
+  const incomingEnergyLegacy = nonNegativeUint(accountResource.acquired_delegated_frozen_balance_for_energy)
+  if ([ownEnergyLegacy, incomingBandwidthV2, incomingBandwidthLegacy, incomingEnergyV2, incomingEnergyLegacy].some(value => value === null)) return null
+
+  return {
+    ownBandwidthSun: ownBandwidthV2 + ownBandwidthLegacy,
+    ownEnergySun: ownEnergyV2 + ownEnergyLegacy,
+    incomingBandwidthV2Sun: incomingBandwidthV2,
+    incomingBandwidthLegacySun: incomingBandwidthLegacy,
+    incomingEnergyV2Sun: incomingEnergyV2,
+    incomingEnergyLegacySun: incomingEnergyLegacy,
+  }
+}
+
 function tronWebFor(network, tronWebFactory = (host) => new TronWeb({ fullHost: host })) {
   const host = NETWORKS[network]
   if (!host) throw new Error('unsupported-testnet')
@@ -440,27 +509,89 @@ export async function verifySponsorFeeResourceCapacity({
   }
 
   try {
-    // A native transfer to an unactivated recipient can incur a separate
-    // account-creation charge that resource capacity does not cover. Require a
-    // solidified account read before the sponsor wallet is asked to sign.
-    let receiverAccountActivated = null
+    // A native transfer to an unactivated recipient can incur an additional
+    // account-creation charge. Do not authorize signing unless solidified state
+    // proves the recipient account already exists.
     if (transfer.asset === 'TRX') {
       const receiverHex = addressHex(tronWeb, transfer.receiverAddress)
       const receiverAccount = await postJson('/walletsolidity/getaccount', {
         address: receiverHex,
         visible: false,
       })
-      const actualReceiverAddress = typeof receiverAccount.address === 'string'
-        ? receiverAccount.address.replace(/^0x/i, '').toLowerCase()
-        : ''
-      if (actualReceiverAddress !== receiverHex) {
+      if (canonicalAddressHex(tronWeb, receiverAccount.address) !== receiverHex) {
         return fail('sponsor-recipient-account-not-active', {
           receiverAccountActivated: false,
           requiredReceiverAddress: transfer.receiverAddress,
           note: 'A native TRX transfer to an unactivated or unverifiable account may incur an additional account-creation fee. No signing/broadcast authorization is issued.',
         })
       }
-      receiverAccountActivated = true
+    }
+
+    const feeSponsorAddress = env[`SPONSOR_FEE_${transfer.network.toUpperCase()}_ADDRESS']
+    if (typeof feeSponsorAddress !== 'string' || !isValidTronAddress(feeSponsorAddress.trim())
+      || feeSponsorAddress.trim() === transfer.sponsorAddress) {
+      return fail('fee-sponsor-address-not-configured-or-mismatched')
+    }
+    const feeSponsorHex = addressHex(tronWeb, feeSponsorAddress.trim())
+    const principalAccount = await postJson('/walletsolidity/getaccount', {
+      address: senderHex,
+      visible: false,
+    })
+    if (canonicalAddressHex(tronWeb, principalAccount.address) !== senderHex) {
+      return fail('principal-sponsor-account-read-unverifiable')
+    }
+    const sourceProfile = sponsorResourceSourceProfile(principalAccount)
+    if (!sourceProfile) return fail('principal-sponsor-resource-sources-unverifiable')
+
+    // Inspect the exact fee-sponsor -> principal-sponsor delegation. Aggregate
+    // account limits alone cannot establish which sponsor supplied the resource.
+    const delegationResponse = await postJson('/walletsolidity/getdelegatedresourcev2', {
+      fromAddress: feeSponsorHex,
+      toAddress: senderHex,
+      visible: false,
+    })
+    const delegationRows = Array.isArray(delegationResponse.delegatedResource)
+      ? delegationResponse.delegatedResource
+      : (delegationResponse.from && delegationResponse.to ? [delegationResponse] : [])
+    const matchingDelegations = delegationRows.filter(item =>
+      canonicalAddressHex(tronWeb, item?.from) === feeSponsorHex
+      && canonicalAddressHex(tronWeb, item?.to) === senderHex)
+    if (matchingDelegations.length !== 1) return fail('fee-sponsor-resource-delegation-unverifiable')
+    const delegation = matchingDelegations[0]
+    const bandwidthStakeSun = nonNegativeUint(delegation.frozen_balance_for_bandwidth)
+    const energyStakeSun = nonNegativeUint(delegation.frozen_balance_for_energy)
+    const bandwidthExpiry = Number(delegation.expire_time_for_bandwidth)
+    const energyExpiry = Number(delegation.expire_time_for_energy)
+    const now = Date.now()
+    const transactionExpiry = Number(transaction.raw_data?.expiration)
+    if (bandwidthStakeSun === null || energyStakeSun === null
+      || !Number.isSafeInteger(bandwidthExpiry) || bandwidthExpiry < 0
+      || !Number.isSafeInteger(energyExpiry) || energyExpiry < 0) {
+      return fail('fee-sponsor-resource-delegation-unverifiable')
+    }
+    const bandwidthDelegationActive = bandwidthStakeSun > 0n && (bandwidthExpiry === 0 || bandwidthExpiry > now)
+    const energyDelegationActive = energyStakeSun > 0n && (energyExpiry === 0 || energyExpiry > now)
+    if (!bandwidthDelegationActive || (transfer.asset !== 'TRX' && !energyDelegationActive)
+      || (bandwidthExpiry > 0 && Number.isSafeInteger(transactionExpiry) && bandwidthExpiry < transactionExpiry)
+      || (transfer.asset !== 'TRX' && energyExpiry > 0 && Number.isSafeInteger(transactionExpiry) && energyExpiry < transactionExpiry)) {
+      return fail('fee-sponsor-resource-delegation-insufficient-or-expiring')
+    }
+    if (bandwidthStakeSun < 1_000_000n || (transfer.asset !== 'TRX' && energyStakeSun < 1_000_000n)) {
+      return fail('fee-sponsor-resource-delegation-below-network-minimum')
+    }
+
+    // Fail closed if the principal account has own-staked Bandwidth or another
+    // incoming resource source: the measured capacity would no longer prove the
+    // configured fee sponsor is covering this transaction's resource budget.
+    if (sourceProfile.ownBandwidthSun !== 0n
+      || sourceProfile.incomingBandwidthLegacySun !== 0n
+      || sourceProfile.incomingBandwidthV2Sun !== bandwidthStakeSun) {
+      return fail('fee-sponsor-only-bandwidth-source-required')
+    }
+    if (transfer.asset !== 'TRX' && (sourceProfile.ownEnergySun !== 0n
+      || sourceProfile.incomingEnergyLegacySun !== 0n
+      || sourceProfile.incomingEnergyV2Sun !== energyStakeSun)) {
+      return fail('fee-sponsor-only-energy-source-required')
     }
 
     const resources = await postJson('/wallet/getaccountresource', {
@@ -478,8 +609,9 @@ export async function verifySponsorFeeResourceCapacity({
       return fail('sponsor-resource-response-incomplete')
     }
     const availableEnergy = energyLimit > energyUsed ? energyLimit - energyUsed : 0n
-    const delegatedBandwidthAndFree = (netLimit > netUsed ? netLimit - netUsed : 0n)
-      + (freeNetLimit > freeNetUsed ? freeNetLimit - freeNetUsed : 0n)
+    // Only delegated Bandwidth counts as fee-sponsor coverage. The account's
+    // free quota is not a separate fee-sponsor allocation and cannot mask a gap.
+    const delegatedBandwidthAvailable = netLimit > netUsed ? netLimit - netUsed : 0n
     let requiredEnergy = 0n
     if (transfer.asset !== 'TRX') {
       const contract = transaction.raw_data.contract[0]
@@ -510,10 +642,10 @@ export async function verifySponsorFeeResourceCapacity({
       // Reserve a 25% safety margin for dynamic token execution paths.
       requiredEnergy = (energyUsedEstimate * 125n + 99n) / 100n
     }
-    if (delegatedBandwidthAndFree < BigInt(signedBytesEstimate)) {
+    if (delegatedBandwidthAvailable < BigInt(signedBytesEstimate)) {
       return fail('sponsor-bandwidth-capacity-insufficient', {
         requiredBandwidthUnits: String(signedBytesEstimate),
-        availableBandwidthUnits: delegatedBandwidthAndFree.toString(),
+        availableBandwidthUnits: delegatedBandwidthAvailable.toString(),
       })
     }
     if (availableEnergy < requiredEnergy) {
@@ -533,7 +665,12 @@ export async function verifySponsorFeeResourceCapacity({
       requiredBandwidthUnits: String(signedBytesEstimate),
       signedTransactionBytesEstimated: true,
       ...(transfer.asset === 'TRX' ? { receiverAccountActivated: true } : {}),
-      resourceSource: 'selected testnet solidified receiver account + wallet/getaccountresource + token constant-contract simulation',
+      feeSponsorResourceSourceVerified: true,
+      feeSponsorAddress: feeSponsorAddress.trim(),
+      bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      ...(transfer.asset !== 'TRX' ? { energyCoverageSource: 'exact-active-fee-sponsor-delegation-only' } : {}),
+      freeBandwidthUsedAsSponsorCoverage: false,
+      resourceSource: 'selected testnet solidified account/delegation reads + wallet/getaccountresource + token constant-contract simulation',
       canSubmitSponsoredTransfer: false,
       submissionEnabled: false,
       note: 'This is a point-in-time capacity preflight, not final fee evidence. Recheck after sponsor signing and reconcile actual resource/fee consumption after confirmation.',
