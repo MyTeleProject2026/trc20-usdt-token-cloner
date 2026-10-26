@@ -122,8 +122,48 @@ test('sponsor resource reader rejects malformed provider resource responses', as
   assert.equal(result.success, false)
   assert.equal(result.status, 'resource-read-unavailable')
   assert.equal(result.failureStage, 'account-resource')
+  assert.equal(result.providerResponseCategory, 'invalid-resource-fields')
   assert.equal(result.resourceRead, false)
   assert.equal(result.delegationEnabled, false)
+})
+
+
+test('sponsor resource reader distinguishes a provider error envelope from a missing response field', async () => {
+  const privateProviderMessage = 'upstream says address is invalid; api-key-secret-never-return'
+  const reader = createSponsorResourceReader({
+    env: { TATUM_API_KEY: 'server-only-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory,
+    fetchImpl: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('/wallet/getaccountresource')
+        ? { message: privateProviderMessage }
+        : { max_size: '0' },
+    }),
+  })
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, false)
+  assert.equal(result.failureStage, 'account-resource')
+  assert.equal(result.providerResponseCategory, 'invalid-address')
+  assert.equal(JSON.stringify(result).includes(privateProviderMessage), false)
+  assert.equal(JSON.stringify(result).includes('api-key-secret-never-return'), false)
+})
+
+test('sponsor resource reader reports a missing delegation ceiling without returning provider payload', async () => {
+  const reader = createSponsorResourceReader({
+    env: { TATUM_API_KEY: 'server-only-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory,
+    fetchImpl: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('/wallet/getaccountresource')
+        ? { EnergyLimit: 5000, EnergyUsed: 0, NetLimit: 100, NetUsed: 0, freeNetLimit: 500, freeNetUsed: 0 }
+        : {},
+    }),
+  })
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, false)
+  assert.equal(result.failureStage, 'energy-delegation-ceiling')
+  assert.equal(result.providerResponseCategory, 'missing-delegation-ceiling')
+  assert.equal(JSON.stringify(result).includes('provider payload'), false)
 })
 
 test('sponsor resource reader exposes only the sanitized provider HTTP status on throttling', async () => {

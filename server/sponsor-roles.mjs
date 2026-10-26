@@ -18,6 +18,11 @@ const SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES = new Set([
   'provider-request-failed',
   'provider-http-error',
   'invalid-json-response',
+  'missing-resource-fields',
+  'invalid-resource-fields',
+  'resource-counter-exceeds-limit',
+  'missing-delegation-ceiling',
+  'invalid-delegation-ceiling',
 ])
 
 function makeRoleEnvironment(source, role) {

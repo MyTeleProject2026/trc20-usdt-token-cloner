@@ -122,8 +122,16 @@ export function createSponsorResourceReader({
           throw error
         }
 
+        const hasExpectedResponseField = payload && typeof payload === 'object' && !Array.isArray(payload)
+          && (stage === 'account-resource'
+            ? Object.hasOwn(payload, 'EnergyLimit')
+            : Object.hasOwn(payload, 'max_size'))
+        const hasProviderErrorEnvelope = payload && typeof payload === 'object'
+          && [payload.Error, payload.error, payload.message, payload.code]
+            .some((value) => typeof value === 'string' && value.trim().length > 0)
+          && !hasExpectedResponseField
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)
-          || payload.Error || payload.error || payload.result === false) {
+          || payload.Error || payload.error || payload.result === false || hasProviderErrorEnvelope) {
           const error = new Error('provider-node-error')
           error.failureStage = stage
           error.providerResponseCategory = classifyProviderError(payload)
@@ -146,21 +154,36 @@ export function createSponsorResourceReader({
       const freeNetUsed = integerString(resources.freeNetUsed ?? 0)
       const maxEnergyStakeSun = integerString(energyDelegation.max_size)
       const maxBandwidthStakeSun = integerString(bandwidthDelegation.max_size)
-      if ([energyLimit, energyUsed, netLimit, netUsed, freeNetLimit, freeNetUsed].some((v) => v === null)
-        || BigInt(energyUsed) > BigInt(energyLimit)
-        || BigInt(netUsed) > BigInt(netLimit)
-        || BigInt(freeNetUsed) > BigInt(freeNetLimit)) {
+      const invalidResourceFields = [
+        ['EnergyLimit', resources.EnergyLimit],
+        ['EnergyUsed', resources.EnergyUsed ?? 0],
+        ['NetLimit', resources.NetLimit ?? 0],
+        ['NetUsed', resources.NetUsed ?? 0],
+        ['freeNetLimit', resources.freeNetLimit ?? 0],
+        ['freeNetUsed', resources.freeNetUsed ?? 0],
+      ].filter(([, value]) => integerString(value) === null).map(([name]) => name)
+      const countersExceedLimits = (energyLimit !== null && energyUsed !== null && BigInt(energyUsed) > BigInt(energyLimit))
+        || (netLimit !== null && netUsed !== null && BigInt(netUsed) > BigInt(netLimit))
+        || (freeNetLimit !== null && freeNetUsed !== null && BigInt(freeNetUsed) > BigInt(freeNetLimit))
+      if (invalidResourceFields.length > 0 || countersExceedLimits) {
         const error = new Error('invalid-resource-response')
         error.failureStage = 'account-resource'
-        error.providerResponseCategory = 'invalid-response-shape'
+        error.providerResponseCategory = countersExceedLimits
+          ? 'resource-counter-exceeds-limit'
+          : !Object.hasOwn(resources, 'EnergyLimit')
+            ? 'missing-resource-fields'
+            : 'invalid-resource-fields'
         throw error
       }
       if (maxEnergyStakeSun === null || maxBandwidthStakeSun === null) {
+        const missingValue = maxEnergyStakeSun === null ? energyDelegation.max_size : bandwidthDelegation.max_size
         const error = new Error('invalid-delegation-ceiling-response')
         error.failureStage = maxEnergyStakeSun === null
           ? 'energy-delegation-ceiling'
           : 'bandwidth-delegation-ceiling'
-        error.providerResponseCategory = 'invalid-response-shape'
+        error.providerResponseCategory = missingValue === undefined || missingValue === null
+          ? 'missing-delegation-ceiling'
+          : 'invalid-delegation-ceiling'
         throw error
       }
       return {

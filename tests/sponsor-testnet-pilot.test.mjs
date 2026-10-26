@@ -190,6 +190,28 @@ test('pilot summary exposes only an allowlisted upstream resource diagnostic cat
   })
   assert.equal(summary.feeSponsorResources.failureStage, 'account-resource')
   assert.equal(summary.feeSponsorResources.providerResponseCategory, 'invalid-address')
+  const missingShape = buildNetworkSummary({
+    network: 'nile',
+    head: { success: false, status: 'provider-unreachable' },
+    roleResult: {
+      configuredAddressesDistinct: true,
+      roles: {
+        networkFeeSponsor: {
+          addressConfigured: true,
+          onChainBalanceRead: false,
+          resourceStatus: {
+            status: 'resource-read-unavailable',
+            resourceRead: false,
+            failureStage: 'energy-delegation-ceiling',
+            providerResponseCategory: 'missing-delegation-ceiling',
+          },
+        },
+        assetPrincipalSponsor: { addressConfigured: true, onChainBalanceRead: false },
+      },
+    },
+    env: {},
+  })
+  assert.equal(missingShape.feeSponsorResources.providerResponseCategory, 'missing-delegation-ceiling')
   assert.equal(JSON.stringify(summary).includes('provider error message'), false)
 
   const unknown = buildNetworkSummary({
