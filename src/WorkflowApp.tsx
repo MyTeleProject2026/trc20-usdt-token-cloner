@@ -1278,6 +1278,12 @@ export default function WorkflowApp() {
             <div className="studio-progress-wrap" aria-label={`${step + 1} of ${STEPS.length} stages`}>
               <div className="studio-progress"><span style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} /></div>
               <span>{Math.round(((step + 1) / STEPS.length) * 100)}%</span>
+              <button type="button" className="studio-button studio-button--secondary" onClick={() => void connectTronLink()} disabled={senderLoading}>
+                <Wallet size={15} aria-hidden="true" /> {senderLoading ? 'Signing in…' : walletIdentity?.address === senderAddress && walletIdentity?.network === network ? 'Refresh wallet & sponsors' : 'Connect & sign in'}
+              </button>
+              {walletIdentity?.address === senderAddress && walletIdentity?.network === network && walletIdentity.expiresAt > Date.now() && (
+                <Pill tone="good">Wallet verified</Pill>
+              )}
             </div>
           </section>
 
