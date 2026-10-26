@@ -27,7 +27,7 @@ test('sponsor resource reader returns TRON resource state and both delegation ce
 
   const result = await reader('shasta', { refresh: true })
   assert.equal(result.success, true)
-  assert.equal(result.status, 'solidified-sponsor-resources-read')
+  assert.equal(result.status, 'sponsor-resource-snapshot-read')
   assert.equal(result.resourceRead, true)
   assert.equal(result.sponsorAddress, sponsorAddress)
   assert.equal(result.resources.currentlyAvailableEnergy, '3800')
@@ -38,6 +38,8 @@ test('sponsor resource reader returns TRON resource state and both delegation ce
   assert.equal(result.delegationEnabled, false)
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(calls.length, 3)
+  assert.ok(calls.some((call) => call.url.endsWith('/wallet/getaccountresource')))
+  assert.equal(calls.some((call) => call.url.endsWith('/walletsolidity/getaccountresource')), false)
   assert.ok(calls.every((call) => call.body.address === undefined || call.body.address === '41' + 'ab'.repeat(20)))
   assert.equal(JSON.stringify(result).includes('server-only-test-key'), false)
 })

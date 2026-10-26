@@ -122,7 +122,7 @@ export function createSponsorResourceReader({
       }
       return {
         success: true,
-        status: 'solidified-sponsor-resources-read',
+        status: 'sponsor-resource-snapshot-read',
         network,
         sponsorAddress,
         checkedAt: new Date().toISOString(),
