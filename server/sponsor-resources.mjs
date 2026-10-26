@@ -105,11 +105,20 @@ export function createSponsorResourceReader({
       const freeNetUsed = integerString(resources.freeNetUsed ?? 0)
       const maxEnergyStakeSun = integerString(energyDelegation.max_size)
       const maxBandwidthStakeSun = integerString(bandwidthDelegation.max_size)
-      if ([energyLimit, energyUsed, netLimit, netUsed, freeNetLimit, freeNetUsed, maxEnergyStakeSun, maxBandwidthStakeSun].some((v) => v === null)
+      if ([energyLimit, energyUsed, netLimit, netUsed, freeNetLimit, freeNetUsed].some((v) => v === null)
         || BigInt(energyUsed) > BigInt(energyLimit)
         || BigInt(netUsed) > BigInt(netLimit)
         || BigInt(freeNetUsed) > BigInt(freeNetLimit)) {
-        throw new Error('invalid-resource-response')
+        const error = new Error('invalid-resource-response')
+        error.failureStage = 'account-resource'
+        throw error
+      }
+      if (maxEnergyStakeSun === null || maxBandwidthStakeSun === null) {
+        const error = new Error('invalid-delegation-ceiling-response')
+        error.failureStage = maxEnergyStakeSun === null
+          ? 'energy-delegation-ceiling'
+          : 'bandwidth-delegation-ceiling'
+        throw error
       }
       return {
         success: true,
