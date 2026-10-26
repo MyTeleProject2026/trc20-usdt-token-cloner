@@ -719,6 +719,7 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-state-copy">
               <strong>{globalProductionEnabled ? 'Production capability reports enabled' : 'Global production sponsorship remains gated'}</strong>
               <span>{serverStatus?.status || 'Backend status not yet verified'} · Mainnet is not available in this console.</span>
+              <span>Shasta/Nile signing-broadcast gate: {pilotPreflight?.networks?.[network]?.approvalConfiguration?.testnetSignedBroadcastGateEnabled === true ? 'enabled' : pilotPreflight ? 'disabled or not confirmed' : 'checking'}. This gate does not approve a reservation or confirm a transfer was sent.</span>
             </div>
             <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => { void refreshServerStatus(); void refreshSponsorRoles(network) }} disabled={busy !== null}><RefreshCw size={15} aria-hidden="true" /> Recheck</button>
           </section>
