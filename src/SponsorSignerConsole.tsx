@@ -847,7 +847,7 @@ export default function SponsorSignerConsole() {
                 <div className="sponsor-console-field-note">This verifies actual chain state only. It does not create a balance inside an exchange account. Exchange deposit credit must be confirmed by that exchange’s own status or supported API. Check time: {settlementCheck.checkedAt}</div>
               </div>}
               <strong>Principal-ledger reconciliation</strong>
-              <p>After the solidified verifier has persisted the exact receipt, a trusted operator must run the protected reconciliation command to update the principal ledger. The fee/resource budget remains a separate settlement gate.</p>
+              <p>After the solidified verifier has persisted the exact receipt, a trusted operator must run the protected reconciliation command to update the principal ledger. The verifier never marks the separate fee budget settled by itself; the fee/resource budget remains a separate settlement gate.</p>
               <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => void copyReconciliationCommand()} disabled={!/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey.trim())}><Copy size={15} aria-hidden="true" /> Copy secure operator reconciliation command</button>
               {reconciliationCommandStatus && <p className="sponsor-console-field-note" role="status">{reconciliationCommandStatus}</p>}
               <div className="sponsor-console-field-note">The copied command contains no admin token. Run it only in a trusted terminal with SPONSOR_ADMIN_API_TOKEN already configured.</div>
