@@ -8,8 +8,7 @@ readiness checks because an environment variable or wallet connection appears su
 
 At the operator's request, the Render backend environment flag
 `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` has been set to `true` for the existing
-experimental Shasta/Nile signer-and-broadcast route. The environment update is being applied by a
-Render deployment. This is a route opt-in only: it does not create a transfer, approve a budget,
+experimental Shasta/Nile signer-and-broadcast route. Render accepted the environment update and deploy dep-dbftfsm7bikc73b5a3u0 reached live. Its startup logs reported the project database ready and the API listening. This confirms the configuration rollout, not a live sponsored transfer or end-to-end settlement. This is a route opt-in only: it does not create a transfer, approve a budget,
 prove sponsor consent/funding, or mark any transaction settled. The route still requires the exact
 approved testnet reservation, distinct configured sponsor roles, the fee-resource/delegation checks,
 the sponsor wallet's signature over the stored intent, and transaction identity validation. If any
@@ -25,19 +24,13 @@ supported live end-to-end sponsor pilot are still required.
 Use **Nile testnet only** for initial setup. Shasta can be used as a separate test environment,
 but do not mix addresses, token contracts, transactions, or balances between the two networks.
 
-For the safe baseline, keep these backend environment values set exactly as follows throughout
-initial onboarding (the current Render testnet opt-in is documented above):
+For a new deployment before a controlled test, use this safe baseline:
 
-```text
-SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false
-SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=false
-SPONSOR_TESTNET_MAX_FEE_LIMIT_SUN=50000000
-```
+    SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false
+    SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=false
+    SPONSOR_TESTNET_MAX_FEE_LIMIT_SUN=50000000
 
-The first flag controls the experimental Shasta/Nile signer-and-broadcast route. It must remain
-`false` during onboarding until the operator intentionally opts into a controlled testnet pilot.
-Budget activation is an internal ledger control; it does not authorize a specific transfer. Mainnet
-transaction submission is not available through this experimental testnet route.
+Current Render state: the testnet-only signing/broadcast feature flag is explicitly enabled for the controlled Shasta/Nile pilot. Set it to false to close that route and redeploy. The flag does not activate Mainnet, approve a reservation, bypass wallet signing, or prove that any transfer was sent. Budget activation is a separate ledger control; Mainnet transaction submission is not available through this experimental route.
 
 ## 1. Get the actual sponsor authorization outside the application
 
@@ -82,7 +75,7 @@ Set the following testnet values only after the sponsor owners authorized monito
 | `SPONSOR_VTRC_NILE_CONTRACTS` | Exact Nile VTRC contract address(es) only, if VTRC is in scope; VTRC is not official USDT |
 | `SPONSOR_ADMIN_API_TOKEN` | A newly generated random secret with at least 32 characters, kept only in Render and an authorized local admin secret manager |
 | `SPONSOR_APPROVED_AGREEMENT_REFERENCES` | The exact reviewed agreement scopes described in section 3 |
-| `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` | Keep `false` |
+| `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` | Current Render pilot: `true` for the Shasta/Nile route only; set `false` to close it. For a new service before an approved pilot, keep `false`. |
 | `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED` | Keep `false` |
 
 The budget-drafting endpoint for role-specific testnet budgets also needs a database. If a configured
@@ -115,13 +108,30 @@ Join the actual entries with semicolons, without line breaks inside an entry. Us
 The reference must trace back to a real signed/approved scope; a syntactically valid string is not proof
 of sponsor consent. Only include the assets and scopes actually approved.
 
+## 3A. Use the sponsor operator console for an existing approved reservation
+
+Open the frontend route:
+
+- https://trc20-usdt-token-cloner.onrender.com/#/sponsor-operator
+
+Use an already-created, approved reservation. The signing console accepts the reservation idempotency key; it does not create or approve a reservation.
+
+1. Select the exact reservation network (Nile or Shasta). Do not switch networks mid-flow. Refresh the dual-testnet preflight and sponsor-role diagnostics. Stop if the fee and asset-principal sponsor roles are missing, the addresses are not distinct, the configured token contract is not the exact allowlisted contract, or required resource/funding checks report blockers.
+2. If the required fee-resource delegation has not yet been verified, the fee/resource sponsor owner must connect the wallet that owns the configured fee sponsor address, review the intended recipient/resource/amount, sign the delegation in TronLink, and use the console read-only verification action. Continue only after the resulting delegation is verified from solidified chain state. This delegation is separate from sending token principal.
+3. The asset-principal sponsor owner then connects the wallet that owns the reservation sponsor address on the same testnet. In the Load approved reservation section, enter the approved reservation idempotency key (24–160 characters) locally in the console. Do not post admin tokens, API keys, private keys, seed phrases or recovery phrases in chat or GitHub.
+4. Click Review, sign and submit testnet transfer. Before approving the wallet prompt, compare network, recipient address, asset, exact amount, token contract, and any displayed fee/expiry details with the approved reservation. Reject the prompt if any field differs. The console obtains the persisted transaction from the backend; it checks that the connected wallet is the correct asset-principal sponsor, that the signed raw bytes and transaction ID exactly match the stored intent, and then sends the signed transaction to the backend for its final checks and testnet broadcast.
+5. If the node accepts the transaction, the console shows its returned transaction ID and starts a separate solidified-receipt and receiver-balance check. Open the transaction explorer link for that exact ID. A pending receipt is not a failed transaction and is not permission to submit a new transaction: recheck the same stored reservation/transaction ID. Never invent a hash or label a transaction as received before the chain evidence supports that state.
+6. Treat the transfer as complete only after the solidified transaction body and receipt are verified, contract execution succeeded, the expected native transfer or exact TRC-20 Transfer event matches the saved sender/receiver/token/amount, the receiver chain balance is re-read, and sponsor expense/fee reconciliation is complete. An exchange deposit is a separate state controlled by the exchange; a public-chain transfer alone does not prove an exchange account credited it.
+
+The feature flag being enabled only opens the testnet route gate. It does not prove that an approved reservation exists or that any transaction was signed, broadcast, solidified, or credited.
+
 ## 4. Confirm read-only chain and deployment status first
 
 After the backend is live, open these URLs in a browser. They are diagnostics only:
 
 1. Health: https://trc20-usdt-token-cloner-api.onrender.com/health
 2. General readiness: https://trc20-usdt-token-cloner-api.onrender.com/api/readiness
-3. Sponsorship capability (must remain disabled): https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/status
+3. Global production sponsorship capability (must remain disabled pending full go-live gates): https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/status
 4. Integration preflight: https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/integration-readiness
 5. Both testnet pilot preflights: https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/testnet-pilot-readiness?network=both&refresh=1
 6. Nile sponsor roles: https://trc20-usdt-token-cloner-api.onrender.com/api/tron/sponsorship/roles?network=nile&refresh=1
