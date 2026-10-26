@@ -33,6 +33,12 @@ function classifyProviderError(payload) {
   return 'node-error-response'
 }
 
+function classifyTransportError(error) {
+  if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return 'provider-timeout'
+  if (error?.name === 'TypeError') return 'provider-transport-error'
+  return 'provider-request-failed'
+}
+
 /**
  * Reads the configured sponsor's current TRON resource snapshot and current
  * Stake-2.0 delegation ceilings. This never signs, delegates, reserves, or
@@ -82,35 +88,47 @@ export function createSponsorResourceReader({
       }
       const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
       const post = async (stage, path, body) => {
+        let response
         try {
-          const response = await fetchImpl(config.host + path, {
+          response = await fetchImpl(config.host + path, {
             method: 'POST',
             redirect: 'error',
             headers,
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(timeoutMs),
           })
-          if (!response.ok) {
-            const error = new Error('provider-http-error')
-            error.status = response.status
-            error.failureStage = stage
-            throw error
-          }
-          const payload = await response.json()
-          if (!payload || typeof payload !== 'object' || Array.isArray(payload)
-            || payload.Error || payload.error || payload.result === false) {
-            const error = new Error('provider-node-error')
-            error.failureStage = stage
-            error.providerResponseCategory = classifyProviderError(payload)
-            throw error
-          }
-          return payload
         } catch (cause) {
-          if (typeof cause?.failureStage === 'string') throw cause
           const error = new Error('provider-request-failed')
+          error.failureStage = stage
+          error.providerResponseCategory = classifyTransportError(cause)
+          throw error
+        }
+
+        if (!response?.ok) {
+          const error = new Error('provider-http-error')
+          if (Number.isInteger(response?.status)) error.status = response.status
           error.failureStage = stage
           throw error
         }
+
+        let payload
+        try {
+          payload = await response.json()
+        } catch {
+          const error = new Error('provider-invalid-json')
+          error.failureStage = stage
+          error.providerResponseCategory = 'invalid-json-response'
+          throw error
+        }
+
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+          || payload.Error || payload.error || payload.result === false) {
+          const error = new Error('provider-node-error')
+          error.failureStage = stage
+          error.providerResponseCategory = classifyProviderError(payload)
+          throw error
+        }
+        return payload
       }
       const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
         // Use Base58Check addresses with visible:true, matching Tatum's

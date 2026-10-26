@@ -73,6 +73,23 @@ test('sponsor resource reader categorizes HTTP-200 node errors without exposing 
   assert.equal(JSON.stringify(result).includes('secret-token-cannot-leak'), false)
 })
 
+
+test('sponsor resource reader categorizes transport failures without echoing exception text', async () => {
+  const privateTransportMessage = 'private transport context and api-key-like-secret'
+  const reader = createSponsorResourceReader({
+    env: { TATUM_API_KEY: 'server-only-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory,
+    fetchImpl: async () => { throw new TypeError(privateTransportMessage) },
+  })
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'resource-read-unavailable')
+  assert.ok(['account-resource', 'energy-delegation-ceiling', 'bandwidth-delegation-ceiling'].includes(result.failureStage))
+  assert.equal(result.providerResponseCategory, 'provider-transport-error')
+  assert.equal(JSON.stringify(result).includes(privateTransportMessage), false)
+  assert.equal(JSON.stringify(result).includes('api-key-like-secret'), false)
+})
+
 test('sponsor resource reader fails closed when sponsor address or credentials are absent', async () => {
   const noAddress = createSponsorResourceReader({ env: {}, tronWebFactory, fetchImpl: async () => { throw new Error('must not call provider') } })
   const missingAddress = await noAddress('shasta')

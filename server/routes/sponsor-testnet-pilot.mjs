@@ -19,6 +19,10 @@ const SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES = new Set([
   'invalid-request',
   'invalid-response-shape',
   'node-error-response',
+  'provider-timeout',
+  'provider-transport-error',
+  'provider-request-failed',
+  'invalid-json-response',
 ])
 
 function positiveInteger(value) {
