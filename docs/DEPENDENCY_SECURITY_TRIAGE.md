@@ -1,38 +1,40 @@
 # Dependency security triage
 
-**Reviewed:** 2026-10-26 (candidate remediation pending CI)  
+**Reviewed:** 2026-10-26 (main remediation verified in CI)  
 **Scope:** Runtime dependency advisories affecting TRON Token Studio.
 
 ## Current finding: google-protobuf runtime
 
-Render's `npm install` output for the API service reported one high-severity vulnerability. The repository lockfile resolves:
+The main branch now overrides TronWeb's transitive `google-protobuf` dependency to exactly `4.0.3`, and the committed npm lockfile resolves the same version. The official [GHSA-5h29-r2cp-hfmr advisory](https://github.com/protocolbuffers/protobuf-javascript/security/advisories/GHSA-5h29-r2cp-hfmr) identifies the affected runtime as `google-protobuf <= 4.0.2` and lists `4.0.3` as patched. This remediation is intended to remove the known affected runtime from the locked dependency tree.
 
-- `tronweb@6.5.1`
-- `google-protobuf@3.21.4`, pulled by TronWeb's exact dependency pin.
+The security remediation was merged to `main` in commit `0c79e562141fc0f5b5689add445a41a3a7073f15`. The follow-up packaging/desktop-origin changes are on current main `b35616626bc31ac8899aa6c6973e57ea2c2ce2e5`.
 
-The official [GHSA-5h29-r2cp-hfmr advisory](https://github.com/protocolbuffers/protobuf-javascript/security/advisories/GHSA-5h29-r2cp-hfmr) reports uncontrolled recursion in `BinaryReader.skipGroup()`, affecting `google-protobuf <= 4.0.2`; upstream lists `4.0.3` as patched. The locked 3.21.4 runtime is within the affected range. This finding must remain visible and is tracked in [issue #49](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/49).
+## Validation evidence
 
-### Exposure review
+The following checks passed on the current main commit as of this review:
 
-TronWeb's generated transaction utilities use protobuf `deserializeBinary()` when decoding raw transaction data. Repository searches found no direct calls to `deserializeBinary`, `rawDataHex`, or `getRowBytesFromTransactionBase64` in this application's own `src/` or `server/` code. Current server routes pass validated addresses and transaction hashes to read-only JSON API endpoints rather than accepting a user-provided serialized protobuf transaction blob.
+- Full Node.js test suite and PostgreSQL integration tests in [CI run #40323866510](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40323866510).
+- Production build and contract compile on Node 22 and 24 in [build run #40323866512](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40323866512).
+- Dependency security audit in [audit run #40323866563](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40323866563); npm reported zero critical and high advisories for the locked tree used in that run.
+- The new `tests/protobuf-runtime-security.test.mjs` checks the resolved runtime and constructs, decodes, and locally signs a TRC-20 transaction using an ephemeral test key. The test is local-only and does not broadcast or contact a blockchain node.
+- The post-deployment public API smoke check passed in [run #40324001497](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40324001497).
 
-This reduces evidence of a directly reachable attack path in the current application, but it does **not** remove the vulnerable transitive dependency or prove zero risk. Do not describe this finding as fixed.
+These results support that the locked runtime is patched and that current tested TronWeb encoding/decoding/signing paths pass. They are not a formal security certification, exhaustive malformed-protobuf fuzzing, or an endorsement of production sponsored transfers.
 
-### Candidate remediation on an isolated branch
+## Remaining dependency risk
 
-The branch `fix/google-protobuf-4-0-3-security` stages an exact npm override to `google-protobuf@4.0.3`. This is a candidate, not a declaration that the advisory is resolved. The branch-specific workflow regenerates `package-lock.json` with npm rather than hand-editing the dependency graph or inventing integrity metadata.
+The exact TronWeb dependency currently pins the older protobuf runtime, which is why the project must retain an explicit override and compatibility test until a compatible upstream TronWeb release adopts a patched runtime. A major-version protobuf override has compatibility risk even when these regression checks pass. Keep dependency audit gating enabled; do not suppress advisories or remove the regression test without an upstream dependency fix and replacement coverage.
 
-The override crosses the major runtime boundary from the exact `3.21.4` version pinned by TronWeb v6.5.1. The branch adds a regression test that checks the installed version, builds and deserializes a local TRC-20 transaction, and signs it with an ephemeral test key. The test uses `txLocal` and does not broadcast or contact a blockchain node. This checks important compatibility behavior but is not a substitute for the full test suite, build, and audit.
+## Required maintenance
 
-Do not mark the advisory fixed unless the generated lockfile resolves `google-protobuf@4.0.3`, `npm ci` succeeds, the full CI test/build workflow succeeds, and `npm audit` reports no remaining critical/high advisories. If the compatibility check fails, do not merge the override; evaluate a compatible upstream TronWeb release or a different tested remediation. Do not suppress the audit gate.
+- [x] Lock `google-protobuf@4.0.3` in package metadata and `package-lock.json`.
+- [x] Pass `npm ci`, full application tests, PostgreSQL integration tests, and the production build.
+- [x] Pass the critical/high dependency audit.
+- [x] Verify the local transaction encoding/decoding/signing test does not broadcast.
+- [ ] Monitor TronWeb releases for a compatible patched protobuf dependency and remove the override only with equivalent regression coverage.
+- [ ] Continue adversarial/fuzz testing around transaction decoding as part of independent security review.
+- [ ] Conduct separate production authorization, signer, provider, fee-settlement, and sponsor-go-live review.
 
-### Required release actions
+The protobuf finding is remediated at the locked-runtime level for this main build; production sponsorship remains independently blocked until the sponsor go-live gates are evidenced. Successful Render startup or a clean dependency audit must not be described as proof of a live sponsored transfer.
 
-- [ ] Obtain generated lockfile output for the candidate branch and confirm the resolved runtime is exactly `4.0.3`.
-- [ ] Run `npm ci`, the complete test suite, and the production build in GitHub Actions.
-- [ ] Verify the new local transaction encode/decode/sign test passes and does not broadcast.
-- [ ] Check `npm audit` and confirm the high-severity advisory no longer appears.
-- [ ] Review any remaining dependency advisories and the compatibility risk before accepting the override.
-- [ ] Only after a separately approved release/deployment, verify the deployed service remains healthy; no deployment is part of this candidate change.
-
-Until these pass, keep the high-severity advisory tracked as open. A successful Render build/start is not a substitute for an audit result or compatibility test.
+Related tracking: [issue #49](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/49).
