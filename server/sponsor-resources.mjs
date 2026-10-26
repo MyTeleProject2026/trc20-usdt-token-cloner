@@ -1,8 +1,8 @@
 import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 const NETWORKS = Object.freeze({
-  mainnet: { host: 'https://tron-mainnet.gateway.tatum.io', addressEnv: 'SPONSOR_MAINNET_ADDRESS' },
-  shasta: { host: 'https://tron-shasta.gateway.tatum.io', addressEnv: 'SPONSOR_SHASTA_ADDRESS' },
-  nile: { host: 'https://tron-nile.gateway.tatum.io', addressEnv: 'SPONSOR_NILE_ADDRESS' },
+  mainnet: { host: 'https://tron-mainnet.gateway.tatum.io', tronGridHost: 'https://api.trongrid.io', addressEnv: 'SPONSOR_MAINNET_ADDRESS' },
+  shasta: { host: 'https://tron-shasta.gateway.tatum.io', tronGridHost: 'https://api.shasta.trongrid.io', addressEnv: 'SPONSOR_SHASTA_ADDRESS' },
+  nile: { host: 'https://tron-nile.gateway.tatum.io', tronGridHost: 'https://nile.trongrid.io', addressEnv: 'SPONSOR_NILE_ADDRESS' },
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const BASE_UNITS_PATTERN = /^(0|[1-9][0-9]{0,77})$/
@@ -88,9 +88,16 @@ export function createSponsorResourceReader({
     if (!ADDRESS_PATTERN.test(sponsorAddress)) {
       return { success: false, network, status: 'invalid-sponsor-address', requiredEnvironment: [config.addressEnv], resourceRead: false, delegationEnabled: false }
     }
-    if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
-      return { success: false, network, status: 'provider-credentials-missing', sponsorAddress, requiredEnvironment: ['TATUM_API_KEY'], resourceRead: false, delegationEnabled: false }
+    const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
+    const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
+    const useTronGrid = Boolean(tronGridKey)
+    if (!useTronGrid && !tatumKey) {
+      return { success: false, network, status: 'provider-credentials-missing', sponsorAddress, requiredEnvironment: ['TRONGRID_API_KEY', 'TATUM_API_KEY'], resourceRead: false, delegationEnabled: false }
     }
+    const providerHost = useTronGrid ? config.tronGridHost : config.host
+    const providerHeaders = useTronGrid
+      ? { 'content-type': 'application/json', 'TRON-PRO-API-KEY': tronGridKey }
+      : { 'content-type': 'application/json', 'x-api-key': tatumKey }
     if (typeof fetchImpl !== 'function') {
       return { success: false, network, status: 'provider-unavailable', sponsorAddress, resourceRead: false, delegationEnabled: false }
     }
@@ -100,14 +107,13 @@ export function createSponsorResourceReader({
       if (typeof tronWeb?.isAddress !== 'function' || !tronWeb.isAddress(sponsorAddress)) {
         return { success: false, network, status: 'invalid-sponsor-address', sponsorAddress, resourceRead: false, delegationEnabled: false }
       }
-      const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
       const post = async (stage, path, body) => {
         let response
         try {
-          response = await fetchImpl(config.host + path, {
+          response = await fetchImpl(providerHost + path, {
             method: 'POST',
             redirect: 'error',
-            headers,
+            headers: providerHeaders,
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(timeoutMs),
           })
@@ -210,7 +216,7 @@ export function createSponsorResourceReader({
         network,
         sponsorAddress,
         checkedAt: new Date().toISOString(),
-        source: 'Tatum TRON FullNode account-resource and Stake-2.0 delegation queries',
+        source: useTronGrid ? 'TRONGrid FullNode account-resource and Stake-2.0 delegation queries' : 'Tatum TRON FullNode account-resource and Stake-2.0 delegation queries',
         resourceRead: true,
         resources: {
           energyLimit, energyUsed, currentlyAvailableEnergy: (BigInt(energyLimit) - BigInt(energyUsed)).toString(),
