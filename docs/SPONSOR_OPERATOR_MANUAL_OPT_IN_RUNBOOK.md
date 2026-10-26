@@ -214,3 +214,29 @@ release approval. The current testnet flag does not enable Mainnet broadcasting.
 A confirmed TRON transfer is not the same as a credited exchange deposit. Only the receiving wallet or
 exchange's actual on-chain/network policy and its own confirmation system can report that deposit as
 credited. Never display simulated or unusable balances as external wallet/exchange funds.
+
+## 9. Wallet-address login and dashboard use
+
+The main workflow now defaults to the **Nile testnet**. Open
+https://trc20-usdt-token-cloner.onrender.com and choose **Connect & sign in with TronLink**.
+
+1. In TronLink, explicitly select Nile and connect the public address you intend to use.
+2. The app requests a one-time, human-readable sign-in challenge from `POST /api/auth/tron/challenge`.
+3. Review the message in TronLink and sign it only if it clearly says it proves address control and authorizes no transfer. This is a message signature, not a blockchain transaction.
+4. The backend recovers the signing address using TronWeb and checks the address, network, allowed frontend origin, challenge expiry, and one-time nonce. The dashboard displays “Wallet login verified” only when the recovered address matches.
+5. After successful login, the app refreshes the selected testnet wallet snapshot and both sponsor-role snapshots. The sponsor cards display actual chain reads where available, not pretend balances.
+
+A public TRON address by itself is not authentication. Watch-only mode can inspect public balances but cannot log in as the address owner. A signed login proves control of that address only; it does not prove that the connected address is either sponsor, that the sponsor consented, or that the sponsor may spend. The returned session is memory-only and expires; a backend restart invalidates it. It is not yet a persistent production identity store, and no transfer API is authorized by this session.
+
+## 10. Render PostgreSQL readiness after restart
+
+The backend log previously reported `DEPTH_ZERO_SELF_SIGNED_CERT` and database persistence unavailable. The connection code now recognizes Render's private internal Postgres hostname and strips external-URL SSL query options from that internal URL. Render documents that internal same-region connections use private networking and TLS is optional; external database URLs still require TLS.
+
+After the latest backend deploy reports **Live**, inspect:
+
+- https://trc20-usdt-token-cloner-api.onrender.com/health
+- https://trc20-usdt-token-cloner-api.onrender.com/api/readiness
+- https://trc20-usdt-token-cloner-api.onrender.com/api/storage/status
+
+The Render startup log should say `Project database initialization: ready`. Do not switch to a plaintext external database connection. If the connection continues to fail, open the Render Postgres service's **Connect** panel and confirm `DATABASE_URL` is the **Internal Database URL** for this same-region Render service. Never paste the URL into chat or GitHub. If you deliberately use an external URL, retain its TLS requirement and do not apply the internal-host workaround to it.
+
