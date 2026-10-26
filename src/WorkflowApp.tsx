@@ -448,7 +448,9 @@ function SponsorIntegrationReadinessPanel({ readiness, network }: { readiness: S
     ['Both role addresses configured', selected?.addressMonitoring?.bothRoleAddressesConfigured],
     ['USDT contract allowlist configured', selected?.tokenContractAllowlist?.usdt],
     ['VTRC contract allowlist configured', selected?.tokenContractAllowlist?.vtrc],
+    ['GasFree network supported by provider API', selected?.gasFree?.documentedNetwork],
     ['GasFree credentials configured', selected?.gasFree?.credentialsConfigured],
+    ['GasFree provider discovery reachable', selected?.gasFree?.discoveryReachabilityVerified],
   ]
   const stateText = (value: boolean | undefined) => value === true ? 'Present' : value === false ? 'Missing' : 'Not checked'
 
@@ -484,10 +486,11 @@ function SponsorIntegrationReadinessPanel({ readiness, network }: { readiness: S
           <div className="studio-role-metric">
             <span>GasFree submit/sign/broadcast adapter</span>
             <strong>{selected?.gasFree?.submitSignBroadcastAdapterIntegrated === true ? 'Integrated' : 'Not integrated'}</strong>
-            <small>GasFree does not provide asset principal and its documented fee is paid in the transferred token.</small>
+            <small>GasFree can submit a real, user-signed TRC-20 authorization and pay network gas when the provider accepts it. Activation/transfer fees may be charged in the transferred token. It does not supply token principal, make a fake balance, or guarantee an exchange deposit credit.</small>
           </div>
         </div>
         <p className="studio-role-snapshot-note">Environment variables belong in the backend Web Service's Render → Environment settings. Never put provider secrets, wallet private keys, or recovery phrases in this UI.</p>
+        <p><strong>Provider distinction:</strong> GasFree provider discovery is not a transfer authorization or a guarantee of fee-free service. A real transfer requires supported tokens, available on-chain principal, the sender's reviewed wallet signature, provider acceptance, and independent chain verification.</p>
         <p><strong>Release status:</strong> {readiness.status || 'Unknown'}. Sponsored submission remains disabled.</p>
         {(readiness.submission?.blockers ?? []).slice(0, 5).map((blocker) => (
           <p className="studio-muted" key={blocker}>• {blocker.replace(/-/g, ' ')}</p>
