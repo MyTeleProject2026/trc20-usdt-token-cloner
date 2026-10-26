@@ -4,6 +4,8 @@ This document describes the current backend configuration for
 `MyTeleProject2026/trc20-usdt-token-cloner`. Environment-variable setup can enable
 read-only diagnostics; it does **not** activate or authorize a sponsored transfer.
 
+For a click-by-click operator sequence, see the [Sponsor Operator Manual Opt-In Runbook](./SPONSOR_OPERATOR_MANUAL_OPT_IN_RUNBOOK.md). Start with its safe-mode section; do not enable signed broadcast while any release gate remains open.
+
 ## 1. Open the correct Render service
 
 Open the backend Web Service, not the frontend Static Site:
