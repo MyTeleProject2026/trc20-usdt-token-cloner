@@ -98,7 +98,9 @@ test('reservation CLI creates and persists one key before API submission, then r
   assert.deepEqual(calls[1].body, calls[0].body)
   assert.match(retry.stdout, /"duplicate": true/)
 
-  const changedIntent = await runCli([...baseArgs(), '--amount-base-units', '2000000', '--idempotency-key', key], env)
+  const changedArgs = baseArgs()
+  changedArgs[changedArgs.indexOf('--amount-base-units') + 1] = '2000000'
+  const changedIntent = await runCli([...changedArgs, '--idempotency-key', key], env)
   assert.equal(changedIntent.code, 2)
   assert.match(changedIntent.stderr, /different intent/)
   assert.equal(calls.length, 2, 'same key with a changed amount must be rejected locally before another API request')
