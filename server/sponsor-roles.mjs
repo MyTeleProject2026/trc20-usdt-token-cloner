@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { createSponsorResourceReader } from './sponsor-resources.mjs'
 import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs'
@@ -82,7 +83,7 @@ function buildRoleSnapshot(role, network, configuredAddress, funding, resources 
  */
 export function createSponsorRoleFundingReader({
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   tronWebFactory,
   timeoutMs = 8000,
 } = {}) {

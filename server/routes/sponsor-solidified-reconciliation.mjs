@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
@@ -43,7 +44,7 @@ function amountString(value) {
 
 /** Verify a stored testnet transfer with its exact SolidityNode transaction + receipt. */
 export async function readSolidifiedSponsorTransferEvidence({
-  transfer, env = process.env, fetchImpl = globalThis.fetch,
+  transfer, env = process.env, fetchImpl = tatumProviderFetch,
   tronWebFactory = (host) => new TronWeb({ fullHost: host }), timeoutMs = 8000,
 } = {}) {
   const host = HOSTS[transfer?.network]

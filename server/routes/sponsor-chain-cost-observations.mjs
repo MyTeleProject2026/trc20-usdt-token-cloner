@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
@@ -63,7 +64,7 @@ function isExecutionFailed(transaction, info) {
 export async function readSolidifiedSponsorChainCosts({
   transfer,
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   tronWebFactory = (host) => new TronWeb({ fullHost: host }),
   timeoutMs = 8000,
 } = {}) {

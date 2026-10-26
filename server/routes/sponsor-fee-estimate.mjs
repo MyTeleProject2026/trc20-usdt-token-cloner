@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { Router } from 'express'
 import { readSponsorDelegationSnapshot } from '../sponsor-delegation-snapshot.mjs'
 import { isPositiveUint256 } from '../base-units.mjs'
@@ -86,7 +87,7 @@ function parseResources(payload) {
  */
 export function createSponsorFeeEstimateRouter({
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   tronWebFactory = async (host) => {
     const { TronWeb } = await import('tronweb')
     return new TronWeb({ fullHost: host })

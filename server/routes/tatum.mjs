@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { Router } from 'express'
 import { tatumApiBase, tatumFetch, MissingApiKeyError } from '../tatum-client.mjs'
 import { findVerifiedTransfer, recordTransferVerification } from '../database.mjs'
@@ -37,7 +38,7 @@ async function persistVerification(input) {
 router.get('/status', async (_req, res) => {
   if (!process.env.TATUM_API_KEY) return res.json({ status: 'no-api-key' })
   try {
-    const response = await fetch(tatumApiBase(), { signal: AbortSignal.timeout(8000), redirect: 'error', headers: { 'x-api-key': process.env.TATUM_API_KEY } })
+    const response = await tatumProviderFetch(tatumApiBase(), { signal: AbortSignal.timeout(8000), redirect: 'error', headers: { 'x-api-key': process.env.TATUM_API_KEY } })
     res.json({ status: response.ok ? 'connected' : 'provider-response', providerStatus: response.status })
   } catch (error) {
     // Keep provider diagnostics useful without exposing request headers or secrets.
@@ -129,7 +130,7 @@ router.get('/tron/token-balance', async (req, res) => {
     const ownerHex = tronWeb.address.toHex(address);
     const headers = { 'content-type': 'application/json', 'x-api-key': process.env.TATUM_API_KEY };
     const readConstant = async (selector, parameter = '') => {
-      const response = await fetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
+      const response = await tatumProviderFetch(networkHosts[network] + '/walletsolidity/triggerconstantcontract', {
         method: 'POST',
         redirect: 'error',
         headers,
@@ -230,7 +231,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   const headers = { 'content-type': 'application/json' }
   if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
   const querySolidified = async (path) => {
-    const response = await fetch(base + path, {
+    const response = await tatumProviderFetch(base + path, {
       method: 'POST',
       redirect: 'error',
       headers,

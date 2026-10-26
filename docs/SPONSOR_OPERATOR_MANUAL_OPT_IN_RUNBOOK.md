@@ -240,3 +240,10 @@ After the latest backend deploy reports **Live**, inspect:
 
 The Render startup log should say `Project database initialization: ready`. Do not switch to a plaintext external database connection. If the connection continues to fail, open the Render Postgres service's **Connect** panel and confirm `DATABASE_URL` is the **Internal Database URL** for this same-region Render service. Never paste the URL into chat or GitHub. If you deliberately use an external URL, retain its TLS requirement and do not apply the internal-host workaround to it.
 
+
+
+## 11. Tatum gateway rate-limit recovery
+
+The backend now paces requests to approved Tatum REST and TRON gateway origins through a shared per-process queue, spacing request launches by 400 ms to reduce bursts from concurrent balance/resource checks. This is rate-limit hygiene, not an increase to the Tatum account quota. Tatum documents HTTP 429 as a request-rate limit response ([official error guide](https://docs.tatum.io/docs/error-429)).
+
+If Nile continues returning HTTP 429, inspect the Tatum dashboard for the API-key type, plan limits, and recent request usage, and wait for the relevant limit window to clear before retrying. Do not repeatedly force refreshes during a throttle window. A 429 remains a testnet preflight blocker; do not enable signing/broadcast or switch to a sender-funded fallback to work around it.

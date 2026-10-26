@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { Router } from 'express'
 import { createSponsorRoleFundingReader } from '../sponsor-roles.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
@@ -35,7 +36,7 @@ function tokenAllowlistConfigured(env, key) {
 export async function readTestnetSolidifiedHead({
   network,
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   timeoutMs = 8000,
 } = {}) {
   const host = NETWORKS[network]
@@ -219,7 +220,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
 export function createSponsorTestnetPilotRouter(options = {}) {
   const router = Router()
   const env = options.env ?? process.env
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const fetchImpl = options.fetchImpl ?? tatumProviderFetch
   const readHead = options.readHead ?? ((network) => readTestnetSolidifiedHead({ network, env, fetchImpl }))
   const readRoles = options.readRoles ?? createSponsorRoleFundingReader({ env, fetchImpl })
 

@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 // Tatum access for server routes. API keys remain server-side.
 export class MissingApiKeyError extends Error {
   constructor() {
@@ -36,7 +37,7 @@ function withKey(headers) {
   return result
 }
 
-export async function tatumFetch(path, init = {}, { fetchImpl = globalThis.fetch } = {}) {
+export async function tatumFetch(path, init = {}, { fetchImpl = tatumProviderFetch } = {}) {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) {
     throw new Error('Tatum API path must be an absolute path on the approved API origin')
   }

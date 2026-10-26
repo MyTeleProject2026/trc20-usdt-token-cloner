@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 const NETWORKS = Object.freeze({
   mainnet: { host: 'https://tron-mainnet.gateway.tatum.io' },
   shasta: { host: 'https://tron-shasta.gateway.tatum.io' },
@@ -36,7 +37,7 @@ function normalizeResource(value) {
  */
 export function createSponsorResourceDelegationVerifier({
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   tronWebFactory = async (host, headers) => {
     const { TronWeb } = await import('tronweb')
     return new TronWeb({ fullHost: host, headers })

@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
 import { isValidTronAddress } from './tron-address.mjs'
@@ -234,7 +235,7 @@ export async function validateSponsorSignedTransaction({
   signedTransaction,
   expectedUnsignedTransaction = null,
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   tronWebFactory,
   now = () => Date.now(),
 }) {
@@ -411,7 +412,7 @@ export async function broadcastValidatedSponsorTransaction({
   signedTransaction,
   expectedTxID,
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
 }) {
   const host = NETWORKS[network]
   if (!host) return fail('unsupported-testnet')
@@ -471,7 +472,7 @@ export async function verifySponsorFeeResourceCapacity({
   transfer,
   transaction,
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = tatumProviderFetch,
   tronWebFactory,
 }) {
   const invalid = transferShape(transfer)

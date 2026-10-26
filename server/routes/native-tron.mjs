@@ -1,3 +1,4 @@
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
@@ -1778,7 +1779,7 @@ router.get('/native-balance', async (req, res) => {
     if (!tronWeb.isAddress(address)) return res.status(400).json({ success: false, error: 'invalid-address' })
     const headers = { 'content-type': 'application/json' }
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
-    const response = await fetch(networks[network] + '/walletsolidity/getaccount', {
+    const response = await tatumProviderFetch(networks[network] + '/walletsolidity/getaccount', {
       method: 'POST', redirect: 'error', headers,
       body: JSON.stringify({ address: tronWeb.address.toHex(address), visible: false }),
       signal: AbortSignal.timeout(8000),
@@ -1836,7 +1837,7 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
 
     const query = async (path) => {
-      const response = await fetch(networks[network] + path, {
+      const response = await tatumProviderFetch(networks[network] + path, {
         method: 'POST',
         redirect: 'error',
         headers,
@@ -2068,7 +2069,7 @@ router.get('/receiver-history', async (req, res) => {
     if (typeof fingerprint === 'string') query.set('fingerprint', fingerprint)
     const headers = { accept: 'application/json' }
     if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
-    const response = await fetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {
+    const response = await tatumProviderFetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {
       redirect: 'error',
       headers,
       signal: AbortSignal.timeout(10000),
