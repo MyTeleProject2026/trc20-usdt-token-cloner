@@ -159,6 +159,7 @@ test('role snapshot preserves allowlisted resource error categories but never pr
   assert.equal(resourceStatus.resourceRead, false)
   assert.equal(resourceStatus.failureStage, 'account-resource')
   assert.equal(resourceStatus.providerResponseCategory, 'invalid-address')
+  assert.deepEqual(resourceStatus.providerResponseFields, ['message'])
   assert.equal(JSON.stringify(result).includes(privateProviderText), false)
   assert.equal(JSON.stringify(result).includes('api-key-like-secret'), false)
   assert.equal(result.canSubmitSponsoredTransfer, false)

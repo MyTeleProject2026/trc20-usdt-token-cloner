@@ -5,6 +5,12 @@ import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs
 import { isValidTronAddress } from './tron-address.mjs'
 
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
+const SAFE_PROVIDER_RESPONSE_FIELDS = new Set([
+  'EnergyLimit', 'EnergyUsed', 'NetLimit', 'NetUsed', 'freeNetLimit', 'freeNetUsed',
+  'TotalEnergyLimit', 'TotalEnergyWeight', 'TotalNetLimit', 'TotalNetWeight',
+  'max_size', 'result', 'Error', 'error', 'message', 'code', 'status', 'statusCode',
+  'data', 'success', 'timestamp', 'resource', 'visible',
+])
 const SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES = new Set([
   'account-not-found',
   'invalid-address',
@@ -85,6 +91,9 @@ function buildRoleSnapshot(role, network, configuredAddress, funding, resources 
           ...(typeof resources?.failureStage === 'string' ? { failureStage: resources.failureStage } : {}),
           ...(SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES.has(resources?.providerResponseCategory)
             ? { providerResponseCategory: resources.providerResponseCategory } : {}),
+          ...(Array.isArray(resources?.providerResponseFields)
+            ? { providerResponseFields: resources.providerResponseFields.filter((field) => SAFE_PROVIDER_RESPONSE_FIELDS.has(field)).slice(0, 12) }
+            : {}),
           currentlyAvailableEnergy: resourceRead ? resources.resources?.currentlyAvailableEnergy : undefined,
           currentlyAvailableBandwidth: resourceRead ? resources.resources?.currentlyAvailableBandwidth : undefined,
           maxDelegatableEnergyStakeSun: resourceRead ? resources.resources?.maxDelegatableEnergyStakeSun : undefined,

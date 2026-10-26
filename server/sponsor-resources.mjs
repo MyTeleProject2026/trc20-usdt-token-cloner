@@ -6,6 +6,20 @@ const NETWORKS = Object.freeze({
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const BASE_UNITS_PATTERN = /^(0|[1-9][0-9]{0,77})$/
+const SAFE_PROVIDER_RESPONSE_FIELDS = new Set([
+  'EnergyLimit', 'EnergyUsed', 'NetLimit', 'NetUsed', 'freeNetLimit', 'freeNetUsed',
+  'TotalEnergyLimit', 'TotalEnergyWeight', 'TotalNetLimit', 'TotalNetWeight',
+  'max_size', 'result', 'Error', 'error', 'message', 'code', 'status', 'statusCode',
+  'data', 'success', 'timestamp', 'resource', 'visible',
+])
+
+function safeProviderResponseFields(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return []
+  return Object.keys(payload)
+    .filter((field) => SAFE_PROVIDER_RESPONSE_FIELDS.has(field))
+    .sort()
+    .slice(0, 12)
+}
 
 function integerString(value) {
   if (typeof value === 'string' && BASE_UNITS_PATTERN.test(value)) return value
@@ -135,6 +149,7 @@ export function createSponsorResourceReader({
           const error = new Error('provider-node-error')
           error.failureStage = stage
           error.providerResponseCategory = classifyProviderError(payload)
+          error.providerResponseFields = safeProviderResponseFields(payload)
           throw error
         }
         return payload
@@ -173,6 +188,7 @@ export function createSponsorResourceReader({
           : !Object.hasOwn(resources, 'EnergyLimit')
             ? 'missing-resource-fields'
             : 'invalid-resource-fields'
+        error.providerResponseFields = safeProviderResponseFields(resources)
         throw error
       }
       if (maxEnergyStakeSun === null || maxBandwidthStakeSun === null) {
@@ -184,6 +200,8 @@ export function createSponsorResourceReader({
         error.providerResponseCategory = missingValue === undefined || missingValue === null
           ? 'missing-delegation-ceiling'
           : 'invalid-delegation-ceiling'
+        error.providerResponseFields = safeProviderResponseFields(maxEnergyStakeSun === null
+          ? energyDelegation : bandwidthDelegation)
         throw error
       }
       return {
@@ -214,6 +232,9 @@ export function createSponsorResourceReader({
         ...(typeof error?.failureStage === 'string' ? { failureStage: error.failureStage } : {}),
         ...(typeof error?.providerResponseCategory === 'string'
           ? { providerResponseCategory: error.providerResponseCategory } : {}),
+        ...(Array.isArray(error?.providerResponseFields)
+          ? { providerResponseFields: error.providerResponseFields.filter((field) => SAFE_PROVIDER_RESPONSE_FIELDS.has(field)).slice(0, 12) }
+          : {}),
         sponsorAddress,
         resourceRead: false,
         delegationEnabled: false,

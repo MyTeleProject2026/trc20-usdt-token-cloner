@@ -69,6 +69,7 @@ test('sponsor resource reader categorizes HTTP-200 node errors without exposing 
   assert.equal(result.status, 'resource-read-unavailable')
   assert.equal(result.failureStage, 'account-resource')
   assert.equal(result.providerResponseCategory, 'invalid-address')
+  assert.deepEqual(result.providerResponseFields, ['message'])
   assert.equal(JSON.stringify(result).includes(privateProviderMessage), false)
   assert.equal(JSON.stringify(result).includes('secret-token-cannot-leak'), false)
 })
@@ -123,6 +124,7 @@ test('sponsor resource reader rejects malformed provider resource responses', as
   assert.equal(result.status, 'resource-read-unavailable')
   assert.equal(result.failureStage, 'account-resource')
   assert.equal(result.providerResponseCategory, 'invalid-resource-fields')
+  assert.deepEqual(result.providerResponseFields, ['EnergyLimit', 'EnergyUsed', 'NetLimit', 'NetUsed', 'freeNetLimit', 'freeNetUsed'].sort())
   assert.equal(result.resourceRead, false)
   assert.equal(result.delegationEnabled, false)
 })
@@ -163,6 +165,7 @@ test('sponsor resource reader reports a missing delegation ceiling without retur
   assert.equal(result.success, false)
   assert.equal(result.failureStage, 'energy-delegation-ceiling')
   assert.equal(result.providerResponseCategory, 'missing-delegation-ceiling')
+  assert.deepEqual(result.providerResponseFields, [])
   assert.equal(JSON.stringify(result).includes('provider payload'), false)
 })
 

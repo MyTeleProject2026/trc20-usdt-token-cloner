@@ -11,6 +11,12 @@ const TOKEN_ALLOWLIST_ENV = Object.freeze({
   shasta: { USDT: 'SPONSOR_USDT_SHASTA_CONTRACTS', VTRC: 'SPONSOR_VTRC_SHASTA_CONTRACTS' },
   nile: { USDT: 'SPONSOR_USDT_NILE_CONTRACTS', VTRC: 'SPONSOR_VTRC_NILE_CONTRACTS' },
 })
+const SAFE_PROVIDER_RESPONSE_FIELDS = new Set([
+  'EnergyLimit', 'EnergyUsed', 'NetLimit', 'NetUsed', 'freeNetLimit', 'freeNetUsed',
+  'TotalEnergyLimit', 'TotalEnergyWeight', 'TotalNetLimit', 'TotalNetWeight',
+  'max_size', 'result', 'Error', 'error', 'message', 'code', 'status', 'statusCode',
+  'data', 'success', 'timestamp', 'resource', 'visible',
+])
 const SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES = new Set([
   'account-not-found',
   'invalid-address',
@@ -211,6 +217,9 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
       ...(typeof resourceStatus?.failureStage === 'string' ? { failureStage: resourceStatus.failureStage } : {}),
       ...(SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES.has(resourceStatus?.providerResponseCategory)
         ? { providerResponseCategory: resourceStatus.providerResponseCategory } : {}),
+      ...(Array.isArray(resourceStatus?.providerResponseFields)
+        ? { providerResponseFields: resourceStatus.providerResponseFields.filter((field) => SAFE_PROVIDER_RESPONSE_FIELDS.has(field)).slice(0, 12) }
+        : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableEnergy !== undefined
         ? { currentlyAvailableEnergy: resourceStatus.currentlyAvailableEnergy } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableBandwidth !== undefined

@@ -260,6 +260,7 @@ jobs:
               feeResourceProviderHttpStatus: item.feeSponsorResources.providerHttpStatus ?? null,
               feeResourceFailureStage: item.feeSponsorResources.failureStage ?? null,
               feeResourceProviderResponseCategory: item.feeSponsorResources.providerResponseCategory ?? null,
+              feeResourceProviderResponseFields: item.feeSponsorResources.providerResponseFields ?? [],
               activeDelegationObserved: item.feeSponsorResources.delegation.activeDelegationObserved,
               blockerCount: item.blockers.length,
               blockers: item.blockers

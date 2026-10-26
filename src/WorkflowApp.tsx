@@ -26,6 +26,7 @@ type SponsorRoleSnapshot = {
     providerStatus?: number
     failureStage?: string
     providerResponseCategory?: string
+    providerResponseFields?: string[]
     currentlyAvailableEnergy?: string | number
     currentlyAvailableBandwidth?: string | number
     maxDelegatableEnergyStakeSun?: string
@@ -397,6 +398,9 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
               <span>Provider result</span>
               <strong>{resourceFailureCategories[resourceStatus.providerResponseCategory ?? ''] ?? 'No safe category reported'}</strong>
               <small>{Number.isInteger(resourceStatus.providerStatus) ? `HTTP ${resourceStatus.providerStatus}` : 'HTTP status unavailable'}</small>
+              <small>Recognized response fields: {resourceStatus.providerResponseFields?.length
+                ? resourceStatus.providerResponseFields.join(', ')
+                : 'none from the safe field list'}</small>
             </div>
             <p className="studio-role-snapshot-note">Only sanitized diagnostic labels are shown. The original provider response, sponsor address, and API credentials are not displayed.</p>
           </div>
