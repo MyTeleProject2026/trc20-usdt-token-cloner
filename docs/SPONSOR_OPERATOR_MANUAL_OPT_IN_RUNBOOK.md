@@ -4,12 +4,29 @@ This is a hands-on operator checklist for `MyTeleProject2026/trc20-usdt-token-cl
 It is not a declaration that sponsorship is production-ready. Follow it in order. Do not skip
 readiness checks because an environment variable or wallet connection appears successful.
 
-## 0. Current safe mode
+## Current Render testnet opt-in (2026-10-27)
+
+At the operator's request, the Render backend environment flag
+`SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` has been set to `true` for the existing
+experimental Shasta/Nile signer-and-broadcast route. The environment update is being applied by a
+Render deployment. This is a route opt-in only: it does not create a transfer, approve a budget,
+prove sponsor consent/funding, or mark any transaction settled. The route still requires the exact
+approved testnet reservation, distinct configured sponsor roles, the fee-resource/delegation checks,
+the sponsor wallet's signature over the stored intent, and transaction identity validation. If any
+gate fails, no new broadcast is authorized. Mainnet broadcast remains unavailable in this route.
+Set the flag back to `false` to close the experimental testnet signing/broadcast route.
+
+The checklist below describes the secure baseline for initial onboarding. Do not interpret the
+testnet flag change as a production go-live approval: separate fee/resource cost settlement and a
+supported live end-to-end sponsor pilot are still required.
+
+## 0. Safe baseline for initial onboarding
 
 Use **Nile testnet only** for initial setup. Shasta can be used as a separate test environment,
 but do not mix addresses, token contracts, transactions, or balances between the two networks.
 
-Keep these backend environment values set exactly as follows throughout initial onboarding:
+For the safe baseline, keep these backend environment values set exactly as follows throughout
+initial onboarding (the current Render testnet opt-in is documented above):
 
 ```text
 SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false
@@ -17,10 +34,10 @@ SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=false
 SPONSOR_TESTNET_MAX_FEE_LIMIT_SUN=50000000
 ```
 
-The first flag is the opt-in for an experimental Shasta/Nile signer-and-broadcast route. Do not set
-it to `true` during the setup steps below. Budget activation is an internal ledger control; it does
-not authorize a specific transfer. Mainnet transaction submission is not available through this
-experimental testnet route.
+The first flag controls the experimental Shasta/Nile signer-and-broadcast route. It must remain
+`false` during onboarding until the operator intentionally opts into a controlled testnet pilot.
+Budget activation is an internal ledger control; it does not authorize a specific transfer. Mainnet
+transaction submission is not available through this experimental testnet route.
 
 ## 1. Get the actual sponsor authorization outside the application
 
