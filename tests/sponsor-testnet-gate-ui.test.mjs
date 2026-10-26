@@ -24,4 +24,6 @@ test('sponsor console separates transaction preparation from explicit wallet sig
   assert.match(source, /hasPreparedCurrentIntent \? signAndSubmit\(\) : prepareSigningIntent\(\)/)
   assert.match(source, /The exact unsigned transaction is prepared and persisted/)
   assert.match(source, /signedTransaction\.raw_data_hex/)
+  assert.match(source, /Persisted transaction ID/)
+  assert.match(source, /Signing expiry/)
 })
