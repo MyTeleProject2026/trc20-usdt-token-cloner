@@ -1237,7 +1237,7 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
       message: 'Sponsor reservations are restricted to Shasta and Nile until separate production approval exists.',
     })
   }
-  if (typeof body.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(body.idempotencyKey)
+  if (typeof body.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(body.idempotencyKey)
     || typeof body.sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sponsorReference)
     || !['network-fee', 'asset-grant'].includes(body.purpose)
     || !['TRX', 'USDT', 'VTRC'].includes(body.asset)
