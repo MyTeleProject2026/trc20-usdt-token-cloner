@@ -1,0 +1,97 @@
+name: Build Android APK and Windows installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/compile-contract.mjs"
+      - "contracts/**"
+      - "capacitor.config.json"
+      - "desktop/**"
+      - "electron-builder.yml"
+      - ".github/workflows/package-installers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-installers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-apk:
+    name: Build Android debug APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903
+        with:
+          node-version: 24
+          cache: npm
+      - name: Set up JDK 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install locked application dependencies
+        run: npm ci
+      - name: Install pinned Capacitor build tools without changing project dependencies
+        run: npm install --no-save --package-lock=false @capacitor/core@8.5.3 @capacitor/cli@8.5.3 @capacitor/android@8.5.3
+      - name: Compile the token contract and bundle relative mobile assets
+        run: |
+          node scripts/compile-contract.mjs
+          npx vite build --base=./ --outDir dist-mobile --emptyOutDir
+      - name: Generate Android project and sync the bundled app
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Build installable debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon assembleDebug
+      - name: Upload Android APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tron-token-studio-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-installer:
+    name: Build Windows x64 installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Set up Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked application dependencies
+        run: npm ci
+      - name: Install pinned desktop build tools without changing project dependencies
+        run: npm install --no-save --package-lock=false electron@45.0.0 electron-builder@26.18.0
+      - name: Compile the token contract and bundle relative desktop assets
+        run: |
+          node scripts/compile-contract.mjs
+          npx vite build --base=./ --outDir dist-electron --emptyOutDir
+      - name: Build unsigned Windows installer
+        run: npx electron-builder --win nsis --x64 --publish never --config electron-builder.yml
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tron-token-studio-windows-x64-unsigned-installer
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14

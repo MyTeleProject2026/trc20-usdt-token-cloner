@@ -1,0 +1,9 @@
+{
+  "appId": "com.myteleproject.trontokenstudio",
+  "appName": "TRON Token Studio",
+  "webDir": "dist-mobile",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost"
+  }
+}

@@ -5,8 +5,11 @@ function normalizeOrigin(value) {
     const httpsOrigin = parsed.protocol === 'https:'
     const loopbackHttpOrigin = parsed.protocol === 'http:'
       && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname.toLowerCase())
-    if (!(httpsOrigin || loopbackHttpOrigin)
-      || parsed.origin === 'null'
+    // The desktop shell registers one fixed, standard, secure app origin. It is
+    // still opt-in: the origin must be explicitly present in FRONTEND_ORIGIN.
+    const desktopAppOrigin = parsed.protocol === 'tronstudio:' && parsed.host.toLowerCase() === 'app'
+    if (!(httpsOrigin || loopbackHttpOrigin || desktopAppOrigin)
+      || (parsed.origin === 'null' && !desktopAppOrigin)
       || parsed.username
       || parsed.password
       || (parsed.pathname !== '' && parsed.pathname !== '/')
@@ -14,7 +17,7 @@ function normalizeOrigin(value) {
       || parsed.hash) {
       return null
     }
-    return parsed.origin
+    return desktopAppOrigin ? 'tronstudio://app' : parsed.origin
   } catch {
     return null
   }

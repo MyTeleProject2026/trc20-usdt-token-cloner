@@ -107,3 +107,30 @@ test('plain HTTP is accepted only for local development origins', () => {
   assert.equal(nextCalled, true)
   assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:5173')
 })
+
+
+test('desktop custom origin is accepted only for the exact explicitly configured app origin', () => {
+  const { allowedOrigins, middleware } = createCorsPolicy(
+    'https://studio.example,tronstudio://app',
+  )
+  assert.ok(allowedOrigins.has('tronstudio://app'))
+
+  const allowed = responseRecorder()
+  let nextCalled = false
+  middleware({ headers: { origin: 'tronstudio://app' }, method: 'GET' }, allowed, () => {
+    nextCalled = true
+  })
+  assert.equal(allowed.statusCode, 200)
+  assert.equal(nextCalled, true)
+  assert.equal(allowed.headers.get('access-control-allow-origin'), 'tronstudio://app')
+
+  for (const origin of ['tronstudio://app.attacker', 'tronstudio://other', 'tronstudio://app:8443']) {
+    const denied = responseRecorder()
+    let deniedNext = false
+    middleware({ headers: { origin }, method: 'GET' }, denied, () => {
+      deniedNext = true
+    })
+    assert.equal(denied.statusCode, 403, origin)
+    assert.equal(deniedNext, false, origin)
+  }
+})

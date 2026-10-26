@@ -1,0 +1,23 @@
+appId: com.myteleproject.trontokenstudio
+productName: TRON Token Studio
+electronVersion: 45.0.0
+directories:
+  output: release
+files:
+  - desktop/**/*
+  - dist-electron/**/*
+  - package.json
+asar: true
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: TRON-Token-Studio-Setup-${version}-win-x64.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

@@ -26,3 +26,13 @@ CORS is a browser-enforced isolation control, not an authorization boundary. All
 ## Verification
 
 The behavior is covered by `tests/cors-policy.test.mjs`, which exercises valid allowlisted origins, empty and malformed configuration, unknown origins, requests without an Origin header, and preflight handling. The test file is committed but must be run by functioning CI; the GitHub Actions runner-allocation problem is tracked separately and does not count as a passing test result.
+
+
+## Packaged mobile and desktop app origins
+
+If the reviewed Android APK and desktop installer are deployed for testing, append these exact origins to the same comma-separated `FRONTEND_ORIGIN` value while preserving the hosted frontend origin:
+
+- `https://localhost` for the bundled Capacitor Android WebView.
+- `tronstudio://app` for the packaged desktop shell.
+
+The desktop origin is accepted only as the exact `tronstudio://app` host and still has to be present in `FRONTEND_ORIGIN`. No wildcard or opaque `null` origin is permitted. Do not add these origins unless you intend to enable API access from the corresponding packaged test applications.
