@@ -527,7 +527,7 @@ export async function verifySponsorFeeResourceCapacity({
       }
     }
 
-    const feeSponsorAddress = env[`SPONSOR_FEE_${transfer.network.toUpperCase()}_ADDRESS']
+    const feeSponsorAddress = env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS']
     if (typeof feeSponsorAddress !== 'string' || !isValidTronAddress(feeSponsorAddress.trim())
       || feeSponsorAddress.trim() === transfer.sponsorAddress) {
       return fail('fee-sponsor-address-not-configured-or-mismatched')
@@ -661,7 +661,7 @@ export async function verifySponsorFeeResourceCapacity({
       sponsorAddress: transfer.sponsorAddress,
       availableEnergyUnits: availableEnergy.toString(),
       requiredEnergyUnits: requiredEnergy.toString(),
-      availableBandwidthUnits: delegatedBandwidthAndFree.toString(),
+      availableBandwidthUnits: delegatedBandwidthAvailable.toString(),
       requiredBandwidthUnits: String(signedBytesEstimate),
       signedTransactionBytesEstimated: true,
       ...(transfer.asset === 'TRX' ? { receiverAccountActivated: true } : {}),
