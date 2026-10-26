@@ -58,11 +58,17 @@ jobs:
           chmod +x android/gradlew
           cd android
           ./gradlew --no-daemon assembleDebug
-      - name: Upload Android APK
+      - name: Generate Android APK SHA-256 checksum
+        run: |
+          cd android/app/build/outputs/apk/debug
+          sha256sum app-debug.apk > app-debug.apk.sha256
+      - name: Upload Android APK and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: tron-token-studio-android-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -88,10 +94,19 @@ jobs:
           npx vite build --base=./ --outDir dist-electron --emptyOutDir
       - name: Build unsigned Windows installer
         run: npx electron-builder --win nsis --x64 --publish never --config electron-builder.yml
-      - name: Upload Windows installer
+      - name: Generate Windows installer SHA-256 checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release -Filter *.exe | Select-Object -First 1
+          if (-not $installer) { throw "No Windows installer was produced." }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content "$($installer.FullName).sha256" -Encoding ascii
+      - name: Upload Windows installer and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: tron-token-studio-windows-x64-unsigned-installer
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.sha256
           if-no-files-found: error
           retention-days: 14
