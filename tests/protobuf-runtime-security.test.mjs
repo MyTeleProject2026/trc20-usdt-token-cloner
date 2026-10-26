@@ -13,19 +13,25 @@ test('uses the patched google-protobuf runtime', () => {
 })
 
 test('TronWeb can build, decode and locally sign a TRC-20 draft with patched protobuf', async () => {
-  // Local-only fixture: txLocal prevents chain RPC calls, and this test never
-  // invokes sendRawTransaction or broadcasts the generated test transaction.
+  // Fully local fixture: explicit synthetic block-header fields avoid reference
+  // block lookup, txLocal avoids contract simulation, and this test never calls
+  // sendRawTransaction or broadcasts the generated transaction.
   const tronWeb = new TronWeb({ fullHost: 'http://127.0.0.1:1' })
   const sender = await tronWeb.createAccount()
   const receiver = await tronWeb.createAccount()
   const contractAddress = 'TU1ntBzpGPp7GJkzxLTKwYsneJ9JKUmBCK'
   const amountBaseUnits = '1234567'
+  const timestamp = Date.now()
 
   const built = await tronWeb.transactionBuilder.triggerSmartContract(
     contractAddress,
     'transfer(address,uint256)',
     {
       txLocal: true,
+      ref_block_bytes: '0001',
+      ref_block_hash: '0000000000000001',
+      expiration: timestamp + 60_000,
+      timestamp,
       tokenId: '1000008',
       tokenValue: 100,
       feeLimit: 100 * 10 ** 6,
