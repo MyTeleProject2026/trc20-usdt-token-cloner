@@ -69,7 +69,7 @@ test('sponsor resource reader categorizes HTTP-200 node errors without exposing 
   assert.equal(result.status, 'resource-read-unavailable')
   assert.equal(result.failureStage, 'account-resource')
   assert.equal(result.providerResponseCategory, 'invalid-address')
-  assert.deepEqual(result.providerResponseFields, ['message'])
+  assert.deepEqual(result.providerResponseFields, ['Error'])
   assert.equal(JSON.stringify(result).includes(privateProviderMessage), false)
   assert.equal(JSON.stringify(result).includes('secret-token-cannot-leak'), false)
 })
