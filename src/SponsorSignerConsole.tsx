@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Activity, ArrowLeft, CheckCircle2, CircleAlert, Copy, ExternalLink, LockKeyhole, RefreshCw, ShieldCheck, Wallet, Zap } from 'lucide-react'
+import { getTronScanNetworkLabel, getTronScanTransactionUrl } from './tron-explorer.mjs'
 
 type Network = 'shasta' | 'nile'
 type WalletSnapshot = { address: string; host: string; network: Network; checkedAt: string }
@@ -339,7 +340,12 @@ export default function SponsorSignerConsole() {
       }
       setMessage(submitted.payload.chainFinalityVerified
         ? 'A subsequent chain-verification endpoint reports finality.'
-        : 'The testnet node accepted the signed transaction. It is not yet verified as solidified or credited to the receiver.')
+        : 'The testnet node accepted the signed transaction. Starting an independent solidified receipt and receiver-balance check.')
+      if (submitted.payload.transactionBroadcast === true && typeof submitted.payload.transactionHash === 'string') {
+        // First verification attempt is automatic; if the receipt is not solidified yet,
+        // keep the same transaction ID for the operator's manual retry.
+        await verifyReceiverSettlement(prepared.payload, submitted.payload)
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The sponsor signing/submission request failed.')
       setMessage('No successful submission was confirmed. Check the exact reservation/txid status before retrying.')
@@ -348,13 +354,16 @@ export default function SponsorSignerConsole() {
     }
   }
 
-  const verifyReceiverSettlement = async () => {
+  const verifyReceiverSettlement = async (
+    intent: ApiPayload | null = lastIntent,
+    result: ApiPayload | null = lastResult,
+  ) => {
     setError('')
     setSettlementCheck(null)
     setBusy('verifying')
     try {
-      const reservation = lastIntent?.reservation
-      const transactionHash = typeof lastResult?.transactionHash === 'string' ? lastResult.transactionHash : ''
+      const reservation = intent?.reservation
+      const transactionHash = typeof result?.transactionHash === 'string' ? result.transactionHash : ''
       if (!reservation || !/^[0-9a-f]{64}$/i.test(transactionHash)) {
         throw new Error('No persisted sponsor transfer intent and transaction ID are available to verify.')
       }
@@ -690,6 +699,8 @@ export default function SponsorSignerConsole() {
   const assetRole = roleStatus?.roles?.assetPrincipalSponsor
   const delegation = roleStatus?.feeSponsorDelegationToPrincipal
   const assetTokens: ApiPayload[] = Array.isArray(assetRole?.tokens) ? assetRole.tokens : []
+  const transferExplorerUrl = getTronScanTransactionUrl(lastIntent?.reservation?.network, lastResult?.transactionHash)
+  const transferExplorerLabel = getTronScanNetworkLabel(lastIntent?.reservation?.network)
 
   return (
     <div className="sponsor-console-page">
@@ -826,6 +837,7 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-step"><span>04</span><div><h2>Submission result</h2><p>Provider acceptance, solidified-chain verification and receiver balances are separate states.</p></div></div>
             <div className="sponsor-console-detail"><span>Status</span><strong>{lastResult.status || lastResult.error || 'No status returned'}</strong></div>
             {lastResult.transactionHash && <div className="sponsor-console-detail"><span>Transaction ID</span><code>{lastResult.transactionHash}</code></div>}
+            {transferExplorerUrl && <div className="sponsor-console-result-note"><a href={transferExplorerUrl} target="_blank" rel="noreferrer">Open {transferExplorerLabel || 'transaction'} in TronScan <ExternalLink size={13} aria-hidden="true" /></a></div>}
             <div className="sponsor-console-result-note">{lastResult.transactionBroadcast === true ? 'The node accepted this transaction. It is not settled until the selected chain exposes the exact successful transaction and receipt.' : 'No accepted broadcast was confirmed. If the outcome is unknown, check the bound transaction ID before trying another request.'}</div>
             {lastResult.transactionHash && <div className="sponsor-console-result-note">
               <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void verifyReceiverSettlement()} disabled={busy !== null || !lastIntent?.reservation}>
