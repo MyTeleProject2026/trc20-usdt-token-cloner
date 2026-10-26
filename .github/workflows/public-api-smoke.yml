@@ -256,6 +256,8 @@ jobs:
               feeSponsorBalanceRead: item.roleConfiguration.feeSponsorOnChainBalanceRead,
               assetPrincipalBalanceRead: item.roleConfiguration.assetPrincipalSponsorOnChainBalanceRead,
               feeResourcesRead: item.feeSponsorResources.read,
+              feeResourceStatus: item.feeSponsorResources.status,
+              feeResourceProviderHttpStatus: item.feeSponsorResources.providerHttpStatus ?? null,
               activeDelegationObserved: item.feeSponsorResources.delegation.activeDelegationObserved,
               blockerCount: item.blockers.length,
               blockers: item.blockers
