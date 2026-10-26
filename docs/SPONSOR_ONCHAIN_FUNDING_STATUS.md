@@ -100,7 +100,7 @@ The ledger and reconciliation controls are implemented as accounting and readine
 
 ```json
 {
-  "idempotencyKey": "testnet-usdt-grant-0001",
+  "idempotencyKey": "testnet-usdt-grant-0001-01",
   "network": "nile",
   "sponsorReference": "approved-sponsor-reference",
   "purpose": "asset-grant",
