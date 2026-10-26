@@ -202,3 +202,30 @@ test('reservation route validates intent shape and blocks incompatible fee asset
     else process.env.SPONSOR_ADMIN_API_TOKEN = previous
   }
 })
+
+test('reservation route rejects a key too short for the sponsor signing workflow', async () => {
+  assert.ok(layer)
+  const previous = process.env.SPONSOR_ADMIN_API_TOKEN
+  try {
+    process.env.SPONSOR_ADMIN_API_TOKEN = adminToken
+    const response = await callReservation({
+      body: {
+        idempotencyKey: 'short-key-0001',
+        network: 'nile',
+        sponsorReference: 'test-sponsor',
+        purpose: 'asset-grant',
+        asset: 'USDT',
+        tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        receiverAddress: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+        amountBaseUnits: '1000000',
+      },
+      headers: { authorization: `Bearer ${adminToken}` },
+    })
+    assert.equal(response.statusCode, 400)
+    assert.equal(response.body.error, 'invalid-transfer-intent')
+    assert.equal(response.body.canSubmitSponsoredTransfer, false)
+  } finally {
+    if (previous === undefined) delete process.env.SPONSOR_ADMIN_API_TOKEN
+    else process.env.SPONSOR_ADMIN_API_TOKEN = previous
+  }
+})
