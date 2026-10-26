@@ -30,7 +30,14 @@ app.disable('x-powered-by')
 app.use(securityHeaders)
 app.use(express.json({ limit: '32kb' }))
 
-const { allowedOrigins, middleware: corsPolicy } = createCorsPolicy(process.env.FRONTEND_ORIGIN || '')
+// Keep the hosted frontend allowlist intact while allowing explicitly opted-in
+// packaged clients. PACKAGED_APP_ORIGINS is separate so a Render merge update
+// does not replace any already configured FRONTEND_ORIGIN entries.
+const configuredOrigins = [
+  process.env.FRONTEND_ORIGIN,
+  process.env.PACKAGED_APP_ORIGINS,
+].filter((value) => typeof value === 'string' && value.trim()).join(',')
+const { allowedOrigins, middleware: corsPolicy } = createCorsPolicy(configuredOrigins)
 app.use(corsPolicy)
 
 app.use(credentialGuard)

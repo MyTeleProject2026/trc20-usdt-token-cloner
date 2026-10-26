@@ -89,7 +89,9 @@ test('preflight succeeds only for an allowlisted origin', () => {
 
 test('server entrypoint uses the fail-closed CORS policy and reports valid configuration', async () => {
   const entrypoint = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
-  assert.match(entrypoint, /createCorsPolicy\(process\.env\.FRONTEND_ORIGIN/)
+  assert.match(entrypoint, /process\.env\.FRONTEND_ORIGIN/)
+  assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
+  assert.match(entrypoint, /createCorsPolicy\(configuredOrigins\)/)
   assert.match(entrypoint, /app\.use\(corsPolicy\)/)
   assert.match(entrypoint, /frontendOrigin: \{ configured: allowedOrigins\.size > 0 \}/)
   assert.doesNotMatch(entrypoint, /!allowedOrigins\.size\s*\|\|\s*allowedOrigins\.has\(origin\)/)
@@ -133,4 +135,17 @@ test('desktop custom origin is accepted only for the exact explicitly configured
     assert.equal(denied.statusCode, 403, origin)
     assert.equal(deniedNext, false, origin)
   }
+})
+
+
+test('packaged-app origins are additive and never replace the hosted frontend allowlist', async () => {
+  const entrypoint = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+  assert.match(entrypoint, /process\.env\.FRONTEND_ORIGIN/)
+  assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
+  assert.match(entrypoint, /\.filter\(\(value\) => typeof value === 'string' && value\.trim\(\)\)\.join\(','\)/)
+  const configured = 'https://studio.example,https://localhost,tronstudio://app'
+  const { allowedOrigins } = createCorsPolicy(configured)
+  assert.ok(allowedOrigins.has('https://studio.example'))
+  assert.ok(allowedOrigins.has('https://localhost'))
+  assert.ok(allowedOrigins.has('tronstudio://app'))
 })

@@ -30,7 +30,13 @@ The behavior is covered by `tests/cors-policy.test.mjs`, which exercises valid a
 
 ## Packaged mobile and desktop app origins
 
-If the reviewed Android APK and desktop installer are deployed for testing, append these exact origins to the same comma-separated `FRONTEND_ORIGIN` value while preserving the hosted frontend origin:
+The backend accepts an optional additive variable, `PACKAGED_APP_ORIGINS`, which is combined with `FRONTEND_ORIGIN` at startup. This allows Render to merge the new variable without overwriting any previously configured web/admin origins. For the packaged apps built by this repository, set:
+
+```text
+PACKAGED_APP_ORIGINS=https://localhost,tronstudio://app
+```
+
+Only set it when enabling these reviewed test clients. Preserve the existing `FRONTEND_ORIGIN` value.
 
 - `https://localhost` for the bundled Capacitor Android WebView.
 - `tronstudio://app` for the packaged desktop shell.

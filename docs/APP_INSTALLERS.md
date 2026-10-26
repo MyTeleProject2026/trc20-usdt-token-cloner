@@ -8,7 +8,7 @@ The Android job generates a Capacitor Android wrapper, bundles the compiled web 
 
 This is a debug-signed test APK, not a Play Store release. It does not include a release keystore and must not be represented as a production-signed Android package. A release build requires a managed signing keystore, protected CI secrets, release-signing review, and device testing.
 
-The Capacitor app uses the local origin `https://localhost`. To allow its browser requests, add this exact origin to the backend Web Service's comma-separated `FRONTEND_ORIGIN` list after reviewing the deployment. Do not add wildcards.
+The Capacitor app uses the local origin `https://localhost`. After reviewing the test APK, set the additive backend variable `PACKAGED_APP_ORIGINS=https://localhost,tronstudio://app`; this leaves any existing `FRONTEND_ORIGIN` entries unchanged. Do not add wildcards.
 
 ## Windows desktop installer
 
@@ -16,7 +16,7 @@ The Windows job creates a locally bundled desktop renderer and packages it with 
 
 The app renderer runs in a sandboxed window with Node integration disabled, context isolation enabled, and a constrained `tronstudio://app` local asset origin. Outbound links are opened externally only when they use HTTPS. This installer is unsigned; Windows SmartScreen may warn about it. Authenticode signing requires an organization-controlled certificate and protected signing workflow and is intentionally not fabricated here.
 
-The backend CORS allowlist must include the exact desktop origin `tronstudio://app` for desktop API requests. Add it and `https://localhost` as comma-separated entries to the existing `FRONTEND_ORIGIN` value in Render; preserve the current web frontend origin. CORS is not authentication, and all privileged API routes must continue to enforce server-side authorization.
+The backend CORS allowlist must include the exact desktop origin `tronstudio://app` for desktop API requests. The optional additive `PACKAGED_APP_ORIGINS` variable includes both packaged origins without overwriting any existing web frontend origin. CORS is not authentication, and all privileged API routes must continue to enforce server-side authorization.
 
 ## Obtain the artifacts
 
