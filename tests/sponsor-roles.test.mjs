@@ -62,7 +62,7 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
         const value = decimals ? 18n : 987654321n
         return { ok: true, json: async () => ({ result: { result: true }, constant_result: [value.toString(16).padStart(64, '0')] }) }
       }
-      if (url.endsWith('/walletsolidity/getaccountresource')) {
+      if (url.endsWith('/wallet/getaccountresource')) {
         return { ok: true, json: async () => ({ EnergyLimit: '1000', EnergyUsed: '200', NetLimit: '400', NetUsed: '50', freeNetLimit: '100', freeNetUsed: '10' }) }
       }
       if (url.endsWith('/walletsolidity/getcandelegatedmaxsize')) {

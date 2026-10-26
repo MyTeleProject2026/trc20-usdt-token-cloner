@@ -14,7 +14,7 @@ function integerString(value) {
 }
 
 /**
- * Reads the configured sponsor's solidified TRON resources and current
+ * Reads the configured sponsor's current TRON resource snapshot and current
  * Stake-2.0 delegation ceilings. This never signs, delegates, reserves, or
  * sends funds. The wallet owner must approve each actual delegation separately.
  */
@@ -93,7 +93,7 @@ export function createSponsorResourceReader({
         }
       }
       const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
-        post('account-resource', '/walletsolidity/getaccountresource', { address: addressHex, visible: false }),
+        post('account-resource', '/wallet/getaccountresource', { address: addressHex, visible: false }),
         post('energy-delegation-ceiling', '/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
         post('bandwidth-delegation-ceiling', '/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
       ])
@@ -126,7 +126,7 @@ export function createSponsorResourceReader({
         network,
         sponsorAddress,
         checkedAt: new Date().toISOString(),
-        source: 'Tatum TRON SolidityNode resource and Stake-2.0 delegation queries',
+        source: 'Tatum TRON FullNode account-resource and SolidityNode Stake-2.0 delegation queries',
         resourceRead: true,
         resources: {
           energyLimit, energyUsed, currentlyAvailableEnergy: (BigInt(energyLimit) - BigInt(energyUsed)).toString(),

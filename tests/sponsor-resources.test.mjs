@@ -8,7 +8,7 @@ const tronWebFactory = async () => ({
   address: { toHex: () => '41' + 'ab'.repeat(20) },
 })
 
-test('sponsor resource reader returns solidified resource state and both delegation ceilings without enabling sends', async () => {
+test('sponsor resource reader returns TRON resource state and both delegation ceilings without enabling sends', async () => {
   const calls = []
   const reader = createSponsorResourceReader({
     env: { TATUM_API_KEY: 'server-only-test-key', SPONSOR_SHASTA_ADDRESS: sponsorAddress },
@@ -16,7 +16,7 @@ test('sponsor resource reader returns solidified resource state and both delegat
     now: () => 1000,
     fetchImpl: async (url, options) => {
       calls.push({ url, body: JSON.parse(options.body) })
-      const payload = url.endsWith('/walletsolidity/getaccountresource')
+      const payload = url.endsWith('/wallet/getaccountresource')
         ? { EnergyLimit: 5000, EnergyUsed: 1200, NetLimit: '900', NetUsed: '200', freeNetLimit: '600', freeNetUsed: '10' }
         : url.endsWith('/walletsolidity/getcandelegatedmaxsize') && JSON.parse(options.body).type === 1
           ? { max_size: '3000000' }
@@ -65,7 +65,7 @@ test('sponsor resource reader rejects malformed provider resource responses', as
     tronWebFactory,
     fetchImpl: async (url) => ({
       ok: true,
-      json: async () => url.endsWith('/walletsolidity/getaccountresource')
+      json: async () => url.endsWith('/wallet/getaccountresource')
         ? { EnergyLimit: 'not-an-integer', EnergyUsed: 0, NetLimit: 0, NetUsed: 0, freeNetLimit: 0, freeNetUsed: 0 }
         : { max_size: '0' },
     }),
