@@ -1281,7 +1281,7 @@ export default function WorkflowApp() {
               <button type="button" className="studio-button studio-button--secondary" onClick={() => void connectTronLink()} disabled={senderLoading}>
                 <Wallet size={15} aria-hidden="true" /> {senderLoading ? 'Signing in…' : walletIdentity?.address === senderAddress && walletIdentity?.network === network ? 'Refresh wallet & sponsors' : 'Connect & sign in'}
               </button>
-              {walletIdentity?.address === senderAddress && walletIdentity?.network === network && walletIdentity.expiresAt > Date.now() && (
+              {walletIdentity && walletIdentity.address === senderAddress && walletIdentity.network === network && walletIdentity.expiresAt > Date.now() && (
                 <Pill tone="good">Wallet verified</Pill>
               )}
             </div>
