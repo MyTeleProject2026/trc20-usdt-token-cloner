@@ -33,6 +33,23 @@ function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) 
 let pool
 let initPromise
 
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    if (/^dpg-[a-z0-9-]+$/.test(host)) return undefined
+  } catch {
+    // Pool will report malformed connection strings without exposing them.
+  }
+  return { rejectUnauthorized: true }
+}
+
 function getPool() {
   if (pool) return pool
   const connectionString = process.env.DATABASE_URL
@@ -42,9 +59,7 @@ function getPool() {
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 30000,
     max: 5,
-    // Render's internal PostgreSQL URL is preferred. If SSL is explicitly
-    // required by the provider, use DATABASE_SSL=true rather than weakening it.
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : undefined,
+    ssl: databaseSslConfig(connectionString),
   })
   pool.on('error', (error) => {
     // Never log connection strings or provider details that might include secrets.
