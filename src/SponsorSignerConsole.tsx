@@ -75,6 +75,17 @@ function trxAmountToSun(value: string): string | null {
   return sun.toString()
 }
 
+function formatBaseUnitsForDisplay(value: unknown, decimalsValue: unknown): string {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)
+    || typeof decimalsValue !== 'number' || !Number.isInteger(decimalsValue)
+    || decimalsValue < 0 || decimalsValue > 30) return 'unavailable'
+  if (decimalsValue === 0) return value
+  const padded = value.padStart(decimalsValue + 1, '0')
+  const whole = padded.slice(0, -decimalsValue)
+  const fraction = padded.slice(-decimalsValue).replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole
+}
+
 function tronAddressMatches(tronWeb: any, actual: unknown, expected: string): boolean {
   if (actual === expected) return true
   if (typeof actual !== 'string' || !actual.trim()) return false
@@ -176,6 +187,7 @@ export default function SponsorSignerConsole() {
   const [error, setError] = useState('')
   const [lastIntent, setLastIntent] = useState<ApiPayload | null>(null)
   const [lastResult, setLastResult] = useState<ApiPayload | null>(null)
+  const [settlementCheck, setSettlementCheck] = useState<ApiPayload | null>(null)
   const [reconciliationCommandStatus, setReconciliationCommandStatus] = useState('')
 
   const refreshSponsorRoles = useCallback(async (selectedNetwork: Network): Promise<{ ok: boolean; message?: string; payload?: SponsorRolesSnapshot }> => {
@@ -270,6 +282,7 @@ export default function SponsorSignerConsole() {
     setRoleStatus(null)
     setLastIntent(null)
     setLastResult(null)
+    setSettlementCheck(null)
     setError('')
     setMessage('Network changed. Reconnect the sponsor wallet and verify the new network.')
   }
@@ -278,6 +291,7 @@ export default function SponsorSignerConsole() {
     setError('')
     setLastIntent(null)
     setLastResult(null)
+    setSettlementCheck(null)
     setBusy('signing')
     try {
       const key = idempotencyKey.trim()
@@ -329,6 +343,103 @@ export default function SponsorSignerConsole() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The sponsor signing/submission request failed.')
       setMessage('No successful submission was confirmed. Check the exact reservation/txid status before retrying.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const verifyReceiverSettlement = async () => {
+    setError('')
+    setSettlementCheck(null)
+    setBusy('verifying')
+    try {
+      const reservation = lastIntent?.reservation
+      const transactionHash = typeof lastResult?.transactionHash === 'string' ? lastResult.transactionHash : ''
+      if (!reservation || !/^[0-9a-f]{64}$/i.test(transactionHash)) {
+        throw new Error('No persisted sponsor transfer intent and transaction ID are available to verify.')
+      }
+      if (!['nile', 'shasta'].includes(reservation.network) || reservation.network !== network) {
+        throw new Error('The saved transaction network does not match the selected testnet.')
+      }
+      if (typeof reservation.sponsorAddress !== 'string' || typeof reservation.receiverAddress !== 'string'
+        || typeof reservation.amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(reservation.amountBaseUnits)) {
+        throw new Error('The stored transfer identity is incomplete; no receiver balance will be inferred.')
+      }
+
+      const verificationParams = new URLSearchParams({
+        network: reservation.network,
+        from: reservation.sponsorAddress,
+        to: reservation.receiverAddress,
+      })
+      let verificationPath: string
+      if (reservation.asset === 'TRX') {
+        verificationParams.set('amountSun', reservation.amountBaseUnits)
+        verificationPath = '/api/tron/verify-native-transfer/' + encodeURIComponent(transactionHash)
+      } else {
+        if (!['USDT', 'VTRC'].includes(reservation.asset)
+          || typeof reservation.tokenContract !== 'string' || !reservation.tokenContract) {
+          throw new Error('The saved token identity is incomplete; no receiver token balance will be inferred.')
+        }
+        verificationParams.set('contract', reservation.tokenContract)
+        verificationParams.set('amountBaseUnits', reservation.amountBaseUnits)
+        verificationPath = '/api/tron/verify-trc20-transfer/' + encodeURIComponent(transactionHash)
+      }
+
+      const chainResult = await requestJson(API_BASE + verificationPath + '?' + verificationParams.toString())
+      const baseCheck: ApiPayload = {
+        checkedAt: new Date().toISOString(),
+        transactionHash,
+        network: reservation.network,
+        asset: reservation.asset,
+        receiverAddress: reservation.receiverAddress,
+        verification: chainResult.payload,
+        receiverBalance: null,
+      }
+      if (!chainResult.response.ok || chainResult.payload.verified !== true) {
+        setSettlementCheck(baseCheck)
+        setMessage(chainResult.payload.status === 'awaiting-solidified-receipt'
+          ? 'The node has not exposed a matching solidified receipt yet. Recheck this same transaction; do not create a replacement.'
+          : 'The transfer is not verified as settled on the selected chain. No receiver balance or exchange credit is inferred.')
+        return
+      }
+      if (chainResult.payload.network !== reservation.network
+        || String(chainResult.payload.transactionId || '').toLowerCase() !== transactionHash.toLowerCase()) {
+        throw new Error('The verification response did not match the stored network and transaction ID.')
+      }
+
+      const balanceParams = new URLSearchParams({
+        network: reservation.network,
+        address: reservation.receiverAddress,
+      })
+      const balancePath = reservation.asset === 'TRX'
+        ? '/api/tron/native-balance'
+        : '/api/tron/token-balance'
+      if (reservation.asset !== 'TRX') {
+        balanceParams.set('contract', reservation.tokenContract)
+      }
+      let receiverBalance: ApiPayload
+      try {
+        const balanceResult = await requestJson(API_BASE + balancePath + '?' + balanceParams.toString())
+        receiverBalance = balanceResult.payload
+        if (!balanceResult.response.ok || balanceResult.payload.success !== true
+          || balanceResult.payload.network !== reservation.network) {
+          receiverBalance = {
+            success: false,
+            error: balanceResult.payload.error || 'receiver-balance-unavailable',
+            message: balanceResult.payload.message || 'The receiver balance could not be verified independently.',
+          }
+        }
+      } catch {
+        receiverBalance = { success: false, error: 'receiver-balance-unavailable' }
+      }
+
+      setSettlementCheck({ ...baseCheck, receiverBalance })
+      setMessage(receiverBalance.success === true
+        ? 'Solidified transaction verified. The receiver balance below is a separate live chain read; exchange deposit credit is not verified.'
+        : 'Solidified transaction verified, but the separate receiver balance read is unavailable. Recheck the same transaction and balance.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not verify the saved transfer.')
+      setMessage('No new transaction was sent. Recheck the original transaction ID and selected network.')
     } finally {
       setBusy(null)
     }
@@ -712,13 +823,31 @@ export default function SponsorSignerConsole() {
           </section>}
 
           {lastResult && <section className="sponsor-console-card">
-            <div className="sponsor-console-step"><span>04</span><div><h2>Submission result</h2><p>Provider acceptance and chain finality are different states.</p></div></div>
+            <div className="sponsor-console-step"><span>04</span><div><h2>Submission result</h2><p>Provider acceptance, solidified-chain verification and receiver balances are separate states.</p></div></div>
             <div className="sponsor-console-detail"><span>Status</span><strong>{lastResult.status || lastResult.error || 'No status returned'}</strong></div>
             {lastResult.transactionHash && <div className="sponsor-console-detail"><span>Transaction ID</span><code>{lastResult.transactionHash}</code></div>}
-            <div className="sponsor-console-result-note">{lastResult.transactionBroadcast === true ? 'The node accepted this transaction. Independently check exact-network solidification, contract execution, receiver amount and fee/resource usage.' : 'No accepted broadcast was confirmed. If the outcome is unknown, check the bound transaction ID before trying another request.'}</div>
+            <div className="sponsor-console-result-note">{lastResult.transactionBroadcast === true ? 'The node accepted this transaction. It is not settled until the selected chain exposes the exact successful transaction and receipt.' : 'No accepted broadcast was confirmed. If the outcome is unknown, check the bound transaction ID before trying another request.'}</div>
             {lastResult.transactionHash && <div className="sponsor-console-result-note">
-              <strong>Reconcile the saved transaction</strong>
-              <p>Reconciliation re-reads the stored transaction from solidified Nile/Shasta state before updating the principal ledger. It does not accept a browser-supplied transaction hash and never marks the separate fee budget settled by itself.</p>
+              <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void verifyReceiverSettlement()} disabled={busy !== null || !lastIntent?.reservation}>
+                <RefreshCw size={15} aria-hidden="true" /> {busy === 'verifying' ? 'Verifying solidified receipt…' : 'Verify receipt and read receiver balance'}
+              </button>
+              <p className="sponsor-console-field-note">This checks the exact saved sender, receiver, amount, token contract and selected testnet against solidified chain data. A balance is read only after the transfer verifier succeeds.</p>
+              {settlementCheck && <div className="sponsor-console-result-note">
+                <div className="sponsor-console-detail"><span>Solidified transaction</span><strong>{settlementCheck.verification?.verified === true ? settlementCheck.verification.status || 'verified' : settlementCheck.verification?.status || settlementCheck.verification?.error || 'not verified'}</strong></div>
+                <div className="sponsor-console-detail"><span>Network / asset</span><strong>{settlementCheck.network} · {settlementCheck.asset}</strong></div>
+                {settlementCheck.verification?.verified === true && <div className="sponsor-console-detail"><span>Chain verification record</span><strong>{settlementCheck.verification?.verificationPersistence?.persisted === true ? 'Verified and persisted' : settlementCheck.verification?.verificationPersistence?.persisted === false ? 'Chain verified; persistence not confirmed' : 'Chain verified'}</strong></div>}
+                {settlementCheck.verification?.verified === true && <div className="sponsor-console-detail"><span>Receiver on-chain balance</span><strong>{settlementCheck.receiverBalance?.success === true
+                  ? settlementCheck.asset === 'TRX'
+                    ? String(settlementCheck.receiverBalance.balanceTRX) + ' TRX'
+                    : formatBaseUnitsForDisplay(settlementCheck.receiverBalance.balanceBaseUnits, settlementCheck.receiverBalance.decimals) + ' ' + String(settlementCheck.asset)
+                  : 'Separate balance read unavailable'}</strong></div>}
+                {settlementCheck.verification?.verified === true && settlementCheck.asset !== 'TRX' && settlementCheck.receiverBalance?.success === true && <div className="sponsor-console-detail"><span>Token contract</span><code>{settlementCheck.receiverBalance.tokenContract || lastIntent?.reservation?.tokenContract}</code></div>}
+                {settlementCheck.verification?.verified === true && <div className="sponsor-console-detail"><span>Receiver balance source</span><strong>{settlementCheck.receiverBalance?.success === true ? settlementCheck.receiverBalance.source || 'solidified chain state' : settlementCheck.receiverBalance?.message || 'Not available'}</strong></div>}
+                <div className="sponsor-console-detail"><span>Fee sponsor settlement</span><strong>Not settled by this receiver verification</strong></div>
+                <div className="sponsor-console-field-note">This verifies actual chain state only. It does not create a balance inside an exchange account. Exchange deposit credit must be confirmed by that exchange’s own status or supported API. Check time: {settlementCheck.checkedAt}</div>
+              </div>}
+              <strong>Principal-ledger reconciliation</strong>
+              <p>After the solidified verifier has persisted the exact receipt, a trusted operator must run the protected reconciliation command to update the principal ledger. The fee/resource budget remains a separate settlement gate.</p>
               <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => void copyReconciliationCommand()} disabled={!/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey.trim())}><Copy size={15} aria-hidden="true" /> Copy secure operator reconciliation command</button>
               {reconciliationCommandStatus && <p className="sponsor-console-field-note" role="status">{reconciliationCommandStatus}</p>}
               <div className="sponsor-console-field-note">The copied command contains no admin token. Run it only in a trusted terminal with SPONSOR_ADMIN_API_TOKEN already configured.</div>
