@@ -7,6 +7,9 @@ const APPROVED_ORIGINS = new Set([
   'https://tron-shasta.gateway.tatum.io',
   'https://tron-nile.gateway.tatum.io',
   'https://tron-testnet.gateway.tatum.io',
+  'https://api.trongrid.io',
+  'https://api.shasta.trongrid.io',
+  'https://nile.trongrid.io',
 ]);
 const DEFAULT_MIN_INTERVAL_MS = 400;
 
