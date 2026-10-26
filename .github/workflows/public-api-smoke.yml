@@ -224,6 +224,7 @@ jobs:
             return [network, {
               preflightStatus: item.preflightStatus,
               solidifiedNodeReachable: item.networkNode.reachable,
+              providerHttpStatus: item.networkNode.providerStatus ?? null,
               feeSponsorAddressConfigured: item.roleConfiguration.feeSponsorAddressConfigured,
               assetPrincipalSponsorAddressConfigured: item.roleConfiguration.assetPrincipalSponsorAddressConfigured,
               sponsorRolesDistinct: item.roleConfiguration.rolesDistinct,
