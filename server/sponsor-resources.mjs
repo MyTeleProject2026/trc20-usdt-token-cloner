@@ -90,14 +90,23 @@ export function createSponsorResourceReader({
     }
     const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
     const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
-    const useTronGrid = Boolean(tronGridKey)
-    if (!useTronGrid && !tatumKey) {
+    // Prefer TRONGrid when configured, but try Tatum per endpoint if TRONGrid fails.
+    // Read-only fallback never delegates resources, signs, reserves, or broadcasts.
+    const providers = [
+      ...(tronGridKey ? [{
+        name: 'TRONGrid',
+        host: config.tronGridHost,
+        headers: { 'content-type': 'application/json', 'TRON-PRO-API-KEY': tronGridKey },
+      }] : []),
+      ...(tatumKey ? [{
+        name: 'Tatum',
+        host: config.host,
+        headers: { 'content-type': 'application/json', 'x-api-key': tatumKey },
+      }] : []),
+    ]
+    if (providers.length === 0) {
       return { success: false, network, status: 'provider-credentials-missing', sponsorAddress, requiredEnvironment: ['TRONGRID_API_KEY', 'TATUM_API_KEY'], resourceRead: false, delegationEnabled: false }
     }
-    const providerHost = useTronGrid ? config.tronGridHost : config.host
-    const providerHeaders = useTronGrid
-      ? { 'content-type': 'application/json', 'TRON-PRO-API-KEY': tronGridKey }
-      : { 'content-type': 'application/json', 'x-api-key': tatumKey }
     if (typeof fetchImpl !== 'function') {
       return { success: false, network, status: 'provider-unavailable', sponsorAddress, resourceRead: false, delegationEnabled: false }
     }
@@ -107,13 +116,14 @@ export function createSponsorResourceReader({
       if (typeof tronWeb?.isAddress !== 'function' || !tronWeb.isAddress(sponsorAddress)) {
         return { success: false, network, status: 'invalid-sponsor-address', sponsorAddress, resourceRead: false, delegationEnabled: false }
       }
-      const post = async (stage, path, body) => {
+      const providersUsed = new Set()
+      const postWithProvider = async (provider, stage, path, body) => {
         let response
         try {
-          response = await fetchImpl(providerHost + path, {
+          response = await fetchImpl(provider.host + path, {
             method: 'POST',
             redirect: 'error',
-            headers: providerHeaders,
+            headers: provider.headers,
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(timeoutMs),
           })
@@ -159,6 +169,20 @@ export function createSponsorResourceReader({
           throw error
         }
         return payload
+      }
+
+      const post = async (stage, path, body) => {
+        let lastError
+        for (const provider of providers) {
+          try {
+            const payload = await postWithProvider(provider, stage, path, body)
+            providersUsed.add(provider.name)
+            return payload
+          } catch (error) {
+            lastError = error
+          }
+        }
+        throw lastError ?? new Error('provider-request-failed')
       }
       const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
         // Use Base58Check addresses with visible:true, matching Tatum's
@@ -216,7 +240,9 @@ export function createSponsorResourceReader({
         network,
         sponsorAddress,
         checkedAt: new Date().toISOString(),
-        source: useTronGrid ? 'TRONGrid FullNode account-resource and Stake-2.0 delegation queries' : 'Tatum TRON FullNode account-resource and Stake-2.0 delegation queries',
+        source: providersUsed.size === 1
+          ? `${[...providersUsed][0]} FullNode account-resource and Stake-2.0 delegation queries`
+          : `Read-only resource queries across ${[...providersUsed].join(' and ')} FullNodes`,
         resourceRead: true,
         resources: {
           energyLimit, energyUsed, currentlyAvailableEnergy: (BigInt(energyLimit) - BigInt(energyUsed)).toString(),
