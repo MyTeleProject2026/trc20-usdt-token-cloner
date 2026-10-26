@@ -63,6 +63,7 @@ function buildRoleSnapshot(role, network, configuredAddress, funding, resources 
           status: resources?.status || 'resource-read-unavailable',
           resourceRead,
           ...(Number.isInteger(resources?.providerStatus) ? { providerStatus: resources.providerStatus } : {}),
+          ...(typeof resources?.failureStage === 'string' ? { failureStage: resources.failureStage } : {}),
           currentlyAvailableEnergy: resourceRead ? resources.resources?.currentlyAvailableEnergy : undefined,
           currentlyAvailableBandwidth: resourceRead ? resources.resources?.currentlyAvailableBandwidth : undefined,
           maxDelegatableEnergyStakeSun: resourceRead ? resources.resources?.maxDelegatableEnergyStakeSun : undefined,
