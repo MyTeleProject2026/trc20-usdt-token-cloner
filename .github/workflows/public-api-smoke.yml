@@ -258,6 +258,7 @@ jobs:
               feeResourcesRead: item.feeSponsorResources.read,
               feeResourceStatus: item.feeSponsorResources.status,
               feeResourceProviderHttpStatus: item.feeSponsorResources.providerHttpStatus ?? null,
+              feeResourceFailureStage: item.feeSponsorResources.failureStage ?? null,
               activeDelegationObserved: item.feeSponsorResources.delegation.activeDelegationObserved,
               blockerCount: item.blockers.length,
               blockers: item.blockers
