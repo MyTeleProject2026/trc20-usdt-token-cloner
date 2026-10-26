@@ -168,6 +168,17 @@ export function createSponsorResourceReader({
           error.providerResponseFields = safeProviderResponseFields(payload)
           throw error
         }
+        // A JSON response without the stage's expected value is also a provider
+        // failure. Classify it here (inside the provider attempt) so the
+        // alternate configured provider gets a chance before this stage fails.
+        if (!hasExpectedResponseField) {
+          const error = new Error('provider-incomplete-response')
+          error.failureStage = stage
+          error.providerResponseCategory = stage === 'account-resource'
+            ? 'missing-resource-fields' : 'missing-delegation-ceiling'
+          error.providerResponseFields = safeProviderResponseFields(payload)
+          throw error
+        }
         return payload
       }
 
