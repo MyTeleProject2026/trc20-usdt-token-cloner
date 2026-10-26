@@ -17,6 +17,8 @@ The server supports native TRX and allowlisted TRC-20 asset grants for Shasta/Ni
 
 The console never asks for or sends a wallet private key, seed phrase, or recovery phrase. The backend does not store a sponsor signing key.
 
+For creating or recovering the reservation key, use [`docs/SPONSOR_RESERVATION_IDEMPOTENCY.md`](./SPONSOR_RESERVATION_IDEMPOTENCY.md) and `npm run sponsor:reserve -- ...`. Reservation keys must be 24–160 characters and must be reused unchanged for retries. The helper stores a private local recovery record and never stores the admin token. A reservation response is not a transaction submission.
+
 ## Backend environment
 
 In Render's backend Web Service only, use the following values as an example. The broadcast flag intentionally defaults to false:
