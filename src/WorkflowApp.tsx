@@ -23,6 +23,9 @@ type SponsorRoleSnapshot = {
   resourceStatus?: {
     status?: string
     resourceRead?: boolean
+    providerStatus?: number
+    failureStage?: string
+    providerResponseCategory?: string
     currentlyAvailableEnergy?: string | number
     currentlyAvailableBandwidth?: string | number
     maxDelegatableEnergyStakeSun?: string
@@ -331,8 +334,33 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
   const verifiedTokens = (role?.tokens ?? []).filter((token) =>
     token.status === 'verified' && typeof token.balanceBaseUnits === 'string' && Number.isInteger(token.decimals),
   )
-  const resources = role?.resourceStatus?.resourceRead === true ? role.resourceStatus : null
+  const resourceStatus = role?.resourceStatus
+  const resources = resourceStatus?.resourceRead === true ? resourceStatus : null
   const hasVerifiedSnapshot = nativeVerified || verifiedTokens.length > 0 || resources !== null
+  const resourceFailureStages: Record<string, string> = {
+    'account-resource': 'Account resource query',
+    'energy-delegation-ceiling': 'Energy delegation ceiling query',
+    'bandwidth-delegation-ceiling': 'Bandwidth delegation ceiling query',
+  }
+  const resourceFailureCategories: Record<string, string> = {
+    'account-not-found': 'Provider reports account not found',
+    'invalid-address': 'Provider rejected address format',
+    'endpoint-not-supported': 'Provider endpoint not supported',
+    'rate-limited': 'Provider rate limit reached',
+    'invalid-request': 'Provider rejected request parameters',
+    'invalid-response-shape': 'Unexpected provider response shape',
+    'missing-resource-fields': 'Required resource fields are missing',
+    'invalid-resource-fields': 'Resource fields contain invalid values',
+    'resource-counter-exceeds-limit': 'Resource counters exceed reported limits',
+    'missing-delegation-ceiling': 'Delegation ceiling is missing',
+    'invalid-delegation-ceiling': 'Delegation ceiling value is invalid',
+    'node-error-response': 'Provider returned an error response',
+    'provider-timeout': 'Provider request timed out',
+    'provider-transport-error': 'Provider connection failed',
+    'provider-request-failed': 'Provider request failed',
+    'provider-http-error': 'Provider returned an HTTP error',
+    'invalid-json-response': 'Provider response was not valid JSON',
+  }
 
   return (
     <div className="studio-role-card">
@@ -357,6 +385,22 @@ function RoleSnapshotCard({ title, role, icon }: { title: string; role?: Sponsor
             {token.tokenContract && <code>{token.tokenContract}</code>}
           </div>
         ))}
+
+        {resourceStatus && resourceStatus.resourceRead !== true && (
+          <div className="studio-role-resource-grid" aria-label="Sponsor resource diagnostics">
+            <div className="studio-role-metric">
+              <span>Resource check</span>
+              <strong>Not verified</strong>
+              <small>{resourceFailureStages[resourceStatus.failureStage ?? ''] ?? 'Resource query status unavailable'}</small>
+            </div>
+            <div className="studio-role-metric">
+              <span>Provider result</span>
+              <strong>{resourceFailureCategories[resourceStatus.providerResponseCategory ?? ''] ?? 'No safe category reported'}</strong>
+              <small>{Number.isInteger(resourceStatus.providerStatus) ? `HTTP ${resourceStatus.providerStatus}` : 'HTTP status unavailable'}</small>
+            </div>
+            <p className="studio-role-snapshot-note">Only sanitized diagnostic labels are shown. The original provider response, sponsor address, and API credentials are not displayed.</p>
+          </div>
+        )}
 
         {resources && (
           <div className="studio-role-resource-grid">
