@@ -268,6 +268,11 @@ export async function validateSponsorSignedTransaction({
     || signedTransaction.signature.some((signature) => typeof signature !== 'string' || !/^[0-9a-f]{130}$/i.test(signature))) {
     return fail('signed-transaction-shape-invalid')
   }
+  // The delegated-resource coverage model does not cover TRON's extra
+  // multi-signature transaction charge. Only admit one signature per intent.
+  if (signedTransaction.signature.length !== 1) {
+    return fail('multisignature-not-covered-by-fee-sponsor-resource-policy')
+  }
 
   const computedTxId = createHash('sha256')
     .update(Buffer.from(rawDataHex, 'hex'))
@@ -374,9 +379,11 @@ export async function validateSponsorSignedTransaction({
     || (resultCode !== null && resultCode !== 'ENOUGH_PERMISSION')
   const threshold = detail?.permission?.threshold
   const currentWeight = detail?.current_weight
-  if (!enoughPermission || explicitFailure || !Number.isSafeInteger(threshold) || threshold <= 0
+  if (!enoughPermission || explicitFailure || !Number.isSafeInteger(threshold) || threshold !== 1
     || !Number.isSafeInteger(currentWeight) || currentWeight < threshold) {
-    return fail('sponsor-signature-permission-not-satisfied')
+    return fail(threshold !== 1
+      ? 'sponsor-policy-requires-single-signature-permission'
+      : 'sponsor-signature-permission-not-satisfied')
   }
 
   return {

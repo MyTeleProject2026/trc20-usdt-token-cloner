@@ -164,6 +164,21 @@ test('signature verification rejects an intent mismatch before contacting the no
   assert.equal(called, false)
 })
 
+test('signature validation refuses multi-signature transfers when the fee budget covers only delegated resources', async () => {
+  let providerCalled = false
+  const result = await validateSponsorSignedTransaction({
+    transfer: transfer(),
+    signedTransaction: signedTransfer({ signature: ['a'.repeat(130), 'b'.repeat(130)] }),
+    env: {},
+    now: () => now,
+    fetchImpl: async () => { providerCalled = true; return response(200, {}) },
+    tronWebFactory: fakeTronWeb,
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'multisignature-not-covered-by-fee-sponsor-resource-policy')
+  assert.equal(providerCalled, false)
+})
+
 test('signed exact sponsor intent is verified against the selected testnet node before broadcast', async () => {
   const calls = []
   const result = await validateSponsorSignedTransaction({
