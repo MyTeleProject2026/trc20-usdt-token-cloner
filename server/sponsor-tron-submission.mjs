@@ -440,6 +440,29 @@ export async function verifySponsorFeeResourceCapacity({
   }
 
   try {
+    // A native transfer to an unactivated recipient can incur a separate
+    // account-creation charge that resource capacity does not cover. Require a
+    // solidified account read before the sponsor wallet is asked to sign.
+    let receiverAccountActivated = null
+    if (transfer.asset === 'TRX') {
+      const receiverHex = addressHex(tronWeb, transfer.receiverAddress)
+      const receiverAccount = await postJson('/walletsolidity/getaccount', {
+        address: receiverHex,
+        visible: false,
+      })
+      const actualReceiverAddress = typeof receiverAccount.address === 'string'
+        ? receiverAccount.address.replace(/^0x/i, '').toLowerCase()
+        : ''
+      if (actualReceiverAddress !== receiverHex) {
+        return fail('sponsor-recipient-account-not-active', {
+          receiverAccountActivated: false,
+          requiredReceiverAddress: transfer.receiverAddress,
+          note: 'A native TRX transfer to an unactivated or unverifiable account may incur an additional account-creation fee. No signing/broadcast authorization is issued.',
+        })
+      }
+      receiverAccountActivated = true
+    }
+
     const resources = await postJson('/wallet/getaccountresource', {
       address: senderHex,
       visible: false,
@@ -509,7 +532,8 @@ export async function verifySponsorFeeResourceCapacity({
       availableBandwidthUnits: delegatedBandwidthAndFree.toString(),
       requiredBandwidthUnits: String(signedBytesEstimate),
       signedTransactionBytesEstimated: true,
-      resourceSource: 'selected testnet wallet/getaccountresource plus token constant-contract simulation',
+      ...(transfer.asset === 'TRX' ? { receiverAccountActivated: true } : {}),
+      resourceSource: 'selected testnet solidified receiver account + wallet/getaccountresource + token constant-contract simulation',
       canSubmitSponsoredTransfer: false,
       submissionEnabled: false,
       note: 'This is a point-in-time capacity preflight, not final fee evidence. Recheck after sponsor signing and reconcile actual resource/fee consumption after confirmation.',

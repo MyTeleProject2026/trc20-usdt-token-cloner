@@ -257,10 +257,12 @@ test('native sponsor capacity checks live available bandwidth and rejects inadeq
     transaction,
     env: {},
     tronWebFactory: fakeTronWeb,
-    fetchImpl: async () => response(200, {
-      NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
-      EnergyLimit: 0, EnergyUsed: 0,
-    }),
+    fetchImpl: async (url) => url.endsWith('/walletsolidity/getaccount')
+      ? response(200, { address: '41' + '22'.repeat(20) })
+      : response(200, {
+          NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
+          EnergyLimit: 0, EnergyUsed: 0,
+        }),
   })
   assert.equal(enough.success, true)
   assert.equal(enough.status, 'sponsor-resource-capacity-verified')
@@ -271,13 +273,43 @@ test('native sponsor capacity checks live available bandwidth and rejects inadeq
     transaction,
     env: {},
     tronWebFactory: fakeTronWeb,
-    fetchImpl: async () => response(200, {
-      NetLimit: 1, NetUsed: 1, freeNetLimit: 0, freeNetUsed: 0,
-      EnergyLimit: 0, EnergyUsed: 0,
-    }),
+    fetchImpl: async (url) => url.endsWith('/walletsolidity/getaccount')
+      ? response(200, { address: '41' + '22'.repeat(20) })
+      : response(200, {
+          NetLimit: 1, NetUsed: 1, freeNetLimit: 0, freeNetUsed: 0,
+          EnergyLimit: 0, EnergyUsed: 0,
+        }),
   })
   assert.equal(tooLittle.success, false)
   assert.equal(tooLittle.reason, 'sponsor-bandwidth-capacity-insufficient')
+})
+
+
+test('native sponsor capacity rejects an unactivated or unverifiable recipient before resource preflight', async () => {
+  const transaction = {
+    txID,
+    raw_data_hex: rawDataHex,
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {} } }] },
+  }
+  let resourceQueryMade = false
+  const result = await verifySponsorFeeResourceCapacity({
+    transfer: transfer(),
+    transaction,
+    env: {},
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async (url) => {
+      if (url.endsWith('/walletsolidity/getaccount')) return response(200, {})
+      if (url.endsWith('/wallet/getaccountresource')) resourceQueryMade = true
+      return response(200, {
+        NetLimit: 10000, NetUsed: 0, freeNetLimit: 1000, freeNetUsed: 0,
+        EnergyLimit: 0, EnergyUsed: 0,
+      })
+    },
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'sponsor-recipient-account-not-active')
+  assert.equal(result.receiverAccountActivated, false)
+  assert.equal(resourceQueryMade, false)
 })
 
 test('TRC20 sponsor capacity fails closed when live constant-contract simulation cannot estimate energy', async () => {
