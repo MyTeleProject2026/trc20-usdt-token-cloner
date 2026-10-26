@@ -76,3 +76,18 @@ test('sponsor resource reader rejects malformed provider resource responses', as
   assert.equal(result.resourceRead, false)
   assert.equal(result.delegationEnabled, false)
 })
+
+test('sponsor resource reader exposes only the sanitized provider HTTP status on throttling', async () => {
+  const reader = createSponsorResourceReader({
+    env: { TATUM_API_KEY: 'never-return-this-secret', SPONSOR_SHASTA_ADDRESS: sponsorAddress },
+    tronWebFactory,
+    fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({ message: 'never return this body' }) }),
+  })
+  const result = await reader('shasta', { refresh: true })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'resource-read-unavailable')
+  assert.equal(result.providerStatus, 429)
+  assert.equal(result.resourceRead, false)
+  assert.equal(JSON.stringify(result).includes('never-return-this-secret'), false)
+  assert.equal(JSON.stringify(result).includes('never return this body'), false)
+})

@@ -71,7 +71,11 @@ export function createSponsorResourceReader({
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(timeoutMs),
         })
-        if (!response.ok) throw new Error('provider-http-error')
+        if (!response.ok) {
+          const error = new Error('provider-http-error')
+          error.status = response.status
+          throw error
+        }
         const payload = await response.json()
         if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
           throw new Error('invalid-resource-response')
@@ -116,8 +120,16 @@ export function createSponsorResourceReader({
         canSubmitSponsoredTransfer: false,
         note: 'Solidified resource snapshot only. Delegatable stake is reported in SUN-equivalent staked TRX, not Energy units. It does not prove a transfer will be fully covered; the sponsor must sign and verify a delegation, and each transfer must independently check resource coverage.',
       }
-    } catch {
-      return { success: false, network, status: 'resource-read-unavailable', sponsorAddress, resourceRead: false, delegationEnabled: false }
+    } catch (error) {
+      return {
+        success: false,
+        network,
+        status: 'resource-read-unavailable',
+        ...(Number.isInteger(error?.status) ? { providerStatus: error.status } : {}),
+        sponsorAddress,
+        resourceRead: false,
+        delegationEnabled: false,
+      }
     }
   }
 

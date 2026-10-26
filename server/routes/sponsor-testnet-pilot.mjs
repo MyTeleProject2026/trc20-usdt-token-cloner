@@ -189,6 +189,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
     feeSponsorResources: {
       read: resourceRead,
       status: typeof resourceStatus?.status === 'string' ? resourceStatus.status : 'resource-read-unavailable',
+      ...(Number.isInteger(resourceStatus?.providerStatus) ? { providerHttpStatus: resourceStatus.providerStatus } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableEnergy !== undefined
         ? { currentlyAvailableEnergy: resourceStatus.currentlyAvailableEnergy } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableBandwidth !== undefined
