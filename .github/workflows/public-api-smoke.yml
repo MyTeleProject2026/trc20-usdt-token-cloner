@@ -48,6 +48,31 @@ jobs:
             console.log("Public health endpoint returned ok.");
           '
 
+      - name: Verify signed TRON wallet login challenge is live and identity-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f tron-wallet-challenge.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output tron-wallet-challenge.json --write-out '%{http_code}' --request POST --header 'Origin: https://trc20-usdt-token-cloner.onrender.com' --header 'Content-Type: application/json' --data '{"address":"TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2","network":"nile"}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/challenge')"
+          if [[ "$http_code" != "200" ]]; then
+            echo "Wallet login challenge returned HTTP $http_code." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('tron-wallet-challenge.json', 'utf8'))
+          if (data.success !== true || data.scope !== 'wallet-identity-only'
+            || data.network !== 'nile'
+            || data.address !== 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+            || typeof data.nonce !== 'string' || typeof data.message !== 'string'
+            || !data.message.includes('no transfer is authorized')
+            || typeof data.expiresAt !== 'number'
+            || 'sessionToken' in data || data.canSubmitSponsoredTransfer === true) {
+            throw new Error('Wallet login challenge violated the identity-only response contract')
+          }
+          console.log('TRON wallet login challenge is live; it authorizes identity only and sends no transaction.')
+          NODE
+
       - name: Inspect sanitized provider status
         shell: bash
         run: |
