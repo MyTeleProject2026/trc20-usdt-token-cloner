@@ -892,6 +892,8 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-detail"><span>Receiver</span><code>{lastIntent.reservation.receiverAddress}</code></div>
             <div className="sponsor-console-detail"><span>Asset / base units</span><strong>{lastIntent.reservation.asset} · {lastIntent.reservation.amountBaseUnits}</strong></div>
             {lastIntent.reservation.tokenContract && <div className="sponsor-console-detail"><span>Token contract</span><code>{lastIntent.reservation.tokenContract}</code></div>}
+            <div className="sponsor-console-detail"><span>Persisted transaction ID</span><code>{String(lastIntent.transaction?.txID || 'unavailable')}</code></div>
+            <div className="sponsor-console-detail"><span>Signing expiry</span><strong>{typeof lastIntent.transaction?.raw_data?.expiration === 'number' ? new Date(lastIntent.transaction.raw_data.expiration).toLocaleString() : 'unavailable'}</strong></div>
             <div className="sponsor-console-detail"><span>Fee capacity check</span><strong>{lastIntent.feeResourceDelegation?.resourceCapacityPreflightPassed ? 'Live capacity preflight passed; final fees not reconciled' : 'Not verified'}</strong></div>
           </section>}
 
