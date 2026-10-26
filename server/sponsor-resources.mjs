@@ -108,6 +108,7 @@ export function createSponsorResourceReader({
           const error = new Error('provider-http-error')
           if (Number.isInteger(response?.status)) error.status = response.status
           error.failureStage = stage
+          error.providerResponseCategory = 'provider-http-error'
           throw error
         }
 

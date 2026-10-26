@@ -126,6 +126,57 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
   assert.equal(JSON.stringify(result).includes('server-only-test-key'), false)
 })
 
+
+test('role snapshot preserves allowlisted resource error categories but never provider text', async () => {
+  const privateProviderText = 'invalid address with hidden api-key-like-secret'
+  const env = {
+    TATUM_API_KEY: 'server-only-test-key',
+    SPONSOR_FEE_NILE_ADDRESS: feeAddress,
+    SPONSOR_ASSET_NILE_ADDRESS: assetAddress,
+  }
+  const readRoles = createSponsorRoleFundingReader({
+    env,
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body || '{}')
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        return { ok: true, json: async () => ({ address: body.address, balance: '1200000' }) }
+      }
+      if (url.endsWith('/wallet/getaccountresource')) {
+        return { ok: true, status: 200, json: async () => ({ Error: privateProviderText }) }
+      }
+      if (url.endsWith('/wallet/getcandelegatedmaxsize')) {
+        return { ok: true, json: async () => ({ max_size: '0' }) }
+      }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
+        return { ok: true, json: async () => ({ delegatedResource: [] }) }
+      }
+      throw new Error('unexpected provider endpoint')
+    },
+  })
+  const result = await readRoles('nile', { refresh: true })
+  const resourceStatus = result.roles.networkFeeSponsor.resourceStatus
+  assert.equal(resourceStatus.resourceRead, false)
+  assert.equal(resourceStatus.failureStage, 'account-resource')
+  assert.equal(resourceStatus.providerResponseCategory, 'invalid-address')
+  assert.equal(JSON.stringify(result).includes(privateProviderText), false)
+  assert.equal(JSON.stringify(result).includes('api-key-like-secret'), false)
+  assert.equal(result.canSubmitSponsoredTransfer, false)
+})
+
+test('role snapshot drops unexpected resource provider categories', async () => {
+  // The resource reader is the only source of this field; only the fixed
+  // category allowlist can cross the role aggregation boundary.
+  const env = {}
+  const reader = createSponsorRoleFundingReader({
+    env,
+    fetchImpl: async () => { throw new Error('must not call without addresses') },
+  })
+  const result = await reader('nile')
+  assert.equal(result.roles.networkFeeSponsor.resourceStatus.resourceRead, false)
+  assert.equal('providerResponseCategory' in result.roles.networkFeeSponsor.resourceStatus, false)
+})
+
 test('the endpoint marks identical fee and asset addresses as not distinct', async () => {
   const env = { SPONSOR_FEE_SHASTA_ADDRESS: feeAddress, SPONSOR_ASSET_SHASTA_ADDRESS: feeAddress }
   const readRoles = createSponsorRoleFundingReader({ env, fetchImpl: async () => { throw new Error('must not call without Tatum API key') } })

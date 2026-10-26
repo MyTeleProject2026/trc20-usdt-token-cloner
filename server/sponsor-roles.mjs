@@ -5,6 +5,20 @@ import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs
 import { isValidTronAddress } from './tron-address.mjs'
 
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
+const SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES = new Set([
+  'account-not-found',
+  'invalid-address',
+  'endpoint-not-supported',
+  'rate-limited',
+  'invalid-request',
+  'invalid-response-shape',
+  'node-error-response',
+  'provider-timeout',
+  'provider-transport-error',
+  'provider-request-failed',
+  'provider-http-error',
+  'invalid-json-response',
+])
 
 function makeRoleEnvironment(source, role) {
   return new Proxy(source, {
@@ -64,6 +78,8 @@ function buildRoleSnapshot(role, network, configuredAddress, funding, resources 
           resourceRead,
           ...(Number.isInteger(resources?.providerStatus) ? { providerStatus: resources.providerStatus } : {}),
           ...(typeof resources?.failureStage === 'string' ? { failureStage: resources.failureStage } : {}),
+          ...(SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES.has(resources?.providerResponseCategory)
+            ? { providerResponseCategory: resources.providerResponseCategory } : {}),
           currentlyAvailableEnergy: resourceRead ? resources.resources?.currentlyAvailableEnergy : undefined,
           currentlyAvailableBandwidth: resourceRead ? resources.resources?.currentlyAvailableBandwidth : undefined,
           maxDelegatableEnergyStakeSun: resourceRead ? resources.resources?.maxDelegatableEnergyStakeSun : undefined,
