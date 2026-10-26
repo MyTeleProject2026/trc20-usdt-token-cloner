@@ -18,7 +18,7 @@ test('sponsor resource reader returns TRON resource state and both delegation ce
       calls.push({ url, body: JSON.parse(options.body) })
       const payload = url.endsWith('/wallet/getaccountresource')
         ? { EnergyLimit: 5000, EnergyUsed: 1200, NetLimit: '900', NetUsed: '200', freeNetLimit: '600', freeNetUsed: '10' }
-        : url.endsWith('/walletsolidity/getcandelegatedmaxsize') && JSON.parse(options.body).type === 1
+        : url.endsWith('/wallet/getcandelegatedmaxsize') && JSON.parse(options.body).type === 1
           ? { max_size: '3000000' }
           : { max_size: '6000000' }
       return { ok: true, json: async () => payload }

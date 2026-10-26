@@ -94,8 +94,8 @@ export function createSponsorResourceReader({
       }
       const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
         post('account-resource', '/wallet/getaccountresource', { address: addressHex, visible: false }),
-        post('energy-delegation-ceiling', '/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
-        post('bandwidth-delegation-ceiling', '/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
+        post('energy-delegation-ceiling', '/wallet/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
+        post('bandwidth-delegation-ceiling', '/wallet/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
       ])
       const energyLimit = integerString(resources.EnergyLimit)
       const energyUsed = integerString(resources.EnergyUsed ?? 0)
@@ -126,7 +126,7 @@ export function createSponsorResourceReader({
         network,
         sponsorAddress,
         checkedAt: new Date().toISOString(),
-        source: 'Tatum TRON FullNode account-resource and SolidityNode Stake-2.0 delegation queries',
+        source: 'Tatum TRON FullNode account-resource and Stake-2.0 delegation queries',
         resourceRead: true,
         resources: {
           energyLimit, energyUsed, currentlyAvailableEnergy: (BigInt(energyLimit) - BigInt(energyUsed)).toString(),
@@ -137,7 +137,7 @@ export function createSponsorResourceReader({
         },
         delegationEnabled: false,
         canSubmitSponsoredTransfer: false,
-        note: 'Solidified resource snapshot only. Delegatable stake is reported in SUN-equivalent staked TRX, not Energy units. It does not prove a transfer will be fully covered; the sponsor must sign and verify a delegation, and each transfer must independently check resource coverage.',
+        note: 'Latest resource snapshot only. Delegatable stake is reported in SUN-equivalent staked TRX, not Energy units. It does not prove a transfer will be fully covered; the sponsor must sign and verify a delegation, and each transfer must independently check resource coverage.',
       }
     } catch (error) {
       return {

@@ -65,7 +65,7 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
       if (url.endsWith('/wallet/getaccountresource')) {
         return { ok: true, json: async () => ({ EnergyLimit: '1000', EnergyUsed: '200', NetLimit: '400', NetUsed: '50', freeNetLimit: '100', freeNetUsed: '10' }) }
       }
-      if (url.endsWith('/walletsolidity/getcandelegatedmaxsize')) {
+      if (url.endsWith('/wallet/getcandelegatedmaxsize')) {
         return { ok: true, json: async () => ({ max_size: '5000000' }) }
       }
       if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
