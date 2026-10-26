@@ -63,29 +63,39 @@ export function createSponsorResourceReader({
       }
       const addressHex = tronWeb.address.toHex(sponsorAddress)
       const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
-      const post = async (path, body) => {
-        const response = await fetchImpl(config.host + path, {
-          method: 'POST',
-          redirect: 'error',
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(timeoutMs),
-        })
-        if (!response.ok) {
-          const error = new Error('provider-http-error')
-          error.status = response.status
+      const post = async (stage, path, body) => {
+        try {
+          const response = await fetchImpl(config.host + path, {
+            method: 'POST',
+            redirect: 'error',
+            headers,
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(timeoutMs),
+          })
+          if (!response.ok) {
+            const error = new Error('provider-http-error')
+            error.status = response.status
+            error.failureStage = stage
+            throw error
+          }
+          const payload = await response.json()
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
+            const error = new Error('invalid-resource-response')
+            error.failureStage = stage
+            throw error
+          }
+          return payload
+        } catch (cause) {
+          if (typeof cause?.failureStage === 'string') throw cause
+          const error = new Error('provider-request-failed')
+          error.failureStage = stage
           throw error
         }
-        const payload = await response.json()
-        if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
-          throw new Error('invalid-resource-response')
-        }
-        return payload
       }
       const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
-        post('/walletsolidity/getaccountresource', { address: addressHex, visible: false }),
-        post('/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
-        post('/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
+        post('account-resource', '/walletsolidity/getaccountresource', { address: addressHex, visible: false }),
+        post('energy-delegation-ceiling', '/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
+        post('bandwidth-delegation-ceiling', '/walletsolidity/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
       ])
       const energyLimit = integerString(resources.EnergyLimit)
       const energyUsed = integerString(resources.EnergyUsed ?? 0)
@@ -126,6 +136,7 @@ export function createSponsorResourceReader({
         network,
         status: 'resource-read-unavailable',
         ...(Number.isInteger(error?.status) ? { providerStatus: error.status } : {}),
+        ...(typeof error?.failureStage === 'string' ? { failureStage: error.failureStage } : {}),
         sponsorAddress,
         resourceRead: false,
         delegationEnabled: false,
