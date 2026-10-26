@@ -190,6 +190,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
       read: resourceRead,
       status: typeof resourceStatus?.status === 'string' ? resourceStatus.status : 'resource-read-unavailable',
       ...(Number.isInteger(resourceStatus?.providerStatus) ? { providerHttpStatus: resourceStatus.providerStatus } : {}),
+      ...(typeof resourceStatus?.failureStage === 'string' ? { failureStage: resourceStatus.failureStage } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableEnergy !== undefined
         ? { currentlyAvailableEnergy: resourceStatus.currentlyAvailableEnergy } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableBandwidth !== undefined
