@@ -261,3 +261,42 @@ test('sponsor resource reader falls back per endpoint from TRONGrid to Tatum whi
   assert.equal(JSON.stringify(result).includes('server-only-trongrid-test-key'), false)
   assert.equal(JSON.stringify(result).includes('server-only-tatum-test-key'), false)
 })
+
+
+test('sponsor resource reader retries an incomplete JSON response through the alternate provider', async () => {
+  const calls = []
+  const reader = createSponsorResourceReader({
+    env: {
+      TRONGRID_API_KEY: 'server-only-trongrid-test-key',
+      TATUM_API_KEY: 'server-only-tatum-test-key',
+      SPONSOR_NILE_ADDRESS: sponsorAddress,
+    },
+    tronWebFactory,
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body)
+      calls.push({ url, body })
+      if (url.startsWith('https://nile.trongrid.io')
+        && url.endsWith('/wallet/getaccountresource')) {
+        return { ok: true, status: 200, json: async () => ({ result: true }) }
+      }
+      const payload = url.endsWith('/wallet/getaccountresource')
+        ? { EnergyLimit: 1000, EnergyUsed: 200, NetLimit: 400, NetUsed: 50, freeNetLimit: 100, freeNetUsed: 10 }
+        : { max_size: body.type === 1 ? '5000000' : '7000000' }
+      return { ok: true, status: 200, json: async () => payload }
+    },
+  })
+
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, true)
+  assert.equal(result.resourceRead, true)
+  assert.match(result.source, /TRONGrid and Tatum/)
+  assert.equal(result.resources.currentlyAvailableEnergy, '800')
+  assert.equal(result.canSubmitSponsoredTransfer, false)
+  assert.equal(result.delegationEnabled, false)
+  assert.ok(calls.some(({ url }) =>
+    url.startsWith('https://nile.trongrid.io') && url.endsWith('/wallet/getaccountresource')))
+  assert.ok(calls.some(({ url }) =>
+    url.startsWith('https://tron-nile.gateway.tatum.io') && url.endsWith('/wallet/getaccountresource')))
+  assert.equal(JSON.stringify(result).includes('server-only-trongrid-test-key'), false)
+  assert.equal(JSON.stringify(result).includes('server-only-tatum-test-key'), false)
+})
