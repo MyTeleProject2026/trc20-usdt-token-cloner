@@ -42,3 +42,13 @@ test('the app explains testnet isolation and does not present explorer links as 
   assert.match(app, /does not move assets|cannot convert tokens/i)
   assert.match(app, /This does not confirm exchange credit/)
 })
+
+
+test('sponsor console verifies accepted transfers and links the exact transaction on the selected explorer', async () => {
+  const consoleSource = await readFile(new URL('../src/SponsorSignerConsole.tsx', import.meta.url), 'utf8')
+  assert.ok(consoleSource.includes("getTronScanTransactionUrl(lastIntent?.reservation?.network, lastResult?.transactionHash)"))
+  assert.ok(consoleSource.includes("getTronScanNetworkLabel(lastIntent?.reservation?.network)"))
+  assert.ok(consoleSource.includes("verifyReceiverSettlement(prepared.payload, submitted.payload)"))
+  assert.match(consoleSource, /Open \{transferExplorerLabel \|\| 'transaction'\} in TronScan/)
+  assert.match(consoleSource, /keep the same transaction ID for the operator's manual retry/)
+})
