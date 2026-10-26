@@ -9,6 +9,8 @@ files:
   - package.json
 asar: true
 npmRebuild: false
+extraMetadata:
+  main: desktop/main.cjs
 win:
   target:
     - target: nsis
