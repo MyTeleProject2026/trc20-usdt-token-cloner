@@ -748,7 +748,7 @@ export default function SponsorSignerConsole() {
             })}
             <div className="sponsor-console-actions">
               <button type="button" className="sponsor-console-button sponsor-console-button--quiet" onClick={() => void refreshPilotPreflight()} disabled={busy !== null}><RefreshCw size={15} aria-hidden="true" /> Refresh both testnets</button>
-              <span className="sponsor-console-pill">Signing and submission remain disabled</span>
+              <span className="sponsor-console-pill">Preflight is read-only; sponsor signature and resource gates still apply</span>
             </div>
             <div className="sponsor-console-result-note">A funded-looking balance is not proof of sponsor ownership, consent, or a spending mandate. A node-accepted transaction is not final fee settlement or proof of receiver/exchange credit. No private key or sponsor address is sent to this diagnostic endpoint.</div>
           </section>
