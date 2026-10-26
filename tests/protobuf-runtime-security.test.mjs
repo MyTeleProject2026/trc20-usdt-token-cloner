@@ -28,10 +28,12 @@ test('TronWeb can build, decode and locally sign a TRC-20 draft with patched pro
     'transfer(address,uint256)',
     {
       txLocal: true,
-      ref_block_bytes: '0001',
-      ref_block_hash: '0000000000000001',
-      expiration: timestamp + 60_000,
-      timestamp,
+      blockHeader: {
+        ref_block_bytes: '0001',
+        ref_block_hash: '0000000000000001',
+        expiration: timestamp + 60_000,
+        timestamp,
+      },
       tokenId: '1000008',
       tokenValue: 100,
       feeLimit: 100 * 10 ** 6,
