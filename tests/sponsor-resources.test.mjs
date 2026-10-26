@@ -38,10 +38,39 @@ test('sponsor resource reader returns TRON resource state and both delegation ce
   assert.equal(result.delegationEnabled, false)
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(calls.length, 3)
-  assert.ok(calls.some((call) => call.url.endsWith('/wallet/getaccountresource')))
+  const accountResourceCalls = calls.filter((call) => call.url.endsWith('/wallet/getaccountresource'))
+  const delegationCalls = calls.filter((call) => call.url.endsWith('/wallet/getcandelegatedmaxsize'))
+  assert.equal(accountResourceCalls.length, 1)
+  assert.equal(accountResourceCalls[0].body.address, sponsorAddress)
+  assert.equal(accountResourceCalls[0].body.visible, true)
   assert.equal(calls.some((call) => call.url.endsWith('/walletsolidity/getaccountresource')), false)
-  assert.ok(calls.every((call) => call.body.address === undefined || call.body.address === '41' + 'ab'.repeat(20)))
+  assert.equal(delegationCalls.length, 2)
+  assert.ok(delegationCalls.every((call) => call.body.owner_address === sponsorAddress && call.body.visible === true))
+  assert.deepEqual(delegationCalls.map((call) => call.body.type).sort(), [0, 1])
   assert.equal(JSON.stringify(result).includes('server-only-test-key'), false)
+})
+
+
+test('sponsor resource reader categorizes HTTP-200 node errors without exposing provider text', async () => {
+  const privateProviderMessage = 'secret-token-cannot-leak invalid address supplied by upstream'
+  const reader = createSponsorResourceReader({
+    env: { TATUM_API_KEY: 'server-only-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory,
+    fetchImpl: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => url.endsWith('/wallet/getaccountresource')
+        ? { Error: privateProviderMessage }
+        : { max_size: '0' },
+    }),
+  })
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, false)
+  assert.equal(result.status, 'resource-read-unavailable')
+  assert.equal(result.failureStage, 'account-resource')
+  assert.equal(result.providerResponseCategory, 'invalid-address')
+  assert.equal(JSON.stringify(result).includes(privateProviderMessage), false)
+  assert.equal(JSON.stringify(result).includes('secret-token-cannot-leak'), false)
 })
 
 test('sponsor resource reader fails closed when sponsor address or credentials are absent', async () => {

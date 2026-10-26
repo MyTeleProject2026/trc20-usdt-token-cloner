@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
 import {
+  buildNetworkSummary,
   createSponsorTestnetPilotRouter,
   readTestnetSolidifiedHead,
 } from '../server/routes/sponsor-testnet-pilot.mjs'
@@ -159,6 +160,37 @@ test('combined pilot preflight checks Nile and Shasta but never enables sponsore
   for (const value of [secret, env.DATABASE_URL, env.SPONSOR_ADMIN_API_TOKEN, feeAddress, assetAddress]) {
     assert.equal(serialized.includes(value), false)
   }
+})
+
+
+test('pilot summary exposes only an allowlisted upstream resource diagnostic category', () => {
+  const summary = buildNetworkSummary({
+    network: 'nile',
+    head: { success: false, status: 'provider-unreachable' },
+    roleResult: {
+      configuredAddressesDistinct: true,
+      roles: {
+        networkFeeSponsor: {
+          addressConfigured: true,
+          onChainBalanceRead: false,
+          resourceStatus: {
+            status: 'resource-read-unavailable',
+            resourceRead: false,
+            failureStage: 'account-resource',
+            providerResponseCategory: 'invalid-address',
+          },
+        },
+        assetPrincipalSponsor: {
+          addressConfigured: true,
+          onChainBalanceRead: false,
+        },
+      },
+    },
+    env: {},
+  })
+  assert.equal(summary.feeSponsorResources.failureStage, 'account-resource')
+  assert.equal(summary.feeSponsorResources.providerResponseCategory, 'invalid-address')
+  assert.equal(JSON.stringify(summary).includes('provider error message'), false)
 })
 
 test('combined pilot preflight rejects unsupported network filters', async (t) => {

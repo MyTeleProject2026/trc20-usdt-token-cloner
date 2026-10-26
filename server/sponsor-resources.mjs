@@ -13,6 +13,26 @@ function integerString(value) {
   return null
 }
 
+// Provider node errors often arrive as HTTP 200 JSON with an Error field.
+// Return only a fixed diagnostic category; never echo the provider's message.
+function classifyProviderError(payload) {
+  const text = [payload?.Error, payload?.error, payload?.message, payload?.code]
+    .filter((value) => typeof value === 'string')
+    .join(' ')
+    .toLowerCase()
+  if (!text) return 'invalid-response-shape'
+  if (/(account|address).{0,80}(not found|does not exist|doesn't exist|unknown)|no account/.test(text)) {
+    return 'account-not-found'
+  }
+  if (/invalid.{0,40}address|address.{0,40}invalid/.test(text)) return 'invalid-address'
+  if (/method.{0,50}(not found|unsupported)|endpoint.{0,50}(not found|unsupported)|not supported/.test(text)) {
+    return 'endpoint-not-supported'
+  }
+  if (/rate.?limit|too many requests|quota exceeded/.test(text)) return 'rate-limited'
+  if (/parameter|argument|invalid request|missing.{0,40}(address|type)/.test(text)) return 'invalid-request'
+  return 'node-error-response'
+}
+
 /**
  * Reads the configured sponsor's current TRON resource snapshot and current
  * Stake-2.0 delegation ceilings. This never signs, delegates, reserves, or
@@ -57,11 +77,9 @@ export function createSponsorResourceReader({
 
     try {
       const tronWeb = await tronWebFactory(config.host)
-      if (typeof tronWeb?.isAddress !== 'function' || !tronWeb.isAddress(sponsorAddress)
-        || typeof tronWeb?.address?.toHex !== 'function') {
+      if (typeof tronWeb?.isAddress !== 'function' || !tronWeb.isAddress(sponsorAddress)) {
         return { success: false, network, status: 'invalid-sponsor-address', sponsorAddress, resourceRead: false, delegationEnabled: false }
       }
-      const addressHex = tronWeb.address.toHex(sponsorAddress)
       const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
       const post = async (stage, path, body) => {
         try {
@@ -79,9 +97,11 @@ export function createSponsorResourceReader({
             throw error
           }
           const payload = await response.json()
-          if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
-            const error = new Error('invalid-resource-response')
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+            || payload.Error || payload.error || payload.result === false) {
+            const error = new Error('provider-node-error')
             error.failureStage = stage
+            error.providerResponseCategory = classifyProviderError(payload)
             throw error
           }
           return payload
@@ -93,9 +113,11 @@ export function createSponsorResourceReader({
         }
       }
       const [resources, energyDelegation, bandwidthDelegation] = await Promise.all([
-        post('account-resource', '/wallet/getaccountresource', { address: addressHex, visible: false }),
-        post('energy-delegation-ceiling', '/wallet/getcandelegatedmaxsize', { owner_address: addressHex, type: 1, visible: false }),
-        post('bandwidth-delegation-ceiling', '/wallet/getcandelegatedmaxsize', { owner_address: addressHex, type: 0, visible: false }),
+        // Use Base58Check addresses with visible:true, matching Tatum's
+        // documented request examples for these TRON FullNode endpoints.
+        post('account-resource', '/wallet/getaccountresource', { address: sponsorAddress, visible: true }),
+        post('energy-delegation-ceiling', '/wallet/getcandelegatedmaxsize', { owner_address: sponsorAddress, type: 1, visible: true }),
+        post('bandwidth-delegation-ceiling', '/wallet/getcandelegatedmaxsize', { owner_address: sponsorAddress, type: 0, visible: true }),
       ])
       const energyLimit = integerString(resources.EnergyLimit)
       const energyUsed = integerString(resources.EnergyUsed ?? 0)
@@ -111,6 +133,7 @@ export function createSponsorResourceReader({
         || BigInt(freeNetUsed) > BigInt(freeNetLimit)) {
         const error = new Error('invalid-resource-response')
         error.failureStage = 'account-resource'
+        error.providerResponseCategory = 'invalid-response-shape'
         throw error
       }
       if (maxEnergyStakeSun === null || maxBandwidthStakeSun === null) {
@@ -118,6 +141,7 @@ export function createSponsorResourceReader({
         error.failureStage = maxEnergyStakeSun === null
           ? 'energy-delegation-ceiling'
           : 'bandwidth-delegation-ceiling'
+        error.providerResponseCategory = 'invalid-response-shape'
         throw error
       }
       return {
@@ -146,6 +170,8 @@ export function createSponsorResourceReader({
         status: 'resource-read-unavailable',
         ...(Number.isInteger(error?.status) ? { providerStatus: error.status } : {}),
         ...(typeof error?.failureStage === 'string' ? { failureStage: error.failureStage } : {}),
+        ...(typeof error?.providerResponseCategory === 'string'
+          ? { providerResponseCategory: error.providerResponseCategory } : {}),
         sponsorAddress,
         resourceRead: false,
         delegationEnabled: false,

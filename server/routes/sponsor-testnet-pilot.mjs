@@ -11,6 +11,15 @@ const TOKEN_ALLOWLIST_ENV = Object.freeze({
   shasta: { USDT: 'SPONSOR_USDT_SHASTA_CONTRACTS', VTRC: 'SPONSOR_VTRC_SHASTA_CONTRACTS' },
   nile: { USDT: 'SPONSOR_USDT_NILE_CONTRACTS', VTRC: 'SPONSOR_VTRC_NILE_CONTRACTS' },
 })
+const SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES = new Set([
+  'account-not-found',
+  'invalid-address',
+  'endpoint-not-supported',
+  'rate-limited',
+  'invalid-request',
+  'invalid-response-shape',
+  'node-error-response',
+])
 
 function positiveInteger(value) {
   try {
@@ -191,6 +200,8 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
       status: typeof resourceStatus?.status === 'string' ? resourceStatus.status : 'resource-read-unavailable',
       ...(Number.isInteger(resourceStatus?.providerStatus) ? { providerHttpStatus: resourceStatus.providerStatus } : {}),
       ...(typeof resourceStatus?.failureStage === 'string' ? { failureStage: resourceStatus.failureStage } : {}),
+      ...(SAFE_RESOURCE_PROVIDER_ERROR_CATEGORIES.has(resourceStatus?.providerResponseCategory)
+        ? { providerResponseCategory: resourceStatus.providerResponseCategory } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableEnergy !== undefined
         ? { currentlyAvailableEnergy: resourceStatus.currentlyAvailableEnergy } : {}),
       ...(resourceRead && resourceStatus.currentlyAvailableBandwidth !== undefined
