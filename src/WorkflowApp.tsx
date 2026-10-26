@@ -8,6 +8,7 @@ import {
 import { getTronScanAddressUrl, getTronScanNetworkLabel, getTronScanTransactionUrl } from './tron-explorer.mjs'
 
 type NetworkId = 'shasta' | 'nile'
+type WalletIdentity = { address: string; network: NetworkId; expiresAt: number; sessionToken: string }
 type AssetKind = 'TRX' | 'TRC20'
 type ApiResult = { ok: boolean; httpStatus: number; payload: any }
 type SponsorRoleSnapshot = {
@@ -550,7 +551,7 @@ function formatTimestamp(value: number | null) {
 }
 
 export default function WorkflowApp() {
-  const [network, setNetwork] = useState<NetworkId>('shasta')
+  const [network, setNetwork] = useState<NetworkId>('nile')
   const [step, setStep] = useState(0)
 
   // Stage 1 — network fees are external-sponsor-only. There is intentionally no
@@ -573,6 +574,7 @@ export default function WorkflowApp() {
   const [watchAddress, setWatchAddress] = useState('')
   const [senderAddress, setSenderAddress] = useState('')
   const [walletSource, setWalletSource] = useState<'TronLink' | 'Watch-only' | null>(null)
+  const [walletIdentity, setWalletIdentity] = useState<WalletIdentity | null>(null)
   const [nativeSnapshot, setNativeSnapshot] = useState<BalanceSnapshot | null>(null)
   const [senderTokenSnapshot, setSenderTokenSnapshot] = useState<BalanceSnapshot | null>(null)
   const [senderLoading, setSenderLoading] = useState(false)
@@ -688,6 +690,7 @@ export default function WorkflowApp() {
     setAmount('1')
     setSenderAddress('')
     setWatchAddress('')
+    setWalletIdentity(null)
     setWalletSource(null)
     setNativeSnapshot(null)
     setSenderTokenSnapshot(null)
@@ -716,6 +719,7 @@ export default function WorkflowApp() {
     if (!provider || typeof provider.on !== 'function') return
     const invalidate = () => {
       setSenderAddress('')
+      setWalletIdentity(null)
       setWalletSource(null)
       setNativeSnapshot(null)
       setSenderTokenSnapshot(null)
@@ -771,6 +775,43 @@ export default function WorkflowApp() {
     }
   }
 
+  const signInWithWallet = async (address: string, tronWeb: any): Promise<WalletIdentity> => {
+    const challengeResponse = await fetch(`${API_BASE}/api/auth/tron/challenge`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      body: JSON.stringify({ address, network }),
+    })
+    const challenge = await challengeResponse.json().catch(() => null)
+    if (!challengeResponse.ok || challenge?.success !== true || typeof challenge.message !== 'string'
+      || typeof challenge.nonce !== 'string') {
+      throw new Error(challenge?.message || challenge?.error || `Wallet sign-in challenge failed (HTTP ${challengeResponse.status}).`)
+    }
+    if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+      throw new Error('This TronLink version does not support signMessageV2. Update the wallet before signing in.')
+    }
+    // This signs a human-readable, short-lived login challenge only; it is not a transaction.
+    const signature = await tronWeb.trx.signMessageV2(challenge.message)
+    if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+      throw new Error('TronLink returned an invalid login signature.')
+    }
+    const verifyResponse = await fetch(`${API_BASE}/api/auth/tron/verify`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      body: JSON.stringify({ address, network, nonce: challenge.nonce, signature }),
+    })
+    const verified = await verifyResponse.json().catch(() => null)
+    if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
+      || verified.address !== address || verified.network !== network
+      || typeof verified.sessionToken !== 'string' || !Number.isFinite(verified.expiresAt)) {
+      throw new Error(verified?.message || verified?.error || `Wallet signature verification failed (HTTP ${verifyResponse.status}).`)
+    }
+    return { address, network, expiresAt: verified.expiresAt, sessionToken: verified.sessionToken }
+  }
+
   const connectTronLink = async () => {
     setSenderError('')
     setSenderLoading(true)
@@ -800,6 +841,8 @@ export default function WorkflowApp() {
       if (!ADDRESS_PATTERN.test(address) || (typeof tronWeb.isAddress === 'function' && !tronWeb.isAddress(address))) {
         throw new Error('TronLink did not provide a valid authorized TRON address.')
       }
+      const identity = await signInWithWallet(address, tronWeb)
+      setWalletIdentity(identity)
       setWalletMode('tronlink')
       setSenderAddress(address)
       setWatchAddress(address)
@@ -813,6 +856,7 @@ export default function WorkflowApp() {
       ])
     } catch (error) {
       setSenderAddress('')
+      setWalletIdentity(null)
       setWalletSource(null)
       setNativeSnapshot(null)
       setSenderTokenSnapshot(null)
@@ -1311,20 +1355,20 @@ export default function WorkflowApp() {
             <section className="studio-panel" aria-labelledby="sender-stage-title">
               <div className="studio-panel-heading">
                 <div className="studio-panel-icon"><Wallet size={20} aria-hidden="true" /></div>
-                <div><p className="studio-eyebrow">Sender / watch account</p><h2 id="sender-stage-title">Inspect the wallet on the selected testnet</h2><p>Connect TronLink for the address only, or enter a public watch-only address. No signing prompt or sender funds are required for this inspection.</p></div>
+                <div><p className="studio-eyebrow">Sender / watch account</p><h2 id="sender-stage-title">Inspect the wallet on the selected testnet</h2><p>Sign in with TronLink to verify control of your public address, then load live sponsor and wallet snapshots. The login signature is not a transaction and does not authorize spending.</p></div>
               </div>
 
               <div className="studio-segmented" role="group" aria-label="Wallet inspection method">
                 <button type="button" onClick={() => { setWalletMode('tronlink'); setSenderError('') }} aria-pressed={walletMode === 'tronlink'} className={walletMode === 'tronlink' ? 'is-selected' : ''}><Wallet size={16} aria-hidden="true" /> Connect TronLink</button>
-                <button type="button" onClick={() => { setWalletMode('watch'); setSenderError('') }} aria-pressed={walletMode === 'watch'} className={walletMode === 'watch' ? 'is-selected' : ''}><Eye size={16} aria-hidden="true" /> Watch-only address</button>
+                <button type="button" onClick={() => { setWalletMode('watch'); setWalletIdentity(null); setSenderError('') }} aria-pressed={walletMode === 'watch'} className={walletMode === 'watch' ? 'is-selected' : ''}><Eye size={16} aria-hidden="true" /> Watch-only address</button>
               </div>
 
               {walletMode === 'tronlink' ? (
                 <div className="studio-wallet-connect">
                   <div className="studio-wallet-symbol"><Wallet size={27} aria-hidden="true" /></div>
                   <h3>Connect without sharing secrets</h3>
-                  <p>TronLink must already be set to {network === 'nile' ? 'Nile' : 'Shasta'} testnet. The app checks the injected wallet address and verifies balances through the backend.</p>
-                  <button type="button" className="studio-button studio-button--primary" onClick={() => void connectTronLink()} disabled={senderLoading}><Wallet size={16} aria-hidden="true" /> {senderLoading ? 'Checking wallet…' : 'Connect / refresh TronLink'}</button>
+                  <p>TronLink must already be set to {network === 'nile' ? 'Nile' : 'Shasta'} testnet. The app verifies a one-time signed login challenge, then reads live sponsor and wallet balances. It never asks for a seed phrase or private key.</p>
+                  <button type="button" className="studio-button studio-button--primary" onClick={() => void connectTronLink()} disabled={senderLoading}><Wallet size={16} aria-hidden="true" /> {senderLoading ? 'Connecting / signing in…' : walletIdentity?.address === senderAddress && walletIdentity?.network === network ? 'Refresh wallet & sponsor balances' : 'Connect & sign in with TronLink'}</button>
                 </div>
               ) : (
                 <div className="studio-field-block">
@@ -1335,6 +1379,17 @@ export default function WorkflowApp() {
                 </div>
               )}
 
+              {walletIdentity && walletIdentity.address === senderAddress && walletIdentity.network === network && walletIdentity.expiresAt > Date.now() && (
+                <div className="studio-notice studio-notice--neutral" role="status">
+                  <ShieldCheck size={18} aria-hidden="true" />
+                  <div className="studio-grow"><strong>Wallet login verified</strong><p>Signed ownership confirmed for <code>{walletIdentity.address}</code>. Session expires {new Date(walletIdentity.expiresAt).toLocaleTimeString()}. This identity session is not sponsor spending permission.</p></div>
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => {
+                    const token = walletIdentity.sessionToken
+                    void fetch(`${API_BASE}/api/auth/tron/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, credentials: 'omit', cache: 'no-store' }).catch(() => undefined)
+                    setWalletIdentity(null)
+                  }}>Sign out</button>
+                </div>
+              )}
               {senderError && <p className="studio-inline-error" role="alert">{senderError}</p>}
               {senderAddress && (
                 <div className="studio-account-summary">
