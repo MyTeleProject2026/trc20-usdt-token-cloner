@@ -53,7 +53,10 @@ test('current frontend reads native balances from the selected testnet', () => {
 })
 
 test('current frontend connects or watches a testnet wallet without sending transactions', () => {
-  assert.ok(app.includes('Connect / refresh TronLink'))
+  assert.ok(app.includes('Connect & sign in with TronLink'))
+  assert.ok(app.includes('/api/auth/tron/challenge'))
+  assert.ok(app.includes('wallet.trx.signMessageV2') || app.includes('tronWeb.trx.signMessageV2'))
+  assert.ok(app.includes('Wallet login verified'))
   assert.ok(app.includes('Watch-only address'))
   assert.ok(app.includes('Network mismatch. Select'))
   assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
