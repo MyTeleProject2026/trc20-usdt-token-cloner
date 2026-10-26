@@ -251,3 +251,18 @@ The Render startup log should say `Project database initialization: ready`. Do n
 The backend now paces requests to approved Tatum REST and TRON gateway origins through a shared per-process queue, spacing request launches by 400 ms to reduce bursts from concurrent balance/resource checks. This is rate-limit hygiene, not an increase to the Tatum account quota. Tatum documents HTTP 429 as a request-rate limit response ([official error guide](https://docs.tatum.io/docs/error-429)).
 
 If Nile continues returning HTTP 429, inspect the Tatum dashboard for the API-key type, plan limits, and recent request usage, and wait for the relevant limit window to clear before retrying. Do not repeatedly force refreshes during a throttle window. A 429 remains a testnet preflight blocker; do not enable signing/broadcast or switch to a sender-funded fallback to work around it.
+
+
+## 12. TRONGrid resource-read provider selection
+
+The sponsor resource reader supports the official TRON node API through TRONGrid for the configured network:
+
+- Mainnet: `https://api.trongrid.io`
+- Shasta: `https://api.shasta.trongrid.io`
+- Nile: `https://nile.trongrid.io`
+
+When `TRONGRID_API_KEY` is configured on the **backend Render Web Service**, resource-read requests use the `TRON-PRO-API-KEY` header. If that variable is absent, the reader uses the configured Tatum key and its `x-api-key` header. This is only a read-path provider choice; it does not change transaction submission, signing, sponsor consent, or budget activation. Keep both provider keys private and rotate them through the provider consoles if exposed.
+
+For a controlled diagnostic, query the Nile and Shasta pilot preflight endpoints in section 4 with `refresh=1`. Confirm the reported resource read succeeds and inspect only the sanitized status fields. TRON's `getaccountresource` reports aggregate resource limits and usage; it does not by itself prove that a specific sponsor has delegated resources to the intended recipient. A delegation check and solidified on-chain evidence are still required. See the [official TRON GetAccountResource reference](https://developers.tron.network/reference/getaccountresource) and [Account Resources overview](https://developers.tron.network/reference/account-resources).
+
+If resource diagnostics still fail, record the network, HTTP status/category, and failure stage without logging request headers, API keys, full environment values, or sponsor addresses. Do not treat provider reachability as proof of sufficient resources or as permission to submit a transaction.
