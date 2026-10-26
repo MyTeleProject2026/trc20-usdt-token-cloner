@@ -288,11 +288,55 @@ export default function SponsorSignerConsole() {
     setMessage('Network changed. Reconnect the sponsor wallet and verify the new network.')
   }
 
-  const signAndSubmit = async () => {
+  const prepareSigningIntent = async () => {
     setError('')
     setLastIntent(null)
     setLastResult(null)
     setSettlementCheck(null)
+    setBusy('checking')
+    try {
+      const key = idempotencyKey.trim()
+      if (key.length < 24 || key.length > 160) {
+        throw new Error('Enter the reservation idempotency key (24–160 characters) from the approved operator-created request.')
+      }
+      if (!wallet) throw new Error('Connect and verify the sponsor wallet first.')
+      const beforeReview = readInjectedWallet(network)
+      if (beforeReview.address !== wallet.address) {
+        throw new Error('The connected wallet account changed. Reconnect and review the reservation.')
+      }
+      const path = '/api/tron/sponsorship/transfers/' + encodeURIComponent(key)
+      const prepared = await requestJson(API_BASE + path + '/signing-intent')
+      if (!prepared.response.ok || prepared.payload.success !== true) {
+        throw new Error(prepared.payload.message || prepared.payload.error || prepared.payload.status || ('Signing intent unavailable (HTTP ' + prepared.response.status + ').'))
+      }
+      const reservation = prepared.payload.reservation
+      const transaction = prepared.payload.transaction
+      if (reservation?.idempotencyKey !== key) throw new Error('The backend returned a different reservation key. No signing request was sent.')
+      if (reservation?.network !== network) throw new Error('The reservation network does not match the selected wallet network.')
+      if (reservation?.sponsorAddress !== beforeReview.address) {
+        throw new Error('Connected wallet does not match the approved asset-principal sponsor. No signing request was sent to the wallet.')
+      }
+      if (prepared.payload.signingIntentPersisted !== true
+        || typeof transaction?.raw_data_hex !== 'string'
+        || typeof transaction?.txID !== 'string') {
+        throw new Error('The backend did not return a persisted, identifiable signing intent. Do not sign or broadcast.')
+      }
+      const expiration = transaction?.raw_data?.expiration
+      if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 15000) {
+        throw new Error('This transaction is expired or too close to expiry. Prepare a fresh signing intent before reviewing it.')
+      }
+      setLastIntent(prepared.payload)
+      setMessage('The exact unsigned transaction is prepared and persisted. Review the network, sponsor, receiver, asset, amount, token contract and expiry shown below. No wallet prompt, signature or broadcast has occurred.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not prepare the sponsor signing intent.')
+      setMessage('Preparation failed. No transaction was signed or broadcast.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const signAndSubmit = async () => {
+    setError('')
     setBusy('signing')
     try {
       const key = idempotencyKey.trim()
@@ -300,23 +344,31 @@ export default function SponsorSignerConsole() {
         throw new Error('Enter the reservation idempotency key (24–160 characters) from the approved operator-created request.')
       }
       if (!wallet) throw new Error('Connect and verify the sponsor wallet first.')
+      const prepared = lastIntent
+      if (prepared?.signingIntentPersisted !== true
+        || prepared?.reservation?.idempotencyKey !== key
+        || prepared?.reservation?.network !== network
+        || typeof prepared?.transaction?.raw_data_hex !== 'string'
+        || typeof prepared?.transaction?.txID !== 'string') {
+        throw new Error('Prepare and review the exact transaction for this reservation before signing.')
+      }
       const beforeSign = readInjectedWallet(network)
-      if (beforeSign.address !== wallet.address) throw new Error('The connected wallet account changed. Reconnect and review the reservation.')
+      if (beforeSign.address !== wallet.address) {
+        throw new Error('The connected wallet account changed. Reconnect and prepare the reservation again.')
+      }
+      if (prepared.reservation.sponsorAddress !== beforeSign.address) {
+        throw new Error('Connected wallet does not match the approved asset-principal sponsor. No signing request was sent.')
+      }
+      const expiration = prepared.transaction?.raw_data?.expiration
+      if (!Number.isSafeInteger(expiration) || expiration <= Date.now() + 15000) {
+        setLastIntent(null)
+        throw new Error('The reviewed transaction has expired or is too close to expiry. Prepare a fresh intent and review it before signing.')
+      }
       const path = '/api/tron/sponsorship/transfers/' + encodeURIComponent(key)
-      const prepared = await requestJson(API_BASE + path + '/signing-intent')
-      if (!prepared.response.ok || prepared.payload.success !== true) {
-        throw new Error(prepared.payload.message || prepared.payload.error || prepared.payload.status || ('Signing intent unavailable (HTTP ' + prepared.response.status + ').'))
-      }
-      const reservation = prepared.payload.reservation
-      if (reservation?.network !== network) throw new Error('The reservation network does not match the selected wallet network.')
-      if (reservation?.sponsorAddress !== beforeSign.address) {
-        throw new Error('Connected wallet does not match the approved asset-principal sponsor. No signing request was sent to the wallet.')
-      }
-      setLastIntent(prepared.payload)
-      setMessage('Review recipient, asset, amount and network in the wallet confirmation. Approve only if every field is correct.')
       const tronWeb = window.tronWeb || window.tronLink?.tronWeb
       if (typeof tronWeb?.trx?.sign !== 'function') throw new Error('The connected wallet does not expose TronWeb transaction signing.')
-      const signedTransaction = await tronWeb.trx.sign(prepared.payload.transaction)
+      setMessage('TronLink will request a signature for the exact reviewed transaction. Approve only if the details above match the approved reservation.')
+      const signedTransaction = await tronWeb.trx.sign(prepared.transaction)
       if (!signedTransaction || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length === 0) {
         throw new Error('The wallet returned no transaction signature. Nothing will be broadcast.')
       }
@@ -325,9 +377,9 @@ export default function SponsorSignerConsole() {
         throw new Error('The connected wallet or network changed after signing. The backend will not broadcast this transaction.')
       }
       if (String(signedTransaction.raw_data_hex || '').toLowerCase()
-        !== String(prepared.payload.transaction?.raw_data_hex || '').toLowerCase()
+        !== String(prepared.transaction?.raw_data_hex || '').toLowerCase()
         || String(signedTransaction.txID || '').toLowerCase()
-        !== String(prepared.payload.transaction?.txID || '').toLowerCase()) {
+        !== String(prepared.transaction?.txID || '').toLowerCase()) {
         throw new Error('The wallet changed the prepared transaction bytes. The backend will not receive it.')
       }
       const submitted = await requestJson(API_BASE + path + '/submit-signed', {
@@ -344,7 +396,7 @@ export default function SponsorSignerConsole() {
       if (submitted.payload.transactionBroadcast === true && typeof submitted.payload.transactionHash === 'string') {
         // First verification attempt is automatic; if the receipt is not solidified yet,
         // keep the same transaction ID for the operator's manual retry.
-        await verifyReceiverSettlement(prepared.payload, submitted.payload)
+        await verifyReceiverSettlement(prepared, submitted.payload)
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The sponsor signing/submission request failed.')
@@ -701,6 +753,15 @@ export default function SponsorSignerConsole() {
   const assetTokens: ApiPayload[] = Array.isArray(assetRole?.tokens) ? assetRole.tokens : []
   const transferExplorerUrl = getTronScanTransactionUrl(lastIntent?.reservation?.network, lastResult?.transactionHash)
   const transferExplorerLabel = getTronScanNetworkLabel(lastIntent?.reservation?.network)
+  const hasPreparedCurrentIntent = lastIntent?.signingIntentPersisted === true
+    && lastIntent?.reservation?.idempotencyKey === idempotencyKey.trim()
+    && lastIntent?.reservation?.network === network
+    && lastIntent?.reservation?.sponsorAddress === wallet?.address
+    && typeof lastIntent?.transaction?.raw_data_hex === 'string'
+    && typeof lastIntent?.transaction?.txID === 'string'
+  const preparedIntentAlreadyBroadcast = lastResult?.transactionBroadcast === true
+    && typeof lastResult?.transactionHash === 'string'
+    && String(lastResult.transactionHash).toLowerCase() === String(lastIntent?.transaction?.txID || '').toLowerCase()
 
   return (
     <div className="sponsor-console-page">
@@ -821,7 +882,7 @@ export default function SponsorSignerConsole() {
             <label className="sponsor-console-label" htmlFor="sponsor-intent-key">Reservation idempotency key</label>
             <input id="sponsor-intent-key" value={idempotencyKey} onChange={event => setIdempotencyKey(event.target.value)} autoComplete="off" spellCheck={false} placeholder="Paste the approved 24+ character reservation key" maxLength={160} />
             <p className="sponsor-console-field-note">Treat this as a request reference. Never paste a seed phrase, private key, API key or signing secret.</p>
-            <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void signAndSubmit()} disabled={busy !== null || !wallet || idempotencyKey.trim().length < 24}><LockKeyhole size={16} aria-hidden="true" /> {busy === 'signing' ? 'Checking, signing and submitting…' : 'Review, sign and submit testnet transfer'}</button>
+            <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void (hasPreparedCurrentIntent ? signAndSubmit() : prepareSigningIntent())} disabled={busy !== null || !wallet || idempotencyKey.trim().length < 24 || preparedIntentAlreadyBroadcast}><LockKeyhole size={16} aria-hidden="true" /> {busy === 'signing' ? 'Signing and submitting…' : busy === 'checking' ? 'Preparing exact transaction…' : preparedIntentAlreadyBroadcast ? 'Already broadcast — verify receipt below' : hasPreparedCurrentIntent ? 'Sign exact reviewed transaction in TronLink' : 'Prepare exact transaction for review'}</button>
           </section>
 
           {lastIntent?.reservation && <section className="sponsor-console-card">
