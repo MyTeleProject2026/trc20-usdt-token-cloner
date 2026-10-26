@@ -184,3 +184,31 @@ test('sponsor resource reader exposes only the sanitized provider HTTP status on
   assert.equal(JSON.stringify(result).includes('never-return-this-secret'), false)
   assert.equal(JSON.stringify(result).includes('never return this body'), false)
 })
+
+test('sponsor resource reader prefers configured TRONGrid credentials for network-specific read-only resource calls', async () => {
+  const calls = []
+  const reader = createSponsorResourceReader({
+    env: { TRONGRID_API_KEY: 'server-only-trongrid-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress },
+    tronWebFactory,
+    now: () => 1000,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options })
+      const payload = url.endsWith('/wallet/getaccountresource')
+        ? { EnergyLimit: 1000, EnergyUsed: 200, NetLimit: 400, NetUsed: 50, freeNetLimit: 100, freeNetUsed: 10 }
+        : { max_size: '5000000' }
+      return { ok: true, status: 200, json: async () => payload }
+    },
+  })
+
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, true)
+  assert.equal(result.resourceRead, true)
+  assert.match(result.source, /^TRONGrid FullNode/)
+  assert.equal(calls.length, 3)
+  assert.ok(calls.every(({ url }) => url.startsWith('https://nile.trongrid.io/wallet/')))
+  assert.ok(calls.every(({ options }) => options.headers?.['TRON-PRO-API-KEY'] === 'server-only-trongrid-test-key'))
+  assert.ok(calls.every(({ options }) => !('x-api-key' in options.headers)))
+  assert.equal(JSON.stringify(result).includes('server-only-trongrid-test-key'), false)
+  assert.equal(result.canSubmitSponsoredTransfer, false)
+})
+
