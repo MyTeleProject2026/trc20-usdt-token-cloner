@@ -1248,7 +1248,7 @@ export default function WorkflowApp() {
           <div className="studio-sidebar-heading">
             <p className="studio-eyebrow">Transfer workflow</p>
             <h2>Request setup</h2>
-            <p className="studio-muted">Complete each stage in order. Live sending remains disabled until sponsor integration is verified.</p>
+            <p className="studio-muted">Complete each stage in order. Live sending remains disabled until sponsor integration is verified. External wallets and exchanges only credit actual on-chain transfers; this app never fabricates external balances.</p>
           </div>
           <nav className="studio-step-list" aria-label="Wizard stages">
             {STEPS.map((item, index) => {
