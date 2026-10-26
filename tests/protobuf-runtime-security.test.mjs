@@ -22,6 +22,12 @@ test('TronWeb can build, decode and locally sign a TRC-20 draft with patched pro
   const contractAddress = 'TU1ntBzpGPp7GJkzxLTKwYsneJ9JKUmBCK'
   const amountBaseUnits = '1234567'
   const timestamp = Date.now()
+  tronWeb.trx.getCurrentRefBlockParams = async () => ({
+    ref_block_bytes: '0001',
+    ref_block_hash: '0000000000000001',
+    expiration: timestamp + 60_000,
+    timestamp,
+  })
 
   const built = await tronWeb.transactionBuilder.triggerSmartContract(
     contractAddress,
