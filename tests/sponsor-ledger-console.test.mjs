@@ -8,6 +8,9 @@ const routes = await readFile(new URL('../server/routes/native-tron.mjs', import
 test('the simplified frontend does not include the legacy admin ledger console', () => {
   assert.ok(!app.includes('SponsorLedgerConsole'))
   assert.ok(!app.includes('adminToken'))
+  assert.ok(app.includes('/api/auth/tron/logout'))
+  assert.ok(app.includes('walletIdentity.sessionToken'))
+  assert.ok(!app.includes('SPONSOR_ADMIN_API_TOKEN'))
   assert.ok(!app.includes('Authorization: `Bearer'))
   assert.ok(!app.includes('/api/tron/sponsorship/budgets'))
   assert.ok(!app.includes('/api/tron/sponsorship/role-budget-drafts'))
