@@ -49,12 +49,16 @@ Open the backend service, not the frontend Static Site:
 - Select **Environment**. Add/update individual variables; do not choose a replace-all operation.
 
 Keep existing working values for `DATABASE_URL`, `TATUM_API_KEY`, and `FRONTEND_ORIGIN`.
-Do not paste them into messages or overwrite them without a reason.
+Do not paste them into messages or overwrite them without a reason. `TRONGRID_API_KEY` is an optional
+backend-only key for read-only TRON resource diagnostics. When both provider keys are configured,
+the reader prefers TRONGrid and retries an individual failed resource query through Tatum; it does not
+switch providers for transaction submission because this reader has no submission capability.
 
 Set the following testnet values only after the sponsor owners authorized monitoring:
 
 | Variable | Value |
 | --- | --- |
+| `TRONGRID_API_KEY` | Optional server-only TRONGrid API key for resource preflight; never create a `VITE_*` frontend copy |
 | `SPONSOR_FEE_NILE_ADDRESS` | Public Nile address owned by the network-fee/resource sponsor |
 | `SPONSOR_ASSET_NILE_ADDRESS` | Public Nile address owned by the asset-principal sponsor; must differ from the fee sponsor |
 | `SPONSOR_USDT_NILE_CONTRACTS` | Comma-separated exact Nile token contract addresses reviewed for this pilot; omit if no approved token is used |
