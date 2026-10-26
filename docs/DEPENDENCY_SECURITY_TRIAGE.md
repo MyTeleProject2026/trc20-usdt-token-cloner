@@ -1,6 +1,6 @@
 # Dependency security triage
 
-**Reviewed:** 2026-10-24  
+**Reviewed:** 2026-10-26 (candidate remediation pending CI)  
 **Scope:** Runtime dependency advisories affecting TRON Token Studio.
 
 ## Current finding: google-protobuf runtime
@@ -18,19 +18,21 @@ TronWeb's generated transaction utilities use protobuf `deserializeBinary()` whe
 
 This reduces evidence of a directly reachable attack path in the current application, but it does **not** remove the vulnerable transitive dependency or prove zero risk. Do not describe this finding as fixed.
 
-### Why no blind package override was applied
+### Candidate remediation on an isolated branch
 
-The upstream TronWeb v6.5.1 manifest pins `google-protobuf@3.21.4`: [upstream package.json](https://github.com/tronprotocol/tronweb/blob/v6.5.1/package.json). The available patched runtime `google-protobuf@4.0.3` crosses a major runtime version; the 4.x line includes runtime behavior changes that may affect generated TronWeb message compatibility.
+The branch `fix/google-protobuf-4-0-3-security` stages an exact npm override to `google-protobuf@4.0.3`. This is a candidate, not a declaration that the advisory is resolved. The branch-specific workflow regenerates `package-lock.json` with npm rather than hand-editing the dependency graph or inventing integrity metadata.
 
-Forcing the override without executing the application and TronWeb serialization/deserialization tests could introduce a different transaction processing failure. The correct resolution is a compatible upstream TronWeb update, or an explicitly tested override. Do not edit the lockfile with invented integrity metadata or suppress the dependency-audit gate.
+The override crosses the major runtime boundary from the exact `3.21.4` version pinned by TronWeb v6.5.1. The branch adds a regression test that checks the installed version, builds and deserializes a local TRC-20 transaction, and signs it with an ephemeral test key. The test uses `txLocal` and does not broadcast or contact a blockchain node. This checks important compatibility behavior but is not a substitute for the full test suite, build, and audit.
+
+Do not mark the advisory fixed unless the generated lockfile resolves `google-protobuf@4.0.3`, `npm ci` succeeds, the full CI test/build workflow succeeds, and `npm audit` reports no remaining critical/high advisories. If the compatibility check fails, do not merge the override; evaluate a compatible upstream TronWeb release or a different tested remediation. Do not suppress the audit gate.
 
 ### Required release actions
 
-- [ ] Restore GitHub Actions runner allocation and obtain actual test, build, and `npm audit` results.
-- [ ] Upgrade to a compatible, patched runtime after testing; preferably use a TronWeb release that updates its pinned protobuf dependency.
-- [ ] Run the app's full automated tests and build.
-- [ ] Test TRON transaction encoding/decoding on testnet with valid, malformed and deeply nested protobuf payloads.
+- [ ] Obtain generated lockfile output for the candidate branch and confirm the resolved runtime is exactly `4.0.3`.
+- [ ] Run `npm ci`, the complete test suite, and the production build in GitHub Actions.
+- [ ] Verify the new local transaction encode/decode/sign test passes and does not broadcast.
 - [ ] Check `npm audit` and confirm the high-severity advisory no longer appears.
-- [ ] Verify the deployed service remains healthy after the dependency change.
+- [ ] Review any remaining dependency advisories and the compatibility risk before accepting the override.
+- [ ] Only after a separately approved release/deployment, verify the deployed service remains healthy; no deployment is part of this candidate change.
 
 Until these pass, keep the high-severity advisory tracked as open. A successful Render build/start is not a substitute for an audit result or compatibility test.
