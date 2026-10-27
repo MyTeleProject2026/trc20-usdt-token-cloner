@@ -52,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          trap 'rm -f tron-wallet-challenge.json' EXIT
+          trap 'rm -f tron-wallet-challenge.json tron-wallet-verify.json' EXIT
           http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output tron-wallet-challenge.json --write-out '%{http_code}' --request POST --header 'Origin: https://trc20-usdt-token-cloner.onrender.com' --header 'Content-Type: application/json' --data '{"address":"TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2","network":"nile"}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/challenge')"
           if [[ "$http_code" != "200" ]]; then
             echo "Wallet login challenge returned HTTP $http_code." >&2
@@ -71,6 +71,35 @@ jobs:
             throw new Error('Wallet login challenge violated the identity-only response contract')
           }
           console.log('TRON wallet login challenge is live; it authorizes identity only and sends no transaction.')
+          NODE
+
+          # A forged signature must be rejected even when the challenge is valid.
+          verify_payload="$(node --input-type=module -e '
+            import fs from "node:fs";
+            const challenge = JSON.parse(fs.readFileSync("tron-wallet-challenge.json", "utf8"));
+            console.log(JSON.stringify({
+              address: challenge.address,
+              network: challenge.network,
+              nonce: challenge.nonce,
+              signature: "0x" + "00".repeat(65)
+            }));
+          ')"
+          verify_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output tron-wallet-verify.json --write-out '%{http_code}' --request POST --header 'Origin: https://trc20-usdt-token-cloner.onrender.com' --header 'Content-Type: application/json' --data "$verify_payload" 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/verify')"
+          if [[ "$verify_code" != "401" ]]; then
+            echo "Invalid wallet signature returned unexpected HTTP $verify_code; expected 401." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('tron-wallet-verify.json', 'utf8'))
+          if (data.success !== false
+            || !['signature-verification-failed', 'signature-address-mismatch'].includes(data.error)
+            || data.authenticated === true
+            || 'sessionToken' in data
+            || data.canSubmitSponsoredTransfer === true) {
+            throw new Error('Invalid wallet signature did not fail closed without a session')
+          }
+          console.log('Live TRON login rejects an invalid signature and issues no session.')
           NODE
 
       - name: Inspect sanitized provider status
