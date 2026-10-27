@@ -254,6 +254,28 @@ export default function MainnetExchangeDeposit() {
     }
   }, [attempt])
 
+  useEffect(() => {
+    if (!walletSession) return
+    const token = walletSession.sessionToken
+    const timer = window.setTimeout(() => {
+      try { window.sessionStorage.removeItem(AUTH_SESSION_KEY) } catch {}
+      setWalletSession(null)
+      setSender('')
+      setTrxBalanceSun(null)
+      setUsdtBalanceRaw(null)
+      setDestinationConfirmed(false)
+      setIrreversibleConfirmed(false)
+      setWalletError('Mainnet wallet identity expired. Reconnect and sign in again before preparing a transfer.')
+      void fetch(API_BASE + '/api/auth/tron/logout', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        credentials: 'omit',
+        cache: 'no-store',
+      }).catch(() => undefined)
+    }, Math.max(0, walletSession.expiresAt - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [walletSession])
+
   const amountBaseUnits = amountToBaseUnits(amount, 6)
   const destinationValid = ADDRESS_PATTERN.test(destination.trim()) && destination.trim() !== sender
   const formReady = Boolean(sender && walletSession?.address === sender && walletSession?.network === 'mainnet' && walletSession?.expiresAt && walletSession.expiresAt > Date.now() && destinationValid && amountBaseUnits && destinationConfirmed && irreversibleConfirmed && !sending && !verifying && !attempt)
