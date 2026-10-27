@@ -45,7 +45,9 @@ test('wallet vault signs identity challenges locally and wires guarded real on-c
   assert.match(vault, /the contract is neither the official Tether TRON USDT address/)
   assert.match(transfer, /const signed = await tronWeb\.trx\.sign\(unsigned\)/)
   assert.match(transfer, /sendRawTransaction\(signed\)/)
-  assert.match(transfer, /contractResult === 'SUCCESS'/)
+  assert.match(transfer, /executionResults\.some\(value => value === 'SUCCESS'\)/)
+  assert.match(transfer, /if \(hasFailure\)/)
+  assert.match(transfer, /hasSuccess/)
 })
 test('native APK workflow bundles the local wallet UI and keeps the Android build reproducible', async () => {
   const config = JSON.parse(await read('capacitor.config.json'))
