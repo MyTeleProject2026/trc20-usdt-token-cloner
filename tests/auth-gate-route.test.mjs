@@ -46,4 +46,17 @@ test('wallet login uses modern TronLink provider flow and explains common connec
   assert.match(gate, /A TronLink request is already open/)
   assert.match(gate, /Unlock TronLink/)
   assert.match(gate, /app identity is the server-verified signature session/)
+  assert.match(workflow, /function getInjectedTronProvider\(\)/)
+  assert.match(workflow, /method: 'eth_requestAccounts'/)
+  assert.match(workflow, /Reuse the signed identity session/)
+  assert.match(workflow, /Do not sign out the existing app identity/)
+  assert.match(workflow, /active TronLink account is missing or different/)
+})
+
+test('watch-only entry exposes public inspection but never bypasses the sponsor operator sign-in gate', () => {
+  assert.match(gate, /if \(readOnlyMode && !operatorRoute\)/)
+  assert.match(gate, /cannot sign, broadcast, or access the sponsor operator console/)
+  assert.match(gate, /tron-token-studio:wallet-authenticated/)
+  assert.match(workflow, /tron-token-studio:wallet-authenticated/)
+  assert.match(workflow, /Watch-only address/)
 })
