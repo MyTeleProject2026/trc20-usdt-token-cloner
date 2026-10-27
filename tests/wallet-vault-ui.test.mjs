@@ -48,6 +48,11 @@ test('wallet vault signs identity challenges locally and wires guarded real on-c
   assert.match(transfer, /executionResults\.some\(value => value === 'SUCCESS'\)/)
   assert.match(transfer, /if \(hasFailure\)/)
   assert.match(transfer, /hasSuccess/)
+  assert.match(transfer, /export async function verifyTransferRecordOnChain/)
+  assert.match(vault, /verifyTransferRecordOnChain\(web/)
+  assert.match(vault, /local · not verified/)
+  assert.match(vault, /transfer-intent-mismatch|identity-mismatch/)
+  assert.match(vault, /verifiedOnChain: false/)
 })
 test('native APK workflow bundles the local wallet UI and keeps the Android build reproducible', async () => {
   const config = JSON.parse(await read('capacitor.config.json'))
