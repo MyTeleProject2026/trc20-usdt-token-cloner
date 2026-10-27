@@ -8,6 +8,14 @@
 - Verify a transaction against solidified TRON transaction data and its receipt. The receiver should regard the funds as final only after the appropriate chain confirmation and wallet/exchange crediting rules.
 - Store verification outcomes in the project's isolated PostgreSQL schema when the database is configured and ready.
 
+## Genuine Mainnet exchange deposits
+
+The separately routed `#/exchange-deposit` page supports user-authorized direct Mainnet transfers of native TRX and official Tether USDT over TRC-20. The USDT contract is fixed to `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`; the form does not accept custom token contracts for real deposits. It connects to TronLink, requires the active node to be the expected Mainnet endpoint, checks the current sender balance and USDT metadata, builds the exact sender/recipient/amount transaction, optionally adds transaction memo data, checks the built transaction before asking TronLink to sign, and broadcasts only the signed transaction. It then uses the existing solidified TRX/TRC-20 verification endpoints and may refresh the recipient's on-chain balance.
+
+The page requires the sender to acknowledge that the destination and any memo were copied from the exchange's official deposit page and that the transfer is irreversible. Unresolved broadcast outcomes are retained in browser session state and block a second send until verification succeeds. A confirmed transaction is labelled **on-chain verified; exchange credit unverified**. The exchange field is a local note only: no exchange API is configured, no exchange ledger balance is fabricated, and only an exchange's own authoritative deposit status can confirm account credit.
+
+User instructions: [Simple testnet send guide](SIMPLE_TESTNET_SEND_GUIDE.md). The Mainnet flow is separate from the Nile/Shasta workspace and does not make testnet assets valuable.
+
 ## Network boundaries that must not be bypassed
 
 Shasta is a test network. Shasta TRX and tokens deployed on Shasta have no mainnet monetary value. Sending them to an address that also exists on mainnet does not move or credit mainnet funds. Mainnet and Shasta have independent ledgers and transaction histories.
