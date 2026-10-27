@@ -1,6 +1,7 @@
 const FORMAT = 'tron-token-studio-encrypted-wallet'
 const VERSION = 1
-const ITERATIONS = 310_000
+const ITERATIONS = 600_000
+const SUPPORTED_ITERATIONS = new Set([310_000, ITERATIONS])
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
 const encoder = new TextEncoder()
@@ -39,7 +40,7 @@ function validateRecord(record) {
     && Number.isFinite(record.createdAt)
     && record.kdf?.name === 'PBKDF2'
     && record.kdf?.hash === 'SHA-256'
-    && record.kdf?.iterations === ITERATIONS
+    && SUPPORTED_ITERATIONS.has(record.kdf?.iterations)
     && typeof record.kdf?.salt === 'string'
     && record.cipher?.name === 'AES-GCM'
     && record.cipher?.tagLength === 128
@@ -47,7 +48,7 @@ function validateRecord(record) {
     && typeof record.ciphertext === 'string')
 }
 
-async function deriveEncryptionKey(password, salt, provider) {
+async function deriveEncryptionKey(password, salt, provider, iterations = ITERATIONS) {
   const material = await provider.subtle.importKey(
     'raw',
     encoder.encode(password),
@@ -56,7 +57,7 @@ async function deriveEncryptionKey(password, salt, provider) {
     ['deriveKey'],
   )
   return provider.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
     material,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -106,7 +107,7 @@ export async function decryptWalletPrivateKey(record, password, cryptoProvider =
     const salt = base64ToBytes(record.kdf.salt)
     const iv = base64ToBytes(record.cipher.iv)
     if (salt.length !== 16 || iv.length !== 12) throw new Error('Encrypted wallet file is malformed.')
-    const key = await deriveEncryptionKey(password, salt, provider)
+    const key = await deriveEncryptionKey(password, salt, provider, record.kdf.iterations)
     const additionalData = encoder.encode(`${FORMAT}:${VERSION}:${record.address}`)
     const plaintext = await provider.subtle.decrypt(
       { name: 'AES-GCM', iv, additionalData, tagLength: 128 },
