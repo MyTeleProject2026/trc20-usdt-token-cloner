@@ -16,9 +16,9 @@ function createMemoryAuthStore() {
     challenges,
     sessions,
     accounts,
-    async createChallenge({ nonceHash, address, network, origin, message, expiresAt }) {
+    async createChallenge({ nonceHash, address, network, origin, issuedAt, expiresAt }) {
       if (challenges.has(nonceHash)) return { success: false, reason: 'duplicate' }
-      challenges.set(nonceHash, { address, network, origin, message, expiresAt })
+      challenges.set(nonceHash, { address, network, origin, issuedAt, expiresAt })
       return { success: true }
     },
     async consumeChallenge({ nonceHash }) {
@@ -111,7 +111,7 @@ test('wallet login verifies a one-time signature and returns an identity-only wa
 
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
-      body: { address, network: 'nile', nonce: challenge.payload.nonce, signature },
+      body: { address, network: 'nile', nonce: challenge.payload.nonce, message: challenge.payload.message, signature },
     })
     assert.equal(verified.response.status, 200)
     assert.equal(verified.payload.authenticated, true)
@@ -124,7 +124,7 @@ test('wallet login verifies a one-time signature and returns an identity-only wa
 
     const replay = await requestJson(base, '/verify', {
       method: 'POST',
-      body: { address, network: 'nile', nonce: challenge.payload.nonce, signature },
+      body: { address, network: 'nile', nonce: challenge.payload.nonce, message: challenge.payload.message, signature },
     })
     assert.equal(replay.response.status, 401)
     assert.equal(replay.payload.error, 'challenge-expired-or-mismatched')
@@ -150,7 +150,7 @@ test('a session can be resolved by another router instance sharing persistent st
     })
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
-      body: { address, network: 'nile', nonce: challenge.payload.nonce, signature },
+      body: { address, network: 'nile', nonce: challenge.payload.nonce, message: challenge.payload.message, signature },
     })
     assert.equal(verified.response.status, 200)
     sessionToken = verified.payload.sessionToken
@@ -191,7 +191,7 @@ test('wallet login rejects invalid origin, wrong signer and unsupported non-TRON
     })
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
-      body: { address, network: 'nile', nonce: challenge.payload.nonce, signature },
+      body: { address, network: 'nile', nonce: challenge.payload.nonce, message: challenge.payload.message, signature },
     })
     assert.equal(verified.response.status, 401)
     assert.equal(verified.payload.error, 'signature-address-mismatch')
@@ -218,7 +218,7 @@ test('Mainnet wallet ownership can be verified without enabling or submitting a 
     assert.equal(challenge.payload.network, 'mainnet')
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
-      body: { address, network: 'mainnet', nonce: challenge.payload.nonce, signature },
+      body: { address, network: 'mainnet', nonce: challenge.payload.nonce, message: challenge.payload.message, signature },
     })
     assert.equal(verified.response.status, 200)
     assert.equal(verified.payload.authenticated, true)
@@ -241,7 +241,7 @@ test('logout revokes the bearer session and refuses an untrusted browser origin'
     })
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
-      body: { address, network: 'nile', nonce: challenge.payload.nonce, signature },
+      body: { address, network: 'nile', nonce: challenge.payload.nonce, message: challenge.payload.message, signature },
     })
     const token = verified.payload.sessionToken
 
