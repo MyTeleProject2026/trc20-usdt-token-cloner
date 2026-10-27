@@ -43,12 +43,23 @@ const HOSTS: Record<Network, string> = {
 }
 const DELEGATION_STORAGE_KEY = 'trc20-usdt-token-cloner:sponsor-delegation:v1'
 const SPONSOR_ROLE_WALLETS_STORAGE_KEY = 'tron-token-studio:sponsor-role-wallets:v1'
+const RESERVATION_KEY_SESSION_STORAGE_KEY = 'tron-token-studio:sponsor-reservation-key:v1'
 
 type SponsorRoleSlot = 'assetPrincipal' | 'networkFee'
 
 // Persist only public role addresses and public node metadata so account switching
 // or reopening this console does not erase the operator's two configured roles.
 // A restored snapshot is always stale until the injected wallet is re-read live.
+function loadSavedReservationKey(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const value = window.sessionStorage.getItem(RESERVATION_KEY_SESSION_STORAGE_KEY) || ''
+    return /^[A-Za-z0-9._:-]{24,160}$/.test(value) ? value : ''
+  } catch {
+    return ''
+  }
+}
+
 function loadSavedSponsorWallet(network: Network, role: SponsorRoleSlot): WalletSnapshot | null {
   if (typeof window === 'undefined') return null
   try {
@@ -256,7 +267,7 @@ async function requestJson(url: string, init?: RequestInit): Promise<{ response:
 
 export default function SponsorSignerConsole() {
   const [network, setNetwork] = useState<Network>('nile')
-  const [idempotencyKey, setIdempotencyKey] = useState('')
+  const [idempotencyKey, setIdempotencyKey] = useState(() => loadSavedReservationKey())
   const [wallet, setWallet] = useState<WalletSnapshot | null>(() => loadSavedSponsorWallet('nile', 'assetPrincipal'))
   const [walletNeedsReconnect, setWalletNeedsReconnect] = useState(true)
   const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(() => loadSavedSponsorWallet('nile', 'networkFee'))
@@ -325,6 +336,15 @@ export default function SponsorSignerConsole() {
 
   useEffect(() => { persistSponsorWallet(network, 'assetPrincipal', wallet) }, [network, wallet])
   useEffect(() => { persistSponsorWallet(network, 'networkFee', feeWallet) }, [network, feeWallet])
+  useEffect(() => {
+    try {
+      const key = idempotencyKey.trim()
+      if (/^[A-Za-z0-9._:-]{24,160}$/.test(key)) window.sessionStorage.setItem(RESERVATION_KEY_SESSION_STORAGE_KEY, key)
+      else window.sessionStorage.removeItem(RESERVATION_KEY_SESSION_STORAGE_KEY)
+    } catch {
+      // The field still works when session storage is unavailable.
+    }
+  }, [idempotencyKey])
 
   useEffect(() => { void refreshPilotPreflight() }, [refreshPilotPreflight])
 
