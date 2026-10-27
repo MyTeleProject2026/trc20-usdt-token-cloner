@@ -2017,6 +2017,7 @@ export default function WorkflowApp() {
             <button type="button" aria-pressed={network === 'shasta'} className={network === 'shasta' ? 'is-selected' : ''} onClick={() => chooseNetwork('shasta')}>Shasta</button>
             <button type="button" aria-pressed={network === 'nile'} className={network === 'nile' ? 'is-selected' : ''} onClick={() => chooseNetwork('nile')}>Nile</button>
           </div>
+          <a className="studio-operator-link" href="#/wallet"><Wallet size={13} aria-hidden="true" /> Wallet Vault <ArrowRight size={13} aria-hidden="true" /></a>
           <a className="studio-operator-link" href="#/sponsor-operator">Sponsor operator <ArrowRight size={13} aria-hidden="true" /></a>
           <a className="studio-operator-link" href="#/okx-deposit-status">OKX deposit records <ArrowRight size={13} aria-hidden="true" /></a>
           <a className="studio-operator-link" href="#/exchange-deposit">Real Mainnet deposit <ArrowRight size={13} aria-hidden="true" /></a>
