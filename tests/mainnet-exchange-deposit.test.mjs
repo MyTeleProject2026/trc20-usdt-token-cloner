@@ -23,6 +23,7 @@ test('Mainnet deposit wallet has a real signed identity session and revalidates 
   assert.match(flow, /tronWeb\.trx\.signMessageV2\(challenge\.message\)/)
   assert.match(flow, /JSON\.stringify\(\{ address, network: 'mainnet' \}\)/)
   assert.match(flow, /\/api\/auth\/tron\/verify/)
+  assert.match(flow, /JSON\.stringify\(\{ address, network: 'mainnet', nonce: challenge\.nonce, message: challenge\.message, signature \}\)/)
   assert.match(flow, /apiGet\('\/api\/auth\/tron\/session', walletSession\.sessionToken\)/)
   assert.match(flow, /walletSession\?\.address === sender/)
   assert.match(flow, /Sign out wallet identity/)
