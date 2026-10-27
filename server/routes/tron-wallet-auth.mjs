@@ -57,6 +57,19 @@ function validOrigin(req, origins) {
     && origins.has(origin)
 }
 
+function buildChallengeMessage({ address, network, origin, nonce, issuedAt, expiresAt }) {
+  return [
+    'TRON Token Studio wallet sign-in',
+    'Purpose: prove control of this public address only; no transfer is authorized.',
+    `Address: ${address}`,
+    `Network: ${network}`,
+    `Origin: ${origin}`,
+    `Nonce: ${nonce}`,
+    `Issued At: ${new Date(issuedAt).toISOString()}`,
+    `Expires At: ${new Date(expiresAt).toISOString()}`,
+  ].join('\n')
+}
+
 function setNoStore(res) {
   res.setHeader('Cache-Control', 'no-store, private')
   res.setHeader('Pragma', 'no-cache')
@@ -127,16 +140,14 @@ export function createTronWalletAuthRouter({
       return res.status(503).json({ success: false, error: 'challenge-unavailable' })
     }
     const expiresAt = current + CHALLENGE_TTL_MS
-    const message = [
-      'TRON Token Studio wallet sign-in',
-      'Purpose: prove control of this public address only; no transfer is authorized.',
-      `Address: ${address}`,
-      `Network: ${network}`,
-      `Origin: ${req.get('origin')}`,
-      `Nonce: ${nonce}`,
-      `Issued At: ${new Date(current).toISOString()}`,
-      `Expires At: ${new Date(expiresAt).toISOString()}`,
-    ].join('\n')
+    const message = buildChallengeMessage({
+      address,
+      network,
+      origin: req.get('origin'),
+      nonce,
+      issuedAt: current,
+      expiresAt,
+    })
 
     let persisted
     try {
@@ -145,7 +156,7 @@ export function createTronWalletAuthRouter({
         address,
         network,
         origin: req.get('origin'),
-        message,
+        issuedAt: current,
         expiresAt,
       })
     } catch {
@@ -186,16 +197,17 @@ export function createTronWalletAuthRouter({
       return res.status(403).json({ success: false, error: 'origin-not-allowed' })
     }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['address', 'network', 'nonce', 'signature'].includes(key))) {
+    if (Object.keys(body).some((key) => !['address', 'network', 'nonce', 'signature', 'message'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
     const address = typeof body.address === 'string' ? body.address.trim() : ''
     const network = body.network
     const nonce = typeof body.nonce === 'string' ? body.nonce : ''
     const signature = typeof body.signature === 'string' ? body.signature : ''
+    const signedMessage = typeof body.message === 'string' ? body.message : ''
     if (!ADDRESS_PATTERN.test(address) || !isValidTronAddress(address)
       || !NETWORKS.has(network) || !NONCE_PATTERN.test(nonce)
-      || !SIGNATURE_PATTERN.test(signature)) {
+      || !SIGNATURE_PATTERN.test(signature) || signedMessage.length < 1 || signedMessage.length > 2048) {
       return res.status(400).json({ success: false, error: 'invalid-login-payload' })
     }
 
@@ -222,9 +234,21 @@ export function createTronWalletAuthRouter({
       return res.status(401).json({ success: false, error: 'challenge-expired-or-mismatched' })
     }
 
+    const expectedMessage = buildChallengeMessage({
+      address: challenge.address,
+      network: challenge.network,
+      origin: challenge.origin,
+      nonce,
+      issuedAt: challenge.issuedAt,
+      expiresAt: challenge.expiresAt,
+    })
+    if (signedMessage !== expectedMessage) {
+      return res.status(401).json({ success: false, error: 'challenge-message-mismatch' })
+    }
+
     let recovered
     try {
-      recovered = await verifyMessage(challenge.message, signature)
+      recovered = await verifyMessage(expectedMessage, signature)
     } catch {
       return res.status(401).json({ success: false, error: 'signature-verification-failed' })
     }
