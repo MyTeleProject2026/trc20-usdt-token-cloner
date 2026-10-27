@@ -81,6 +81,18 @@ type TransferReview = {
   createdAt: number
 }
 
+type OwnerTreasurySnapshot = {
+  success?: boolean
+  ownerAccessVerified?: boolean
+  status?: string
+  treasuryAddress?: string
+  checkedAt?: string
+  native?: { status?: string; balanceTRX?: string }
+  officialUsdt?: { status?: string; tokenContract?: string; balanceBaseUnits?: string; decimals?: number }
+  canSubmitSponsoredTransfer?: boolean
+  submissionEnabled?: boolean
+}
+
 const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -239,6 +251,9 @@ export default function WalletVault() {
   const [mainnetSendPhrase, setMainnetSendPhrase] = useState('')
   const [transferHistory, setTransferHistory] = useState<TransferActivity[]>(readTransferHistory)
   const [historyLoading, setHistoryLoading] = useState('')
+  const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
+  const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
+  const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -255,6 +270,8 @@ export default function WalletVault() {
     setTransferReview(null)
     setTransferAcknowledged(false)
     setMainnetSendPhrase('')
+    setOwnerTreasurySnapshot(null)
+    setOwnerTreasuryError('')
   }, [network])
 
   useEffect(() => {
@@ -469,6 +486,8 @@ export default function WalletVault() {
     setTransferReview(null)
     setTransferAcknowledged(false)
     setMainnetSendPhrase('')
+    setOwnerTreasurySnapshot(null)
+    setOwnerTreasuryError('')
     setNotice('Wallet locked. The unencrypted private key was removed from this screen’s React state.')
     setError('')
   }
@@ -605,6 +624,84 @@ export default function WalletVault() {
       setError('')
     } finally {
       setEvidenceLoading('')
+    }
+  }
+
+  async function refreshOwnerTreasury() {
+    if (!unlocked) {
+      setOwnerTreasuryError('Unlock the configured owner wallet before checking treasury funding.')
+      return
+    }
+    if (network !== 'mainnet') {
+      setOwnerTreasuryError('Switch to TRON Mainnet to check the owner treasury.')
+      return
+    }
+
+    setOwnerTreasuryLoading(true)
+    setOwnerTreasuryError('')
+    setOwnerTreasurySnapshot(null)
+    try {
+      const address = unlocked.record.address
+      const signer = createTronWeb('mainnet', unlocked.privateKey)
+      if (String(signer.defaultAddress?.base58 || '') !== address) {
+        throw new Error('The unlocked signing address does not match the owner wallet record.')
+      }
+
+      const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, network: 'mainnet' }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const challenge = await challengeResponse.json().catch(() => null)
+      if (!challengeResponse.ok || challenge?.success !== true
+        || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string') {
+        throw new Error('Could not issue an owner-signature challenge. Check the backend, database and allowed app origin.')
+      }
+
+      const signature = await signer.trx.signMessageV2(challenge.message)
+      if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+        throw new Error('The wallet SDK did not return a valid owner identity signature.')
+      }
+      const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, network: 'mainnet', nonce: challenge.nonce, signature }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const verified = await verifyResponse.json().catch(() => null)
+      if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
+        || verified.address !== address || verified.network !== 'mainnet'
+        || typeof verified.sessionToken !== 'string') {
+        throw new Error('The backend did not verify the Mainnet owner wallet signature.')
+      }
+
+      const statusResponse = await fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const status = await statusResponse.json().catch(() => null)
+      if (!statusResponse.ok || status?.success !== true || status?.ownerAccessVerified !== true) {
+        if (status?.error === 'owner-wallet-not-authorized') {
+          throw new Error('This wallet is not the configured treasury owner. Set TREASURY_OWNER_ADDRESS to the owner wallet address in the backend environment.')
+        }
+        if (status?.error === 'treasury-owner-not-configured') {
+          throw new Error('The backend needs TREASURY_OWNER_ADDRESS configured with the owner’s verified Mainnet wallet address.')
+        }
+        throw new Error('Owner-only treasury verification failed. No payout was signed or submitted.')
+      }
+      setOwnerTreasurySnapshot(status as OwnerTreasurySnapshot)
+    } catch (caught) {
+      setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
+    } finally {
+      setOwnerTreasuryLoading(false)
     }
   }
 
@@ -1069,6 +1166,35 @@ export default function WalletVault() {
                 <button type="button" className="wallet-vault-lock" onClick={lockWallet}><LockKeyhole size={16} /> Lock</button>
               </div>
               <p className="wallet-vault-caption"><Activity size={14} /> Workspace login signs a short identity message only. No transfer is authorized or broadcast by this button.</p>
+
+              {network === 'mainnet' && (
+                <section className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading">
+                  <div className="wallet-vault-panel-head">
+                    <span className="wallet-vault-step">OWNER</span>
+                    <div><h2 id="owner-treasury-funding-heading">Owner treasury funding check</h2><p>Verify actual funds held by the server-configured treasury.</p></div>
+                  </div>
+                  <div className="wallet-vault-transfer-warning" role="note">
+                    <strong>Read-only treasury funding check</strong>
+                    <p>This check signs only a short identity message with the unlocked local owner wallet. The backend must match it to TREASURY_OWNER_ADDRESS. It reads actual on-chain TRX and official Tether USDT balances from SPONSOR_MAINNET_ADDRESS. It does not mint USDT, sign a payout, or broadcast a transfer. No USDT is generated.</p>
+                  </div>
+                  <button type="button" className="wallet-vault-primary" disabled={ownerTreasuryLoading} onClick={() => void refreshOwnerTreasury()}>
+                    <RefreshCw size={16} /> {ownerTreasuryLoading ? 'Verifying owner and reading chain…' : 'Sign owner check & read treasury'}
+                  </button>
+                  {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
+                  {ownerTreasurySnapshot?.ownerAccessVerified === true && (
+                    <>
+                      <div className="wallet-vault-review-grid">
+                        <div className="wallet-vault-review-wide"><small>Configured treasury address</small><a href={explorerUrl('mainnet', ownerTreasurySnapshot.treasuryAddress || '')} target="_blank" rel="noopener noreferrer">{ownerTreasurySnapshot.treasuryAddress || 'Unavailable'} ↗</a></div>
+                        <div><small>Verified on-chain TRX</small><strong>{ownerTreasurySnapshot.native?.status === 'verified' ? (ownerTreasurySnapshot.native.balanceTRX || '0') + ' TRX' : 'Unavailable'}</strong></div>
+                        <div><small>Official Mainnet USDT</small><strong>{ownerTreasurySnapshot.officialUsdt?.status === 'verified' && typeof ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === 'string' ? formatUnits(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits, 6) + ' USDT' : 'Unavailable — not verified'}</strong></div>
+                        <div className="wallet-vault-review-wide"><small>Snapshot checked</small><strong>{ownerTreasurySnapshot.checkedAt || 'Time unavailable'}</strong></div>
+                      </div>
+                      <p className="wallet-vault-caption">This is an observed chain balance, not an accounting balance or a payout authorization. The balance is not increased by this app. An actual outgoing transfer still requires genuine treasury assets and a separately reviewed signer/approval process.</p>
+                    </>
+                  )}
+                  <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
+                </section>
+              )}
 
               <section className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading">
                 <div className="wallet-vault-panel-head">
