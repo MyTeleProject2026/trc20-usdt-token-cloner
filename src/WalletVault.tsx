@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
-import { buildSignAndBroadcastTransfer, parseUnitsDecimal, readConfirmedTransferStatus } from './wallet-transfer.mjs'
+import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, readConfirmedTransferStatus } from './wallet-transfer.mjs'
 import {
   decryptWalletPrivateKey,
   encryptWalletPrivateKey,
@@ -74,6 +74,8 @@ type TransferReview = {
   tokenBalance: string | null
   tokenEvidence: TokenEvidence | null
   feeLimitSun: number
+  energyRequired: number | null
+  feeEstimateSun: number | null
   createdAt: number
 }
 
@@ -462,6 +464,293 @@ export default function WalletVault() {
     link.remove()
     URL.revokeObjectURL(url)
     setNotice('Encrypted wallet backup exported. It still requires your wallet password to restore.')
+  }
+
+  async function inspectTokenContract(contractAddress: string): Promise<TokenEvidence> {
+    if (!unlocked) throw new Error('Unlock a wallet to verify a token contract and query the address balance.')
+    const web = createTronWeb(network)
+    if (!web.isAddress(contractAddress)) throw new Error('Enter a valid TRON contract address for the selected network.')
+    const deployed = await web.trx.getContract(contractAddress)
+    const bytecode = typeof deployed?.bytecode === 'string' ? deployed.bytecode.replace(/^0x/i, '') : ''
+    if (!bytecode || /^0+$/.test(bytecode)) {
+      throw new Error('This address did not return deployed contract bytecode from the selected TRON network.')
+    }
+    const contract = await web.contract(TOKEN_ABI, contractAddress)
+    const [rawBalance, rawDecimals, rawSymbol, rawName, rawSupply] = await Promise.all([
+      contract.balanceOf(unlocked.record.address).call(),
+      contract.decimals().call(),
+      contract.symbol().call(),
+      contract.name().call(),
+      contract.totalSupply().call(),
+    ])
+    const decimals = Number(String(rawDecimals))
+    const symbol = String(rawSymbol || '').trim().slice(0, 32)
+    const name = String(rawName || '').trim().slice(0, 80)
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36 || !symbol || !name) {
+      throw new Error('The contract did not return usable TRC-20 name, symbol, and decimal metadata.')
+    }
+    const totalSupply = BigInt(String(rawSupply))
+    if (totalSupply < 0n) throw new Error('The contract returned an invalid total supply.')
+    // Ensure the address's actual on-chain balance method executes too. It is
+    // not trusted as an identity signal; it is a live balance query only.
+    BigInt(String(rawBalance))
+
+    let explorer: Partial<TokenEvidence> = {
+      network,
+      contractAddress,
+      explorerStatus: network === 'mainnet' ? 'unavailable' : 'not-available-for-testnet',
+      sourceVerificationStatus: 'unknown',
+      explorerRiskLevel: 'unknown',
+      officialMainnetUsdtAddressMatch: false,
+      evidenceScope: 'on-chain metadata and explorer annotations are evidence, not a safety guarantee',
+    }
+    try {
+      const url = API_BASE + '/api/tron/token-authenticity?network='
+        + encodeURIComponent(network) + '&contract=' + encodeURIComponent(contractAddress)
+      const response = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' })
+      const payload = await response.json().catch(() => null)
+      if (response.ok && payload?.success === true && payload.contractAddress === contractAddress && payload.network === network) {
+        explorer = {
+          network,
+          contractAddress,
+          explorerStatus: String(payload.explorerStatus || 'unknown'),
+          sourceVerificationStatus: String(payload.sourceVerificationStatus || 'unknown'),
+          explorerRiskLevel: String(payload.explorerRiskLevel || 'unknown'),
+          riskFeedback: payload.riskFeedback === true,
+          riskTag: String(payload.riskTag || ''),
+          publicLabel: String(payload.publicLabel || ''),
+          officialLabel: String(payload.officialLabel || ''),
+          officialMainnetUsdtAddressMatch: payload.officialMainnetUsdtAddressMatch === true
+            && network === 'mainnet'
+            && contractAddress === OFFICIAL_MAINNET_USDT
+            && symbol.toUpperCase() === 'USDT'
+            && decimals === 6
+            && /tether/i.test(name),
+          evidenceScope: String(payload.evidenceScope || 'on-chain metadata and explorer annotations are evidence, not a safety guarantee'),
+        }
+      }
+    } catch {
+      // Source-indexer outages are represented as unknown, never "verified".
+    }
+    return {
+      ...explorer,
+      network,
+      contractAddress,
+      onChainContractDeployed: true,
+      onChainMetadataReadable: true,
+      tokenName: name,
+      tokenSymbol: symbol,
+      tokenType: 'trc20',
+      tokenDecimals: decimals,
+      totalSupply: formatUnits(totalSupply.toString(), decimals),
+      evidenceCheckedAt: Date.now(),
+    } as TokenEvidence
+  }
+
+  function assertTokenTransferEvidence(evidence: TokenEvidence) {
+    if (!evidence.onChainContractDeployed || !evidence.onChainMetadataReadable
+      || evidence.tokenType !== 'trc20' || !Number.isInteger(evidence.tokenDecimals)) {
+      throw new Error('The contract has not passed the on-chain TRC-20 metadata checks.')
+    }
+    if (evidence.riskFeedback === true
+      || evidence.explorerRiskLevel === 'suspicious'
+      || evidence.explorerRiskLevel === 'unsafe'
+      || Boolean(evidence.riskTag?.trim())) {
+      throw new Error('The explorer reports a token risk warning. This wallet blocks transfers to avoid treating the contract as trustworthy.')
+    }
+    if (evidence.network === 'mainnet'
+      && evidence.officialMainnetUsdtAddressMatch !== true
+      && evidence.sourceVerificationStatus !== 'fully-verified-source') {
+      throw new Error('Mainnet token transfer blocked: the contract is neither the official Tether TRON USDT address nor fully source-verified on TronScan. Source verification alone is not a safety guarantee.')
+    }
+  }
+
+  async function checkTokenEvidence(contractAddress: string) {
+    setEvidenceLoading(contractAddress)
+    try {
+      const evidence = await inspectTokenContract(contractAddress)
+      setTokenEvidence(current => ({ ...current, [contractAddress]: evidence }))
+      setNotice('Contract checks completed: deployed bytecode and live TRC-20 metadata were read from the selected network. ' + tokenEvidenceLabel(evidence) + '. This is evidence, not a guarantee of safety.')
+      setError('')
+    } finally {
+      setEvidenceLoading('')
+    }
+  }
+
+  async function prepareTransfer() {
+    if (!unlocked) throw new Error('Unlock the wallet before preparing a transfer.')
+    const web = createTronWeb(network, unlocked.privateKey)
+    const from = String(web.defaultAddress?.base58 || '')
+    if (from !== unlocked.record.address || !web.isAddress(from)) throw new Error('Unlocked signing address does not match the selected wallet record.')
+    const to = recipientInput.trim()
+    if (!web.isAddress(to) || !ADDRESS_PATTERN.test(to)) throw new Error('Enter a valid TRON Base58Check recipient address.')
+    if (to === from) throw new Error('Sender and recipient must be different addresses.')
+    const nativeBalance = BigInt(String(await web.trx.getBalance(from)))
+    const amount = amountInput.trim()
+    if (transferAsset === 'TRX') {
+      const amountBaseUnits = parseUnitsDecimal(amount, 6)
+      if (nativeBalance < BigInt(amountBaseUnits) + 1_000_000n) {
+        throw new Error('Insufficient confirmed TRX balance. Keep at least 1 TRX available for network fees.')
+      }
+      setTransferReview({
+        network, asset: 'TRX', from, to, amount, amountBaseUnits, decimals: 6,
+        symbol: 'TRX', tokenContract: null,
+        nativeBalance: formatUnits(nativeBalance.toString(), 6), tokenBalance: null,
+        tokenEvidence: null, feeLimitSun: 1_000_000, energyRequired: null,
+        feeEstimateSun: null, createdAt: Date.now(),
+      })
+      setTransferAcknowledged(false)
+      setMainnetSendPhrase('')
+      setNotice('Review the live balance and recipient below. No transaction has been signed or broadcast.')
+      return
+    }
+
+    const contractAddress = selectedTokenContract
+    if (!contractAddress || !tokenContracts.includes(contractAddress)) throw new Error('Add and select a TRC-20 contract before preparing a token transfer.')
+    const evidence = await inspectTokenContract(contractAddress)
+    setTokenEvidence(current => ({ ...current, [contractAddress]: evidence }))
+    assertTokenTransferEvidence(evidence)
+    const decimals = evidence.tokenDecimals as number
+    const amountBaseUnits = parseUnitsDecimal(amount, decimals)
+    const contract = await web.contract(TOKEN_ABI, contractAddress)
+    const rawBalance = BigInt(String(await contract.balanceOf(from).call()))
+    if (rawBalance < BigInt(amountBaseUnits)) throw new Error('Insufficient on-chain token balance for this transfer.')
+    const estimated = await estimateTRC20TransferFee({
+      tronWeb: web, from, to, tokenContract: contractAddress, amountBaseUnits,
+    })
+    const feeLimitSun = estimated.recommendedFeeSun
+    if (!Number.isSafeInteger(feeLimitSun) || feeLimitSun <= 0 || feeLimitSun > 100_000_000) {
+      throw new Error('The calculated transaction fee cap is outside the 1–100 TRX safety range.')
+    }
+    if (nativeBalance < BigInt(feeLimitSun)) {
+      throw new Error('Insufficient TRX to cover the estimated TRC-20 fee cap. Add enough real TRX or resources before retrying; no transaction was sent.')
+    }
+    setTransferReview({
+      network, asset: 'TRC20', from, to, amount, amountBaseUnits, decimals,
+      symbol: evidence.tokenSymbol || 'TRC20', tokenContract: contractAddress,
+      nativeBalance: formatUnits(nativeBalance.toString(), 6),
+      tokenBalance: formatUnits(rawBalance.toString(), decimals),
+      tokenEvidence: evidence, feeLimitSun,
+      energyRequired: estimated.energyRequired,
+      feeEstimateSun: estimated.recommendedFeeSun,
+      createdAt: Date.now(),
+    })
+    setTransferAcknowledged(false)
+    setMainnetSendPhrase('')
+    setNotice('On-chain simulation and fee estimation passed. Review the exact token contract and details below; nothing has been sent.')
+  }
+
+  async function broadcastTransfer() {
+    const review = transferReview
+    if (!unlocked || !review) throw new Error('Prepare a fresh transfer review before broadcasting.')
+    if (!transferAcknowledged) throw new Error('Confirm that you checked the network, recipient, amount and irreversibility before signing.')
+    if (review.network !== network || review.from !== unlocked.record.address) throw new Error('Network or wallet changed after review. Prepare the transfer again.')
+    if (network === 'mainnet' && mainnetSendPhrase.trim() !== 'SEND MAINNET') {
+      throw new Error('For Mainnet, type SEND MAINNET exactly after reviewing the recipient and amount.')
+    }
+
+    setTransferInProgress(true)
+    try {
+      const web = createTronWeb(network, unlocked.privateKey)
+      const from = String(web.defaultAddress?.base58 || '')
+      if (from !== review.from || from !== unlocked.record.address) throw new Error('The signing account changed. Broadcasting was stopped.')
+      const liveNativeBalance = BigInt(String(await web.trx.getBalance(from)))
+      if (review.asset === 'TRX') {
+        if (liveNativeBalance < BigInt(review.amountBaseUnits) + 1_000_000n) {
+          throw new Error('The live TRX balance changed and no longer covers the transfer plus a 1 TRX fee reserve. Review again.')
+        }
+      } else {
+        if (!review.tokenContract) throw new Error('Transfer contract is missing.')
+        const freshEvidence = await inspectTokenContract(review.tokenContract)
+        setTokenEvidence(current => ({ ...current, [review.tokenContract as string]: freshEvidence }))
+        assertTokenTransferEvidence(freshEvidence)
+        const token = await web.contract(TOKEN_ABI, review.tokenContract)
+        const liveTokenBalance = BigInt(String(await token.balanceOf(from).call()))
+        if (liveTokenBalance < BigInt(review.amountBaseUnits)) throw new Error('The live token balance is now lower than the reviewed amount.')
+        const estimate = await estimateTRC20TransferFee({
+          tronWeb: web, from, to: review.to, tokenContract: review.tokenContract, amountBaseUnits: review.amountBaseUnits,
+        })
+        if (estimate.recommendedFeeSun > review.feeLimitSun) {
+          throw new Error('The fresh fee estimate is higher than the reviewed cap. Review the transaction again; nothing was sent.')
+        }
+        if (liveNativeBalance < BigInt(review.feeLimitSun)) {
+          throw new Error('The live TRX balance no longer covers the reviewed transaction fee cap. Nothing was sent.')
+        }
+      }
+
+      const result = await buildSignAndBroadcastTransfer({
+        tronWeb: web,
+        from,
+        to: review.to,
+        asset: review.asset,
+        amountBaseUnits: review.amountBaseUnits,
+        tokenContract: review.tokenContract || undefined,
+        feeLimitSun: review.feeLimitSun,
+      })
+      const record: TransferActivity = {
+        txid: result.txid,
+        network: review.network,
+        asset: review.asset,
+        symbol: review.symbol,
+        tokenContract: review.tokenContract,
+        amount: review.amount,
+        amountBaseUnits: review.amountBaseUnits,
+        decimals: review.decimals,
+        from: review.from,
+        to: review.to,
+        status: 'broadcast-accepted',
+        submittedAt: Date.now(),
+        blockNumber: null,
+        solidified: false,
+      }
+      const next = [record, ...transferHistory.filter(item => item.txid !== record.txid)].slice(0, 100)
+      saveTransferHistory(next)
+      setTransferHistory(next)
+      setTransferReview(null)
+      setTransferAcknowledged(false)
+      setMainnetSendPhrase('')
+      setRecipientInput('')
+      setAmountInput('')
+      setRefreshNonce(value => value + 1)
+
+      let status = 'broadcast-accepted' as TransferStatus
+      let blockNumber: number | null = null
+      let solidified = false
+      try {
+        const chainStatus = await readConfirmedTransferStatus(web, record.txid)
+        status = chainStatus.status as TransferStatus
+        blockNumber = chainStatus.blockNumber ?? null
+        solidified = chainStatus.solidified
+      } catch {
+        // Retain the real broadcast acceptance record; do not claim confirmation.
+      }
+      const refreshed = { ...record, status, blockNumber, solidified }
+      const finalHistory = [refreshed, ...next.filter(item => item.txid !== refreshed.txid)].slice(0, 100)
+      saveTransferHistory(finalHistory)
+      setTransferHistory(finalHistory)
+      setNotice('Signed transaction broadcast was accepted by the selected TRON network. Status: ' + status + '. A transaction ID is not an exchange deposit credit.')
+      setError('')
+    } finally {
+      setTransferInProgress(false)
+    }
+  }
+
+  async function refreshTransferStatus(record: TransferActivity) {
+    setHistoryLoading(record.txid)
+    try {
+      const web = createTronWeb(record.network)
+      const chainStatus = await readConfirmedTransferStatus(web, record.txid)
+      const updated = { ...record, status: chainStatus.status as TransferStatus, solidified: chainStatus.solidified, blockNumber: chainStatus.blockNumber ?? null }
+      const next = [updated, ...transferHistory.filter(item => item.txid !== record.txid)].sort((a, b) => b.submittedAt - a.submittedAt).slice(0, 100)
+      saveTransferHistory(next)
+      setTransferHistory(next)
+      setNotice('Transaction status read from the selected network: ' + updated.status + (updated.solidified ? ' (solidified receipt)' : ' (not yet solidified or not yet indexed)') + '.')
+      setError('')
+    } catch {
+      setError('Could not refresh this transaction from the selected public TRON node. The saved status was not changed.')
+    } finally {
+      setHistoryLoading('')
+    }
   }
 
   async function addTokenContract() {
