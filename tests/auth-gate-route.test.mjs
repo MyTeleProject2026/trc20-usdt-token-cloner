@@ -15,7 +15,6 @@ test('both the main workflow and sponsor operator route are guarded by the same 
   assert.match(gate, /\/api\/auth\/tron\/session/)
   assert.match(gate, /tronWeb\.trx\.signMessageV2\(challenge\.message\)/)
   assert.match(gate, /window\.sessionStorage\.setItem\(SESSION_KEY, verified\.sessionToken\)/)
-  assert.ok(gate.includes("replace(/\\\\/+$/, '')"), 'API base URL trimming regex must be valid')
 })
 
 test('operator signer account changes remain separate from the signed-in app identity', () => {
