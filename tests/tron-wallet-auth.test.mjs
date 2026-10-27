@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
+import { createHash } from 'node:crypto'
 import { createTronWalletAuthRouter } from '../server/routes/tron-wallet-auth.mjs'
 
 const origin = 'https://trc20-usdt-token-cloner.onrender.com'
@@ -112,6 +113,7 @@ test('wallet login verifies a one-time signature and returns an identity-only wa
     assert.ok(Number.isFinite(storedChallenge.issuedAt))
     assert.equal('message' in storedChallenge, false)
     assert.match(storedChallenge.messageHash, /^[0-9a-f]{64}$/)
+    assert.equal(storedChallenge.messageHash, createHash('sha256').update(challenge.payload.message, 'utf8').digest('hex'))
 
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
