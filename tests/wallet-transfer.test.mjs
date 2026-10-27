@@ -12,19 +12,44 @@ const to = 'THPvaUhoh2Qn2y9THCZML3H815hhFhn5YC'
 const contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const txid = 'a'.repeat(64)
 const ownerHex = '41' + '1'.repeat(40)
+const toHex = '41' + '2'.repeat(40)
+const contractHex = '41' + '3'.repeat(40)
 
-function transaction() {
-  return { txID: txid, raw_data: { contract: [{ parameter: { value: { owner_address: ownerHex } } }] } }
+function transaction(type, value) {
+  return { txID: txid, raw_data: { contract: [{ type, parameter: { value } }] } }
 }
 
 function mockTronWeb(overrides = {}) {
   const calls = { signed: 0, broadcast: 0, broadcastPayload: null }
   const tronWeb = {
     isAddress: value => typeof value === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value),
-    address: { fromHex: () => from },
+    address: {
+      fromHex: value => value.toLowerCase() === ownerHex.toLowerCase() ? from : to,
+      toHex: value => value === from ? ownerHex : value === to ? toHex : value === contract ? contractHex : '',
+    },
     transactionBuilder: {
-      sendTrx: async () => transaction(),
-      triggerSmartContract: async () => ({ result: { result: true }, transaction: transaction() }),
+      sendTrx: async (recipient, amount, sender) => ({
+        result: { result: true },
+        ...transaction('TransferContract', {
+          owner_address: sender === from ? ownerHex : toHex,
+          to_address: recipient === from ? ownerHex : toHex,
+          amount,
+        }),
+      }),
+      triggerSmartContract: async (tokenContract, selector, options, parameters, sender) => {
+        const recipient = String(parameters[0].value)
+        const amount = BigInt(String(parameters[1].value)).toString(16).padStart(64, '0')
+        const recipientHex = (recipient === to ? toHex : ownerHex).slice(2).padStart(64, '0')
+        const data = selector.replace(/\s/g, '').toLowerCase() + recipientHex + amount
+        return {
+          result: { result: true },
+          transaction: transaction('TriggerSmartContract', {
+            owner_address: sender === from ? ownerHex : toHex,
+            contract_address: tokenContract === contract ? contractHex : ownerHex,
+            data,
+          }),
+        }
+      },
       triggerConstantContract: async () => ({ result: { result: true }, energy_used: 100_000 }),
       estimateEnergy: async () => ({ result: { result: true }, energy_required: 100_000 }),
     },
@@ -113,6 +138,43 @@ test('invalid sender/recipient, self-transfer, failed build, sender mismatch and
   }), /sender does not match/)
   assert.equal(wrongOwner.calls.signed, 0)
   assert.equal(wrongOwner.calls.broadcast, 0)
+})
+
+test('unexpected destination, token contract, amount or calldata is rejected before signing', async () => {
+  const wrongRecipient = mockTronWeb({
+    transactionBuilder: {
+      sendTrx: async (_recipient, amount) => ({
+        result: { result: true },
+        ...transaction('TransferContract', { owner_address: ownerHex, to_address: ownerHex, amount }),
+      }),
+    },
+  })
+  await assert.rejects(buildSignAndBroadcastTransfer({
+    tronWeb: wrongRecipient.tronWeb, from, to, asset: 'TRX', amountBaseUnits: '1500000',
+  }), /not the reviewed TRX transfer/)
+  assert.equal(wrongRecipient.calls.signed, 0)
+  assert.equal(wrongRecipient.calls.broadcast, 0)
+
+  const wrongToken = mockTronWeb({
+    transactionBuilder: {
+      triggerSmartContract: async (_token, selector, _options, parameters) => ({
+        result: { result: true },
+        transaction: transaction('TriggerSmartContract', {
+          owner_address: ownerHex,
+          contract_address: ownerHex,
+          data: selector.replace(/\s/g, '').toLowerCase()
+            + toHex.slice(2).padStart(64, '0')
+            + BigInt(String(parameters[1].value)).toString(16).padStart(64, '0'),
+        }),
+      }),
+    },
+  })
+  await assert.rejects(buildSignAndBroadcastTransfer({
+    tronWeb: wrongToken.tronWeb, from, to, asset: 'TRC20', tokenContract: contract,
+    amountBaseUnits: '1234567', feeLimitSun: 30_000_000,
+  }), /differs from the selected contract/)
+  assert.equal(wrongToken.calls.signed, 0)
+  assert.equal(wrongToken.calls.broadcast, 0)
 })
 
 test('TRC-20 fee estimate requires successful live simulation and valid energy pricing', async () => {
