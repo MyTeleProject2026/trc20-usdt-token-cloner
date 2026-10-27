@@ -55,12 +55,16 @@ test('sponsor console verifies accepted transfers and links the exact transactio
   assert.match(consoleSource, /keep the same transaction ID for the operator's manual retry/)
 })
 
-test('sponsor console invalidates signer verification on TronLink account/network changes and explains missing reservations', async () => {
+test('sponsor console restores only the role matching the active TronLink account and explains missing reservations', async () => {
   const consoleSource = await readFile(new URL('../src/SponsorSignerConsole.tsx', import.meta.url), 'utf8')
+  assert.match(consoleSource, /const provider = window\.tronLink \|\| window\.tron/)
   assert.match(consoleSource, /provider\.on\('accountsChanged', onAccountsChanged\)/)
   assert.match(consoleSource, /provider\.on\('chainChanged', onChainChanged\)/)
-  assert.match(consoleSource, /setWalletNeedsReconnect\(true\)/)
-  assert.match(consoleSource, /setFeeWalletNeedsReconnect\(true\)/)
+  assert.match(consoleSource, /activeAddress === wallet\.address/)
+  assert.match(consoleSource, /activeAddress === feeWallet\.address/)
+  assert.match(consoleSource, /setWalletNeedsReconnect\(!assetRoleActive\)/)
+  assert.match(consoleSource, /setFeeWalletNeedsReconnect\(!feeRoleActive\)/)
+  assert.match(consoleSource, /Both public role addresses are retained for reference/)
   assert.match(consoleSource, /No approved reservation was found for that key/)
   assert.match(consoleSource, /docs\/SPONSOR_RESERVATION_IDEMPOTENCY\.md/)
   assert.match(consoleSource, /feeWalletNeedsReconnect/)
