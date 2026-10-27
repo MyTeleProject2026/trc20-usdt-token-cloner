@@ -32,11 +32,15 @@ Set values only for resources and agreements the project is authorized to use.
 | `SPONSOR_ADMIN_API_TOKEN` | Required only for privileged sponsor-admin endpoints | Generate a random secret of at least 32 characters, store it only in Render, and provide it only to authorized server-side administrators. Never send it in chat or expose it in the browser. |
 | `SPONSOR_APPROVED_AGREEMENT_REFERENCES` | Optional until signed sponsor terms exist | Semicolon-separated reviewed scopes in the exact format described below. Do not add a scope without actual sponsor consent and documented authorization. |
 | `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED` | Keep `false` for now | This gate does not enable sponsored transfer submission. Do not set it to `true` as a shortcut for production readiness. |
+| `TREASURY_OWNER_ADDRESS` | Required for the owner-only treasury check | Public Mainnet address used to authenticate the owner. The matching wallet must sign the one-time identity message in Wallet Vault. Never enter a key here. |
+| `TREASURY_MAINNET_ADDRESS` | Recommended for the owner-only treasury check | Public watch-only address whose actual TRX and official USDT balance should be read. If blank, the backend falls back to `SPONSOR_MAINNET_ADDRESS`, then `TREASURY_OWNER_ADDRESS`. This does not authorize spending. |
 
 ### Sponsor addresses (public addresses only)
 
 Only monitor addresses whose owners have expressly authorized monitoring. These are not keys
 and configuring them does not grant spending authority.
+
+The owner treasury monitor's dedicated `TREASURY_MAINNET_ADDRESS` takes precedence over `SPONSOR_MAINNET_ADDRESS` for that owner-only screen. The older sponsor address remains supported for compatibility.
 
 **Optional general read-only snapshot/resource address per network:**
 - `SPONSOR_MAINNET_ADDRESS`

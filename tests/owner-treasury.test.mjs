@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { createOwnerTreasuryRouter } from '../server/routes/owner-treasury.mjs'
+import { createOwnerTreasuryRouter, resolveOwnerTreasuryFundingAddress } from '../server/routes/owner-treasury.mjs'
 
 const ownerAddress = 'T' + 'A'.repeat(33)
 const sessionToken = 's'.repeat(43)
@@ -52,6 +52,20 @@ function makeRouter({ env = { TREASURY_OWNER_ADDRESS: ownerAddress }, session = 
     now: () => Date.parse('2026-10-28T00:00:00.000Z'),
   })
 }
+
+test('treasury watch address prefers dedicated configuration and safely falls back', () => {
+  assert.equal(resolveOwnerTreasuryFundingAddress({
+    TREASURY_MAINNET_ADDRESS: 'T' + 'D'.repeat(33),
+    SPONSOR_MAINNET_ADDRESS: 'T' + 'S'.repeat(33),
+    TREASURY_OWNER_ADDRESS: ownerAddress,
+  }), 'T' + 'D'.repeat(33))
+  assert.equal(resolveOwnerTreasuryFundingAddress({
+    SPONSOR_MAINNET_ADDRESS: 'T' + 'S'.repeat(33),
+    TREASURY_OWNER_ADDRESS: ownerAddress,
+  }), 'T' + 'S'.repeat(33))
+  assert.equal(resolveOwnerTreasuryFundingAddress({ TREASURY_OWNER_ADDRESS: ownerAddress }), ownerAddress)
+  assert.equal(resolveOwnerTreasuryFundingAddress({}), '')
+})
 
 test('owner treasury endpoint fails closed when owner address is not configured', async () => {
   const handler = routeHandler(makeRouter({ env: {} }))

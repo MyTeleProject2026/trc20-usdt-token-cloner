@@ -20,6 +20,19 @@ function header(req, name) {
  * owner identity; it does not grant permission to spend. This route never mints,
  * signs, broadcasts, or claims an exchange credited a deposit.
  */
+/**
+ * Resolve the public address to monitor. TREASURY_MAINNET_ADDRESS is the
+ * explicit watch-only target; the legacy sponsor address remains compatible.
+ * The owner identity address is the final fallback for one-wallet deployments.
+ */
+export function resolveOwnerTreasuryFundingAddress(env = process.env) {
+  for (const name of ['TREASURY_MAINNET_ADDRESS', 'SPONSOR_MAINNET_ADDRESS', 'TREASURY_OWNER_ADDRESS']) {
+    const value = typeof env[name] === 'string' ? env[name].trim() : ''
+    if (value) return value
+  }
+  return ''
+}
+
 export function createOwnerTreasuryRouter({
   env = process.env,
   getSession = getWalletAuthSession,
@@ -28,7 +41,9 @@ export function createOwnerTreasuryRouter({
   now = () => Date.now(),
 } = {}) {
   const router = Router()
-  const readFundingStatus = readFunding || createSponsorFundingReader({ env })
+  const fundingAddress = resolveOwnerTreasuryFundingAddress(env)
+  const fundingEnv = { ...env, SPONSOR_MAINNET_ADDRESS: fundingAddress }
+  const readFundingStatus = readFunding || createSponsorFundingReader({ env: fundingEnv })
 
   router.get('/funding-status', async (req, res) => {
     res.setHeader?.('Cache-Control', 'no-store, private')
