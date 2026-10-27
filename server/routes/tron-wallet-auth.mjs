@@ -83,11 +83,12 @@ function bearerToken(req) {
 }
 
 /**
- * Sign-in proves control of a specific public TRON address on Shasta or Nile.
- * Challenges are one-use, sessions are short-lived and stored by token hash in
- * PostgreSQL, and the first successful signature creates a network-scoped
- * wallet account record. No private key is accepted or stored. A wallet
- * identity session never grants sponsor spending authority or enables sending.
+ * Sign-in proves control of a specific public TRON address on Mainnet, Shasta,
+ * or Nile. Challenges are one-use; PostgreSQL stores only a nonce digest plus
+ * public challenge metadata/timestamps, and short-lived sessions are stored by
+ * token hash. A successful signature creates a network-scoped wallet account.
+ * No private key is accepted or stored. Identity alone never grants sponsor
+ * spending authority or enables a transfer.
  */
 export function createTronWalletAuthRouter({
   env = process.env,
