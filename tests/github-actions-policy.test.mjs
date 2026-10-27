@@ -34,3 +34,14 @@ test('authoritative CI keeps PostgreSQL integration, tests, and production build
   assert.match(source, /uses:\s*actions\/checkout@[a-f0-9]{40}/i)
   assert.match(source, /uses:\s*actions\/setup-node@[a-f0-9]{40}/i)
 })
+
+test('public API smoke rejects forged wallet signatures without issuing sessions', async () => {
+  const source = await readFile(new URL('public-api-smoke.yml', workflowsDirectory), 'utf8')
+  assert.match(source, /api\/auth\/tron\/challenge/)
+  assert.match(source, /api\/auth\/tron\/verify/)
+  assert.match(source, /signature:\s*"0x"\s*\+\s*"00"\.repeat\(65\)/)
+  assert.match(source, /verify_code.*401/)
+  assert.match(source, /signature-verification-failed.*signature-address-mismatch/s)
+  assert.match(source, /'sessionToken' in data/)
+  assert.match(source, /'wallet-identity-only'/)
+})
