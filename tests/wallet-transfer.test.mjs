@@ -192,6 +192,15 @@ test('TRC-20 fee estimate requires successful live simulation and valid energy p
   await assert.rejects(estimateTRC20TransferFee({
     tronWeb: failed.tronWeb, from, to, tokenContract: contract, amountBaseUnits: '1000000',
   }), /simulation did not succeed/)
+
+  const reverted = mockTronWeb({ transactionBuilder: { triggerConstantContract: async () => ({
+    result: { result: true },
+    energy_used: 100_000,
+    transaction: { ret: [{ contractRet: 'REVERT' }] },
+  }) } })
+  await assert.rejects(estimateTRC20TransferFee({
+    tronWeb: reverted.tronWeb, from, to, tokenContract: contract, amountBaseUnits: '1000000',
+  }), /explicitly reported a failed execution/)
 })
 
 test('confirmed transaction needs an explicit successful receipt; ambiguous receipt stays unresolved', async () => {
