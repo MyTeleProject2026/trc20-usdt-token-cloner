@@ -148,8 +148,15 @@ function readTransferHistory(): TransferActivity[] {
   }
 }
 
-function saveTransferHistory(items: TransferActivity[]) {
-  window.localStorage.setItem(TRANSFER_HISTORY_KEY, JSON.stringify({ version: 1, items: items.slice(0, 100) }))
+function saveTransferHistory(items: TransferActivity[]): boolean {
+  try {
+    window.localStorage.setItem(TRANSFER_HISTORY_KEY, JSON.stringify({ version: 1, items: items.slice(0, 100) }))
+    return true
+  } catch {
+    // A private-mode/quota failure must never make an already-broadcast transfer
+    // look like it failed or encourage the user to submit it again.
+    return false
+  }
 }
 
 function formatUnits(value: unknown, decimals: number): string {
@@ -704,7 +711,7 @@ export default function WalletVault() {
         solidified: false,
       }
       const next = [record, ...transferHistory.filter(item => item.txid !== record.txid)].slice(0, 100)
-      saveTransferHistory(next)
+      const historyInitiallySaved = saveTransferHistory(next)
       setTransferHistory(next)
       setTransferReview(null)
       setTransferAcknowledged(false)
@@ -726,9 +733,12 @@ export default function WalletVault() {
       }
       const refreshed = { ...record, status, blockNumber, solidified }
       const finalHistory = [refreshed, ...next.filter(item => item.txid !== refreshed.txid)].slice(0, 100)
-      saveTransferHistory(finalHistory)
+      const historyFinallySaved = saveTransferHistory(finalHistory)
       setTransferHistory(finalHistory)
-      setNotice('Signed transaction broadcast was accepted by the selected TRON network. Status: ' + status + '. A transaction ID is not an exchange deposit credit.')
+      setNotice('Signed transaction broadcast was accepted by the selected TRON network. Status: ' + status
+        + '. Transaction ID: ' + record.txid
+        + (historyInitiallySaved && historyFinallySaved ? '. History saved on this device.' : '. Browser storage could not save history; copy the transaction ID now.')
+        + ' A transaction ID is not an exchange deposit credit.')
       setError('')
     } finally {
       setTransferInProgress(false)
