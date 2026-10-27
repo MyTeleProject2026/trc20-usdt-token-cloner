@@ -165,7 +165,9 @@ test('a session can be resolved by another router instance sharing persistent st
 })
 
 test('wallet login rejects invalid origin, wrong signer and unsupported Mainnet workspace network', async () => {
+  const store = createMemoryAuthStore()
   const app = createApp({
+    store,
     nonceFactory: () => '2'.repeat(48),
     verifyMessage: async () => otherAddress,
   })
