@@ -337,14 +337,18 @@ export default function SponsorSignerConsole() {
     const provider = getInjectedTronProvider()
     if (!provider?.on) return
     const onAccountsChanged = () => {
-      let activeAddress: string | null = null
+      let active: WalletSnapshot | null = null
       try {
-        activeAddress = readInjectedWallet(network).address
+        // Re-read the injected provider after the event; never trust an event payload
+        // or a saved localStorage value as proof of the active signer.
+        active = readInjectedWallet(network)
       } catch {
-        activeAddress = null
+        active = null
       }
-      const assetRoleActive = Boolean(wallet && wallet.network === network && activeAddress === wallet.address)
-      const feeRoleActive = Boolean(feeWallet && feeWallet.network === network && activeAddress === feeWallet.address)
+      const assetRoleActive = Boolean(wallet && wallet.network === network && active?.address === wallet.address)
+      const feeRoleActive = Boolean(feeWallet && feeWallet.network === network && active?.address === feeWallet.address)
+      if (assetRoleActive && active) setWallet(active)
+      if (feeRoleActive && active) setFeeWallet(active)
       setWalletNeedsReconnect(!assetRoleActive)
       setFeeWalletNeedsReconnect(!feeRoleActive)
       setLastIntent(null)
@@ -352,12 +356,12 @@ export default function SponsorSignerConsole() {
       setSettlementCheck(null)
       setError('')
       if (assetRoleActive) {
-        setMessage('Active TronLink account matches the saved asset-principal sponsor. The fee-sponsor address remains saved but cannot sign until that account is selected.')
+        setMessage('TronLink now actively selects the saved asset-principal sponsor on the verified testnet. The fee-sponsor address remains saved, but only the currently selected wallet can sign.')
       } else if (feeRoleActive) {
-        setMessage('Active TronLink account matches the saved fee sponsor. The asset-principal address remains saved but cannot sign until that account is selected.')
+        setMessage('TronLink now actively selects the saved fee sponsor on the verified testnet. The asset-principal address remains saved, but only the currently selected wallet can sign.')
       } else {
-        setError('TronLink account changed to an address that matches neither saved sponsor role. Reconnect the intended sponsor wallet before any signing action.')
-        setMessage('Both public role addresses are retained for reference. No signer is active because the selected account matches neither role.')
+        setError('TronLink account changed to an address that matches neither saved sponsor role. The saved public addresses are retained, but signing is paused until the intended role is selected and verified.')
+        setMessage('No signer is active for these saved roles. Select the correct sponsor account in TronLink and reconnect it; no signing or broadcast was triggered.')
       }
     }
     const onChainChanged = () => {
