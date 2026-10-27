@@ -56,17 +56,22 @@ test('wallet inspection is testnet-only and uses real read-only balance endpoint
   assert.ok(app.includes('Watch-only address'))
   assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
   assert.ok(!app.includes('eth_sendTransaction'))
-  assert.ok(!app.includes('sendRawTransaction'))
+  assert.ok(app.includes('sendDirectTestnetTransfer'))
+  assert.ok(app.includes('sendRawTransaction(signed)'))
+  assert.ok(app.includes('/api/tron/verify-native-transfer/'))
+  assert.ok(app.includes('/api/tron/verify-trc20-transfer/'))
   assert.ok(!app.includes('/api/gasfree/submit'))
   assert.ok(!app.includes('/api/tron/sponsorship/budgets/'))
 })
 
-test('the UI never submits a transfer or promises sponsor payment while backend capability is disabled', () => {
+test('sponsored submission stays blocked while direct testnet transfer remains separate', () => {
   assert.ok(app.includes('sponsored submission disabled'))
   assert.ok(app.includes('No sender-funded fallback'))
   assert.ok(app.includes('Sponsored transfer unavailable'))
   assert.ok(app.includes('disabled aria-disabled="true"'))
   assert.ok(app.includes('Copy request summary'))
+  assert.ok(app.includes('This sponsor workflow remains blocked'))
+  assert.ok(app.includes('This is a real on-chain testnet transaction, not a simulation.'))
   assert.ok(app.includes('Recheck sponsor readiness'))
 })
 
