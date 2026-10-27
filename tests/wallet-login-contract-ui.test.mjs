@@ -12,6 +12,7 @@ test('wallet sign-in is reachable from the top bar and still uses a signed owner
   assert.match(workflow, /tronWeb\.trx\.signMessageV2\(challenge\.message\)/)
   assert.match(workflow, /\/api\/auth\/tron\/challenge/)
   assert.match(workflow, /\/api\/auth\/tron\/verify/)
+  assert.match(workflow, /JSON\.stringify\(\{ address, network, nonce: challenge\.nonce, message: challenge\.message, signature \}\)/)
   assert.match(authRoute, /scope: 'wallet-identity-only'/)
   assert.match(authRoute, /canSubmitSponsoredTransfer: false/)
 })
