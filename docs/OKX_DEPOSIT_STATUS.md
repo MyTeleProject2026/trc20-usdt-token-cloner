@@ -60,7 +60,7 @@ The status code is the OKX-reported deposit state:
 - `14`: KYC limit
 - `17`: pending response from a Travel Rule vendor
 
-The API's `ts` is the time the deposit record was created, not a guaranteed credit timestamp; the UI calls it **Record created**. A missing record is not proof that a transfer failed. Confirm the exact network, deposit address, any required memo/tag, and account status directly in OKX.
+The API's `ts` is the time the deposit record was created, not a guaranteed credit timestamp; the UI calls it **Record created**. The UI also shows the exchange's `depId` and labels `actualDepBlkConfirm` as the **actual blockchain-confirmed amount**; it is not a count of block confirmations. A missing record is not proof that a transfer failed. Confirm the exact network, deposit address, any required memo/tag, and account status directly in OKX.
 
 ## Health checks and verification
 
