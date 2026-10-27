@@ -18,9 +18,11 @@ test('the live frontend entrypoint renders the staged workflow, not the legacy t
   assert.ok(app.includes('Review & availability'))
 })
 
-test('stages are gated by prior validation and live network reads', () => {
-  assert.ok(app.includes('const canEnterStep = (index: number) => index === 0 || stageCompletion[index - 1] === true'))
-  assert.ok(app.includes('disabled={!canEnterStep(index)}'))
+test('workspace sections are directly navigable while validation still gates continuation and review', () => {
+  assert.ok(app.includes('const canEnterStep = (index: number) => index >= 0 && index < STEPS.length'))
+  assert.ok(app.includes('aria-label="Workspace sections"'))
+  assert.ok(app.includes('aria-label="Mobile workspace sections"'))
+  assert.ok(app.includes('Open any section at any time'))
   assert.ok(app.includes('disabled={!stageCompletion[step]}'))
   assert.ok(app.includes('const sponsorStageLoaded = sponsorCheckedAt !== null && !sponsorLoading && roles?.success === true && sponsorship !== null && !sponsorError'))
   assert.ok(app.includes('const feeStageValid = feeSponsorRequired && sponsorStageLoaded'))
@@ -69,8 +71,9 @@ test('the UI never submits a transfer or promises sponsor payment while backend 
 })
 
 test('the glass workspace includes accessible responsive desktop and mobile stage navigation', () => {
-  assert.ok(app.includes('aria-label="Transfer stages"'))
-  assert.ok(app.includes('aria-label="Mobile transfer stages"'))
+  assert.ok(app.includes('aria-label="Workspace sections"'))
+  assert.ok(app.includes('aria-label="Mobile workspace sections"'))
+  assert.ok(app.includes('href="#/sponsor-operator"'))
   assert.ok(app.includes('aria-current={step === index ? \'step\' : undefined}'))
   assert.ok(css.includes('.studio-sidebar'))
   assert.ok(css.includes('.studio-mobile-steps'))
