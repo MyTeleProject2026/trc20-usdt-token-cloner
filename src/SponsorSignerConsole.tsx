@@ -30,7 +30,8 @@ type SponsorRolesSnapshot = ApiPayload & {
 
 declare global {
   interface Window {
-    tronLink?: { request?: (request: { method: string }) => Promise<unknown>; tronWeb?: any }
+    tronLink?: { request?: (request: { method: string }) => Promise<unknown>; tronWeb?: any; on?: (event: string, listener: (...args: any[]) => void) => unknown; removeListener?: (event: string, listener: (...args: any[]) => void) => unknown }
+    tron?: { request?: (request: { method: string; params?: unknown }) => Promise<unknown>; tronWeb?: any; on?: (event: string, listener: (...args: any[]) => void) => unknown; removeListener?: (event: string, listener: (...args: any[]) => void) => unknown }
     tronWeb?: any
   }
 }
@@ -175,6 +176,7 @@ export default function SponsorSignerConsole() {
   const [network, setNetwork] = useState<Network>('nile')
   const [idempotencyKey, setIdempotencyKey] = useState('')
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null)
+  const [walletNeedsReconnect, setWalletNeedsReconnect] = useState(false)
   const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(null)
   const [feeWalletNeedsReconnect, setFeeWalletNeedsReconnect] = useState(false)
   const [resourceType, setResourceType] = useState<ResourceKind>('BANDWIDTH')
@@ -241,6 +243,37 @@ export default function SponsorSignerConsole() {
 
   useEffect(() => { void refreshPilotPreflight() }, [refreshPilotPreflight])
 
+  // TronLink changes the active account in-place. Keep role addresses visible as
+  // references, but invalidate signer verification on account/network changes.
+  useEffect(() => {
+    const provider = window.tron || window.tronLink
+    if (!provider?.on) return
+    const onAccountsChanged = () => {
+      setWalletNeedsReconnect(true)
+      setFeeWalletNeedsReconnect(true)
+      setLastIntent(null)
+      setLastResult(null)
+      setSettlementCheck(null)
+      setError('TronLink active account changed or was locked. Reconnect the required sponsor role before any signing action.')
+      setMessage('Account change detected. Previously verified addresses are retained for reference, but signing is paused until the active account is verified again.')
+    }
+    const onChainChanged = () => {
+      setWalletNeedsReconnect(true)
+      setFeeWalletNeedsReconnect(true)
+      setLastIntent(null)
+      setLastResult(null)
+      setSettlementCheck(null)
+      setError('TronLink network changed. Select the intended testnet and reconnect the required sponsor role.')
+      setMessage('Network change detected. Signing is paused until the network and active account are re-verified.')
+    }
+    provider.on('accountsChanged', onAccountsChanged)
+    provider.on('chainChanged', onChainChanged)
+    return () => {
+      provider.removeListener?.('accountsChanged', onAccountsChanged)
+      provider.removeListener?.('chainChanged', onChainChanged)
+    }
+  }, [])
+
   // Persist only public transaction metadata (never a signature, raw transaction or key)
   // so a pending/ambiguous broadcast can be rechecked after the page is reopened.
   useEffect(() => {
@@ -263,14 +296,15 @@ export default function SponsorSignerConsole() {
       await window.tronLink.request({ method: 'tron_requestAccounts' })
       const next = readInjectedWallet(network)
       setWallet(next)
+      setWalletNeedsReconnect(false)
       const rolesResult = await refreshSponsorRoles(network)
       setMessage(rolesResult.ok
         ? 'Sponsor wallet connected; network and live read-only sponsor-role diagnostics refreshed. No transaction has been signed.'
         : 'Wallet and network verified, but live sponsor-role diagnostics could not be verified. Signing remains blocked until those checks are healthy.')
       if (!rolesResult.ok) setError(rolesResult.message || 'Sponsor role diagnostics unavailable.')
     } catch (caught) {
-      setWallet(null)
-      setMessage('Wallet connection not verified.')
+      setWalletNeedsReconnect(true)
+      setMessage('Wallet connection not verified; the last verified address is retained for reference only.')
       setError(caught instanceof Error ? caught.message : 'Could not connect to the sponsor wallet.')
     } finally {
       setBusy(null)
@@ -280,6 +314,7 @@ export default function SponsorSignerConsole() {
   const changeNetwork = (value: Network) => {
     setNetwork(value)
     setWallet(null)
+    setWalletNeedsReconnect(false)
     setFeeWallet(null)
     setFeeWalletNeedsReconnect(false)
     setRoleStatus(null)
@@ -301,7 +336,7 @@ export default function SponsorSignerConsole() {
       if (key.length < 24 || key.length > 160) {
         throw new Error('Enter the reservation idempotency key (24–160 characters) from the approved operator-created request.')
       }
-      if (!wallet) throw new Error('Connect and verify the sponsor wallet first.')
+      if (!wallet || walletNeedsReconnect) throw new Error('Reconnect and verify the asset-principal sponsor account in TronLink before continuing. The previous address remains visible for reference only.')
       const beforeReview = readInjectedWallet(network)
       if (beforeReview.address !== wallet.address) {
         throw new Error('The connected wallet account changed. Reconnect and review the reservation.')
@@ -759,7 +794,7 @@ export default function SponsorSignerConsole() {
   const assetTokens: ApiPayload[] = Array.isArray(assetRole?.tokens) ? assetRole.tokens : []
   const transferExplorerUrl = getTronScanTransactionUrl(lastIntent?.reservation?.network, lastResult?.transactionHash)
   const transferExplorerLabel = getTronScanNetworkLabel(lastIntent?.reservation?.network)
-  const hasPreparedCurrentIntent = lastIntent?.signingIntentPersisted === true
+  const hasPreparedCurrentIntent = !walletNeedsReconnect && lastIntent?.signingIntentPersisted === true
     && lastIntent?.reservation?.idempotencyKey === idempotencyKey.trim()
     && lastIntent?.reservation?.network === network
     && lastIntent?.reservation?.sponsorAddress === wallet?.address
@@ -878,9 +913,9 @@ export default function SponsorSignerConsole() {
             </select>
             <div className="sponsor-console-actions">
               <button type="button" className="sponsor-console-button" onClick={() => void connectWallet()} disabled={busy !== null}><Wallet size={16} aria-hidden="true" /> {busy === 'connecting' ? 'Connecting…' : 'Connect TronLink'}</button>
-              <span className={wallet && wallet.network === network ? 'sponsor-console-pill sponsor-console-pill--ok' : 'sponsor-console-pill'}>{wallet && wallet.network === network ? 'Network verified' : 'Not connected'}</span>
+              <span className={wallet && wallet.network === network && !walletNeedsReconnect ? 'sponsor-console-pill sponsor-console-pill--ok' : 'sponsor-console-pill'}>{wallet && wallet.network === network ? (walletNeedsReconnect ? 'Reconnect account to sign' : 'Network verified') : 'Not connected'}</span>
             </div>
-            {wallet && <div className="sponsor-console-wallet"><span>Connected address</span><code>{wallet.address}</code><span>Node: {wallet.host} · checked {new Date(wallet.checkedAt).toLocaleTimeString()}</span></div>}
+            {wallet && <div className="sponsor-console-wallet"><span>{walletNeedsReconnect ? 'Last verified asset-principal address (not active for signing)' : 'Connected address'}</span><code>{wallet.address}</code><span>Node: {wallet.host} · checked {new Date(wallet.checkedAt).toLocaleTimeString()}</span></div>}
           </section>
 
           <section className="sponsor-console-card">
