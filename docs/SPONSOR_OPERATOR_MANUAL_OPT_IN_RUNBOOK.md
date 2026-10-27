@@ -320,3 +320,32 @@ For a custom token, open the main transfer workflow, choose **TRC-20 test token*
 The Sponsor Operator Console must use the token contract and amount already fixed in the approved reservation. Do not edit the contract after reservation creation to try to make the signature fit another intent. When switching between distinct fee-sponsor and asset-principal accounts, TronLink has only one active signing account at a time: role snapshots remain visible for reference, but the relevant owner must reselect/reconnect their own account before signing. The console verifies the current account/network immediately before each wallet signature.
 
 If readiness still reports `fee-sponsor-resource-capacity-not-verified` or `active-fee-to-principal-resource-delegation-not-verified`, the transfer remains blocked even when the asset-principal account has a positive TRX balance. A separate fee sponsor with zero TRX and no observed delegation cannot cover required fees by UI changes alone. Fund/stake the authorized fee sponsor or configure the actual authorized fee-resource arrangement, then repeat the solidified resource/delegation checks. Do not mark a transaction sent until a real node transaction ID is returned and the exact transaction/receipt/event and receiver balance are verified.
+
+## 14. Troubleshooting wallet login and switching sponsor accounts
+
+The frontend now checks the modern TronLink provider first (`window.tron`) and falls back to the legacy alias (`window.tronLink`). It requests account access with `eth_requestAccounts` first and uses `tron_requestAccounts` only if that method is unsupported. Do not require `tronWeb` to exist before requesting authorization; inspect it after the request has been approved.
+
+### Recommended browser flow
+
+1. Open the frontend in a browser where the TronLink extension is enabled, or in a compatible wallet browser. Choose the same testnet in the wallet and in the app (Nile or Shasta).
+2. Choose **Connect & sign in with TronLink** and approve the account request. Then inspect the human-readable **TRON Token Studio wallet sign-in** challenge. Approve that message signature only if its address, testnet, origin and identity-only purpose are expected. This signs a login message, not a transfer.
+3. If using a normal browser without the wallet provider, choose **Continue in watch-only mode**. This allows public address and token-contract inspection in the main workspace, but it does not authenticate address ownership, sign, broadcast, or open the sponsor operator console.
+4. When switching between asset-principal and fee-sponsor wallets, use TronLink's account selector and reconnect the corresponding role in the console. The site identity session and selected signing account are separate. Each signing operation must still verify the active account and testnet immediately before the wallet prompt.
+
+### Common failures and their interpretation
+
+- **TronLink not detected:** the current browser context did not expose a supported injected provider. Open/enable the wallet or use watch-only inspection.
+- **A wallet request is already open:** finish or dismiss the existing prompt before retrying. Repeated clicks can stack up pending wallet requests.
+- **User rejected / confirmation declined:** the request was rejected by the wallet. No signature or broadcast should be inferred from this result.
+- **Wallet locked / user has not unlocked wallet:** unlock the wallet, select the intended account and retry.
+- **Network mismatch:** select the exact Nile or Shasta network in both the app and wallet. The app does not switch chains automatically.
+- `origin-not-allowed` from the auth API: check the backend's server-only `FRONTEND_ORIGIN` setting includes the exact deployed frontend origin (scheme and host, no path). Save/deploy the backend configuration before retesting. Never expose other backend secrets to the browser.
+- **Signature verification failed / address mismatch:** confirm that the wallet approved the displayed challenge and kept the same account selected until the verify request completed. Reload and request a fresh challenge; challenges are short-lived and single-use.
+
+The session store for wallet login is currently in application memory and sessions expire; a backend restart invalidates existing sessions. This must not be described as a permanent password account. A public TRON address alone is suitable for watch-only lookup, not proof of identity.
+
+### Reservation idempotency key reminder
+
+The console's **Reservation idempotency key** is the exact key created by the trusted reservation CLI or returned from the protected transfer ledger. It is not a transaction hash, wallet address, sponsor reference, or any wallet secret. The key cannot create/approve a reservation when pasted into the console. Use [the reservation idempotency guide](./SPONSOR_RESERVATION_IDEMPOTENCY.md) to create or locate an approved reservation, and stop if the console reports `transfer-not-found`.
+
+Neither a successful sign-in, a connected wallet, nor a visible sponsor balance means a transaction was signed or sent. Report a transfer as completed only after the exact transaction is visible in solidified chain data with the expected sender, receiver, token contract, amount and successful execution. Exchange-account credit remains an exchange-side status.
