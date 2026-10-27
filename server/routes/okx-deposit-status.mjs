@@ -59,7 +59,11 @@ export function createOkxDepositStatusRouter({
     const apiKey = env.OKX_API_KEY
     const secret = env.OKX_API_SECRET
     const passphrase = env.OKX_API_PASSPHRASE
-    if (![accessToken, apiKey, secret, passphrase].every((value) => typeof value === 'string' && value.length >= 12)) {
+    // The shared route gate protects one configured OKX account. Require a
+    // high-entropy-length token; never allow a short password to gate private records.
+    const validApiCredentials = [apiKey, secret, passphrase]
+      .every((value) => typeof value === 'string' && value.length >= 12)
+    if (!validApiCredentials || typeof accessToken !== 'string' || accessToken.length < 32) {
       return res.status(503).json({
         success: false,
         status: 'not-configured',
