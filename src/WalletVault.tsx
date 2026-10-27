@@ -755,18 +755,18 @@ export default function WalletVault() {
 
   async function addTokenContract() {
     const contract = tokenInput.trim()
-    const web = createTronWeb(network)
-    if (!web.isAddress(contract)) throw new Error('Enter a valid TRON contract address for the selected network.')
-    if (tokenContracts.includes(contract)) {
-      setNotice('This token contract is already in the local watchlist.')
-      return
+    const evidence = await inspectTokenContract(contract)
+    setTokenEvidence(current => ({ ...current, [contract]: evidence }))
+    if (!tokenContracts.includes(contract)) {
+      const next = [...tokenContracts, contract]
+      const watchlist = JSON.parse(window.localStorage.getItem(TOKEN_WATCH_KEY) || '{}')
+      window.localStorage.setItem(TOKEN_WATCH_KEY, JSON.stringify({ ...watchlist, [network]: next }))
+      setTokenContracts(next)
     }
-    const next = [...tokenContracts, contract]
-    const watchlist = JSON.parse(window.localStorage.getItem(TOKEN_WATCH_KEY) || '{}')
-    window.localStorage.setItem(TOKEN_WATCH_KEY, JSON.stringify({ ...watchlist, [network]: next }))
-    setTokenContracts(next)
+    setSelectedTokenContract(contract)
     setTokenInput('')
-    setNotice('Token contract added to this device’s read-only watchlist. The contract is not endorsed or allowlisted for transfers.')
+    setRefreshNonce(value => value + 1)
+    setNotice('Live chain checks passed for ' + (evidence.tokenSymbol || 'TRC-20') + '. Evidence: ' + tokenEvidenceLabel(evidence) + '. Symbols and source verification do not guarantee safety or value.')
   }
 
   function removeTokenContract(contract: string) {
@@ -774,6 +774,14 @@ export default function WalletVault() {
     const watchlist = JSON.parse(window.localStorage.getItem(TOKEN_WATCH_KEY) || '{}')
     window.localStorage.setItem(TOKEN_WATCH_KEY, JSON.stringify({ ...watchlist, [network]: next }))
     setTokenContracts(next)
+    if (selectedTokenContract === contract) setSelectedTokenContract(next[0] || '')
+    setTokenEvidence(current => {
+      const updated = { ...current }
+      delete updated[contract]
+      return updated
+    })
+    setTransferReview(current => current?.tokenContract === contract ? null : current)
+    setTransferAcknowledged(false)
   }
 
   async function copyAddress(address: string) {
