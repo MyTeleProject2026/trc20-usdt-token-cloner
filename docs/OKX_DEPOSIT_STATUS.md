@@ -12,7 +12,9 @@ Official references:
 
 ## Configure on Render
 
-Use the existing backend service `trc20-usdt-token-cloner-api` in the selected Render workspace. In **Environment**, add these variables to the backend service only:
+Use the existing backend service `trc20-usdt-token-cloner-api` in the selected Render workspace. In **Environment**, the non-secret `OKX_UI_ORIGIN` should be set to `https://trc20-usdt-token-cloner.onrender.com`; this adds the hosted frontend to the strict CORS allowlist without replacing existing `FRONTEND_ORIGIN` or `PACKAGED_APP_ORIGINS` values. The UI origin is not an API credential.
+
+Add the following private credentials to the backend service only:
 
 | Variable | Value / rule |
 | --- | --- |
