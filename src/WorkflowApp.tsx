@@ -185,6 +185,27 @@ type BalanceSnapshot = {
   accountExists?: boolean
 }
 type MainnetBalanceSnapshot = Omit<BalanceSnapshot, 'network'> & { network: 'mainnet'; tokenContract?: string }
+type DirectTestnetTransferStatus =
+  | 'broadcast-outcome-unknown'
+  | 'awaiting-solidification'
+  | 'verified-on-chain'
+  | 'verification-unavailable'
+  | 'verification-mismatch'
+type DirectTestnetTransfer = {
+  transactionId: string
+  network: NetworkId
+  from: string
+  to: string
+  asset: AssetKind
+  tokenContract: string | null
+  amountBaseUnits: string
+  decimals: number
+  status: DirectTestnetTransferStatus
+  message: string
+  createdAt: number
+  blockNumber?: number
+  receiverBalanceAfter?: BalanceSnapshot
+}
 type ReceiverHistoryRecord = {
   transactionId?: string | null
   network?: string
@@ -380,6 +401,18 @@ function checkedWalletNetwork(tronWeb: any, network: NetworkId) {
     throw new Error(`Network mismatch. Select ${network === 'nile' ? 'Nile' : 'Shasta'} testnet in TronLink before connecting; no automatic network fallback is used.`)
   }
   return true
+}
+
+function canonicalTronHexAddress(tronWeb: any, address: unknown): string | null {
+  if (typeof address !== 'string' || !address.trim()) return null
+  try {
+    let hex = ADDRESS_PATTERN.test(address) ? String(tronWeb.address.toHex(address)) : address
+    hex = hex.replace(/^0x/i, '').toLowerCase()
+    if (hex.length === 42 && hex.startsWith('41')) hex = hex.slice(2)
+    return /^[0-9a-f]{40}$/.test(hex) ? hex : null
+  } catch {
+    return null
+  }
 }
 
 async function readNativeBalance(network: NetworkId, address: string): Promise<BalanceSnapshot> {
@@ -738,6 +771,10 @@ export default function WorkflowApp() {
   const [receiverLoading, setReceiverLoading] = useState(false)
   const [receiverError, setReceiverError] = useState('')
   const [receiverCheckedAt, setReceiverCheckedAt] = useState<number | null>(null)
+  const [directTestnetTransfer, setDirectTestnetTransfer] = useState<DirectTestnetTransfer | null>(null)
+  const [directTestnetSendBusy, setDirectTestnetSendBusy] = useState(false)
+  const [directTestnetVerifyBusy, setDirectTestnetVerifyBusy] = useState(false)
+  const [directTestnetSendError, setDirectTestnetSendError] = useState('')
 
   // Read-only TRC-20 history: persisted chain verification and live indexer
   // candidates are kept distinct and merged without upgrading candidates to proof.
@@ -1342,6 +1379,277 @@ export default function WorkflowApp() {
       setReceiverError(error instanceof Error ? error.message : 'Could not verify the receiver on the selected network.')
     } finally {
       setReceiverLoading(false)
+    }
+  }
+
+
+  const verifyDirectTestnetTransfer = async (transfer: DirectTestnetTransfer) => {
+    setDirectTestnetVerifyBusy(true)
+    setDirectTestnetSendError('')
+    try {
+      const query = new URLSearchParams({
+        network: transfer.network,
+        from: transfer.from,
+        to: transfer.to,
+      })
+      const isNative = transfer.asset === 'TRX'
+      const route = isNative
+        ? '/api/tron/verify-native-transfer/' + encodeURIComponent(transfer.transactionId)
+        : '/api/tron/verify-trc20-transfer/' + encodeURIComponent(transfer.transactionId)
+      if (isNative) query.set('amountSun', transfer.amountBaseUnits)
+      else {
+        if (!transfer.tokenContract) throw new Error('The transfer record is missing its exact TRC-20 contract.')
+        query.set('contract', transfer.tokenContract)
+        query.set('amountBaseUnits', transfer.amountBaseUnits)
+      }
+
+      const result = await requestApi(route + '?' + query.toString())
+      const payload = result.payload
+      const expectedStatus = isNative ? 'solidified-transfer-verified' : 'solidified-trc20-transfer-verified'
+      if (result.ok && payload?.success === true && payload?.verified === true && payload?.status === expectedStatus) {
+        let receiverBalanceAfter: BalanceSnapshot | undefined
+        let balanceMessage = 'Receiver balance refresh is unavailable; the solidified transfer evidence is still verified.'
+        try {
+          const refreshed = isNative
+            ? await readNativeBalance(transfer.network, transfer.to)
+            : await readTokenBalance(transfer.network, transfer.tokenContract as string, transfer.to)
+          if (refreshed?.success === true && refreshed.network === transfer.network) {
+            receiverBalanceAfter = refreshed
+            balanceMessage = 'Receiver balance was refreshed from the selected testnet.'
+          }
+        } catch {
+          // Verification evidence is separate from the optional balance refresh.
+        }
+        setDirectTestnetTransfer((current) => current?.transactionId === transfer.transactionId
+          ? {
+              ...current,
+              status: 'verified-on-chain',
+              message: 'Verified against the solidified ' + transfer.network + ' transaction and exact transfer details. ' + balanceMessage + ' Exchange deposit credit is not verified.',
+              blockNumber: Number.isInteger(payload.blockNumber) ? payload.blockNumber : undefined,
+              receiverBalanceAfter,
+            }
+          : current)
+        return
+      }
+
+      if (payload?.success === true && payload?.verified === false) {
+        const pending = payload.status === 'awaiting-solidification'
+        setDirectTestnetTransfer((current) => current?.transactionId === transfer.transactionId
+          ? {
+              ...current,
+              status: pending ? 'awaiting-solidification' : 'verification-mismatch',
+              message: pending
+                ? (payload.message || 'The transaction is not yet available in solidified chain state. Retry verification for this same transaction ID; do not send again.')
+                : 'Solidified verification did not match a successful transfer with the exact requested sender, receiver, asset and amount. Do not treat it as received.',
+            }
+          : current)
+        return
+      }
+
+      setDirectTestnetTransfer((current) => current?.transactionId === transfer.transactionId
+        ? {
+            ...current,
+            status: 'verification-unavailable',
+            message: payload?.message || payload?.error || ('Could not verify the existing transaction (HTTP ' + result.httpStatus + '). Retry verification with this same transaction ID; do not send again.'),
+          }
+        : current)
+    } catch (error) {
+      setDirectTestnetTransfer((current) => current?.transactionId === transfer.transactionId
+        ? {
+            ...current,
+            status: 'verification-unavailable',
+            message: (error instanceof Error ? error.message : 'Verification is temporarily unavailable.') + ' Retry verification for the same transaction ID; do not create another transfer yet.',
+          }
+        : current)
+    } finally {
+      setDirectTestnetVerifyBusy(false)
+    }
+  }
+
+  const sendDirectTestnetTransfer = async () => {
+    setDirectTestnetSendError('')
+    if (directTestnetTransfer) {
+      setDirectTestnetSendError('A transaction ID already exists for this request. Verify that exact transaction or choose “Prepare another transfer” before creating a new one.')
+      return
+    }
+    if (network !== 'nile' && network !== 'shasta') {
+      setDirectTestnetSendError('Direct wallet sending is restricted to Nile or Shasta testnet.')
+      return
+    }
+    if (!assetKind || !amountBaseUnits || amountDecimals == null || !receiverStageValid) {
+      setDirectTestnetSendError('Complete the sender balance check, receiver balance check, exact contract (for TRC-20), and valid positive amount first.')
+      return
+    }
+    if (walletSource !== 'TronLink'
+      || !walletIdentity
+      || walletIdentity.address !== senderAddress
+      || walletIdentity.network !== network
+      || walletIdentity.expiresAt <= Date.now()) {
+      setDirectTestnetSendError('Connect and sign in with the sender wallet in TronLink on the selected testnet first. A watch-only address cannot send.')
+      return
+    }
+
+    setDirectTestnetSendBusy(true)
+    let signedTransactionId = ''
+    let pendingRecord: DirectTestnetTransfer | null = null
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb || typeof tronWeb !== 'object') {
+        throw new Error('TronLink is not available or not authorized. Reconnect the wallet; no transaction has been submitted.')
+      }
+      checkedWalletNetwork(tronWeb, network)
+      const activeAddress = String(tronWeb?.defaultAddress?.base58 || '')
+      if (activeAddress !== senderAddress || !tronWeb.isAddress(senderAddress) || !tronWeb.isAddress(receiverAddress.trim())) {
+        throw new Error('The active TronLink account does not match the sender or the receiver address is invalid.')
+      }
+
+      const receiver = receiverAddress.trim()
+      const senderHex = canonicalTronHexAddress(tronWeb, senderAddress)
+      const receiverHex = canonicalTronHexAddress(tronWeb, receiver)
+      if (!senderHex || !receiverHex || senderHex === receiverHex) {
+        throw new Error('Sender and receiver must be valid, different TRON addresses.')
+      }
+
+      const contract = assetKind === 'TRC20' ? tokenContract.trim() : null
+      const tokenHex = contract ? canonicalTronHexAddress(tronWeb, contract) : null
+      if (assetKind === 'TRC20' && (!contract || !tokenHex)) {
+        throw new Error('Enter and verify the exact TRC-20 contract address on the selected testnet.')
+      }
+
+      if (assetKind === 'TRX') {
+        const freshBalance = await readNativeBalance(network, senderAddress)
+        if (freshBalance.network !== network || typeof freshBalance.balanceSun !== 'string' || !/^(0|[1-9][0-9]*)$/.test(freshBalance.balanceSun)) {
+          throw new Error('The sender’s current testnet TRX balance could not be verified.')
+        }
+        if (BigInt(freshBalance.balanceSun) < BigInt(amountBaseUnits)) {
+          throw new Error('The sender’s verified testnet TRX balance is below the requested transfer amount. Network fees are separate.')
+        }
+      } else {
+        const freshBalance = await readTokenBalance(network, contract as string, senderAddress)
+        if (freshBalance.network !== network || typeof freshBalance.balanceBaseUnits !== 'string'
+          || !/^(0|[1-9][0-9]*)$/.test(freshBalance.balanceBaseUnits)
+          || freshBalance.decimals !== amountDecimals) {
+          throw new Error('The sender’s token balance or decimals could not be verified for this exact contract on the selected testnet.')
+        }
+        if (BigInt(freshBalance.balanceBaseUnits) < BigInt(amountBaseUnits)) {
+          throw new Error('The sender’s verified balance for this exact testnet token contract is below the requested amount.')
+        }
+      }
+
+      let unsigned: any
+      if (assetKind === 'TRX') {
+        if (typeof tronWeb?.transactionBuilder?.sendTrx !== 'function') {
+          throw new Error('This TronLink build does not expose the required TRX transaction builder.')
+        }
+        unsigned = await tronWeb.transactionBuilder.sendTrx(receiver, amountBaseUnits, senderAddress)
+      } else {
+        if (typeof tronWeb?.transactionBuilder?.triggerSmartContract !== 'function') {
+          throw new Error('This TronLink build does not expose the required TRC-20 transaction builder.')
+        }
+        const built = await tronWeb.transactionBuilder.triggerSmartContract(
+          contract,
+          'transfer(address,uint256)',
+          { feeLimit: 30000000, callValue: 0 },
+          [
+            { type: 'address', value: receiver },
+            { type: 'uint256', value: amountBaseUnits },
+          ],
+          senderAddress,
+        )
+        if (built?.result?.result !== true || !built?.transaction) {
+          throw new Error('The selected contract did not produce a valid transfer transaction. Check the contract address and token support.')
+        }
+        unsigned = built.transaction
+      }
+
+      const transactionId = String(unsigned?.txID || '')
+      if (!/^[0-9a-fA-F]{64}$/.test(transactionId)) {
+        throw new Error('The wallet returned no valid transaction ID. Nothing was broadcast.')
+      }
+      const contracts = unsigned?.raw_data?.contract
+      if (!Array.isArray(contracts) || contracts.length !== 1) {
+        throw new Error('The unsigned transaction does not contain exactly one expected transfer operation. Nothing was signed.')
+      }
+      const operation = contracts[0]
+      const value = operation?.parameter?.value || {}
+      if (canonicalTronHexAddress(tronWeb, value.owner_address) !== senderHex) {
+        throw new Error('The unsigned transaction sender does not match the connected wallet. Nothing was signed.')
+      }
+      if (assetKind === 'TRX') {
+        if (operation.type !== 'TransferContract'
+          || canonicalTronHexAddress(tronWeb, value.to_address) !== receiverHex
+          || String(value.amount) !== amountBaseUnits) {
+          throw new Error('The unsigned transaction did not match the exact TRX receiver and amount. Nothing was signed.')
+        }
+      } else {
+        const rawData = String(value.data || '').replace(/^0x/i, '').toLowerCase()
+        const expectedData = 'a9059cbb'
+          + receiverHex.padStart(64, '0')
+          + BigInt(amountBaseUnits).toString(16).padStart(64, '0')
+        if (operation.type !== 'TriggerSmartContract'
+          || canonicalTronHexAddress(tronWeb, value.contract_address) !== tokenHex
+          || rawData !== expectedData) {
+          throw new Error('The unsigned contract call did not match the exact token contract, receiver and amount. Nothing was signed.')
+        }
+      }
+
+      const signed = await tronWeb.trx.sign(unsigned)
+      if (!signed || String(signed.txID || '').toLowerCase() !== transactionId.toLowerCase()
+        || !Array.isArray(signed.signature) || signed.signature.length === 0) {
+        throw new Error('TronLink did not return a verifiable signature for the expected transaction. Nothing was broadcast.')
+      }
+      const activeTronWeb = provider.tronWeb || (window as any).tronWeb
+      checkedWalletNetwork(activeTronWeb, network)
+      if (String(activeTronWeb?.defaultAddress?.base58 || '') !== senderAddress) {
+        throw new Error('The active account changed after signing. The transaction was not broadcast.')
+      }
+
+      signedTransactionId = transactionId
+      pendingRecord = {
+        transactionId,
+        network,
+        from: senderAddress,
+        to: receiver,
+        asset: assetKind,
+        tokenContract: contract,
+        amountBaseUnits,
+        decimals: amountDecimals,
+        status: 'broadcast-outcome-unknown',
+        message: 'The wallet signed this transaction. Broadcast and solidified confirmation are still being checked; verify this same transaction ID if the network response is unclear.',
+        createdAt: Date.now(),
+      }
+      setDirectTestnetTransfer(pendingRecord)
+      const broadcast = await tronWeb.trx.sendRawTransaction(signed)
+      const returnedId = String(broadcast?.txid || broadcast?.transaction?.txID || '')
+      if (broadcast?.result !== true || (returnedId && returnedId.toLowerCase() !== transactionId.toLowerCase())) {
+        const message = 'The node did not unambiguously acknowledge this broadcast. Keep this transaction ID and verify it; do not submit a second transfer until this attempt is reconciled.'
+        setDirectTestnetTransfer({ ...pendingRecord, status: 'broadcast-outcome-unknown', message })
+        return
+      }
+
+      const awaiting = {
+        ...pendingRecord,
+        status: 'awaiting-solidification' as const,
+        message: 'The node acknowledged the broadcast. Checking the same transaction against solidified chain state; this is not yet a final receipt.',
+      }
+      setDirectTestnetTransfer(awaiting)
+      await verifyDirectTestnetTransfer(awaiting)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The testnet transfer could not be completed.'
+      if (signedTransactionId && pendingRecord) {
+        setDirectTestnetTransfer((current) => current?.transactionId === signedTransactionId
+          ? {
+              ...current,
+              status: 'broadcast-outcome-unknown',
+              message: message + ' The transaction ID is retained; verify that same transaction before attempting any new send.',
+            }
+          : current)
+      } else {
+        setDirectTestnetSendError(message)
+      }
+    } finally {
+      setDirectTestnetSendBusy(false)
     }
   }
 
@@ -2092,6 +2400,99 @@ export default function WorkflowApp() {
                   </div>
                 </div>
               )}
+
+              <section className="studio-history-panel" aria-labelledby="direct-testnet-send-title">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3 id="direct-testnet-send-title">Send a real testnet transfer with TronLink</h3>
+                    <p>Separate from the blocked sponsor request. This sends the selected test asset from your connected wallet and your wallet pays any network fee.</p>
+                  </div>
+                  <Pill tone="warning">Nile / Shasta only</Pill>
+                </div>
+                <p className="studio-inline-note" role="note">This is a real on-chain testnet transaction, not a simulation. Testnet TRX and test tokens have no Mainnet value and cannot credit an exchange’s real deposit balance. A custom TRC-20 token is not official USDT; confirm the exact contract and receiving wallet’s network before sending. The wallet will ask you to sign; the app never asks for your private key or recovery phrase.</p>
+                <div className="studio-request-summary">
+                  <div><span>Network</span><strong>{network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</strong></div>
+                  <div><span>From</span><strong>{senderAddress || 'Connect TronLink first'}</strong></div>
+                  <div><span>To</span><strong>{receiverAddress || 'Enter receiver above'}</strong></div>
+                  <div><span>Asset / amount</span><strong>{amount} {assetKind === 'TRX' ? 'testnet TRX' : 'selected TRC-20 test token'}</strong></div>
+                  {assetKind === 'TRC20' && <div><span>Exact token contract</span><strong>{tokenContract || 'Not entered'}</strong></div>}
+                </div>
+                {assetKind === 'TRC20' && <p className="studio-field-hint">TRC-20 call fee cap: 30 testnet TRX. Actual fees may be lower; only proceed if the wallet’s transaction approval matches the contract and recipient shown here.</p>}
+                <div className="studio-inline-actions">
+                  <button
+                    type="button"
+                    className="studio-button studio-button--primary"
+                    onClick={() => void sendDirectTestnetTransfer()}
+                    disabled={directTestnetSendBusy || directTestnetVerifyBusy || directTestnetTransfer !== null
+                      || walletSource !== 'TronLink'
+                      || walletIdentity?.address !== senderAddress
+                      || walletIdentity?.network !== network
+                      || (walletIdentity?.expiresAt ?? 0) <= Date.now()
+                      || !senderStageValid
+                      || !receiverStageValid
+                      || amountBaseUnits === null
+                      || assetKind === null
+                      || (assetKind === 'TRC20' && !ADDRESS_PATTERN.test(tokenContract.trim()))}
+                  >
+                    <Wallet size={16} aria-hidden="true" />
+                    {directTestnetSendBusy ? 'Waiting for TronLink / network…' : 'Sign and send testnet transfer'}
+                  </button>
+                  {directTestnetTransfer && directTestnetTransfer.status !== 'verified-on-chain' && (
+                    <button
+                      type="button"
+                      className="studio-button studio-button--secondary"
+                      onClick={() => void verifyDirectTestnetTransfer(directTestnetTransfer)}
+                      disabled={directTestnetSendBusy || directTestnetVerifyBusy}
+                    >
+                      <ShieldCheck size={15} className={directTestnetVerifyBusy ? 'studio-spin' : ''} aria-hidden="true" />
+                      {directTestnetVerifyBusy ? 'Verifying same transaction…' : 'Verify transaction'}
+                    </button>
+                  )}
+                  {directTestnetTransfer && (
+                    <button
+                      type="button"
+                      className="studio-button studio-button--secondary"
+                      onClick={() => { setDirectTestnetTransfer(null); setDirectTestnetSendError('') }}
+                      disabled={directTestnetSendBusy || directTestnetVerifyBusy}
+                    >
+                      Prepare another transfer
+                    </button>
+                  )}
+                </div>
+                {!directTestnetTransfer && walletSource !== 'TronLink' && <p className="studio-field-hint">Connect and sign in with TronLink in the Sender account stage. Watch-only mode cannot sign transfers.</p>}
+                {directTestnetSendError && <p className="studio-inline-error" role="alert">{directTestnetSendError}</p>}
+                {directTestnetTransfer && (
+                  <article className="studio-history-item is-verified" aria-live="polite">
+                    <div className="studio-history-item-heading">
+                      <strong>{directTestnetTransfer.status === 'verified-on-chain' ? 'Solidified testnet transfer verified' : directTestnetTransfer.status === 'awaiting-solidification' ? 'Broadcast accepted · waiting for confirmation' : directTestnetTransfer.status === 'verification-mismatch' ? 'Verification did not match' : directTestnetTransfer.status === 'verification-unavailable' ? 'Verification unavailable' : 'Broadcast status not yet confirmed'}</strong>
+                      <Pill tone={directTestnetTransfer.status === 'verified-on-chain' ? 'good' : directTestnetTransfer.status === 'verification-mismatch' ? 'bad' : 'warning'}>{directTestnetTransfer.status.replaceAll('-', ' ')}</Pill>
+                    </div>
+                    <p className="studio-history-meta">Network: <strong>{directTestnetTransfer.network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</strong></p>
+                    <p className="studio-history-meta">Sender: <code>{directTestnetTransfer.from}</code></p>
+                    <p className="studio-history-meta">Receiver: <code>{directTestnetTransfer.to}</code></p>
+                    <p className="studio-history-meta">Asset / amount: <strong>{formatUnits(directTestnetTransfer.amountBaseUnits, directTestnetTransfer.decimals)} {directTestnetTransfer.asset === 'TRX' ? 'testnet TRX' : 'units of the selected token'}</strong></p>
+                    {directTestnetTransfer.tokenContract && <p className="studio-history-meta">Exact token contract: <code>{directTestnetTransfer.tokenContract}</code></p>}
+                    <p className="studio-history-meta">Transaction ID: <code>{directTestnetTransfer.transactionId}</code></p>
+                    <p className="studio-history-meta">Created: {formatTimestamp(directTestnetTransfer.createdAt)}</p>
+                    {typeof directTestnetTransfer.blockNumber === 'number' && <p className="studio-history-meta">Solidified block: {directTestnetTransfer.blockNumber}</p>}
+                    <p className="studio-inline-note" role="status">{directTestnetTransfer.message}</p>
+                    {getTronScanTransactionUrl(directTestnetTransfer.network, directTestnetTransfer.transactionId) && (
+                      <p><a className="studio-history-explorer-link" href={getTronScanTransactionUrl(directTestnetTransfer.network, directTestnetTransfer.transactionId) || undefined} target="_blank" rel="noopener noreferrer">View this exact transaction on TronScan</a></p>
+                    )}
+                    {directTestnetTransfer.receiverBalanceAfter && (
+                      <div className="studio-balance">
+                        <span>Receiver’s refreshed on-chain balance · {directTestnetTransfer.network}</span>
+                        <strong>{directTestnetTransfer.asset === 'TRX'
+                          ? (directTestnetTransfer.receiverBalanceAfter.balanceTRX || 'Unavailable') + ' TRX'
+                          : formatUnits(directTestnetTransfer.receiverBalanceAfter.balanceBaseUnits, directTestnetTransfer.receiverBalanceAfter.decimals) + ' token units'}</strong>
+                        {directTestnetTransfer.tokenContract && <p>Contract: <code>{directTestnetTransfer.tokenContract}</code></p>}
+                      </div>
+                    )}
+                    {directTestnetTransfer.status === 'verified-on-chain' && <p className="studio-footnote">The selected testnet’s on-chain transfer is verified. This does not verify Mainnet receipt, official USDT identity for a custom contract, or exchange deposit credit.</p>}
+                  </article>
+                )}
+              </section>
+
               {assetKind === 'TRC20' && (
                 <section className="studio-history-panel" aria-labelledby="receiver-history-title">
                   <div className="studio-snapshot-heading">
@@ -2193,7 +2594,7 @@ export default function WorkflowApp() {
 
               <div className="studio-notice studio-notice--warning">
                 <LockKeyhole size={18} aria-hidden="true" />
-                <div><strong>Sponsored transfer submission is blocked by the backend</strong><p>{sponsorship?.message || 'The backend has not confirmed a provider adapter, funded sponsor account, explicit signing authorization, and per-request controls. This frontend has no transfer-submission action.'}</p></div>
+                <div><strong>Sponsored transfer submission is blocked by the backend</strong><p>{sponsorship?.message || 'The backend has not confirmed a provider adapter, funded sponsor account, explicit signing authorization, and per-request controls. This sponsor workflow remains blocked; the separate wallet-funded testnet send is shown in the receiver stage.'}</p></div>
               </div>
               <div className="studio-inline-actions studio-review-actions">
                 <button type="button" className="studio-button studio-button--secondary" onClick={() => void refreshReview()} disabled={reviewRefreshing || sponsorLoading}><RefreshCw size={15} className={reviewRefreshing || sponsorLoading ? 'studio-spin' : ''} aria-hidden="true" /> {reviewRefreshing || sponsorLoading ? 'Refreshing sponsor gate…' : 'Recheck sponsor readiness'}</button>
