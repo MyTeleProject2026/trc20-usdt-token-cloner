@@ -250,6 +250,40 @@ function formatHistoryTimestamp(value: number | string | null | undefined) {
   try { return new Date(milliseconds).toLocaleString() } catch { return 'Time unavailable' }
 }
 
+function loadSavedDirectTestnetTransfer(): DirectTestnetTransfer | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(DIRECT_TESTNET_TRANSFER_STORAGE_KEY) || 'null')
+    if (!saved || typeof saved !== 'object'
+      || !/^[0-9a-fA-F]{64}$/.test(String(saved.transactionId || ''))
+      || !['nile', 'shasta'].includes(saved.network)
+      || !ADDRESS_PATTERN.test(String(saved.from || ''))
+      || !ADDRESS_PATTERN.test(String(saved.to || ''))
+      || !['TRX', 'TRC20'].includes(saved.asset)
+      || !/^[1-9][0-9]*$/.test(String(saved.amountBaseUnits || ''))
+      || !Number.isInteger(saved.decimals) || saved.decimals < 0 || saved.decimals > 30
+      || !Number.isFinite(saved.createdAt)
+      || (saved.asset === 'TRC20' && !ADDRESS_PATTERN.test(String(saved.tokenContract || '')))) {
+      return null
+    }
+    return {
+      transactionId: String(saved.transactionId),
+      network: saved.network,
+      from: saved.from,
+      to: saved.to,
+      asset: saved.asset,
+      tokenContract: saved.asset === 'TRC20' ? saved.tokenContract : null,
+      amountBaseUnits: String(saved.amountBaseUnits),
+      decimals: saved.decimals,
+      status: 'verification-unavailable',
+      message: 'Restored from this browser session. Re-verify this same transaction against current solidified chain state before treating it as confirmed.',
+      createdAt: saved.createdAt,
+    }
+  } catch {
+    return null
+  }
+}
+
 type StageState = 'done' | 'current' | 'locked' | 'ready'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -262,6 +296,7 @@ const TOKEN_CONTRACTS_STORAGE_KEY = 'tron-token-studio:token-contracts:v1'
 const MAINNET_READONLY_CONTRACT_STORAGE_KEY = 'tron-token-studio:mainnet-readonly-contract:v1'
 const AUTH_SESSION_STORAGE_KEY = 'tron-token-studio:auth-session:v1'
 const AUTH_NETWORK_STORAGE_KEY = 'tron-token-studio:auth-network:v1'
+const DIRECT_TESTNET_TRANSFER_STORAGE_KEY = 'tron-token-studio:direct-testnet-transfer:v1'
 
 function getInjectedTronProvider(): any {
   const candidates = [(window as any).tron, (window as any).tronLink]
@@ -771,10 +806,19 @@ export default function WorkflowApp() {
   const [receiverLoading, setReceiverLoading] = useState(false)
   const [receiverError, setReceiverError] = useState('')
   const [receiverCheckedAt, setReceiverCheckedAt] = useState<number | null>(null)
-  const [directTestnetTransfer, setDirectTestnetTransfer] = useState<DirectTestnetTransfer | null>(null)
+  const [directTestnetTransfer, setDirectTestnetTransfer] = useState<DirectTestnetTransfer | null>(() => loadSavedDirectTestnetTransfer())
   const [directTestnetSendBusy, setDirectTestnetSendBusy] = useState(false)
   const [directTestnetVerifyBusy, setDirectTestnetVerifyBusy] = useState(false)
   const [directTestnetSendError, setDirectTestnetSendError] = useState('')
+
+  useEffect(() => {
+    try {
+      if (directTestnetTransfer) window.sessionStorage.setItem(DIRECT_TESTNET_TRANSFER_STORAGE_KEY, JSON.stringify(directTestnetTransfer))
+      else window.sessionStorage.removeItem(DIRECT_TESTNET_TRANSFER_STORAGE_KEY)
+    } catch {
+      // The in-memory request guard still applies if browser storage is unavailable.
+    }
+  }, [directTestnetTransfer])
 
   // Read-only TRC-20 history: persisted chain verification and live indexer
   // candidates are kept distinct and merged without upgrading candidates to proof.
@@ -1469,7 +1513,7 @@ export default function WorkflowApp() {
   const sendDirectTestnetTransfer = async () => {
     setDirectTestnetSendError('')
     if (directTestnetTransfer) {
-      setDirectTestnetSendError('A transaction ID already exists for this request. Verify that exact transaction or choose “Prepare another transfer” before creating a new one.')
+      setDirectTestnetSendError('A transaction ID already exists. Verify that same transaction against solidified chain state before sending again.')
       return
     }
     if (network !== 'nile' && network !== 'shasta') {
@@ -2453,7 +2497,7 @@ export default function WorkflowApp() {
                       type="button"
                       className="studio-button studio-button--secondary"
                       onClick={() => { setDirectTestnetTransfer(null); setDirectTestnetSendError('') }}
-                      disabled={directTestnetSendBusy || directTestnetVerifyBusy}
+                      disabled={directTestnetSendBusy || directTestnetVerifyBusy || directTestnetTransfer.status !== 'verified-on-chain'}
                     >
                       Prepare another transfer
                     </button>
@@ -2462,7 +2506,7 @@ export default function WorkflowApp() {
                 {!directTestnetTransfer && walletSource !== 'TronLink' && <p className="studio-field-hint">Connect and sign in with TronLink in the Sender account stage. Watch-only mode cannot sign transfers.</p>}
                 {directTestnetSendError && <p className="studio-inline-error" role="alert">{directTestnetSendError}</p>}
                 {directTestnetTransfer && (
-                  <article className="studio-history-item is-verified" aria-live="polite">
+                  <article className={`studio-history-item ${directTestnetTransfer.status === 'verified-on-chain' ? 'is-verified' : ''}`} aria-live="polite">
                     <div className="studio-history-item-heading">
                       <strong>{directTestnetTransfer.status === 'verified-on-chain' ? 'Solidified testnet transfer verified' : directTestnetTransfer.status === 'awaiting-solidification' ? 'Broadcast accepted · waiting for confirmation' : directTestnetTransfer.status === 'verification-mismatch' ? 'Verification did not match' : directTestnetTransfer.status === 'verification-unavailable' ? 'Verification unavailable' : 'Broadcast status not yet confirmed'}</strong>
                       <Pill tone={directTestnetTransfer.status === 'verified-on-chain' ? 'good' : directTestnetTransfer.status === 'verification-mismatch' ? 'bad' : 'warning'}>{directTestnetTransfer.status.replaceAll('-', ' ')}</Pill>
@@ -2476,6 +2520,7 @@ export default function WorkflowApp() {
                     <p className="studio-history-meta">Created: {formatTimestamp(directTestnetTransfer.createdAt)}</p>
                     {typeof directTestnetTransfer.blockNumber === 'number' && <p className="studio-history-meta">Solidified block: {directTestnetTransfer.blockNumber}</p>}
                     <p className="studio-inline-note" role="status">{directTestnetTransfer.message}</p>
+                    {directTestnetTransfer.status !== 'verified-on-chain' && <p className="studio-footnote">Another send is locked until this transaction has a verified solidified result. This prevents accidental duplicate transfers after a pending or unclear broadcast.</p>}
                     {getTronScanTransactionUrl(directTestnetTransfer.network, directTestnetTransfer.transactionId) && (
                       <p><a className="studio-history-explorer-link" href={getTronScanTransactionUrl(directTestnetTransfer.network, directTestnetTransfer.transactionId) || undefined} target="_blank" rel="noopener noreferrer">View this exact transaction on TronScan</a></p>
                     )}
