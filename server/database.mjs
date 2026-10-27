@@ -118,9 +118,11 @@ export async function initializeDatabase() {
           origin TEXT NOT NULL,
           challenge_message TEXT NOT NULL,
           expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
         ON ${schema}.wallet_auth_challenges (expires_at)`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
@@ -733,8 +735,9 @@ export async function consumeWalletAuthChallenge({ nonceHash } = {}) {
   try {
     await initializeDatabase()
     const result = await db.query(
-      `DELETE FROM ${schema}.wallet_auth_challenges
-        WHERE nonce_hash = $1
+      `UPDATE ${schema}.wallet_auth_challenges
+          SET consumed_at = now()
+        WHERE nonce_hash = $1 AND consumed_at IS NULL AND expires_at > now()
         RETURNING wallet_address, network, origin, challenge_message, expires_at`,
       [nonceHash],
     )
