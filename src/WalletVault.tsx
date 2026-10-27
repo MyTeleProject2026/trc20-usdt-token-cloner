@@ -1175,7 +1175,7 @@ export default function WalletVault() {
                   </div>
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Read-only treasury funding check</strong>
-                    <p>This check signs only a short identity message with the unlocked local owner wallet. The backend must match it to TREASURY_OWNER_ADDRESS. It reads actual on-chain TRX and official Tether USDT balances from SPONSOR_MAINNET_ADDRESS. It does not mint USDT, sign a payout, or broadcast a transfer. No USDT is generated.</p>
+                    <p>This check signs only a short identity message with the unlocked local owner wallet. The backend must match it to TREASURY_OWNER_ADDRESS. It reads actual on-chain TRX and official Tether USDT balances from TREASURY_MAINNET_ADDRESS. If that is unset, the backend falls back to SPONSOR_MAINNET_ADDRESS, then TREASURY_OWNER_ADDRESS. It does not mint USDT, sign a payout, or broadcast a transfer. No USDT is generated.</p>
                   </div>
                   <button type="button" className="wallet-vault-primary" disabled={ownerTreasuryLoading} onClick={() => void refreshOwnerTreasury()}>
                     <RefreshCw size={16} /> {ownerTreasuryLoading ? 'Verifying owner and reading chain…' : 'Sign owner check & read treasury'}
@@ -1190,6 +1190,9 @@ export default function WalletVault() {
                         <div className="wallet-vault-review-wide"><small>Snapshot checked</small><strong>{ownerTreasurySnapshot.checkedAt || 'Time unavailable'}</strong></div>
                       </div>
                       <p className="wallet-vault-caption">This is an observed chain balance, not an accounting balance or a payout authorization. The balance is not increased by this app. An actual outgoing transfer still requires genuine treasury assets and a separately reviewed signer/approval process.</p>
+                      {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
+                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
+                      )}
                     </>
                   )}
                   <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>

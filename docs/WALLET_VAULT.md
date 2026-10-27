@@ -54,13 +54,14 @@ The `Build Android APK and Windows installer` workflow bundles the local web UI 
 
 The Wallet Vault now has a Mainnet-only owner treasury check. The owner unlocks the local wallet and signs a short identity challenge; the backend compares the authenticated Mainnet address against `TREASURY_OWNER_ADDRESS`. The owner address and treasury funding address are separate configuration values:
 
-- `TREASURY_OWNER_ADDRESS`: public Base58Check address allowed to view treasury status.
-- `SPONSOR_MAINNET_ADDRESS`: public address whose actual Mainnet TRX and official Tether TRC-20 USDT balances are read.
+- `TREASURY_OWNER_ADDRESS`: public Base58Check address allowed to view treasury status; the owner must unlock this address in the local Wallet Vault and sign the identity challenge.
+- `TREASURY_MAINNET_ADDRESS`: preferred watch-only address whose actual Mainnet TRX and official Tether TRC-20 USDT balances are read. No private key is needed to monitor this address.
+- `SPONSOR_MAINNET_ADDRESS`: backward-compatible fallback monitor address if `TREASURY_MAINNET_ADDRESS` is blank. If both monitor variables are blank, the owner address is monitored.
 - `TATUM_API_KEY`: server-side provider credential for solidified/read-only balance queries.
 - `DATABASE_URL`: persistent session storage required by wallet authentication.
 - `FRONTEND_ORIGIN`: existing hosted frontend origin allowlist.
 - `PACKAGED_APP_ORIGINS=https://localhost,tronstudio://app`: add packaged app origins without replacing `FRONTEND_ORIGIN`.
 
-Never put private keys, provider secrets, signer secrets, or admin tokens in any `VITE_*` variable or in the APK. The new `GET /api/treasury/owner/funding-status?network=mainnet` endpoint is owner-session protected and read-only. It deliberately returns `canSubmitSponsoredTransfer=false` and `submissionEnabled=false`.
+Never put private keys, provider secrets, signer secrets, or admin tokens in any `VITE_*` variable or in the APK. The new `GET /api/treasury/owner/funding-status?network=mainnet` endpoint is owner-session protected and read-only. It deliberately returns `canSubmitSponsoredTransfer=false` and `submissionEnabled=false`. A watch-only address can only be read: it cannot sign or authorize an outgoing transfer. Monitoring a separate treasury also does not allow the local owner wallet to spend the treasury's assets.
 
 This is not a treasury withdrawal system. It verifies that a real funding source exists; it cannot mint USDT or spend funds. Implementing any future payout requires a separate audited signer/custody design, owner-approved payout policy, replay protection and idempotency, spend limits, fresh balance and budget reservations, verified transaction intent, secure key management, solidified receipt reconciliation, and independent review. Never represent an internal/generated balance as an external deposit.
