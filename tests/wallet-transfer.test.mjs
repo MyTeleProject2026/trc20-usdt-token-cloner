@@ -93,6 +93,24 @@ test('native TRX transfer signs the reviewed transaction and broadcasts only the
   assert.equal(result.amountBaseUnits, '1500000')
 })
 
+test('a mismatched RPC-echoed transaction ID never replaces the locally calculated signed ID', async () => {
+  let web
+  web = mockTronWeb({ trx: {
+    sendRawTransaction: async tx => {
+      web.calls.broadcast += 1
+      web.calls.broadcastPayload = tx
+      return { result: true, txid: 'b'.repeat(64) }
+    },
+  } })
+  const result = await buildSignAndBroadcastTransfer({
+    tronWeb: web.tronWeb, from, to, asset: 'TRX', amountBaseUnits: '1500000',
+  })
+  assert.equal(result.txid, txid)
+  assert.equal(result.broadcastTxidMismatch, true)
+  assert.equal(web.calls.signed, 1)
+  assert.equal(web.calls.broadcast, 1)
+})
+
 test('TRC-20 transfer requires a successfully built transaction and signs before broadcast', async () => {
   const { tronWeb, calls } = mockTronWeb()
   const result = await buildSignAndBroadcastTransfer({
