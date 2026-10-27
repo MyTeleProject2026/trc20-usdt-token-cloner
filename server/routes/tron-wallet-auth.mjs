@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { Trx } from 'tronweb'
 import { isValidTronAddress } from '../tron-address.mjs'
@@ -20,6 +20,12 @@ const SESSION_TTL_MS = 30 * 60 * 1000
 
 function digest(value) {
   return createHash('sha256').update(String(value), 'utf8').digest('hex')
+}
+
+function constantTimeHexEqual(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string'
+    || !/^[0-9a-f]{64}$/.test(left) || !/^[0-9a-f]{64}$/.test(right)) return false
+  return timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'))
 }
 
 function normalizeAllowedOrigin(value) {
@@ -153,6 +159,7 @@ export function createTronWalletAuthRouter({
     try {
       persisted = await store.createChallenge({
         nonceHash: digest(nonce),
+        messageHash: digest(message),
         address,
         network,
         origin: req.get('origin'),
@@ -197,17 +204,16 @@ export function createTronWalletAuthRouter({
       return res.status(403).json({ success: false, error: 'origin-not-allowed' })
     }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['address', 'network', 'nonce', 'signature', 'message'].includes(key))) {
+    if (Object.keys(body).some((key) => !['address', 'network', 'nonce', 'signature'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
     const address = typeof body.address === 'string' ? body.address.trim() : ''
     const network = body.network
     const nonce = typeof body.nonce === 'string' ? body.nonce : ''
     const signature = typeof body.signature === 'string' ? body.signature : ''
-    const signedMessage = typeof body.message === 'string' ? body.message : ''
     if (!ADDRESS_PATTERN.test(address) || !isValidTronAddress(address)
       || !NETWORKS.has(network) || !NONCE_PATTERN.test(nonce)
-      || !SIGNATURE_PATTERN.test(signature) || signedMessage.length < 1 || signedMessage.length > 2048) {
+      || !SIGNATURE_PATTERN.test(signature)) {
       return res.status(400).json({ success: false, error: 'invalid-login-payload' })
     }
 
@@ -242,7 +248,9 @@ export function createTronWalletAuthRouter({
       issuedAt: challenge.issuedAt,
       expiresAt: challenge.expiresAt,
     })
-    if (signedMessage !== expectedMessage) {
+    // Verify the server-reconstructed message against its stored digest.
+    // The browser never supplies the text that the server chooses to verify.
+    if (!constantTimeHexEqual(digest(expectedMessage), challenge.messageHash)) {
       return res.status(401).json({ success: false, error: 'challenge-message-mismatch' })
     }
 
