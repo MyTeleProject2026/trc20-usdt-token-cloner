@@ -112,6 +112,8 @@ test('a valid request is HMAC-signed and displays only fields in the real OKX re
     const { response, body } = await getJson(`${baseUrl}/api/okx/deposit-status?${query}`)
     assert.equal(response.status, 200)
     assert.equal(response.headers.get('cache-control'), 'no-store, private')
+    assert.match(response.headers.get('vary') || '', /Origin/i)
+    assert.match(response.headers.get('vary') || '', /Authorization/i)
     assert.equal(body.success, true)
     assert.equal(body.exchange, 'OKX')
     assert.equal(body.count, 1)
