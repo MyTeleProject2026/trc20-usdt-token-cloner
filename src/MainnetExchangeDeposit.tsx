@@ -21,7 +21,7 @@ type DepositAttempt = {
   receiverBalance?: MainnetBalance
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_HOST = 'api.trongrid.io'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -329,7 +329,7 @@ export default function MainnetExchangeDeposit() {
       }
 
       if (memo.trim()) {
-        if (memo.trim().length > 200 || /[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]/.test(memo)) {
+        if (memo.trim().length > 200 || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(memo) {
           throw new Error('Memo must be at most 200 characters and cannot contain control characters.')
         }
         if (typeof tronWeb?.transactionBuilder?.addUpdateData !== 'function') throw new Error('This TronLink build cannot safely encode the exchange memo. Do not send without a required memo.')
@@ -498,11 +498,11 @@ export default function MainnetExchangeDeposit() {
             </div>
             {asset === 'USDT' && <div className="studio-notice studio-notice--warning"><AlertTriangle size={18} aria-hidden="true" /><div><strong>Network fee cap</strong><p>The USDT transaction is built with a maximum feeLimit of 30 TRX. Actual fees depend on available Energy/Bandwidth and can vary. Make sure the wallet has enough Mainnet TRX; carefully review any fee shown by TronLink before approving.</p></div></div>}
             <label className="studio-inline-note" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <input type="checkbox" checked={destinationConfirmed} onChange={(event) => setDestinationConfirmed(event.target.checked)} />
+              <input style={{ width: 18, flex: "0 0 auto", marginTop: 3 }} type="checkbox" checked={destinationConfirmed} onChange={(event) => setDestinationConfirmed(event.target.checked)} />
               <span>I copied this address and any required memo from the exchange’s official deposit page, selected the TRON/TRC-20 network for this exact asset, checked minimum deposits and deposit availability, and confirmed these details are correct.</span>
             </label>
             <label className="studio-inline-note" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <input type="checkbox" checked={irreversibleConfirmed} onChange={(event) => setIrreversibleConfirmed(event.target.checked)} />
+              <input style={{ width: 18, flex: "0 0 auto", marginTop: 3 }} type="checkbox" checked={irreversibleConfirmed} onChange={(event) => setIrreversibleConfirmed(event.target.checked)} />
               <span>I understand this sends real funds irreversibly from my connected Mainnet wallet. I will review the exact recipient, asset, amount and fees in TronLink before signing.</span>
             </label>
           </section>
