@@ -480,6 +480,13 @@ export default function SponsorSignerConsole() {
       const path = '/api/tron/sponsorship/transfers/' + encodeURIComponent(key)
       const prepared = await requestJson(API_BASE + path + '/signing-intent')
       if (!prepared.response.ok || prepared.payload.success !== true) {
+        const failureCode = String(prepared.payload.error || prepared.payload.status || '')
+        if (failureCode === 'transfer-not-found') {
+          throw new Error('No reservation was found for this key on the selected testnet. Paste the exact key from the original sponsor:reserve output, its local recovery record, or the protected transfer ledger. This console cannot create or approve reservations. Check the network and reservation status before retrying; nothing was signed or broadcast.')
+        }
+        if (failureCode === 'idempotency-key-conflict') {
+          throw new Error('This key belongs to a different transfer intent. Stop and inspect the existing reservation; do not reuse the key or create a replacement until the original state is resolved.')
+        }
         throw new Error(prepared.payload.message || prepared.payload.error || prepared.payload.status || ('Signing intent unavailable (HTTP ' + prepared.response.status + ').'))
       }
       const reservation = prepared.payload.reservation
