@@ -314,6 +314,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           <p><Activity size={16} aria-hidden="true" /><span><strong>Sign-in is not a transfer.</strong> It does not authorize sponsor spending or broadcast a transaction.</span></p>
         </div>
         <p className="studio-auth-footnote">A public address alone cannot authenticate an account. Sponsor wallets may still need to be selected individually for any wallet-signed action; account selection does not imply sponsor authority.</p>
+        <div className="studio-auth-wallet-cta">
+          <div><strong>Create or import your own wallet</strong><p>Open the local wallet vault to generate a TRON address, encrypt a key on this device, restore an encrypted backup and inspect real on-chain balances.</p></div>
+          <a href="#/wallet">Open Wallet Vault <ExternalLink size={14} aria-hidden="true" /></a>
+        </div>
         {!operatorRoute && (
           <div className="studio-auth-readonly">
             <p><strong>Using a regular browser without a connected wallet?</strong> Continue in watch-only mode to inspect a public TRON address and token contracts. This is not authenticated wallet login and cannot sign, broadcast, or access the sponsor operator console.</p>
