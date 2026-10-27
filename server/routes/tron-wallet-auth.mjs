@@ -10,7 +10,7 @@ import {
   revokeWalletAuthSession,
 } from '../database.mjs'
 
-const NETWORKS = new Set(['shasta', 'nile'])
+const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const NONCE_PATTERN = /^[0-9a-f]{48,128}$/i
 const SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
@@ -117,7 +117,7 @@ export function createTronWalletAuthRouter({
       return res.status(400).json({
         success: false,
         error: 'unsupported-network',
-        message: 'The authenticated workspace currently supports the Nile and Shasta testnets only.',
+        message: 'Choose TRON Mainnet, Nile testnet, or Shasta testnet from the application you are signing into.',
       })
     }
 
