@@ -221,7 +221,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, network, nonce: challenge.nonce, message: challenge.message, signature }),
+        body: JSON.stringify({ address, network, nonce: challenge.nonce, signature }),
         credentials: 'omit',
         cache: 'no-store',
       })
