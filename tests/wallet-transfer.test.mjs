@@ -40,7 +40,9 @@ function mockTronWeb(overrides = {}) {
         const recipient = String(parameters[0].value)
         const amount = BigInt(String(parameters[1].value)).toString(16).padStart(64, '0')
         const recipientHex = (recipient === to ? toHex : ownerHex).slice(2).padStart(64, '0')
-        const data = selector.replace(/\s/g, '').toLowerCase() + recipientHex + amount
+        const normalizedSelector = selector.replace(/\s/g, '').toLowerCase()
+        const selectorBytes = normalizedSelector === 'transfer(address,uint256)' ? 'a9059cbb' : normalizedSelector
+        const data = selectorBytes + recipientHex + amount
         return {
           result: { result: true },
           transaction: transaction('TriggerSmartContract', {
@@ -162,7 +164,7 @@ test('unexpected destination, token contract, amount or calldata is rejected bef
         transaction: transaction('TriggerSmartContract', {
           owner_address: ownerHex,
           contract_address: ownerHex,
-          data: selector.replace(/\s/g, '').toLowerCase()
+          data: (selector.replace(/\s/g, '').toLowerCase() === 'transfer(address,uint256)' ? 'a9059cbb' : selector.replace(/\s/g, '').toLowerCase())
             + toHex.slice(2).padStart(64, '0')
             + BigInt(String(parameters[1].value)).toString(16).padStart(64, '0'),
         }),
