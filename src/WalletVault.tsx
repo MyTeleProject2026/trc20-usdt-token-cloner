@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Network, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
-import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, readConfirmedTransferStatus } from './wallet-transfer.mjs'
+import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, readConfirmedTransferStatus, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import {
   decryptWalletPrivateKey,
   encryptWalletPrivateKey,
@@ -43,7 +43,7 @@ type TokenEvidence = {
   evidenceCheckedAt?: number
 }
 type TransferAsset = 'TRX' | 'TRC20'
-type TransferStatus = 'broadcast-accepted' | 'pending-or-not-indexed' | 'included-unconfirmed' | 'confirmed' | 'failed'
+type TransferStatus = 'broadcast-accepted' | 'pending-or-not-indexed' | 'included-unconfirmed' | 'confirmed' | 'failed' | 'identity-mismatch'
 type TransferActivity = {
   txid: string
   network: NetworkId
@@ -57,6 +57,8 @@ type TransferActivity = {
   to: string
   status: TransferStatus
   submittedAt: number
+  verifiedOnChain?: boolean
+  verificationReason?: string
   blockNumber?: number | null
   solidified?: boolean
 }
@@ -142,7 +144,19 @@ function readTransferHistory(): TransferActivity[] {
       && typeof item.amountBaseUnits === 'string' && /^[1-9][0-9]{0,77}$/.test(item.amountBaseUnits)
       && Number.isInteger(item.decimals) && item.decimals >= 0 && item.decimals <= 36
       && Number.isFinite(item.submittedAt)
-    ).slice(0, 100)
+      && (item.asset === 'TRX' || (typeof item.tokenContract === 'string' && ADDRESS_PATTERN.test(item.tokenContract)))
+    ).slice(0, 100).map((item: TransferActivity) => ({
+      ...item,
+      // localStorage is editable and cannot prove that the saved status or display
+      // metadata matches the blockchain. Reverify each record after every reload.
+      status: 'pending-or-not-indexed' as TransferStatus,
+      verifiedOnChain: false,
+      verificationReason: 'local-storage-not-verified',
+      blockNumber: null,
+      solidified: false,
+      amount: formatUnits(item.amountBaseUnits, item.asset === 'TRX' ? 6 : item.decimals),
+      symbol: item.asset === 'TRX' ? 'TRX' : 'TRC20',
+    }))
   } catch {
     return []
   }
@@ -723,21 +737,43 @@ export default function WalletVault() {
       let status = 'broadcast-accepted' as TransferStatus
       let blockNumber: number | null = null
       let solidified = false
+      let verifiedOnChain = false
+      let verificationReason = 'transaction-not-indexed-yet'
       try {
-        const chainStatus = await readConfirmedTransferStatus(web, record.txid)
-        status = chainStatus.status as TransferStatus
-        blockNumber = chainStatus.blockNumber ?? null
-        solidified = chainStatus.solidified
+        const chainRecord = await verifyTransferRecordOnChain(web, {
+          txid: record.txid,
+          from: record.from,
+          to: record.to,
+          asset: record.asset,
+          amountBaseUnits: record.amountBaseUnits,
+          tokenContract: record.tokenContract || undefined,
+        })
+        verifiedOnChain = chainRecord.identityMatches
+        verificationReason = chainRecord.reason || 'transaction-not-indexed-yet'
+        if (chainRecord.identityMatches) {
+          status = chainRecord.status as TransferStatus
+          blockNumber = chainRecord.blockNumber ?? null
+          solidified = chainRecord.solidified
+        } else if (chainRecord.reason !== 'transaction-not-found') {
+          status = 'identity-mismatch'
+        } else {
+          status = 'pending-or-not-indexed'
+        }
       } catch {
-        // Retain the real broadcast acceptance record; do not claim confirmation.
+        // Broadcast acceptance stays recorded, but is not promoted to verified.
       }
-      const refreshed = { ...record, status, blockNumber, solidified }
+      const refreshed = { ...record, status, verifiedOnChain, verificationReason, blockNumber, solidified }
       const finalHistory = [refreshed, ...next.filter(item => item.txid !== refreshed.txid)].slice(0, 100)
       const historyFinallySaved = saveTransferHistory(finalHistory)
       setTransferHistory(finalHistory)
-      setNotice('Signed transaction broadcast was accepted by the selected TRON network. Status: ' + status
-        + '. Transaction ID: ' + record.txid
-        + (historyInitiallySaved && historyFinallySaved ? '. History saved on this device.' : '. Browser storage could not save history; copy the transaction ID now.')
+      const detail = verifiedOnChain
+        ? 'The selected node returned a transaction whose sender, recipient, amount and asset match the review. Chain status: ' + status + '.'
+        : status === 'identity-mismatch'
+          ? 'The on-chain transaction does not match the reviewed sender, recipient, amount or token contract. Check the explorer before taking any further action.'
+          : 'The node accepted the broadcast, but the transaction details have not yet been independently verified from the chain.'
+      setNotice('Signed transaction broadcast was accepted by the selected TRON network. ' + detail
+        + ' Transaction ID: ' + record.txid
+        + (historyInitiallySaved && historyFinallySaved ? ' History saved on this device.' : ' Browser storage could not save history; copy the transaction ID now.')
         + ' A transaction ID is not an exchange deposit credit.')
       setError('')
     } finally {
@@ -749,15 +785,62 @@ export default function WalletVault() {
     setHistoryLoading(record.txid)
     try {
       const web = createTronWeb(record.network)
-      const chainStatus = await readConfirmedTransferStatus(web, record.txid)
-      const updated = { ...record, status: chainStatus.status as TransferStatus, solidified: chainStatus.solidified, blockNumber: chainStatus.blockNumber ?? null }
-      const next = [updated, ...transferHistory.filter(item => item.txid !== record.txid)].sort((a, b) => b.submittedAt - a.submittedAt).slice(0, 100)
+      let decimals = 6
+      let symbol = 'TRX'
+      if (record.asset === 'TRC20') {
+        if (!record.tokenContract || !web.isAddress(record.tokenContract)) {
+          throw new Error('The saved TRC-20 record does not contain a valid token contract address.')
+        }
+        const token = await web.contract(TOKEN_ABI, record.tokenContract)
+        const [rawDecimals, rawSymbol] = await Promise.all([
+          token.decimals().call(),
+          token.symbol().call(),
+        ])
+        decimals = Number(String(rawDecimals))
+        symbol = String(rawSymbol || '').trim().slice(0, 32)
+        if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36 || !symbol) {
+          throw new Error('The token contract did not return usable decimals and symbol metadata.')
+        }
+      }
+      const chainRecord = await verifyTransferRecordOnChain(web, {
+        txid: record.txid,
+        from: record.from,
+        to: record.to,
+        asset: record.asset,
+        amountBaseUnits: record.amountBaseUnits,
+        tokenContract: record.tokenContract || undefined,
+      })
+      const status = chainRecord.identityMatches
+        ? chainRecord.status as TransferStatus
+        : chainRecord.reason === 'transaction-not-found'
+          ? 'pending-or-not-indexed' as TransferStatus
+          : 'identity-mismatch' as TransferStatus
+      const updated: TransferActivity = {
+        ...record,
+        amount: formatUnits(record.amountBaseUnits, decimals),
+        decimals,
+        symbol,
+        status,
+        verifiedOnChain: chainRecord.identityMatches,
+        verificationReason: chainRecord.reason || 'transaction-not-indexed-yet',
+        solidified: chainRecord.identityMatches && chainRecord.solidified,
+        blockNumber: chainRecord.identityMatches ? chainRecord.blockNumber ?? null : null,
+      }
+      const next = [updated, ...transferHistory.filter(item => item.txid !== record.txid)]
+        .sort((a, b) => b.submittedAt - a.submittedAt).slice(0, 100)
       saveTransferHistory(next)
       setTransferHistory(next)
-      setNotice('Transaction status read from the selected network: ' + updated.status + (updated.solidified ? ' (solidified receipt)' : ' (not yet solidified or not yet indexed)') + '.')
+      if (chainRecord.identityMatches) {
+        setNotice('On-chain transaction identity verified. Status: ' + updated.status
+          + (updated.solidified ? ' (solidified successful receipt)' : ' (not yet solidified or execution unresolved)') + '.')
+      } else if (chainRecord.reason === 'transaction-not-found') {
+        setNotice('This transaction ID is not indexed on the selected network yet. The saved details remain unverified; try again later.')
+      } else {
+        setNotice('The saved history details do not match the transaction returned by the selected network. This local record is not marked verified.')
+      }
       setError('')
-    } catch {
-      setError('Could not refresh this transaction from the selected public TRON node. The saved status was not changed.')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not verify this history record from the public TRON node.')
     } finally {
       setHistoryLoading('')
     }
