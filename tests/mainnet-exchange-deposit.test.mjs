@@ -19,6 +19,7 @@ test('real deposit page is separate from the existing testnet-only workspace', (
 test('Mainnet USDT asset identity is pinned to the official Tether TRON contract', () => {
   assert.match(flow, /const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'/)
   assert.match(flow, /const MAINNET_HOST = 'api\.trongrid\.io'/)
+  assert.ok(flow.includes(String.raw\`(?:\.[0-9]+)?$\`), 'amount parsing must match a literal decimal point')
   assert.match(flow, /checkMainnet\(tronWeb\)/)
   assert.match(flow, /decimals !== 6/)
   assert.match(flow, /contract\.symbol\(\)\.call\(\)/)
