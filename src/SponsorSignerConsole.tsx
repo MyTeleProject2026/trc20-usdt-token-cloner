@@ -176,6 +176,7 @@ export default function SponsorSignerConsole() {
   const [idempotencyKey, setIdempotencyKey] = useState('')
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null)
   const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(null)
+  const [feeWalletNeedsReconnect, setFeeWalletNeedsReconnect] = useState(false)
   const [resourceType, setResourceType] = useState<ResourceKind>('BANDWIDTH')
   const [resourceAmountTRX, setResourceAmountTRX] = useState('1')
   const [delegationIntent, setDelegationIntent] = useState<DelegationIntent | null>(() => loadSavedDelegationIntent())
@@ -280,6 +281,7 @@ export default function SponsorSignerConsole() {
     setNetwork(value)
     setWallet(null)
     setFeeWallet(null)
+    setFeeWalletNeedsReconnect(false)
     setRoleStatus(null)
     setLastIntent(null)
     setLastResult(null)
@@ -510,7 +512,10 @@ export default function SponsorSignerConsole() {
     setError('')
     setMessage('Requesting connection to the fee-sponsor wallet…')
     setBusy('connecting')
-    setFeeWallet(null)
+    // Keep the last verified role address visible if the user switches accounts.
+    // It is marked stale until the configured fee account is reconnected, and the
+    // signer re-reads the active wallet immediately before every signature.
+    setFeeWalletNeedsReconnect(true)
     try {
       if (typeof window.tronLink?.request !== 'function') {
         throw new Error('TronLink is not detected. Connect from a browser with the sponsor wallet available.')
@@ -528,9 +533,10 @@ export default function SponsorSignerConsole() {
         throw new Error('The active wallet is not the configured fee sponsor. Switch the selected account in TronLink, then reconnect; no automatic account change is performed.')
       }
       setFeeWallet(next)
+      setFeeWalletNeedsReconnect(false)
       setMessage('Fee-sponsor wallet and testnet verified. Resource delegation will still require explicit wallet approval.')
     } catch (caught) {
-      setFeeWallet(null)
+      setFeeWalletNeedsReconnect(true)
       setError(caught instanceof Error ? caught.message : 'Could not verify the fee-sponsor wallet.')
       setMessage('Fee-sponsor wallet was not verified; no delegation was signed.')
     } finally {
@@ -593,7 +599,7 @@ export default function SponsorSignerConsole() {
     setDelegationResult(null)
     setBusy('delegating')
     try {
-      if (!feeWallet) throw new Error('Connect and verify the configured fee-sponsor wallet first.')
+      if (!feeWallet || feeWalletNeedsReconnect) throw new Error('Reconnect the configured fee-sponsor account in TronLink and verify it before delegating. The previously verified role address is retained for reference, but cannot sign while another account is active.')
       const before = readInjectedWallet(network)
       if (before.address !== feeWallet.address || before.host !== feeWallet.host) {
         throw new Error('The active wallet account or network changed. Reconnect the fee sponsor before continuing.')
@@ -832,9 +838,9 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-detail"><span>Configured asset principal</span><strong>{assetRole?.address || 'Valid asset-principal address not configured'}</strong></div>
             <div className="sponsor-console-actions">
               <button type="button" className="sponsor-console-button" onClick={() => void connectFeeSponsorWallet()} disabled={busy !== null}><Wallet size={16} aria-hidden="true" /> {busy === 'connecting' && !feeWallet ? 'Connecting…' : 'Connect fee sponsor wallet'}</button>
-              <span className={feeWallet && feeWallet.network === network ? 'sponsor-console-pill sponsor-console-pill--ok' : 'sponsor-console-pill'}>{feeWallet && feeWallet.network === network ? 'Testnet verified' : 'Fee wallet not connected'}</span>
+              <span className={feeWallet && feeWallet.network === network && !feeWalletNeedsReconnect ? 'sponsor-console-pill sponsor-console-pill--ok' : 'sponsor-console-pill'}>{feeWallet && feeWallet.network === network ? (feeWalletNeedsReconnect ? 'Reconnect fee account to sign' : 'Testnet verified') : 'Fee wallet not connected'}</span>
             </div>
-            {feeWallet && <div className="sponsor-console-wallet"><span>Fee-sponsor signer</span><code>{feeWallet.address}</code><span>{feeWallet.host} · checked {new Date(feeWallet.checkedAt).toLocaleTimeString()}</span></div>}
+            {feeWallet && <div className="sponsor-console-wallet"><span>{feeWalletNeedsReconnect ? 'Last verified fee-sponsor address (not active for signing)' : 'Fee-sponsor signer'}</span><code>{feeWallet.address}</code><span>{feeWallet.host} · checked {new Date(feeWallet.checkedAt).toLocaleTimeString()}</span></div>}
             <label className="sponsor-console-label" htmlFor="delegation-resource-type">Resource type</label>
             <select id="delegation-resource-type" value={resourceType} onChange={event => setResourceType(event.target.value as ResourceKind)} disabled={busy !== null}>
               <option value="BANDWIDTH">Bandwidth</option>
@@ -843,7 +849,7 @@ export default function SponsorSignerConsole() {
             <label className="sponsor-console-label" htmlFor="delegation-amount-trx">Stake-equivalent amount (TRX)</label>
             <input id="delegation-amount-trx" inputMode="decimal" value={resourceAmountTRX} onChange={event => setResourceAmountTRX(event.target.value)} disabled={busy !== null} autoComplete="off" spellCheck={false} maxLength={24} />
             <p className="sponsor-console-field-note">The backend must report a fresh solidified delegation ceiling. Minimum: 1 TRX; up to 6 decimals. The signed transaction delegates resource capacity, not token principal, and does not promise zero transfer fees.</p>
-            <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void delegateTestnetResource()} disabled={busy !== null || !feeWallet || feeWallet.network !== network || feeRole?.resourceStatus?.resourceRead !== true || !feeRole?.address || !assetRole?.address || feeRole.address === assetRole.address}><Zap size={16} aria-hidden="true" /> {busy === 'delegating' ? 'Preparing / submitting…' : 'Review and delegate testnet resources'}</button>
+            <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void delegateTestnetResource()} disabled={busy !== null || !feeWallet || feeWalletNeedsReconnect || feeWallet.network !== network || feeRole?.resourceStatus?.resourceRead !== true || !feeRole?.address || !assetRole?.address || feeRole.address === assetRole.address}><Zap size={16} aria-hidden="true" /> {busy === 'delegating' ? 'Preparing / submitting…' : 'Review and delegate testnet resources'}</button>
             {delegationIntent && <div className="sponsor-console-result-note">
               <strong>Delegation transaction: {delegationIntent.status}</strong>
               <div>Network: {delegationIntent.network} · Resource: {delegationIntent.resourceType} · Stake equivalent: {delegationIntent.stakeEquivalentSun} SUN</div>
@@ -881,7 +887,7 @@ export default function SponsorSignerConsole() {
             <div className="sponsor-console-step"><span>02</span><div><h2>Load approved reservation</h2><p>This must be an operator-created reservation for an active, funded testnet budget. A display-only balance or UI draft is not enough.</p></div></div>
             <label className="sponsor-console-label" htmlFor="sponsor-intent-key">Reservation idempotency key</label>
             <input id="sponsor-intent-key" value={idempotencyKey} onChange={event => setIdempotencyKey(event.target.value)} autoComplete="off" spellCheck={false} placeholder="Paste the approved 24+ character reservation key" maxLength={160} />
-            <p className="sponsor-console-field-note">Treat this as a request reference. Never paste a seed phrase, private key, API key or signing secret.</p>
+            <p className="sponsor-console-field-note">This key identifies an existing approved reservation; it does not create one. Find it in the successful `sponsor:reserve` CLI output or the protected transfer ledger. Never paste a seed phrase, private key, API key or signing secret. <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/blob/main/docs/SPONSOR_RESERVATION_IDEMPOTENCY.md" target="_blank" rel="noreferrer">How to create/find a reservation key <ExternalLink size={12} aria-hidden="true" /></a></p>
             <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void (hasPreparedCurrentIntent ? signAndSubmit() : prepareSigningIntent())} disabled={busy !== null || !wallet || idempotencyKey.trim().length < 24 || preparedIntentAlreadyBroadcast}><LockKeyhole size={16} aria-hidden="true" /> {busy === 'signing' ? 'Signing and submitting…' : busy === 'checking' ? 'Preparing exact transaction…' : preparedIntentAlreadyBroadcast ? 'Already broadcast — verify receipt below' : hasPreparedCurrentIntent ? 'Sign exact reviewed transaction in TronLink' : 'Prepare exact transaction for review'}</button>
           </section>
 
@@ -935,6 +941,7 @@ export default function SponsorSignerConsole() {
             <div><strong>Testnet actions still move testnet assets.</strong><p>Review every field in the wallet confirmation. The backend accepts only Shasta/Nile, but node acceptance is not finality. Mainnet remains disabled until security review, settlement reconciliation, audited funding, and end-to-end evidence are complete.</p></div>
           </div>
           {error && <div className="sponsor-console-error" role="alert">{error}</div>}
+          {/transfer-not-found|reservation-not-found/i.test(error) && <div className="sponsor-console-result-note" role="note"><strong>No approved reservation was found for that key.</strong><p>The key field cannot create a reservation by itself. From a trusted terminal, create the approved testnet reservation with <code>npm run sponsor:reserve -- ...</code>, then paste the exact key printed by the successful command. Keep the same key and request fields for retries. The CLI requires the backend admin token in your local shell; never put it in this browser or a `VITE_*` variable. <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/blob/main/docs/SPONSOR_RESERVATION_IDEMPOTENCY.md" target="_blank" rel="noreferrer">Open the step-by-step guide <ExternalLink size={12} aria-hidden="true" /></a></p></div>}
           <p className="sponsor-console-status" role="status"><CheckCircle2 size={15} aria-hidden="true" /> {message}</p>
           <footer className="sponsor-console-footer"><span>No private keys leave the sponsor wallet.</span><a href="https://developers.tron.network/docs/api-signature-and-broadcast-flow" target="_blank" rel="noreferrer">TRON signing and broadcast model <ExternalLink size={13} aria-hidden="true" /></a></footer>
         </main>
