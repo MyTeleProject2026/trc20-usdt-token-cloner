@@ -659,3 +659,11 @@ main .grid > button[aria-pressed] > span {
   .studio-auth-card { margin:auto 0; padding:22px 18px; border-radius:17px; }
   .studio-auth-brand { margin-bottom:26px; }
 }
+
+
+.studio-auth-session-strip { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:42px; padding:8px 18px; color:#a9d9c9; border-bottom:1px solid rgba(127,255,210,.14); background:#071614; font-size:11px; }
+.studio-auth-session-strip > span { display:flex; align-items:center; gap:7px; min-width:0; overflow-wrap:anywhere; }
+.studio-auth-session-strip svg { flex:0 0 auto; color:#7fffd2; }
+.studio-auth-session-strip button { flex:0 0 auto; padding:6px 10px; color:#c0e9db; border:1px solid #31574d; border-radius:8px; background:#0b211c; font-size:10px; font-weight:750; }
+.studio-auth-session-strip button:hover { border-color:#7fffd2; }
+@media (max-width:520px) { .studio-auth-session-strip { padding:8px 12px; font-size:10px; } }
