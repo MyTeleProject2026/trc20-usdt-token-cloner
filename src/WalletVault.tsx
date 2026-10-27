@@ -553,10 +553,20 @@ export default function WalletVault() {
     } catch {
       // Source-indexer outages are represented as unknown, never "verified".
     }
+    // The fixed official address plus matching on-chain metadata is sufficient
+    // to recognize the known Mainnet Tether deployment if the optional explorer
+    // metadata service is unavailable. Any returned explorer risk marker still
+    // blocks transfers below; this is not a promise that the token is risk-free.
+    const officialMainnetUsdtAddressMatch = network === 'mainnet'
+      && contractAddress === OFFICIAL_MAINNET_USDT
+      && symbol.toUpperCase() === 'USDT'
+      && decimals === 6
+      && /tether/i.test(name)
     return {
       ...explorer,
       network,
       contractAddress,
+      officialMainnetUsdtAddressMatch,
       onChainContractDeployed: true,
       onChainMetadataReadable: true,
       tokenName: name,
