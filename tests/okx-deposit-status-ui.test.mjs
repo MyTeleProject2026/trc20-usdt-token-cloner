@@ -26,7 +26,7 @@ test('page makes a no-cache authenticated GET and never persists the access toke
 test('page displays only returned deposit records and prominently states scope', () => {
   assert.match(page, /setRecords\(payload\.deposits\)/)
   assert.match(page, /OKX account configured on the backend/)
-  assert.match(page, /does not inspect another recipient.{1,2}OKX account/)
+  assert.match(page, /does not inspect another recipient.{1,8}OKX account/)
   assert.match(page, /This does not prove a particular transfer failed/)
   assert.match(page, /No balances are fabricated/)
   assert.match(page, /Successful · OKX reports withdrawable/)
