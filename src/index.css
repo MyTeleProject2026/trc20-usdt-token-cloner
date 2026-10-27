@@ -667,3 +667,8 @@ main .grid > button[aria-pressed] > span {
 .studio-auth-session-strip button { flex:0 0 auto; padding:6px 10px; color:#c0e9db; border:1px solid #31574d; border-radius:8px; background:#0b211c; font-size:10px; font-weight:750; }
 .studio-auth-session-strip button:hover { border-color:#7fffd2; }
 @media (max-width:520px) { .studio-auth-session-strip { padding:8px 12px; font-size:10px; } }
+
+.studio-operator-link { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; min-height:34px; padding:.45rem .65rem; color:#b2e9d6; border:1px solid #31564b; border-radius:9px; background:rgba(11,33,28,.72); font-size:.67rem; font-weight:750; text-decoration:none; white-space:nowrap; }
+.studio-operator-link:hover { color:#e2fff4; border-color:#72ddba; background:rgba(24,70,55,.68); }
+.studio-operator-link:focus-visible { outline:2px solid #7fffd2; outline-offset:3px; }
+@media (max-width:560px) { .studio-operator-link { min-height:32px; padding:.4rem .5rem; font-size:.62rem; } }
