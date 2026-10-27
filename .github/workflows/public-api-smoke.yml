@@ -127,6 +127,32 @@ jobs:
           console.log('Capacitor https://localhost origin is allowed for identity-only wallet authentication.')
           NODE
 
+      - name: Verify token evidence never fabricates source trust or exchange credits
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f token-authenticity.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output token-authenticity.json --write-out '%{http_code}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/tron/token-authenticity?network=mainnet&contract=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t')"
+          if [[ "$http_code" != "200" ]]; then
+            echo "Token evidence endpoint returned HTTP $http_code." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('token-authenticity.json', 'utf8'))
+          if (data.success !== true
+            || data.network !== 'mainnet'
+            || data.contractAddress !== 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+            || data.officialMainnetUsdtAddressMatch !== true
+            || typeof data.sourceVerificationStatus !== 'string'
+            || typeof data.explorerStatus !== 'string'
+            || !String(data.evidenceScope || '').includes('not an audit')
+            || 'balance' in data || 'exchangeCredit' in data || 'credited' in data) {
+            throw new Error('Token evidence response violated the read-only, evidence-only contract')
+          }
+          console.log('Token evidence endpoint reports the official contract reference but does not invent token balance or exchange credit.')
+          NODE
+
       - name: Inspect sanitized provider status
         shell: bash
         run: |
