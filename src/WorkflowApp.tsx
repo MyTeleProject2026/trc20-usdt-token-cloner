@@ -690,6 +690,13 @@ export default function WorkflowApp() {
   const receiverHistoryRequestGeneration = useRef(0)
   const feeEstimateRequestGeneration = useRef(0)
 
+  useEffect(() => {
+    // Invalidate any balance request captured before the network, asset or
+    // contract selection changed so stale values cannot populate the new form.
+    senderSnapshotRequestGeneration.current += 1
+    setSenderLoading(false)
+  }, [network, assetKind, tokenContract])
+
   const clearReceiverHistory = () => {
     receiverHistoryRequestGeneration.current += 1
     setReceiverHistoryLoading(false)
