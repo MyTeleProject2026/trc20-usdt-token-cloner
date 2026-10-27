@@ -102,6 +102,31 @@ jobs:
           console.log('Live TRON login rejects an invalid signature and issues no session.')
           NODE
 
+      - name: Verify packaged Android origin can request an identity-only challenge
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f packaged-wallet-challenge.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output packaged-wallet-challenge.json --write-out '%{http_code}' --request POST --header 'Origin: https://localhost' --header 'Content-Type: application/json' --data '{"address":"TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2","network":"nile"}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/tron/challenge')"
+          if [[ "$http_code" != "200" ]]; then
+            echo "Packaged Android origin https://localhost returned HTTP $http_code. Configure PACKAGED_APP_ORIGINS on the Render API service." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('packaged-wallet-challenge.json', 'utf8'))
+          if (data.success !== true || data.scope !== 'wallet-identity-only'
+            || data.network !== 'nile'
+            || data.address !== 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+            || typeof data.nonce !== 'string'
+            || typeof data.message !== 'string'
+            || 'sessionToken' in data
+            || data.canSubmitSponsoredTransfer === true) {
+            throw new Error('Packaged Android origin did not receive the identity-only wallet challenge contract')
+          }
+          console.log('Capacitor https://localhost origin is allowed for identity-only wallet authentication.')
+          NODE
+
       - name: Inspect sanitized provider status
         shell: bash
         run: |
