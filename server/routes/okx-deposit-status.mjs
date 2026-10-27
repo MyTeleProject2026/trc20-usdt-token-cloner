@@ -53,7 +53,7 @@ export function createOkxDepositStatusRouter({
   router.get('/deposit-status', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     res.setHeader('Pragma', 'no-cache')
-    res.setHeader('Vary', 'Authorization')
+    res.setHeader('Vary', 'Origin, Authorization')
 
     const accessToken = env.OKX_STATUS_ACCESS_TOKEN
     const apiKey = env.OKX_API_KEY
