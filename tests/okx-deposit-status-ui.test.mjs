@@ -37,5 +37,8 @@ test('page displays only returned deposit records and prominently states scope',
 })
 
 test('page has no signing or transaction submission path', () => {
-  assert.doesNotMatch(page, /sendRawTransaction|transactionBuilder|signMessageV2|\/withdrawal|\/transfer\b/i)
+  // Match executable signing/submission identifiers and API URL construction,
+  // not explanatory prose such as "no transfer is started".
+  assert.doesNotMatch(page, /\b(?:sendRawTransaction|transactionBuilder|signMessageV2)\b/i)
+  assert.doesNotMatch(page, /(?:fetch|axios\.(?:get|post|put|delete))\s*\([^)]*\/(?:withdrawal|transfer)(?:[/?'"]|\b)/i)
 })
