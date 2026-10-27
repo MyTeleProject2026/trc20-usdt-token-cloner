@@ -35,3 +35,15 @@ test('the authentication gate never collects or accepts a private key', () => {
   assert.doesNotMatch(gate, /privateKeyInput|private-key-input|seedPhraseInput|recoveryPhraseInput/i)
   assert.doesNotMatch(gate, /req\.body\.privateKey|body\.privateKey|privateKey:/i)
 })
+
+
+test('wallet login uses modern TronLink provider flow and explains common connection failures', () => {
+  assert.match(gate, /function getTronProvider\(\)/)
+  assert.match(gate, /method: 'eth_requestAccounts'/)
+  assert.match(gate, /method: 'tron_requestAccounts'/)
+  assert.match(gate, /const tronWeb = provider\.tronWeb \|\| \(window as any\)\.tronWeb/)
+  assert.match(gate, /function walletErrorMessage\(caught: unknown\)/)
+  assert.match(gate, /A TronLink request is already open/)
+  assert.match(gate, /Unlock TronLink/)
+  assert.match(gate, /app identity is the server-verified signature session/)
+})
