@@ -9,7 +9,9 @@ Open `#/wallet` in the web app or bundled Capacitor Android app. The Wallet Vaul
 - Restore a TRON Token Studio encrypted JSON backup.
 - Keep multiple encrypted wallet records on that browser/device.
 - Unlock/lock a selected key in application memory.
-- Read native TRX balance from the selected public TRON RPC endpoint and read `balanceOf`, `decimals` and `symbol` for user-selected TRC-20 contracts.
+- Read native TRX balance from the selected public TRON RPC endpoint and read `balanceOf`, `decimals`, `symbol`, `name` and `totalSupply` for user-selected TRC-20 contracts.
+- Review and locally sign real native TRX or TRC-20 transfers, broadcast signed transactions to the selected public TRON node, save transaction IDs locally, and refresh transaction status from full/solidified-node reads.
+- Check Mainnet contract source-verification and risk annotations through the read-only TronScan API; verification status is evidence, not a guarantee of legitimacy.
 - Sign the backend's one-time identity challenge to obtain the existing testnet workspace session.
 
 Wallet generation does not activate an account on-chain. A newly generated address initially has no assets until it is used on a network. Mainnet and testnet addresses derive from the same key, but their balances and transactions are separate.
@@ -20,14 +22,16 @@ The current keystore uses PBKDF2-HMAC-SHA-256 (600,000 iterations for new record
 
 **This is a client-side password-encrypted web wallet, not a hardware wallet or an audited mobile secure-keystore implementation.** A compromised device, malicious browser extension, injected script, or compromised app build could access a key while it is unlocked. Local storage can be cleared by the browser/OS. Use the encrypted backup, keep it private, and test recovery before depending on it. A lost password cannot be reset by the server. Do not treat the current implementation as ready to custody substantial mainnet assets without independent wallet-security review and real-device testing.
 
-This build does not generate a BIP-39 mnemonic/recovery phrase. The recovery path provided by this iteration is the app-specific encrypted JSON backup plus its password. It does not have wallet transfer or broadcast controls in the Wallet Vault screen.
+This build does not generate a BIP-39 mnemonic/recovery phrase. The recovery path provided by this iteration is the app-specific encrypted JSON backup plus its password. Real transfer controls are present, but the wallet has not undergone an independent security audit. Transfers must be treated as irreversible.
 
 ## Network and contract reads
 
 - Nile, Shasta and Mainnet are selected independently; switching the network does not switch a key's identity.
 - Native TRX balance comes from TronWeb's read-only `getBalance` call.
-- The token watchlist calls read-only contract methods. A token symbol, metadata or returned balance is not a legitimacy endorsement or exchange-deposit confirmation.
-- Adding a token contract only adds a local read-only watch entry. It does not add that contract to server transfer allowlists and does not enable token creation, transfer or sponsored broadcast.
+- The token watchlist calls real read-only contract methods. Mainnet source/risk annotations come from TronScan's public API; testnet source-verification evidence remains unknown rather than being borrowed from Mainnet.
+- Mainnet TRC-20 transfers are blocked unless the contract matches the official Tether TRON USDT address under additional on-chain metadata checks, or TronScan reports fully verified source with no risk markers. Source verification is not a guarantee of safety, issuer identity, liquidity, peg or value.
+- Native TRX transfers and supported TRC-20 transfers are signed locally and broadcast to the selected public node. The app checks balances, simulates TRC-20 calls, estimates a fee cap, requires explicit review and acknowledgement, and requires typing `SEND MAINNET` before Mainnet broadcast.
+- The transaction ID is read back from the network; a transaction is only labeled confirmed when a successful execution receipt is available. Ambiguous receipts remain unresolved.
 
 ## Workspace authentication
 
