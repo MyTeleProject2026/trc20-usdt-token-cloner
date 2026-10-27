@@ -13,13 +13,20 @@ test('the local-only simulator is no longer part of the live UI', () => {
   assert.ok(!app.includes('fictional balances and records'))
 })
 
-test('the live staged frontend cannot sign or submit a transaction', () => {
-  assert.ok(!app.includes('sendRawTransaction'))
-  assert.ok(!app.includes('triggerSmartContract'))
-  assert.ok(!app.includes('eth_sendTransaction'))
+test('only the explicitly chosen testnet direct-send path can sign and broadcast', () => {
+  assert.ok(app.includes("if (network !== 'nile' && network !== 'shasta')"))
+  assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
+  assert.ok(app.includes('transactionBuilder.sendTrx'))
+  assert.ok(app.includes('triggerSmartContract'))
+  assert.ok(app.includes('tronWeb.trx.sign(unsigned)'))
+  assert.ok(app.includes('sendRawTransaction(signed)'))
+  assert.ok(app.includes('/api/tron/verify-native-transfer/'))
+  assert.ok(app.includes('/api/tron/verify-trc20-transfer/'))
+  assert.doesNotMatch(app, /eth_sendTransaction/)
   assert.ok(!app.includes('/api/gasfree/submit'))
   assert.ok(app.includes('Sponsored transfer unavailable'))
   assert.ok(app.includes('No sender-funded fallback'))
+  assert.ok(app.includes('This is a real on-chain testnet transaction, not a simulation.'))
 })
 
 test('token is explicitly distinct from official Tether', () => {
