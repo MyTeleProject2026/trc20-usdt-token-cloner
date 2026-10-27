@@ -10,7 +10,7 @@ const gasFree = await readFile(new URL('../server/routes/gasfree.mjs', import.me
 
 test('sign-in offers the selected testnet faucet and official TRON guide', () => {
   assert.match(authGate, /Try the platform without real USDT/)
-  assert.match(authGate, /test tokens have no monetary value/i)
+  assert.match(authGate, /(?:test tokens|testnet coins) have no monetary value/i)
   assert.match(authGate, /https:\/\/nileex\.io\/join\/getJoinPage/)
   assert.match(authGate, /https:\/\/shasta\.tronex\.io\/join\/getJoinPage/)
   assert.match(authGate, /https:\/\/developers\.tron\.network\/docs\/getting-testnet-tokens-on-tron/)
@@ -20,7 +20,7 @@ test('sign-in offers the selected testnet faucet and official TRON guide', () =>
 test('testnet token flow does not misidentify user-supplied contracts as Mainnet USDT', () => {
   assert.match(workflow, /TRC-20 test token/)
   assert.match(workflow, /This is not official Mainnet USDT/)
-  assert.match(workflow, /token contract address on/)
+  assert.match(workflow, /token contract address on/i)
   assert.match(workflow, /network === 'nile'/)
 })
 
