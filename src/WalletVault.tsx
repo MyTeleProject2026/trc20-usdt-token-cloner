@@ -186,11 +186,11 @@ function explorerTransactionUrl(network: NetworkId, txid: string): string {
 
 function tokenEvidenceLabel(evidence?: TokenEvidence): string {
   if (!evidence) return 'Not checked'
+  if (evidence.explorerRiskLevel === 'unsafe' || evidence.explorerRiskLevel === 'suspicious' || evidence.riskFeedback || Boolean(evidence.riskTag?.trim())) return 'Explorer risk warning'
   if (evidence.officialMainnetUsdtAddressMatch) return 'Official Mainnet USDT address match'
   if (evidence.sourceVerificationStatus === 'fully-verified-source') return 'TronScan source fully verified'
   if (evidence.sourceVerificationStatus === 'partially-verified-source') return 'TronScan source partially verified'
   if (evidence.sourceVerificationStatus === 'unverified-source') return 'TronScan source not verified'
-  if (evidence.explorerRiskLevel === 'unsafe' || evidence.explorerRiskLevel === 'suspicious' || evidence.riskFeedback) return 'Explorer risk warning'
   if (evidence.onChainContractDeployed && evidence.onChainMetadataReadable) return 'On-chain TRC-20 methods readable; issuer not verified'
   return 'Evidence unavailable'
 }
@@ -898,7 +898,7 @@ export default function WalletVault() {
           {records.length > 0 ? (
             <div className="wallet-vault-wallet-list">
               {records.map(record => (
-                <button type="button" key={record.address} className={'wallet-vault-wallet-choice' + (selectedAddress === record.address ? ' is-selected' : '')} onClick={() => { setSelectedAddress(record.address); if (unlocked?.record.address !== record.address) setUnlocked(null); setPassword(''); setPortfolio(null); setError(''); setNotice('') }}>
+                <button type="button" key={record.address} className={'wallet-vault-wallet-choice' + (selectedAddress === record.address ? ' is-selected' : '')} onClick={() => { setSelectedAddress(record.address); if (unlocked?.record.address !== record.address) setUnlocked(null); setPassword(''); setPortfolio(null); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setError(''); setNotice('') }}>
                   <span className="wallet-vault-avatar"><Wallet size={18} /></span>
                   <span className="wallet-vault-wallet-details"><strong>{shortenAddress(record.address)}</strong><small>Saved {new Date(record.createdAt).toLocaleDateString()}</small></span>
                   <span className="wallet-vault-choice-status">{unlocked?.record.address === record.address ? 'Unlocked' : 'Encrypted'}</span>
@@ -940,7 +940,7 @@ export default function WalletVault() {
                 )}
                 {tokenContracts.length > 0 && (
                   <div className="wallet-vault-token-list">
-                    {(portfolio?.tokens || tokenContracts.map(contract => ({ contract, symbol: 'TRC20', decimals: 0, balance: 'Reading…' }))).map(token => {
+                    {(portfolio?.tokens || tokenContracts.map(contract => ({ contract, symbol: 'TRC20', decimals: 0, balance: balanceLoading ? 'Reading…' : 'Unavailable', error: balanceLoading ? undefined : 'Chain read unavailable. Refresh to retry.' }))).map(token => {
                       const evidence = tokenEvidence[token.contract]
                       const warning = evidence?.riskFeedback === true || evidence?.explorerRiskLevel === 'suspicious'
                         || evidence?.explorerRiskLevel === 'unsafe' || Boolean(evidence?.riskTag?.trim())
