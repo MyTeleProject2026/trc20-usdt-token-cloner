@@ -97,6 +97,44 @@ export async function initializeDatabase() {
   if (!initPromise) {
     initPromise = (async () => {
       await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
+          origin TEXT NOT NULL,
+          challenge_message TEXT NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -612,6 +650,173 @@ export async function findVerifiedTransfer(input) {
       result: row.result,
       createdAt: row.created_at,
     },
+  }
+}
+
+/**
+ * Persist a short-lived wallet ownership challenge. Only a SHA-256 digest of
+ * the random nonce is stored; the public message is bound to address, network
+ * and exact allowed browser origin. Expired challenges are cleaned as new ones
+ * are issued so this table cannot grow without bound during normal use.
+ */
+export async function persistWalletAuthChallenge(input = {}) {
+  const { nonceHash, address, network, origin, message, expiresAt } = input
+  if (typeof nonceHash !== 'string' || !/^[0-9a-f]{64}$/.test(nonceHash)
+    || !isValidTronAddress(address) || !['nile', 'shasta'].includes(network)
+    || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
+    || typeof message !== 'string' || message.length < 1 || message.length > 2048
+    || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return { success: false, reason: 'invalid-challenge' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE expires_at <= now()`)
+    await db.query(
+      `INSERT INTO ${schema}.wallet_auth_challenges
+        (nonce_hash, wallet_address, network, origin, challenge_message, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [nonceHash, address, network, origin, message, new Date(expiresAt)],
+    )
+    return { success: true }
+  } catch (error) {
+    // The uniqueness constraint intentionally rejects a duplicate challenge hash.
+    console.error('Wallet auth challenge persistence failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Consume a challenge atomically across server instances. DELETE ... RETURNING
+ * guarantees a valid nonce cannot be replayed after it has been selected.
+ */
+export async function consumeWalletAuthChallenge({ nonceHash } = {}) {
+  if (typeof nonceHash !== 'string' || !/^[0-9a-f]{64}$/.test(nonceHash)) {
+    return { success: false, reason: 'invalid-challenge' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `DELETE FROM ${schema}.wallet_auth_challenges
+        WHERE nonce_hash = $1
+        RETURNING wallet_address, network, origin, challenge_message, expires_at`,
+      [nonceHash],
+    )
+    if (!result.rows.length) return { success: true, challenge: null }
+    const row = result.rows[0]
+    return {
+      success: true,
+      challenge: {
+        address: row.wallet_address,
+        network: row.network,
+        origin: row.origin,
+        message: row.challenge_message,
+        expiresAt: new Date(row.expires_at).getTime(),
+      },
+    }
+  } catch (error) {
+    console.error('Wallet auth challenge consumption failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Persist a verified login. Store the session token digest rather than the
+ * bearer value; upsert a network-scoped account only after signature proof.
+ */
+export async function persistWalletAuthSession(input = {}) {
+  const { tokenHash, address, network, origin, expiresAt } = input
+  if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)
+    || !isValidTronAddress(address) || !['nile', 'shasta'].includes(network)
+    || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
+    || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return { success: false, reason: 'invalid-session' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    await client.query(`DELETE FROM ${schema}.wallet_auth_sessions WHERE expires_at <= now()`)
+    await client.query(
+      `INSERT INTO ${schema}.wallet_auth_accounts (network, wallet_address)
+       VALUES ($1,$2)
+       ON CONFLICT (network, wallet_address)
+       DO UPDATE SET last_authenticated_at = now()`,
+      [network, address],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.wallet_auth_sessions
+        (token_hash, wallet_address, network, origin, expires_at)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [tokenHash, address, network, origin, new Date(expiresAt)],
+    )
+    await client.query('COMMIT')
+    return { success: true }
+  } catch (error) {
+    try { await client?.query('ROLLBACK') } catch {}
+    console.error('Wallet auth session persistence failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+/** Read a live session only when both its token digest and origin match. */
+export async function getWalletAuthSession({ tokenHash, origin, nowMs = Date.now() } = {}) {
+  if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)
+    || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
+    || !Number.isFinite(nowMs)) {
+    return { success: false, reason: 'invalid-session' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    await db.query(`DELETE FROM ${schema}.wallet_auth_sessions WHERE expires_at <= now()`)
+    const result = await db.query(
+      `SELECT wallet_address, network, origin, expires_at
+         FROM ${schema}.wallet_auth_sessions
+        WHERE token_hash = $1 AND origin = $2 AND expires_at > $3
+        LIMIT 1`,
+      [tokenHash, origin, new Date(nowMs)],
+    )
+    if (!result.rows.length) return { success: true, session: null }
+    const row = result.rows[0]
+    return {
+      success: true,
+      session: {
+        address: row.wallet_address,
+        network: row.network,
+        origin: row.origin,
+        expiresAt: new Date(row.expires_at).getTime(),
+      },
+    }
+  } catch (error) {
+    console.error('Wallet auth session lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Revoke one opaque wallet-auth session by its digest. */
+export async function revokeWalletAuthSession({ tokenHash } = {}) {
+  if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)) {
+    return { success: false, reason: 'invalid-session' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    await db.query(`DELETE FROM ${schema}.wallet_auth_sessions WHERE token_hash = $1`, [tokenHash])
+    return { success: true }
+  } catch (error) {
+    console.error('Wallet auth session revocation failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
   }
 }
 
