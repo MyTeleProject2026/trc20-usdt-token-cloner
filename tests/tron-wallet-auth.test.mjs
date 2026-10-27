@@ -141,6 +141,50 @@ test('wallet login verifies a one-time signature and returns an identity-only wa
   })
 })
 
+test('wallet signature cannot be replayed with a changed message and the challenge is consumed', async () => {
+  const store = createMemoryAuthStore()
+  let signatureVerifierCalls = 0
+  const app = createApp({
+    store,
+    nonceFactory: () => '8'.repeat(48),
+    verifyMessage: async () => { signatureVerifierCalls += 1; return address },
+  })
+  await withServer(app, async (base) => {
+    const challenge = await requestJson(base, '/challenge', {
+      method: 'POST', body: { address, network: 'mainnet' },
+    })
+    assert.equal(challenge.response.status, 200)
+    const tampered = await requestJson(base, '/verify', {
+      method: 'POST',
+      body: {
+        address,
+        network: 'mainnet',
+        nonce: challenge.payload.nonce,
+        message: challenge.payload.message + '\nChanged purpose',
+        signature,
+      },
+    })
+    assert.equal(tampered.response.status, 401)
+    assert.equal(tampered.payload.error, 'challenge-message-mismatch')
+    assert.equal(signatureVerifierCalls, 0)
+    assert.equal(store.sessions.size, 0)
+
+    const replay = await requestJson(base, '/verify', {
+      method: 'POST',
+      body: {
+        address,
+        network: 'mainnet',
+        nonce: challenge.payload.nonce,
+        message: challenge.payload.message,
+        signature,
+      },
+    })
+    assert.equal(replay.response.status, 401)
+    assert.equal(replay.payload.error, 'challenge-expired-or-mismatched')
+    assert.equal(signatureVerifierCalls, 0)
+  })
+})
+
 test('a session can be resolved by another router instance sharing persistent storage', async () => {
   const store = createMemoryAuthStore()
   const nonceFactory = () => '3'.repeat(48)
