@@ -146,5 +146,7 @@ test('wallet UI exposes only owner-authenticated read-only funding, not generate
   assert.ok(ui.includes('ownerAccessVerified'))
   assert.ok(ui.includes('Read-only treasury funding check'))
   assert.ok(ui.toLowerCase().includes('no usdt is generated'))
+  assert.ok(ui.includes('TREASURY_MAINNET_ADDRESS'))
+  assert.ok(ui.includes('The watched treasury address is different from the currently unlocked wallet'))
   assert.ok(ui.includes('canSubmitSponsoredTransfer'))
 })

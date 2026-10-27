@@ -16,11 +16,6 @@ function header(req, name) {
 }
 
 /**
- * Owner-only, read-only treasury status. A valid Mainnet wallet signature proves
- * owner identity; it does not grant permission to spend. This route never mints,
- * signs, broadcasts, or claims an exchange credited a deposit.
- */
-/**
  * Resolve the public address to monitor. TREASURY_MAINNET_ADDRESS is the
  * explicit watch-only target; the legacy sponsor address remains compatible.
  * The owner identity address is the final fallback for one-wallet deployments.
@@ -33,6 +28,11 @@ export function resolveOwnerTreasuryFundingAddress(env = process.env) {
   return ''
 }
 
+/**
+ * Owner-only, read-only treasury status. A valid Mainnet wallet signature proves
+ * owner identity; it does not grant permission to spend. This route never mints,
+ * signs, broadcasts, or claims an exchange credited a deposit.
+ */
 export function createOwnerTreasuryRouter({
   env = process.env,
   getSession = getWalletAuthSession,

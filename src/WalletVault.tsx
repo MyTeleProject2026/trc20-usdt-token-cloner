@@ -1190,6 +1190,9 @@ export default function WalletVault() {
                         <div className="wallet-vault-review-wide"><small>Snapshot checked</small><strong>{ownerTreasurySnapshot.checkedAt || 'Time unavailable'}</strong></div>
                       </div>
                       <p className="wallet-vault-caption">This is an observed chain balance, not an accounting balance or a payout authorization. The balance is not increased by this app. An actual outgoing transfer still requires genuine treasury assets and a separately reviewed signer/approval process.</p>
+                      {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
+                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
+                      )}
                     </>
                   )}
                   <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
