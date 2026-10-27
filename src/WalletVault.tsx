@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
+import { buildSignAndBroadcastTransfer, parseUnitsDecimal, readConfirmedTransferStatus } from './wallet-transfer.mjs'
 import {
   decryptWalletPrivateKey,
   encryptWalletPrivateKey,
@@ -20,6 +21,63 @@ type WalletRecord = {
 type UnlockedWallet = { record: WalletRecord; privateKey: string }
 type TokenBalance = { contract: string; symbol: string; decimals: number; balance: string; error?: string }
 type Portfolio = { trx: string; tokens: TokenBalance[]; checkedAt: number }
+type TokenEvidence = {
+  network: NetworkId
+  contractAddress: string
+  onChainContractDeployed?: boolean
+  onChainMetadataReadable?: boolean
+  tokenName?: string
+  tokenSymbol?: string
+  tokenType?: string
+  tokenDecimals?: number
+  totalSupply?: string
+  explorerStatus?: string
+  sourceVerificationStatus?: string
+  explorerRiskLevel?: string
+  riskFeedback?: boolean
+  riskTag?: string
+  publicLabel?: string
+  officialLabel?: string
+  officialMainnetUsdtAddressMatch?: boolean
+  evidenceScope?: string
+  evidenceCheckedAt?: number
+}
+type TransferAsset = 'TRX' | 'TRC20'
+type TransferStatus = 'broadcast-accepted' | 'pending-or-not-indexed' | 'included-unconfirmed' | 'confirmed' | 'failed'
+type TransferActivity = {
+  txid: string
+  network: NetworkId
+  asset: TransferAsset
+  symbol: string
+  tokenContract: string | null
+  amount: string
+  amountBaseUnits: string
+  decimals: number
+  from: string
+  to: string
+  status: TransferStatus
+  submittedAt: number
+  blockNumber?: number | null
+  solidified?: boolean
+}
+type TransferReview = {
+  network: NetworkId
+  asset: TransferAsset
+  from: string
+  to: string
+  amount: string
+  amountBaseUnits: string
+  decimals: number
+  symbol: string
+  tokenContract: string | null
+  nativeBalance: string
+  tokenBalance: string | null
+  tokenEvidence: TokenEvidence | null
+  feeLimitSun: number
+  createdAt: number
+}
+
+const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const VAULT_KEY = 'tron-token-studio:encrypted-wallet-vault:v1'
@@ -33,10 +91,13 @@ const RPC: Record<NetworkId, string> = {
   nile: 'https://nile.trongrid.io',
   shasta: 'https://api.shasta.trongrid.io',
 }
+const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const TOKEN_ABI = [
   { constant: true, inputs: [{ name: 'owner', type: 'address' }], name: 'balanceOf', outputs: [{ name: 'balance', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { constant: true, inputs: [], name: 'decimals', outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view', type: 'function' },
   { constant: true, inputs: [], name: 'symbol', outputs: [{ name: '', type: 'string' }], stateMutability: 'view', type: 'function' },
+  { constant: true, inputs: [], name: 'name', outputs: [{ name: '', type: 'string' }], stateMutability: 'view', type: 'function' },
+  { constant: true, inputs: [], name: 'totalSupply', outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view', type: 'function' },
 ]
 
 function createTronWeb(network: NetworkId, privateKey?: string): any {
@@ -65,6 +126,30 @@ function readTokenWatchlist(network: NetworkId): string[] {
   }
 }
 
+function readTransferHistory(): TransferActivity[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(TRANSFER_HISTORY_KEY) || '{}')
+    if (parsed?.version !== 1 || !Array.isArray(parsed.items)) return []
+    return parsed.items.filter((item: any): item is TransferActivity =>
+      item && typeof item === 'object'
+      && /^[0-9a-f]{64}$/i.test(String(item.txid || ''))
+      && ['mainnet', 'nile', 'shasta'].includes(item.network)
+      && ['TRX', 'TRC20'].includes(item.asset)
+      && typeof item.from === 'string' && ADDRESS_PATTERN.test(item.from)
+      && typeof item.to === 'string' && ADDRESS_PATTERN.test(item.to)
+      && typeof item.amountBaseUnits === 'string' && /^[1-9][0-9]{0,77}$/.test(item.amountBaseUnits)
+      && Number.isInteger(item.decimals) && item.decimals >= 0 && item.decimals <= 36
+      && Number.isFinite(item.submittedAt)
+    ).slice(0, 100)
+  } catch {
+    return []
+  }
+}
+
+function saveTransferHistory(items: TransferActivity[]) {
+  window.localStorage.setItem(TRANSFER_HISTORY_KEY, JSON.stringify({ version: 1, items: items.slice(0, 100) }))
+}
+
 function formatUnits(value: unknown, decimals: number): string {
   try {
     const units = BigInt(String(value))
@@ -85,6 +170,22 @@ function explorerUrl(network: NetworkId, address: string): string {
   return host + '/#/address/' + encodeURIComponent(address)
 }
 
+function explorerTransactionUrl(network: NetworkId, txid: string): string {
+  const host = network === 'mainnet' ? 'https://tronscan.org' : network === 'nile' ? 'https://nile.tronscan.org' : 'https://shasta.tronscan.org'
+  return host + '/#/transaction/' + encodeURIComponent(txid)
+}
+
+function tokenEvidenceLabel(evidence?: TokenEvidence): string {
+  if (!evidence) return 'Not checked'
+  if (evidence.officialMainnetUsdtAddressMatch) return 'Official Mainnet USDT address match'
+  if (evidence.sourceVerificationStatus === 'fully-verified-source') return 'TronScan source fully verified'
+  if (evidence.sourceVerificationStatus === 'partially-verified-source') return 'TronScan source partially verified'
+  if (evidence.sourceVerificationStatus === 'unverified-source') return 'TronScan source not verified'
+  if (evidence.explorerRiskLevel === 'unsafe' || evidence.explorerRiskLevel === 'suspicious' || evidence.riskFeedback) return 'Explorer risk warning'
+  if (evidence.onChainContractDeployed && evidence.onChainMetadataReadable) return 'On-chain TRC-20 methods readable; issuer not verified'
+  return 'Evidence unavailable'
+}
+
 function shortenAddress(address: string): string {
   return address.length > 16 ? address.slice(0, 8) + '…' + address.slice(-6) : address
 }
@@ -101,18 +202,36 @@ export default function WalletVault() {
   const [backupText, setBackupText] = useState('')
   const [tokenInput, setTokenInput] = useState('')
   const [tokenContracts, setTokenContracts] = useState<string[]>(() => readTokenWatchlist('nile'))
+  const [selectedTokenContract, setSelectedTokenContract] = useState('')
+  const [tokenEvidence, setTokenEvidence] = useState<Record<string, TokenEvidence>>({})
+  const [evidenceLoading, setEvidenceLoading] = useState('')
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const [transferAsset, setTransferAsset] = useState<TransferAsset>('TRX')
+  const [recipientInput, setRecipientInput] = useState('')
+  const [amountInput, setAmountInput] = useState('')
+  const [feeLimitTRX, setFeeLimitTRX] = useState('50')
+  const [transferReview, setTransferReview] = useState<TransferReview | null>(null)
+  const [transferAcknowledged, setTransferAcknowledged] = useState(false)
+  const [mainnetSendPhrase, setMainnetSendPhrase] = useState('')
+  const [transferHistory, setTransferHistory] = useState<TransferActivity[]>(readTransferHistory)
+  const [historyLoading, setHistoryLoading] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
+  const [transferInProgress, setTransferInProgress] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const selectedRecord = useMemo(() => records.find(item => item.address === selectedAddress) || null, [records, selectedAddress])
 
   useEffect(() => {
-    setTokenContracts(readTokenWatchlist(network))
+    const contracts = readTokenWatchlist(network)
+    setTokenContracts(contracts)
+    setSelectedTokenContract(current => contracts.includes(current) ? current : (contracts[0] || ''))
     setPortfolio(null)
+    setTransferReview(null)
+    setTransferAcknowledged(false)
+    setMainnetSendPhrase('')
   }, [network])
 
   useEffect(() => {
@@ -121,6 +240,9 @@ export default function WalletVault() {
     const autoLock = () => {
       setUnlocked(null)
       setPortfolio(null)
+      setTransferReview(null)
+      setTransferAcknowledged(false)
+      setMainnetSendPhrase('')
       setPassword('')
       setConfirmPassword('')
       setNotice('Wallet auto-locked after inactivity or when the app moved to the background. Unlock it again to continue.')
@@ -156,10 +278,7 @@ export default function WalletVault() {
       const web = createTronWeb(network)
       try {
         const sun = await web.trx.getBalance(unlocked.record.address)
-        const trx = (Number(sun) / 1_000_000).toLocaleString(undefined, {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 6,
-        })
+        const trx = formatUnits(String(sun), 6)
         const tokens = await Promise.all(tokenContracts.map(async contractAddress => {
           try {
             if (!web.isAddress(contractAddress)) throw new Error('Invalid TRON contract address')
@@ -324,6 +443,9 @@ export default function WalletVault() {
     setConfirmPassword('')
     setPrivateKeyInput('')
     setPortfolio(null)
+    setTransferReview(null)
+    setTransferAcknowledged(false)
+    setMainnetSendPhrase('')
     setNotice('Wallet locked. The unencrypted private key was removed from this screen’s React state.')
     setError('')
   }
