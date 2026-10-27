@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Activity, Layers, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { Activity, Eye, Layers, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 
 type NetworkId = 'nile' | 'shasta'
 type WalletSession = { address: string; network: NetworkId; expiresAt: number; sessionToken: string }
@@ -72,6 +72,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const [checking, setChecking] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [readOnlyMode, setReadOnlyMode] = useState(false)
+  const operatorRoute = window.location.hash === '#/sponsor-operator'
 
   function clearStoredSession() {
     try {
@@ -236,8 +238,11 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setError('Signed out. Connect and verify a wallet to continue.')
   }
 
+  if (readOnlyMode && !operatorRoute) {
+    return <>{children}</>
+  }
+
   if (session && session.network === network && session.expiresAt > Date.now()) {
-    const operatorRoute = window.location.hash === '#/sponsor-operator'
     return (
       <>
         {operatorRoute && (
@@ -279,6 +284,14 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           <p><Activity size={16} aria-hidden="true" /><span><strong>Sign-in is not a transfer.</strong> It does not authorize sponsor spending or broadcast a transaction.</span></p>
         </div>
         <p className="studio-auth-footnote">A public address alone cannot authenticate an account. Sponsor wallets may still need to be selected individually for any wallet-signed action; account selection does not imply sponsor authority.</p>
+        {!operatorRoute && (
+          <div className="studio-auth-readonly">
+            <p><strong>Using a regular browser without a connected wallet?</strong> Continue in watch-only mode to inspect a public TRON address and token contracts. This is not authenticated wallet login and cannot sign, broadcast, or access the sponsor operator console.</p>
+            <button type="button" className="studio-button studio-button--secondary studio-auth-submit" onClick={() => { setReadOnlyMode(true); setError('') }}>
+              <Eye size={16} aria-hidden="true" /> Continue in watch-only mode
+            </button>
+          </div>
+        )}
       </section>
     </div>
   )
