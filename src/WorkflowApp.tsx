@@ -936,6 +936,7 @@ export default function WorkflowApp() {
       const token = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY)
       window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
       window.sessionStorage.removeItem(AUTH_NETWORK_STORAGE_KEY)
+      window.dispatchEvent(new Event('tron-token-studio:logout'))
       if (token) {
         void fetch(`${API_BASE}/api/auth/tron/logout`, {
           method: 'POST',
