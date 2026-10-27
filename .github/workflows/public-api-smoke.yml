@@ -362,7 +362,7 @@ jobs:
           NODE
 
       - name: Check out source for gate-contract validation
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Node.js for gate-contract validation
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
