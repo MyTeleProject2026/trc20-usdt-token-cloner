@@ -103,7 +103,7 @@ export async function initializeDatabase() {
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
           wallet_address TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -114,7 +114,7 @@ export async function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
           nonce_hash CHAR(64) PRIMARY KEY,
           wallet_address TEXT NOT NULL,
-          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
           origin TEXT NOT NULL,
           challenge_message TEXT NOT NULL,
           expires_at TIMESTAMPTZ NOT NULL,
@@ -127,7 +127,7 @@ export async function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
           token_hash CHAR(64) PRIMARY KEY,
           wallet_address TEXT NOT NULL,
-          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
           origin TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           expires_at TIMESTAMPTZ NOT NULL
@@ -135,6 +135,15 @@ export async function initializeDatabase() {
       `)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
         ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -662,7 +671,7 @@ export async function findVerifiedTransfer(input) {
 export async function persistWalletAuthChallenge(input = {}) {
   const { nonceHash, address, network, origin, message, expiresAt } = input
   if (typeof nonceHash !== 'string' || !/^[0-9a-f]{64}$/.test(nonceHash)
-    || !isValidTronAddress(address) || !['nile', 'shasta'].includes(network)
+    || !isValidTronAddress(address) || !['mainnet', 'nile', 'shasta'].includes(network)
     || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
     || typeof message !== 'string' || message.length < 1 || message.length > 2048
     || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
@@ -730,7 +739,7 @@ export async function consumeWalletAuthChallenge({ nonceHash } = {}) {
 export async function persistWalletAuthSession(input = {}) {
   const { tokenHash, address, network, origin, expiresAt } = input
   if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)
-    || !isValidTronAddress(address) || !['nile', 'shasta'].includes(network)
+    || !isValidTronAddress(address) || !['mainnet', 'nile', 'shasta'].includes(network)
     || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
     || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
     return { success: false, reason: 'invalid-session' }
