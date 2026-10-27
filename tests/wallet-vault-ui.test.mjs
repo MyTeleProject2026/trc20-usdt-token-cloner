@@ -36,7 +36,7 @@ test('wallet vault signs identity challenges locally and wires guarded real on-c
   assert.match(vault, /JSON\.stringify\(\{ address, network, nonce: challenge\.nonce, signature \}\)/)
   assert.match(vault, /buildSignAndBroadcastTransfer/)
   assert.match(vault, /estimateTRC20TransferFee/)
-  assert.match(vault, /readConfirmedTransferStatus/)
+  assert.match(vault, /verifyTransferRecordOnChain/)
   assert.match(vault, /Sign and broadcast real transfer/)
   assert.match(vault, /SEND MAINNET/)
   assert.match(vault, /transferAcknowledged/)
