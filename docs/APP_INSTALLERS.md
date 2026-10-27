@@ -8,7 +8,7 @@ The Android job generates a Capacitor Android wrapper, bundles the compiled web 
 
 This is a debug-signed test APK, not a Play Store release. It does not include a release keystore and must not be represented as a production-signed Android package. A release build requires a managed signing keystore, protected CI secrets, release-signing review, and device testing.
 
-The Capacitor app uses the local origin `https://localhost`. After reviewing the test APK, set the additive backend variable `PACKAGED_APP_ORIGINS=https://localhost,tronstudio://app`; this leaves any existing `FRONTEND_ORIGIN` entries unchanged. Do not add wildcards.
+The Capacitor app uses the local origin `https://localhost`. The public API smoke workflow verifies that this exact origin can request an identity-only wallet login challenge. Configure the additive backend variable `PACKAGED_APP_ORIGINS=https://localhost,tronstudio://app`; this leaves the existing `FRONTEND_ORIGIN` value untouched. Do not add wildcards. The local wallet creation/import flow is documented in [WALLET_VAULT.md](WALLET_VAULT.md).
 
 ## Windows desktop installer
 
