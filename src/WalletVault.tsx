@@ -916,30 +916,152 @@ export default function WalletVault() {
               </div>
 
               <div className="wallet-vault-token-section">
-                <div className="wallet-vault-section-title"><div><h3>TRC20 token watchlist</h3><p>Read-only contract queries.</p></div></div>
-                <div className="wallet-vault-add-token"><input aria-label="TRC20 token contract address" value={tokenInput} onChange={event => setTokenInput(event.target.value)} placeholder="Token contract address" /><button type="button" disabled={!tokenInput.trim() || busy} onClick={() => void performWalletAction(addTokenContract)}>Add</button></div>
+                <div className="wallet-vault-section-title">
+                  <div><h3>TRC-20 contract watchlist</h3><p>Network code, token methods, supply, balances and explorer evidence.</p></div>
+                </div>
+                <div className="wallet-vault-add-token">
+                  <input aria-label="TRC20 token contract address" value={tokenInput} onChange={event => setTokenInput(event.target.value)} placeholder="TRON contract address" />
+                  <button type="button" disabled={!tokenInput.trim() || busy} onClick={() => void performWalletAction(addTokenContract)}>Verify & add</button>
+                </div>
+                {network === 'mainnet' && !tokenContracts.includes(OFFICIAL_MAINNET_USDT) && (
+                  <button type="button" className="wallet-vault-secondary wallet-vault-official-token" disabled={busy} onClick={() => void performWalletAction(() => addTokenContract(OFFICIAL_MAINNET_USDT))}>
+                    <ShieldCheck size={15} /> Verify official TRON USDT address
+                  </button>
+                )}
                 {tokenContracts.length > 0 && (
                   <div className="wallet-vault-token-list">
-                    {(portfolio?.tokens || tokenContracts.map(contract => ({ contract, symbol: 'TRC20', decimals: 0, balance: 'Reading…' }))).map(token => (
-                      <div className="wallet-vault-token-row" key={token.contract}>
-                        <div><strong>{token.symbol} <span>{token.error ? '· unavailable' : ''}</span></strong><small>{shortenAddress(token.contract)} · {token.error || 'On-chain token balance'}</small></div>
-                        <strong className="wallet-vault-token-amount">{token.balance}</strong>
-                        <button type="button" className="wallet-vault-icon-button" aria-label={'Remove token ' + token.contract} onClick={() => removeTokenContract(token.contract)}><X size={15} /></button>
-                      </div>
-                    ))}
+                    {(portfolio?.tokens || tokenContracts.map(contract => ({ contract, symbol: 'TRC20', decimals: 0, balance: 'Reading…' }))).map(token => {
+                      const evidence = tokenEvidence[token.contract]
+                      const warning = evidence?.riskFeedback === true || evidence?.explorerRiskLevel === 'suspicious'
+                        || evidence?.explorerRiskLevel === 'unsafe' || Boolean(evidence?.riskTag?.trim())
+                      return (
+                        <div className="wallet-vault-token-row" key={token.contract}>
+                          <div className="wallet-vault-token-info">
+                            <strong>{evidence?.tokenName || token.symbol} <span>{token.error ? '· unavailable' : ''}</span></strong>
+                            <small>{shortenAddress(token.contract)} · {evidence?.tokenSymbol || token.symbol} · {token.error || tokenEvidenceLabel(evidence)}</small>
+                            {evidence && <small>Supply: {evidence.totalSupply ?? 'unknown'} · Decimals: {evidence.tokenDecimals ?? 'unknown'} · Source check: {evidence.explorerStatus || 'unknown'}</small>}
+                            {warning && <small className="wallet-vault-risk-note">Explorer risk marker detected. Avoid sending to this contract.</small>}
+                            {network === 'mainnet' && token.contract !== OFFICIAL_MAINNET_USDT && evidence?.sourceVerificationStatus !== 'fully-verified-source'
+                              && <small className="wallet-vault-risk-note">Mainnet transfers are blocked until source is fully verified on TronScan.</small>}
+                          </div>
+                          <strong className="wallet-vault-token-amount">{token.balance}</strong>
+                          <button type="button" className="wallet-vault-secondary wallet-vault-verify-button" disabled={busy || evidenceLoading === token.contract} onClick={() => void performWalletAction(() => checkTokenEvidence(token.contract))}>
+                            {evidenceLoading === token.contract ? 'Checking…' : 'Verify'}
+                          </button>
+                          <button type="button" className="wallet-vault-icon-button" aria-label={'Remove token ' + token.contract} onClick={() => removeTokenContract(token.contract)}><X size={15} /></button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
-                <p className="wallet-vault-caption">A token symbol or contract address is not proof of legitimacy. This watchlist only reads what the contract reports; it never makes a token authentic or transferable.</p>
+                <p className="wallet-vault-caption">Balances are queried from the selected chain. A symbol or a fully verified source does not guarantee an issuer, a peg, liquidity, or value. Mainnet token transfers are limited to the official Tether TRON USDT contract or source-verified contracts without explorer risk markers.</p>
               </div>
 
               <div className="wallet-vault-wallet-actions">
                 <button type="button" className="wallet-vault-secondary" onClick={downloadEncryptedBackup}><Download size={16} /> Download encrypted backup</button>
                 {network === 'mainnet'
-                  ? <button type="button" className="wallet-vault-secondary" disabled><ShieldCheck size={16} /> Workspace login is testnet-only</button>
+                  ? <button type="button" className="wallet-vault-secondary" onClick={() => { setNetwork('nile'); setNotice('Changed to Nile testnet. Sign-in only proves wallet identity; it does not transfer funds.') }}><Network size={16} /> Switch to Nile for workspace login</button>
                   : <button type="button" className="wallet-vault-primary" disabled={busy} onClick={() => void performWalletAction(loginToWorkspace)}><ShieldCheck size={16} /> Sign in to workspace</button>}
                 <button type="button" className="wallet-vault-lock" onClick={lockWallet}><LockKeyhole size={16} /> Lock</button>
               </div>
               <p className="wallet-vault-caption"><Activity size={14} /> Workspace login signs a short identity message only. No transfer is authorized or broadcast by this button.</p>
+
+              <section className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading">
+                <div className="wallet-vault-panel-head">
+                  <span className="wallet-vault-step">03</span>
+                  <div><h2 id="wallet-vault-transfer-heading">Send a real on-chain transfer</h2><p>Review, sign locally and broadcast to the selected TRON network.</p></div>
+                </div>
+                <div className="wallet-vault-transfer-warning" role="note">
+                  <strong>Irreversible network transaction</strong>
+                  <p>This sends actual assets from the unlocked wallet. Check the complete recipient address and selected network. A successful chain transfer does not by itself create an exchange deposit credit; the receiving exchange must independently detect and credit a valid deposit. Do not send to an exchange without checking its deposit network and requirements.</p>
+                  {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this password-encrypted browser wallet has not undergone an independent wallet-security audit and is not hardware-backed. Do not keep substantial value in an unaudited browser wallet.</p>}
+                  {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
+                </div>
+
+                <div className="wallet-vault-transfer-form">
+                  <label htmlFor="wallet-transfer-asset">Asset</label>
+                  <select id="wallet-transfer-asset" value={transferAsset} onChange={event => { setTransferAsset(event.target.value as TransferAsset); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }}>
+                    <option value="TRX">TRX — native asset</option>
+                    <option value="TRC20">TRC-20 token</option>
+                  </select>
+                  {transferAsset === 'TRC20' && (
+                    <>
+                      <label htmlFor="wallet-transfer-token">Token contract</label>
+                      <select id="wallet-transfer-token" value={selectedTokenContract || (tokenContracts[0] || '')} onChange={event => { setSelectedTokenContract(event.target.value); setTransferReview(null); setTransferAcknowledged(false) }} disabled={tokenContracts.length === 0}>
+                        {tokenContracts.length === 0 ? <option value="">Add and verify a token first</option> : tokenContracts.map(contract => {
+                          const evidence = tokenEvidence[contract]
+                          return <option key={contract} value={contract}>{evidence?.tokenSymbol || shortenAddress(contract)} — {shortenAddress(contract)}</option>
+                        })}
+                      </select>
+                      {tokenContracts.length === 0 && <p className="wallet-vault-caption">Add and verify a deployed TRC-20 contract above before preparing a token transfer.</p>}
+                    </>
+                  )}
+                  <label htmlFor="wallet-transfer-recipient">Recipient address</label>
+                  <input id="wallet-transfer-recipient" autoComplete="off" spellCheck={false} value={recipientInput} onChange={event => { setRecipientInput(event.target.value); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }} placeholder="T… (full Base58Check address)" />
+                  <label htmlFor="wallet-transfer-amount">Amount</label>
+                  <input id="wallet-transfer-amount" inputMode="decimal" autoComplete="off" value={amountInput} onChange={event => { setAmountInput(event.target.value); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }} placeholder={transferAsset === 'TRX' ? 'e.g. 1.25 TRX' : 'e.g. 12.5 tokens'} />
+                  <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || !recipientInput.trim() || !amountInput.trim() || (transferAsset === 'TRC20' && !selectedTokenContract)} onClick={() => void performWalletAction(prepareTransfer)}>
+                    <ShieldCheck size={16} /> {busy ? 'Checking on-chain state…' : 'Review transfer'}
+                  </button>
+                </div>
+
+                {transferReview && (
+                  <div className="wallet-vault-transfer-review">
+                    <div className="wallet-vault-review-header"><ShieldCheck size={19} /><div><strong>Review before signing</strong><small>No transaction has been sent yet.</small></div></div>
+                    <div className="wallet-vault-review-grid">
+                      <div><small>Network</small><strong>{transferReview.network === 'mainnet' ? 'TRON Mainnet' : transferReview.network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</strong></div>
+                      <div><small>Asset and amount</small><strong>{transferReview.amount} {transferReview.symbol}</strong></div>
+                      <div><small>From</small><a href={explorerUrl(transferReview.network, transferReview.from)} target="_blank" rel="noopener noreferrer">{shortenAddress(transferReview.from)} ↗</a></div>
+                      <div><small>To</small><a href={explorerUrl(transferReview.network, transferReview.to)} target="_blank" rel="noopener noreferrer">{shortenAddress(transferReview.to)} ↗</a></div>
+                      {transferReview.tokenContract && <div className="wallet-vault-review-wide"><small>Exact token contract</small><a href={explorerContractUrl(transferReview.network, transferReview.tokenContract)} target="_blank" rel="noopener noreferrer">{transferReview.tokenContract} ↗</a></div>}
+                      <div><small>Live TRX balance at review</small><strong>{transferReview.nativeBalance} TRX</strong></div>
+                      {transferReview.tokenBalance !== null && <div><small>Live token balance at review</small><strong>{transferReview.tokenBalance} {transferReview.symbol}</strong></div>}
+                      {transferReview.feeEstimateSun !== null && <div><small>TRC-20 estimated fee cap</small><strong>{formatUnits(String(transferReview.feeLimitSun), 6)} TRX</strong></div>}
+                      {transferReview.tokenEvidence && <div className="wallet-vault-review-wide"><small>Token evidence</small><strong>{tokenEvidenceLabel(transferReview.tokenEvidence)}</strong><small>{transferReview.tokenEvidence.evidenceScope}</small></div>}
+                    </div>
+                    <label className="wallet-vault-confirm-check">
+                      <input type="checkbox" checked={transferAcknowledged} onChange={event => setTransferAcknowledged(event.target.checked)} />
+                      <span>I have checked the full recipient, exact token contract (if any), network and amount. I understand this real blockchain transaction cannot be reversed by TRON Token Studio.</span>
+                    </label>
+                    {network === 'mainnet' && (
+                      <div className="wallet-vault-form">
+                        <label htmlFor="wallet-mainnet-send-confirm">Type SEND MAINNET to confirm a real Mainnet transaction</label>
+                        <input id="wallet-mainnet-send-confirm" autoComplete="off" value={mainnetSendPhrase} onChange={event => setMainnetSendPhrase(event.target.value)} placeholder="SEND MAINNET" />
+                      </div>
+                    )}
+                    <div className="wallet-vault-review-actions">
+                      <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || !transferAcknowledged || (network === 'mainnet' && mainnetSendPhrase.trim() !== 'SEND MAINNET')} onClick={() => void performWalletAction(broadcastTransfer)}>
+                        <ShieldCheck size={16} /> {transferInProgress || busy ? 'Signing/broadcasting…' : 'Sign and broadcast real transfer'}
+                      </button>
+                      <button type="button" className="wallet-vault-secondary" disabled={busy || transferInProgress} onClick={() => { setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setNotice('Transfer review cancelled. Nothing was signed or sent.') }}>Cancel review</button>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading">
+                <div className="wallet-vault-history-header"><div><h3 id="wallet-vault-history-heading">Real transfer history</h3><p>Locally saved transaction IDs; status is re-read from the selected chain.</p></div><span>{transferHistory.length} record{transferHistory.length === 1 ? '' : 's'}</span></div>
+                {transferHistory.length === 0 ? (
+                  <div className="wallet-vault-history-empty">No transfers have been submitted from this device yet. History entries are added only after the network accepts a signed transaction.</div>
+                ) : (
+                  <div className="wallet-vault-history-list">
+                    {transferHistory.map(item => (
+                      <article className="wallet-vault-history-item" key={item.txid}>
+                        <div className="wallet-vault-history-main">
+                          <div><strong>{item.amount} {item.symbol}</strong><span className={'wallet-vault-status-tag status-' + item.status}>{item.status.replaceAll('-', ' ')}</span></div>
+                          <a href={explorerTransactionUrl(item.network, item.txid)} target="_blank" rel="noopener noreferrer">{item.txid.slice(0, 12)}…{item.txid.slice(-8)} ↗</a>
+                          <small>{item.network.toUpperCase()} · to {shortenAddress(item.to)} · {new Date(item.submittedAt).toLocaleString()}</small>
+                          {item.solidified && <small>Solidified block {item.blockNumber ?? 'available'} · status from the selected network</small>}
+                        </div>
+                        <button type="button" className="wallet-vault-secondary wallet-vault-history-refresh" disabled={historyLoading === item.txid} onClick={() => void refreshTransferStatus(item)}>
+                          {historyLoading === item.txid ? 'Checking…' : 'Refresh chain status'}
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+                <p className="wallet-vault-caption">History stored on this device is not an exchange credit ledger. A deposit is credited only when the recipient service reports it in its authenticated deposit records.</p>
+              </section>
             </div>
           )}
         </section>
