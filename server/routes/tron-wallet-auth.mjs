@@ -151,6 +151,14 @@ export function createTronWalletAuthRouter({
     } catch {
       persisted = null
     }
+    if (persisted?.reason === 'rate-limited') {
+      res.setHeader('Retry-After', '300')
+      return res.status(429).json({
+        success: false,
+        error: 'challenge-rate-limited',
+        message: 'Too many sign-in challenges were requested for this wallet recently. Wait five minutes and retry.',
+      })
+    }
     if (persisted?.success !== true) {
       return res.status(503).json({
         success: false,
