@@ -6,11 +6,12 @@ type OkxDeposit = {
   chain: string
   amount: string
   transactionId: string
+  depositId: string
   depositAddress: string
   memo: string
   statusCode: string
   status: string
-  actualDepositBlockchainConfirmed: string
+  actualBlockchainConfirmedAmount: string
   recordedAt: string
   source: string
 }
@@ -245,7 +246,9 @@ export default function OkxDepositStatus() {
                       </div>
                       <p className="studio-history-meta"><strong>Amount:</strong> {record.amount || 'Not reported'} {record.currency}</p>
                       <p className="studio-history-meta"><strong>Transaction ID:</strong> <code>{record.transactionId || 'Not reported'}</code></p>
+                      <p className="studio-history-meta"><strong>OKX deposit ID:</strong> <code>{record.depositId || 'Not reported'}</code></p>
                       <p className="studio-history-meta"><strong>Deposit address:</strong> <code>{record.depositAddress || 'Not reported'}</code></p>
+                      {record.actualBlockchainConfirmedAmount && <p className="studio-history-meta"><strong>Actual blockchain-confirmed amount:</strong> {record.actualBlockchainConfirmedAmount} {record.currency}</p>}
                       {record.memo && <p className="studio-history-meta"><strong>Memo / tag:</strong> <code>{record.memo}</code></p>}
                       <p className="studio-history-meta"><strong>Record created:</strong> {formatRecordedAt(record.recordedAt)} <span>· raw timestamp {record.recordedAt || 'not reported'}</span></p>
                       <p className="studio-history-meta"><strong>Raw OKX status code:</strong> <code>{record.statusCode || 'not reported'}</code></p>
