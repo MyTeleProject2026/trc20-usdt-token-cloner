@@ -753,8 +753,8 @@ export default function WalletVault() {
     }
   }
 
-  async function addTokenContract() {
-    const contract = tokenInput.trim()
+  async function addTokenContract(contractOverride?: string) {
+    const contract = (contractOverride || tokenInput).trim()
     const evidence = await inspectTokenContract(contract)
     setTokenEvidence(current => ({ ...current, [contract]: evidence }))
     if (!tokenContracts.includes(contract)) {
