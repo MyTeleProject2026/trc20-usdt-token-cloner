@@ -774,6 +774,7 @@ export default function WalletVault() {
       setNotice('Signed transaction broadcast was accepted by the selected TRON network. ' + detail
         + ' Transaction ID: ' + record.txid
         + (historyInitiallySaved && historyFinallySaved ? ' History saved on this device.' : ' Browser storage could not save history; copy the transaction ID now.')
+        + (result.broadcastTxidMismatch ? ' The node echoed a different transaction ID; this screen retains the ID derived from the signed transaction. Verify it before retrying.' : '')
         + ' A transaction ID is not an exchange deposit credit.')
       setError('')
     } finally {
