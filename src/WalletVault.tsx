@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
+import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Network, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, readConfirmedTransferStatus } from './wallet-transfer.mjs'
 import {
