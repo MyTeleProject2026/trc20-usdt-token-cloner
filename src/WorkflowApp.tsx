@@ -1733,6 +1733,17 @@ export default function WorkflowApp() {
             <div><strong>Sponsorship is not currently active</strong><p>The backend has not verified an authorized fee sponsor and asset-principal sponsor for a send. You can prepare and validate a request, but this interface cannot broadcast a sponsored transfer or charge your wallet as a fallback.</p></div>
           </div>
 
+          {roles?.success === true && roles.accountsConfigured === true && roles.configuredAddressesDistinct === false && (
+            <div className="studio-notice studio-notice--warning" role="alert">
+              <AlertTriangle size={18} aria-hidden="true" />
+              <div>
+                <strong>Fee and asset sponsor addresses are the same — transfers are blocked</strong>
+                <p>On {network === 'nile' ? 'Nile' : 'Shasta'}, both roles currently use {roles.roles?.networkFeeSponsor?.address || 'the same configured address'}. The backend requires separate fee-sponsor and asset-principal addresses, so this account setup cannot be activated as two independent sponsor roles.</p>
+                <p>Only actual on-chain balances are counted. A configured address is not proof of funds, sponsor authorization, or an exchange deposit. No transfer will be signed or broadcast from this workspace.</p>
+              </div>
+            </div>
+          )}
+
           {step === 0 && (
             <section className="studio-panel" aria-labelledby="fee-stage-title">
               <div className="studio-panel-heading">
