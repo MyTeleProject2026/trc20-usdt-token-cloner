@@ -3,17 +3,22 @@ import { createRoot } from 'react-dom/client'
 import App from './WorkflowApp.tsx'
 import AuthGate from './AuthGate.tsx'
 import SponsorSignerConsole from './SponsorSignerConsole.tsx'
+import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
 
 function renderRoute() {
-  const isSponsorOperator = window.location.hash === '#/sponsor-operator'
+  const route = window.location.hash
+  const isMainnetExchangeDeposit = route === '#/exchange-deposit'
+  const isSponsorOperator = route === '#/sponsor-operator'
   root.render(
     <StrictMode>
-      <AuthGate>
-        {isSponsorOperator ? <SponsorSignerConsole /> : <App />}
-      </AuthGate>
+      {isMainnetExchangeDeposit
+        ? <MainnetExchangeDeposit />
+        : <AuthGate>
+            {isSponsorOperator ? <SponsorSignerConsole /> : <App />}
+          </AuthGate>}
     </StrictMode>,
   )
 }
