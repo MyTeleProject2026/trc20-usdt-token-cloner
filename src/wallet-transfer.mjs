@@ -212,7 +212,9 @@ export async function readConfirmedTransferStatus(tronWeb, transactionId) {
       if (contractResult === 'SUCCESS' || info?.receipt?.result === 'SUCCESS') {
         return { status: 'confirmed', solidified: true, blockNumber: Number(info?.blockNumber || 0) || null }
       }
-      return { status: 'confirmed', solidified: true, blockNumber: Number(info?.blockNumber || 0) || null }
+      // A solidified transaction object without an explicit successful receipt
+      // is not enough to claim execution succeeded. Keep it unresolved.
+      return { status: 'included-unconfirmed', solidified: false, blockNumber: Number(info?.blockNumber || 0) || null }
     }
   } catch {
     // The solidified node may not have indexed this transaction yet; check the
