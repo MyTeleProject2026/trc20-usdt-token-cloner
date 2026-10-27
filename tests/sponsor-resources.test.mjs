@@ -315,3 +315,36 @@ test('sponsor resource reader retries an incomplete JSON response through the al
   assert.equal(JSON.stringify(result).includes('server-only-trongrid-test-key'), false)
   assert.equal(JSON.stringify(result).includes('server-only-tatum-test-key'), false)
 })
+
+test('falls back to public TRONGrid when Tatum sponsor resource reads fail and no TRONGrid key is configured', async () => {
+  const calls = []
+  const reader = createSponsorResourceReader({
+    env: {
+      TATUM_API_KEY: 'server-only-tatum-test-key',
+      SPONSOR_NILE_ADDRESS: sponsorAddress,
+    },
+    tronWebFactory,
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body)
+      calls.push({ url, body, headers: options.headers })
+      if (url.startsWith('https://tron-nile.gateway.tatum.io')) {
+        return { ok: false, status: 503, json: async () => ({ message: 'provider unavailable' }) }
+      }
+      const payload = url.endsWith('/wallet/getaccountresource')
+        ? { EnergyLimit: 1200, EnergyUsed: 300, NetLimit: 600, NetUsed: 100, freeNetLimit: 500, freeNetUsed: 75 }
+        : { max_size: body.type === 1 ? '2100000' : '3100000' }
+      return { ok: true, status: 200, json: async () => payload }
+    },
+  })
+
+  const result = await reader('nile', { refresh: true })
+  assert.equal(result.success, true)
+  assert.equal(result.resourceRead, true)
+  assert.match(result.source, /TRONGrid public FullNode/)
+  assert.equal(result.canSubmitSponsoredTransfer, false)
+  assert.equal(result.delegationEnabled, false)
+  assert.equal(calls.length, 6)
+  assert.ok(calls.filter(({ url }) => url.startsWith('https://tron-nile.gateway.tatum.io')).length === 3)
+  assert.ok(calls.filter(({ url }) => url.startsWith('https://nile.trongrid.io/wallet/')).length === 3)
+  assert.equal(JSON.stringify(result).includes('server-only-tatum-test-key'), false)
+})
