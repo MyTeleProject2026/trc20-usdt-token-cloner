@@ -18,9 +18,11 @@ function renderRoute() {
     <StrictMode>
       {isMainnetExchangeDeposit
         ? <MainnetExchangeDeposit />
-        : <AuthGate>
-            {isSponsorOperator ? <SponsorSignerConsole /> : isOkxDepositStatus ? <OkxDepositStatus /> : <App />}
-          </AuthGate>}
+        : isOkxDepositStatus
+          ? <OkxDepositStatus />
+          : <AuthGate>
+              {isSponsorOperator ? <SponsorSignerConsole /> : <App />}
+            </AuthGate>}
     </StrictMode>,
   )
 }
