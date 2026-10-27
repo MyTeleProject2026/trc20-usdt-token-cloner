@@ -877,35 +877,63 @@ export default function WorkflowApp() {
 
   useEffect(() => {
     let attachedProvider: any = null
-    const invalidate = () => {
+    const invalidateWalletSession = (message: string, selectedAddress = '') => {
       clearStoredAuthSession()
       senderSnapshotRequestGeneration.current += 1
-      setSenderAddress('')
-      setWatchAddress('')
       setWalletIdentity(null)
       setWalletSource(null)
       setNativeSnapshot(null)
       setSenderTokenSnapshot(null)
       setSenderLoading(false)
-      setSenderError('TronLink account or network changed. The previous session was cleared. Connect again to sign in as the newly selected address; old balances are not reused.')
       setSenderCheckedAt(null)
-      setReceiverAddress('')
+      // Keep the user's request draft intact while clearing all data that belonged
+      // to the previous authenticated wallet. A new account needs a fresh signed login.
+      setSenderAddress(selectedAddress)
+      setWatchAddress(selectedAddress)
+      setWalletMode('tronlink')
+      setSenderError(message)
       setReceiverSnapshot(null)
       setReceiverCheckedAt(null)
       clearReceiverHistory()
       clearFeeEstimate()
-      setStep(0)
+      // Do not erase receiver, amount, selected contract, or current workspace stage.
+    }
+    const onAccountsChanged = () => {
+      let selectedAddress = ''
+      try {
+        const provider = attachedProvider || getInjectedTronProvider()
+        const tronWeb = provider?.tronWeb || (window as any).tronWeb
+        if (tronWeb && typeof tronWeb === 'object') {
+          checkedWalletNetwork(tronWeb, network)
+          const address = String(tronWeb?.defaultAddress?.base58 || '')
+          if (ADDRESS_PATTERN.test(address) && (typeof tronWeb.isAddress !== 'function' || tronWeb.isAddress(address))) {
+            selectedAddress = address
+          }
+        }
+      } catch {
+        // Locked wallet or a network that differs from the selected testnet: no
+        // address is considered active until the user reconnects and verifies it.
+      }
+      invalidateWalletSession(
+        selectedAddress
+          ? 'TronLink account changed. The new address is selected for inspection, but sign in again to bind a fresh session. Previous account balances were cleared; your receiver and amount draft was kept.'
+          : 'TronLink is locked, disconnected, or on a different network. Sign in again after selecting the intended testnet; your receiver and amount draft was kept.',
+        selectedAddress,
+      )
+    }
+    const onChainChanged = () => {
+      invalidateWalletSession('TronLink network changed. The previous login and balance snapshots were cleared. Select the intended testnet, reconnect, and sign in again; your receiver and amount draft was kept.')
     }
     const attachProvider = () => {
-      const provider = (window as any).tronLink || (window as any).tron
+      const provider = (window as any).tron || (window as any).tronLink
       if (!provider || typeof provider.on !== 'function' || provider === attachedProvider) return
       if (attachedProvider) {
-        try { attachedProvider.removeListener?.('accountsChanged', invalidate) } catch {}
-        try { attachedProvider.removeListener?.('chainChanged', invalidate) } catch {}
+        try { attachedProvider.removeListener?.('accountsChanged', onAccountsChanged) } catch {}
+        try { attachedProvider.removeListener?.('chainChanged', onChainChanged) } catch {}
       }
       attachedProvider = provider
-      provider.on('accountsChanged', invalidate)
-      provider.on('chainChanged', invalidate)
+      provider.on('accountsChanged', onAccountsChanged)
+      provider.on('chainChanged', onChainChanged)
     }
     attachProvider()
     window.addEventListener('tronlink#initialized', attachProvider)
@@ -914,11 +942,11 @@ export default function WorkflowApp() {
       window.removeEventListener('tronlink#initialized', attachProvider)
       window.removeEventListener('load', attachProvider)
       if (attachedProvider) {
-        try { attachedProvider.removeListener?.('accountsChanged', invalidate) } catch {}
-        try { attachedProvider.removeListener?.('chainChanged', invalidate) } catch {}
+        try { attachedProvider.removeListener?.('accountsChanged', onAccountsChanged) } catch {}
+        try { attachedProvider.removeListener?.('chainChanged', onChainChanged) } catch {}
       }
     }
-  }, [])
+  }, [network])
 
 
   const inspectMainnetBalances = async () => {
