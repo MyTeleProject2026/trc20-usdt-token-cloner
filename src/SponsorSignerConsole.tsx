@@ -43,6 +43,40 @@ const HOSTS: Record<Network, string> = {
 }
 const DELEGATION_STORAGE_KEY = 'trc20-usdt-token-cloner:sponsor-delegation:v1'
 
+function getInjectedTronProvider(): any {
+  const candidates = [window.tron, window.tronLink]
+  return candidates.find(provider => provider && provider.isTronLink === true
+    && typeof provider.request === 'function') || null
+}
+
+async function requestTronWalletAccess(provider: any): Promise<unknown> {
+  try {
+    return await provider.request({ method: 'eth_requestAccounts' })
+  } catch (caught) {
+    const code = Number((caught as any)?.code)
+    const rawMessage = typeof caught === 'string' ? caught : String((caught as any)?.message || '')
+    if (code === -32601 || code === 4200 || /method not found|unsupported method|method not supported/i.test(rawMessage)) {
+      return provider.request({ method: 'tron_requestAccounts' })
+    }
+    throw caught
+  }
+}
+
+function walletConnectionError(caught: unknown): string {
+  const code = Number((caught as any)?.code)
+  const raw = (typeof caught === 'string' ? caught : String((caught as any)?.message || '')).trim()
+  if (code === 4001 || /confirmation declined by user|user rejected the request|request rejected/i.test(raw)) {
+    return 'The wallet request was declined. Retry and approve the requested connection/signature in TronLink.'
+  }
+  if (code === -32002 || /already pending|request is already pending|already processing a request/i.test(raw)) {
+    return 'A TronLink request is already open. Finish or close that wallet prompt before trying again.'
+  }
+  if (/user has not unlocked wallet|wallet is locked|wallet not unlocked/i.test(raw)) {
+    return 'Unlock TronLink, select the required sponsor account, then reconnect.'
+  }
+  return raw.slice(0, 240) || 'The wallet action failed. Confirm TronLink is connected and try again.'
+}
+
 const SPONSOR_BLOCKER_GUIDANCE: Record<string, string> = {
   'fee-sponsor-resource-capacity-not-verified': 'Refresh live diagnostics and inspect the resource failure stage below. The backend must read the fee sponsor’s fresh resource counters and delegation ceilings before the operator can delegate or prepare a transfer.',
   'active-fee-to-principal-resource-delegation-not-verified': 'After resource reads are healthy, switch TronLink to the configured fee-sponsor account, reconnect it, and have that wallet owner explicitly approve a suitable Energy or Bandwidth delegation to the distinct asset-principal address. Refresh this preflight after solidified verification.',
@@ -154,7 +188,7 @@ function validateUnsignedDelegation(
 }
 
 function readInjectedWallet(network: Network): WalletSnapshot {
-  const tronWeb = window.tronLink?.tronWeb || window.tronWeb
+  const tronWeb = getInjectedTronProvider()?.tronWeb || window.tronWeb
   const address = String(tronWeb?.defaultAddress?.base58 || '').trim()
   const rawHost = String(tronWeb?.fullNode?.host || tronWeb?.fullNode?.nodeUrl || '').trim()
   let host: URL
@@ -258,7 +292,7 @@ export default function SponsorSignerConsole() {
   // handlers still re-read and compare the live wallet and network immediately
   // before requesting a signature, so retaining a role snapshot grants no authority.
   useEffect(() => {
-    const provider = window.tronLink || window.tron
+    const provider = getInjectedTronProvider()
     if (!provider?.on) return
     const onAccountsChanged = () => {
       let activeAddress: string | null = null
@@ -317,10 +351,11 @@ export default function SponsorSignerConsole() {
     setMessage('Requesting wallet connection…')
     setBusy('connecting')
     try {
-      if (typeof window.tronLink?.request !== 'function') {
-        throw new Error('TronLink is not detected. Open this console in a browser with the sponsor wallet extension/app available.')
+      const provider = getInjectedTronProvider()
+      if (!provider) {
+        throw new Error('TronLink is not detected. Open this console in a browser where the wallet extension or wallet browser is enabled.')
       }
-      await window.tronLink.request({ method: 'tron_requestAccounts' })
+      await requestTronWalletAccess(provider)
       const next = readInjectedWallet(network)
       setWallet(next)
       setWalletNeedsReconnect(false)
@@ -332,7 +367,7 @@ export default function SponsorSignerConsole() {
     } catch (caught) {
       setWalletNeedsReconnect(true)
       setMessage('Wallet connection not verified; the last verified address is retained for reference only.')
-      setError(caught instanceof Error ? caught.message : 'Could not connect to the sponsor wallet.')
+      setError(walletConnectionError(caught))
     } finally {
       setBusy(null)
     }
@@ -429,7 +464,7 @@ export default function SponsorSignerConsole() {
         throw new Error('The reviewed transaction has expired or is too close to expiry. Prepare a fresh intent and review it before signing.')
       }
       const path = '/api/tron/sponsorship/transfers/' + encodeURIComponent(key)
-      const tronWeb = window.tronWeb || window.tronLink?.tronWeb
+      const tronWeb = getInjectedTronProvider()?.tronWeb || window.tronWeb
       if (typeof tronWeb?.trx?.sign !== 'function') throw new Error('The connected wallet does not expose TronWeb transaction signing.')
       setMessage('TronLink will request a signature for the exact reviewed transaction. Approve only if the details above match the approved reservation.')
       const signedTransaction = await tronWeb.trx.sign(prepared.transaction)
@@ -579,10 +614,11 @@ export default function SponsorSignerConsole() {
     // signer re-reads the active wallet immediately before every signature.
     setFeeWalletNeedsReconnect(true)
     try {
-      if (typeof window.tronLink?.request !== 'function') {
-        throw new Error('TronLink is not detected. Connect from a browser with the sponsor wallet available.')
+      const provider = getInjectedTronProvider()
+      if (!provider) {
+        throw new Error('TronLink is not detected. Connect from a browser where the sponsor wallet is available.')
       }
-      await window.tronLink.request({ method: 'tron_requestAccounts' })
+      await requestTronWalletAccess(provider)
       const next = readInjectedWallet(network)
       const rolesResult = await refreshSponsorRoles(network)
       const feeAddress = rolesResult.payload?.roles?.networkFeeSponsor?.address
@@ -599,7 +635,7 @@ export default function SponsorSignerConsole() {
       setMessage('Fee-sponsor wallet and testnet verified. Resource delegation will still require explicit wallet approval.')
     } catch (caught) {
       setFeeWalletNeedsReconnect(true)
-      setError(caught instanceof Error ? caught.message : 'Could not verify the fee-sponsor wallet.')
+      setError(walletConnectionError(caught))
       setMessage('Fee-sponsor wallet was not verified; no delegation was signed.')
     } finally {
       setBusy(null)
@@ -693,7 +729,7 @@ export default function SponsorSignerConsole() {
       if (BigInt(stakeEquivalentSun) > BigInt(maxStake)) {
         throw new Error('The requested stake-equivalent amount exceeds the current solidified delegation limit for this resource.')
       }
-      const tronWeb = window.tronWeb || window.tronLink?.tronWeb
+      const tronWeb = getInjectedTronProvider()?.tronWeb || window.tronWeb
       if (typeof tronWeb?.transactionBuilder?.delegateResource !== 'function'
         || typeof tronWeb?.trx?.sign !== 'function'
         || typeof tronWeb?.trx?.sendRawTransaction !== 'function') {
