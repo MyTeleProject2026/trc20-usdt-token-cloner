@@ -90,8 +90,11 @@ export function createSponsorResourceReader({
     }
     const tronGridKey = typeof env.TRONGRID_API_KEY === 'string' ? env.TRONGRID_API_KEY.trim() : ''
     const tatumKey = typeof env.TATUM_API_KEY === 'string' ? env.TATUM_API_KEY.trim() : ''
-    // Prefer TRONGrid when configured, but try Tatum per endpoint if TRONGrid fails.
-    // Read-only fallback never delegates resources, signs, reserves, or broadcasts.
+    // Prefer authenticated TRONGrid when configured. If it is not configured,
+    // use Tatum first when available and fall back to public TRONGrid for these
+    // read-only endpoints. Public requests may be rate-limited; a provider error
+    // remains a failed diagnostic and never enables signing or broadcast.
+    // This reader never delegates resources, signs, reserves, or sends funds.
     const providers = [
       ...(tronGridKey ? [{
         name: 'TRONGrid',
@@ -102,6 +105,11 @@ export function createSponsorResourceReader({
         name: 'Tatum',
         host: config.host,
         headers: { 'content-type': 'application/json', 'x-api-key': tatumKey },
+      }] : []),
+      ...(!tronGridKey ? [{
+        name: 'TRONGrid public',
+        host: config.tronGridHost,
+        headers: { 'content-type': 'application/json' },
       }] : []),
     ]
     if (providers.length === 0) {
