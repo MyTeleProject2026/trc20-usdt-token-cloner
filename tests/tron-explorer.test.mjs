@@ -54,3 +54,14 @@ test('sponsor console verifies accepted transfers and links the exact transactio
   assert.match(consoleSource, /Open \{transferExplorerLabel \|\| 'transaction'\} in TronScan/)
   assert.match(consoleSource, /keep the same transaction ID for the operator's manual retry/)
 })
+
+test('sponsor console invalidates signer verification on TronLink account/network changes and explains missing reservations', async () => {
+  const consoleSource = await readFile(new URL('../src/SponsorSignerConsole.tsx', import.meta.url), 'utf8')
+  assert.match(consoleSource, /provider\.on\('accountsChanged', onAccountsChanged\)/)
+  assert.match(consoleSource, /provider\.on\('chainChanged', onChainChanged\)/)
+  assert.match(consoleSource, /setWalletNeedsReconnect\(true\)/)
+  assert.match(consoleSource, /setFeeWalletNeedsReconnect\(true\)/)
+  assert.match(consoleSource, /No approved reservation was found for that key/)
+  assert.match(consoleSource, /docs\/SPONSOR_RESERVATION_IDEMPOTENCY\.md/)
+  assert.match(consoleSource, /feeWalletNeedsReconnect/)
+})
