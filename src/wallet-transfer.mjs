@@ -133,6 +133,92 @@ function expectedAddressHex(tronWeb, address) {
   }
 }
 
+/**
+ * Independently checks a saved activity record against the raw transaction
+ * returned by the selected public node. Local storage alone is never treated
+ * as proof that a transaction or its sender/recipient/amount is real.
+ */
+export async function verifyTransferRecordOnChain(tronWeb, {
+  txid,
+  from,
+  to,
+  asset,
+  amountBaseUnits,
+  tokenContract,
+}) {
+  const unresolved = {
+    status: 'pending-or-not-indexed',
+    solidified: false,
+    blockNumber: null,
+    identityMatches: false,
+    reason: 'transaction-not-found',
+  }
+  if (!tronWeb || typeof tronWeb !== 'object'
+    || typeof txid !== 'string' || !TX_ID_PATTERN.test(txid)
+    || !canonicalBase58(tronWeb, from)
+    || !canonicalBase58(tronWeb, to)
+    || !['TRX', 'TRC20'].includes(asset)
+    || typeof amountBaseUnits !== 'string'
+    || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)
+    || BigInt(amountBaseUnits) > MAX_UINT256
+    || (asset === 'TRC20' && !canonicalBase58(tronWeb, tokenContract))) {
+    throw new Error('Transaction verification details are invalid.')
+  }
+  let transaction = null
+  try {
+    transaction = await tronWeb.trx.getTransaction(txid)
+  } catch {
+    // The public full node may not have indexed it yet.
+  }
+  if (String(transaction?.txID || transaction?.txid || '').toLowerCase() !== txid.toLowerCase()
+    || !Array.isArray(transaction?.raw_data?.contract)) {
+    try {
+      transaction = await tronWeb.trx.getConfirmedTransaction(txid)
+    } catch {
+      return unresolved
+    }
+  }
+  if (String(transaction?.txID || transaction?.txid || '').toLowerCase() !== txid.toLowerCase()
+    || !Array.isArray(transaction?.raw_data?.contract)) {
+    return unresolved
+  }
+  const operations = transaction.raw_data.contract
+  if (operations.length !== 1) {
+    return { ...unresolved, reason: 'unexpected-operation-count' }
+  }
+  const operation = operations[0]
+  const value = operation?.parameter?.value
+  if (transactionOwner(tronWeb, transaction) !== from) {
+    return { ...unresolved, reason: 'sender-mismatch' }
+  }
+  if (asset === 'TRX') {
+    if (operation?.type !== 'TransferContract'
+      || normalizedHex(value?.to_address) !== expectedAddressHex(tronWeb, to)
+      || (typeof value?.amount !== 'string' && typeof value?.amount !== 'number')
+      || BigInt(String(value.amount)) !== BigInt(amountBaseUnits)) {
+      return { ...unresolved, reason: 'transfer-intent-mismatch' }
+    }
+  } else {
+    const expectedContract = expectedAddressHex(tronWeb, tokenContract)
+    const recipient = expectedAddressHex(tronWeb, to)
+    if (operation?.type !== 'TriggerSmartContract'
+      || !expectedContract
+      || normalizedHex(value?.contract_address) !== expectedContract
+      || !/^[0-9a-f]{40}$/.test(recipient.startsWith('41') ? recipient.slice(2) : recipient)) {
+      return { ...unresolved, reason: 'token-contract-mismatch' }
+    }
+    const receiverBytes = recipient.startsWith('41') ? recipient.slice(2) : recipient
+    const expectedData = 'a9059cbb'
+      + receiverBytes.padStart(64, '0')
+      + BigInt(amountBaseUnits).toString(16).padStart(64, '0')
+    if (normalizedHex(value?.data) !== expectedData) {
+      return { ...unresolved, reason: 'transfer-intent-mismatch' }
+    }
+  }
+  const status = await readConfirmedTransferStatus(tronWeb, txid)
+  return { ...status, identityMatches: true, reason: 'transaction-intent-matches-chain' }
+}
+
 /** Reject a node-built transaction unless its unsigned intent exactly matches the user review. */
 export function assertTransferTransactionIntent(tronWeb, transaction, { from, to, asset, amountBaseUnits, tokenContract }) {
   const contracts = transaction?.raw_data?.contract
