@@ -730,7 +730,8 @@ export default function WorkflowApp() {
 
   const stageCompletion = useMemo(() => [feeStageValid, assetStageValid, senderStageValid, receiverStageValid, reviewStageValid], [feeStageValid, assetStageValid, senderStageValid, receiverStageValid, reviewStageValid])
 
-  const canEnterStep = (index: number) => index === 0 || stageCompletion[index - 1] === true
+  // Every section can be opened directly. Validation still controls Continue and final review status.
+  const canEnterStep = (index: number) => index >= 0 && index < STEPS.length
   const currentStageState = (index: number): StageState => index < step ? (stageCompletion[index] ? 'done' : 'ready') : index === step ? 'current' : canEnterStep(index) ? 'ready' : 'locked'
 
   const loadSponsorStatus = async (forceRefresh = false) => {
@@ -1505,6 +1506,7 @@ export default function WorkflowApp() {
             <button type="button" aria-pressed={network === 'shasta'} className={network === 'shasta' ? 'is-selected' : ''} onClick={() => chooseNetwork('shasta')}>Shasta</button>
             <button type="button" aria-pressed={network === 'nile'} className={network === 'nile' ? 'is-selected' : ''} onClick={() => chooseNetwork('nile')}>Nile</button>
           </div>
+          <a className="studio-operator-link" href="#/sponsor-operator">Sponsor operator <ArrowRight size={13} aria-hidden="true" /></a>
           <button
             type="button"
             className="studio-button studio-button--secondary studio-topbar-auth"
@@ -1524,13 +1526,13 @@ export default function WorkflowApp() {
       </header>
 
       <div className="studio-shell" id="top">
-        <aside className="studio-sidebar" aria-label="Transfer stages">
+        <aside className="studio-sidebar" aria-label="Workspace sections">
           <div className="studio-sidebar-heading">
-            <p className="studio-eyebrow">Transfer workflow</p>
-            <h2>Request setup</h2>
-            <p className="studio-muted">Complete each stage in order. Live sending remains disabled until sponsor integration is verified. External wallets and exchanges only credit actual on-chain transfers; this app never fabricates external balances.</p>
+            <p className="studio-eyebrow">Workspace pages</p>
+            <h2>Navigate sections</h2>
+            <p className="studio-muted">Open any section at any time. Validation and fresh chain reads still control whether the final review is complete. Live sponsor submission remains unavailable until the backend verifies the required controls.</p>
           </div>
-          <nav className="studio-step-list" aria-label="Wizard stages">
+          <nav className="studio-step-list" aria-label="Workspace sections">
             {STEPS.map((item, index) => {
               const state = currentStageState(index)
               return (
@@ -2007,7 +2009,7 @@ export default function WorkflowApp() {
         </main>
       </div>
 
-      <nav className="studio-mobile-steps" aria-label="Mobile transfer stages">
+      <nav className="studio-mobile-steps" aria-label="Mobile workspace sections">
         {STEPS.map((item, index) => (
           <button key={item.short} type="button" disabled={!canEnterStep(index)} aria-current={step === index ? 'step' : undefined} className={step === index ? 'is-current' : stageCompletion[index] ? 'is-done' : ''} onClick={() => setStep(index)}>
             <span>{stageCompletion[index] ? <Check size={14} aria-hidden="true" /> : index + 1}</span><small>{item.short}</small>
