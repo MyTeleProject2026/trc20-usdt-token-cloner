@@ -238,6 +238,7 @@ const NETWORK_HOST: Record<NetworkId, string> = {
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TOKEN_CONTRACTS_STORAGE_KEY = 'tron-token-studio:token-contracts:v1'
 const AUTH_SESSION_STORAGE_KEY = 'tron-token-studio:auth-session:v1'
+const AUTH_NETWORK_STORAGE_KEY = 'tron-token-studio:auth-network:v1'
 
 function loadSavedTokenContract(network: NetworkId): string {
   if (typeof window === 'undefined') return ''
@@ -628,7 +629,9 @@ function formatTimestamp(value: number | null) {
 }
 
 export default function WorkflowApp() {
-  const [network, setNetwork] = useState<NetworkId>('nile')
+  const [network, setNetwork] = useState<NetworkId>(() => {
+    try { return window.sessionStorage.getItem(AUTH_NETWORK_STORAGE_KEY) === 'shasta' ? 'shasta' : 'nile' } catch { return 'nile' }
+  })
   const [step, setStep] = useState(0)
   const [authChecking, setAuthChecking] = useState(true)
 
@@ -932,6 +935,7 @@ export default function WorkflowApp() {
     try {
       const token = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY)
       window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
+      window.sessionStorage.removeItem(AUTH_NETWORK_STORAGE_KEY)
       if (token) {
         void fetch(`${API_BASE}/api/auth/tron/logout`, {
           method: 'POST',
@@ -994,7 +998,10 @@ export default function WorkflowApp() {
       if (String(provider.tronWeb?.defaultAddress?.base58 || '') !== address) {
         throw new Error('TronLink account changed during sign-in. Reconnect and authorize the currently selected account.')
       }
-      try { window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, identity.sessionToken) } catch {}
+      try {
+        window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, identity.sessionToken)
+        window.sessionStorage.setItem(AUTH_NETWORK_STORAGE_KEY, network)
+      } catch {}
       setWalletIdentity(identity)
       setWalletMode('tronlink')
       setSenderAddress(address)
