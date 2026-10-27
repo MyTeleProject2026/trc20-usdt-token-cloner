@@ -793,8 +793,7 @@ export default function WorkflowApp() {
   }, [network])
 
   useEffect(() => {
-    const provider = (window as any).tron
-    if (!provider || typeof provider.on !== 'function') return
+    let attachedProvider: any = null
     const invalidate = () => {
       clearStoredAuthSession()
       setSenderAddress('')
@@ -803,24 +802,37 @@ export default function WorkflowApp() {
       setWalletSource(null)
       setNativeSnapshot(null)
       setSenderTokenSnapshot(null)
+      setSenderLoading(false)
       setSenderError('TronLink account or network changed. The previous session was cleared. Connect again to sign in as the newly selected address; old balances are not reused.')
       setSenderCheckedAt(null)
       setReceiverAddress('')
       setReceiverSnapshot(null)
       setReceiverCheckedAt(null)
-      receiverHistoryRequestGeneration.current += 1
-      setReceiverHistoryRecords([])
-      setReceiverHistoryError('')
-      setReceiverHistoryNotice('')
-      setReceiverHistoryCheckedAt(null)
-      setReceiverHistoryPersistedAvailable(null)
+      clearReceiverHistory()
+      clearFeeEstimate()
       setStep(0)
     }
-    provider.on('accountsChanged', invalidate)
-    provider.on('chainChanged', invalidate)
+    const attachProvider = () => {
+      const provider = (window as any).tronLink || (window as any).tron
+      if (!provider || typeof provider.on !== 'function' || provider === attachedProvider) return
+      if (attachedProvider) {
+        try { attachedProvider.removeListener?.('accountsChanged', invalidate) } catch {}
+        try { attachedProvider.removeListener?.('chainChanged', invalidate) } catch {}
+      }
+      attachedProvider = provider
+      provider.on('accountsChanged', invalidate)
+      provider.on('chainChanged', invalidate)
+    }
+    attachProvider()
+    window.addEventListener('tronlink#initialized', attachProvider)
+    window.addEventListener('load', attachProvider)
     return () => {
-      try { provider.removeListener?.('accountsChanged', invalidate) } catch {}
-      try { provider.removeListener?.('chainChanged', invalidate) } catch {}
+      window.removeEventListener('tronlink#initialized', attachProvider)
+      window.removeEventListener('load', attachProvider)
+      if (attachedProvider) {
+        try { attachedProvider.removeListener?.('accountsChanged', invalidate) } catch {}
+        try { attachedProvider.removeListener?.('chainChanged', invalidate) } catch {}
+      }
     }
   }, [])
 
@@ -1047,7 +1059,7 @@ export default function WorkflowApp() {
     }
     void restoreSession()
     return () => { cancelled = true }
-  }, [])
+  }, [network])
 
   useEffect(() => {
     if (!walletIdentity) return
