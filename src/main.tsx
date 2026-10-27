@@ -5,6 +5,7 @@ import AuthGate from './AuthGate.tsx'
 import SponsorSignerConsole from './SponsorSignerConsole.tsx'
 import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'
 import OkxDepositStatus from './OkxDepositStatus.tsx'
+import WalletVault from './WalletVault.tsx'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
@@ -14,15 +15,18 @@ function renderRoute() {
   const isMainnetExchangeDeposit = route === '#/exchange-deposit'
   const isSponsorOperator = route === '#/sponsor-operator'
   const isOkxDepositStatus = route === '#/okx-deposit-status'
+  const isWalletVault = route === '#/wallet'
   root.render(
     <StrictMode>
-      {isMainnetExchangeDeposit
-        ? <MainnetExchangeDeposit />
-        : isOkxDepositStatus
-          ? <OkxDepositStatus />
-          : <AuthGate>
+      {isWalletVault
+        ? <WalletVault />
+        : isMainnetExchangeDeposit
+          ? <MainnetExchangeDeposit />
+          : isOkxDepositStatus
+            ? <OkxDepositStatus />
+            : <AuthGate>
               {isSponsorOperator ? <SponsorSignerConsole /> : <App />}
-            </AuthGate>}
+              </AuthGate>}
     </StrictMode>,
   )
 }
