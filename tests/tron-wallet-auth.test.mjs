@@ -108,6 +108,9 @@ test('wallet login verifies a one-time signature and returns an identity-only wa
     assert.equal(challenge.payload.scope, 'wallet-identity-only')
     assert.equal(challenge.payload.canSubmitSponsoredTransfer, false)
     assert.match(challenge.response.headers.get('cache-control') || '', /no-store/)
+    const storedChallenge = [...store.challenges.values()][0]
+    assert.ok(Number.isFinite(storedChallenge.issuedAt))
+    assert.equal('message' in storedChallenge, false)
 
     const verified = await requestJson(base, '/verify', {
       method: 'POST',
