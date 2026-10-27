@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { Router } from 'express'
-import { TronWeb } from 'tronweb'
+import { Trx } from 'tronweb'
 import { isValidTronAddress } from '../tron-address.mjs'
 import {
   persistWalletAuthChallenge,
@@ -94,10 +94,9 @@ export function createTronWalletAuthRouter({
   env = process.env,
   now = () => Date.now(),
   nonceFactory = () => randomBytes(24).toString('hex'),
-  verifyMessage = async (message, signature) => {
-    const tronWeb = new TronWeb({ fullHost: 'https://nile.trongrid.io' })
-    return tronWeb.trx.verifyMessageV2(message, signature)
-  },
+  // Message signature recovery is a local cryptographic operation; it does
+  // not require a Mainnet/Nile/Shasta RPC request or provider credentials.
+  verifyMessage = async (message, signature) => Trx.verifyMessageV2(message, signature),
   store = {
     createChallenge: persistWalletAuthChallenge,
     consumeChallenge: consumeWalletAuthChallenge,
