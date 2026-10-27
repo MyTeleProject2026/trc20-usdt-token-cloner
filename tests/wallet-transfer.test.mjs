@@ -96,12 +96,23 @@ test('invalid sender/recipient, self-transfer, failed build, sender mismatch and
   assert.equal(failedBuild.calls.signed, 0)
   assert.equal(failedBuild.calls.broadcast, 0)
 
-  const rejected = mockTronWeb({ trx: { sendRawTransaction: async () => ({ result: false, code: 'REJECTED' }) } })
+  let rejected
+  rejected = mockTronWeb({ trx: { sendRawTransaction: async () => {
+    rejected.calls.broadcast += 1
+    return { result: false, code: 'REJECTED' }
+  } } })
   await assert.rejects(buildSignAndBroadcastTransfer({
     tronWeb: rejected.tronWeb, from, to, asset: 'TRX', amountBaseUnits: '1',
   }), /did not accept/)
   assert.equal(rejected.calls.signed, 1)
   assert.equal(rejected.calls.broadcast, 1)
+
+  const wrongOwner = mockTronWeb({ address: { fromHex: () => to } })
+  await assert.rejects(buildSignAndBroadcastTransfer({
+    tronWeb: wrongOwner.tronWeb, from, to, asset: 'TRX', amountBaseUnits: '1',
+  }), /sender does not match/)
+  assert.equal(wrongOwner.calls.signed, 0)
+  assert.equal(wrongOwner.calls.broadcast, 0)
 })
 
 test('TRC-20 fee estimate requires successful live simulation and valid energy pricing', async () => {
