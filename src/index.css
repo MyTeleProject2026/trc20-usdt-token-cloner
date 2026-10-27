@@ -805,3 +805,68 @@ main .grid > button[aria-pressed] > span {
   .studio-auth-wallet-cta a { width:100%; }
 }
 
+
+/* Real transfer workflow, chain evidence, and receipt history */
+.wallet-vault-token-row { grid-template-columns:minmax(0,1fr) auto auto auto; }
+.wallet-vault-token-info { min-width:0; }
+.wallet-vault-token-info>strong { display:block; color:#d6f6e8; font-size:11px; overflow-wrap:anywhere; }
+.wallet-vault-token-info>small { display:block; margin-top:4px; color:#829f93; font-size:9px; line-height:1.55; overflow-wrap:anywhere; }
+.wallet-vault-token-info .wallet-vault-risk-note { color:#ffbcaa; }
+.wallet-vault-verify-button { min-height:30px; padding:6px 9px; font-size:9px; }
+.wallet-vault-official-token { width:100%; margin-top:8px; }
+.wallet-vault-transfer-section { margin-top:18px; padding-top:20px; border-top:1px solid #224238; }
+.wallet-vault-transfer-warning { padding:13px 14px; border:1px solid #795847; border-radius:12px; background:#241813; color:#f5d6bd; }
+.wallet-vault-transfer-warning strong { display:block; color:#ffd6a8; font-size:11px; }
+.wallet-vault-transfer-warning p { margin:6px 0 0; font-size:10px; line-height:1.75; color:#dfc0a8; }
+.wallet-vault-transfer-form { display:flex; flex-direction:column; gap:9px; margin-top:16px; padding:15px; border:1px solid #27483c; border-radius:13px; background:#071512; }
+.wallet-vault-transfer-form label,.wallet-vault-form label { color:#c9e5d9; font-size:11px; font-weight:700; }
+.wallet-vault-transfer-form input:not([type=checkbox]),.wallet-vault-transfer-form select { width:100%; min-width:0; min-height:42px; padding:10px 12px; color:#e9fff6; border:1px solid #29483e; border-radius:10px; outline:none; background:#071411; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.wallet-vault-transfer-form input:focus,.wallet-vault-transfer-form select:focus { border-color:#59d7a6; box-shadow:0 0 0 3px rgba(89,215,166,.1); }
+.wallet-vault-transfer-form button { margin-top:4px; }
+.wallet-vault-transfer-review { margin-top:14px; padding:15px; border:1px solid #43805e; border-radius:13px; background:linear-gradient(150deg,#10291e,#081613); }
+.wallet-vault-review-header { display:flex; align-items:center; gap:10px; color:#80e7b7; }
+.wallet-vault-review-header strong,.wallet-vault-review-header small { display:block; }
+.wallet-vault-review-header strong { color:#e1fff0; font-size:13px; }
+.wallet-vault-review-header small { margin-top:3px; color:#96b8a7; font-size:10px; }
+.wallet-vault-review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin:14px 0; }
+.wallet-vault-review-grid>div { min-width:0; padding:10px; border:1px solid #264b3b; border-radius:10px; background:#091a14; }
+.wallet-vault-review-grid>div.wallet-vault-review-wide { grid-column:1 / -1; }
+.wallet-vault-review-grid small { display:block; color:#84a997; font-size:9px; line-height:1.6; overflow-wrap:anywhere; }
+.wallet-vault-review-grid strong { display:block; margin-top:4px; color:#e0f8ea; font-size:11px; overflow-wrap:anywhere; }
+.wallet-vault-review-grid a { display:block; margin-top:4px; color:#a9f0d0; font-size:10px; overflow-wrap:anywhere; word-break:break-all; text-decoration:none; }
+.wallet-vault-review-grid a:hover { color:#80ffd2; }
+.wallet-vault-confirm-check { display:flex; align-items:flex-start; gap:9px; margin-top:12px; padding:12px; border:1px solid #795c40; border-radius:10px; background:#241d13; cursor:pointer; }
+.wallet-vault-confirm-check input { width:16px; height:16px; flex:0 0 auto; margin-top:2px; accent-color:#65dfaa; }
+.wallet-vault-confirm-check span { color:#f4d9b9; font-size:10px; line-height:1.75; }
+.wallet-vault-review-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.wallet-vault-review-actions>* { flex:1 1 180px; }
+.wallet-vault-history-section { margin-top:22px; padding-top:20px; border-top:1px solid #224238; }
+.wallet-vault-history-header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.wallet-vault-history-header h3 { margin:0; color:#dcf8eb; font-size:13px; }
+.wallet-vault-history-header p { margin:4px 0 0; color:#83a99a; font-size:10px; line-height:1.6; }
+.wallet-vault-history-header>span { padding:5px 8px; border:1px solid #315f4d; border-radius:999px; color:#b7e9d3; background:#0c261e; font-size:9px; white-space:nowrap; }
+.wallet-vault-history-empty { padding:16px; color:#91b3a4; border:1px dashed #2a4b40; border-radius:12px; background:#081613; font-size:10px; line-height:1.7; }
+.wallet-vault-history-list { display:flex; flex-direction:column; gap:9px; }
+.wallet-vault-history-item { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; padding:12px; border:1px solid #244439; border-radius:12px; background:#091916; }
+.wallet-vault-history-main { flex:1; min-width:0; }
+.wallet-vault-history-main>div { display:flex; align-items:center; flex-wrap:wrap; gap:7px; }
+.wallet-vault-history-main>div>strong { color:#e3fff0; font-size:12px; }
+.wallet-vault-history-main>a { display:block; margin-top:7px; color:#99e8c4; font:10px ui-monospace,SFMono-Regular,Menlo,monospace; text-decoration:none; overflow-wrap:anywhere; }
+.wallet-vault-history-main>a:hover { color:#76ffd0; }
+.wallet-vault-history-main>small { display:block; margin-top:4px; color:#86a698; font-size:9px; line-height:1.6; overflow-wrap:anywhere; }
+.wallet-vault-status-tag { display:inline-flex; align-items:center; padding:4px 7px; border:1px solid #395446; border-radius:999px; color:#b7d6c5; background:#13241b; font-size:8px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+.wallet-vault-status-tag.status-confirmed { color:#bbf9d8; border-color:#2e7150; background:#0d2b1c; }
+.wallet-vault-status-tag.status-failed { color:#ffcdc0; border-color:#8a4a40; background:#2b1715; }
+.wallet-vault-status-tag.status-included-unconfirmed,.wallet-vault-status-tag.status-pending-or-not-indexed { color:#ffe0aa; border-color:#7b6035; background:#2a2113; }
+.wallet-vault-history-refresh { flex:0 0 auto; min-height:33px; padding:7px 9px; font-size:9px; }
+@media (max-width: 650px) {
+  .wallet-vault-token-row { grid-template-columns:minmax(0,1fr) auto; }
+  .wallet-vault-token-row .wallet-vault-token-amount { grid-column:2; grid-row:1; }
+  .wallet-vault-token-row .wallet-vault-verify-button { grid-column:1; justify-self:start; }
+  .wallet-vault-token-row .wallet-vault-icon-button { grid-column:2; grid-row:2; }
+  .wallet-vault-review-grid { grid-template-columns:1fr; }
+  .wallet-vault-review-grid>div.wallet-vault-review-wide { grid-column:auto; }
+  .wallet-vault-history-item { align-items:stretch; flex-direction:column; }
+  .wallet-vault-history-refresh { width:100%; }
+}
+
