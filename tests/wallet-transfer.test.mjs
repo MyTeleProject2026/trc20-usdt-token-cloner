@@ -5,6 +5,7 @@ import {
   estimateTRC20TransferFee,
   parseUnitsDecimal,
   readConfirmedTransferStatus,
+  verifyTransferRecordOnChain,
 } from '../src/wallet-transfer.mjs'
 
 const from = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
@@ -201,6 +202,77 @@ test('TRC-20 fee estimate requires successful live simulation and valid energy p
   await assert.rejects(estimateTRC20TransferFee({
     tronWeb: reverted.tronWeb, from, to, tokenContract: contract, amountBaseUnits: '1000000',
   }), /explicitly reported a failed execution/)
+})
+
+test('saved TRX activity is trusted only when a live node transaction matches sender, recipient and amount', async () => {
+  const valid = mockTronWeb({ trx: {
+    getTransaction: async id => ({
+      ...transaction('TransferContract', {
+        owner_address: ownerHex,
+        to_address: toHex,
+        amount: 1500000,
+      }),
+      txID: id,
+    }),
+  } })
+  const matching = await verifyTransferRecordOnChain(valid.tronWeb, {
+    txid, from, to, asset: 'TRX', amountBaseUnits: '1500000',
+  })
+  assert.equal(matching.identityMatches, true)
+  assert.equal(matching.reason, 'transaction-intent-matches-chain')
+  assert.equal(matching.status, 'included-unconfirmed')
+
+  const tampered = mockTronWeb({ trx: {
+    getTransaction: async id => ({
+      ...transaction('TransferContract', {
+        owner_address: ownerHex,
+        to_address: ownerHex,
+        amount: 1500000,
+      }),
+      txID: id,
+    }),
+  } })
+  const mismatch = await verifyTransferRecordOnChain(tampered.tronWeb, {
+    txid, from, to, asset: 'TRX', amountBaseUnits: '1500000',
+  })
+  assert.equal(mismatch.identityMatches, false)
+  assert.equal(mismatch.reason, 'transfer-intent-mismatch')
+})
+
+test('saved TRC-20 activity checks the exact contract and calldata on chain', async () => {
+  const amount = '1234567'
+  const data = 'a9059cbb' + toHex.slice(2).padStart(64, '0')
+    + BigInt(amount).toString(16).padStart(64, '0')
+  const matchingWeb = mockTronWeb({ trx: {
+    getTransaction: async id => ({
+      ...transaction('TriggerSmartContract', {
+        owner_address: ownerHex,
+        contract_address: contractHex,
+        data,
+      }),
+      txID: id,
+    }),
+  } })
+  const matching = await verifyTransferRecordOnChain(matchingWeb.tronWeb, {
+    txid, from, to, asset: 'TRC20', tokenContract: contract, amountBaseUnits: amount,
+  })
+  assert.equal(matching.identityMatches, true)
+
+  const mismatchedWeb = mockTronWeb({ trx: {
+    getTransaction: async id => ({
+      ...transaction('TriggerSmartContract', {
+        owner_address: ownerHex,
+        contract_address: ownerHex,
+        data,
+      }),
+      txID: id,
+    }),
+  } })
+  const mismatched = await verifyTransferRecordOnChain(mismatchedWeb.tronWeb, {
+    txid, from, to, asset: 'TRC20', tokenContract: contract, amountBaseUnits: amount,
+  })
+  assert.equal(mismatched.identityMatches, false)
+  assert.equal(mismatched.reason, 'token-contract-mismatch')
 })
 
 test('confirmed transaction needs an explicit successful receipt; ambiguous receipt stays unresolved', async () => {
