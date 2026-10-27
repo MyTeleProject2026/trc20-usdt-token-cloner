@@ -260,6 +260,21 @@ test('logout revokes the bearer session and refuses an untrusted browser origin'
   })
 })
 
+test('wallet challenge issuance returns a retryable rate-limit response', async () => {
+  const store = createMemoryAuthStore()
+  store.createChallenge = async () => ({ success: false, reason: 'rate-limited' })
+  const app = createApp({ store, nonceFactory: () => '7'.repeat(48) })
+  await withServer(app, async (base) => {
+    const challenge = await requestJson(base, '/challenge', {
+      method: 'POST', body: { address, network: 'mainnet' },
+    })
+    assert.equal(challenge.response.status, 429)
+    assert.equal(challenge.payload.error, 'challenge-rate-limited')
+    assert.equal(challenge.response.headers.get('retry-after'), '300')
+    assert.equal('nonce' in challenge.payload, false)
+  })
+})
+
 test('challenge and verification fail closed if durable identity storage fails', async () => {
   const store = {
     async createChallenge() { return { success: false, reason: 'database-unavailable' } },
