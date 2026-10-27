@@ -63,7 +63,7 @@ jobs:
           cd android/app/build/outputs/apk/debug
           sha256sum app-debug.apk > app-debug.apk.sha256
       - name: Upload Android APK and checksum
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: tron-token-studio-android-debug-apk
           path: |
@@ -102,7 +102,7 @@ jobs:
           $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($installer.Name)" | Set-Content "$($installer.FullName).sha256" -Encoding ascii
       - name: Upload Windows installer and checksum
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: tron-token-studio-windows-x64-unsigned-installer
           path: |
