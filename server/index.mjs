@@ -38,6 +38,9 @@ app.use(express.json({ limit: '32kb' }))
 const configuredOrigins = [
   process.env.FRONTEND_ORIGIN,
   process.env.PACKAGED_APP_ORIGINS,
+  // Dedicated non-secret allowlist entry for the OKX read-only status page.
+  // This additive variable avoids overwriting an existing frontend allowlist.
+  process.env.OKX_UI_ORIGIN,
 ].filter((value) => typeof value === 'string' && value.trim()).join(',')
 const { allowedOrigins, middleware: corsPolicy } = createCorsPolicy(configuredOrigins)
 app.use(corsPolicy)
