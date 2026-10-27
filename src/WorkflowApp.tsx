@@ -1050,6 +1050,7 @@ export default function WorkflowApp() {
         window.sessionStorage.setItem(AUTH_NETWORK_STORAGE_KEY, network)
       } catch {}
       setWalletIdentity(identity)
+      window.dispatchEvent(new CustomEvent('tron-token-studio:wallet-authenticated', { detail: identity }))
       setWalletMode('tronlink')
       setSenderAddress(address)
       setWatchAddress(address)
