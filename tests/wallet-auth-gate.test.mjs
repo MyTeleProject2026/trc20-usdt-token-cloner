@@ -30,7 +30,7 @@ test('account or network changes invalidate session and clear old account snapsh
   assert.match(workflow, /setWalletIdentity\(null\)/)
   assert.match(workflow, /setNativeSnapshot\(null\)/)
   assert.match(workflow, /setSenderTokenSnapshot\(null\)/)
-  assert.match(workflow, /old balances are not reused/)
+  assert.match(workflow, /Previous account balances were cleared/)
   assert.match(workflow, /TronLink account changed during sign-in/)
 })
 
