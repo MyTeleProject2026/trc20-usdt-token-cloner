@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { ArrowLeft, Copy, ExternalLink, Plus, RefreshCw, ShieldCheck, Trash2, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 
@@ -159,7 +160,7 @@ export default function WatchOnlyWallets() {
     }
   }
 
-  function addWatchAddress(event: React.FormEvent<HTMLFormElement>) {
+  function addWatchAddress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setNotice('')
