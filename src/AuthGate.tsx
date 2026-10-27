@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Activity, Eye, Layers, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { Activity, ExternalLink, Eye, Layers, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 
 type NetworkId = 'nile' | 'shasta'
 type WalletSession = { address: string; network: NetworkId; expiresAt: number; sessionToken: string }
@@ -288,6 +288,17 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         <div className="studio-auth-network" role="group" aria-label="Choose testnet">
           <button type="button" aria-pressed={network === 'nile'} className={network === 'nile' ? 'is-selected' : ''} onClick={() => selectNetwork('nile')}>Nile testnet</button>
           <button type="button" aria-pressed={network === 'shasta'} className={network === 'shasta' ? 'is-selected' : ''} onClick={() => selectNetwork('shasta')}>Shasta testnet</button>
+        </div>
+
+        <div className="studio-auth-readonly" role="note">
+          <p><strong>Try the platform without real USDT</strong></p>
+          <p>Use test tokens on the selected {network === 'nile' ? 'Nile' : 'Shasta'} testnet. Testnet coins have no monetary value and cannot be deposited or transferred to a Mainnet exchange account. Keep TronLink on the same testnet selected here.</p>
+          <p>
+            <a href={network === 'nile' ? 'https://nileex.io/join/getJoinPage' : 'https://shasta.tronex.io/join/getJoinPage'} target="_blank" rel="noopener noreferrer">
+              Open {network === 'nile' ? 'Nile' : 'Shasta'} testnet faucet <ExternalLink size={14} aria-hidden="true" />
+            </a>
+          </p>
+          <p><a href="https://developers.tron.network/docs/getting-testnet-tokens-on-tron" target="_blank" rel="noopener noreferrer">TRON’s official test-token guide <ExternalLink size={14} aria-hidden="true" /></a></p>
         </div>
         {checking ? (
           <div className="studio-auth-loading" role="status"><RefreshCw className="studio-spin" size={18} aria-hidden="true" /> Checking saved wallet session…</div>
