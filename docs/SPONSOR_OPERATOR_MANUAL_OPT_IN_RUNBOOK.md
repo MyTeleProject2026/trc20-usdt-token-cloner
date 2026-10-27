@@ -125,6 +125,28 @@ Use an already-created, approved reservation. The signing console accepts the re
 
 The feature flag being enabled only opens the testnet route gate. It does not prove that an approved reservation exists or that any transaction was signed, broadcast, solidified, or credited.
 
+## 3B. Reservation idempotency key: what it is and where to get it
+
+An idempotency key is a unique caller-chosen/generated label for one exact reservation request. The database stores it under a unique constraint together with the exact intent (network, sponsor reference, purpose, asset, token contract, receiver and base-unit amount). Repeating the same request with the same key returns the existing reservation instead of reserving the budget twice. Reusing that key with different transfer details returns an idempotency conflict. The key is not a transaction hash, wallet signature, password, approval, or proof that funds moved.
+
+**If creating a new approved reservation:** run the repository helper from a trusted local checkout after setting `SPONSOR_ADMIN_API_TOKEN` in your local shell (not in the browser or chat). For example, supply the real approved Nile sponsor reference, receiver, asset, exact contract where applicable, and exact base-unit amount:
+
+```bash
+npm run sponsor:reserve -- \
+  --network nile \
+  --sponsor-reference <approved-sponsor-reference> \
+  --purpose asset-grant \
+  --asset TRX \
+  --receiver <receiver-nile-address> \
+  --amount-base-units <approved-amount-in-sun>
+```
+
+For USDT/VTRC, use the exact allowlisted contract and the correct base-unit amount for that contract's decimals. Do not copy the TRX example amount into a token request. If `--idempotency-key` is omitted, the helper generates one, prints **Reservation idempotency key:** in its output, and stores a private local recovery record under `~/.trc20-token-studio/reservations/` (unless `SPONSOR_RESERVATION_STATE_DIR` is set). Keep the key and recovery record in the approved operator's secure local workspace. A successful command creates an internal reservation only; it does not sign or broadcast.
+
+**If you already have an approved reservation:** do not create another reservation just to obtain a key. Recover the exact key from the original helper output or matching local recovery JSON. Then enter that key in the sponsor operator console's **Load approved reservation** field. The console requires the reservation's idempotency key, not the explorer transaction hash, sponsor budget ID, or receiver address.
+
+**If the key is lost:** inspect the original operator's recovery file or have the database operator locate the existing reservation record using the approved internal procedure. Do not guess a key or make a replacement reservation until the existing row and status are resolved. If a request timed out, retry the exact same request with the same key; never use a new key to retry an uncertain outcome. The helper writes its recovery state locally and prints the key again when invoked with `--idempotency-key <same-key>`.
+
 ## 4. Confirm read-only chain and deployment status first
 
 After the backend is live, open these URLs in a browser. They are diagnostics only:
@@ -221,19 +243,11 @@ Do not activate Mainnet budgets during this pilot. Do not create a draft for an 
 the sponsor-approved cap or the funding evidence supports. If a draft already exists, do not invent a
 second sponsor reference to bypass the duplicate protection.
 
-## 7. What is still needed before even a controlled testnet transfer
+## 7. What is still needed before a controlled testnet transfer can be called complete
 
-The current repository still requires a supported end-to-end pilot and settlement evidence before
-the signed-broadcast flag should be considered. This includes: a real sponsor-authorized and
-funded testnet transaction, persisted intent and replay/idempotency checks, a successful solidified
-receipt matching the exact sender/receiver/token/amount, a receiver balance query on the same network
-and contract, separately reconciled fee/resource expense, failure/timeout handling, and an operator
-review of the audit trail.
+The current Render route flag is documented as enabled for the controlled Shasta/Nile pilot, but this is only a route-level opt-in. The application must still enforce an existing approved reservation, active budget and agreement scope, distinct sponsor roles, exact transaction intent, sponsor-owned wallet signature, fresh resource/funding checks, and the final broadcast checks. This is not a claim that a transfer has been sent.
 
-Until those checks are completed, leave `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false`.
-If any state is ambiguous, pause and reconcile the same stored intent; never retry with a different
-transaction just to make the UI appear successful. The application must not deduct the transfer
-principal from the receiver's amount and must never fall back to charging the sender.
+A transfer can be called complete only when the live test proves: a real sponsor-authorized and funded testnet transaction; persisted intent and replay/idempotency checks; successful solidified transaction body and receipt matching the exact sender/receiver/token/amount; receiver balance read on the same network and contract; separately reconciled fee/resource expense; failure/timeout handling; and an operator review of the audit trail. If any gate fails, do not force the transaction through by changing unrelated flags. If any outcome is ambiguous, reconcile the same stored intent and transaction ID; never retry with a different key or transaction just to make the UI appear successful. The application must not deduct the transfer principal from the receiver's amount and must never fall back to charging the sender.
 
 ## 8. Mainnet release is a separate future decision
 
