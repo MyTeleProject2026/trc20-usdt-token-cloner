@@ -48,6 +48,21 @@ export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContrac
   if (simulation?.result?.result !== true) {
     throw new Error('On-chain simulation did not succeed. No transfer was signed or submitted.')
   }
+  const simulationContractResults = [
+    simulation?.transaction?.ret?.[0]?.contractRet,
+    simulation?.transaction?.ret?.[0]?.ret,
+    simulation?.ret?.[0]?.contractRet,
+  ].filter(value => value !== undefined && value !== null).map(value => String(value).toUpperCase())
+  if (simulationContractResults.some(value => ['FAILED', 'OUT_OF_ENERGY', 'REVERT', 'REVERTED', 'FALSE'].includes(value))) {
+    throw new Error('The TRC-20 simulation explicitly reported a failed execution. No transfer was signed or submitted.')
+  }
+  if (simulationContractResults.some(value => value === 'SUCCESS' || value === 'TRUE')) {
+    // Explicit success evidence is useful when present; otherwise result.result
+    // must be true and usable energy must be returned below.
+  } else if (simulation?.transaction?.ret?.[0]?.contractRet !== undefined
+    || simulation?.ret?.[0]?.contractRet !== undefined) {
+    throw new Error('The TRC-20 simulation returned an unknown execution status. No transfer was signed or submitted.')
+  }
 
   let energyRequired = Number(simulation.energy_used)
   try {
@@ -262,15 +277,21 @@ export async function readConfirmedTransferStatus(tronWeb, transactionId) {
     ])
     const matched = String(confirmed?.txID || confirmed?.txid || '').toLowerCase() === transactionId.toLowerCase()
     if (matched) {
-      const contractResult = String(confirmed?.ret?.[0]?.contractRet || info?.result || info?.receipt?.result || '').toUpperCase()
-      if (contractResult === 'FAILED' || contractResult === 'OUT_OF_ENERGY') {
+      const executionResults = [
+        confirmed?.ret?.[0]?.contractRet,
+        info?.receipt?.result,
+        info?.result,
+      ].filter(value => typeof value === 'string' && value.length > 0).map(value => value.toUpperCase())
+      const hasFailure = executionResults.some(value => ['FAILED', 'OUT_OF_ENERGY', 'REVERT', 'REVERTED'].includes(value))
+      const hasSuccess = executionResults.some(value => value === 'SUCCESS')
+      if (hasFailure) {
         return { status: 'failed', solidified: true, blockNumber: Number(info?.blockNumber || 0) || null }
       }
-      if (contractResult === 'SUCCESS' || info?.receipt?.result === 'SUCCESS') {
+      if (hasSuccess) {
         return { status: 'confirmed', solidified: true, blockNumber: Number(info?.blockNumber || 0) || null }
       }
-      // A solidified transaction object without an explicit successful receipt
-      // is not enough to claim execution succeeded. Keep it unresolved.
+      // A solidified transaction object without explicit successful execution
+      // evidence is not enough to claim the transfer succeeded.
       return { status: 'included-unconfirmed', solidified: false, blockNumber: Number(info?.blockNumber || 0) || null }
     }
   } catch {
