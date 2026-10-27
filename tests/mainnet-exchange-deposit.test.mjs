@@ -21,7 +21,7 @@ test('Mainnet USDT asset identity is pinned to the official Tether TRON contract
   assert.match(flow, /const MAINNET_HOST = 'api\.trongrid\.io'/)
   assert.match(flow, /checkMainnet\(tronWeb\)/)
   assert.match(flow, /decimals !== 6/)
-  assert.match(flow, /contract symbol/)
+  assert.match(flow, /contract\.symbol\(\)\.call\(\)/)
   assert.doesNotMatch(flow, /userSelectedTokenContract|customUsdtContract/i)
 })
 
@@ -55,7 +55,7 @@ test('deposit success requires the existing solidified TRX or TRC-20 verifier', 
 test('the page never fabricates exchange account credit', () => {
   assert.match(flow, /Exchange credit: not verified/)
   assert.match(flow, /does not connect to an exchange's private deposit-status API/)
-  assert.match(flow, /receiver balance is not an exchange ledger credit/)
+  assert.match(flow, /A balance read is not an exchange ledger credit/)
   assert.doesNotMatch(flow, /exchange-credited|creditExchangeBalance|incrementExchangeBalance/i)
   assert.match(flow, /official deposit page/)
   assert.match(flow, /This generic page does not connect to an exchange/)
