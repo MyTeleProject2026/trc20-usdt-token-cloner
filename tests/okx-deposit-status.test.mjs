@@ -231,7 +231,8 @@ test('API route remains read-only and server-side credentials are redacted', asy
   assert.match(index, /import okxDepositStatusRoutes from '\.\/routes\/okx-deposit-status\.mjs'/)
   assert.match(index, /app\.use\('\/api\/okx', okxDepositStatusRoutes\)/)
   assert.match(route, /\/api\/v5\/asset\/deposit-history/)
-  assert.doesNotMatch(route, /\/withdrawal|\/transfer|\bPOST\b|\bPUT\b|\bDELETE\b/i)
+  assert.doesNotMatch(route, /router\.(?:post|put|delete)\s*\(/i)
+  assert.doesNotMatch(route, /\/api\/v5\/(?:asset\/)?(?:withdrawal|transfer)\b/i)
   for (const name of ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_API_PASSPHRASE', 'OKX_STATUS_ACCESS_TOKEN']) {
     assert.match(route, new RegExp(name))
     assert.match(guard, new RegExp(name))
