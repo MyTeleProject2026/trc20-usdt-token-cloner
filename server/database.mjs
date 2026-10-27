@@ -123,6 +123,8 @@ export async function initializeDatabase() {
       `)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
         ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
           token_hash CHAR(64) PRIMARY KEY,
@@ -679,20 +681,42 @@ export async function persistWalletAuthChallenge(input = {}) {
   }
   const db = getPool()
   if (!db) return { success: false, reason: 'database-not-configured' }
+  let client
   try {
     await initializeDatabase()
-    await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE expires_at <= now()`)
-    await db.query(
+    client = await db.connect()
+    await client.query('BEGIN')
+    // Serialize attempts for the same public account/network/origin across
+    // Render instances, then enforce a modest five-minute challenge budget.
+    const lockKey = network + ':' + address + ':' + origin
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey])
+    const recent = await client.query(
+      `SELECT COUNT(*)::integer AS count
+         FROM ${schema}.wallet_auth_challenges
+        WHERE network = $1 AND wallet_address = $2 AND origin = $3
+          AND created_at > now() - INTERVAL '5 minutes'`,
+      [network, address, origin],
+    )
+    if (Number(recent.rows[0]?.count || 0) >= 8) {
+      await client.query('ROLLBACK')
+      return { success: false, reason: 'rate-limited' }
+    }
+    await client.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE expires_at <= now()`)
+    await client.query(
       `INSERT INTO ${schema}.wallet_auth_challenges
         (nonce_hash, wallet_address, network, origin, challenge_message, expires_at)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [nonceHash, address, network, origin, message, new Date(expiresAt)],
     )
+    await client.query('COMMIT')
     return { success: true }
   } catch (error) {
+    try { await client?.query('ROLLBACK') } catch {}
     // The uniqueness constraint intentionally rejects a duplicate challenge hash.
     console.error('Wallet auth challenge persistence failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
   }
 }
 
