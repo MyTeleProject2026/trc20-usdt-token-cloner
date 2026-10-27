@@ -32,7 +32,7 @@ test('wallet keystore uses a fresh salt and IV each time and rejects password or
 })
 
 test('wallet keystore rejects weak passwords and malformed private keys', async () => {
-  await assert.rejects(encryptWalletPrivateKey(privateKey, address, 'short', webcrypto), /at least 12 characters/)
+  await assert.rejects(encryptWalletPrivateKey(privateKey, address, 'short', webcrypto), /between 12 and 128 characters/)
   await assert.rejects(encryptWalletPrivateKey('not-a-private-key', address, password, webcrypto), /32 bytes/)
   assert.equal(isEncryptedWalletRecord({ version: 1, address }), false)
 })
