@@ -1388,6 +1388,7 @@ export default function WorkflowApp() {
     // Invalidate in-flight reads synchronously before React changes networks.
     sponsorRequestGeneration.current += 1
     clearStoredAuthSession()
+    window.dispatchEvent(new CustomEvent('tron-token-studio:network-change', { detail: next }))
     setSponsorLoading(false)
     setReviewRefreshing(false)
     clearFeeEstimate()
