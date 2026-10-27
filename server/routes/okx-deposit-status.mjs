@@ -28,14 +28,17 @@ function safeDeposit(record) {
     statusCode: String(record.state ?? ''),
     status: ({
       '0': 'waiting-confirmation',
-      '1': 'credited',
+      '1': 'credited-not-withdrawable',
       '2': 'successful',
-      '8': 'pending',
-      '11': 'match-failure',
+      '8': 'pending-temporary-deposit-suspension',
+      '11': 'address-blacklist-match',
+      '12': 'account-or-deposit-frozen',
+      '13': 'sub-account-deposit-interception',
+      '14': 'kyc-limit',
+      '17': 'travel-rule-pending',
     })[String(record.state)] || 'exchange-reported-unknown',
-    confirmations: String(record.confirmations ?? ''),
-    requiredConfirmations: String(record.confirms ?? ''),
-    creditedAt: String(record.ts ?? ''),
+    actualDepositBlockchainConfirmed: String(record.actualDepBlkConfirm ?? ''),
+    recordedAt: String(record.ts ?? ''),
     source: 'OKX authenticated deposit-history response',
   }
 }
