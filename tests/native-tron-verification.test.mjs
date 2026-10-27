@@ -52,7 +52,7 @@ test('current frontend reads native balances from the selected testnet', () => {
   assert.ok(app.includes('does not confirm exchange deposit credit') || app.includes('exchange credit'))
 })
 
-test('current frontend connects or watches a testnet wallet without sending transactions', () => {
+test('current frontend supports separate testnet wallet sends and verifies the same transaction', () => {
   assert.ok(app.includes('Connect & sign in with TronLink'))
   assert.ok(app.includes('/api/auth/tron/challenge'))
   assert.ok(app.includes('wallet.trx.signMessageV2') || app.includes('tronWeb.trx.signMessageV2'))
@@ -60,7 +60,11 @@ test('current frontend connects or watches a testnet wallet without sending tran
   assert.ok(app.includes('Watch-only address'))
   assert.ok(app.includes('Network mismatch. Select'))
   assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
-  assert.ok(!app.includes('sendRawTransaction'))
+  assert.ok(app.includes('sendDirectTestnetTransfer'))
+  assert.ok(app.includes('sendRawTransaction(signed)'))
+  assert.ok(app.includes('/api/tron/verify-native-transfer/'))
+  assert.ok(app.includes('/api/tron/verify-trc20-transfer/'))
+  assert.ok(app.includes("if (network !== 'nile' && network !== 'shasta')"))
   assert.ok(!app.includes('eth_sendTransaction'))
   assert.ok(!app.includes('window.confirm('))
 })
