@@ -135,7 +135,7 @@ export default function WalletVault() {
         const tokens = await Promise.all(tokenContracts.map(async contractAddress => {
           try {
             if (!web.isAddress(contractAddress)) throw new Error('Invalid TRON contract address')
-            const contract = await web.contract(TOKEN_ABI).at(contractAddress)
+            const contract = await web.contract(TOKEN_ABI, contractAddress)
             const [rawBalance, rawDecimals, rawSymbol] = await Promise.all([
               contract.balanceOf(unlocked.record.address).call(),
               contract.decimals().call(),
