@@ -236,6 +236,31 @@ const NETWORK_HOST: Record<NetworkId, string> = {
   nile: 'nile.trongrid.io',
 }
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const TOKEN_CONTRACTS_STORAGE_KEY = 'tron-token-studio:token-contracts:v1'
+
+function loadSavedTokenContract(network: NetworkId): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TOKEN_CONTRACTS_STORAGE_KEY) || '{}')
+    const contract = saved && typeof saved === 'object' ? saved[network] : null
+    return typeof contract === 'string' && ADDRESS_PATTERN.test(contract.trim()) ? contract.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+function saveTokenContractForNetwork(network: NetworkId, contract: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TOKEN_CONTRACTS_STORAGE_KEY) || '{}')
+    const next = saved && typeof saved === 'object' && !Array.isArray(saved) ? { ...saved } : {}
+    if (ADDRESS_PATTERN.test(contract.trim())) next[network] = contract.trim()
+    else delete next[network]
+    window.localStorage.setItem(TOKEN_CONTRACTS_STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    // Browser storage may be disabled; the current session continues normally.
+  }
+}
 
 const STEPS = [
   { title: 'Network fee sponsor', short: 'Fee sponsor', caption: 'Require an external sponsor for network fees.' },
@@ -618,7 +643,7 @@ export default function WorkflowApp() {
   // Stage 2 — the asset principal is distinct from fee sponsorship.
   const [assetKind, setAssetKind] = useState<AssetKind | null>(null)
   const [assetSponsorRequired, setAssetSponsorRequired] = useState(false)
-  const [tokenContract, setTokenContract] = useState('')
+  const [tokenContract, setTokenContract] = useState(() => loadSavedTokenContract('nile'))
 
   // Stage 3 — wallet inspection is watch-only; no signature or funds are needed.
   const [walletMode, setWalletMode] = useState<'tronlink' | 'watch'>('tronlink')
@@ -737,7 +762,7 @@ export default function WorkflowApp() {
     setFeeSponsorRequired(false)
     setAssetSponsorRequired(false)
     setAssetKind(null)
-    setTokenContract('')
+    setTokenContract(loadSavedTokenContract(network))
     setAmount('1')
     setSenderAddress('')
     setWatchAddress('')
@@ -1290,6 +1315,19 @@ export default function WorkflowApp() {
             <button type="button" aria-pressed={network === 'shasta'} className={network === 'shasta' ? 'is-selected' : ''} onClick={() => chooseNetwork('shasta')}>Shasta</button>
             <button type="button" aria-pressed={network === 'nile'} className={network === 'nile' ? 'is-selected' : ''} onClick={() => chooseNetwork('nile')}>Nile</button>
           </div>
+          <button
+            type="button"
+            className="studio-button studio-button--secondary studio-topbar-auth"
+            onClick={() => void connectTronLink()}
+            disabled={senderLoading}
+            title={walletIdentity && walletIdentity.network === network ? walletIdentity.address : 'Sign a short-lived wallet-ownership challenge in TronLink; no transaction is signed.'}
+            aria-label={walletIdentity && walletIdentity.network === network ? 'Reconnect or switch signed-in TRON wallet' : 'Sign in with TronLink'}
+          >
+            <Wallet size={15} aria-hidden="true" />
+            {senderLoading ? 'Connecting…' : walletIdentity && walletIdentity.network === network && walletIdentity.expiresAt > Date.now()
+              ? 'Account ' + walletIdentity.address.slice(0, 6) + '…' + walletIdentity.address.slice(-4)
+              : 'Sign in with TronLink'}
+          </button>
           <Pill tone="warning">Testnet only</Pill>
         </div>
       </header>
@@ -1385,7 +1423,7 @@ export default function WorkflowApp() {
               </button>
 
               <div className="studio-choice-grid">
-                <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
+                <button type="button" onClick={() => { setAssetKind('TRX'); setTokenContract(''); saveTokenContractForNetwork(network, ''); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} aria-pressed={assetKind === 'TRX'} className={`studio-asset-choice ${assetKind === 'TRX' ? 'is-picked' : ''}`}>
                   <span className="studio-asset-mark">T</span><strong>Native TRX</strong><small>Testnet TRX supplied by the asset sponsor; not Mainnet value.</small><span className="studio-asset-selected">{assetKind === 'TRX' ? 'Selected' : 'Choose TRX'}</span>
                 </button>
                 <button type="button" onClick={() => { setAssetKind('TRC20'); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} aria-pressed={assetKind === 'TRC20'} className={`studio-asset-choice ${assetKind === 'TRC20' ? 'is-picked' : ''}`}>
@@ -1396,8 +1434,8 @@ export default function WorkflowApp() {
               {assetKind === 'TRC20' && (
                 <div className="studio-field-block">
                   <label htmlFor="token-contract">Token contract address on {network === 'nile' ? 'Nile' : 'Shasta'}</label>
-                  <input id="token-contract" value={tokenContract} onChange={(event) => { setTokenContract(event.target.value.trim()); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} placeholder="Enter a deployed test token contract (T…)" autoComplete="off" spellCheck={false} />
-                  <p className="studio-field-hint">The app reads balance and decimals from this exact contract on the selected testnet. A token symbol alone does not prove identity or exchange support.</p>
+                  <input id="token-contract" value={tokenContract} onChange={(event) => { const value = event.target.value.trim(); setTokenContract(value); saveTokenContractForNetwork(network, value); setSenderTokenSnapshot(null); setReceiverSnapshot(null); clearReceiverHistory(); clearFeeEstimate() }} placeholder="Enter a deployed test token contract (T…)" autoComplete="off" spellCheck={false} />
+                  <p className="studio-field-hint">Saved locally in this browser for {network === 'nile' ? 'Nile' : 'Shasta'} only. The app reads balance and decimals from this exact contract. Sponsored transfer use still requires the backend allowlist for this network; a token symbol alone does not prove identity or exchange support.</p>
                   {tokenContract && !ADDRESS_PATTERN.test(tokenContract) && <p className="studio-inline-error">The contract address format is invalid.</p>}
                 </div>
               )}
