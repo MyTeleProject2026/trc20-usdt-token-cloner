@@ -276,6 +276,64 @@ export default function MainnetExchangeDeposit() {
     return () => window.clearTimeout(timer)
   }, [walletSession])
 
+  useEffect(() => {
+    let attachedProvider: any = null
+    const clearWalletIdentity = (message: string) => {
+      let token = ''
+      try {
+        token = window.sessionStorage.getItem(AUTH_SESSION_KEY) || ''
+        window.sessionStorage.removeItem(AUTH_SESSION_KEY)
+      } catch {}
+      setWalletSession(null)
+      setSender('')
+      setTrxBalanceSun(null)
+      setUsdtBalanceRaw(null)
+      setDestinationConfirmed(false)
+      setIrreversibleConfirmed(false)
+      setWalletError(message)
+      if (token) {
+        void fetch(API_BASE + '/api/auth/tron/logout', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token },
+          credentials: 'omit',
+          cache: 'no-store',
+        }).catch(() => undefined)
+      }
+    }
+    const onAccountsChanged = (accounts: unknown) => {
+      if (!sender) return
+      const nextAddress = Array.isArray(accounts) ? String(accounts[0] || '') : ''
+      if (nextAddress !== sender) {
+        clearWalletIdentity('The active TronLink account changed. The previous identity and balance snapshot were cleared; reconnect and sign in again.')
+      }
+    }
+    const onChainChanged = () => {
+      if (sender) clearWalletIdentity('The TronLink network changed. The Mainnet identity was cleared; select the official TronGrid Mainnet node and sign in again.')
+    }
+    const attachProvider = () => {
+      const provider = getProvider()
+      if (!provider || typeof provider.on !== 'function' || provider === attachedProvider) return
+      if (attachedProvider) {
+        try { attachedProvider.removeListener?.('accountsChanged', onAccountsChanged) } catch {}
+        try { attachedProvider.removeListener?.('chainChanged', onChainChanged) } catch {}
+      }
+      attachedProvider = provider
+      provider.on('accountsChanged', onAccountsChanged)
+      provider.on('chainChanged', onChainChanged)
+    }
+    attachProvider()
+    window.addEventListener('tronlink#initialized', attachProvider)
+    window.addEventListener('load', attachProvider)
+    return () => {
+      window.removeEventListener('tronlink#initialized', attachProvider)
+      window.removeEventListener('load', attachProvider)
+      if (attachedProvider) {
+        try { attachedProvider.removeListener?.('accountsChanged', onAccountsChanged) } catch {}
+        try { attachedProvider.removeListener?.('chainChanged', onChainChanged) } catch {}
+      }
+    }
+  }, [sender, walletSession])
+
   const amountBaseUnits = amountToBaseUnits(amount, 6)
   const destinationValid = ADDRESS_PATTERN.test(destination.trim()) && destination.trim() !== sender
   const formReady = Boolean(sender && walletSession?.address === sender && walletSession?.network === 'mainnet' && walletSession?.expiresAt && walletSession.expiresAt > Date.now() && destinationValid && amountBaseUnits && destinationConfirmed && irreversibleConfirmed && !sending && !verifying && !attempt)
