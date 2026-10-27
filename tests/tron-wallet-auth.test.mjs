@@ -47,11 +47,17 @@ function createMemoryAuthStore() {
   }
 }
 
-function createApp({ store = createMemoryAuthStore(), now = () => Date.now(), nonceFactory, verifyMessage } = {}) {
+function createApp({
+  store = createMemoryAuthStore(),
+  now = () => Date.now(),
+  nonceFactory,
+  verifyMessage,
+  env = { FRONTEND_ORIGIN: origin, PACKAGED_APP_ORIGINS: 'tronstudio://app' },
+} = {}) {
   const app = express()
   app.use(express.json({ limit: '32kb' }))
   app.use('/api/auth/tron', createTronWalletAuthRouter({
-    env: { FRONTEND_ORIGIN: origin, PACKAGED_APP_ORIGINS: 'tronstudio://app' },
+    env,
     store,
     now,
     nonceFactory,
@@ -84,6 +90,22 @@ async function requestJson(base, path, { method = 'GET', body, token, requestOri
   })
   return { response, payload: await response.json() }
 }
+
+test('the dedicated OKX UI origin can use wallet-auth endpoints without replacing other origins', async () => {
+  const app = createApp({
+    env: { OKX_UI_ORIGIN: origin },
+    nonceFactory: () => '9'.repeat(48),
+  })
+  await withServer(app, async (base) => {
+    const challenge = await requestJson(base, '/challenge', {
+      method: 'POST',
+      body: { address, network: 'nile' },
+    })
+    assert.equal(challenge.response.status, 200)
+    assert.equal(challenge.payload.success, true)
+    assert.equal(challenge.payload.scope, 'wallet-identity-only')
+  })
+})
 
 test('wallet login verifies a one-time signature and returns an identity-only wallet account/session', async () => {
   const store = createMemoryAuthStore()
