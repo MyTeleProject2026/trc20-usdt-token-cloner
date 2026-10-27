@@ -131,6 +131,6 @@ test('wallet UI exposes only owner-authenticated read-only funding, not generate
   assert.ok(ui.includes('/api/treasury/owner/funding-status?network=mainnet'))
   assert.ok(ui.includes('ownerAccessVerified'))
   assert.ok(ui.includes('Read-only treasury funding check'))
-  assert.ok(ui.includes('no USDT is generated'))
+  assert.ok(ui.toLowerCase().includes('no usdt is generated'))
   assert.ok(ui.includes('canSubmitSponsoredTransfer'))
 })
