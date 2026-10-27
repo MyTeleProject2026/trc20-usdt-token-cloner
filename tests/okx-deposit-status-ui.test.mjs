@@ -31,6 +31,8 @@ test('page displays only returned deposit records and prominently states scope',
   assert.match(page, /No balances are fabricated/)
   assert.match(page, /Successful · OKX reports withdrawable/)
   assert.match(page, /Credited · withdrawal not yet enabled/)
+  assert.match(page, /OKX deposit ID/)
+  assert.match(page, /Actual blockchain-confirmed amount/)
   assert.doesNotMatch(page, /availableBalance|incrementExchangeBalance|fabricatedBalance/i)
 })
 
