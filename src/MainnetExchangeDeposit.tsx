@@ -76,7 +76,7 @@ function canonicalAddressHex(tronWeb: any, address: unknown): string | null {
 
 function amountToBaseUnits(value: string, decimals = 6): string | null {
   const input = value.trim()
-  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/.test(input)) return null
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(input)) return null
   const [whole, fraction = ''] = input.split('.')
   if (fraction.length > decimals) return null
   const base = BigInt(whole) * (10n ** BigInt(decimals))
