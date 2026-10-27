@@ -22,7 +22,7 @@ The current keystore uses PBKDF2-HMAC-SHA-256 (600,000 iterations for new record
 
 **This is a client-side password-encrypted web wallet, not a hardware wallet or an audited mobile secure-keystore implementation.** A compromised device, malicious browser extension, injected script, or compromised app build could access a key while it is unlocked. Local storage can be cleared by the browser/OS. Use the encrypted backup, keep it private, and test recovery before depending on it. A lost password cannot be reset by the server. Do not treat the current implementation as ready to custody substantial mainnet assets without independent wallet-security review and real-device testing.
 
-This build does not generate a BIP-39 mnemonic/recovery phrase. The recovery path provided by this iteration is the app-specific encrypted JSON backup plus its password. Real transfer controls are present, but the wallet has not undergone an independent security audit. Transfers must be treated as irreversible.
+This build does not generate a BIP-39 mnemonic/recovery phrase. The recovery path provided by this iteration is the app-specific encrypted JSON backup plus its password. Real TRX and TRC-20 transfer controls are available after an explicit review, local signing and signed-transaction broadcast. The wallet has not undergone an independent security audit. Transfers must be treated as irreversible.
 
 ## Network and contract reads
 
@@ -31,7 +31,7 @@ This build does not generate a BIP-39 mnemonic/recovery phrase. The recovery pat
 - The token watchlist calls real read-only contract methods. Mainnet source/risk annotations come from TronScan's public API; testnet source-verification evidence remains unknown rather than being borrowed from Mainnet.
 - Mainnet TRC-20 transfers are blocked unless the contract matches the official Tether TRON USDT address under additional on-chain metadata checks, or TronScan reports fully verified source with no risk markers. Source verification is not a guarantee of safety, issuer identity, liquidity, peg or value.
 - Native TRX transfers and supported TRC-20 transfers are signed locally and broadcast to the selected public node. The app checks balances, simulates TRC-20 calls, estimates a fee cap, requires explicit review and acknowledgement, and requires typing `SEND MAINNET` before Mainnet broadcast.
-- The transaction ID is read back from the network; a transaction is only labeled confirmed when a successful execution receipt is available. Ambiguous receipts remain unresolved.
+- The transaction ID is read back from the network; a transaction is only labeled confirmed when a successful execution receipt is available. An explicit failed receipt wins over conflicting success-shaped metadata; ambiguous receipts remain unresolved. Local history is an activity aid, not a ledger guarantee, and exchange credit remains dependent on the recipient exchange's authenticated deposit record.
 
 ## Workspace authentication
 
