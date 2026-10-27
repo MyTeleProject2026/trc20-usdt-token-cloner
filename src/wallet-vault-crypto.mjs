@@ -1,6 +1,7 @@
 const FORMAT = 'tron-token-studio-encrypted-wallet'
 const VERSION = 1
 const ITERATIONS = 600_000
+const MAX_PASSWORD_LENGTH = 128
 const SUPPORTED_ITERATIONS = new Set([310_000, ITERATIONS])
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
@@ -74,7 +75,7 @@ export async function encryptWalletPrivateKey(privateKey, address, password, cry
   const normalizedKey = typeof privateKey === 'string' ? privateKey.replace(/^0x/i, '').toLowerCase() : ''
   if (!PRIVATE_KEY_PATTERN.test(normalizedKey)) throw new Error('The private key must contain exactly 32 bytes of hexadecimal data.')
   if (typeof address !== 'string' || !ADDRESS_PATTERN.test(address)) throw new Error('A valid TRON address is required.')
-  if (typeof password !== 'string' || password.length < 12) throw new Error('Use a wallet password with at least 12 characters.')
+  if (typeof password !== 'string' || password.length < 12 || password.length > MAX_PASSWORD_LENGTH) throw new Error('Use a wallet password between 12 and 128 characters.')
 
   const salt = provider.getRandomValues(new Uint8Array(16))
   const iv = provider.getRandomValues(new Uint8Array(12))
@@ -101,7 +102,7 @@ export async function encryptWalletPrivateKey(privateKey, address, password, cry
 export async function decryptWalletPrivateKey(record, password, cryptoProvider = globalThis.crypto) {
   const provider = requireCrypto(cryptoProvider)
   if (!validateRecord(record)) throw new Error('This is not a supported TRON Token Studio encrypted wallet backup.')
-  if (typeof password !== 'string' || password.length < 1) throw new Error('Enter the wallet password.')
+  if (typeof password !== 'string' || password.length < 1 || password.length > MAX_PASSWORD_LENGTH) throw new Error('Enter a wallet password of no more than 128 characters.')
 
   try {
     const salt = base64ToBytes(record.kdf.salt)
