@@ -91,12 +91,29 @@ test('server entrypoint uses the fail-closed CORS policy and reports valid confi
   const entrypoint = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
   assert.match(entrypoint, /process\.env\.FRONTEND_ORIGIN/)
   assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
+  assert.match(entrypoint, /process\.env\.OKX_UI_ORIGIN/)
   assert.match(entrypoint, /createCorsPolicy\(configuredOrigins\)/)
   assert.match(entrypoint, /app\.use\(corsPolicy\)/)
   assert.match(entrypoint, /frontendOrigin: \{ configured: allowedOrigins\.size > 0 \}/)
   assert.doesNotMatch(entrypoint, /!allowedOrigins\.size\s*\|\|\s*allowedOrigins\.has\(origin\)/)
 })
 
+
+test('OKX frontend origin can be added without replacing the existing allowlist', async () => {
+  const entrypoint = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+  assert.match(entrypoint, /process\.env\.FRONTEND_ORIGIN/)
+  assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
+  assert.match(entrypoint, /process\.env\.OKX_UI_ORIGIN/)
+  const configured = [
+    'https://existing-studio.example',
+    'tronstudio://app',
+    'https://trc20-usdt-token-cloner.onrender.com',
+  ].join(',')
+  const { allowedOrigins } = createCorsPolicy(configured)
+  assert.ok(allowedOrigins.has('https://existing-studio.example'))
+  assert.ok(allowedOrigins.has('tronstudio://app'))
+  assert.ok(allowedOrigins.has('https://trc20-usdt-token-cloner.onrender.com'))
+})
 
 test('plain HTTP is accepted only for local development origins', () => {
   const { allowedOrigins, middleware } = createCorsPolicy('http://localhost:5173')
@@ -142,6 +159,7 @@ test('packaged-app origins are additive and never replace the hosted frontend al
   const entrypoint = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
   assert.match(entrypoint, /process\.env\.FRONTEND_ORIGIN/)
   assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
+  assert.match(entrypoint, /process\.env\.OKX_UI_ORIGIN/)
   assert.match(entrypoint, /\.filter\(\(value\) => typeof value === 'string' && value\.trim\(\)\)\.join\(','\)/)
   const configured = 'https://studio.example,https://localhost,tronstudio://app'
   const { allowedOrigins } = createCorsPolicy(configured)
