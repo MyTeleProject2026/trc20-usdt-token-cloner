@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2,
   CircleDollarSign, Copy, Fuel, Layers, LockKeyhole, Network, RefreshCw,
-  ShieldCheck, Wallet, Eye, EyeOff,
+  ShieldCheck, Wallet, Eye, EyeOff, LogOut,
 } from 'lucide-react'
 import { getTronScanAddressUrl, getTronScanNetworkLabel, getTronScanTransactionUrl } from './tron-explorer.mjs'
 
@@ -237,6 +237,7 @@ const NETWORK_HOST: Record<NetworkId, string> = {
 }
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TOKEN_CONTRACTS_STORAGE_KEY = 'tron-token-studio:token-contracts:v1'
+const AUTH_SESSION_STORAGE_KEY = 'tron-token-studio:auth-session:v1'
 
 function loadSavedTokenContract(network: NetworkId): string {
   if (typeof window === 'undefined') return ''
@@ -629,6 +630,7 @@ function formatTimestamp(value: number | null) {
 export default function WorkflowApp() {
   const [network, setNetwork] = useState<NetworkId>('nile')
   const [step, setStep] = useState(0)
+  const [authChecking, setAuthChecking] = useState(true)
 
   // Stage 1 — network fees are external-sponsor-only. There is intentionally no
   // option that charges the sender as a fallback.
@@ -794,13 +796,16 @@ export default function WorkflowApp() {
     const provider = (window as any).tron
     if (!provider || typeof provider.on !== 'function') return
     const invalidate = () => {
+      clearStoredAuthSession()
       setSenderAddress('')
+      setWatchAddress('')
       setWalletIdentity(null)
       setWalletSource(null)
       setNativeSnapshot(null)
       setSenderTokenSnapshot(null)
-      setSenderError('TronLink account or network changed. Reconnect and re-read the balances before continuing.')
+      setSenderError('TronLink account or network changed. The previous session was cleared. Connect again to sign in as the newly selected address; old balances are not reused.')
       setSenderCheckedAt(null)
+      setReceiverAddress('')
       setReceiverSnapshot(null)
       setReceiverCheckedAt(null)
       receiverHistoryRequestGeneration.current += 1
@@ -809,7 +814,7 @@ export default function WorkflowApp() {
       setReceiverHistoryNotice('')
       setReceiverHistoryCheckedAt(null)
       setReceiverHistoryPersistedAvailable(null)
-      setStep((current) => Math.min(current, 2))
+      setStep(0)
     }
     provider.on('accountsChanged', invalidate)
     provider.on('chainChanged', invalidate)
@@ -885,7 +890,45 @@ export default function WorkflowApp() {
       || typeof verified.sessionToken !== 'string' || !Number.isFinite(verified.expiresAt)) {
       throw new Error(verified?.message || verified?.error || `Wallet signature verification failed (HTTP ${verifyResponse.status}).`)
     }
+    // Reject an account/network change that happened while TronLink was showing
+    // the signature confirmation. The signature must belong to this exact identity.
+    checkedWalletNetwork(tronWeb, network)
+    if (String(tronWeb?.defaultAddress?.base58 || '') !== address) {
+      throw new Error('TronLink account changed during sign-in. Reconnect and sign in with the currently selected account.')
+    }
     return { address, network, expiresAt: verified.expiresAt, sessionToken: verified.sessionToken }
+  }
+
+  const clearStoredAuthSession = () => {
+    try {
+      const token = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY)
+      window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
+      if (token) {
+        void fetch(`${API_BASE}/api/auth/tron/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'omit',
+          cache: 'no-store',
+        }).catch(() => undefined)
+      }
+    } catch {
+      // Storage may be unavailable; clearing React state still signs out locally.
+    }
+  }
+
+  const signOutWallet = () => {
+    clearStoredAuthSession()
+    setWalletIdentity(null)
+    setWalletSource(null)
+    setSenderAddress('')
+    setWatchAddress('')
+    setNativeSnapshot(null)
+    setSenderTokenSnapshot(null)
+    setSenderCheckedAt(null)
+    setReceiverSnapshot(null)
+    setReceiverCheckedAt(null)
+    setSenderError('')
+    setStep(0)
   }
 
   const connectTronLink = async () => {
@@ -918,19 +961,27 @@ export default function WorkflowApp() {
         throw new Error('TronLink did not provide a valid authorized TRON address.')
       }
       const identity = await signInWithWallet(address, tronWeb)
+      checkedWalletNetwork(provider.tronWeb, network)
+      if (String(provider.tronWeb?.defaultAddress?.base58 || '') !== address) {
+        throw new Error('TronLink account changed during sign-in. Reconnect and authorize the currently selected account.')
+      }
+      try { window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, identity.sessionToken) } catch {}
       setWalletIdentity(identity)
       setWalletMode('tronlink')
       setSenderAddress(address)
       setWatchAddress(address)
       setWalletSource('TronLink')
-      // Connecting or reconnecting a wallet is a refresh boundary for the
-      // sponsor snapshots too. Refresh the fee and principal roles alongside
-      // the sender's chain reads so the review stage never relies on stale UI data.
-      await Promise.all([
+      // A chain-read outage must not turn a successful signed login into a
+      // failed authentication. Keep identity and report balance-read errors separately.
+      const [snapshotResult] = await Promise.allSettled([
         readSenderSnapshots(address),
         loadSponsorStatus(true),
       ])
+      if (snapshotResult.status === 'rejected') {
+        setSenderError(snapshotResult.reason instanceof Error ? snapshotResult.reason.message : 'Wallet login succeeded, but a live balance read failed.')
+      }
     } catch (error) {
+      clearStoredAuthSession()
       setSenderAddress('')
       setWalletIdentity(null)
       setWalletSource(null)
@@ -941,6 +992,72 @@ export default function WorkflowApp() {
       setSenderLoading(false)
     }
   }
+
+  // Restore only a still-valid server session for the same wallet and same
+  // testnet in this browser tab. A cached public address alone is never login.
+  useEffect(() => {
+    let cancelled = false
+    const restoreSession = async () => {
+      try {
+        const token = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY)
+        if (!token) return
+        const provider = (window as any).tron
+        if (!provider || provider.isTronLink !== true || !provider.tronWeb) {
+          throw new Error('TronLink is not available to restore this session. Connect your wallet again.')
+        }
+        const response = await fetch(`${API_BASE}/api/auth/tron/session`, {
+          headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+          credentials: 'omit',
+          cache: 'no-store',
+        })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || payload?.success !== true || payload?.authenticated !== true
+          || payload.network !== network || !ADDRESS_PATTERN.test(String(payload.address || ''))
+          || !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) {
+          throw new Error('Saved wallet session is invalid or expired. Sign in again.')
+        }
+        checkedWalletNetwork(provider.tronWeb, network)
+        if (String(provider.tronWeb?.defaultAddress?.base58 || '') !== payload.address) {
+          throw new Error('The selected TronLink account differs from the previous session. Sign in again with the selected address.')
+        }
+        if (cancelled) return
+        const identity: WalletIdentity = {
+          address: payload.address,
+          network: payload.network,
+          expiresAt: payload.expiresAt,
+          sessionToken: token,
+        }
+        setWalletIdentity(identity)
+        setWalletMode('tronlink')
+        setSenderAddress(identity.address)
+        setWatchAddress(identity.address)
+        setWalletSource('TronLink')
+        const [snapshotResult] = await Promise.allSettled([
+          readSenderSnapshots(identity.address),
+          loadSponsorStatus(true),
+        ])
+        if (!cancelled && snapshotResult.status === 'rejected') {
+          setSenderError(snapshotResult.reason instanceof Error ? snapshotResult.reason.message : 'Session restored, but the balance read failed.')
+        }
+      } catch {
+        clearStoredAuthSession()
+      } finally {
+        if (!cancelled) setAuthChecking(false)
+      }
+    }
+    void restoreSession()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!walletIdentity) return
+    const delay = Math.max(0, walletIdentity.expiresAt - Date.now())
+    const timeout = window.setTimeout(() => {
+      signOutWallet()
+      setSenderError('Wallet login expired. Sign in again to continue.')
+    }, delay)
+    return () => window.clearTimeout(timeout)
+  }, [walletIdentity])
 
   const inspectWatchAddress = async () => {
     const address = watchAddress.trim()
@@ -1233,6 +1350,7 @@ export default function WorkflowApp() {
     if (next === network) return
     // Invalidate in-flight reads synchronously before React changes networks.
     sponsorRequestGeneration.current += 1
+    clearStoredAuthSession()
     setSponsorLoading(false)
     setReviewRefreshing(false)
     clearFeeEstimate()
@@ -1297,6 +1415,40 @@ export default function WorkflowApp() {
     }
   }
 
+  if (authChecking || !walletIdentity || walletIdentity.network !== network || walletIdentity.expiresAt <= Date.now()) {
+    return (
+      <div className="studio-auth-screen">
+        <section className="studio-auth-card" aria-labelledby="studio-auth-title">
+          <div className="studio-auth-brand">
+            <span className="studio-logo"><Layers size={22} aria-hidden="true" /></span>
+            <span><strong>TRON Token Studio</strong><small>WALLET IDENTITY · TESTNET ONLY</small></span>
+          </div>
+          <p className="studio-eyebrow">SECURE SIGN-IN</p>
+          <h1 id="studio-auth-title">Sign in to your workspace</h1>
+          <p className="studio-auth-lead">Verify control of your TRON address with a one-time message signature in TronLink. After sign-in, your transfer workspace and read-only chain tools become available.</p>
+          <div className="studio-auth-network" role="group" aria-label="Choose testnet">
+            <button type="button" aria-pressed={network === 'nile'} className={network === 'nile' ? 'is-selected' : ''} onClick={() => chooseNetwork('nile')}>Nile testnet</button>
+            <button type="button" aria-pressed={network === 'shasta'} className={network === 'shasta' ? 'is-selected' : ''} onClick={() => chooseNetwork('shasta')}>Shasta testnet</button>
+          </div>
+          {authChecking ? (
+            <div className="studio-auth-loading" role="status"><RefreshCw className="studio-spin" size={18} aria-hidden="true" /> Checking saved wallet session…</div>
+          ) : (
+            <button type="button" className="studio-button studio-button--primary studio-auth-submit" onClick={() => void connectTronLink()} disabled={senderLoading}>
+              <Wallet size={17} aria-hidden="true" /> {senderLoading ? 'Waiting for TronLink…' : 'Connect TronLink & sign in'}
+            </button>
+          )}
+          {senderError && <p className="studio-inline-error" role="alert">{senderError}</p>}
+          <div className="studio-auth-points">
+            <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>Address ownership is verified.</strong> The backend checks a fresh signature and short-lived nonce.</span></p>
+            <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>No private keys or recovery phrases.</strong> The site never asks you to paste them.</span></p>
+            <p><Activity size={16} aria-hidden="true" /><span><strong>Sign-in is not a transfer.</strong> It does not authorize sponsor spending or broadcast a transaction.</span></p>
+          </div>
+          <p className="studio-auth-footnote">Public address alone is not authentication. If you change the TronLink account or network, this session clears and you must sign in again. Sponsor submission remains governed by independent backend readiness checks.</p>
+        </section>
+      </div>
+    )
+  }
+
   const currentStep = STEPS[step]
 
   return (
@@ -1328,6 +1480,7 @@ export default function WorkflowApp() {
               ? 'Account ' + walletIdentity.address.slice(0, 6) + '…' + walletIdentity.address.slice(-4)
               : 'Sign in with TronLink'}
           </button>
+          {walletIdentity && <button type="button" className="studio-button studio-button--secondary" onClick={signOutWallet}><LogOut size={15} aria-hidden="true" /> Sign out</button>}
           <Pill tone="warning">Testnet only</Pill>
         </div>
       </header>
@@ -1478,11 +1631,7 @@ export default function WorkflowApp() {
                 <div className="studio-notice studio-notice--neutral" role="status">
                   <ShieldCheck size={18} aria-hidden="true" />
                   <div className="studio-grow"><strong>Wallet login verified</strong><p>Signed ownership confirmed for <code>{walletIdentity.address}</code>. Session expires {new Date(walletIdentity.expiresAt).toLocaleTimeString()}. This identity session is not sponsor spending permission.</p></div>
-                  <button type="button" className="studio-button studio-button--secondary" onClick={() => {
-                    const token = walletIdentity.sessionToken
-                    void fetch(`${API_BASE}/api/auth/tron/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, credentials: 'omit', cache: 'no-store' }).catch(() => undefined)
-                    setWalletIdentity(null)
-                  }}>Sign out</button>
+                  <button type="button" className="studio-button studio-button--secondary" onClick={signOutWallet}><LogOut size={15} aria-hidden="true" /> Sign out</button>
                 </div>
               )}
               {senderError && <p className="studio-inline-error" role="alert">{senderError}</p>}
