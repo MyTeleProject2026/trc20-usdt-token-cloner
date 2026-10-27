@@ -28,17 +28,25 @@ test('wallet creation, import and restore encrypt key material before local pers
   assert.doesNotMatch(vault, /fetch\([^\n]*privateKey|JSON\.stringify\(\{[^}]*privateKey/)
 })
 
-test('wallet vault signs only a backend-provided login message and never calls a transfer or broadcast method', async () => {
+test('wallet vault signs identity challenges locally and wires guarded real on-chain transfers', async () => {
   const vault = await read('src/WalletVault.tsx')
+  const transfer = await read('src/wallet-transfer.mjs')
   assert.match(vault, /\/api\/auth\/tron\/challenge/)
   assert.match(vault, /signer\.trx\.signMessageV2\(challenge\.message\)/)
   assert.match(vault, /JSON\.stringify\(\{ address, network, nonce: challenge\.nonce, signature \}\)/)
-  assert.doesNotMatch(vault, /trx\.sendTransaction|sendRawTransaction|\.transfer\([^\n]*\.send\(/)
+  assert.match(vault, /buildSignAndBroadcastTransfer/)
+  assert.match(vault, /estimateTRC20TransferFee/)
+  assert.match(vault, /readConfirmedTransferStatus/)
+  assert.match(vault, /Sign and broadcast real transfer/)
+  assert.match(vault, /SEND MAINNET/)
+  assert.match(vault, /transferAcknowledged/)
   assert.match(vault, /web\.trx\.getBalance\(unlocked\.record\.address\)/)
   assert.match(vault, /TOKEN_ABI/)
-  assert.match(vault, /The contract is not endorsed or allowlisted for transfers/)
+  assert.match(vault, /The contract is neither the official Tether TRON USDT address/)
+  assert.match(transfer, /const signed = await tronWeb\.trx\.sign\(unsigned\)/)
+  assert.match(transfer, /sendRawTransaction\(signed\)/)
+  assert.match(transfer, /contractResult === 'SUCCESS'/)
 })
-
 test('native APK workflow bundles the local wallet UI and keeps the Android build reproducible', async () => {
   const config = JSON.parse(await read('capacitor.config.json'))
   const workflow = await read('.github/workflows/package-installers.yml')
