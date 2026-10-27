@@ -144,11 +144,30 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       setError('Network changed. Connect and sign in again on the selected testnet.')
       setNetwork(requested)
     }
+    const onWalletAuthenticated = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail as Partial<WalletSession> | null
+      if (!detail || typeof detail.address !== 'string' || !ADDRESS_PATTERN.test(detail.address)
+        || (detail.network !== 'nile' && detail.network !== 'shasta')
+        || typeof detail.sessionToken !== 'string' || !Number.isFinite(detail.expiresAt)
+        || (detail.expiresAt as number) <= Date.now()) return
+      setSession({
+        address: detail.address,
+        network: detail.network,
+        sessionToken: detail.sessionToken,
+        expiresAt: detail.expiresAt as number,
+      })
+      setNetwork(detail.network)
+      setReadOnlyMode(false)
+      setChecking(false)
+      setError('')
+    }
     window.addEventListener('tron-token-studio:logout', onLogout)
     window.addEventListener('tron-token-studio:network-change', onNetworkChange)
+    window.addEventListener('tron-token-studio:wallet-authenticated', onWalletAuthenticated)
     return () => {
       window.removeEventListener('tron-token-studio:logout', onLogout)
       window.removeEventListener('tron-token-studio:network-change', onNetworkChange)
+      window.removeEventListener('tron-token-studio:wallet-authenticated', onWalletAuthenticated)
     }
   }, [])
 
