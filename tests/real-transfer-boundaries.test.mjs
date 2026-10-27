@@ -23,7 +23,14 @@ test('the live interface is a five-stage testnet-only flow', () => {
   assert.doesNotMatch(app, /chooseNetwork\('mainnet'\)/)
   assert.ok(app.includes('MainnetBalanceSnapshot'))
   assert.ok(app.includes('read-only lookup; no wallet connection is required'), 'Mainnet access in this workspace must remain read-only')
-  assert.doesNotMatch(app, /sendRawTransaction|eth_sendTransaction/)
+  assert.ok(app.includes('sendDirectTestnetTransfer'))
+  assert.ok(app.includes('transactionBuilder.sendTrx'))
+  assert.ok(app.includes('triggerSmartContract'))
+  assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
+  assert.ok(app.includes("if (network !== 'nile' && network !== 'shasta')"))
+  assert.ok(app.includes('/api/tron/verify-native-transfer/'))
+  assert.ok(app.includes('/api/tron/verify-trc20-transfer/'))
+  assert.doesNotMatch(app, /eth_sendTransaction/)
 })
 
 test('sponsorship cannot be represented as enabled without a verified integration', () => {
@@ -42,13 +49,16 @@ test('wallet and receiver balance checks use real read-only backend endpoints', 
   assert.ok(app.includes('solidified chain state'))
 })
 
-test('the staged frontend never signs or broadcasts and cannot fall back to sender funds', () => {
+test('sponsored submission stays disabled while direct testnet sends remain wallet-funded', () => {
   assert.ok(app.includes('No sender-funded fallback'))
   assert.ok(app.includes('sponsored submission disabled'))
   assert.ok(app.includes('Sponsored transfer unavailable'))
   assert.ok(app.includes('disabled aria-disabled="true"'))
-  assert.ok(!app.includes('sendRawTransaction'))
+  assert.ok(app.includes('sendRawTransaction(signed)'))
+  assert.ok(app.includes('tronWeb.trx.sign(unsigned)'))
   assert.ok(!app.includes('eth_sendTransaction'))
   assert.ok(!app.includes('/api/gasfree/submit'))
   assert.ok(!app.includes('/api/tron/sponsorship/budgets/'))
+  assert.match(sponsorship, /enabled: false/)
+  assert.match(sponsorship, /canSubmitSponsoredTransfer: false/)
 })
