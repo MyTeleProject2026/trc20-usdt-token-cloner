@@ -6,6 +6,7 @@ import SponsorSignerConsole from './SponsorSignerConsole.tsx'
 import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'
 import OkxDepositStatus from './OkxDepositStatus.tsx'
 import WalletVault from './WalletVault.tsx'
+import WatchOnlyWallets from './WatchOnlyWallets.tsx'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
@@ -16,11 +17,19 @@ function renderRoute() {
   const isSponsorOperator = route === '#/sponsor-operator'
   const isOkxDepositStatus = route === '#/okx-deposit-status'
   const isWalletVault = route === '#/wallet'
+  const isWatchOnlyWallets = route === '#/watch-wallets'
   root.render(
     <StrictMode>
       {isWalletVault
-        ? <WalletVault />
-        : isMainnetExchangeDeposit
+        ? <>
+          <div style={{ background: '#0a1114', padding: '10px 16px', textAlign: 'right' }}>
+            <a href="#/watch-wallets" style={{ color: '#5dffc8' }}>Open watch-only address monitor ↗</a>
+          </div>
+          <WalletVault />
+          </>
+        : isWatchOnlyWallets
+          ? <WatchOnlyWallets />
+          : isMainnetExchangeDeposit
           ? <MainnetExchangeDeposit />
           : isOkxDepositStatus
             ? <OkxDepositStatus />

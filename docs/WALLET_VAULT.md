@@ -65,3 +65,10 @@ The Wallet Vault now has a Mainnet-only owner treasury check. The owner unlocks 
 Never put private keys, provider secrets, signer secrets, or admin tokens in any `VITE_*` variable or in the APK. The new `GET /api/treasury/owner/funding-status?network=mainnet` endpoint is owner-session protected and read-only. It deliberately returns `canSubmitSponsoredTransfer=false` and `submissionEnabled=false`. A watch-only address can only be read: it cannot sign or authorize an outgoing transfer. Monitoring a separate treasury also does not allow the local owner wallet to spend the treasury's assets.
 
 This is not a treasury withdrawal system. It verifies that a real funding source exists; it cannot mint USDT or spend funds. Implementing any future payout requires a separate audited signer/custody design, owner-approved payout policy, replay protection and idempotency, spend limits, fresh balance and budget reservations, verified transaction intent, secure key management, solidified receipt reconciliation, and independent review. Never represent an internal/generated balance as an external deposit.
+
+## Watch-only address monitor
+
+Open `#/watch-wallets` from the Wallet Vault to add public TRON addresses for monitoring. The list is stored in this browser/app's local storage and the page reads TRX balances from the selected public TRON network. On Mainnet it also reads the balance of Tether's official TRC-20 USDT contract (`TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`). Testnet balances are kept separate.
+
+A watch-only address does not grant control over the wallet. A public address cannot be reversed into a private key; this screen does not recover, reveal, copy, or transmit private keys and does not sign or broadcast transactions. To spend from an address, the authorized owner must use the original key/seed or an appropriate secure signer. No balance is created by monitoring an address. Treasury payouts, if introduced later, require a separately authorized signer, genuine treasury assets, access controls, payout limits, replay protection, and verified transaction receipts.
+
