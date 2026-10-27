@@ -42,6 +42,45 @@ const HOSTS: Record<Network, string> = {
   nile: 'nile.trongrid.io',
 }
 const DELEGATION_STORAGE_KEY = 'trc20-usdt-token-cloner:sponsor-delegation:v1'
+const SPONSOR_ROLE_WALLETS_STORAGE_KEY = 'tron-token-studio:sponsor-role-wallets:v1'
+
+type SponsorRoleSlot = 'assetPrincipal' | 'networkFee'
+
+// Persist only public role addresses and public node metadata so account switching
+// or reopening this console does not erase the operator's two configured roles.
+// A restored snapshot is always stale until the injected wallet is re-read live.
+function loadSavedSponsorWallet(network: Network, role: SponsorRoleSlot): WalletSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(SPONSOR_ROLE_WALLETS_STORAGE_KEY) || '{}')
+    const value = saved?.[network]?.[role]
+    if (!value || typeof value !== 'object' || value.network !== network
+      || typeof value.address !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value.address)
+      || value.host !== 'https://' + HOSTS[network]
+      || typeof value.checkedAt !== 'string' || !Number.isFinite(Date.parse(value.checkedAt))) return null
+    return { address: value.address, host: value.host, network, checkedAt: value.checkedAt }
+  } catch {
+    return null
+  }
+}
+
+function persistSponsorWallet(network: Network, role: SponsorRoleSlot, snapshot: WalletSnapshot | null) {
+  if (typeof window === 'undefined' || !snapshot || snapshot.network !== network
+    || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(snapshot.address)
+    || snapshot.host !== 'https://' + HOSTS[network]) return
+  try {
+    const existing = JSON.parse(window.localStorage.getItem(SPONSOR_ROLE_WALLETS_STORAGE_KEY) || '{}')
+    const all = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {}
+    const forNetwork = all[network] && typeof all[network] === 'object' && !Array.isArray(all[network])
+      ? all[network] : {}
+    window.localStorage.setItem(SPONSOR_ROLE_WALLETS_STORAGE_KEY, JSON.stringify({
+      ...all,
+      [network]: { ...forNetwork, [role]: snapshot },
+    }))
+  } catch {
+    // Storage is only a convenience; live wallet checks remain authoritative.
+  }
+}
 
 function getInjectedTronProvider(): any {
   const candidates = [window.tron, window.tronLink]
@@ -218,10 +257,10 @@ async function requestJson(url: string, init?: RequestInit): Promise<{ response:
 export default function SponsorSignerConsole() {
   const [network, setNetwork] = useState<Network>('nile')
   const [idempotencyKey, setIdempotencyKey] = useState('')
-  const [wallet, setWallet] = useState<WalletSnapshot | null>(null)
-  const [walletNeedsReconnect, setWalletNeedsReconnect] = useState(false)
-  const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(null)
-  const [feeWalletNeedsReconnect, setFeeWalletNeedsReconnect] = useState(false)
+  const [wallet, setWallet] = useState<WalletSnapshot | null>(() => loadSavedSponsorWallet('nile', 'assetPrincipal'))
+  const [walletNeedsReconnect, setWalletNeedsReconnect] = useState(true)
+  const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(() => loadSavedSponsorWallet('nile', 'networkFee'))
+  const [feeWalletNeedsReconnect, setFeeWalletNeedsReconnect] = useState(true)
   const [resourceType, setResourceType] = useState<ResourceKind>('BANDWIDTH')
   const [resourceAmountTRX, setResourceAmountTRX] = useState('1')
   const [delegationIntent, setDelegationIntent] = useState<DelegationIntent | null>(() => loadSavedDelegationIntent())
@@ -283,6 +322,9 @@ export default function SponsorSignerConsole() {
   }, [])
 
   useEffect(() => { void refreshServerStatus(); void refreshSponsorRoles(network) }, [refreshServerStatus, refreshSponsorRoles, network])
+
+  useEffect(() => { persistSponsorWallet(network, 'assetPrincipal', wallet) }, [network, wallet])
+  useEffect(() => { persistSponsorWallet(network, 'networkFee', feeWallet) }, [network, feeWallet])
 
   useEffect(() => { void refreshPilotPreflight() }, [refreshPilotPreflight])
 
@@ -348,7 +390,7 @@ export default function SponsorSignerConsole() {
 
   const connectWallet = async () => {
     setError('')
-    setMessage('Requesting wallet connection…')
+    setMessage('Requesting asset-principal sponsor wallet connection…')
     setBusy('connecting')
     try {
       const provider = getInjectedTronProvider()
@@ -357,16 +399,22 @@ export default function SponsorSignerConsole() {
       }
       await requestTronWalletAccess(provider)
       const next = readInjectedWallet(network)
+      const rolesResult = await refreshSponsorRoles(network)
+      const assetAddress = rolesResult.payload?.roles?.assetPrincipalSponsor?.address
+      const feeAddress = rolesResult.payload?.roles?.networkFeeSponsor?.address
+      if (!rolesResult.ok || !assetAddress || !feeAddress) {
+        throw new Error(rolesResult.message || 'Both configured sponsor-role addresses must be available before connecting the asset-principal signer.')
+      }
+      if (assetAddress === feeAddress) throw new Error('Fee sponsor and asset-principal sponsor must be different accounts.')
+      if (next.address !== assetAddress) {
+        throw new Error('The active TronLink account does not match the configured asset-principal sponsor. Switch to that account and reconnect; the fee-sponsor role is retained separately.')
+      }
       setWallet(next)
       setWalletNeedsReconnect(false)
-      const rolesResult = await refreshSponsorRoles(network)
-      setMessage(rolesResult.ok
-        ? 'Sponsor wallet connected; network and live read-only sponsor-role diagnostics refreshed. No transaction has been signed.'
-        : 'Wallet and network verified, but live sponsor-role diagnostics could not be verified. Signing remains blocked until those checks are healthy.')
-      if (!rolesResult.ok) setError(rolesResult.message || 'Sponsor role diagnostics unavailable.')
+      setMessage('Asset-principal sponsor wallet connected and matched to backend configuration. The fee-sponsor address remains a separate role; no transfer has been signed.')
     } catch (caught) {
       setWalletNeedsReconnect(true)
-      setMessage('Wallet connection not verified; the last verified address is retained for reference only.')
+      setMessage('Asset-principal wallet was not verified for this role. The saved public address is retained for reference; no transaction was signed or broadcast.')
       setError(walletConnectionError(caught))
     } finally {
       setBusy(null)
@@ -375,10 +423,10 @@ export default function SponsorSignerConsole() {
 
   const changeNetwork = (value: Network) => {
     setNetwork(value)
-    setWallet(null)
-    setWalletNeedsReconnect(false)
-    setFeeWallet(null)
-    setFeeWalletNeedsReconnect(false)
+    setWallet(loadSavedSponsorWallet(value, 'assetPrincipal'))
+    setWalletNeedsReconnect(true)
+    setFeeWallet(loadSavedSponsorWallet(value, 'networkFee'))
+    setFeeWalletNeedsReconnect(true)
     setRoleStatus(null)
     setLastIntent(null)
     setLastResult(null)
