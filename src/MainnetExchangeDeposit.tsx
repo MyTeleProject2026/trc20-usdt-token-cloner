@@ -449,6 +449,21 @@ export default function MainnetExchangeDeposit() {
             </div>
           </div>
 
+          <section className="studio-panel" aria-labelledby="no-real-usdt-heading">
+            <div className="studio-panel-heading">
+              <div className="studio-panel-icon"><ShieldCheck size={19} aria-hidden="true" /></div>
+              <div>
+                <p className="studio-eyebrow">Practice without real funds</p>
+                <h2 id="no-real-usdt-heading">No real USDT needed for testnet practice</h2>
+                <p>Use the testnet workspace to learn the flow with faucet-provided test tokens. Those tokens have no monetary value and cannot be credited to a Mainnet exchange. This Mainnet page still requires genuine USDT or TRX in the connected sender wallet.</p>
+              </div>
+            </div>
+            <div className="studio-inline-actions">
+              <a className="studio-button studio-button--secondary" href="#/">Open testnet workspace <ArrowLeft size={15} aria-hidden="true" /></a>
+              <a href="https://developers.tron.network/docs/getting-testnet-tokens-on-tron" target="_blank" rel="noopener noreferrer">Official TRON test-token guide <ExternalLink size={14} aria-hidden="true" /></a>
+            </div>
+          </section>
+
           <section className="studio-panel">
             <div className="studio-panel-heading">
               <div className="studio-panel-icon"><Wallet size={19} aria-hidden="true" /></div>
