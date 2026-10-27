@@ -396,7 +396,7 @@ export default function SponsorSignerConsole() {
       if (submitted.payload.transactionBroadcast === true && typeof submitted.payload.transactionHash === 'string') {
         // First verification attempt is automatic; if the receipt is not solidified yet,
         // keep the same transaction ID for the operator's manual retry.
-        await verifyReceiverSettlement(prepared, submitted.payload)
+        await verifyReceiverSettlement(prepared.payload, submitted.payload)
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The sponsor signing/submission request failed.')
