@@ -50,10 +50,10 @@ type SponsorRoleSlot = 'assetPrincipal' | 'networkFee'
 // Persist only public role addresses and public node metadata so account switching
 // or reopening this console does not erase the operator's two configured roles.
 // A restored snapshot is always stale until the injected wallet is re-read live.
-function loadSavedReservationKey(): string {
+function loadSavedReservationKey(network: Network): string {
   if (typeof window === 'undefined') return ''
   try {
-    const value = window.sessionStorage.getItem(RESERVATION_KEY_SESSION_STORAGE_KEY) || ''
+    const value = window.sessionStorage.getItem(RESERVATION_KEY_SESSION_STORAGE_KEY + ':' + network) || ''
     return /^[A-Za-z0-9._:-]{24,160}$/.test(value) ? value : ''
   } catch {
     return ''
@@ -267,7 +267,7 @@ async function requestJson(url: string, init?: RequestInit): Promise<{ response:
 
 export default function SponsorSignerConsole() {
   const [network, setNetwork] = useState<Network>('nile')
-  const [idempotencyKey, setIdempotencyKey] = useState(() => loadSavedReservationKey())
+  const [idempotencyKey, setIdempotencyKey] = useState(() => loadSavedReservationKey('nile'))
   const [wallet, setWallet] = useState<WalletSnapshot | null>(() => loadSavedSponsorWallet('nile', 'assetPrincipal'))
   const [walletNeedsReconnect, setWalletNeedsReconnect] = useState(true)
   const [feeWallet, setFeeWallet] = useState<WalletSnapshot | null>(() => loadSavedSponsorWallet('nile', 'networkFee'))
@@ -339,12 +339,13 @@ export default function SponsorSignerConsole() {
   useEffect(() => {
     try {
       const key = idempotencyKey.trim()
-      if (/^[A-Za-z0-9._:-]{24,160}$/.test(key)) window.sessionStorage.setItem(RESERVATION_KEY_SESSION_STORAGE_KEY, key)
-      else window.sessionStorage.removeItem(RESERVATION_KEY_SESSION_STORAGE_KEY)
+      const storageKey = RESERVATION_KEY_SESSION_STORAGE_KEY + ':' + network
+      if (/^[A-Za-z0-9._:-]{24,160}$/.test(key)) window.sessionStorage.setItem(storageKey, key)
+      else window.sessionStorage.removeItem(storageKey)
     } catch {
       // The field still works when session storage is unavailable.
     }
-  }, [idempotencyKey])
+  }, [idempotencyKey, network])
 
   useEffect(() => { void refreshPilotPreflight() }, [refreshPilotPreflight])
 
@@ -447,6 +448,7 @@ export default function SponsorSignerConsole() {
 
   const changeNetwork = (value: Network) => {
     setNetwork(value)
+    setIdempotencyKey(loadSavedReservationKey(value))
     setWallet(loadSavedSponsorWallet(value, 'assetPrincipal'))
     setWalletNeedsReconnect(true)
     setFeeWallet(loadSavedSponsorWallet(value, 'networkFee'))
