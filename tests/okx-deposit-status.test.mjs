@@ -10,7 +10,7 @@ const env = {
   OKX_API_KEY: 'test-okx-api-key-12345',
   OKX_API_SECRET: 'test-okx-api-secret-12345',
   OKX_API_PASSPHRASE: 'test-okx-passphrase-12345',
-  OKX_STATUS_ACCESS_TOKEN: 'test-status-access-token-12345',
+  OKX_STATUS_ACCESS_TOKEN: 'test-status-access-token-1234567890-abcdef',
 }
 const authorization = `Bearer ${env.OKX_STATUS_ACCESS_TOKEN}`
 const fixedNow = new Date('2026-10-27T00:00:00.000Z')
@@ -55,6 +55,19 @@ test('missing server configuration fails closed and is never cacheable', async (
     assert.equal(response.status, 503)
     assert.equal(body.status, 'not-configured')
     assert.match(response.headers.get('cache-control') || '', /no-store/)
+  })
+  assert.equal(upstreamCalls, 0)
+})
+
+test('a short shared access token fails closed', async () => {
+  let upstreamCalls = 0
+  await withServer({
+    serverEnv: { ...env, OKX_STATUS_ACCESS_TOKEN: 'too-short-token' },
+    fetchImpl: async () => { upstreamCalls += 1; return okxResponse({ code: '0', data: [] }) },
+  }, async (baseUrl) => {
+    const { response, body } = await getJson(`${baseUrl}/api/okx/deposit-status`)
+    assert.equal(response.status, 503)
+    assert.equal(body.status, 'not-configured')
   })
   assert.equal(upstreamCalls, 0)
 })
@@ -128,6 +141,34 @@ test('a valid request is HMAC-signed and displays only fields in the real OKX re
     assert.equal(request.headers['OK-ACCESS-KEY'], env.OKX_API_KEY)
     assert.equal(request.headers['OK-ACCESS-PASSPHRASE'], env.OKX_API_PASSPHRASE)
     assert.equal(request.headers['OK-ACCESS-SIGN'], expectedSignature)
+  })
+})
+
+test('documented OKX deposit states remain distinct and timestamp is called record creation time', async () => {
+  const codes = {
+    '0': 'waiting-confirmation',
+    '1': 'credited-not-withdrawable',
+    '2': 'successful',
+    '8': 'pending-temporary-deposit-suspension',
+    '11': 'address-blacklist-match',
+    '12': 'account-or-deposit-frozen',
+    '13': 'sub-account-deposit-interception',
+    '14': 'kyc-limit',
+    '17': 'travel-rule-pending',
+  }
+  await withServer({
+    fetchImpl: async () => okxResponse({
+      code: '0',
+      data: Object.keys(codes).map((state) => ({ ccy: 'USDT', state, ts: '1674038705000' })),
+    }),
+  }, async (baseUrl) => {
+    const { response, body } = await getJson(`${baseUrl}/api/okx/deposit-status`)
+    assert.equal(response.status, 200)
+    assert.deepEqual(Object.fromEntries(body.deposits.map((item) => [item.statusCode, item.status])), codes)
+    for (const item of body.deposits) {
+      assert.equal(item.recordedAt, '1674038705000')
+      assert.equal('creditedAt' in item, false)
+    }
   })
 })
 
