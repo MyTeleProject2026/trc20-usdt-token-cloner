@@ -686,6 +686,7 @@ export default function WorkflowApp() {
   const [copyNotice, setCopyNotice] = useState('')
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
+  const senderSnapshotRequestGeneration = useRef(0)
   const receiverHistoryRequestGeneration = useRef(0)
   const feeEstimateRequestGeneration = useRef(0)
 
@@ -759,6 +760,8 @@ export default function WorkflowApp() {
 
   useEffect(() => {
     void loadSponsorStatus(false)
+    // Every network/asset/contract change invalidates any late balance response.
+    senderSnapshotRequestGeneration.current += 1
     // Do not retain account or balance state when changing networks.
     setStep(0)
     setFeeSponsorRequired(false)
@@ -796,6 +799,7 @@ export default function WorkflowApp() {
     let attachedProvider: any = null
     const invalidate = () => {
       clearStoredAuthSession()
+      senderSnapshotRequestGeneration.current += 1
       setSenderAddress('')
       setWatchAddress('')
       setWalletIdentity(null)
@@ -838,6 +842,7 @@ export default function WorkflowApp() {
 
   const readSenderSnapshots = async (address: string) => {
     if (!ADDRESS_PATTERN.test(address)) throw new Error('Enter a valid TRON Base58 address.')
+    const requestGeneration = ++senderSnapshotRequestGeneration.current
     setSenderLoading(true)
     setSenderError('')
     setNativeSnapshot(null)
@@ -846,25 +851,30 @@ export default function WorkflowApp() {
     setReceiverCheckedAt(null)
     try {
       const native = await readNativeBalance(network, address)
+      if (requestGeneration !== senderSnapshotRequestGeneration.current) return
       setNativeSnapshot(native)
       if (assetKind === 'TRC20' && ADDRESS_PATTERN.test(tokenContract.trim())) {
         try {
           const token = await readTokenBalance(network, tokenContract.trim(), address)
+          if (requestGeneration !== senderSnapshotRequestGeneration.current) return
           setSenderTokenSnapshot(token)
         } catch (error) {
+          if (requestGeneration !== senderSnapshotRequestGeneration.current) return
           // A token read is useful, but it must never be interpreted as user
           // funding. Failure to read it is reported separately from native TRX.
           setSenderError(error instanceof Error ? `Native TRX was read, but token details are unavailable: ${error.message}` : 'Token details could not be read.')
         }
       }
+      if (requestGeneration !== senderSnapshotRequestGeneration.current) return
       setSenderCheckedAt(Date.now())
     } catch (error) {
+      if (requestGeneration !== senderSnapshotRequestGeneration.current) return
       setNativeSnapshot(null)
       setSenderError(error instanceof Error ? error.message : 'Wallet balance read failed.')
       setSenderCheckedAt(Date.now())
       throw error
     } finally {
-      setSenderLoading(false)
+      if (requestGeneration === senderSnapshotRequestGeneration.current) setSenderLoading(false)
     }
   }
 
