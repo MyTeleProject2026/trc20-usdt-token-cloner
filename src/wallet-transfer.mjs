@@ -21,6 +21,70 @@ export function parseUnitsDecimal(value, decimals) {
   return units.toString()
 }
 
+/**
+ * Simulates the exact TRC-20 transfer and estimates a conservative fee cap.
+ * This performs read-only node calls only; no transaction is signed or sent.
+ */
+export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContract, amountBaseUnits }) {
+  if (!tronWeb || typeof tronWeb !== 'object') throw new Error('TRON network connection is unavailable.')
+  if (!canonicalBase58(tronWeb, from) || !canonicalBase58(tronWeb, to) || from === to) {
+    throw new Error('Sender or recipient address is invalid.')
+  }
+  if (!canonicalBase58(tronWeb, tokenContract)) throw new Error('Select a valid TRC-20 contract.')
+  if (typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)
+    || BigInt(amountBaseUnits) > MAX_UINT256) throw new Error('Transfer amount must be a positive uint256 base-unit value.')
+
+  const parameters = [
+    { type: 'address', value: to },
+    { type: 'uint256', value: amountBaseUnits },
+  ]
+  const simulation = await tronWeb.transactionBuilder.triggerConstantContract(
+    tokenContract,
+    'transfer(address,uint256)',
+    {},
+    parameters,
+    from,
+  )
+  if (simulation?.result?.result !== true) {
+    throw new Error('On-chain simulation did not succeed. No transfer was signed or submitted.')
+  }
+
+  let energyRequired = Number(simulation.energy_used)
+  try {
+    const estimated = await tronWeb.transactionBuilder.estimateEnergy(
+      tokenContract,
+      'transfer(address,uint256)',
+      {},
+      parameters,
+      from,
+    )
+    if (estimated?.result?.result === true && Number.isFinite(Number(estimated.energy_required)) && Number(estimated.energy_required) > 0) {
+      energyRequired = Number(estimated.energy_required)
+    }
+  } catch {
+    // estimateEnergy is optional; use triggerConstantContract's energy_used.
+  }
+  if (!Number.isSafeInteger(energyRequired) || energyRequired <= 0) {
+    throw new Error('The network did not return a reliable energy estimate. No transfer was signed or submitted.')
+  }
+
+  const chainParameters = await tronWeb.trx.getChainParameters()
+  const energyParameter = Array.isArray(chainParameters)
+    ? chainParameters.find((item) => item?.key === 'getEnergyFee')
+    : null
+  const sunPerEnergy = Number(energyParameter?.value)
+  if (!Number.isSafeInteger(sunPerEnergy) || sunPerEnergy <= 0) {
+    throw new Error('The network energy price could not be read. No transfer was signed or submitted.')
+  }
+
+  // 20% energy headroom plus 1 TRX to allow for bandwidth and estimate variance.
+  const recommendedFeeSun = Math.ceil(energyRequired * 1.2) * sunPerEnergy + 1_000_000
+  if (!Number.isSafeInteger(recommendedFeeSun) || recommendedFeeSun > 100_000_000) {
+    throw new Error('The estimated fee exceeds the wallet’s 100 TRX safety cap. No transfer was signed or submitted.')
+  }
+  return { energyRequired, sunPerEnergy, recommendedFeeSun, simulationSucceeded: true }
+}
+
 function canonicalBase58(tronWeb, address) {
   try {
     return typeof address === 'string' && TRON_ADDRESS_PATTERN.test(address)
