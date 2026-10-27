@@ -105,6 +105,65 @@ function transactionOwner(tronWeb, transaction) {
   }
 }
 
+function normalizedHex(value) {
+  return typeof value === 'string' ? value.replace(/^0x/i, '').toLowerCase() : ''
+}
+
+function expectedAddressHex(tronWeb, address) {
+  try {
+    const value = normalizedHex(tronWeb.address.toHex(address))
+    return value
+  } catch {
+    return ''
+  }
+}
+
+/** Reject a node-built transaction unless its unsigned intent exactly matches the user review. */
+export function assertTransferTransactionIntent(tronWeb, transaction, { from, to, asset, amountBaseUnits, tokenContract }) {
+  const contracts = transaction?.raw_data?.contract
+  if (!Array.isArray(contracts) || contracts.length !== 1) {
+    throw new Error('The built transaction contains unexpected contract operations. Signing was stopped.')
+  }
+  const contract = contracts[0]
+  const value = contract?.parameter?.value
+  if (transactionOwner(tronWeb, transaction) !== from) {
+    throw new Error('Transaction sender does not match the unlocked wallet. Signing was stopped.')
+  }
+  const expectedTo = expectedAddressHex(tronWeb, to)
+  if (!expectedTo) throw new Error('The reviewed recipient could not be encoded by the wallet SDK.')
+  if (asset === 'TRX') {
+    if (contract?.type !== 'TransferContract' || normalizedHex(value?.to_address) !== expectedTo) {
+      throw new Error('The node-built transaction is not the reviewed TRX transfer. Signing was stopped.')
+    }
+    if (typeof value?.amount !== 'number' && typeof value?.amount !== 'string') {
+      throw new Error('The built TRX transfer amount is missing. Signing was stopped.')
+    }
+    if (BigInt(String(value.amount)) !== BigInt(amountBaseUnits)) {
+      throw new Error('The node-built TRX amount differs from the review. Signing was stopped.')
+    }
+    return true
+  }
+  if (asset !== 'TRC20' || !tokenContract || contract?.type !== 'TriggerSmartContract') {
+    throw new Error('The node-built transaction has an unexpected contract type. Signing was stopped.')
+  }
+  const expectedContract = expectedAddressHex(tronWeb, tokenContract)
+  if (!expectedContract || normalizedHex(value?.contract_address) !== expectedContract) {
+    throw new Error('The node-built token contract differs from the selected contract. Signing was stopped.')
+  }
+  const recipientBytes = expectedTo.startsWith('41') ? expectedTo.slice(2) : expectedTo
+  const contractBytes = expectedContract.startsWith('41') ? expectedContract.slice(2) : expectedContract
+  if (!/^[0-9a-f]{40}$/.test(recipientBytes) || !/^[0-9a-f]{40}$/.test(contractBytes)) {
+    throw new Error('The selected TRON address could not be encoded safely. Signing was stopped.')
+  }
+  const expectedData = 'a9059cbb'
+    + recipientBytes.padStart(64, '0')
+    + BigInt(amountBaseUnits).toString(16).padStart(64, '0')
+  if (normalizedHex(value?.data) !== expectedData) {
+    throw new Error('The node-built token recipient or amount differs from the review. Signing was stopped.')
+  }
+  return true
+}
+
 /**
  * Builds an unsigned transaction, signs it locally, and broadcasts only the
  * signed transaction. No private key is sent to a server. This function does
@@ -156,17 +215,15 @@ export async function buildSignAndBroadcastTransfer({
   if (!unsigned?.txID || !Array.isArray(unsigned?.raw_data?.contract) || unsigned.raw_data.contract.length !== 1) {
     throw new Error('The network returned an unexpected transaction structure. Nothing was signed or broadcast.')
   }
-  const owner = transactionOwner(tronWeb, unsigned)
-  if (owner !== from) throw new Error('Transaction sender does not match the unlocked wallet. Signing was stopped.')
+  assertTransferTransactionIntent(tronWeb, unsigned, { from, to, asset, amountBaseUnits, tokenContract })
 
-  // Sign the returned transaction object. Never broadcast the unsigned object.
+  // Sign the returned transaction object only after validating its complete
+  // operation, recipient, amount, and token contract. Never broadcast unsigned.
   const signed = await tronWeb.trx.sign(unsigned)
   if (!signed || !Array.isArray(signed.signature) || signed.signature.length < 1) {
     throw new Error('Transaction signing did not return a signature. Nothing was broadcast.')
   }
-  if (transactionOwner(tronWeb, signed) !== from) {
-    throw new Error('Signed transaction sender mismatch. Broadcasting was stopped.')
-  }
+  assertTransferTransactionIntent(tronWeb, signed, { from, to, asset, amountBaseUnits, tokenContract })
   if (signed.txID !== unsigned.txID) {
     throw new Error('Transaction ID changed unexpectedly during signing. Broadcasting was stopped.')
   }
