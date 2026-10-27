@@ -184,6 +184,7 @@ type BalanceSnapshot = {
   note?: string
   accountExists?: boolean
 }
+type MainnetBalanceSnapshot = Omit<BalanceSnapshot, 'network'> & { network: 'mainnet'; tokenContract?: string }
 type ReceiverHistoryRecord = {
   transactionId?: string | null
   network?: string
@@ -237,6 +238,7 @@ const NETWORK_HOST: Record<NetworkId, string> = {
 }
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TOKEN_CONTRACTS_STORAGE_KEY = 'tron-token-studio:token-contracts:v1'
+const MAINNET_READONLY_CONTRACT_STORAGE_KEY = 'tron-token-studio:mainnet-readonly-contract:v1'
 const AUTH_SESSION_STORAGE_KEY = 'tron-token-studio:auth-session:v1'
 const AUTH_NETWORK_STORAGE_KEY = 'tron-token-studio:auth-network:v1'
 
@@ -298,6 +300,26 @@ function saveTokenContractForNetwork(network: NetworkId, contract: string) {
     window.localStorage.setItem(TOKEN_CONTRACTS_STORAGE_KEY, JSON.stringify(next))
   } catch {
     // Browser storage may be disabled; the current session continues normally.
+  }
+}
+
+function loadSavedMainnetReadonlyContract(): string {
+  if (typeof window === 'undefined') return ''
+  try {
+    const value = window.localStorage.getItem(MAINNET_READONLY_CONTRACT_STORAGE_KEY) || ''
+    return ADDRESS_PATTERN.test(value.trim()) ? value.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+function saveMainnetReadonlyContract(contract: string) {
+  if (typeof window === 'undefined') return
+  try {
+    if (ADDRESS_PATTERN.test(contract.trim())) window.localStorage.setItem(MAINNET_READONLY_CONTRACT_STORAGE_KEY, contract.trim())
+    else window.localStorage.removeItem(MAINNET_READONLY_CONTRACT_STORAGE_KEY)
+  } catch {
+    // Browser storage may be disabled; this affects only local convenience, not chain reads.
   }
 }
 
@@ -699,6 +721,16 @@ export default function WorkflowApp() {
   const [senderError, setSenderError] = useState('')
   const [senderCheckedAt, setSenderCheckedAt] = useState<number | null>(null)
 
+  // Independent Mainnet public-chain lookup. It intentionally does not depend on
+  // the active TronLink network and has no signing or transaction-submit path.
+  const [mainnetReadAddress, setMainnetReadAddress] = useState('')
+  const [mainnetReadContract, setMainnetReadContract] = useState(() => loadSavedMainnetReadonlyContract())
+  const [mainnetNativeSnapshot, setMainnetNativeSnapshot] = useState<MainnetBalanceSnapshot | null>(null)
+  const [mainnetTokenSnapshot, setMainnetTokenSnapshot] = useState<MainnetBalanceSnapshot | null>(null)
+  const [mainnetReadLoading, setMainnetReadLoading] = useState(false)
+  const [mainnetReadError, setMainnetReadError] = useState('')
+  const [mainnetReadCheckedAt, setMainnetReadCheckedAt] = useState<number | null>(null)
+
   // Stage 4 — recipient and amount are validated against read-only chain responses.
   const [receiverAddress, setReceiverAddress] = useState('')
   const [amount, setAmount] = useState('1')
@@ -887,6 +919,50 @@ export default function WorkflowApp() {
       }
     }
   }, [])
+
+
+  const inspectMainnetBalances = async () => {
+    const address = mainnetReadAddress.trim()
+    const contract = mainnetReadContract.trim()
+    if (!ADDRESS_PATTERN.test(address)) {
+      setMainnetReadError('Enter a valid Mainnet TRON address. This is a read-only lookup; no wallet connection is required.')
+      setMainnetNativeSnapshot(null)
+      setMainnetTokenSnapshot(null)
+      return
+    }
+    if (contract && !ADDRESS_PATTERN.test(contract)) {
+      setMainnetReadError('The token contract address format is invalid.')
+      setMainnetTokenSnapshot(null)
+      return
+    }
+
+    setMainnetReadLoading(true)
+    setMainnetReadError('')
+    setMainnetNativeSnapshot(null)
+    setMainnetTokenSnapshot(null)
+    try {
+      const nativeResult = await requestApi('/api/tron/native-balance?network=mainnet&address=' + encodeURIComponent(address))
+      if (!nativeResult.ok || nativeResult.payload?.success !== true || nativeResult.payload?.network !== 'mainnet') {
+        throw new Error(nativeResult.payload?.message || nativeResult.payload?.error || 'Mainnet TRX balance could not be verified (HTTP ' + nativeResult.httpStatus + ').')
+      }
+      setMainnetNativeSnapshot(nativeResult.payload as MainnetBalanceSnapshot)
+      setMainnetReadCheckedAt(Date.now())
+
+      if (contract) {
+        const tokenResult = await requestApi('/api/tron/token-balance?network=mainnet&contract=' + encodeURIComponent(contract) + '&address=' + encodeURIComponent(address))
+        if (!tokenResult.ok || tokenResult.payload?.success !== true || tokenResult.payload?.network !== 'mainnet') {
+          setMainnetReadError('Mainnet TRX balance was read, but the selected token contract lookup failed: ' + String(tokenResult.payload?.message || tokenResult.payload?.error || ('HTTP ' + tokenResult.httpStatus)))
+          return
+        }
+        setMainnetTokenSnapshot(tokenResult.payload as MainnetBalanceSnapshot)
+      }
+    } catch (caught) {
+      setMainnetReadError(caught instanceof Error ? caught.message : 'Mainnet public balance lookup failed.')
+      setMainnetReadCheckedAt(Date.now())
+    } finally {
+      setMainnetReadLoading(false)
+    }
+  }
 
   const readSenderSnapshots = async (address: string) => {
     if (!ADDRESS_PATTERN.test(address)) throw new Error('Enter a valid TRON Base58 address.')
@@ -1742,6 +1818,54 @@ export default function WorkflowApp() {
                   <p className="studio-footnote">Last checked: {formatTimestamp(senderCheckedAt)}. A zero or unavailable sender balance does not authorize the platform to charge this wallet. The selected sponsor must fund any sponsored principal and fees itself.</p>
                 </div>
               )}
+            </section>
+          )}
+
+          {step === 2 && (
+            <section className="studio-panel" aria-labelledby="mainnet-readonly-title">
+              <div className="studio-panel-heading">
+                <div className="studio-panel-icon"><Eye size={20} aria-hidden="true" /></div>
+                <div>
+                  <p className="studio-eyebrow">Independent public-chain view</p>
+                  <h2 id="mainnet-readonly-title">Mainnet balances — read-only</h2>
+                  <p>Query Mainnet TRX and a token contract independently of the selected Nile/Shasta wallet network. This uses public chain data only: it does not connect a Mainnet signer, submit a transaction, change any balance, or confirm an exchange deposit.</p>
+                </div>
+              </div>
+              <div className="studio-field-block">
+                <label htmlFor="mainnet-read-address">Mainnet public TRON address</label>
+                <input id="mainnet-read-address" value={mainnetReadAddress} onChange={(event) => { setMainnetReadAddress(event.target.value.trim()); setMainnetNativeSnapshot(null); setMainnetTokenSnapshot(null); setMainnetReadError('') }} placeholder="T… (any address you are authorized to inspect)" autoComplete="off" spellCheck={false} />
+                <div className="studio-inline-actions">
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => { if (ADDRESS_PATTERN.test(senderAddress.trim())) { setMainnetReadAddress(senderAddress.trim()); setMainnetReadError(''); setMainnetNativeSnapshot(null); setMainnetTokenSnapshot(null) } else setMainnetReadError('There is no verified sender/watch address to copy yet.') }}>Use current sender/watch address</button>
+                  {mainnetReadAddress.trim() && <a href={getTronScanAddressUrl('mainnet', mainnetReadAddress.trim()) || undefined} target="_blank" rel="noreferrer">Open Mainnet address in TronScan</a>}
+                </div>
+              </div>
+              <div className="studio-field-block">
+                <label htmlFor="mainnet-read-contract">Mainnet token contract address (optional)</label>
+                <input id="mainnet-read-contract" value={mainnetReadContract} onChange={(event) => { const value = event.target.value.trim(); setMainnetReadContract(value); saveMainnetReadonlyContract(value); setMainnetTokenSnapshot(null); setMainnetReadError('') }} placeholder="Enter the exact Mainnet TRC-20 contract (T…)" autoComplete="off" spellCheck={false} />
+                <p className="studio-field-hint">The contract is saved only in this browser for convenience. The server reads the exact contract you enter; a token name/symbol is not proof of identity. Leave blank to query TRX only.</p>
+                {mainnetReadContract && !ADDRESS_PATTERN.test(mainnetReadContract) && <p className="studio-inline-error">The token contract address format is invalid.</p>}
+              </div>
+              <div className="studio-inline-actions">
+                <button type="button" className="studio-button studio-button--primary" onClick={() => void inspectMainnetBalances()} disabled={mainnetReadLoading || !ADDRESS_PATTERN.test(mainnetReadAddress.trim()) || Boolean(mainnetReadContract && !ADDRESS_PATTERN.test(mainnetReadContract.trim()))}>
+                  <RefreshCw size={15} className={mainnetReadLoading ? 'studio-spin' : ''} aria-hidden="true" /> {mainnetReadLoading ? 'Reading Mainnet chain…' : 'Load actual Mainnet balances'}
+                </button>
+              </div>
+              {mainnetReadError && <div className="studio-inline-error" role="alert">{mainnetReadError}</div>}
+              {mainnetNativeSnapshot && <div className="studio-balance-grid">
+                <div className="studio-balance">
+                  <span>Mainnet TRX balance</span>
+                  <strong>{mainnetNativeSnapshot.balanceTRX ?? 'Unavailable'} TRX</strong>
+                  <p>Source: {mainnetNativeSnapshot.source || 'Mainnet solidified chain state'} · {mainnetNativeSnapshot.accountExists === false ? 'Account not initialized on this network' : 'Read-only result'}</p>
+                </div>
+                {mainnetTokenSnapshot && <div className="studio-balance">
+                  <span>Token balance at entered contract</span>
+                  <strong>{formatUnits(mainnetTokenSnapshot.balanceBaseUnits, mainnetTokenSnapshot.decimals)}</strong>
+                  <p>Contract: <code>{mainnetTokenSnapshot.tokenContract || mainnetReadContract}</code></p>
+                  <p>Decimals: {mainnetTokenSnapshot.decimals ?? 'unavailable'} · Source: {mainnetTokenSnapshot.source || 'Mainnet solidified chain state'}</p>
+                  <p>This is the contract’s actual on-chain balance, not a balance created by Tron Token Studio.</p>
+                </div>}
+              </div>}
+              <p className="studio-footnote">Last checked: {formatTimestamp(mainnetReadCheckedAt)}. Mainnet queries work independently while TronLink is on a testnet; spending and signing still require the actual wallet owner’s authorization and the correct network.</p>
             </section>
           )}
 
