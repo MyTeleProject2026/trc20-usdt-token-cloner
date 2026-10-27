@@ -6,6 +6,7 @@ const flow = await readFile(new URL('../src/MainnetExchangeDeposit.tsx', import.
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const workspace = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 const verifier = await readFile(new URL('../server/routes/trc20-verification.mjs', import.meta.url), 'utf8')
+const authRoute = await readFile(new URL('../server/routes/tron-wallet-auth.mjs', import.meta.url), 'utf8')
 
 test('real deposit page is separate from the existing testnet-only workspace', () => {
   assert.ok(entry.includes("import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'"))
@@ -14,6 +15,20 @@ test('real deposit page is separate from the existing testnet-only workspace', (
   assert.ok(workspace.includes('href="#/exchange-deposit"'))
   assert.ok(flow.includes('TRON Mainnet'))
   assert.ok(flow.includes('Nile/Shasta assets'))
+})
+
+test('Mainnet deposit wallet has a real signed identity session and revalidates it before send', () => {
+  assert.match(flow, /const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'/)
+  assert.match(flow, /authenticateMainnetWallet\(address, tronWeb\)/)
+  assert.match(flow, /tronWeb\.trx\.signMessageV2\(challenge\.message\)/)
+  assert.match(flow, /JSON\.stringify\(\{ address, network: 'mainnet' \}\)/)
+  assert.match(flow, /\/api\/auth\/tron\/verify/)
+  assert.match(flow, /apiGet\('\/api\/auth\/tron\/session', walletSession\.sessionToken\)/)
+  assert.match(flow, /walletSession\?\.address === sender/)
+  assert.match(flow, /Sign out wallet identity/)
+  assert.match(authRoute, /const NETWORKS = new Set\(\['mainnet', 'shasta', 'nile'\]\)/)
+  assert.match(authRoute, /wallet-identity-only/)
+  assert.doesNotMatch(flow, /privateKey\s*[:=]|seedPhrase\s*[:=]|recoveryPhrase\s*[:=]/i)
 })
 
 test('Mainnet USDT asset identity is pinned to the official Tether TRON contract', () => {
