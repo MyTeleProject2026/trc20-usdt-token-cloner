@@ -870,3 +870,5 @@ main .grid > button[aria-pressed] > span {
   .wallet-vault-history-refresh { width:100%; }
 }
 
+.wallet-vault-status-tag.status-local-not-verified { color:#ffe0aa; border-color:#7b6035; background:#2a2113; }
+.wallet-vault-status-tag.status-identity-mismatch { color:#ffcdc0; border-color:#8a4a40; background:#2b1715; }
