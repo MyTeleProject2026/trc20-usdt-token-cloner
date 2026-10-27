@@ -18,6 +18,43 @@ function savedNetwork(): NetworkId {
   try { return window.sessionStorage.getItem(NETWORK_KEY) === 'shasta' ? 'shasta' : 'nile' } catch { return 'nile' }
 }
 
+function getTronProvider(): any {
+  const candidates = [(window as any).tron, (window as any).tronLink]
+  return candidates.find(provider => provider && provider.isTronLink === true
+    && typeof provider.request === 'function') || null
+}
+
+async function requestTronAccounts(provider: any): Promise<unknown> {
+  try {
+    return await provider.request({ method: 'eth_requestAccounts' })
+  } catch (caught) {
+    const code = Number((caught as any)?.code)
+    const rawMessage = typeof caught === 'string' ? caught : String((caught as any)?.message || '')
+    if (code === -32601 || code === 4200 || /method not found|unsupported method|method not supported/i.test(rawMessage)) {
+      return provider.request({ method: 'tron_requestAccounts' })
+    }
+    throw caught
+  }
+}
+
+function walletErrorMessage(caught: unknown): string {
+  const code = Number((caught as any)?.code)
+  const raw = (typeof caught === 'string' ? caught : String((caught as any)?.message || '')).trim()
+  if (code === 4001 || /confirmation declined by user|user rejected the request|request rejected/i.test(raw)) {
+    return 'The wallet request was declined. Retry and approve the connection or the clearly labelled sign-in message in TronLink.'
+  }
+  if (code === -32002 || /already pending|request is already pending|already processing a request/i.test(raw)) {
+    return 'A TronLink request is already open. Finish or close that wallet prompt before trying again.'
+  }
+  if (/user has not unlocked wallet|wallet is locked|wallet not unlocked/i.test(raw)) {
+    return 'Unlock TronLink, select the intended account and testnet, then retry sign-in.'
+  }
+  if (/invalid transaction provided|transaction integrity check failed/i.test(raw)) {
+    return 'TronLink could not sign the login message. Update/unlock TronLink and retry; no transfer was submitted.'
+  }
+  return raw.slice(0, 240) || 'Wallet sign-in failed. Confirm TronLink is available and try again.'
+}
+
 function assertSelectedNetwork(tronWeb: any, network: NetworkId) {
   const host = String(tronWeb?.fullNode?.host || tronWeb?.fullNode?.nodeUrl || '')
   let parsed: URL
@@ -60,8 +97,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       try {
         const token = window.sessionStorage.getItem(SESSION_KEY)
         if (!token) return
-        const provider = (window as any).tron
-        if (!provider || provider.isTronLink !== true || !provider.tronWeb) throw new Error('TronLink is not available to restore this session.')
+        // The app identity is the server-verified signature session, not whichever
+        // account happens to be active in the wallet today. This allows operators
+        // to switch between their distinct fee/principal wallets without losing
+        // the app session; signing actions re-verify the active account separately.
         const response = await fetch(API_BASE + '/api/auth/tron/session', {
           headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
           credentials: 'omit',
@@ -74,10 +113,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           || payload.network !== network || !Number.isFinite(payload.expiresAt)
           || payload.expiresAt <= Date.now()) {
           throw new Error('The saved wallet session is invalid or expired. Sign in again.')
-        }
-        assertSelectedNetwork(provider.tronWeb, network)
-        if (String(provider.tronWeb?.defaultAddress?.base58 || '') !== payload.address) {
-          throw new Error('The selected TronLink address differs from the signed-in account. Sign in again.')
         }
         if (cancelled) return
         setSession({ address: payload.address, network: payload.network, expiresAt: payload.expiresAt, sessionToken: token })
@@ -129,22 +164,15 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setBusy(true)
     setError('')
     try {
-      const provider = (window as any).tron
-      if (!provider || provider.isTronLink !== true || !provider.tronWeb || typeof provider.request !== 'function') {
-        throw new Error('TronLink was not detected. Open this website in a compatible TronLink browser or install/enable the wallet extension.')
+      const provider = getTronProvider()
+      if (!provider) {
+        throw new Error('TronLink was not detected. Open this website in a browser where the TronLink extension or wallet browser is enabled.')
       }
-      try {
-        await provider.request({ method: 'tron_requestAccounts' })
-      } catch (caught) {
-        const code = Number((caught as any)?.code)
-        const message = caught instanceof Error ? caught.message : ''
-        if (code === -32601 || /method not found|unsupported method/i.test(message)) {
-          await provider.request({ method: 'eth_requestAccounts' })
-        } else {
-          throw caught
-        }
+      await requestTronAccounts(provider)
+      const tronWeb = provider.tronWeb || (window as any).tronWeb
+      if (!tronWeb || typeof tronWeb !== 'object') {
+        throw new Error('TronLink approved the connection but did not expose TronWeb yet. Unlock the wallet, close any pending wallet prompt, and click Connect again.')
       }
-      const tronWeb = provider.tronWeb
       assertSelectedNetwork(tronWeb, network)
       const address = String(tronWeb?.defaultAddress?.base58 || '')
       if (!ADDRESS_PATTERN.test(address) || (typeof tronWeb.isAddress === 'function' && !tronWeb.isAddress(address))) {
@@ -164,8 +192,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       if (typeof tronWeb?.trx?.signMessageV2 !== 'function') throw new Error('This TronLink version does not support signMessageV2.')
       const signature = await tronWeb.trx.signMessageV2(challenge.message)
       if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) throw new Error('TronLink returned an invalid login signature.')
-      assertSelectedNetwork(provider.tronWeb, network)
-      if (String(provider.tronWeb?.defaultAddress?.base58 || '') !== address) {
+      const currentTronWeb = provider.tronWeb || (window as any).tronWeb
+      assertSelectedNetwork(currentTronWeb, network)
+      if (String(currentTronWeb?.defaultAddress?.base58 || '') !== address) {
         throw new Error('The active TronLink address changed during sign-in. Retry with the intended account.')
       }
       const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
@@ -185,7 +214,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       window.sessionStorage.setItem(NETWORK_KEY, network)
       setSession({ address, network, expiresAt: verified.expiresAt, sessionToken: verified.sessionToken })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Wallet sign-in failed.')
+      setError(walletErrorMessage(caught))
     } finally {
       setBusy(false)
       setChecking(false)
