@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, RefreshCw, Shield
 import { getTronScanTransactionUrl } from './tron-explorer.mjs'
 
 type Asset = 'TRX' | 'USDT'
+type MainnetWalletSession = { address: string; network: 'mainnet'; expiresAt: number; sessionToken: string }
 type DepositStatus = 'broadcast-outcome-unknown' | 'awaiting-solidification' | 'verified-on-chain' | 'verification-unavailable' | 'verification-mismatch'
 type MainnetBalance = { success?: boolean; network?: string; balanceTRX?: string; balanceSun?: string; balanceBaseUnits?: string; decimals?: number; tokenContract?: string }
 type DepositAttempt = {
@@ -28,6 +29,7 @@ const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-fA-F]{64}$/
 const FEE_LIMIT_SUN = '30000000'
 const STORAGE_KEY = 'tron-token-studio:mainnet-exchange-deposit:v1'
+const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'
 
 function getProvider(): any {
   const candidates = [(window as any).tron, (window as any).tronLink]
@@ -97,10 +99,96 @@ function utf8Hex(value: string): string {
   return Array.from(new TextEncoder().encode(value)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function apiGet(path: string): Promise<{ ok: boolean; status: number; payload: any }> {
-  const response = await fetch(API_BASE + path, { headers: { Accept: 'application/json' }, cache: 'no-store', credentials: 'omit' })
+async function apiGet(path: string, authToken?: string): Promise<{ ok: boolean; status: number; payload: any }> {
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (authToken) headers.Authorization = 'Bearer ' + authToken
+  const response = await fetch(API_BASE + path, {
+    headers,
+    cache: 'no-store',
+    credentials: 'omit',
+    redirect: 'error',
+  })
   const payload = await response.json().catch(() => null)
   return { ok: response.ok, status: response.status, payload }
+}
+
+async function authenticateMainnetWallet(address: string, tronWeb: any): Promise<MainnetWalletSession> {
+  // Reuse only a live server-issued session for this exact address/network.
+  // A browser-stored address by itself never counts as authentication.
+  let storedToken = ''
+  try { storedToken = window.sessionStorage.getItem(AUTH_SESSION_KEY) || '' } catch {}
+  if (storedToken) {
+    try {
+      const existing = await apiGet('/api/auth/tron/session', storedToken)
+      if (existing.ok && existing.payload?.success === true && existing.payload?.authenticated === true
+        && existing.payload.address === address && existing.payload.network === 'mainnet'
+        && Number.isFinite(existing.payload.expiresAt) && existing.payload.expiresAt > Date.now()) {
+        return { address, network: 'mainnet', expiresAt: existing.payload.expiresAt, sessionToken: storedToken }
+      }
+    } catch {
+      // A failed restore is not proof of login; a fresh challenge remains required.
+    }
+    try { window.sessionStorage.removeItem(AUTH_SESSION_KEY) } catch {}
+  }
+
+  if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+    throw new Error('This TronLink version cannot sign the wallet login message. Update TronLink and retry.')
+  }
+  const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address, network: 'mainnet' }),
+    credentials: 'omit',
+    cache: 'no-store',
+    redirect: 'error',
+  })
+  const challenge = await challengeResponse.json().catch(() => null)
+  if (!challengeResponse.ok || challenge?.success !== true || challenge?.network !== 'mainnet'
+    || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string'
+    || !Number.isFinite(challenge.expiresAt) || challenge.expiresAt <= Date.now()) {
+    throw new Error(challenge?.message || challenge?.error || 'Mainnet wallet login challenge failed (HTTP ' + challengeResponse.status + ').')
+  }
+
+  // This signs a clearly scoped identity message only. It is not a transaction.
+  const signature = await tronWeb.trx.signMessageV2(challenge.message)
+  if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+    throw new Error('TronLink returned an invalid Mainnet login signature.')
+  }
+  checkMainnet(tronWeb)
+  if (String(tronWeb?.defaultAddress?.base58 || '') !== address) {
+    throw new Error('The active Mainnet wallet changed while signing the login message. Reconnect and retry.')
+  }
+
+  const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address, network: 'mainnet', nonce: challenge.nonce, signature }),
+    credentials: 'omit',
+    cache: 'no-store',
+    redirect: 'error',
+  })
+  const verified = await verifyResponse.json().catch(() => null)
+  if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
+    || verified.address !== address || verified.network !== 'mainnet'
+    || typeof verified.sessionToken !== 'string' || !Number.isFinite(verified.expiresAt)
+    || verified.expiresAt <= Date.now()) {
+    throw new Error(verified?.message || verified?.error || 'Mainnet wallet signature verification failed (HTTP ' + verifyResponse.status + ').')
+  }
+
+  const currentProvider = getProvider()
+  const currentTronWeb = currentProvider?.tronWeb || (window as any).tronWeb
+  checkMainnet(currentTronWeb)
+  if (String(currentTronWeb?.defaultAddress?.base58 || '') !== address) {
+    void fetch(API_BASE + '/api/auth/tron/logout', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + verified.sessionToken },
+      credentials: 'omit',
+      cache: 'no-store',
+    }).catch(() => undefined)
+    throw new Error('The active Mainnet wallet changed after the login signature. No transfer was authorized.')
+  }
+  try { window.sessionStorage.setItem(AUTH_SESSION_KEY, verified.sessionToken) } catch {}
+  return { address, network: 'mainnet', expiresAt: verified.expiresAt, sessionToken: verified.sessionToken }
 }
 
 function loadAttempt(): DepositAttempt | null {
@@ -139,6 +227,7 @@ export default function MainnetExchangeDeposit() {
   const [memo, setMemo] = useState('')
   const [amount, setAmount] = useState('')
   const [sender, setSender] = useState('')
+  const [walletSession, setWalletSession] = useState<MainnetWalletSession | null>(null)
   const [trxBalanceSun, setTrxBalanceSun] = useState<string | null>(null)
   const [usdtBalanceRaw, setUsdtBalanceRaw] = useState<string | null>(null)
   const [walletBusy, setWalletBusy] = useState(false)
@@ -167,7 +256,7 @@ export default function MainnetExchangeDeposit() {
 
   const amountBaseUnits = amountToBaseUnits(amount, 6)
   const destinationValid = ADDRESS_PATTERN.test(destination.trim()) && destination.trim() !== sender
-  const formReady = Boolean(sender && destinationValid && amountBaseUnits && destinationConfirmed && irreversibleConfirmed && !sending && !verifying && !attempt)
+  const formReady = Boolean(sender && walletSession?.address === sender && walletSession?.network === 'mainnet' && walletSession?.expiresAt && walletSession.expiresAt > Date.now() && destinationValid && amountBaseUnits && destinationConfirmed && irreversibleConfirmed && !sending && !verifying && !attempt)
 
   const connectWallet = async () => {
     setWalletBusy(true)
@@ -181,10 +270,17 @@ export default function MainnetExchangeDeposit() {
       checkMainnet(tronWeb)
       const address = String(tronWeb?.defaultAddress?.base58 || '')
       if (!ADDRESS_PATTERN.test(address) || !tronWeb.isAddress(address)) throw new Error('No valid active TronLink account was found.')
-      const trx = await tronWeb.trx.getBalance(address)
+      const identity = await authenticateMainnetWallet(address, tronWeb)
+      const activeTronWeb = provider.tronWeb || (window as any).tronWeb
+      checkMainnet(activeTronWeb)
+      if (String(activeTronWeb?.defaultAddress?.base58 || '') !== address) {
+        throw new Error('The active Mainnet wallet changed after authentication. Reconnect and retry.')
+      }
+      setWalletSession(identity)
+      const trx = await activeTronWeb.trx.getBalance(address)
       const nextTrx = String(trx)
       if (!/^(0|[1-9][0-9]*)$/.test(nextTrx)) throw new Error('The active wallet TRX balance did not return a valid base-unit value.')
-      const contract = await tronWeb.contract().at(MAINNET_USDT)
+      const contract = await activeTronWeb.contract().at(MAINNET_USDT)
       const symbol = String(await contract.symbol().call())
       const decimals = Number(await contract.decimals().call())
       const nextUsdt = String(await contract.balanceOf(address).call())
@@ -199,6 +295,8 @@ export default function MainnetExchangeDeposit() {
       setSendError('')
     } catch (error) {
       setWalletError(error instanceof Error ? error.message : 'Wallet connection failed.')
+      setWalletSession(null)
+      try { window.sessionStorage.removeItem(AUTH_SESSION_KEY) } catch {}
       setSender('')
       setTrxBalanceSun(null)
       setUsdtBalanceRaw(null)
@@ -280,8 +378,8 @@ export default function MainnetExchangeDeposit() {
       setSendError('A transaction already exists for this request. Verify that same transaction first; a duplicate send is blocked.')
       return
     }
-    if (!formReady || !amountBaseUnits) {
-      setSendError('Connect a Mainnet wallet, enter a valid amount/address, and confirm the official exchange deposit instructions first.')
+    if (!formReady || !amountBaseUnits || !walletSession) {
+      setSendError('Connect and authenticate a Mainnet wallet, enter a valid amount/address, and confirm the official exchange deposit instructions first.')
       return
     }
 
@@ -289,6 +387,12 @@ export default function MainnetExchangeDeposit() {
     let txId = ''
     let pendingAttempt: DepositAttempt | null = null
     try {
+      const sessionResult = await apiGet('/api/auth/tron/session', walletSession.sessionToken)
+      if (!sessionResult.ok || sessionResult.payload?.success !== true || sessionResult.payload?.authenticated !== true
+        || sessionResult.payload?.address !== sender || sessionResult.payload?.network !== 'mainnet'
+        || !Number.isFinite(sessionResult.payload?.expiresAt) || sessionResult.payload.expiresAt <= Date.now()) {
+        throw new Error('The Mainnet wallet login expired or is invalid. Reconnect and sign in before preparing a transfer.')
+      }
       const provider = getProvider()
       const tronWeb = provider?.tronWeb || (window as any).tronWeb
       if (!provider || !tronWeb) throw new Error('TronLink is unavailable. Reconnect the intended Mainnet wallet.')
@@ -467,14 +571,30 @@ export default function MainnetExchangeDeposit() {
           <section className="studio-panel">
             <div className="studio-panel-heading">
               <div className="studio-panel-icon"><Wallet size={19} aria-hidden="true" /></div>
-              <div><p className="studio-eyebrow">Step 1</p><h2>Connect the actual sender wallet</h2><p>The app never asks for a private key or recovery phrase. TronLink must be on TRON Mainnet with the official TronGrid node.</p></div>
+              <div><p className="studio-eyebrow">Step 1</p><h2>Connect and authenticate the sender wallet</h2><p>Sign a short-lived wallet-ownership message in TronLink. The backend stores your public address and a hashed session token; it never receives a private key. This message does not authorize a transfer.</p></div>
             </div>
             <div className="studio-inline-actions">
               <button type="button" className="studio-button studio-button--primary" onClick={() => void connectWallet()} disabled={walletBusy || sending}>
-                <Wallet size={16} aria-hidden="true" /> {walletBusy ? 'Connecting and verifying…' : sender ? 'Refresh Mainnet wallet and balances' : 'Connect TronLink Mainnet wallet'}
+                <Wallet size={16} aria-hidden="true" /> {walletBusy ? 'Connecting and authenticating…' : sender ? 'Refresh authenticated wallet and balances' : 'Connect & sign in to Mainnet wallet'}
               </button>
             </div>
-            {sender && <div className="studio-verified-snapshot" role="status"><CheckCircle2 size={19} aria-hidden="true" /><div><strong>Mainnet wallet connected</strong><code>{sender}</code><p>TRX balance: {formatUnits(trxBalanceSun || undefined, 6)} TRX</p><p>Official USDT balance: {formatUnits(usdtBalanceRaw || undefined, 6)} USDT</p></div></div>}
+            {sender && walletSession?.address === sender && <div className="studio-verified-snapshot" role="status"><CheckCircle2 size={19} aria-hidden="true" /><div><strong>Mainnet wallet identity verified</strong><code>{sender}</code><p>Identity session expires: {new Date(walletSession.expiresAt).toLocaleString()}</p><p>TRX balance: {formatUnits(trxBalanceSun || undefined, 6)} TRX</p><p>Official USDT balance: {formatUnits(usdtBalanceRaw || undefined, 6)} USDT</p></div></div>}
+            {walletSession && <button type="button" className="studio-button studio-button--secondary" onClick={() => {
+              const token = walletSession.sessionToken
+              try { window.sessionStorage.removeItem(AUTH_SESSION_KEY) } catch {}
+              setWalletSession(null)
+              setSender('')
+              setTrxBalanceSun(null)
+              setUsdtBalanceRaw(null)
+              setDestinationConfirmed(false)
+              setIrreversibleConfirmed(false)
+              void fetch(API_BASE + '/api/auth/tron/logout', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + token },
+                credentials: 'omit',
+                cache: 'no-store',
+              }).catch(() => undefined)
+            }}>Sign out wallet identity</button>}
             {walletError && <p className="studio-inline-error" role="alert">{walletError}</p>}
           </section>
 
