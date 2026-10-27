@@ -1157,7 +1157,7 @@ export default function WorkflowApp() {
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       credentials: 'omit',
       cache: 'no-store',
-      body: JSON.stringify({ address, network, nonce: challenge.nonce, signature }),
+      body: JSON.stringify({ address, network, nonce: challenge.nonce, message: challenge.message, signature }),
     })
     const verified = await verifyResponse.json().catch(() => null)
     if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
