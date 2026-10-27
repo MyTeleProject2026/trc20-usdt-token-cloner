@@ -49,4 +49,7 @@ test('native APK workflow bundles the local wallet UI and keeps the Android buil
   assert.match(workflow, /npx cap sync android/)
   assert.match(workflow, /assembleDebug/)
   assert.match(workflow, /name: tron-token-studio-android-debug-apk/)
+  const apiSmoke = await read('.github/workflows/public-api-smoke.yml')
+  assert.match(apiSmoke, /Origin: https:\/\/localhost/)
+  assert.match(apiSmoke, /Configure PACKAGED_APP_ORIGINS on the Render API service/)
 })
