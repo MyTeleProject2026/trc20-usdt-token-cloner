@@ -654,6 +654,10 @@ main .grid > button[aria-pressed] > span {
 .studio-auth-points svg { flex:0 0 auto; margin-top:1px; color:#77e1bb; }
 .studio-auth-points strong { color:#c4eadb; }
 .studio-auth-footnote { margin:22px 0 0; color:#6e9285; font-size:10px; line-height:1.8; }
+.studio-auth-readonly { margin-top:20px; padding-top:18px; border-top:1px solid rgba(122,174,154,.2); }
+.studio-auth-readonly p { margin:0 0 12px; color:#a6c1b6; font-size:12px; line-height:1.7; }
+.studio-auth-readonly p strong { display:block; margin-bottom:4px; color:#d8eee4; }
+.studio-auth-readonly .studio-auth-submit { margin-top:0; }
 @media (max-width:520px) {
   .studio-auth-screen { align-items:start; padding:12px; }
   .studio-auth-card { margin:auto 0; padding:22px 18px; border-radius:17px; }
