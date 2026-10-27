@@ -705,6 +705,41 @@ export default function WalletVault() {
     }
   }
 
+  async function selectTreasuryUsdtSender() {
+    if (!unlocked) throw new Error('Unlock the treasury wallet locally before preparing a payout.')
+    if (network !== 'mainnet') throw new Error('Treasury payouts are available only on TRON Mainnet.')
+    const snapshot = ownerTreasurySnapshot
+    if (snapshot?.ownerAccessVerified !== true || !snapshot.treasuryAddress) {
+      throw new Error('Verify the owner session and read the treasury balance before selecting a treasury payout.')
+    }
+    if (snapshot.treasuryAddress !== unlocked.record.address) {
+      throw new Error('The unlocked wallet is not the configured treasury funding address. Unlock the treasury wallet with its matching private key first.')
+    }
+    const balanceBaseUnits = snapshot.officialUsdt?.balanceBaseUnits
+    if (snapshot.officialUsdt?.status !== 'verified'
+      || snapshot.officialUsdt.tokenContract !== OFFICIAL_MAINNET_USDT
+      || snapshot.officialUsdt.decimals !== 6
+      || typeof balanceBaseUnits !== 'string'
+      || !/^(0|[1-9][0-9]*)$/.test(balanceBaseUnits)) {
+      throw new Error('A verified official USDT treasury balance is unavailable. No payout was prepared.')
+    }
+    if (BigInt(balanceBaseUnits) <= 0n) {
+      throw new Error('The treasury holds zero genuine USDT. Fund it through a legitimate on-chain transfer before preparing an external payout.')
+    }
+
+    // This is a convenience for choosing the configured treasury as the local
+    // sender. The normal transfer path still re-reads the balance, estimates
+    // fees, requires owner-local signing, and validates the final receipt.
+    await addTokenContract(OFFICIAL_MAINNET_USDT)
+    setTransferAsset('TRC20')
+    setSelectedTokenContract(OFFICIAL_MAINNET_USDT)
+    setTransferReview(null)
+    setTransferAcknowledged(false)
+    setMainnetSendPhrase('')
+    setNotice('Official Mainnet USDT selected from the verified treasury wallet. Enter the recipient and amount below. The balance and fee cap will be checked again before signing; this app does not generate USDT or pay TRX fees for the treasury.')
+    setError('')
+  }
+
   async function prepareTransfer() {
     if (!unlocked) throw new Error('Unlock the wallet before preparing a transfer.')
     const web = createTronWeb(network, unlocked.privateKey)
@@ -1190,6 +1225,21 @@ export default function WalletVault() {
                         <div className="wallet-vault-review-wide"><small>Snapshot checked</small><strong>{ownerTreasurySnapshot.checkedAt || 'Time unavailable'}</strong></div>
                       </div>
                       <p className="wallet-vault-caption">This is an observed chain balance, not an accounting balance or a payout authorization. The balance is not increased by this app. An actual outgoing transfer still requires genuine treasury assets and a separately reviewed signer/approval process.</p>
+                      {ownerTreasurySnapshot.officialUsdt?.status === 'verified'
+                        && ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === '0' && (
+                        <p className="wallet-vault-risk-note" role="note">The treasury currently holds zero genuine USDT. No USDT payout can be made until real USDT arrives at this treasury address.</p>
+                      )}
+                      {ownerTreasurySnapshot.treasuryAddress === unlocked.record.address
+                        && ownerTreasurySnapshot.officialUsdt?.status === 'verified'
+                        && ownerTreasurySnapshot.officialUsdt.tokenContract === OFFICIAL_MAINNET_USDT
+                        && ownerTreasurySnapshot.officialUsdt.decimals === 6
+                        && typeof ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === 'string'
+                        && /^(0|[1-9][0-9]*)$/.test(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits)
+                        && BigInt(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits) > 0n && (
+                        <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress} onClick={() => void performWalletAction(selectTreasuryUsdtSender)}>
+                          <ShieldCheck size={16} /> Use funded treasury for a real USDT payout
+                        </button>
+                      )}
                       {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
                         <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
                       )}
