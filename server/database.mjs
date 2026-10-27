@@ -116,6 +116,7 @@ export async function initializeDatabase() {
           wallet_address TEXT NOT NULL,
           network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
           origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
           issued_at TIMESTAMPTZ NOT NULL,
           expires_at TIMESTAMPTZ NOT NULL,
           consumed_at TIMESTAMPTZ,
@@ -123,12 +124,14 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
-      // One-use challenges are ephemeral. Invalidate any challenges from the
-      // prior schema before dropping their stored raw message (which contained
-      // the nonce); new rows persist only the nonce digest and timestamps.
-      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
       await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
       await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
       await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
         ON ${schema}.wallet_auth_challenges (expires_at)`)
@@ -680,8 +683,9 @@ export async function findVerifiedTransfer(input) {
  * are issued so this table cannot grow without bound during normal use.
  */
 export async function persistWalletAuthChallenge(input = {}) {
-  const { nonceHash, address, network, origin, issuedAt, expiresAt } = input
+  const { nonceHash, messageHash, address, network, origin, issuedAt, expiresAt } = input
   if (typeof nonceHash !== 'string' || !/^[0-9a-f]{64}$/.test(nonceHash)
+    || typeof messageHash !== 'string' || !/^[0-9a-f]{64}$/.test(messageHash)
     || !isValidTronAddress(address) || !['mainnet', 'nile', 'shasta'].includes(network)
     || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
     || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)
@@ -714,9 +718,9 @@ export async function persistWalletAuthChallenge(input = {}) {
     await client.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE expires_at <= now()`)
     await client.query(
       `INSERT INTO ${schema}.wallet_auth_challenges
-        (nonce_hash, wallet_address, network, origin, issued_at, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [nonceHash, address, network, origin, new Date(issuedAt), new Date(expiresAt)],
+        (nonce_hash, wallet_address, network, origin, message_hash, issued_at, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [nonceHash, address, network, origin, messageHash, new Date(issuedAt), new Date(expiresAt)],
     )
     await client.query('COMMIT')
     return { success: true }
@@ -745,7 +749,7 @@ export async function consumeWalletAuthChallenge({ nonceHash } = {}) {
       `UPDATE ${schema}.wallet_auth_challenges
           SET consumed_at = now()
         WHERE nonce_hash = $1 AND consumed_at IS NULL AND expires_at > now()
-        RETURNING wallet_address, network, origin, issued_at, expires_at`,
+        RETURNING wallet_address, network, origin, message_hash, issued_at, expires_at`,
       [nonceHash],
     )
     if (!result.rows.length) return { success: true, challenge: null }
@@ -756,6 +760,7 @@ export async function consumeWalletAuthChallenge({ nonceHash } = {}) {
         address: row.wallet_address,
         network: row.network,
         origin: row.origin,
+        messageHash: String(row.message_hash).trim(),
         issuedAt: new Date(row.issued_at).getTime(),
         expiresAt: new Date(row.expires_at).getTime(),
       },
