@@ -57,7 +57,10 @@ test('sponsor console verifies accepted transfers and links the exact transactio
 
 test('sponsor console restores only the role matching the active TronLink account and explains missing reservations', async () => {
   const consoleSource = await readFile(new URL('../src/SponsorSignerConsole.tsx', import.meta.url), 'utf8')
-  assert.match(consoleSource, /const provider = window\.tronLink \|\| window\.tron/)
+  assert.match(consoleSource, /const provider = getInjectedTronProvider\(\)/)
+  assert.match(consoleSource, /const candidates = \[window\.tron, window\.tronLink\]/)
+  assert.match(consoleSource, /method: 'eth_requestAccounts'/)
+  assert.match(consoleSource, /await requestTronWalletAccess\(provider\)/)
   assert.match(consoleSource, /provider\.on\('accountsChanged', onAccountsChanged\)/)
   assert.match(consoleSource, /provider\.on\('chainChanged', onChainChanged\)/)
   assert.match(consoleSource, /activeAddress === wallet\.address/)
