@@ -16,6 +16,7 @@ import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
+import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
@@ -138,6 +139,7 @@ app.use('/api/tron', sponsorSolidifiedReconciliationRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/okx', okxDepositStatusRoutes)
+app.use('/api/tron', createTokenAuthenticityRouter())
 
 if (process.env.DATABASE_URL) {
   try {
