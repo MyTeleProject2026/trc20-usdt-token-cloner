@@ -164,7 +164,7 @@ test('a session can be resolved by another router instance sharing persistent st
   })
 })
 
-test('wallet login rejects invalid origin, wrong signer and unsupported Mainnet workspace network', async () => {
+test('wallet login rejects invalid origin, wrong signer and unsupported non-TRON network', async () => {
   const store = createMemoryAuthStore()
   const app = createApp({
     store,
@@ -181,7 +181,7 @@ test('wallet login rejects invalid origin, wrong signer and unsupported Mainnet 
     assert.equal(wrongOrigin.payload.error, 'origin-not-allowed')
 
     const wrongNetwork = await requestJson(base, '/challenge', {
-      method: 'POST', body: { address, network: 'mainnet' },
+      method: 'POST', body: { address, network: 'ethereum' },
     })
     assert.equal(wrongNetwork.response.status, 400)
     assert.equal(wrongNetwork.payload.error, 'unsupported-network')
@@ -196,6 +196,39 @@ test('wallet login rejects invalid origin, wrong signer and unsupported Mainnet 
     assert.equal(verified.response.status, 401)
     assert.equal(verified.payload.error, 'signature-address-mismatch')
     assert.equal(store.sessions.size, 0)
+  })
+})
+
+test('Mainnet wallet ownership can be verified without enabling or submitting a transaction', async () => {
+  const store = createMemoryAuthStore()
+  const app = createApp({
+    store,
+    nonceFactory: () => '6'.repeat(48),
+    verifyMessage: async (message) => {
+      assert.match(message, /Network: mainnet/)
+      assert.match(message, /no transfer is authorized/)
+      return address
+    },
+  })
+  await withServer(app, async (base) => {
+    const challenge = await requestJson(base, '/challenge', {
+      method: 'POST', body: { address, network: 'mainnet' },
+    })
+    assert.equal(challenge.response.status, 200)
+    assert.equal(challenge.payload.network, 'mainnet')
+    const verified = await requestJson(base, '/verify', {
+      method: 'POST',
+      body: { address, network: 'mainnet', nonce: challenge.payload.nonce, signature },
+    })
+    assert.equal(verified.response.status, 200)
+    assert.equal(verified.payload.authenticated, true)
+    assert.equal(verified.payload.network, 'mainnet')
+    assert.equal(verified.payload.canSubmitSponsoredTransfer, false)
+    assert.equal(verified.payload.submissionEnabled, false)
+    assert.equal(store.accounts.has('mainnet:' + address), true)
+    const session = await requestJson(base, '/session', { token: verified.payload.sessionToken })
+    assert.equal(session.response.status, 200)
+    assert.equal(session.payload.network, 'mainnet')
   })
 })
 
