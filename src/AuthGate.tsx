@@ -5,7 +5,7 @@ import { Activity, Layers, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'l
 type NetworkId = 'nile' | 'shasta'
 type WalletSession = { address: string; network: NetworkId; expiresAt: number; sessionToken: string }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const SESSION_KEY = 'tron-token-studio:auth-session:v1'
 const NETWORK_KEY = 'tron-token-studio:auth-network:v1'
 const HOSTS: Record<NetworkId, string> = {
