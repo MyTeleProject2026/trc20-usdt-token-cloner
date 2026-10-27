@@ -14,13 +14,13 @@
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "express": "^4.21.0",
-    "lucide-react": "^1.31.0",
+    "lucide-react": "^1.61.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "undici": "^8.12.2",
+    "undici": "^8.12.3",
     "vite": "^6.4.5",
     "tronweb": "^6.4.1",
-    "solc": "^0.8.37",
+    "solc": "^0.8.38",
     "pg": "^8.16.3"
   },
   "devDependencies": {
