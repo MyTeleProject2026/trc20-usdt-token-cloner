@@ -162,7 +162,7 @@ async function authenticateMainnetWallet(address: string, tronWeb: any): Promise
   const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ address, network: 'mainnet', nonce: challenge.nonce, signature }),
+    body: JSON.stringify({ address, network: 'mainnet', nonce: challenge.nonce, message: challenge.message, signature }),
     credentials: 'omit',
     cache: 'no-store',
     redirect: 'error',
