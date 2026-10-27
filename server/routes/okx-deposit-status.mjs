@@ -23,6 +23,7 @@ function safeDeposit(record) {
     chain: String(record.chain || ''),
     amount: String(record.amt || ''),
     transactionId: String(record.txId || ''),
+    depositId: String(record.depId || ''),
     depositAddress: String(record.to || ''),
     memo: String(record.tag || ''),
     statusCode: String(record.state ?? ''),
@@ -37,7 +38,7 @@ function safeDeposit(record) {
       '14': 'kyc-limit',
       '17': 'travel-rule-pending',
     })[String(record.state)] || 'exchange-reported-unknown',
-    actualDepositBlockchainConfirmed: String(record.actualDepBlkConfirm ?? ''),
+    actualBlockchainConfirmedAmount: String(record.actualDepBlkConfirm ?? ''),
     recordedAt: String(record.ts ?? ''),
     source: 'OKX authenticated deposit-history response',
   }
