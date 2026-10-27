@@ -15,12 +15,13 @@ test('the asset principal stage offers only a native TRX asset or an explicitly 
   assert.ok(!app.includes("setAssetKind('USDT')"))
 })
 
-test('sender and receiver are validated on the selected testnet before the review stage opens', () => {
+test('sender and receiver validation controls readiness while stages remain directly navigable', () => {
   assert.ok(app.includes("type NetworkId = 'shasta' | 'nile'"))
   assert.ok(app.includes('checkedWalletNetwork(tronWeb, network)'))
   assert.ok(app.includes('const senderStageValid = ADDRESS_PATTERN.test(senderAddress)'))
   assert.ok(app.includes('const receiverStageValid = ADDRESS_PATTERN.test(receiverAddress)'))
-  assert.ok(app.includes('const canEnterStep = (index: number) => index === 0 || stageCompletion[index - 1] === true'))
+  assert.ok(app.includes('const canEnterStep = (index: number) => index >= 0 && index < STEPS.length'))
+  assert.ok(app.includes('Every section can be opened directly. Validation still controls Continue and final review status.'))
   assert.ok(app.includes('disabled={!stageCompletion[step]}'))
 })
 

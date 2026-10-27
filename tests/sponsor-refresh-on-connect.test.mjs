@@ -15,7 +15,7 @@ test('TronLink connection refreshes sponsor role snapshots with sender chain rea
   assert.ok(end > start, 'connectTronLink handler must have a closing boundary')
 
   const handler = source.slice(start, end)
-  assert.match(handler, /Promise\.all\s*\(\s*\[/, 'wallet and sponsor reads should run together')
+  assert.match(handler, /Promise\.allSettled\s*\(\s*\[/, 'wallet and sponsor reads should run together without making wallet identity depend on provider read success')
   assert.match(handler, /readSenderSnapshots\(address\)/, 'sender balances should still be refreshed')
   assert.match(handler, /loadSponsorStatus\(true\)/, 'fee and principal sponsor snapshots should be force-refreshed on connect')
 })

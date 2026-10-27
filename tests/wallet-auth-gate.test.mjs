@@ -22,8 +22,10 @@ test('the dashboard is gated behind a verified TronLink identity on first load',
 })
 
 test('account or network changes invalidate session and clear old account snapshots', () => {
-  assert.match(workflow, /provider\.on\('accountsChanged', invalidate\)/)
-  assert.match(workflow, /provider\.on\('chainChanged', invalidate\)/)
+  assert.match(workflow, /provider\.on\('accountsChanged', onAccountsChanged\)/)
+  assert.match(workflow, /provider\.on\('chainChanged', onChainChanged\)/)
+  assert.match(workflow, /const invalidateWalletSession = \(message: string, selectedAddress = ''\) =>/)
+  assert.match(workflow, /invalidateWalletSession\(/)
   assert.match(workflow, /clearStoredAuthSession\(\)/)
   assert.match(workflow, /setWalletIdentity\(null\)/)
   assert.match(workflow, /setNativeSnapshot\(null\)/)

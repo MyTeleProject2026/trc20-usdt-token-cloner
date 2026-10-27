@@ -20,7 +20,10 @@ test('the live interface is a five-stage testnet-only flow', () => {
   assert.ok(app.includes('Sender account'))
   assert.ok(app.includes('Receiver & amount'))
   assert.ok(app.includes('Review & availability'))
-  assert.ok(!app.includes("network: 'mainnet'"))
+  assert.doesNotMatch(app, /chooseNetwork\('mainnet'\)/)
+  assert.ok(app.includes('MainnetBalanceSnapshot'))
+  assert.ok(app.includes('read-only lookup; no wallet connection is required'), 'Mainnet access in this workspace must remain read-only')
+  assert.doesNotMatch(app, /sendRawTransaction|eth_sendTransaction/)
 })
 
 test('sponsorship cannot be represented as enabled without a verified integration', () => {
