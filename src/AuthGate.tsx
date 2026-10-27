@@ -99,8 +99,20 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       setChecking(false)
       setError('Signed out. Connect and verify a wallet to continue.')
     }
+    const onNetworkChange = (event: Event) => {
+      const requested = (event as CustomEvent<unknown>).detail
+      if (requested !== 'nile' && requested !== 'shasta') return
+      setSession(null)
+      setChecking(false)
+      setError('Network changed. Connect and sign in again on the selected testnet.')
+      setNetwork(requested)
+    }
     window.addEventListener('tron-token-studio:logout', onLogout)
-    return () => window.removeEventListener('tron-token-studio:logout', onLogout)
+    window.addEventListener('tron-token-studio:network-change', onNetworkChange)
+    return () => {
+      window.removeEventListener('tron-token-studio:logout', onLogout)
+      window.removeEventListener('tron-token-studio:network-change', onNetworkChange)
+    }
   }, [])
 
   useEffect(() => {
