@@ -116,6 +116,34 @@ export default function WalletVault() {
   }, [network])
 
   useEffect(() => {
+    if (!unlocked) return
+    let timeout = 0
+    const autoLock = () => {
+      setUnlocked(null)
+      setPortfolio(null)
+      setPassword('')
+      setConfirmPassword('')
+      setNotice('Wallet auto-locked after inactivity or when the app moved to the background. Unlock it again to continue.')
+    }
+    const resetTimer = () => {
+      if (timeout) window.clearTimeout(timeout)
+      timeout = window.setTimeout(autoLock, 5 * 60 * 1000)
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') autoLock()
+    }
+    const activityEvents = ['pointerdown', 'keydown', 'touchstart']
+    activityEvents.forEach(name => window.addEventListener(name, resetTimer, { passive: true }))
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    resetTimer()
+    return () => {
+      if (timeout) window.clearTimeout(timeout)
+      activityEvents.forEach(name => window.removeEventListener(name, resetTimer))
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [unlocked])
+
+  useEffect(() => {
     if (!unlocked) {
       setPortfolio(null)
       setBalanceLoading(false)
