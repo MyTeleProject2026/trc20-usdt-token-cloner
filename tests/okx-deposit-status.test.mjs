@@ -93,6 +93,7 @@ test('a valid request is HMAC-signed and displays only fields in the real OKX re
     chain: 'USDT-TRC20',
     amt: '1.250000',
     txId: 'fee235b3e812857d36bb0426917f0df1802',
+    depId: '880033',
     to: 'TExampleReceiverAddress',
     state: '1',
     actualDepBlkConfirm: '2',
@@ -119,9 +120,10 @@ test('a valid request is HMAC-signed and displays only fields in the real OKX re
     assert.equal(body.count, 1)
     assert.equal(body.deposits[0].amount, actualRecord.amt)
     assert.equal(body.deposits[0].transactionId, actualRecord.txId)
+    assert.equal(body.deposits[0].depositId, actualRecord.depId)
     assert.equal(body.deposits[0].statusCode, '1')
     assert.equal(body.deposits[0].status, 'credited-not-withdrawable')
-    assert.equal(body.deposits[0].actualDepositBlockchainConfirmed, '2')
+    assert.equal(body.deposits[0].actualBlockchainConfirmedAmount, '2')
     assert.equal(body.deposits[0].recordedAt, actualRecord.ts)
     assert.equal('creditedAt' in body.deposits[0], false)
     assert.equal('balance' in body.deposits[0], false)
