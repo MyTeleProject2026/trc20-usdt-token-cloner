@@ -93,6 +93,17 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }, [network])
 
   useEffect(() => {
+    const onLogout = () => {
+      clearStoredSession()
+      setSession(null)
+      setChecking(false)
+      setError('Signed out. Connect and verify a wallet to continue.')
+    }
+    window.addEventListener('tron-token-studio:logout', onLogout)
+    return () => window.removeEventListener('tron-token-studio:logout', onLogout)
+  }, [])
+
+  useEffect(() => {
     if (!session) return
     const timeout = window.setTimeout(() => {
       clearStoredSession()
@@ -110,7 +121,17 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       if (!provider || provider.isTronLink !== true || !provider.tronWeb || typeof provider.request !== 'function') {
         throw new Error('TronLink was not detected. Open this website in a compatible TronLink browser or install/enable the wallet extension.')
       }
-      await provider.request({ method: 'tron_requestAccounts' })
+      try {
+        await provider.request({ method: 'tron_requestAccounts' })
+      } catch (caught) {
+        const code = Number((caught as any)?.code)
+        const message = caught instanceof Error ? caught.message : ''
+        if (code === -32601 || /method not found|unsupported method/i.test(message)) {
+          await provider.request({ method: 'eth_requestAccounts' })
+        } else {
+          throw caught
+        }
+      }
       const tronWeb = provider.tronWeb
       assertSelectedNetwork(tronWeb, network)
       const address = String(tronWeb?.defaultAddress?.base58 || '')
@@ -167,7 +188,27 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setNetwork(next)
   }
 
-  if (session && session.network === network && session.expiresAt > Date.now()) return <>{children}</>
+  const signOut = () => {
+    clearStoredSession()
+    setSession(null)
+    setChecking(false)
+    setError('Signed out. Connect and verify a wallet to continue.')
+  }
+
+  if (session && session.network === network && session.expiresAt > Date.now()) {
+    const operatorRoute = window.location.hash === '#/sponsor-operator'
+    return (
+      <>
+        {operatorRoute && (
+          <div className="studio-auth-session-strip">
+            <span><ShieldCheck size={14} aria-hidden="true" /> Session verified · {session.address.slice(0, 7)}…{session.address.slice(-5)} · {session.network}</span>
+            <button type="button" onClick={signOut}>Sign out</button>
+          </div>
+        )}
+        {children}
+      </>
+    )
+  }
 
   return (
     <div className="studio-auth-screen">
