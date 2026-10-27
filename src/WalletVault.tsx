@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Network, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
-import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, readConfirmedTransferStatus, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
+import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import {
   decryptWalletPrivateKey,
   encryptWalletPrivateKey,
@@ -1141,10 +1141,17 @@ export default function WalletVault() {
                     {transferHistory.map(item => (
                       <article className="wallet-vault-history-item" key={item.txid}>
                         <div className="wallet-vault-history-main">
-                          <div><strong>{item.amount} {item.symbol}</strong><span className={'wallet-vault-status-tag status-' + item.status}>{item.status.replaceAll('-', ' ')}</span></div>
+                          <div>
+                            <strong>{item.amount} {item.symbol}</strong>
+                            <span className={'wallet-vault-status-tag ' + (item.verifiedOnChain ? 'status-' + item.status : item.status === 'identity-mismatch' ? 'status-identity-mismatch' : 'status-local-not-verified')}>
+                              {item.verifiedOnChain ? item.status.replaceAll('-', ' ') : item.status === 'identity-mismatch' ? 'identity mismatch' : 'local · not verified'}
+                            </span>
+                          </div>
                           <a href={explorerTransactionUrl(item.network, item.txid)} target="_blank" rel="noopener noreferrer">{item.txid.slice(0, 12)}…{item.txid.slice(-8)} ↗</a>
                           <small>{item.network.toUpperCase()} · to {shortenAddress(item.to)} · {new Date(item.submittedAt).toLocaleString()}</small>
-                          {item.solidified && <small>Solidified block {item.blockNumber ?? 'available'} · status from the selected network</small>}
+                          {!item.verifiedOnChain && item.status !== 'identity-mismatch' && <small>Saved locally. Refresh to compare the exact sender, recipient, amount and token contract with the chain.</small>}
+                          {item.status === 'identity-mismatch' && <small className="wallet-vault-risk-note">Saved metadata did not match the transaction returned by the selected node. Do not treat this entry as verified.</small>}
+                          {item.verifiedOnChain && item.solidified && <small>Solidified block {item.blockNumber ?? 'available'} · status from the selected network</small>}
                         </div>
                         <button type="button" className="wallet-vault-secondary wallet-vault-history-refresh" disabled={historyLoading === item.txid} onClick={() => void refreshTransferStatus(item)}>
                           {historyLoading === item.txid ? 'Checking…' : 'Refresh chain status'}
