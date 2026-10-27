@@ -313,8 +313,9 @@ export async function buildSignAndBroadcastTransfer({
     unsigned = built.transaction
   }
 
-  if (!unsigned?.txID || !Array.isArray(unsigned?.raw_data?.contract) || unsigned.raw_data.contract.length !== 1) {
-    throw new Error('The network returned an unexpected transaction structure. Nothing was signed or broadcast.')
+  if (typeof unsigned?.txID !== 'string' || !TX_ID_PATTERN.test(unsigned.txID)
+    || !Array.isArray(unsigned?.raw_data?.contract) || unsigned.raw_data.contract.length !== 1) {
+    throw new Error('The network returned an unexpected transaction structure or transaction ID. Nothing was signed or broadcast.')
   }
   assertTransferTransactionIntent(tronWeb, unsigned, { from, to, asset, amountBaseUnits, tokenContract })
 
@@ -337,12 +338,18 @@ export async function buildSignAndBroadcastTransfer({
     error.code = code || 'broadcast-rejected'
     throw error
   }
-  const txid = String(result.txid || result.txID || result.transaction?.txID || signed.txID || '')
+  // The transaction ID is derived from signed raw_data and was checked before
+  // signing. Never trust a different ID echoed by an RPC response as the sent tx.
+  const txid = String(signed.txID || '')
   if (!TX_ID_PATTERN.test(txid)) {
-    throw new Error('The broadcast response did not include a valid transaction ID. Check the chain explorer before retrying.')
+    throw new Error('The signed transaction ID is malformed. Check the selected network before retrying.')
   }
+  const reportedTxid = String(result.txid || result.txID || result.transaction?.txID || '')
+  const broadcastTxidMismatch = Boolean(reportedTxid)
+    && (!TX_ID_PATTERN.test(reportedTxid) || reportedTxid.toLowerCase() !== txid.toLowerCase())
   return {
     txid: txid.toLowerCase(),
+    broadcastTxidMismatch,
     network: 'confirmed-by-broadcast-node',
     source: from,
     destination: to,
