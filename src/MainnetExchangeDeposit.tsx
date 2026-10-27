@@ -191,6 +191,8 @@ export default function MainnetExchangeDeposit() {
       if (!['USDT', 'USD₮'].includes(symbol) || decimals !== 6 || !/^(0|[1-9][0-9]*)$/.test(nextUsdt)) {
         throw new Error('The official Mainnet USDT contract identity or balance could not be verified from this Mainnet node.')
       }
+      setDestinationConfirmed(false)
+      setIrreversibleConfirmed(false)
       setSender(address)
       setTrxBalanceSun(nextTrx)
       setUsdtBalanceRaw(nextUsdt)
@@ -478,22 +480,22 @@ export default function MainnetExchangeDeposit() {
                 <option value="TRX">Native TRX · TRON Mainnet</option>
               </select>
               {asset === 'USDT'
-                ? <p className="studio-field-hint">Fixed official Mainnet Tether contract: <code>{MAINNET_USDT}</code>. No user-selected or custom token contracts are accepted. Tether’s official supported-protocol page lists this TRON contract.</p>
+                ? <p className="studio-field-hint">Fixed official Mainnet Tether contract: <code>{MAINNET_USDT}</code>. No user-selected or custom token contracts are accepted. <a href="https://tether.to/en/supported-protocols/" target="_blank" rel="noopener noreferrer">Check Tether’s official supported-protocol page</a> or <a href="https://tronscan.org/#/token20/TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" target="_blank" rel="noopener noreferrer">inspect this contract on TronScan</a>.</p>
                 : <p className="studio-field-hint">Native TRX uses a native TRON transfer, not a TRC-20 token contract.</p>}
             </div>
             <div className="studio-field-block">
               <label htmlFor="exchange-deposit-address">Destination deposit address</label>
-              <input id="exchange-deposit-address" value={destination} onChange={(event) => { setDestination(event.target.value.trim()); setDestinationConfirmed(false); setSendError('') }} placeholder="Paste the TRON address from the official exchange deposit page" autoComplete="off" spellCheck={false} />
+              <input id="exchange-deposit-address" value={destination} onChange={(event) => { setDestination(event.target.value.trim()); setDestinationConfirmed(false); setIrreversibleConfirmed(false); setSendError('') }} placeholder="Paste the TRON address from the official exchange deposit page" autoComplete="off" spellCheck={false} />
               {destination && !destinationValid && <p className="studio-inline-error">Enter a valid TRON address different from your sender wallet.</p>}
             </div>
             <div className="studio-field-block">
               <label htmlFor="exchange-deposit-memo">Memo / tag (only if the exchange explicitly requires it)</label>
-              <input id="exchange-deposit-memo" value={memo} onChange={(event) => { setMemo(event.target.value); setSendError('') }} placeholder="Leave blank if the official deposit page does not require one" autoComplete="off" maxLength={200} />
+              <input id="exchange-deposit-memo" value={memo} onChange={(event) => { setMemo(event.target.value); setDestinationConfirmed(false); setIrreversibleConfirmed(false); setSendError('') }} placeholder="Leave blank if the official deposit page does not require one" autoComplete="off" maxLength={200} />
               <p className="studio-field-hint">The memo is placed in the transaction data field and is not separately validated by the exchange. If the exchange specifies a different network-specific destination-tag mechanism, stop and follow the exchange's official instructions instead.</p>
             </div>
             <div className="studio-field-block">
               <label htmlFor="exchange-deposit-amount">Amount</label>
-              <div className="studio-amount-entry"><input id="exchange-deposit-amount" value={amount} onChange={(event) => { setAmount(event.target.value); setSendError('') }} inputMode="decimal" placeholder="0.00" /><span>{asset}</span></div>
+              <div className="studio-amount-entry"><input id="exchange-deposit-amount" value={amount} onChange={(event) => { setAmount(event.target.value); setIrreversibleConfirmed(false); setSendError('') }} inputMode="decimal" placeholder="0.00" /><span>{asset}</span></div>
               {amount && !amountBaseUnits && <p className="studio-inline-error">Enter a positive amount with no more than 6 decimal places.</p>}
             </div>
             {asset === 'USDT' && <div className="studio-notice studio-notice--warning"><AlertTriangle size={18} aria-hidden="true" /><div><strong>Network fee cap</strong><p>The USDT transaction is built with a maximum feeLimit of 30 TRX. Actual fees depend on available Energy/Bandwidth and can vary. Make sure the wallet has enough Mainnet TRX; carefully review any fee shown by TronLink before approving.</p></div></div>}
