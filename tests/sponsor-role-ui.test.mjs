@@ -48,3 +48,17 @@ test('fee-sponsored resource delegation is testnet-only and remains wallet-signe
   assert.doesNotMatch(sponsorConsole, /privateKey\s*[:=]/i)
   assert.ok(roleReader.includes('canSubmitSponsoredTransfer: false'))
 })
+
+test('sponsor console turns live preflight blockers into actionable, fail-closed diagnostics', () => {
+  assert.ok(sponsorConsole.includes('SPONSOR_BLOCKER_GUIDANCE'))
+  assert.ok(sponsorConsole.includes('fee-sponsor-resource-capacity-not-verified'))
+  assert.ok(sponsorConsole.includes('active-fee-to-principal-resource-delegation-not-verified'))
+  assert.ok(sponsorConsole.includes('SPONSOR_APPROVED_AGREEMENT_REFERENCES'))
+  assert.ok(sponsorConsole.includes('post-transfer-fee-settlement-and-receiver-reconciliation-not-end-to-end-verified'))
+  assert.ok(sponsorConsole.includes('item?.feeSponsorResources?.failureStage'))
+  assert.ok(sponsorConsole.includes('feeRole?.resourceStatus?.providerResponseCategory'))
+  assert.ok(sponsorConsole.includes('SPONSOR_USDT_{pilotNetwork.toUpperCase()}_CONTRACTS'))
+  assert.ok(sponsorConsole.includes('SPONSOR_VTRC_{pilotNetwork.toUpperCase()}_CONTRACTS'))
+  assert.ok(sponsorConsole.includes('an allowlist does not create token balances'))
+  assert.ok(sponsorConsole.includes('No approved reservation was found for that key.'))
+})
