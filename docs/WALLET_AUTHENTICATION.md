@@ -12,9 +12,9 @@ The wallet identity endpoint now supports **TRON Mainnet, Nile testnet, and Shas
 
 1. The client asks TronLink to connect and obtains the active Base58 address.
 2. The client confirms the active TronLink RPC node matches the page's intended network.
-3. The client requests `POST /api/auth/tron/challenge` with `address` and `network`. The server checks the request origin against its exact allowlist, generates a random nonce, binds the message to address, network, origin, issue time and expiry, and stores only a SHA-256 digest of the nonce.
+3. The client requests `POST /api/auth/tron/challenge` with `address` and `network`. The server checks the request origin against its exact allowlist, generates a random nonce, constructs a message bound to address, network, origin, issue time and expiry, and stores only a SHA-256 digest of the nonce plus the necessary public metadata and timestamps. The raw nonce and complete signed message are not persisted.
 4. TronLink signs the human-readable message with `signMessageV2`. No transaction is built by the login action.
-5. The client submits the exact address, network, nonce and signature to `POST /api/auth/tron/verify`. The server atomically marks the one-use challenge as consumed before verifying the recovered address, so replay attempts fail. Challenge issuance is capped at eight requests per wallet/network/origin in five minutes and returns `429` with `Retry-After` when capped.
+5. The client submits the exact address, network, nonce, signed message and signature to `POST /api/auth/tron/verify`. The server atomically marks the one-use challenge as consumed, reconstructs the expected message from stored metadata and the submitted nonce, rejects any mismatch, and verifies the signature against that reconstructed message. Replay attempts fail. Challenge issuance is capped at eight requests per wallet/network/origin in five minutes and returns `429` with `Retry-After` when capped.
 6. After successful signature verification, PostgreSQL records the network-scoped public wallet account and the hash of a randomly generated bearer token. The raw bearer token is returned once to the client and held in tab-scoped `sessionStorage`; it is not stored in localStorage.
 7. `GET /api/auth/tron/session` verifies the token digest, allowed origin, and session expiry on every restore and before a Mainnet send. `POST /api/auth/tron/logout` revokes that session.
 
@@ -23,7 +23,7 @@ The wallet identity endpoint now supports **TRON Mainnet, Nile testnet, and Shas
 The project schema `trc20_token_clone` contains:
 
 - `wallet_auth_accounts`: network and public wallet address, with first-authenticated and last-authenticated timestamps.
-- `wallet_auth_challenges`: one-time nonce hash, the signed challenge text, address/network/origin, expiry, and consumed timestamp. Consumed rows remain until expiry so repeated challenges cannot evade rate limiting; expired rows are removed during issuance.
+- `wallet_auth_challenges`: one-time nonce hash, public address, network, origin, issued/expiry timestamps, and consumed timestamp. The raw nonce and signed message are not stored. Consumed rows remain until expiry so repeated challenges cannot evade rate limiting; expired rows are removed during issuance.
 - `wallet_auth_sessions`: SHA-256 token hash, address/network/origin, and expiry. Raw session bearer tokens are never persisted.
 
 These are application identity records only. They are not a custodial wallet and do not contain signing material.
