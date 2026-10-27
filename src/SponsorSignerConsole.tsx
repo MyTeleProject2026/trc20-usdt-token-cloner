@@ -243,19 +243,37 @@ export default function SponsorSignerConsole() {
 
   useEffect(() => { void refreshPilotPreflight() }, [refreshPilotPreflight])
 
-  // TronLink changes the active account in-place. Keep role addresses visible as
-  // references, but invalidate signer verification on account/network changes.
+  // Keep both public sponsor-role snapshots while TronLink has a single active
+  // signer account. On account switches, activate only the role whose previously
+  // verified address matches the currently injected account. All signing/broadcast
+  // handlers still re-read and compare the live wallet and network immediately
+  // before requesting a signature, so retaining a role snapshot grants no authority.
   useEffect(() => {
-    const provider = window.tron || window.tronLink
+    const provider = window.tronLink || window.tron
     if (!provider?.on) return
     const onAccountsChanged = () => {
-      setWalletNeedsReconnect(true)
-      setFeeWalletNeedsReconnect(true)
+      let activeAddress: string | null = null
+      try {
+        activeAddress = readInjectedWallet(network).address
+      } catch {
+        activeAddress = null
+      }
+      const assetRoleActive = Boolean(wallet && wallet.network === network && activeAddress === wallet.address)
+      const feeRoleActive = Boolean(feeWallet && feeWallet.network === network && activeAddress === feeWallet.address)
+      setWalletNeedsReconnect(!assetRoleActive)
+      setFeeWalletNeedsReconnect(!feeRoleActive)
       setLastIntent(null)
       setLastResult(null)
       setSettlementCheck(null)
-      setError('TronLink active account changed or was locked. Reconnect the required sponsor role before any signing action.')
-      setMessage('Account change detected. Previously verified addresses are retained for reference, but signing is paused until the active account is verified again.')
+      setError('')
+      if (assetRoleActive) {
+        setMessage('Active TronLink account matches the saved asset-principal sponsor. The fee-sponsor address remains saved but cannot sign until that account is selected.')
+      } else if (feeRoleActive) {
+        setMessage('Active TronLink account matches the saved fee sponsor. The asset-principal address remains saved but cannot sign until that account is selected.')
+      } else {
+        setError('TronLink account changed to an address that matches neither saved sponsor role. Reconnect the intended sponsor wallet before any signing action.')
+        setMessage('Both public role addresses are retained for reference. No signer is active because the selected account matches neither role.')
+      }
     }
     const onChainChanged = () => {
       setWalletNeedsReconnect(true)
@@ -272,7 +290,7 @@ export default function SponsorSignerConsole() {
       provider.removeListener?.('accountsChanged', onAccountsChanged)
       provider.removeListener?.('chainChanged', onChainChanged)
     }
-  }, [])
+  }, [network, wallet, feeWallet])
 
   // Persist only public transaction metadata (never a signature, raw transaction or key)
   // so a pending/ambiguous broadcast can be rechecked after the page is reopened.
