@@ -329,7 +329,7 @@ export default function MainnetExchangeDeposit() {
       }
 
       if (memo.trim()) {
-        if (memo.trim().length > 200 || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(memo) {
+        if (memo.trim().length > 200 || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(memo)) {
           throw new Error('Memo must be at most 200 characters and cannot contain control characters.')
         }
         if (typeof tronWeb?.transactionBuilder?.addUpdateData !== 'function') throw new Error('This TronLink build cannot safely encode the exchange memo. Do not send without a required memo.')
