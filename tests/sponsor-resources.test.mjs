@@ -98,14 +98,29 @@ test('sponsor resource reader fails closed when sponsor address or credentials a
   assert.equal(missingAddress.resourceRead, false)
   assert.equal(missingAddress.delegationEnabled, false)
 
+  const publicFallbackCalls = []
   const noKey = createSponsorResourceReader({
     env: { SPONSOR_SHASTA_ADDRESS: sponsorAddress },
     tronWebFactory,
-    fetchImpl: async () => { throw new Error('must not call provider') },
+    fetchImpl: async (url, options) => {
+      publicFallbackCalls.push({ url, options })
+      const body = JSON.parse(options.body)
+      const payload = url.endsWith('/wallet/getaccountresource')
+        ? { EnergyLimit: 1000, EnergyUsed: 250, NetLimit: 500, NetUsed: 100, freeNetLimit: 400, freeNetUsed: 50 }
+        : { max_size: body.type === 1 ? '2000000' : '3000000' }
+      return { ok: true, status: 200, json: async () => payload }
+    },
   })
-  const missingKey = await noKey('shasta')
-  assert.equal(missingKey.status, 'provider-credentials-missing')
-  assert.equal(missingKey.resourceRead, false)
+  const publicFallback = await noKey('shasta', { refresh: true })
+  assert.equal(publicFallback.success, true)
+  assert.equal(publicFallback.status, 'sponsor-resource-snapshot-read')
+  assert.equal(publicFallback.resourceRead, true)
+  assert.match(publicFallback.source, /TRONGrid public FullNode/)
+  assert.equal(publicFallback.canSubmitSponsoredTransfer, false)
+  assert.equal(publicFallback.delegationEnabled, false)
+  assert.equal(publicFallbackCalls.length, 3)
+  assert.ok(publicFallbackCalls.every(({ url }) => url.startsWith('https://api.shasta.trongrid.io/wallet/')))
+  assert.ok(publicFallbackCalls.every(({ options }) => !('TRON-PRO-API-KEY' in options.headers) && !('x-api-key' in options.headers)))
 })
 
 test('sponsor resource reader rejects malformed provider resource responses', async () => {
