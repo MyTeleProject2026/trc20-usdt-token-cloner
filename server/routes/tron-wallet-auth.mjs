@@ -417,6 +417,102 @@ export function createOwnerAuthRouter({
   const origins = allowedOrigins(env)
   const attempts = new Map()
 
+  // Sanitized, read-only deployment diagnostics. This endpoint reports only
+  // booleans and missing variable NAMES; secret values and public wallet
+  // addresses are never returned. It cannot verify the treasury private key,
+  // on-chain balances, network fees, or authorize a payout.
+  router.get('/config', (_req, res) => {
+    setNoStore(res)
+    const ownerAddress = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
+    const treasuryOwnerAddress = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
+    const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+    const ownerAddressConfigured = ADDRESS_PATTERN.test(ownerAddress) && isValidTronAddress(ownerAddress)
+    const treasuryOwnerAddressConfigured = ADDRESS_PATTERN.test(treasuryOwnerAddress) && isValidTronAddress(treasuryOwnerAddress)
+    const treasuryAddressConfigured = ADDRESS_PATTERN.test(treasuryAddress) && isValidTronAddress(treasuryAddress)
+    const ownerAddressesMatch = ownerAddressConfigured
+      && treasuryOwnerAddressConfigured
+      && ownerAddress === treasuryOwnerAddress
+    const passwordHashConfigured = Boolean(parseOwnerPasswordHash(env.OWNER_PASSWORD_HASH))
+    const databaseConfigured = typeof env.DATABASE_URL === 'string' && env.DATABASE_URL.trim().length > 0
+    const allowedOriginConfigured = origins.size > 0
+    const hostedUiOriginAllowed = origins.has('https://trc20-usdt-token-cloner.onrender.com')
+    const packagedUiOriginAllowed = origins.has('tronstudio://app')
+    const tatumApiKeyConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
+    const signerKeyConfigured = typeof env.TREASURY_PRIVATE_KEY === 'string' && env.TREASURY_PRIVATE_KEY.trim().length > 0
+
+    const positiveUsdtLimitConfigured = (value) => {
+      if (typeof value !== 'string' || value.length > 86) return false
+      const match = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,6}))?$/.exec(value)
+      if (!match || match[1].length > 78) return false
+      const whole = BigInt(match[1])
+      const fraction = BigInt((match[2] || '').padEnd(6, '0') || '0')
+      const baseUnits = whole * 1_000_000n + fraction
+      return baseUnits > 0n && baseUnits <= ((1n << 256n) - 1n)
+    }
+    const maxPayoutLimitConfigured = positiveUsdtLimitConfigured(env.TREASURY_MAX_PAYOUT_USDT)
+    const dailyLimitConfigured = positiveUsdtLimitConfigured(env.TREASURY_DAILY_LIMIT_USDT)
+    const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
+    const feeLimitConfigured = /^\d+$/.test(feeLimit)
+      && Number.isSafeInteger(Number(feeLimit))
+      && Number(feeLimit) >= 1
+      && Number(feeLimit) <= 1_000_000_000
+    const withdrawalsExplicitlyEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
+    const signerModeConfigured = env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
+
+    const ownerRequiredEnvironment = [
+      ...(!ownerAddressConfigured ? ['OWNER_WALLET_ADDRESS (valid TRON Mainnet address)'] : []),
+      ...(!passwordHashConfigured ? ['OWNER_PASSWORD_HASH (valid scrypt hash)'] : []),
+      ...(!databaseConfigured ? ['DATABASE_URL'] : []),
+      ...(!allowedOriginConfigured ? ['FRONTEND_ORIGIN and/or PACKAGED_APP_ORIGINS'] : []),
+    ]
+    const payoutMissingEnvironment = [
+      ...(!databaseConfigured ? ['DATABASE_URL'] : []),
+      ...(!ownerAddressesMatch ? ['OWNER_WALLET_ADDRESS and TREASURY_OWNER_ADDRESS must be identical valid Mainnet addresses'] : []),
+      ...(!treasuryAddressConfigured ? ['TREASURY_ADDRESS (valid Mainnet address)'] : []),
+      ...(!signerKeyConfigured ? ['TREASURY_PRIVATE_KEY (backend secret only)'] : []),
+      ...(!maxPayoutLimitConfigured ? ['TREASURY_MAX_PAYOUT_USDT (positive decimal, up to 6 decimals)'] : []),
+      ...(!dailyLimitConfigured ? ['TREASURY_DAILY_LIMIT_USDT (positive decimal, up to 6 decimals)'] : []),
+      ...(!feeLimitConfigured ? ['TREASURY_FEE_LIMIT_SUN (positive integer, at most 1000000000)'] : []),
+      ...(!withdrawalsExplicitlyEnabled ? ['TREASURY_WITHDRAWALS_ENABLED=true'] : []),
+      ...(!signerModeConfigured ? ['TREASURY_SIGNER_MODE=env-hot-wallet'] : []),
+    ]
+    return res.json({
+      success: true,
+      ownerConsole: {
+        configured: ownerAddressConfigured && passwordHashConfigured && databaseConfigured && allowedOriginConfigured,
+        ownerAddressConfigured,
+        passwordHashConfigured,
+        databaseConfigured,
+        allowedOriginConfigured,
+        hostedUiOriginAllowed,
+        packagedUiOriginAllowed,
+        registrationEnabled: false,
+        requiredEnvironment: ownerRequiredEnvironment,
+      },
+      ownerTreasuryFunding: {
+        tatumApiKeyConfigured,
+        onChainBalancesChecked: false,
+        note: 'This diagnostic does not query or certify treasury balances.',
+      },
+      treasuryPayout: {
+        environmentComplete: payoutMissingEnvironment.length === 0,
+        ownerAddressesMatch,
+        treasuryAddressConfigured,
+        signerKeyConfigured,
+        maxPayoutLimitConfigured,
+        dailyLimitConfigured,
+        feeLimitConfigured,
+        withdrawalsExplicitlyEnabled,
+        signerModeConfigured,
+        missingEnvironment: payoutMissingEnvironment,
+        signerAddressMatchVerified: false,
+        onChainFundingVerified: false,
+        payoutAuthorized: false,
+      },
+      note: 'Configuration-only diagnostic. A separate authenticated readiness check must verify the treasury key/address match, actual official-USDT and TRX balances, and fee coverage before any payout.',
+    })
+  })
+
   router.post('/login', async (req, res) => {
     setNoStore(res)
     if (!validOrigin(req, origins)) return res.status(403).json({ success: false, error: 'origin-not-allowed' })
