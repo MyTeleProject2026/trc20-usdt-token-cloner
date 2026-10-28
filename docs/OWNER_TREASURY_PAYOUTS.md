@@ -34,9 +34,11 @@ The API also requires valid values for all payout configuration fields and check
 1. Unlock the configured owner wallet and sign the one-time identity challenge. A typed address alone is not authentication.
 2. Refresh the owner treasury panel. It must read the actual official-USDT balance and identify the same treasury address as the server signer.
 3. Enter a valid TRON recipient, a decimal USDT amount within both configured limits, and type `SEND TREASURY USDT`.
-4. The backend serializes payout reservations in PostgreSQL, re-reads the live on-chain balance, and subtracts funds committed to unresolved broadcasts before accepting a new request.
-5. The server signs and broadcasts the official USDT transfer from the funded treasury. The treasury's available TRX, staked resources, or separately configured supported sponsorship must cover network execution costs. **This endpoint does not make the transfer gas-free automatically.**
-6. Use **Verify receipt & look up saved status** with the same stored idempotency key. The verifier checks the transaction body, sender, official contract, recipient, amount, solidified receipt, and the single matching official-USDT `Transfer` event.
+4. The app signs a separate, short-lived owner authorization message with the unlocked local owner wallet. The signed message binds the app origin, owner, treasury, official USDT contract, recipient, exact six-decimal base-unit amount, idempotency key, and expiry. The private key is never sent to the API. This signature is not a blockchain transaction; it authorizes only the listed payout request.
+5. The backend verifies the recovered signer equals the authenticated owner and rejects changed, expired, or malformed authorization before reserving funds or broadcasting.
+6. The backend serializes payout reservations in PostgreSQL, re-reads the live on-chain balance, and subtracts funds committed to unresolved broadcasts before accepting a new request.
+7. The server signs and broadcasts the official USDT transfer from the funded treasury. The treasury's available TRX, staked resources, or separately configured supported sponsorship must cover network execution costs. **This endpoint does not make the transfer gas-free automatically.**
+8. Use **Verify receipt & look up saved status** with the same stored idempotency key. The verifier checks the transaction body, sender, official contract, recipient, amount, solidified receipt, and the single matching official-USDT `Transfer` event.
 
 A node's broadcast response is only an accepted submission. It is not a successful transaction receipt. If the outcome is ambiguous, keep the original request key and reconcile it; do not create a new key to repeat the payout. Outstanding ambiguous requests remain reserved conservatively until resolved.
 

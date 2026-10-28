@@ -3,6 +3,7 @@ import { Router } from 'express'
 import pg from 'pg'
 import { TronWeb } from 'tronweb'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
+import { buildTreasuryWithdrawalAuthorizationMessage, isTreasuryAuthorizationExpiryValid } from '../../src/treasury-withdrawal-auth.mjs'
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
@@ -11,6 +12,8 @@ const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,128}$/
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/
+const OWNER_PAYOUT_SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
+const OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS = 120_000
 const ABI = [
   { constant: true, inputs: [{ name: 'owner', type: 'address' }], name: 'balanceOf', outputs: [{ name: 'balance', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { constant: true, inputs: [], name: 'decimals', outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view', type: 'function' },
@@ -117,6 +120,20 @@ function bearerToken(req) {
 
 function normalizedHex(value) {
   return typeof value === 'string' ? value.replace(/^0x/i, '').toLowerCase() : ''
+}
+
+/** Verify a one-request owner signature without ever accepting a private key from the client. */
+export async function verifyTreasuryOwnerPayoutSignature(tronWeb, { message, signature, expectedOwnerAddress } = {}) {
+  if (typeof message !== 'string' || !message
+    || typeof expectedOwnerAddress !== 'string' || !ADDRESS_PATTERN.test(expectedOwnerAddress)
+    || typeof signature !== 'string' || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(signature)
+    || typeof tronWeb?.trx?.verifyMessageV2 !== 'function') return false
+  try {
+    const recoveredAddress = await tronWeb.trx.verifyMessageV2(message, signature)
+    return recoveredAddress === expectedOwnerAddress
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -328,11 +345,19 @@ export function createTreasuryWithdrawalsRouter({
     const config = configuration()
     if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-withdrawals-disabled', missing: config.missing })
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['recipientAddress', 'amountUsdt', 'idempotencyKey'].includes(key))
+    if (Object.keys(body).some((key) => !['recipientAddress', 'amountUsdt', 'idempotencyKey', 'ownerAuthorizationSignature', 'authorizationExpiresAt'].includes(key))
       || !ADDRESS_PATTERN.test(body.recipientAddress || '')
       || !IDEMPOTENCY_PATTERN.test(body.idempotencyKey || '')
-      || typeof body.amountUsdt !== 'string') {
+      || typeof body.amountUsdt !== 'string'
+      || typeof body.ownerAuthorizationSignature !== 'string'
+      || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.ownerAuthorizationSignature)
+      || !Number.isSafeInteger(body.authorizationExpiresAt)) {
       return res.status(400).json({ success: false, error: 'invalid-withdrawal-request' })
+    }
+    const clockValue = now()
+    const currentTimeMs = clockValue instanceof Date ? clockValue.getTime() : Number(clockValue)
+    if (!isTreasuryAuthorizationExpiryValid(body.authorizationExpiresAt, currentTimeMs, OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS)) {
+      return res.status(401).json({ success: false, error: 'owner-payout-authorization-expired-or-outside-window' })
     }
     const amount = parsePositiveDecimal(body.amountUsdt)
     const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
@@ -351,6 +376,23 @@ export function createTreasuryWithdrawalsRouter({
         || treasuryAddress !== env.TREASURY_ADDRESS.trim()
         || treasuryAddress === body.recipientAddress) {
         return res.status(503).json({ success: false, error: 'invalid-treasury-or-recipient' })
+      }
+      const authorizationMessage = buildTreasuryWithdrawalAuthorizationMessage({
+        origin: req.get('origin'),
+        ownerAddress: auth.ownerAddress,
+        treasuryAddress,
+        recipientAddress: body.recipientAddress,
+        amountBaseUnits: amount.toString(),
+        idempotencyKey: body.idempotencyKey,
+        authorizationExpiresAt: body.authorizationExpiresAt,
+      })
+      const ownerAuthorizedThisPayout = await verifyTreasuryOwnerPayoutSignature(tronWeb, {
+        message: authorizationMessage,
+        signature: body.ownerAuthorizationSignature,
+        expectedOwnerAddress: auth.ownerAddress,
+      })
+      if (!ownerAuthorizedThisPayout) {
+        return res.status(403).json({ success: false, error: 'owner-payout-signature-invalid' })
       }
       const configuredFeeLimit = Number(env.TREASURY_FEE_LIMIT_SUN)
       const contract = await tronWeb.contract(ABI).at(USDT_MAINNET)

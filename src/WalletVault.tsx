@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
+import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
   decryptWalletPrivateKey,
@@ -736,6 +737,29 @@ export default function WalletVault() {
     setTreasuryPayoutStatus(null)
     const idempotencyKey = 'withdrawal-' + crypto.randomUUID()
     try {
+      const treasuryAddress = serverTreasuryReadiness?.treasuryAddress
+      if (!ADDRESS_PATTERN.test(treasuryAddress || '')
+        || treasuryAddress !== ownerTreasurySnapshot?.treasuryAddress) {
+        throw new Error('The verified owner snapshot and server signing treasury do not match. No payout was signed or submitted.')
+      }
+      // The backend verifies this signature against the authenticated owner and the exact request.
+      // Only the signed message is sent; the private key remains in the local unlocked vault.
+      const amountBaseUnits = parseUnitsDecimal(treasuryPayoutAmount, 6)
+      const authorizationExpiresAt = Date.now() + 90_000
+      const authorizationMessage = buildTreasuryWithdrawalAuthorizationMessage({
+        origin: window.location.origin,
+        ownerAddress: unlocked.record.address,
+        treasuryAddress,
+        recipientAddress: treasuryPayoutRecipient,
+        amountBaseUnits,
+        idempotencyKey,
+        authorizationExpiresAt,
+      })
+      const localSigner = createTronWeb('mainnet', unlocked.privateKey)
+      const ownerAuthorizationSignature = await localSigner.trx.signMessageV2(authorizationMessage)
+      if (typeof ownerAuthorizationSignature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(ownerAuthorizationSignature)) {
+        throw new Error('The wallet did not produce a valid owner authorization signature. No payout was submitted.')
+      }
       const response = await fetch(API_BASE + '/api/treasury/withdrawals', {
         method: 'POST',
         headers: {
@@ -747,6 +771,8 @@ export default function WalletVault() {
           recipientAddress: treasuryPayoutRecipient,
           amountUsdt: treasuryPayoutAmount,
           idempotencyKey,
+          ownerAuthorizationSignature,
+          authorizationExpiresAt,
         }),
         credentials: 'omit',
         cache: 'no-store',
