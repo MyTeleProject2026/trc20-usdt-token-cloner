@@ -223,7 +223,7 @@ jobs:
             throw new Error('Production read-only dependency readiness is not healthy')
           }
           NODE
-      - name: Audit owner console and treasury environment configuration without exposing secrets
+      - name: Audit owner-console environment readiness without exposing credentials
         shell: bash
         run: |
           set -euo pipefail
@@ -240,16 +240,12 @@ jobs:
             || typeof data.ownerConsole?.configured !== 'boolean'
             || !Array.isArray(data.ownerConsole?.requiredEnvironment)
             || typeof data.ownerConsole?.hostedUiOriginAllowed !== 'boolean'
-            || typeof data.ownerConsole?.packagedUiOriginAllowed !== 'boolean'
-            || typeof data.treasuryPayout?.environmentComplete !== 'boolean'
-            || !Array.isArray(data.treasuryPayout?.missingEnvironment)
-            || typeof data.treasuryPayout?.signerAddressMatchVerified !== 'boolean'
-            || typeof data.treasuryPayout?.onChainFundingVerified !== 'boolean') {
+            || typeof data.ownerConsole?.packagedUiOriginAllowed !== 'boolean') {
             throw new Error('Sanitized owner configuration response has an unexpected shape')
           }
           const serialized = JSON.stringify(data)
-          if (/"(?:ownerAddress|treasuryAddress|privateKey|passwordHash|databaseUrl|apiKey|sessionToken)"\s*:/i.test(serialized)) {
-            throw new Error('Owner configuration diagnostic attempted to return a secret or raw address')
+          if (/"(?:ownerAddress|treasuryAddress|privateKey|passwordHash|databaseUrl|apiKey|sessionToken|treasuryPayout|ownerTreasuryFunding)"\\s*:/i.test(serialized)) {
+            throw new Error('Owner configuration diagnostic attempted to return a secret or restricted state')
           }
           const summary = {
             ownerConsole: {
@@ -257,42 +253,20 @@ jobs:
               ownerAddressConfigured: data.ownerConsole.ownerAddressConfigured,
               passwordHashConfigured: data.ownerConsole.passwordHashConfigured,
               databaseConfigured: data.ownerConsole.databaseConfigured,
+              allowedOriginConfigured: data.ownerConsole.allowedOriginConfigured,
               hostedUiOriginAllowed: data.ownerConsole.hostedUiOriginAllowed,
               packagedUiOriginAllowed: data.ownerConsole.packagedUiOriginAllowed,
+              registrationEnabled: data.ownerConsole.registrationEnabled,
               requiredEnvironment: data.ownerConsole.requiredEnvironment
-            },
-            ownerTreasuryFunding: {
-              tatumApiKeyConfigured: data.ownerTreasuryFunding?.tatumApiKeyConfigured === true,
-              onChainBalancesChecked: data.ownerTreasuryFunding?.onChainBalancesChecked === true
-            },
-            treasuryPayout: {
-              environmentComplete: data.treasuryPayout.environmentComplete,
-              ownerAddressesMatch: data.treasuryPayout.ownerAddressesMatch,
-              treasuryAddressConfigured: data.treasuryPayout.treasuryAddressConfigured,
-              signerKeyConfigured: data.treasuryPayout.signerKeyConfigured,
-              signerKeyValidFormat: data.treasuryPayout.signerKeyValidFormat,
-              maxPayoutLimitConfigured: data.treasuryPayout.maxPayoutLimitConfigured,
-              dailyLimitConfigured: data.treasuryPayout.dailyLimitConfigured,
-              feeLimitConfigured: data.treasuryPayout.feeLimitConfigured,
-              withdrawalsExplicitlyEnabled: data.treasuryPayout.withdrawalsExplicitlyEnabled,
-              signerModeConfigured: data.treasuryPayout.signerModeConfigured,
-              missingEnvironment: data.treasuryPayout.missingEnvironment,
-              signerAddressMatchVerified: data.treasuryPayout.signerAddressMatchVerified,
-              onChainFundingVerified: data.treasuryPayout.onChainFundingVerified,
-              payoutAuthorized: data.treasuryPayout.payoutAuthorized
             }
           }
           console.log(JSON.stringify(summary, null, 2))
           if (!data.ownerConsole.configured
             || !data.ownerConsole.hostedUiOriginAllowed
             || !data.ownerConsole.packagedUiOriginAllowed) {
-            throw new Error('Owner login or frontend origin configuration is incomplete; review the sanitized ownerConsole summary above.')
-          }
-          if (data.treasuryPayout.withdrawalsExplicitlyEnabled && !data.treasuryPayout.environmentComplete) {
-            throw new Error('Treasury withdrawals are opted in but environment configuration is incomplete; review missingEnvironment above.')
+            throw new Error('Owner login or frontend origin configuration is incomplete; review missing variable names above.')
           }
           NODE
-
       - name: Report sponsor integration prerequisites without exposing addresses
         shell: bash
         run: |
