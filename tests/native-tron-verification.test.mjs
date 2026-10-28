@@ -44,8 +44,9 @@ test('native TRX SUN formatting does not use floating-point conversion', () => {
   assert.doesNotMatch(route, /Number\(actualAmountSun\)\s*\/\s*1_000_000/)
 })
 
-test('current frontend reads native balances from the selected testnet', () => {
-  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+test('owner app is the only active entry while legacy testnet verification code remains fail-closed', () => {
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
   assert.ok(app.includes('/api/tron/native-balance?network='))
   assert.ok(app.includes('Verify receiver on selected network'))
   assert.ok(app.includes('Solidified TRX balance'))
