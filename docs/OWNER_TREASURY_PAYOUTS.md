@@ -30,6 +30,17 @@ Configure these values on the **backend API service only**. Never commit credent
 
 The API also requires valid values for all payout configuration fields and checks that the private key derives exactly `TREASURY_ADDRESS`. Readiness also verifies a positive official-USDT principal balance and a treasury TRX balance at least equal to `TREASURY_FEE_LIMIT_SUN`; the actual withdrawal request repeats the TRX check under the database reservation lock. This is a conservative check of the full configured cap, not a claim that the full amount will be spent. A missing setting, zero principal balance, or insufficient fee budget keeps withdrawals disabled. The local frontend is not permitted to enable this route by itself.
 
+### Bootstrap a local owner wallet before the first login
+
+When the owner login is not configured yet, the login screen includes **First-time local owner wallet setup**. Use this only on the device you control:
+
+1. Enter a new local wallet-encryption password of at least 12 characters and confirm it. This password encrypts the locally generated private key; it is separate from the owner-console password.
+2. Select **Create local owner wallet**. The app generates the address locally and stores only an encrypted wallet record in the device vault. The raw private key is not sent to the backend or shown on screen.
+3. Download the encrypted backup and keep it offline. You will need the local wallet password to restore it. The public address shown on screen can be copied into the backend owner configuration.
+4. Set `OWNER_WALLET_ADDRESS` on the Render backend to the chosen address, and generate `OWNER_PASSWORD_HASH` with the local CLI helper below. Once the backend deploys and the config check passes, sign in with that address and the owner-console password. After sign-in, select Wallet Vault and unlock that same local wallet with the local wallet-encryption password.
+
+This local setup does not create a server account, enable any API session, send USDT, or fund the address. The owner remains the one configured backend address.
+
 ### Configure the private owner login
 
 The production smoke check currently identifies these missing/invalid settings on the backend: `OWNER_WALLET_ADDRESS` and `OWNER_PASSWORD_HASH`. The live database and allowed application origins passed their checks. Do not enter placeholder values.

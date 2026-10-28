@@ -21,7 +21,13 @@ test('every application route is wrapped in the same single-owner authentication
   assert.match(gate, /OWNER AUTHENTICATION/)
   assert.match(gate, /Owner TRON address/)
   assert.match(gate, /Owner password/)
-  assert.match(gate, /There is no public sign-up or account creation/)
+  assert.match(gate, /There is no public backend registration/)
+  assert.match(gate, /First-time local owner wallet setup/)
+  assert.match(gate, /TronWeb\.createAccount\(\)/)
+  assert.match(gate, /encryptWalletPrivateKey\(privateKey, publicAddress, localWalletPassword\)/)
+  assert.match(gate, /window\.localStorage\.setItem\(VAULT_KEY/)
+  assert.match(gate, /Download encrypted backup/)
+  assert.match(gate, /local wallet setup never grants access to the owner panel/)
 })
 
 test('owner authentication is allowlisted, password-hashed, short-lived and fail-closed', () => {

@@ -78,7 +78,7 @@ A watch-only address does not grant control over the wallet. A public address ca
 
 ## Single-owner application login
 
-The application UI is gated by a single-owner login. There is no public registration or self-service account creation. Configure these variables on the **backend service only**:
+The application UI is gated by a single-owner login. There is no public server registration or self-service account access. If the backend owner configuration is incomplete, the login screen can generate a wallet locally and encrypt it on the device; this setup does not create a server account or access a protected page. Configure these variables on the **backend service only**:
 
 - `OWNER_WALLET_ADDRESS`: the one permitted TRON address in Base58 format.
 - `OWNER_PASSWORD_HASH`: a scrypt password hash. Never store the plaintext password in Render variables or Git.

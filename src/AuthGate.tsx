@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import { Activity, Layers, LockKeyhole, RefreshCw, ShieldCheck, LogOut } from 'lucide-react'
+import { Activity, Download, Layers, LockKeyhole, Plus, RefreshCw, ShieldCheck, LogOut } from 'lucide-react'
+import { TronWeb } from 'tronweb'
+import { encryptWalletPrivateKey, isEncryptedWalletRecord } from './wallet-vault-crypto.mjs'
 
 type OwnerSession = { address: string; expiresAt: number; sessionToken: string }
 type OwnerConsoleConfig = {
@@ -9,10 +11,45 @@ type OwnerConsoleConfig = {
   hostedUiOriginAllowed: boolean
   packagedUiOriginAllowed: boolean
 }
+type EncryptedLocalWallet = {
+  format: string
+  version: number
+  address: string
+  createdAt: number
+  kdf: { name: string; hash: string; iterations: number; salt: string }
+  cipher: { name: string; iv: string; tagLength: number }
+  ciphertext: string
+}
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const SESSION_KEY = 'tron-token-studio:owner-session:v1'
+const VAULT_KEY = 'tron-token-studio:encrypted-wallet-vault:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
+
+function readLocalEncryptedWallets(): EncryptedLocalWallet[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(VAULT_KEY) || '{}')
+    if (parsed?.version !== 1 || !Array.isArray(parsed.wallets)) return []
+    return parsed.wallets.filter(isEncryptedWalletRecord).slice(0, 50) as EncryptedLocalWallet[]
+  } catch {
+    return []
+  }
+}
+
+function currentVaultForWrite(): EncryptedLocalWallet[] {
+  let parsed: any
+  try {
+    const stored = window.localStorage.getItem(VAULT_KEY)
+    parsed = stored ? JSON.parse(stored) : { version: 1, wallets: [] }
+  } catch {
+    throw new Error('The saved wallet vault cannot be parsed. Export or restore a valid backup before changing it.')
+  }
+  if (parsed?.version !== 1 || !Array.isArray(parsed.wallets)
+    || parsed.wallets.some((record: unknown) => !isEncryptedWalletRecord(record))) {
+    throw new Error('The saved wallet vault contains unsupported or invalid records. It was left unchanged.')
+  }
+  return parsed.wallets as EncryptedLocalWallet[]
+}
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<OwnerSession | null>(null)
@@ -23,6 +60,12 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState('')
   const [ownerConfig, setOwnerConfig] = useState<OwnerConsoleConfig | null>(null)
   const [configError, setConfigError] = useState('')
+  const [localWallets, setLocalWallets] = useState<EncryptedLocalWallet[]>(readLocalEncryptedWallets)
+  const [localWalletPassword, setLocalWalletPassword] = useState('')
+  const [localWalletPasswordConfirm, setLocalWalletPasswordConfirm] = useState('')
+  const [localWalletBusy, setLocalWalletBusy] = useState(false)
+  const [localWalletError, setLocalWalletError] = useState('')
+  const [localWalletNotice, setLocalWalletNotice] = useState('')
 
   function clearSession() {
     try {
@@ -117,6 +160,63 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout)
   }, [session])
 
+  async function createLocalOwnerWallet() {
+    if (localWalletBusy) return
+    setLocalWalletBusy(true)
+    setLocalWalletError('')
+    setLocalWalletNotice('')
+    try {
+      if (localWalletPassword.length < 12 || localWalletPassword.length > 128) {
+        throw new Error('Use a local wallet-encryption password between 12 and 128 characters.')
+      }
+      if (localWalletPassword !== localWalletPasswordConfirm) {
+        throw new Error('The local wallet password confirmation does not match.')
+      }
+      // Account generation and encryption happen on this device only. The
+      // private key is not put in React state, localStorage, a request, or logs.
+      const web = new TronWeb({ fullHost: 'https://api.trongrid.io' })
+      const account = await TronWeb.createAccount()
+      const privateKey = String(account?.privateKey || '').replace(/^0x/i, '')
+      const publicAddress = String(account?.address?.base58 || '')
+      if (!/^[0-9a-f]{64}$/i.test(privateKey)
+        || !ADDRESS_PATTERN.test(publicAddress)
+        || !web.isAddress(publicAddress)) {
+        throw new Error('The wallet SDK did not return a valid local TRON account. Nothing was saved.')
+      }
+      const encrypted = await encryptWalletPrivateKey(privateKey, publicAddress, localWalletPassword) as EncryptedLocalWallet
+      const previous = currentVaultForWrite()
+      const next = [...previous.filter((record) => record.address !== publicAddress), encrypted]
+      window.localStorage.setItem(VAULT_KEY, JSON.stringify({ version: 1, wallets: next }))
+      setLocalWallets(next.slice(-50))
+      setAddress(publicAddress)
+      setLocalWalletPassword('')
+      setLocalWalletPasswordConfirm('')
+      setLocalWalletNotice('Local wallet created and encrypted on this device. Use its public address as OWNER_WALLET_ADDRESS; this did not create or fund USDT.')
+    } catch (caught) {
+      setLocalWalletError(caught instanceof Error ? caught.message : 'Local owner wallet setup failed. No wallet was added.')
+    } finally {
+      setLocalWalletBusy(false)
+    }
+  }
+
+  function downloadEncryptedWalletBackup(record: EncryptedLocalWallet) {
+    try {
+      const blob = new Blob([JSON.stringify({ wallet: record }, null, 2)], { type: 'application/json' })
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'tron-token-studio-wallet-' + record.address.slice(0, 8) + '.json'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+      setLocalWalletNotice('Encrypted backup export started. Keep it offline; it still requires the local wallet-encryption password.')
+      setLocalWalletError('')
+    } catch {
+      setLocalWalletError('Could not export the encrypted backup. The encrypted wallet remains on this device.')
+    }
+  }
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
@@ -178,7 +278,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         </div>
         <p className="studio-eyebrow">OWNER AUTHENTICATION</p>
         <h1 id="studio-auth-title">Sign in to your owner panel</h1>
-        <p className="studio-auth-lead">Access is restricted to the single owner address configured on the backend. There is no public sign-up or account creation. Your password is verified by the server and is never stored in browser storage.</p>
+        <p className="studio-auth-lead">Access is restricted to the single owner address configured on the backend. There is no public backend registration. Your owner-console password is verified by the server and is never stored in browser storage.</p>
         <form onSubmit={(event) => void signIn(event)} noValidate>
           <div className="studio-field-block">
             <label htmlFor="owner-address">Owner TRON address</label>
@@ -199,6 +299,46 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             </button>
           )}
         </form>
+        {ownerConfig && !ownerConfig.configured && (
+          <section className="studio-auth-points" aria-labelledby="local-owner-wallet-heading">
+            <h2 id="local-owner-wallet-heading">First-time local owner wallet setup</h2>
+            <p>Create a wallet address entirely on this device if you do not already have one. The private key is encrypted with a separate local password and is never sent to the backend. Generating an address does not create USDT or activate owner login.</p>
+            <div className="studio-field-block">
+              <label htmlFor="local-wallet-password">Local wallet-encryption password</label>
+              <input id="local-wallet-password" type="password" autoComplete="new-password"
+                value={localWalletPassword} onChange={(event) => setLocalWalletPassword(event.target.value)}
+                placeholder="At least 12 characters" maxLength={128} />
+            </div>
+            <div className="studio-field-block">
+              <label htmlFor="local-wallet-password-confirm">Confirm local wallet password</label>
+              <input id="local-wallet-password-confirm" type="password" autoComplete="new-password"
+                value={localWalletPasswordConfirm} onChange={(event) => setLocalWalletPasswordConfirm(event.target.value)}
+                placeholder="Repeat local wallet password" maxLength={128} />
+            </div>
+            <button type="button" className="studio-button studio-button--primary" disabled={localWalletBusy || localWalletPassword.length < 12 || localWalletPassword !== localWalletPasswordConfirm}
+              onClick={() => void createLocalOwnerWallet()}>
+              <Plus size={16} aria-hidden="true" /> {localWalletBusy ? 'Creating and encrypting locally…' : 'Create local owner wallet'}
+            </button>
+            {localWallets.length > 0 && (
+              <div>
+                <strong>Encrypted wallet addresses saved on this device</strong>
+                {localWallets.map((record) => (
+                  <div key={record.address} className="studio-field-block">
+                    <label htmlFor={'local-owner-address-' + record.address}>Public address</label>
+                    <input id={'local-owner-address-' + record.address} type="text" readOnly value={record.address} spellCheck={false} />
+                    <div className="studio-inline-actions">
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => setAddress(record.address)}>Use address for owner login</button>
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => downloadEncryptedWalletBackup(record)}><Download size={15} aria-hidden="true" /> Download encrypted backup</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {localWalletError && <p className="studio-inline-error" role="alert">{localWalletError}</p>}
+            {localWalletNotice && <p className="studio-auth-footnote" role="status">{localWalletNotice}</p>}
+            <p className="studio-auth-footnote">Next, set the selected public address as OWNER_WALLET_ADDRESS in the Render backend. Generate OWNER_PASSWORD_HASH locally with the repository helper. Use the same owner address for TREASURY_OWNER_ADDRESS if you later configure treasury-backed payouts. Never upload the private key or send it to support.</p>
+          </section>
+        )}
         {configError && <p className="studio-inline-error" role="status">{configError}</p>}
         {ownerConfig && !ownerConfig.configured && (
           <div className="studio-inline-error" role="status">
@@ -211,7 +351,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         )}
         {error && <p className="studio-inline-error" role="alert">{error}</p>}
         <div className="studio-auth-points">
-          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; no public account creation exists.</span></p>
+          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; local wallet setup never grants access to the owner panel.</span></p>
           <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 15 minutes and can be signed out.</span></p>
           <p><Activity size={16} aria-hidden="true" /><span><strong>Authentication is not funding.</strong> Login cannot create genuine USDT or bypass on-chain balance requirements.</span></p>
         </div>

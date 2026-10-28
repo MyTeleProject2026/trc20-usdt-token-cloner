@@ -13,7 +13,9 @@ test('sign-in offers the selected testnet faucet and official TRON guide', () =>
   assert.match(authGate, /Owner password/)
   assert.match(authGate, /\/api\/auth\/owner\/login/)
   assert.match(authGate, /\/api\/auth\/owner\/session/)
-  assert.match(authGate, /no public sign-up or account creation/)
+  assert.match(authGate, /no public backend registration/)
+  assert.match(authGate, /First-time local owner wallet setup/)
+  assert.match(authGate, /(?:does not|did not) create or fund USDT/)
   assert.match(authGate, /Authentication is not funding/)
 })
 

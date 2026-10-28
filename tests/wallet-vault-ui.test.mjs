@@ -24,7 +24,7 @@ test('standalone owner wallet is the default screen and legacy TronLink workspac
 test('wallet creation, import and restore encrypt key material before local persistence', async () => {
   const vault = await read('src/WalletVault.tsx')
   const crypto = await read('src/wallet-vault-crypto.mjs')
-  assert.match(vault, /await web\.createAccount\(\)/)
+  assert.match(vault, /await TronWeb\.createAccount\(\)/)
   assert.match(vault, /encryptWalletPrivateKey\(privateKey, address, chosenPassword\)/)
   assert.match(vault, /decryptWalletPrivateKey\(record, password\)/)
   assert.match(vault, /localStorage\.setItem\(VAULT_KEY, JSON\.stringify\(\{ version: 1, wallets: next \}\)\)/)

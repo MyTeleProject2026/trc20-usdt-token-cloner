@@ -432,7 +432,7 @@ export default function WalletVault() {
     if (password.length < 12 || password.length > 128) throw new Error('Use a wallet password between 12 and 128 characters.')
     if (password !== confirmPassword) throw new Error('The password confirmation does not match.')
     const web = createTronWeb(network)
-    const account = await web.createAccount()
+    const account = await TronWeb.createAccount()
     if (!account || !PRIVATE_KEY_PATTERN.test(String(account.privateKey || '')) || !ADDRESS_PATTERN.test(String(account.address?.base58 || ''))) {
       throw new Error('The wallet SDK did not return a valid local account. Nothing was saved.')
     }
