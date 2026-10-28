@@ -1235,7 +1235,7 @@ export default function WalletVault() {
       <section className="wallet-vault-hero">
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> LOCAL KEY CUSTODY · REAL TRON NETWORK READS</p>
         <h1>Your wallet. Your keys.</h1>
-        <p>Create or restore the owner wallet on this device, check real TRON balances, and prepare genuine on-chain transfers. No TronLink connection is required. Owner treasury access is separately restricted to the configured owner address.</p>
+        <p>Standalone, owner-only wallet controls. Create or restore the owner identity wallet on this device, read genuine TRON balances, and request treasury-backed payouts without requiring the owner identity wallet to hold the USDT principal. No TronLink connection is required.</p>
         <div className="wallet-vault-network" role="group" aria-label="Blockchain network">
           {(['nile', 'shasta', 'mainnet'] as NetworkId[]).map(item => (
             <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
@@ -1245,11 +1245,16 @@ export default function WalletVault() {
         </div>
       </section>
 
+      <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note">
+        <strong>Owner-only funding model</strong>
+        <p>The owner wallet authorizes payout requests; it does not create USDT. Server-funded payouts can send only genuine USDT already held by the configured treasury, and the treasury must also have sufficient network-fee funding. If either balance is insufficient, the payout stays blocked.</p>
+      </div>
+
       <nav className="wallet-vault-quick-nav" aria-label="Owner wallet sections">
         <a href="#wallet-owner-vault">Wallet & balances</a>
         {network === 'mainnet' && <a href="#owner-treasury-funding">Treasury payout</a>}
-        <a href="#wallet-vault-transfer">Send transfer</a>
-        <a href="#wallet-vault-history">Transaction activity</a>
+        <a href="#wallet-vault-transfer">{network === 'mainnet' ? 'Wallet transfer' : 'Testnet transfer'}</a>
+        <a href="#wallet-vault-history">Wallet transaction activity</a>
       </nav>
 
       {error && <div className="wallet-vault-message is-error" role="alert"><X size={17} aria-hidden="true" /> {error}</div>}
@@ -1495,7 +1500,7 @@ export default function WalletVault() {
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading">
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
-                  <div><h2 id="wallet-vault-transfer-heading">Send a real on-chain transfer</h2><p>Review, sign locally and broadcast to the selected TRON network.</p></div>
+                  <div><h2 id="wallet-vault-transfer-heading">{network === 'mainnet' ? 'Send from this wallet' : 'Send a testnet transfer'}</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review, sign locally and broadcast a real testnet transaction. Testnet tokens have no Mainnet value.'}</p></div>
                 </div>
                 <div className="wallet-vault-transfer-warning" role="note">
                   <strong>Irreversible network transaction</strong>
