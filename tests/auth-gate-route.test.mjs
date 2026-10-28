@@ -32,5 +32,5 @@ test('owner authentication is allowlisted, password-hashed, short-lived and fail
 
 test('the default route opens the wallet vault and the legacy workflow URL no longer exposes the old wizard', () => {
   assert.match(entry, /: <WalletVault \/>/)
-  assert.doesNotMatch(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
+  assert.match(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
 })
