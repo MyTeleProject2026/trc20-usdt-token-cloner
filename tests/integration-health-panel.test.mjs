@@ -6,7 +6,7 @@ const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), '
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const server = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
 
-test('active wizard loads current role-specific sponsor and sponsorship status', () => {
+test('legacy sponsor workflow remains implemented but is not exposed by the owner-only app entry', () => {
   assert.ok(app.includes('/api/tron/sponsorship/roles?network='))
   assert.ok(app.includes('/api/tron/sponsorship/status'))
   assert.ok(app.includes('loadSponsorStatus(true)'))
