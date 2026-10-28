@@ -39,7 +39,7 @@ test('wallet vault signs identity challenges locally and wires guarded real on-c
   const transfer = await read('src/wallet-transfer.mjs')
   assert.match(vault, /\/api\/auth\/tron\/challenge/)
   assert.match(vault, /signer\.trx\.signMessageV2\(challenge\.message\)/)
-  assert.match(vault, /JSON\.stringify\(\{ address, network, nonce: challenge\.nonce, signature \}\)/)
+  assert.match(vault, /JSON\.stringify\(\{\s*address,\s*network:\s*'mainnet',\s*nonce:\s*challenge\.nonce,\s*signature\s*\}\)/)
   assert.match(vault, /buildSignAndBroadcastTransfer/)
   assert.match(vault, /estimateTRC20TransferFee/)
   assert.match(vault, /verifyTransferRecordOnChain/)
