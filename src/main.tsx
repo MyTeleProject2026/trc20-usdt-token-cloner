@@ -18,24 +18,19 @@ function renderRoute() {
   const isOkxDepositStatus = route === '#/okx-deposit-status'
   const isWalletVault = route === '#/wallet'
   const isWatchOnlyWallets = route === '#/watch-wallets'
+  const isLegacyWorkspace = route === '#/workspace'
+
   root.render(
     <StrictMode>
-      {isWalletVault
-        ? <>
-          <div style={{ background: '#0a1114', padding: '10px 16px', textAlign: 'right' }}>
-            <a href="#/watch-wallets" style={{ color: '#5dffc8' }}>Open watch-only address monitor ↗</a>
-          </div>
-          <WalletVault />
-          </>
-        : isWatchOnlyWallets
-          ? <WatchOnlyWallets />
-          : isMainnetExchangeDeposit
+      {isWatchOnlyWallets
+        ? <WatchOnlyWallets />
+        : isMainnetExchangeDeposit
           ? <MainnetExchangeDeposit />
           : isOkxDepositStatus
             ? <OkxDepositStatus />
-            : <AuthGate>
-              {isSponsorOperator ? <SponsorSignerConsole /> : <App />}
-              </AuthGate>}
+            : isLegacyWorkspace || isSponsorOperator
+              ? <AuthGate>{isSponsorOperator ? <SponsorSignerConsole /> : <App />}</AuthGate>
+              : <WalletVault />}
     </StrictMode>,
   )
 }
