@@ -33,6 +33,7 @@ function scrub(body) {
     process.env.GASFREE_NILE_API_KEY,
     process.env.GASFREE_NILE_API_SECRET,
     process.env.SPONSOR_ADMIN_API_TOKEN,
+    process.env.TREASURY_PRIVATE_KEY,
     process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES,
   ].filter((v) => typeof v === 'string' && v.length >= 12)
   if (!secrets.length || body == null) return body
