@@ -278,7 +278,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         </div>
         <p className="studio-eyebrow">OWNER AUTHENTICATION</p>
         <h1 id="studio-auth-title">Sign in to your owner panel</h1>
-        <p className="studio-auth-lead">Access is restricted to the single owner address configured on the backend. There is no public sign-up or account creation. Your password is verified by the server and is never stored in browser storage.</p>
+        <p className="studio-auth-lead">Access is restricted to the single owner address configured on the backend. There is no public backend registration. Your owner-console password is verified by the server and is never stored in browser storage.</p>
         <form onSubmit={(event) => void signIn(event)} noValidate>
           <div className="studio-field-block">
             <label htmlFor="owner-address">Owner TRON address</label>
@@ -326,7 +326,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
                   <div key={record.address} className="studio-field-block">
                     <label htmlFor={'local-owner-address-' + record.address}>Public address</label>
                     <input id={'local-owner-address-' + record.address} type="text" readOnly value={record.address} spellCheck={false} />
-                    <div className="studio-auth-actions">
+                    <div className="studio-inline-actions">
                       <button type="button" className="studio-button studio-button--secondary" onClick={() => setAddress(record.address)}>Use address for owner login</button>
                       <button type="button" className="studio-button studio-button--secondary" onClick={() => downloadEncryptedWalletBackup(record)}><Download size={15} aria-hidden="true" /> Download encrypted backup</button>
                     </div>
@@ -351,7 +351,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         )}
         {error && <p className="studio-inline-error" role="alert">{error}</p>}
         <div className="studio-auth-points">
-          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; no public account creation exists.</span></p>
+          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; local wallet setup never grants access to the owner panel.</span></p>
           <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 15 minutes and can be signed out.</span></p>
           <p><Activity size={16} aria-hidden="true" /><span><strong>Authentication is not funding.</strong> Login cannot create genuine USDT or bypass on-chain balance requirements.</span></p>
         </div>
