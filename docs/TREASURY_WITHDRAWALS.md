@@ -41,6 +41,8 @@ Run one pass with `npm run treasury:reconcile`. The optional `TREASURY_RECONCILE
 
 A row is finalized only after the verifier validates the confirmed transaction and exact official-USDT event. Missing receipt data and provider errors leave the row unresolved so the principal remains conservatively reserved. A request that never received a transaction ID cannot be conclusively reconciled by this worker and requires operator investigation; do not submit a replacement payout while the outcome is unknown.
 
+The owner app now stores only the latest payout's non-secret idempotency reference (owner address plus request key) in device storage so it can be looked up after a reload. The owner must unlock the same wallet and authenticate again before status lookup. This reference is not a bearer credential or proof of success; verification still comes from the backend record and confirmed on-chain receipt. If device storage is unavailable, copy the displayed request key before closing the screen.
+
 ## Production cautions and verification
 
 1. Start with test coverage and a small, controlled Mainnet payout only after independent security review.

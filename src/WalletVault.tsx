@@ -3,6 +3,7 @@ import { Activity, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
   decryptWalletPrivateKey,
@@ -301,8 +302,8 @@ export default function WalletVault() {
   }, [network])
 
   // A reusable owner bearer session must not survive a lock or wallet switch.
-  // Server authorization is the primary boundary; this prevents stale UI state
-  // from accidentally submitting a payout after the owner context changes.
+  // The only persisted payout data is a non-secret reference, restored only for
+  // the matching unlocked owner so an ambiguous request can be safely looked up.
   useEffect(() => {
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
@@ -310,6 +311,19 @@ export default function WalletVault() {
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
     setTreasuryPayoutError('')
+    const savedReference = unlocked?.record.address
+      ? readTreasuryPayoutReference()
+      : null
+    if (savedReference && savedReference.ownerAddress === unlocked?.record.address) {
+      setTreasuryPayoutStatus({
+        status: 'saved-reference',
+        idempotencyKey: savedReference.idempotencyKey,
+        ownerAddress: savedReference.ownerAddress,
+        note: 'Saved request reference only. Re-authenticate the owner and verify the status from the backend and TRON chain.',
+      })
+    } else {
+      setTreasuryPayoutStatus(null)
+    }
   }, [unlocked?.record.address])
 
   useEffect(() => {
@@ -736,6 +750,16 @@ export default function WalletVault() {
     setTreasuryPayoutError('')
     setTreasuryPayoutStatus(null)
     const idempotencyKey = 'withdrawal-' + crypto.randomUUID()
+    // Save the recovery reference before network I/O. If the response is lost
+    // or the app reloads, the owner can authenticate again and query this same
+    // request instead of accidentally creating a second payout.
+    const referenceSaved = saveTreasuryPayoutReference(unlocked.record.address, idempotencyKey)
+    setTreasuryPayoutStatus({
+      status: 'request-started',
+      idempotencyKey,
+      ownerAddress: unlocked.record.address,
+      ...(!referenceSaved ? { note: 'The request key is visible here but could not be saved in device storage. Copy it before closing this screen.' } : {}),
+    })
     try {
       const treasuryAddress = serverTreasuryReadiness?.treasuryAddress
       if (!ADDRESS_PATTERN.test(treasuryAddress || '')

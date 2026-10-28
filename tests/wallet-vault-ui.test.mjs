@@ -92,3 +92,14 @@ test('owner treasury payout UI invalidates stale sessions and requires matching,
   assert.match(server, /owner-payout-signature-invalid/)
   assert.match(server, /owner-payout-authorization-expired-or-outside-window/)
 })
+
+test('owner payout recovery stores only a request reference and restores it for the matching unlocked owner', async () => {
+  const vault = await read('src/WalletVault.tsx')
+  const reference = await read('src/treasury-payout-reference.mjs')
+  assert.match(vault, /saveTreasuryPayoutReference\(unlocked\.record\.address, idempotencyKey\)/)
+  assert.match(vault, /readTreasuryPayoutReference\(\)/)
+  assert.match(vault, /savedReference\.ownerAddress === unlocked\?\.record\.address/)
+  assert.match(vault, /status: 'saved-reference'/)
+  assert.match(reference, /never contains a private key, signed authorization, or claim of success/)
+  assert.doesNotMatch(reference, /privateKey|seedPhrase|ownerAuthorizationSignature/)
+})

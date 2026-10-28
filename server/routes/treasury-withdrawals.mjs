@@ -14,6 +14,7 @@ const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,128}$/
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const OWNER_PAYOUT_SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
 const OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS = 120_000
+const UINT256_MAX = (1n << 256n) - 1n
 const ABI = [
   { constant: true, inputs: [{ name: 'owner', type: 'address' }], name: 'balanceOf', outputs: [{ name: 'balance', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { constant: true, inputs: [], name: 'decimals', outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view', type: 'function' },
@@ -67,11 +68,14 @@ async function ensureSchema(db) {
 }
 
 function parsePositiveDecimal(value, decimals = 6) {
-  if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return null
+  // Request bodies are bounded by the API, but bound numeric input too: a huge
+  // decimal string can waste CPU and a value above uint256 cannot fit a TRC-20.
+  if (typeof value !== 'string' || value.length > 86
+    || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return null
   const [whole, fraction = ''] = value.split('.')
-  if (fraction.length > decimals) return null
+  if (whole.length > 78 || fraction.length > decimals) return null
   const units = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals) || '0')
-  return units > 0n ? units : null
+  return units > 0n && units <= UINT256_MAX ? units : null
 }
 
 function readLimit(value) {

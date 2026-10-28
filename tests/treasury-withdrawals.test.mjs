@@ -16,6 +16,16 @@ test('USDT decimal parser rejects zero, excess precision, exponent notation and 
   }
 })
 
+test('USDT parser rejects values above uint256 and accepts its exact six-decimal maximum', () => {
+  const maxUint256 = (1n << 256n) - 1n
+  assert.equal(
+    parsePositiveDecimal('115792089237316195423570985008687907853269984665640564039457584007913129.639935'),
+    maxUint256,
+  )
+  assert.equal(parsePositiveDecimal('1'.repeat(78)), null)
+  assert.equal(parsePositiveDecimal('9'.repeat(5000)), null)
+})
+
 test('treasury endpoint requires an authenticated owner session before touching treasury configuration', async (t) => {
   const app = express()
   app.use(express.json())
