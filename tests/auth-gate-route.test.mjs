@@ -4,59 +4,33 @@ import test from 'node:test'
 
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const gate = await readFile(new URL('../src/AuthGate.tsx', import.meta.url), 'utf8')
-const workflow = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
-const signerConsole = await readFile(new URL('../src/SponsorSignerConsole.tsx', import.meta.url), 'utf8')
+const server = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+const authRoute = await readFile(new URL('../server/routes/tron-wallet-auth.mjs', import.meta.url), 'utf8')
 
-test('both the main workflow and sponsor operator route are guarded by the same verified login', () => {
+test('every application route is wrapped in the same single-owner authentication gate', () => {
   assert.match(entry, /import AuthGate from '\.\/AuthGate\.tsx'/)
-  assert.match(entry, /<AuthGate>[\s\S]*isSponsorOperator \? <SponsorSignerConsole \/> : <App \/>[\s\S]*<\/AuthGate>/)
-  assert.match(gate, /\/api\/auth\/tron\/challenge/)
-  assert.match(gate, /\/api\/auth\/tron\/verify/)
-  assert.match(gate, /\/api\/auth\/tron\/session/)
-  assert.match(gate, /tronWeb\.trx\.signMessageV2\(challenge\.message\)/)
-  assert.match(gate, /window\.sessionStorage\.setItem\(SESSION_KEY, verified\.sessionToken\)/)
+  assert.match(entry, /<AuthGate>\{page\}<\/AuthGate>/)
+  assert.match(server, /app\.use\('\/api\/auth\/owner', createOwnerAuthRouter\(\)\)/)
+  assert.match(gate, /\/api\/auth\/owner\/login/)
+  assert.match(gate, /\/api\/auth\/owner\/session/)
+  assert.match(gate, /\/api\/auth\/owner\/logout/)
+  assert.match(gate, /OWNER AUTHENTICATION/)
+  assert.match(gate, /Owner TRON address/)
+  assert.match(gate, /Owner password/)
+  assert.match(gate, /There is no public sign-up or account creation/)
 })
 
-test('operator signer account changes remain separate from the signed-in app identity', () => {
-  assert.match(signerConsole, /onAccountsChanged/)
-  assert.match(signerConsole, /setWalletNeedsReconnect\(!assetRoleActive\)/)
-  assert.match(signerConsole, /setFeeWalletNeedsReconnect\(!feeRoleActive\)/)
-  assert.match(gate, /operatorRoute &&/)
-  assert.match(gate, /studio-auth-session-strip/)
-  assert.match(workflow, /tron-token-studio:logout/)
-  assert.match(gate, /tron-token-studio:logout/)
-  assert.match(workflow, /tron-token-studio:network-change/)
-  assert.match(gate, /tron-token-studio:network-change/)
-  assert.match(gate, /setNetwork\(requested\)/)
+test('owner authentication is allowlisted, password-hashed, short-lived and fail-closed', () => {
+  assert.match(authRoute, /OWNER_WALLET_ADDRESS/)
+  assert.match(authRoute, /OWNER_PASSWORD_HASH/)
+  assert.match(authRoute, /scrypt/)
+  assert.match(authRoute, /OWNER_LOGIN_MAX_ATTEMPTS/)
+  assert.match(authRoute, /single-owner-console/)
+  assert.match(authRoute, /owner-auth-not-configured/)
+  assert.match(authRoute, /store\.revokeSession/)
 })
 
-test('the authentication gate never collects or accepts a private key', () => {
-  assert.match(gate, /No private keys or recovery phrases/)
-  assert.doesNotMatch(gate, /privateKeyInput|private-key-input|seedPhraseInput|recoveryPhraseInput/i)
-  assert.doesNotMatch(gate, /req\.body\.privateKey|body\.privateKey|privateKey:/i)
-})
-
-
-test('wallet login uses modern TronLink provider flow and explains common connection failures', () => {
-  assert.match(gate, /function getTronProvider\(\)/)
-  assert.match(gate, /method: 'eth_requestAccounts'/)
-  assert.match(gate, /method: 'tron_requestAccounts'/)
-  assert.match(gate, /const tronWeb = provider\.tronWeb \|\| \(window as any\)\.tronWeb/)
-  assert.match(gate, /function walletErrorMessage\(caught: unknown\)/)
-  assert.match(gate, /A TronLink request is already open/)
-  assert.match(gate, /Unlock TronLink/)
-  assert.match(gate, /app identity is the server-verified signature session/)
-  assert.match(workflow, /function getInjectedTronProvider\(\)/)
-  assert.match(workflow, /method: 'eth_requestAccounts'/)
-  assert.match(workflow, /Reuse the signed identity session/)
-  assert.match(workflow, /Do not sign out the existing app identity/)
-  assert.match(workflow, /active TronLink account is missing or different/)
-})
-
-test('watch-only entry exposes public inspection but never bypasses the sponsor operator sign-in gate', () => {
-  assert.match(gate, /if \(readOnlyMode && !operatorRoute\)/)
-  assert.match(gate, /cannot sign, broadcast, or access the sponsor operator console/)
-  assert.match(gate, /tron-token-studio:wallet-authenticated/)
-  assert.match(workflow, /tron-token-studio:wallet-authenticated/)
-  assert.match(workflow, /Watch-only address/)
+test('the default route opens the wallet vault and the legacy workflow URL no longer exposes the old wizard', () => {
+  assert.match(entry, /: <WalletVault \/>/)
+  assert.doesNotMatch(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
 })
