@@ -6,7 +6,7 @@ const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), '
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const routes = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
 
-test('receiver history UI is available without background polling or server-side broadcasts', () => {
+test('receiver history remains a separate read-only backend capability', () => {
   assert.ok(app.includes('ReceiverHistoryRecord'))
   assert.ok(app.includes('isVerifiedHistoryRecord'))
   assert.ok(app.includes('verifiedOnChain'))
