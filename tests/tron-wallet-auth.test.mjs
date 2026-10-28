@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createHash } from 'node:crypto'
-import { createTronWalletAuthRouter } from '../server/routes/tron-wallet-auth.mjs'
+import { createOwnerAuthRouter, createTronWalletAuthRouter } from '../server/routes/tron-wallet-auth.mjs'
 
 const origin = 'https://trc20-usdt-token-cloner.onrender.com'
 const address = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
@@ -372,5 +372,74 @@ test('challenge and verification fail closed if durable identity storage fails',
     assert.equal(challenge.payload.error, 'identity-storage-unavailable')
     assert.equal('nonce' in challenge.payload, false)
     assert.equal('message' in challenge.payload, true)
+  })
+})
+
+
+const ownerPasswordHashFixture = 'scrypt$' + Buffer.alloc(16, 1).toString('base64url') + '$' + Buffer.alloc(64, 2).toString('base64url')
+
+function createOwnerApp({ store = createMemoryAuthStore(), now = () => Date.now(), env = {
+  FRONTEND_ORIGIN: origin,
+  OWNER_WALLET_ADDRESS: address,
+  OWNER_PASSWORD_HASH: ownerPasswordHashFixture,
+}, verifyPassword = async (password) => password === 'correct-owner-password' } = {}) {
+  const app = express()
+  app.use(express.json({ limit: '32kb' }))
+  app.use('/api/auth/owner', createOwnerAuthRouter({ env, store, now, verifyPassword }))
+  return { app, store }
+}
+
+
+test('owner login only authenticates the configured address and password without creating public accounts', async () => {
+  const { app, store } = createOwnerApp()
+  await withServer(app, async (base) => {
+    const login = await requestJson(base.replace('/api/auth/tron', '/api/auth/owner'), '/login', {
+      method: 'POST',
+      body: { address, password: 'correct-owner-password' },
+    })
+    assert.equal(login.response.status, 200)
+    assert.equal(login.payload.authenticated, true)
+    assert.equal(login.payload.scope, 'single-owner-console')
+    assert.equal(login.payload.network, 'mainnet')
+    assert.equal(store.accounts.size, 0)
+    const session = await requestJson(base.replace('/api/auth/tron', '/api/auth/owner'), '/session', { token: login.payload.sessionToken })
+    assert.equal(session.response.status, 200)
+    assert.equal(session.payload.authenticated, true)
+    assert.equal(session.payload.address, address)
+    const logout = await requestJson(base.replace('/api/auth/tron', '/api/auth/owner'), '/logout', {
+      method: 'POST', token: login.payload.sessionToken,
+    })
+    assert.equal(logout.response.status, 200)
+    assert.equal(logout.payload.loggedOut, true)
+    const afterLogout = await requestJson(base.replace('/api/auth/tron', '/api/auth/owner'), '/session', { token: login.payload.sessionToken })
+    assert.equal(afterLogout.response.status, 401)
+  })
+})
+
+test('owner login rejects another address and wrong password without creating a session', async () => {
+  const { app, store } = createOwnerApp()
+  await withServer(app, async (base) => {
+    const ownerBase = base.replace('/api/auth/tron', '/api/auth/owner')
+    const wrongAddress = await requestJson(ownerBase, '/login', {
+      method: 'POST', body: { address: otherAddress, password: 'correct-owner-password' },
+    })
+    assert.equal(wrongAddress.response.status, 401)
+    const wrongPassword = await requestJson(ownerBase, '/login', {
+      method: 'POST', body: { address, password: 'wrong-password' },
+    })
+    assert.equal(wrongPassword.response.status, 401)
+    assert.equal(store.sessions.size, 0)
+    assert.equal(store.accounts.size, 0)
+  })
+})
+
+test('owner login fails closed when owner credentials are not configured', async () => {
+  const { app } = createOwnerApp({ env: { FRONTEND_ORIGIN: origin }, verifyPassword: async () => false })
+  await withServer(app, async (base) => {
+    const result = await requestJson(base.replace('/api/auth/tron', '/api/auth/owner'), '/login', {
+      method: 'POST', body: { address, password: 'anything' },
+    })
+    assert.equal(result.response.status, 503)
+    assert.equal(result.payload.error, 'owner-auth-not-configured')
   })
 })
