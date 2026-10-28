@@ -14,7 +14,8 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const EMAIL_PATTERN = /^[^\s@]{1,128}@[^\s@]{1,190}$/
 const PASSWORD_MIN_LENGTH = 12
-const HASH_PREFIX = 'scrypt$32768$8$1
+const HASH_PREFIX = 'scrypt$32768$8$1$'
+const DUMMY_PASSWORD_HASH = HASH_PREFIX + 'A'.repeat(22) + '$' + Buffer.alloc(64).toString('base64url')
 function digest(value) {
   return createHash('sha256').update(String(value), 'utf8').digest('hex')
 }
