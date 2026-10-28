@@ -24,7 +24,6 @@ async function queryConfig(env, t) {
 function validEnvironment() {
   return {
     OWNER_WALLET_ADDRESS: ownerAddress,
-    OWNER_PASSWORD_HASH: passwordHash,
     DATABASE_URL: databaseMarker,
     FRONTEND_ORIGIN: 'https://trc20-usdt-token-cloner.onrender.com',
     PACKAGED_APP_ORIGINS: 'tronstudio://app',
