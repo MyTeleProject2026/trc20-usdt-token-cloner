@@ -298,7 +298,7 @@ test('treasury payout signs from the separate funded treasury and persists the t
   const server = createServer(harness.app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
-  const endpoint = \`http://127.0.0.1:\${server.address().port}/api/treasury/withdrawals\`
+  const endpoint = `http://127.0.0.1:\${server.address().port}/api/treasury/withdrawals`
   const headers = {
     origin: 'https://owner.example',
     authorization: 'Bearer ' + 'A'.repeat(43),
@@ -335,7 +335,7 @@ test('treasury payout fails closed when on-chain USDT balance is insufficient', 
   const server = createServer(harness.app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
-  const response = await fetch(\`http://127.0.0.1:\${server.address().port}/api/treasury/withdrawals\`, {
+  const response = await fetch(`http://127.0.0.1:\${server.address().port}/api/treasury/withdrawals`, {
     method: 'POST',
     headers: {
       origin: 'https://owner.example',
@@ -368,7 +368,7 @@ test('owner payout readiness remains disabled without the minimum TRX reserve co
   const server = createServer(app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
-  const response = await fetch(\`http://127.0.0.1:\${server.address().port}/api/treasury/withdrawals/readiness\`, {
+  const response = await fetch(`http://127.0.0.1:\${server.address().port}/api/treasury/withdrawals/readiness`, {
     headers: { origin: 'https://owner.example', authorization: 'Bearer ' + 'A'.repeat(43) },
   })
   assert.equal(response.status, 200)
