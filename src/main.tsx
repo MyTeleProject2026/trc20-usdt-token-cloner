@@ -20,19 +20,24 @@ function renderRoute() {
   const isWatchOnlyWallets = route === '#/watch-wallets'
   const isLegacyWorkspace = route === '#/workspace'
 
+  const page = isWalletVault
+    ? <WalletVault />
+    : isWatchOnlyWallets
+      ? <WatchOnlyWallets />
+      : isMainnetExchangeDeposit
+        ? <MainnetExchangeDeposit />
+        : isOkxDepositStatus
+          ? <OkxDepositStatus />
+          : isLegacyWorkspace || isSponsorOperator
+            ? (isSponsorOperator ? <SponsorSignerConsole /> : <App />)
+            : <WalletVault />
+
+  // Every application route shares the same single-owner authentication gate.
+  // The gate has no public registration flow and restores only a server-verified
+  // owner session; public/read-only pages are gated too to keep the owner panel private.
   root.render(
     <StrictMode>
-      {isWalletVault
-        ? <WalletVault />
-        : isWatchOnlyWallets
-          ? <WatchOnlyWallets />
-          : isMainnetExchangeDeposit
-            ? <MainnetExchangeDeposit />
-            : isOkxDepositStatus
-              ? <OkxDepositStatus />
-              : isLegacyWorkspace || isSponsorOperator
-                ? <AuthGate>{isSponsorOperator ? <SponsorSignerConsole /> : <App />}</AuthGate>
-                : <WalletVault />}
+      <AuthGate>{page}</AuthGate>
     </StrictMode>,
   )
 }
