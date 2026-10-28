@@ -6,21 +6,16 @@ const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8'
 const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
 
-test('the installed frontend defaults to the owner wallet and excludes the legacy sponsor workspace', () => {
-  assert.ok(entry.includes("import WalletVault from './WalletVault.tsx'"))
-  assert.ok(entry.includes(": <WalletVault />"))
-  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
-  assert.ok(!entry.includes("import SponsorSignerConsole from './SponsorSignerConsole.tsx'"))
-  assert.ok(!entry.includes("import WatchOnlyWallets from './WatchOnlyWallets.tsx'"))
-  assert.ok(!entry.includes("route === '#/workspace'"))
-  assert.ok(!entry.includes("route === '#/sponsor-operator'"))
-  assert.ok(!entry.includes("route === '#/watch-wallets'"))
+test('the live frontend entrypoint renders the staged workflow, not the legacy tabbed workspace', () => {
+  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(!entry.includes("import App from './App.tsx'"))
   assert.ok(!entry.includes('TransferSimulator'))
   assert.ok(!entry.includes('ReceiverHistory'))
-  // The old workspace source remains covered below, but it is not mounted by the installer.
   assert.ok(app.includes('Network fee sponsor'))
   assert.ok(app.includes('Asset principal sponsor'))
+  assert.ok(app.includes('Sender account'))
   assert.ok(app.includes('Receiver & amount'))
+  assert.ok(app.includes('Review & availability'))
 })
 
 test('workspace sections are directly navigable while validation still gates continuation and review', () => {

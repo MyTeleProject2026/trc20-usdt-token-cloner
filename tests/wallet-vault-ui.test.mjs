@@ -4,18 +4,21 @@ import { readFile } from 'node:fs/promises'
 
 const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
 
-test('owner wallet is the default and legacy operator/workspace screens are not exposed by the installer router', async () => {
+test('standalone owner wallet is the default screen and legacy TronLink workspace is not promoted in its UI', async () => {
   const entry = await read('src/main.tsx')
   const vault = await read('src/WalletVault.tsx')
-  assert.match(entry, /route === '#\\/exchange-deposit'/)
-  assert.match(entry, /route === '#\\/okx-deposit-status'/)
-  assert.match(entry, /<WalletVault \\/>/)
-  assert.doesNotMatch(entry, /WorkflowApp|AuthGate|SponsorSignerConsole|WatchOnlyWallets/)
-  assert.doesNotMatch(entry, /#\\/workspace|#\\/sponsor-operator|#\\/watch-wallets/)
+  const authGate = await read('src/AuthGate.tsx')
+  const workflow = await read('src/WorkflowApp.tsx')
+  assert.match(entry, /const isWalletVault = route === '#\/wallet'/)
+  assert.match(entry, /:\s*<WalletVault \/>/)
+  assert.match(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
+  assert.doesNotMatch(entry, /Open watch-only address monitor/)
   assert.match(vault, /OWNER WALLET CONTROL/)
   assert.match(vault, /No TronLink connection is required/)
   assert.match(vault, /TREASURY_OWNER_ADDRESS/)
   assert.doesNotMatch(vault, /Sign in to workspace|Switch to Nile for workspace login|Workspace login signs/)
+  assert.match(authGate, /\/api\/auth\/tron\/verify/)
+  assert.match(workflow, /href="#\/wallet"><Wallet/)
 })
 
 test('wallet creation, import and restore encrypt key material before local persistence', async () => {
