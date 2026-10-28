@@ -54,6 +54,17 @@ A gas-sponsorship provider may cover eligible transaction fees under its terms, 
 - [ ] No Mainnet payout is enabled until independent security review and end-to-end tests pass.
 - [ ] The owner understands that deployment, API credentials, provider access, and a funded treasury are required; source code alone does not fund transactions.
 
-## Current repository integration status
+## Current repository integration status (2026-10-28)
 
-This document is a design specification, not evidence that a treasury payout signer or Mainnet payout API has been deployed. Existing sponsor/gas-free discovery and balance-readiness routes do not, by themselves, authorize or submit treasury-funded USDT payouts. Do not advertise payouts as enabled until the implementation, tests, signer, and funding checks are complete.
+The current `main` branch includes:
+- The single-owner login gate (`server/routes/owner-auth.mjs` and `src/AuthGate.tsx`).
+- Owner-only, read-only treasury funding status (`server/routes/owner-treasury.mjs`).
+- A treasury-backed Mainnet USDT withdrawal API (`server/routes/treasury-withdrawals.mjs`), mounted at `/api/treasury/withdrawals`, with owner-console controls in `src/WalletVault.tsx`.
+- Per-payout owner authorization signatures, amount/daily limits, database reservations, idempotency handling, and independent solidified receipt/official-USDT Transfer-event verification.
+- A read-only reconciliation worker (`scripts/reconcile-treasury-withdrawals.mjs`) for already broadcast requests.
+
+The current payout signer mode is `env-hot-wallet`: `TREASURY_PRIVATE_KEY` is a server-side environment secret. This is a high-risk custody arrangement and has not been independently security-audited. The code being deployed does not prove that Render environment values are configured correctly, that the treasury is funded, or that a real Mainnet payout has passed an end-to-end test.
+
+The withdrawal API remains disabled unless `TREASURY_WITHDRAWALS_ENABLED=true`, `TREASURY_SIGNER_MODE=env-hot-wallet`, the database/signer/address/limits are valid, the signer derives the configured treasury address, the official Mainnet USDT balance is positive, and the treasury's actual TRX balance covers the configured fee cap. It transfers only real tokens already held by the official USDT contract; it cannot mint or generate USDT. GasFree endpoints are discovery/preflight only and do not automatically make this payout path gas-free.
+
+Before enabling payouts with meaningful value, verify the environment configuration in the Render dashboard, use a dedicated low-balance treasury, complete end-to-end testing with controlled assets, configure monitoring and recovery, and obtain an independent security review. Prefer a managed signer or multisig design over a raw private key in ordinary service environment variables. Never treat a successful build, an HTTP broadcast response, or a transaction hash alone as proof of a successful transfer or an exchange credit.
