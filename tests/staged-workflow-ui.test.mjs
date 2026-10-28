@@ -6,11 +6,11 @@ const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8'
 const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8')
 
-test('the live frontend entrypoint renders the staged workflow, not the legacy tabbed workspace', () => {
-  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
-  assert.ok(!entry.includes("import App from './App.tsx'"))
-  assert.ok(!entry.includes('TransferSimulator'))
-  assert.ok(!entry.includes('ReceiverHistory'))
+test('the live frontend entrypoint exposes only the single-owner wallet workspace', () => {
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.ok(entry.includes('<OwnerControlApp />'))
+  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(!entry.includes('SponsorSignerConsole'))
   assert.ok(app.includes('Network fee sponsor'))
   assert.ok(app.includes('Asset principal sponsor'))
   assert.ok(app.includes('Sender account'))
@@ -18,7 +18,7 @@ test('the live frontend entrypoint renders the staged workflow, not the legacy t
   assert.ok(app.includes('Review & availability'))
 })
 
-test('workspace sections are directly navigable while validation still gates continuation and review', () => {
+test('workspace sections are directly navigable while validation still gates continuation and review', () => {test('workspace sections are directly navigable while validation still gates continuation and review', () => {
   assert.ok(app.includes('const canEnterStep = (index: number) => index >= 0 && index < STEPS.length'))
   assert.ok(app.includes('aria-label="Workspace sections"'))
   assert.ok(app.includes('aria-label="Mobile workspace sections"'))
