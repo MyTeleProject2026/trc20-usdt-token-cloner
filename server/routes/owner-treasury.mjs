@@ -71,6 +71,18 @@ export function createOwnerTreasuryRouter({
         submissionEnabled: false,
       })
     }
+    // Fail closed before making a provider request if the configured watch
+    // address is missing or malformed. A UI must never treat an arbitrary
+    // provider-returned address as the configured treasury.
+    if (!fundingAddress || !isValidAddress(fundingAddress)) {
+      return res.status(503).json({
+        success: false,
+        error: 'treasury-funding-address-invalid',
+        requiredEnvironment: ['TREASURY_MAINNET_ADDRESS', 'SPONSOR_MAINNET_ADDRESS', 'TREASURY_OWNER_ADDRESS'],
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      })
+    }
 
     const authorization = header(req, 'authorization')
     const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(authorization)
@@ -128,6 +140,18 @@ export function createOwnerTreasuryRouter({
         success: false,
         error: 'treasury-balance-unavailable',
         message: 'A verified on-chain treasury balance is unavailable. No transfer was attempted.',
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      })
+    }
+    // The balance response must be from the exact configured Mainnet address.
+    // This prevents a stale, misconfigured, or incorrect provider result from
+    // being presented to the owner as funds available for a treasury payout.
+    if (funding.network !== 'mainnet' || funding.sponsorAddress !== fundingAddress) {
+      return res.status(503).json({
+        success: false,
+        error: 'treasury-funding-address-mismatch',
+        message: 'The verified balance response did not match the configured Mainnet treasury address. No payout is authorized.',
         canSubmitSponsoredTransfer: false,
         submissionEnabled: false,
       })

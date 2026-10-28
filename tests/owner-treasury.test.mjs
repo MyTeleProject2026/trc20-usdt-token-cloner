@@ -111,6 +111,7 @@ test('owner treasury endpoint returns only verified funding facts and never enab
     },
     readFunding: async () => ({
       onChainBalanceRead: true,
+      network: 'mainnet',
       status: 'solidified-sponsor-balances-read',
       checkedAt: '2026-10-28T00:00:00.000Z',
       sponsorAddress: 'T' + 'C'.repeat(33),
@@ -149,4 +150,54 @@ test('wallet UI exposes only owner-authenticated read-only funding, not generate
   assert.ok(ui.includes('TREASURY_MAINNET_ADDRESS'))
   assert.ok(ui.includes('The watched treasury address is different from the currently unlocked wallet'))
   assert.ok(ui.includes('canSubmitSponsoredTransfer'))
+})
+
+
+test('treasury status fails closed for an invalid configured funding address before provider calls', async () => {
+  let fundingReads = 0
+  const router = createOwnerTreasuryRouter({
+    env: {
+      TREASURY_OWNER_ADDRESS: ownerAddress,
+      TREASURY_MAINNET_ADDRESS: 'not-a-tron-address',
+    },
+    isValidAddress: (value) => value === ownerAddress,
+    getSession: async () => ({ success: true, session: { address: ownerAddress, network: 'mainnet', origin } }),
+    readFunding: async () => {
+      fundingReads += 1
+      return { onChainBalanceRead: true, network: 'mainnet', sponsorAddress: ownerAddress, tokens: [] }
+    },
+  })
+  const res = responseRecorder()
+  await routeHandler(router)(request(), res)
+  assert.equal(res.statusCode, 503)
+  assert.equal(res.body.error, 'treasury-funding-address-invalid')
+  assert.equal(res.body.submissionEnabled, false)
+  assert.equal(fundingReads, 0)
+})
+
+test('treasury status rejects balance evidence for a different address or network', async () => {
+  const configuredFundingAddress = 'T' + 'D'.repeat(33)
+  const router = createOwnerTreasuryRouter({
+    env: {
+      TREASURY_OWNER_ADDRESS: ownerAddress,
+      TREASURY_MAINNET_ADDRESS: configuredFundingAddress,
+    },
+    isValidAddress: () => true,
+    getSession: async () => ({ success: true, session: { address: ownerAddress, network: 'mainnet', origin } }),
+    readFunding: async () => ({
+      onChainBalanceRead: true,
+      network: 'nile',
+      sponsorAddress: 'T' + 'C'.repeat(33),
+      native: { status: 'verified', balanceTRX: '99' },
+      tokens: [
+        { asset: 'USDT', tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', status: 'verified', balanceBaseUnits: '99999999', decimals: 6 },
+      ],
+    }),
+  })
+  const res = responseRecorder()
+  await routeHandler(router)(request(), res)
+  assert.equal(res.statusCode, 503)
+  assert.equal(res.body.error, 'treasury-funding-address-mismatch')
+  assert.equal(res.body.submissionEnabled, false)
+  assert.equal(Object.hasOwn(res.body, 'officialUsdt'), false)
 })
