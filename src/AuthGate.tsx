@@ -3,6 +3,12 @@ import type { ReactNode, FormEvent } from 'react'
 import { Activity, Layers, LockKeyhole, RefreshCw, ShieldCheck, LogOut } from 'lucide-react'
 
 type OwnerSession = { address: string; expiresAt: number; sessionToken: string }
+type OwnerConsoleConfig = {
+  configured: boolean
+  requiredEnvironment: string[]
+  hostedUiOriginAllowed: boolean
+  packagedUiOriginAllowed: boolean
+}
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const SESSION_KEY = 'tron-token-studio:owner-session:v1'
@@ -15,6 +21,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [ownerConfig, setOwnerConfig] = useState<OwnerConsoleConfig | null>(null)
+  const [configError, setConfigError] = useState('')
 
   function clearSession() {
     try {
@@ -32,6 +40,43 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       // Clear in-memory session even when storage is unavailable.
     }
   }
+
+  useEffect(() => {
+    let cancelled = false
+    async function readOwnerConfig() {
+      try {
+        const response = await fetch(API_BASE + '/api/auth/owner/config', {
+          headers: { Accept: 'application/json' },
+          credentials: 'omit',
+          cache: 'no-store',
+        })
+        const payload = await response.json().catch(() => null)
+        const config = payload?.ownerConsole
+        if (!response.ok || payload?.success !== true
+          || typeof config?.configured !== 'boolean'
+          || !Array.isArray(config?.requiredEnvironment)
+          || typeof config?.hostedUiOriginAllowed !== 'boolean'
+          || typeof config?.packagedUiOriginAllowed !== 'boolean') {
+          throw new Error('Owner configuration response is unavailable or invalid.')
+        }
+        if (!cancelled) {
+          setOwnerConfig({
+            configured: config.configured,
+            requiredEnvironment: config.requiredEnvironment
+              .filter((item: unknown): item is string => typeof item === 'string')
+              .slice(0, 8),
+            hostedUiOriginAllowed: config.hostedUiOriginAllowed,
+            packagedUiOriginAllowed: config.packagedUiOriginAllowed,
+          })
+          setConfigError('')
+        }
+      } catch {
+        if (!cancelled) setConfigError('Could not check backend owner-login configuration. Check the API connection and retry.')
+      }
+    }
+    void readOwnerConfig()
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -149,11 +194,21 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           {checking ? (
             <div className="studio-auth-loading" role="status"><RefreshCw className="studio-spin" size={18} aria-hidden="true" /> Checking saved owner session…</div>
           ) : (
-            <button type="submit" className="studio-button studio-button--primary studio-auth-submit" disabled={busy || !address.trim() || !password}>
+            <button type="submit" className="studio-button studio-button--primary studio-auth-submit" disabled={busy || !address.trim() || !password || (ownerConfig !== null && !ownerConfig.configured)}>
               <LockKeyhole size={17} aria-hidden="true" /> {busy ? 'Verifying owner…' : 'Sign in securely'}
             </button>
           )}
         </form>
+        {configError && <p className="studio-inline-error" role="status">{configError}</p>}
+        {ownerConfig && !ownerConfig.configured && (
+          <div className="studio-inline-error" role="status">
+            <strong>Owner login configuration is incomplete.</strong>
+            <p>Missing or invalid backend settings: {ownerConfig.requiredEnvironment.length
+              ? ownerConfig.requiredEnvironment.join(', ')
+              : 'Required application origins are not allowlisted.'}</p>
+            <p>Set the listed variables on the Render backend API service, save the environment, and reload this page after deployment. This status check never returns secret values.</p>
+          </div>
+        )}
         {error && <p className="studio-inline-error" role="alert">{error}</p>}
         <div className="studio-auth-points">
           <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; no public account creation exists.</span></p>
