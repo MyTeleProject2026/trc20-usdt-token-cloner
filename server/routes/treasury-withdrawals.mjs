@@ -333,3 +333,5 @@ export function createTreasuryWithdrawalsRouter({
 }
 
 export { parsePositiveDecimal }
+
+export default createTreasuryWithdrawalsRouter
