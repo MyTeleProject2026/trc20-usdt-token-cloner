@@ -1245,6 +1245,13 @@ export default function WalletVault() {
         </div>
       </section>
 
+      <nav className="wallet-vault-quick-nav" aria-label="Owner wallet sections">
+        <a href="#wallet-owner-vault">Wallet & balances</a>
+        {network === 'mainnet' && <a href="#owner-treasury-funding">Treasury payout</a>}
+        <a href="#wallet-vault-transfer">Send transfer</a>
+        <a href="#wallet-vault-history">Transaction activity</a>
+      </nav>
+
       {error && <div className="wallet-vault-message is-error" role="alert"><X size={17} aria-hidden="true" /> {error}</div>}
       {notice && <div className="wallet-vault-message is-notice" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</div>}
 
@@ -1295,7 +1302,7 @@ export default function WalletVault() {
           <div className="wallet-vault-security-note"><LockKeyhole size={17} /><div><strong>Encrypted locally, not custodial</strong><p>AES-256-GCM with a PBKDF2-SHA-256 password key. The web app does not receive or store your private key. This is password-encrypted web storage, not a hardware-backed mobile keystore.</p></div></div>
         </section>
 
-        <section className="wallet-vault-panel wallet-vault-account">
+        <section id="wallet-owner-vault" className="wallet-vault-panel wallet-vault-account">
           <div className="wallet-vault-panel-head"><span className="wallet-vault-step">02</span><div><h2>Wallet vault</h2><p>{records.length} encrypted wallet{records.length === 1 ? '' : 's'} on this device.</p></div></div>
 
           {records.length > 0 ? (
@@ -1377,7 +1384,7 @@ export default function WalletVault() {
               <p className="wallet-vault-caption"><Activity size={14} /> This is a standalone local wallet. The encrypted vault is stored on this device; the backend never receives the private key. Keep an offline backup.</p>
 
               {network === 'mainnet' && (
-                <section className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading">
+                <section id="owner-treasury-funding" className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading">
                   <div className="wallet-vault-panel-head">
                     <span className="wallet-vault-step">OWNER</span>
                     <div><h2 id="owner-treasury-funding-heading">Owner treasury funding check</h2><p>Verify actual funds held by the server-configured treasury.</p></div>
@@ -1430,6 +1437,15 @@ export default function WalletVault() {
                       <div><small>Verified treasury USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
                     </div>
                   )}
+                  {serverTreasuryReadiness?.withdrawalsEnabled !== true && (
+                    <div className="wallet-vault-transfer-warning" role="status">
+                      <strong>Real payout readiness</strong>
+                      <p>Server-funded USDT withdrawals remain disabled unless the backend signer, persistent database, payout limits and actual treasury balance all pass checks. This screen never creates USDT or pays a recipient from an empty treasury.</p>
+                      {Array.isArray(serverTreasuryReadiness?.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
+                        <p><strong>Backend configuration still missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
+                      )}
+                    </div>
+                  )}
                   {serverTreasuryReadiness?.withdrawalsEnabled === true
                     && typeof serverTreasuryReadiness.treasuryAddress === 'string'
                     && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
@@ -1462,7 +1478,7 @@ export default function WalletVault() {
                 </section>
               )}
 
-              <section className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading">
+              <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading">
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
                   <div><h2 id="wallet-vault-transfer-heading">Send a real on-chain transfer</h2><p>Review, sign locally and broadcast to the selected TRON network.</p></div>
@@ -1535,7 +1551,7 @@ export default function WalletVault() {
                 )}
               </section>
 
-              <section className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading">
+              <section id="wallet-vault-history" className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading">
                 <div className="wallet-vault-history-header"><div><h3 id="wallet-vault-history-heading">Real transfer history</h3><p>Locally saved transaction IDs; status is re-read from the selected chain.</p></div><span>{transferHistory.length} record{transferHistory.length === 1 ? '' : 's'}</span></div>
                 {transferHistory.length === 0 ? (
                   <div className="wallet-vault-history-empty">No transfers have been submitted from this device yet. History entries are added only after the network accepts a signed transaction.</div>

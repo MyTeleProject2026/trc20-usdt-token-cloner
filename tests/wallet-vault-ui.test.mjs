@@ -75,6 +75,19 @@ test('native APK workflow bundles the local wallet UI and keeps the Android buil
   assert.match(apiSmoke, /Configure PACKAGED_APP_ORIGINS on the Render API service/)
 })
 
+test('owner wallet screen exposes focused navigation and explains blocked treasury payout readiness', async () => {
+  const vault = await read('src/WalletVault.tsx')
+  const css = await read('src/index.css')
+  assert.match(vault, /aria-label="Owner wallet sections"/)
+  assert.match(vault, /href="#wallet-owner-vault"/)
+  assert.match(vault, /href="#owner-treasury-funding"/)
+  assert.match(vault, /href="#wallet-vault-transfer"/)
+  assert.match(vault, /href="#wallet-vault-history"/)
+  assert.match(vault, /Backend configuration still missing:/)
+  assert.match(vault, /This screen never creates USDT/)
+  assert.match(css, /\.wallet-vault-quick-nav/)
+})
+
 test('owner treasury payout UI invalidates stale sessions and requires matching, funded treasury readiness', async () => {
   const vault = await read('src/WalletVault.tsx')
   const server = await read('server/routes/treasury-withdrawals.mjs')

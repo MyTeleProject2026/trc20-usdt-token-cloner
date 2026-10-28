@@ -695,6 +695,10 @@ main .grid > button[aria-pressed] > span {
 .wallet-vault-network { display:flex; flex-wrap:wrap; gap:8px; margin-top:19px; }
 .wallet-vault-network button { min-height:36px; padding:0 13px; color:#a7c9bd; border:1px solid #23463b; border-radius:10px; background:#0b1b19; font:700 11px Poppins,system-ui,sans-serif; cursor:pointer; }
 .wallet-vault-network button:hover,.wallet-vault-network button.is-selected { color:#dcfff2; border-color:#49c696; background:#10352a; box-shadow:inset 0 0 0 1px rgba(73,198,150,.12); }
+.wallet-vault-quick-nav { display:flex; flex-wrap:wrap; gap:8px; max-width:1280px; margin:-8px auto 18px; }
+.wallet-vault-quick-nav a { display:inline-flex; align-items:center; min-height:36px; padding:0 13px; color:#c1e5d8; border:1px solid #24463b; border-radius:10px; background:rgba(10,31,25,.9); font-size:11px; font-weight:750; text-decoration:none; }
+.wallet-vault-quick-nav a:hover,.wallet-vault-quick-nav a:focus-visible { color:#e5fff4; border-color:#49c696; background:#10352a; }
+.wallet-vault-panel[id],.wallet-vault-transfer-section[id],.wallet-vault-history-section[id] { scroll-margin-top:16px; }
 .wallet-vault-message { display:flex; align-items:flex-start; gap:9px; max-width:1280px; margin:0 auto 12px; padding:12px 14px; border:1px solid #315f4c; border-radius:12px; font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
 .wallet-vault-message svg { flex:0 0 auto; margin-top:1px; }
 .wallet-vault-message.is-notice { color:#c1f5df; background:#0b241c; }
