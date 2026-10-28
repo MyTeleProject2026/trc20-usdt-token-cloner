@@ -61,7 +61,9 @@ function requestOrigin(req, env) {
 
 function constantTimeEqual(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string' || left.length < 1 || left.length !== right.length) return false
-  return timingSafeEqual(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'))
+  const leftBytes = Buffer.from(left, 'utf8')
+  const rightBytes = Buffer.from(right, 'utf8')
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes)
 }
 
 async function hashPassword(password) {
