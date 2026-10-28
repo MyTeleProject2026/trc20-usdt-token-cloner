@@ -429,17 +429,18 @@ export function createOwnerAuthRouter({
     const databaseConfigured = typeof env.DATABASE_URL === 'string' && env.DATABASE_URL.trim().length > 0
     const allowedOriginConfigured = origins.size > 0
     const hostedUiOriginAllowed = origins.has('https://trc20-usdt-token-cloner.onrender.com')
-    const packagedUiOriginAllowed = origins.has('tronstudio://app')
+    const packagedUiOriginAllowed = origins.has('https://localhost')
     const requiredEnvironment = [
       ...(!ownerAddressConfigured ? ['OWNER_WALLET_ADDRESS (valid TRON Mainnet address)'] : []),
       ...(!passwordHashConfigured ? ['OWNER_PASSWORD_HASH (valid scrypt hash)'] : []),
       ...(!databaseConfigured ? ['DATABASE_URL'] : []),
-      ...(!allowedOriginConfigured ? ['FRONTEND_ORIGIN and/or PACKAGED_APP_ORIGINS'] : []),
+      ...(!hostedUiOriginAllowed ? ['FRONTEND_ORIGIN must allow https://trc20-usdt-token-cloner.onrender.com'] : []),
+      ...(!packagedUiOriginAllowed ? ['PACKAGED_APP_ORIGINS must allow https://localhost for the Capacitor Android app'] : []),
     ]
     return res.json({
       success: true,
       ownerConsole: {
-        configured: ownerAddressConfigured && passwordHashConfigured && databaseConfigured && allowedOriginConfigured,
+        configured: ownerAddressConfigured && passwordHashConfigured && databaseConfigured && hostedUiOriginAllowed && packagedUiOriginAllowed,
         ownerAddressConfigured,
         passwordHashConfigured,
         databaseConfigured,
