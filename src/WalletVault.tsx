@@ -331,6 +331,7 @@ export default function WalletVault() {
     if (!unlocked) return
     let timeout = 0
     const autoLock = () => {
+      setActivePanel('wallet')
       setUnlocked(null)
       setPortfolio(null)
       setTransferReview(null)
@@ -1262,7 +1263,7 @@ export default function WalletVault() {
       {error && <div className="wallet-vault-message is-error" role="alert"><X size={17} aria-hidden="true" /> {error}</div>}
       {notice && <div className="wallet-vault-message is-notice" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</div>}
 
-      <div className="wallet-vault-layout">
+      <div className={'wallet-vault-layout' + (activePanel === 'wallet' ? '' : ' wallet-vault-layout--single')}>
         <section className="wallet-vault-panel wallet-vault-setup" hidden={activePanel !== 'wallet'}>
           <details className="wallet-vault-setup-details" open={records.length === 0}>
             <summary className="wallet-vault-panel-head wallet-vault-setup-summary">
