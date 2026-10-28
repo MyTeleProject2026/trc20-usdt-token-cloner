@@ -560,17 +560,17 @@ export function createTreasuryWithdrawalsRouter({
         })
         txid = unsignedTransaction.txID
       } catch {
-        await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
           SET status='rejected', failure_code='transaction-build-or-sign-failed', updated_at=now()
-          WHERE id=$1 AND status='broadcasting'\`, [reservation.id]).catch(() => {})
+          WHERE id=$1 AND status='broadcasting'`, [reservation.id]).catch(() => {})
         return res.status(503).json({ success: false, error: 'treasury-transaction-build-or-sign-failed', note: 'No transaction was broadcast.' })
       }
 
       // Record the locally computed transaction ID before broadcasting, so ambiguous
       // network outcomes can be reconciled without creating a second payout.
-      const persisted = await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+      const persisted = await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET transaction_hash=$2, updated_at=now()
-        WHERE id=$1 AND status='broadcasting' RETURNING id\`, [reservation.id, txid])
+        WHERE id=$1 AND status='broadcasting' RETURNING id`, [reservation.id, txid])
       if (!persisted.rows.length) {
         return res.status(503).json({ success: false, error: 'transaction-id-not-persisted', note: 'No broadcast was attempted.' })
       }
@@ -578,9 +578,9 @@ export function createTreasuryWithdrawalsRouter({
       try {
         broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
       } catch {
-        await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
           SET status='broadcast-unknown', failure_code='broadcast-outcome-unknown', updated_at=now()
-          WHERE id=$1 AND status='broadcasting'\`, [reservation.id]).catch(() => {})
+          WHERE id=$1 AND status='broadcasting'`, [reservation.id]).catch(() => {})
         return res.status(202).json({
           success: false, status: 'broadcast-unknown', idempotencyKey: body.idempotencyKey,
           transactionHash: txid, error: 'broadcast-outcome-unknown',
@@ -590,9 +590,9 @@ export function createTreasuryWithdrawalsRouter({
       const reportedTxid = typeof broadcast?.txid === 'string' ? broadcast.txid
         : typeof broadcast?.txID === 'string' ? broadcast.txID : ''
       if (broadcast?.result !== true || (reportedTxid && reportedTxid.toLowerCase() !== txid.toLowerCase())) {
-        await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
           SET status='broadcast-unknown', failure_code=$2, updated_at=now()
-          WHERE id=$1 AND status='broadcasting'\`, [
+          WHERE id=$1 AND status='broadcasting'`, [
             reservation.id,
             reportedTxid && reportedTxid.toLowerCase() !== txid.toLowerCase()
               ? 'broadcast-response-id-mismatch' : 'broadcast-outcome-unknown',
@@ -603,9 +603,9 @@ export function createTreasuryWithdrawalsRouter({
           note: 'The node response did not safely confirm acceptance; reconcile the persisted transaction hash. Do not retry with a new key.',
         })
       }
-      const updated = await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+      const updated = await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET status='broadcast-accepted', updated_at=now()
-        WHERE id=$1 AND status='broadcasting' RETURNING *\`, [reservation.id])
+        WHERE id=$1 AND status='broadcasting' RETURNING *`, [reservation.id])
       if (!updated.rows.length) {
         return res.status(202).json({ success: false, status: 'broadcast-unknown', idempotencyKey: body.idempotencyKey, transactionHash: txid })
       }
