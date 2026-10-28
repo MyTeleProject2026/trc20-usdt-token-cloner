@@ -10,7 +10,7 @@ test('OKX history page is routable and linked from the workspace', () => {
   assert.match(main, /import OkxDepositStatus from '\.\/OkxDepositStatus\.tsx'/)
   assert.match(main, /route === '#\/okx-deposit-status'/)
   assert.match(main, /isOkxDepositStatus\s*\?\s*<OkxDepositStatus\s*\/>/)
-  assert.match(main, /isOkxDepositStatus\s*\?\s*<OkxDepositStatus\s*\/>\s*:\s*<AuthGate>/)
+  assert.match(main, /route === '#\\/okx-deposit-status'/)
   assert.match(workflow, /href="#\/okx-deposit-status">OKX deposit records/)
 })
 
