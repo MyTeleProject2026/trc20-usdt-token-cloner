@@ -48,7 +48,7 @@ export function buildTreasuryWithdrawalAuthorizationMessage({
     `Amount base units: ${amountBaseUnits}`,
     `Idempotency key: ${idempotencyKey}`,
     `Expires at Unix milliseconds: ${authorizationExpiresAt}`,
-  ].join('\\n')
+  ].join('\n')
 }
 
 export function isTreasuryAuthorizationExpiryValid(expiresAt, nowMs, maxFutureMs = 120_000) {
