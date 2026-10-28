@@ -1,4 +1,5 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual, scrypt as scryptCallback } from 'node:crypto'
+import { promisify } from 'node:util'
 import { Router } from 'express'
 import { Trx } from 'tronweb'
 import { isValidTronAddress } from '../tron-address.mjs'
@@ -10,6 +11,7 @@ import {
   revokeWalletAuthSession,
 } from '../database.mjs'
 
+const scrypt = promisify(scryptCallback)
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const NONCE_PATTERN = /^[0-9a-f]{48,128}$/i
@@ -371,3 +373,153 @@ export function createTronWalletAuthRouter({
 }
 
 export default createTronWalletAuthRouter()
+
+
+const OWNER_SESSION_TTL_MS = 15 * 60 * 1000
+const OWNER_LOGIN_WINDOW_MS = 15 * 60 * 1000
+const OWNER_LOGIN_MAX_ATTEMPTS = 5
+
+function parseOwnerPasswordHash(encoded) {
+  if (typeof encoded !== 'string') return null
+  const parts = encoded.split('$')
+  if (parts.length !== 3 || parts[0] !== 'scrypt') return null
+  const salt = Buffer.from(parts[1], 'base64url')
+  const key = Buffer.from(parts[2], 'base64url')
+  if (salt.length < 16 || salt.length > 64 || key.length !== 64) return null
+  return { salt, key }
+}
+
+async function verifyOwnerPassword(password, encodedHash) {
+  const parsed = parseOwnerPasswordHash(encodedHash)
+  if (!parsed || typeof password !== 'string' || password.length < 1 || password.length > 1024) return false
+  const actual = await scrypt(password, parsed.salt, parsed.key.length, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024,
+  })
+  return timingSafeEqual(Buffer.from(actual), parsed.key)
+}
+
+/**
+ * Password-protected single-owner entry point. It only accepts the one address
+ * configured by the operator and never creates public accounts. The password
+ * hash, not the plaintext password, belongs in the server environment.
+ */
+export function createOwnerAuthRouter({
+  env = process.env,
+  now = () => Date.now(),
+  verifyPassword = verifyOwnerPassword,
+  store = {
+    createSession: persistWalletAuthSession,
+    getSession: getWalletAuthSession,
+    revokeSession: revokeWalletAuthSession,
+  },
+} = {}) {
+  const router = Router()
+  const origins = allowedOrigins(env)
+  const attempts = new Map()
+
+  router.post('/login', async (req, res) => {
+    setNoStore(res)
+    if (!validOrigin(req, origins)) return res.status(403).json({ success: false, error: 'origin-not-allowed' })
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).some((key) => !['address', 'password'].includes(key))) {
+      return res.status(400).json({ success: false, error: 'unexpected-fields' })
+    }
+    const current = now()
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown')
+    let state = attempts.get(ip)
+    if (!state || current - state.startedAt >= OWNER_LOGIN_WINDOW_MS) {
+      state = { startedAt: current, count: 0, blockedUntil: 0 }
+      attempts.set(ip, state)
+    }
+    if (state.blockedUntil > current || state.count >= OWNER_LOGIN_MAX_ATTEMPTS) {
+      const until = state.blockedUntil || state.startedAt + OWNER_LOGIN_WINDOW_MS
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((until - current) / 1000))))
+      return res.status(429).json({ success: false, error: 'login-rate-limited', message: 'Too many sign-in attempts. Wait before trying again.' })
+    }
+
+    const ownerAddress = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
+    const passwordHash = parseOwnerPasswordHash(env.OWNER_PASSWORD_HASH)
+    if (!ADDRESS_PATTERN.test(ownerAddress) || !isValidTronAddress(ownerAddress) || !passwordHash) {
+      return res.status(503).json({
+        success: false,
+        error: 'owner-auth-not-configured',
+        message: 'Owner authentication is not configured. Set OWNER_WALLET_ADDRESS and a scrypt OWNER_PASSWORD_HASH on the backend.',
+      })
+    }
+
+    const suppliedAddress = typeof body.address === 'string' ? body.address.trim() : ''
+    const suppliedPassword = typeof body.password === 'string' ? body.password : ''
+    const left = Buffer.from(suppliedAddress, 'utf8')
+    const right = Buffer.from(ownerAddress, 'utf8')
+    const addressMatches = left.length === right.length && timingSafeEqual(left, right)
+    let passwordMatches = false
+    try { passwordMatches = await verifyPassword(suppliedPassword, env.OWNER_PASSWORD_HASH) } catch { passwordMatches = false }
+    if (!addressMatches || !passwordMatches) {
+      state.count += 1
+      if (state.count >= OWNER_LOGIN_MAX_ATTEMPTS) state.blockedUntil = current + OWNER_LOGIN_WINDOW_MS
+      return res.status(401).json({ success: false, error: 'invalid-owner-credentials', message: 'The owner address or password is incorrect.' })
+    }
+
+    const sessionToken = randomBytes(32).toString('base64url')
+    const expiresAt = current + OWNER_SESSION_TTL_MS
+    let saved
+    try {
+      saved = await store.createSession({
+        tokenHash: digest(sessionToken),
+        address: ownerAddress,
+        network: 'mainnet',
+        origin: req.get('origin'),
+        expiresAt,
+      })
+    } catch {
+      saved = null
+    }
+    if (saved?.success !== true) {
+      return res.status(503).json({ success: false, error: 'owner-session-storage-unavailable', message: 'A secure owner session could not be saved. Check backend database readiness and retry.' })
+    }
+    attempts.delete(ip)
+    return res.json({
+      success: true,
+      authenticated: true,
+      address: ownerAddress,
+      network: 'mainnet',
+      expiresAt,
+      sessionToken,
+      scope: 'single-owner-console',
+      note: 'This session authenticates the configured owner only. It does not create assets or authorize an unfunded transfer.',
+    })
+  })
+
+  router.get('/session', async (req, res) => {
+    setNoStore(res)
+    if (!validOrigin(req, origins)) return res.status(403).json({ success: false, authenticated: false, error: 'origin-not-allowed' })
+    const token = bearerToken(req)
+    if (!token) return res.status(401).json({ success: false, authenticated: false, error: 'session-invalid-or-expired' })
+    let lookup
+    try { lookup = await store.getSession({ tokenHash: digest(token), origin: req.get('origin'), nowMs: now() }) } catch { lookup = null }
+    if (lookup?.success !== true) return res.status(503).json({ success: false, authenticated: false, error: 'owner-session-storage-unavailable' })
+    const session = lookup.session
+    const ownerAddress = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
+    if (!session || session.origin !== req.get('origin') || session.expiresAt <= now()
+      || session.network !== 'mainnet' || session.address !== ownerAddress) {
+      return res.status(401).json({ success: false, authenticated: false, error: 'session-invalid-or-expired' })
+    }
+    return res.json({
+      success: true, authenticated: true, address: session.address,
+      network: 'mainnet', expiresAt: session.expiresAt, scope: 'single-owner-console',
+    })
+  })
+
+  router.post('/logout', async (req, res) => {
+    setNoStore(res)
+    if (!validOrigin(req, origins)) return res.status(403).json({ success: false, error: 'origin-not-allowed' })
+    const token = bearerToken(req)
+    if (!token) return res.json({ success: true, loggedOut: true })
+    let revoked
+    try { revoked = await store.revokeSession({ tokenHash: digest(token) }) } catch { revoked = null }
+    if (revoked?.success !== true) return res.status(503).json({ success: false, loggedOut: false, error: 'owner-session-storage-unavailable' })
+    return res.json({ success: true, loggedOut: true })
+  })
+
+  return router
+}

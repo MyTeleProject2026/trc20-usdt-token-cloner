@@ -17,7 +17,7 @@ test('standalone owner wallet is the default screen and legacy TronLink workspac
   assert.match(vault, /No TronLink connection is required/)
   assert.match(vault, /TREASURY_OWNER_ADDRESS/)
   assert.doesNotMatch(vault, /Sign in to workspace|Switch to Nile for workspace login|Workspace login signs/)
-  assert.match(authGate, /\/api\/auth\/tron\/verify/)
+  assert.match(authGate, /\/api\/auth\/owner\/login/)
   assert.match(workflow, /href="#\/wallet"><Wallet/)
 })
 

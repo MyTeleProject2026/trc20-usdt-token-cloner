@@ -14,7 +14,7 @@ import sponsorSolidifiedReconciliationRoutes from './routes/sponsor-solidified-r
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
 import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
-import tronWalletAuthRoutes from './routes/tron-wallet-auth.mjs'
+import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
@@ -141,6 +141,7 @@ app.use('/api/tron', sponsorChainCostObservationRoutes)
 app.use('/api/tron', sponsorSolidifiedReconciliationRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 app.use('/api/auth/tron', tronWalletAuthRoutes)
+app.use('/api/auth/owner', createOwnerAuthRouter())
 app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
