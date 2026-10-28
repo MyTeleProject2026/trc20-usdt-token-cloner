@@ -395,7 +395,7 @@ export default function WalletVault() {
     }
     void loadOwnerTreasuryDashboard()
     return () => { cancelled = true }
-  }, [unlocked?.record.address])
+  }, [unlocked?.record.address, network])
 
 
   useEffect(() => {
