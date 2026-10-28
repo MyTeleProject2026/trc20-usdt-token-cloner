@@ -146,6 +146,14 @@ function createPayoutTestHarness({ usdtBalance = '50000000', trxBalance = '20000
       if (q === 'SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1') {
         return { rows: state.row && state.row.idempotency_key === params[0] ? [state.row] : [] }
       }
+      if (q.includes("WHERE treasury_address = $1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')")) {
+        return { rows: state.row && state.row.treasury_address === params[0]
+          && ['broadcasting', 'broadcast-accepted', 'broadcast-unknown'].includes(state.row.status) ? [state.row] : [] }
+      }
+      if (q.includes("WHERE owner_address = $1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')")) {
+        return { rows: state.row && state.row.owner_address === params[0]
+          && ['broadcasting', 'broadcast-accepted', 'broadcast-unknown'].includes(state.row.status) ? [state.row] : [] }
+      }
       if (q.includes('COALESCE(SUM(amount_base_units)')) return { rows: [{ amount: '0' }] }
       if (q.startsWith('INSERT INTO trc20_token_clone.treasury_withdrawal_requests')) {
         const [key, owner, treasury, recipient, token, amount] = params
@@ -327,6 +335,21 @@ test('treasury payout signs from the separate funded treasury and persists the t
   const duplicate = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(request) })
   assert.equal(duplicate.status, 200)
   assert.equal((await duplicate.json()).duplicate, true)
+  assert.equal(harness.state.sends, 1)
+
+  const pendingResponse = await fetch(endpoint.replace('/withdrawals', '/withdrawals/pending'), { headers: {
+    origin: 'https://owner.example', authorization: headers.authorization,
+  } })
+  const pendingPayload = await pendingResponse.json()
+  assert.equal(pendingResponse.status, 200)
+  assert.equal(pendingPayload.withdrawal.idempotencyKey, request.idempotencyKey)
+
+  const overlapping = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({
+    recipientAddress: realRecipientAddress, amountUsdt: '0.5',
+    idempotencyKey: 'withdrawal-second-pending-payout-0001',
+  }) })
+  assert.equal(overlapping.status, 409)
+  assert.equal((await overlapping.json()).error, 'pending-withdrawal-requires-reconciliation')
   assert.equal(harness.state.sends, 1)
 
   const conflict = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({
