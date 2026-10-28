@@ -281,7 +281,7 @@ export function createTreasuryWithdrawalsRouter({
         }
       } catch {}
     }
-    const configuredFeeLimitSun = /^\\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '') ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : null
+    const configuredFeeLimitSun = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '') ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : null
     const requiredTrxBalanceSun = minimumTrxReserveSun !== null && configuredFeeLimitSun !== null
       ? minimumTrxReserveSun + configuredFeeLimitSun : null
     const nativeFeeReserveSatisfied = treasuryTrxBalanceSun !== null
