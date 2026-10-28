@@ -1350,6 +1350,8 @@ export default function WalletVault() {
                       <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
                       <div><small>Server payout API</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Enabled' : 'Disabled'}</strong></div>
                       <div><small>Verified treasury USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
+                      <div><small>Treasury native TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                      <div><small>Required TRX including fee cap</small><strong>{typeof serverTreasuryReadiness.requiredTrxBalanceSun === 'string' ? formatUnits(serverTreasuryReadiness.requiredTrxBalanceSun, 6) + ' TRX' : 'Not configured'}</strong></div>
                     </div>
                   )}
                   <div className="wallet-vault-form-grid">
