@@ -1,87 +1,27 @@
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
-import { Activity, ExternalLink, Eye, Layers, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import type { ReactNode, FormEvent } from 'react'
+import { Activity, Layers, LockKeyhole, RefreshCw, ShieldCheck, LogOut } from 'lucide-react'
 
-type NetworkId = 'nile' | 'shasta'
-type WalletSession = { address: string; network: NetworkId; expiresAt: number; sessionToken: string }
+type OwnerSession = { address: string; expiresAt: number; sessionToken: string }
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
-const SESSION_KEY = 'tron-token-studio:auth-session:v1'
-const NETWORK_KEY = 'tron-token-studio:auth-network:v1'
-const HOSTS: Record<NetworkId, string> = {
-  nile: 'nile.trongrid.io',
-  shasta: 'api.shasta.trongrid.io',
-}
+const SESSION_KEY = 'tron-token-studio:owner-session:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
-function savedNetwork(): NetworkId {
-  try { return window.sessionStorage.getItem(NETWORK_KEY) === 'shasta' ? 'shasta' : 'nile' } catch { return 'nile' }
-}
-
-function getTronProvider(): any {
-  const candidates = [(window as any).tron, (window as any).tronLink]
-  return candidates.find(provider => provider && provider.isTronLink === true
-    && typeof provider.request === 'function') || null
-}
-
-async function requestTronAccounts(provider: any): Promise<unknown> {
-  try {
-    return await provider.request({ method: 'eth_requestAccounts' })
-  } catch (caught) {
-    const code = Number((caught as any)?.code)
-    const rawMessage = typeof caught === 'string' ? caught : String((caught as any)?.message || '')
-    if (code === -32601 || code === 4200 || /method not found|unsupported method|method not supported/i.test(rawMessage)) {
-      return provider.request({ method: 'tron_requestAccounts' })
-    }
-    throw caught
-  }
-}
-
-function walletErrorMessage(caught: unknown): string {
-  const code = Number((caught as any)?.code)
-  const raw = (typeof caught === 'string' ? caught : String((caught as any)?.message || '')).trim()
-  if (code === 4001 || /confirmation declined by user|user rejected the request|request rejected/i.test(raw)) {
-    return 'The wallet request was declined. Retry and approve the connection or the clearly labelled sign-in message in TronLink.'
-  }
-  if (code === -32002 || /already pending|request is already pending|already processing a request/i.test(raw)) {
-    return 'A TronLink request is already open. Finish or close that wallet prompt before trying again.'
-  }
-  if (/user has not unlocked wallet|wallet is locked|wallet not unlocked/i.test(raw)) {
-    return 'Unlock TronLink, select the intended account and testnet, then retry sign-in.'
-  }
-  if (/invalid transaction provided|transaction integrity check failed/i.test(raw)) {
-    return 'TronLink could not sign the login message. Update/unlock TronLink and retry; no transfer was submitted.'
-  }
-  return raw.slice(0, 240) || 'Wallet sign-in failed. Confirm TronLink is available and try again.'
-}
-
-function assertSelectedNetwork(tronWeb: any, network: NetworkId) {
-  const host = String(tronWeb?.fullNode?.host || tronWeb?.fullNode?.nodeUrl || '')
-  let parsed: URL
-  try { parsed = new URL(host) } catch { throw new Error('TronLink network could not be verified. Select the requested testnet and reconnect.') }
-  if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== HOSTS[network]
-    || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
-    || (parsed.pathname !== '' && parsed.pathname !== '/')) {
-    throw new Error('Network mismatch. Select ' + (network === 'nile' ? 'Nile' : 'Shasta') + ' in TronLink and try again.')
-  }
-}
-
 export default function AuthGate({ children }: { children: ReactNode }) {
-  const [network, setNetwork] = useState<NetworkId>(savedNetwork)
-  const [session, setSession] = useState<WalletSession | null>(null)
+  const [session, setSession] = useState<OwnerSession | null>(null)
   const [checking, setChecking] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [address, setAddress] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [readOnlyMode, setReadOnlyMode] = useState(false)
-  const operatorRoute = window.location.hash === '#/sponsor-operator'
 
-  function clearStoredSession() {
+  function clearSession() {
     try {
       const token = window.sessionStorage.getItem(SESSION_KEY)
       window.sessionStorage.removeItem(SESSION_KEY)
-      window.sessionStorage.removeItem(NETWORK_KEY)
       if (token) {
-        void fetch(API_BASE + '/api/auth/tron/logout', {
+        void fetch(API_BASE + '/api/auth/owner/logout', {
           method: 'POST',
           headers: { Authorization: 'Bearer ' + token },
           credentials: 'omit',
@@ -89,187 +29,96 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         }).catch(() => undefined)
       }
     } catch {
-      // Continue clearing the in-memory identity if browser storage is unavailable.
+      // Clear in-memory session even when storage is unavailable.
     }
   }
 
   useEffect(() => {
     let cancelled = false
-    const restore = async () => {
+    async function restore() {
       try {
         const token = window.sessionStorage.getItem(SESSION_KEY)
         if (!token) return
-        // The app identity is the server-verified signature session, not whichever
-        // account happens to be active in the wallet today. This allows operators
-        // to switch between their distinct fee/principal wallets without losing
-        // the app session; signing actions re-verify the active account separately.
-        const response = await fetch(API_BASE + '/api/auth/tron/session', {
+        const response = await fetch(API_BASE + '/api/auth/owner/session', {
           headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
           credentials: 'omit',
           cache: 'no-store',
         })
         const payload = await response.json().catch(() => null)
         if (!response.ok || payload?.success !== true || payload?.authenticated !== true
-          || !ADDRESS_PATTERN.test(String(payload.address || ''))
-          || !['nile', 'shasta'].includes(payload.network)
-          || payload.network !== network || !Number.isFinite(payload.expiresAt)
-          || payload.expiresAt <= Date.now()) {
-          throw new Error('The saved wallet session is invalid or expired. Sign in again.')
+          || !ADDRESS_PATTERN.test(String(payload.address || '')) || payload.network !== 'mainnet'
+          || !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) {
+          throw new Error('Owner session expired. Sign in again.')
         }
-        if (cancelled) return
-        setSession({ address: payload.address, network: payload.network, expiresAt: payload.expiresAt, sessionToken: token })
-        setError('')
+        if (!cancelled) setSession({ address: payload.address, expiresAt: payload.expiresAt, sessionToken: token })
       } catch {
-        clearStoredSession()
+        try { window.sessionStorage.removeItem(SESSION_KEY) } catch { /* no-op */ }
       } finally {
         if (!cancelled) setChecking(false)
       }
     }
     void restore()
     return () => { cancelled = true }
-  }, [network])
-
-  useEffect(() => {
-    const onLogout = () => {
-      clearStoredSession()
-      setSession(null)
-      setChecking(false)
-      setError('Signed out. Connect and verify a wallet to continue.')
-    }
-    const onNetworkChange = (event: Event) => {
-      const requested = (event as CustomEvent<unknown>).detail
-      if (requested !== 'nile' && requested !== 'shasta') return
-      setSession(null)
-      setChecking(false)
-      setError('Network changed. Connect and sign in again on the selected testnet.')
-      setNetwork(requested)
-    }
-    const onWalletAuthenticated = (event: Event) => {
-      const detail = (event as CustomEvent<unknown>).detail as Partial<WalletSession> | null
-      if (!detail || typeof detail.address !== 'string' || !ADDRESS_PATTERN.test(detail.address)
-        || (detail.network !== 'nile' && detail.network !== 'shasta')
-        || typeof detail.sessionToken !== 'string' || !Number.isFinite(detail.expiresAt)
-        || (detail.expiresAt as number) <= Date.now()) return
-      setSession({
-        address: detail.address,
-        network: detail.network,
-        sessionToken: detail.sessionToken,
-        expiresAt: detail.expiresAt as number,
-      })
-      setNetwork(detail.network)
-      setReadOnlyMode(false)
-      setChecking(false)
-      setError('')
-    }
-    window.addEventListener('tron-token-studio:logout', onLogout)
-    window.addEventListener('tron-token-studio:network-change', onNetworkChange)
-    window.addEventListener('tron-token-studio:wallet-authenticated', onWalletAuthenticated)
-    return () => {
-      window.removeEventListener('tron-token-studio:logout', onLogout)
-      window.removeEventListener('tron-token-studio:network-change', onNetworkChange)
-      window.removeEventListener('tron-token-studio:wallet-authenticated', onWalletAuthenticated)
-    }
   }, [])
 
   useEffect(() => {
     if (!session) return
     const timeout = window.setTimeout(() => {
-      clearStoredSession()
+      clearSession()
       setSession(null)
-      setError('Wallet login expired. Sign in again to continue.')
+      setPassword('')
+      setError('Your owner session expired. Sign in again.')
     }, Math.max(0, session.expiresAt - Date.now()))
     return () => window.clearTimeout(timeout)
   }, [session])
 
-  const signIn = async () => {
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
     setBusy(true)
     setError('')
     try {
-      const provider = getTronProvider()
-      if (!provider) {
-        throw new Error('TronLink was not detected. Open this website in a browser where the TronLink extension or wallet browser is enabled.')
-      }
-      await requestTronAccounts(provider)
-      const tronWeb = provider.tronWeb || (window as any).tronWeb
-      if (!tronWeb || typeof tronWeb !== 'object') {
-        throw new Error('TronLink approved the connection but did not expose TronWeb yet. Unlock the wallet, close any pending wallet prompt, and click Connect again.')
-      }
-      assertSelectedNetwork(tronWeb, network)
-      const address = String(tronWeb?.defaultAddress?.base58 || '')
-      if (!ADDRESS_PATTERN.test(address) || (typeof tronWeb.isAddress === 'function' && !tronWeb.isAddress(address))) {
-        throw new Error('TronLink did not provide a valid authorized TRON address.')
-      }
-      const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
+      const response = await fetch(API_BASE + '/api/auth/owner/login', {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, network }),
+        body: JSON.stringify({ address: address.trim(), password }),
         credentials: 'omit',
         cache: 'no-store',
       })
-      const challenge = await challengeResponse.json().catch(() => null)
-      if (!challengeResponse.ok || challenge?.success !== true || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string') {
-        throw new Error(challenge?.message || challenge?.error || 'Wallet sign-in challenge failed (HTTP ' + challengeResponse.status + ').')
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.authenticated !== true
+        || payload.network !== 'mainnet' || !ADDRESS_PATTERN.test(String(payload.address || ''))
+        || typeof payload.sessionToken !== 'string' || !Number.isFinite(payload.expiresAt)) {
+        throw new Error(payload?.message || (payload?.error === 'owner-auth-not-configured'
+          ? 'Owner login is not configured on the backend yet.'
+          : 'Owner address or password is incorrect.'))
       }
-      if (typeof tronWeb?.trx?.signMessageV2 !== 'function') throw new Error('This TronLink version does not support signMessageV2.')
-      const signature = await tronWeb.trx.signMessageV2(challenge.message)
-      if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) throw new Error('TronLink returned an invalid login signature.')
-      const currentTronWeb = provider.tronWeb || (window as any).tronWeb
-      assertSelectedNetwork(currentTronWeb, network)
-      if (String(currentTronWeb?.defaultAddress?.base58 || '') !== address) {
-        throw new Error('The active TronLink address changed during sign-in. Retry with the intended account.')
-      }
-      const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
-        method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, network, nonce: challenge.nonce, signature }),
-        credentials: 'omit',
-        cache: 'no-store',
-      })
-      const verified = await verifyResponse.json().catch(() => null)
-      if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
-        || verified.address !== address || verified.network !== network
-        || typeof verified.sessionToken !== 'string' || !Number.isFinite(verified.expiresAt)) {
-        throw new Error(verified?.message || verified?.error || 'Wallet signature verification failed (HTTP ' + verifyResponse.status + ').')
-      }
-      window.sessionStorage.setItem(SESSION_KEY, verified.sessionToken)
-      window.sessionStorage.setItem(NETWORK_KEY, network)
-      setSession({ address, network, expiresAt: verified.expiresAt, sessionToken: verified.sessionToken })
+      window.sessionStorage.setItem(SESSION_KEY, payload.sessionToken)
+      setSession({ address: payload.address, expiresAt: payload.expiresAt, sessionToken: payload.sessionToken })
+      setPassword('')
+      setAddress(payload.address)
     } catch (caught) {
-      setError(walletErrorMessage(caught))
+      setError(caught instanceof Error ? caught.message : 'Owner sign-in failed. Check the backend and try again.')
     } finally {
       setBusy(false)
       setChecking(false)
     }
   }
 
-  const selectNetwork = (next: NetworkId) => {
-    if (next === network) return
-    clearStoredSession()
+  function signOut() {
+    clearSession()
     setSession(null)
-    setError('')
-    setNetwork(next)
+    setPassword('')
+    setError('Signed out.')
   }
 
-  const signOut = () => {
-    clearStoredSession()
-    setSession(null)
-    setChecking(false)
-    setError('Signed out. Connect and verify a wallet to continue.')
-  }
-
-  if (readOnlyMode && !operatorRoute) {
-    return <>{children}</>
-  }
-
-  if (session && session.network === network && session.expiresAt > Date.now()) {
+  if (session && session.expiresAt > Date.now()) {
     return (
       <>
-        {operatorRoute && (
-          <div className="studio-auth-session-strip">
-            <span><ShieldCheck size={14} aria-hidden="true" /> Session verified · {session.address.slice(0, 7)}…{session.address.slice(-5)} · {session.network}</span>
-            <button type="button" onClick={signOut}>Sign out</button>
-          </div>
-        )}
+        <div className="studio-auth-session-strip">
+          <span><ShieldCheck size={14} aria-hidden="true" /> Owner session · {session.address.slice(0, 7)}…{session.address.slice(-5)} · Mainnet</span>
+          <button type="button" onClick={signOut}><LogOut size={14} aria-hidden="true" /> Sign out</button>
+        </div>
         {children}
       </>
     )
@@ -280,52 +129,38 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       <section className="studio-auth-card" aria-labelledby="studio-auth-title">
         <div className="studio-auth-brand">
           <span className="studio-logo"><Layers size={22} aria-hidden="true" /></span>
-          <span><strong>TRON Token Studio</strong><small>WALLET IDENTITY · TESTNET ONLY</small></span>
+          <span><strong>TRON Token Studio</strong><small>PRIVATE OWNER CONSOLE</small></span>
         </div>
-        <p className="studio-eyebrow">SECURE SIGN-IN</p>
-        <h1 id="studio-auth-title">Sign in to your workspace</h1>
-        <p className="studio-auth-lead">Verify control of your TRON address with a one-time message signature in TronLink. The same login gate protects the transfer workspace and sponsor operator console.</p>
-        <div className="studio-auth-network" role="group" aria-label="Choose testnet">
-          <button type="button" aria-pressed={network === 'nile'} className={network === 'nile' ? 'is-selected' : ''} onClick={() => selectNetwork('nile')}>Nile testnet</button>
-          <button type="button" aria-pressed={network === 'shasta'} className={network === 'shasta' ? 'is-selected' : ''} onClick={() => selectNetwork('shasta')}>Shasta testnet</button>
-        </div>
-
-        <div className="studio-auth-readonly" role="note">
-          <p><strong>Try the platform without real USDT</strong></p>
-          <p>Use test tokens on the selected {network === 'nile' ? 'Nile' : 'Shasta'} testnet. Testnet coins have no monetary value and cannot be deposited or transferred to a Mainnet exchange account. Keep TronLink on the same testnet selected here.</p>
-          <p>
-            <a href={network === 'nile' ? 'https://nileex.io/join/getJoinPage' : 'https://shasta.tronex.io/join/getJoinPage'} target="_blank" rel="noopener noreferrer">
-              Open {network === 'nile' ? 'Nile' : 'Shasta'} testnet faucet <ExternalLink size={14} aria-hidden="true" />
-            </a>
-          </p>
-          <p><a href="https://developers.tron.network/docs/getting-testnet-tokens-on-tron" target="_blank" rel="noopener noreferrer">TRON’s official test-token guide <ExternalLink size={14} aria-hidden="true" /></a></p>
-        </div>
-        {checking ? (
-          <div className="studio-auth-loading" role="status"><RefreshCw className="studio-spin" size={18} aria-hidden="true" /> Checking saved wallet session…</div>
-        ) : (
-          <button type="button" className="studio-button studio-button--primary studio-auth-submit" onClick={() => void signIn()} disabled={busy}>
-            <Wallet size={17} aria-hidden="true" /> {busy ? 'Waiting for TronLink…' : 'Connect TronLink & sign in'}
-          </button>
-        )}
+        <p className="studio-eyebrow">OWNER AUTHENTICATION</p>
+        <h1 id="studio-auth-title">Sign in to your owner panel</h1>
+        <p className="studio-auth-lead">Access is restricted to the single owner address configured on the backend. There is no public sign-up or account creation. Your password is verified by the server and is never stored in browser storage.</p>
+        <form onSubmit={(event) => void signIn(event)} noValidate>
+          <div className="studio-field-block">
+            <label htmlFor="owner-address">Owner TRON address</label>
+            <input id="owner-address" name="address" type="text" inputMode="text" autoComplete="username" spellCheck={false}
+              placeholder="T..." value={address} onChange={(event) => setAddress(event.target.value)} required maxLength={34} />
+          </div>
+          <div className="studio-field-block">
+            <label htmlFor="owner-password">Owner password</label>
+            <input id="owner-password" name="password" type="password" autoComplete="current-password"
+              placeholder="Enter your owner password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={1024} />
+            <p className="studio-field-hint">Use the password configured for the owner on the backend. Do not share it or commit it to GitHub.</p>
+          </div>
+          {checking ? (
+            <div className="studio-auth-loading" role="status"><RefreshCw className="studio-spin" size={18} aria-hidden="true" /> Checking saved owner session…</div>
+          ) : (
+            <button type="submit" className="studio-button studio-button--primary studio-auth-submit" disabled={busy || !address.trim() || !password}>
+              <LockKeyhole size={17} aria-hidden="true" /> {busy ? 'Verifying owner…' : 'Sign in securely'}
+            </button>
+          )}
+        </form>
         {error && <p className="studio-inline-error" role="alert">{error}</p>}
         <div className="studio-auth-points">
-          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>Address ownership is verified.</strong> The backend checks a fresh signature and short-lived nonce.</span></p>
-          <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>No private keys or recovery phrases.</strong> The site never asks you to paste them.</span></p>
-          <p><Activity size={16} aria-hidden="true" /><span><strong>Sign-in is not a transfer.</strong> It does not authorize sponsor spending or broadcast a transaction.</span></p>
+          <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; no public account creation exists.</span></p>
+          <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 15 minutes and can be signed out.</span></p>
+          <p><Activity size={16} aria-hidden="true" /><span><strong>Authentication is not funding.</strong> Login cannot create genuine USDT or bypass on-chain balance requirements.</span></p>
         </div>
-        <p className="studio-auth-footnote">A public address alone cannot authenticate an account. Sponsor wallets may still need to be selected individually for any wallet-signed action; account selection does not imply sponsor authority.</p>
-        <div className="studio-auth-wallet-cta">
-          <div><strong>Create or import your own wallet</strong><p>Open the local wallet vault to generate a TRON address, encrypt a key on this device, restore an encrypted backup and inspect real on-chain balances.</p></div>
-          <a href="#/wallet">Open Wallet Vault <ExternalLink size={14} aria-hidden="true" /></a>
-        </div>
-        {!operatorRoute && (
-          <div className="studio-auth-readonly">
-            <p><strong>Using a regular browser without a connected wallet?</strong> Continue in watch-only mode to inspect a public TRON address and token contracts. This is not authenticated wallet login and cannot sign, broadcast, or access the sponsor operator console.</p>
-            <button type="button" className="studio-button studio-button--secondary studio-auth-submit" onClick={() => { setReadOnlyMode(true); setError('') }}>
-              <Eye size={16} aria-hidden="true" /> Continue in watch-only mode
-            </button>
-          </div>
-        )}
+        <p className="studio-auth-footnote">If login is not configured, the backend administrator must set OWNER_WALLET_ADDRESS and OWNER_PASSWORD_HASH in the private service environment. Never send the plaintext password or a private key to support.</p>
       </section>
     </div>
   )
