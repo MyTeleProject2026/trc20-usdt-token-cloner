@@ -196,6 +196,8 @@ export function createTreasuryWithdrawalsRouter({
   sessionLookup = getWalletAuthSession,
   tronWebFactory = (privateKey) => new TronWeb({ fullHost: MAINNET_RPC, ...(privateKey ? { privateKey } : {}) }),
   readOnlyTronWebFactory = () => new TronWeb({ fullHost: MAINNET_RPC }),
+  databaseProvider = getPool,
+  prepareDatabase = ensureSchema,
   now = () => new Date(),
 } = {}) {
   const router = Router()
@@ -239,10 +241,10 @@ export function createTreasuryWithdrawalsRouter({
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
-    const db = getPool(env)
+    const db = databaseProvider(env)
     let databaseReady = false
     if (db) {
-      try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
+      try { await prepareDatabase(db); await db.query('SELECT 1'); databaseReady = true } catch {}
     }
     // Treasury identity is separate from the owner identity. Verify the secret key
     // derives exactly the explicitly configured public treasury address.
@@ -279,9 +281,12 @@ export function createTreasuryWithdrawalsRouter({
         }
       } catch {}
     }
+    const configuredFeeLimitSun = /^\\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '') ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : null
+    const requiredTrxBalanceSun = minimumTrxReserveSun !== null && configuredFeeLimitSun !== null
+      ? minimumTrxReserveSun + configuredFeeLimitSun : null
     const nativeFeeReserveSatisfied = treasuryTrxBalanceSun !== null
-      && minimumTrxReserveSun !== null
-      && BigInt(treasuryTrxBalanceSun) >= minimumTrxReserveSun
+      && requiredTrxBalanceSun !== null
+      && BigInt(treasuryTrxBalanceSun) >= requiredTrxBalanceSun
     return res.json({
       success: true,
       network: 'mainnet',
@@ -296,6 +301,7 @@ export function createTreasuryWithdrawalsRouter({
       treasuryUsdtBalanceBaseUnits: usdtBalance,
       treasuryTrxBalanceSun,
       minimumTrxReserveSun: minimumTrxReserveSun?.toString() || null,
+      requiredTrxBalanceSun: requiredTrxBalanceSun?.toString() || null,
       nativeFeeReserveSatisfied,
       limitations: [
         'This is a treasury-funded withdrawal service, not a token minting mechanism.',
@@ -325,10 +331,10 @@ export function createTreasuryWithdrawalsRouter({
     if (!amount || amount >= (1n << 256n) || !maxPayout || !dailyLimit || amount > maxPayout || amount > dailyLimit) {
       return res.status(400).json({ success: false, error: 'amount-outside-configured-limits' })
     }
-    const db = getPool(env)
+    const db = databaseProvider(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
-      await ensureSchema(db)
+      await prepareDatabase(db)
       const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
       const treasuryAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim())
       if (!tronWeb.isAddress(body.recipientAddress) || !isValidTronAddress(body.recipientAddress)
@@ -354,8 +360,8 @@ export function createTreasuryWithdrawalsRouter({
       }
       const balance = BigInt(balanceText)
       if (balance < amount) return res.status(409).json({ success: false, error: 'treasury-usdt-insufficient', treasuryUsdtBalanceBaseUnits: balance.toString() })
-      if (BigInt(trxBalanceText) < minimumTrxReserveSun) {
-        return res.status(409).json({ success: false, error: 'treasury-trx-fee-reserve-insufficient', treasuryTrxBalanceSun: trxBalanceText, minimumTrxReserveSun: minimumTrxReserveSun.toString() })
+      if (BigInt(trxBalanceText) < minimumTrxReserveSun + BigInt(configuredFeeLimit)) {
+        return res.status(409).json({ success: false, error: 'treasury-trx-fee-reserve-insufficient', treasuryTrxBalanceSun: trxBalanceText, minimumTrxReserveSun: minimumTrxReserveSun.toString(), feeLimitSun: String(configuredFeeLimit), requiredTrxBalanceSun: (minimumTrxReserveSun + BigInt(configuredFeeLimit)).toString() })
       }
 
       const client = await db.connect()
@@ -533,10 +539,10 @@ export function createTreasuryWithdrawalsRouter({
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     if (!IDEMPOTENCY_PATTERN.test(req.params.idempotencyKey || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
-    const db = getPool(env)
+    const db = databaseProvider(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
-      await ensureSchema(db)
+      await prepareDatabase(db)
       const result = await db.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1 AND owner_address = $2', [req.params.idempotencyKey, auth.ownerAddress])
       if (!result.rows.length) return res.status(404).json({ success: false, error: 'withdrawal-not-found' })
       let row = result.rows[0]
