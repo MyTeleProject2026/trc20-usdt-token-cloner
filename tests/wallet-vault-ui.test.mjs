@@ -11,7 +11,7 @@ test('standalone owner wallet is the default screen and legacy TronLink workspac
   const workflow = await read('src/WorkflowApp.tsx')
   assert.match(entry, /const isWalletVault = route === '#\/wallet'/)
   assert.match(entry, /:\s*<WalletVault \/>/)
-  assert.doesNotMatch(entry, /isLegacyWorkspace|WorkflowApp/)
+  assert.match(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
   assert.doesNotMatch(entry, /Open watch-only address monitor/)
   assert.match(vault, /OWNER WALLET CONTROL/)
   assert.match(vault, /No TronLink connection is required/)
