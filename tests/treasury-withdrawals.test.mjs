@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, parsePositiveDecimal, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('USDT decimal parser converts exact six-decimal amounts to base units', () => {
   assert.equal(parsePositiveDecimal('1'), 1_000_000n)
@@ -45,11 +45,15 @@ const addressHex = new Map([
   ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', '41' + '33'.repeat(20)],
 ])
 const fakeTronWeb = { address: { toHex: (address) => addressHex.get(address) || '' } }
+const transferEventTopic = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+const usdtContract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 function validEvidence({ receiptResult = 'SUCCESS', amount = amountBaseUnits, recipient = recipientAddress } = {}) {
   const recipientHex = addressHex.get(recipient).slice(2)
   const data = 'a9059cbb' + recipientHex.padStart(64, '0')
     + BigInt(amount).toString(16).padStart(64, '0')
+  const senderTopic = '0x' + addressHex.get(treasuryAddress).slice(2).padStart(64, '0')
+  const recipientTopic = '0x' + recipientHex.padStart(64, '0')
   return {
     transaction: {
       txID: txid,
@@ -57,12 +61,21 @@ function validEvidence({ receiptResult = 'SUCCESS', amount = amountBaseUnits, re
         type: 'TriggerSmartContract',
         parameter: { value: {
           owner_address: addressHex.get(treasuryAddress),
-          contract_address: addressHex.get('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'),
+          contract_address: addressHex.get(usdtContract),
           data,
         } },
       }] },
     },
-    transactionInfo: { id: txid, blockNumber: 12345, receipt: receiptResult ? { result: receiptResult } : {} },
+    transactionInfo: {
+      id: txid,
+      blockNumber: 12345,
+      receipt: receiptResult ? { result: receiptResult } : {},
+      log: [{
+        address: addressHex.get(usdtContract).slice(2),
+        topics: ['0x' + transferEventTopic, senderTopic, recipientTopic],
+        data: '0x' + BigInt(amount).toString(16).padStart(64, '0'),
+      }],
+    },
   }
 }
 
@@ -80,7 +93,7 @@ test('treasury receipt verifier confirms only the exact official-USDT transfer a
   assert.deepEqual(verify(), {
     verified: true,
     status: 'confirmed',
-    reason: 'confirmed-solidified-successful-receipt',
+    reason: 'confirmed-solidified-successful-receipt-and-transfer-event',
     blockNumber: 12345,
   })
 })
@@ -117,4 +130,47 @@ test('treasury receipt verifier rejects a transaction hash that does not match t
   const evidence = validEvidence()
   evidence.transaction.txID = 'b'.repeat(64)
   assert.equal(verify(evidence).verified, false)
+})
+
+test('treasury receipt verifier refuses success when the official USDT Transfer event is missing or mismatched', () => {
+  const missing = validEvidence()
+  missing.transactionInfo.log = []
+  assert.equal(verify(missing).status, 'verification-mismatch')
+  assert.equal(verify(missing).reason, 'official-usdt-transfer-event-missing-or-mismatched')
+
+  const wrongAmount = validEvidence()
+  wrongAmount.transactionInfo.log[0].data = '0x' + BigInt(amountBaseUnits + '1').toString(16).padStart(64, '0')
+  assert.equal(verify(wrongAmount).reason, 'official-usdt-transfer-event-missing-or-mismatched')
+
+  const duplicate = validEvidence()
+  duplicate.transactionInfo.log.push({ ...duplicate.transactionInfo.log[0], topics: [...duplicate.transactionInfo.log[0].topics] })
+  assert.equal(verify(duplicate).reason, 'official-usdt-transfer-event-missing-or-mismatched')
+})
+
+test('treasury available-balance calculation reserves ambiguous or pending payouts conservatively', () => {
+  assert.equal(unreservedTreasuryBalance('10000000', '2500000'), '7500000')
+  assert.equal(unreservedTreasuryBalance('10000000', '10000000'), '0')
+  assert.equal(unreservedTreasuryBalance('10000000', '12000000'), '0')
+  assert.equal(unreservedTreasuryBalance('bad', '0'), null)
+  assert.equal(unreservedTreasuryBalance('100', '1.5'), null)
+})
+
+test('withdrawal idempotency binds an existing key to the exact owner, treasury, recipient, token and amount', () => {
+  const row = {
+    owner_address: treasuryAddress,
+    treasury_address: treasuryAddress,
+    recipient_address: recipientAddress,
+    token_contract: usdtContract,
+    amount_base_units: amountBaseUnits,
+  }
+  const request = {
+    ownerAddress: treasuryAddress,
+    treasuryAddress,
+    recipientAddress,
+    amountBaseUnits,
+  }
+  assert.equal(matchesTreasuryWithdrawalRequest(row, request), true)
+  assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, recipientAddress: treasuryAddress }), false)
+  assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, amountBaseUnits: '1' }), false)
+  assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, ownerAddress: recipientAddress }), false)
 })
