@@ -679,6 +679,26 @@ export default function WalletVault() {
       })
       const payoutReadiness = await payoutReadinessResponse.json().catch(() => null)
       setServerTreasuryReadiness(payoutReadiness && typeof payoutReadiness === 'object' ? payoutReadiness : null)
+      // Recover an active or ambiguous server payout after an APK/browser restart.
+      // This prevents the owner UI from creating a replacement payout before the
+      // original signed transaction is reconciled on-chain.
+      try {
+        const pendingResponse = await fetch(API_BASE + '/api/treasury/withdrawals/pending', {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+        const pending = await pendingResponse.json().catch(() => null)
+        if (pendingResponse.ok && pending?.success === true) {
+          setTreasuryPayoutStatus(pending.withdrawal ? { success: true, withdrawal: pending.withdrawal } : null)
+        } else {
+          setTreasuryPayoutError('Could not check for an earlier pending treasury payout. The backend still blocks overlapping payouts until reconciliation.')
+        }
+      } catch {
+        setTreasuryPayoutError('Could not check for an earlier pending treasury payout. Verify server status before submitting another request.')
+      }
     } catch (caught) {
       setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
     } finally {
@@ -693,6 +713,11 @@ export default function WalletVault() {
     }
     if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true) {
       setTreasuryPayoutError('Verify the owner wallet signature before requesting a treasury payout.')
+      return
+    }
+    const existingPayoutStatus = treasuryPayoutStatus?.withdrawal?.status || treasuryPayoutStatus?.status
+    if (['broadcasting', 'broadcast-accepted', 'broadcast-unknown', 'request-outcome-unknown'].includes(existingPayoutStatus)) {
+      setTreasuryPayoutError('An earlier payout may still be pending. Use Check / Verify Existing Payout first; the backend will not allow overlapping withdrawals.')
       return
     }
     if (treasuryPayoutConfirm !== 'SEND TREASURY USDT') {
@@ -780,6 +805,11 @@ export default function WalletVault() {
         redirect: 'error',
       })
       const payload = await response.json().catch(() => null)
+      if (response.status === 404 && payload?.error === 'withdrawal-not-found') {
+        setTreasuryPayoutStatus(null)
+        setNotice('The server has no withdrawal record for that key. No payout is recorded for it; verify the current funding status before creating a fresh request.')
+        return
+      }
       if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Withdrawal status lookup failed.')
       const combined = { ...payload, verification: verification?.verification || null }
       setTreasuryPayoutStatus(combined)
