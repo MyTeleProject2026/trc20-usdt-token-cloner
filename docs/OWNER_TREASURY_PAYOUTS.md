@@ -30,6 +30,16 @@ Configure these values on the **backend API service only**. Never commit credent
 
 The API also requires valid values for all payout configuration fields and checks that the private key derives exactly `TREASURY_ADDRESS`. Readiness also verifies a positive official-USDT principal balance and a treasury TRX balance at least equal to `TREASURY_FEE_LIMIT_SUN`; the actual withdrawal request repeats the TRX check under the database reservation lock. This is a conservative check of the full configured cap, not a claim that the full amount will be spent. A missing setting, zero principal balance, or insufficient fee budget keeps withdrawals disabled. The local frontend is not permitted to enable this route by itself.
 
+### Configure the private owner login
+
+The production smoke check currently identifies these missing/invalid settings on the backend: `OWNER_WALLET_ADDRESS` and `OWNER_PASSWORD_HASH`. The live database and allowed application origins passed their checks. Do not enter placeholder values.
+
+1. Set `OWNER_WALLET_ADDRESS` to the public TRON Mainnet address you control and intend to authorize as the sole owner. The payout route separately requires `TREASURY_OWNER_ADDRESS` to match this owner address exactly.
+2. On a trusted local checkout of this repository, run `node scripts/generate-owner-password-hash.mjs` in an interactive terminal. Type and confirm a strong password at least 16 characters long; the prompt does not echo it. The script outputs `OWNER_PASSWORD_HASH=<hash>` using the same scrypt format consumed by the backend.
+3. In Render Dashboard → the **backend API service** → Environment, set `OWNER_WALLET_ADDRESS` to the public address and `OWNER_PASSWORD_HASH` to the hash value only (omit the `OWNER_PASSWORD_HASH=` prefix). Save changes so Render deploys/restarts the service. Do not commit the hash, put it in any `VITE_*` variable, or share the password/hash in chat.
+4. Re-run the production API smoke check. The owner console should report configured only after the backend validates the address/hash format, database presence, and origin allowlists. Then sign in through the frontend owner gate to confirm the credentials; this step does not test treasury funding.
+5. Separately, use the authenticated Wallet Vault treasury check to determine whether a real payout is possible. Owner login configuration alone never establishes that the treasury signer matches its address, that USDT/TRX are present, or that payouts are enabled.
+
 ## Owner-console environment check
 
 The public read-only endpoint `GET /api/auth/owner/config` reports only whether the owner address, scrypt password hash, database URL, and allowed application origins are configured. It returns missing **variable names** when setup is incomplete; it never returns the owner address, password hash, database URL, private keys, or other credential values. This endpoint is not proof that treasury withdrawals are enabled or funded.
