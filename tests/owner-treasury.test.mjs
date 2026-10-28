@@ -103,7 +103,7 @@ test('owner treasury endpoint rejects a wallet other than the configured owner',
 test('owner treasury endpoint returns only verified funding facts and never enables payout submission', async () => {
   const calls = []
   const router = createOwnerTreasuryRouter({
-    env: { TREASURY_OWNER_ADDRESS: ownerAddress },
+    env: { TREASURY_OWNER_ADDRESS: ownerAddress, TREASURY_MAINNET_ADDRESS: 'TCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC' },
     isValidAddress: () => true,
     getSession: async ({ tokenHash, origin: receivedOrigin }) => {
       calls.push({ tokenHash, origin: receivedOrigin })
