@@ -123,12 +123,13 @@ export function createTreasuryWithdrawalsRouter({
   }
 
   function configuration() {
-    const required = ['DATABASE_URL', 'TREASURY_OWNER_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_FEE_LIMIT_SUN']
+    const required = ['DATABASE_URL', 'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_FEE_LIMIT_SUN']
     const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
     const enabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
       && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
       && missing.length === 0
       && ADDRESS_PATTERN.test(env.TREASURY_OWNER_ADDRESS || '')
+      && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
       && Boolean(readLimit(env.TREASURY_MAX_PAYOUT_USDT))
       && Boolean(readLimit(env.TREASURY_DAILY_LIMIT_USDT))
       && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
@@ -147,16 +148,8 @@ export function createTreasuryWithdrawalsRouter({
     if (db) {
       try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
     }
-    let treasuryAddressMatches = false
-    if (config.enabled) {
-      try {
-        const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
-        treasuryAddressMatches = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim()) === auth.ownerAddress
-      } catch {}
-    }
-    // Treasury address is separate from the owner identity; do not require the
-    // owner wallet to equal the treasury wallet. The configured signer address is
-    // returned only as a public address after the private key has been checked.
+    // Treasury identity is separate from the owner identity. Verify the secret key
+    // derives exactly the explicitly configured public treasury address.
     let treasuryAddress = null
     let signerMatchesConfiguredAddress = false
     if (config.enabled) {
@@ -164,13 +157,14 @@ export function createTreasuryWithdrawalsRouter({
         const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
         treasuryAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim())
         signerMatchesConfiguredAddress = ADDRESS_PATTERN.test(treasuryAddress)
+          && treasuryAddress === env.TREASURY_ADDRESS.trim()
       } catch {}
     }
     let usdtBalance = null
     if (databaseReady && config.enabled && signerMatchesConfiguredAddress) {
       try {
         const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
-        const contract = await tronWeb.contract(ABI, USDT_MAINNET).at(USDT_MAINNET)
+        const contract = await tronWeb.contract(ABI).at(USDT_MAINNET)
         const decimals = Number(await contract.decimals().call())
         const symbol = String(await contract.symbol().call())
         if (decimals === 6 && symbol.toUpperCase() === 'USDT') {
@@ -223,11 +217,11 @@ export function createTreasuryWithdrawalsRouter({
       await ensureSchema(db)
       const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
       const treasuryAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim())
-      if (!ADDRESS_PATTERN.test(treasuryAddress) || treasuryAddress === body.recipientAddress) {
+      if (!ADDRESS_PATTERN.test(treasuryAddress) || treasuryAddress !== env.TREASURY_ADDRESS.trim() || treasuryAddress === body.recipientAddress) {
         return res.status(503).json({ success: false, error: 'invalid-treasury-or-recipient' })
       }
       const configuredFeeLimit = Number(env.TREASURY_FEE_LIMIT_SUN)
-      const contract = await tronWeb.contract(ABI, USDT_MAINNET).at(USDT_MAINNET)
+      const contract = await tronWeb.contract(ABI).at(USDT_MAINNET)
       const [decimals, symbol, balanceValue] = await Promise.all([
         contract.decimals().call(), contract.symbol().call(), contract.balanceOf(treasuryAddress).call(),
       ])
