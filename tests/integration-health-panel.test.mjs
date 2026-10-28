@@ -12,7 +12,8 @@ test('legacy sponsor workflow remains implemented but is not exposed by the owne
   assert.ok(app.includes('loadSponsorStatus(true)'))
   assert.ok(app.includes('cache: \'no-store\''))
   assert.ok(app.includes('Sponsor status refreshed successfully'))
-  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
 })
 
 test('the wizard keeps readiness, balance visibility, and transfer authorization conceptually separate', () => {
