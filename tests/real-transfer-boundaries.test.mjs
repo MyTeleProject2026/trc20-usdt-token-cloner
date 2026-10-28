@@ -10,8 +10,9 @@ test('production API calls default to the deployed backend', () => {
   assert.ok(app.includes("import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')"))
 })
 
-test('the live interface is a five-stage testnet-only flow', () => {
-  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+test('the active interface is the single-owner wallet shell; legacy workflow remains testnet-restricted', () => {
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
   assert.ok(app.includes("type NetworkId = 'shasta' | 'nile'"))
   assert.ok(app.includes("shasta: 'api.shasta.trongrid.io'"))
   assert.ok(app.includes("nile: 'nile.trongrid.io'"))
