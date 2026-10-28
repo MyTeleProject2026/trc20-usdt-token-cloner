@@ -74,7 +74,8 @@ test('incomplete owner-console environment lists missing variable names without 
   assert.ok(data.ownerConsole.requiredEnvironment.includes('OWNER_WALLET_ADDRESS (valid TRON Mainnet address)'))
   assert.ok(data.ownerConsole.requiredEnvironment.includes('OWNER_PASSWORD_HASH (valid scrypt hash)'))
   assert.ok(data.ownerConsole.requiredEnvironment.includes('DATABASE_URL'))
-  assert.ok(data.ownerConsole.requiredEnvironment.includes('FRONTEND_ORIGIN and/or PACKAGED_APP_ORIGINS'))
+  assert.ok(data.ownerConsole.requiredEnvironment.some((item) => item.includes('FRONTEND_ORIGIN must allow')))
+  assert.ok(data.ownerConsole.requiredEnvironment.some((item) => item.includes('PACKAGED_APP_ORIGINS must allow'))
   assert.equal(data.ownerConsole.hostedUiOriginAllowed, false)
   assert.equal(data.ownerConsole.packagedUiOriginAllowed, false)
   assert.equal('treasuryPayout' in data, false)
@@ -91,7 +92,8 @@ test('the diagnostic verifies the actual Capacitor origin, not only a custom sch
   assert.equal(response.status, 200)
   assert.equal(data.ownerConsole.hostedUiOriginAllowed, true)
   assert.equal(data.ownerConsole.packagedUiOriginAllowed, false)
-  assert.equal(data.ownerConsole.configured, true)
+  assert.equal(data.ownerConsole.configured, false)
+  assert.ok(data.ownerConsole.requiredEnvironment.some((item) => item.includes('PACKAGED_APP_ORIGINS must allow')))
 })
 
 test('invalid owner address and malformed password hash keep owner console disabled', async (t) => {
