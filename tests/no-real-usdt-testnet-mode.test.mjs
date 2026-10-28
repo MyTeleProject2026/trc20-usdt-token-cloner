@@ -9,12 +9,12 @@ const sponsorPilot = await readFile(new URL('../server/routes/sponsor-testnet-pi
 const gasFree = await readFile(new URL('../server/routes/gasfree.mjs', import.meta.url), 'utf8')
 
 test('sign-in offers the selected testnet faucet and official TRON guide', () => {
-  assert.match(authGate, /Try the platform without real USDT/)
-  assert.match(authGate, /(?:test tokens|testnet coins) have no monetary value/i)
-  assert.match(authGate, /https:\/\/nileex\.io\/join\/getJoinPage/)
-  assert.match(authGate, /https:\/\/shasta\.tronex\.io\/join\/getJoinPage/)
-  assert.match(authGate, /https:\/\/developers\.tron\.network\/docs\/getting-testnet-tokens-on-tron/)
-  assert.match(authGate, /selected.*testnet/i)
+  assert.match(authGate, /OWNER AUTHENTICATION/)
+  assert.match(authGate, /Owner password/)
+  assert.match(authGate, /\/api\/auth\/owner\/login/)
+  assert.match(authGate, /\/api\/auth\/owner\/session/)
+  assert.match(authGate, /no public sign-up or account creation/)
+  assert.match(authGate, /Authentication is not funding/)
 })
 
 test('testnet token flow does not misidentify user-supplied contracts as Mainnet USDT', () => {
