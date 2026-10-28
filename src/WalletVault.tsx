@@ -761,6 +761,17 @@ export default function WalletVault() {
     setTreasuryPayoutBusy(true)
     setTreasuryPayoutError('')
     try {
+      const verifyResponse = await fetch(API_BASE + '/api/treasury/withdrawals/' + encodeURIComponent(key) + '/verify', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const verification = await verifyResponse.json().catch(() => null)
+      if (verifyResponse.status >= 500) {
+        throw new Error(typeof verification?.error === 'string' ? verification.error : 'On-chain receipt verification is temporarily unavailable.')
+      }
       const response = await fetch(API_BASE + '/api/treasury/withdrawals/' + encodeURIComponent(key), {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
@@ -770,7 +781,17 @@ export default function WalletVault() {
       })
       const payload = await response.json().catch(() => null)
       if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Withdrawal status lookup failed.')
-      setTreasuryPayoutStatus(payload)
+      const combined = { ...payload, verification: verification?.verification || null }
+      setTreasuryPayoutStatus(combined)
+      if (verification?.verification?.status === 'confirmed') {
+        setNotice('The exact treasury sender, official USDT contract, recipient, amount, and successful confirmed receipt were verified on TRON.')
+      } else if (verification?.verification?.status === 'failed') {
+        setTreasuryPayoutError('The transaction is confirmed on-chain but its contract execution failed. No successful USDT transfer was verified.')
+      } else if (verification?.verification?.status === 'verification-mismatch') {
+        setTreasuryPayoutError('On-chain transaction details did not match this withdrawal. Treat it as unverified and investigate before any retry.')
+      } else {
+        setNotice('Withdrawal record loaded. The confirmed receipt is still pending or unavailable; do not treat a broadcast-accepted status as confirmed.')
+      }
     } catch (caught) {
       setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Withdrawal status lookup failed.')
     } finally {
@@ -1349,7 +1370,7 @@ export default function WalletVault() {
                       <div className="wallet-vault-review-wide"><small>Verification reminder</small><strong>Broadcast acceptance is not confirmation. Check the successful solidified receipt and exchange deposit status.</strong></div>
                     </div>
                   )}
-                  <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !treasuryPayoutStatus} onClick={() => void lookupServerTreasuryPayout()}>Look up saved withdrawal status</button>
+                  <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !treasuryPayoutStatus} onClick={() => void lookupServerTreasuryPayout()}>Verify receipt & look up saved status</button>
                   <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
                 </section>
               )}
