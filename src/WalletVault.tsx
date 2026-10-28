@@ -102,6 +102,7 @@ const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const VAULT_KEY = 'tron-token-studio:encrypted-wallet-vault:v1'
+const OWNER_CONSOLE_SESSION_KEY = 'tron-token-studio:owner-session:v1'
 const TOKEN_WATCH_KEY = 'tron-token-studio:token-watchlist:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
@@ -326,6 +327,76 @@ export default function WalletVault() {
       setTreasuryPayoutStatus(null)
     }
   }, [unlocked?.record.address])
+
+  // Load read-only Mainnet treasury status from the private owner-console login.
+  // Outgoing payouts still require a separate, request-specific signature from
+  // the owner wallet held inside this app; the console password does not mint assets.
+  useEffect(() => {
+    let token = ''
+    try {
+      token = window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+    } catch {
+      token = ''
+    }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
+
+    let cancelled = false
+    async function loadOwnerTreasuryDashboard() {
+      setOwnerTreasuryLoading(true)
+      setOwnerTreasuryError('')
+      try {
+        const sessionResponse = await fetch(API_BASE + '/api/auth/owner/session', {
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+        const sessionPayload = await sessionResponse.json().catch(() => null)
+        if (!sessionResponse.ok || sessionPayload?.success !== true
+          || sessionPayload?.authenticated !== true || sessionPayload.network !== 'mainnet'
+          || !ADDRESS_PATTERN.test(String(sessionPayload.address || ''))
+          || !Number.isFinite(sessionPayload.expiresAt) || sessionPayload.expiresAt <= Date.now()) {
+          throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
+        }
+
+        const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
+        const [fundingResponse, readinessResponse] = await Promise.all([
+          fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
+          fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
+        ])
+        const [funding, readiness] = await Promise.all([
+          fundingResponse.json().catch(() => null),
+          readinessResponse.json().catch(() => null),
+        ])
+        if (cancelled) return
+        if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
+          setOwnerTreasurySnapshot(funding as OwnerTreasurySnapshot)
+        } else {
+          setOwnerTreasurySnapshot(null)
+        }
+        setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
+        if (!fundingResponse.ok || funding?.success !== true) {
+          setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
+        }
+      } catch (caught) {
+        if (cancelled) return
+        setOwnerTreasurySnapshot(null)
+        setServerTreasuryReadiness(null)
+        setOwnerTreasuryError(caught instanceof Error
+          ? caught.message
+          : 'Could not automatically load the Mainnet treasury status from the owner session.')
+      } finally {
+        if (!cancelled) setOwnerTreasuryLoading(false)
+      }
+    }
+    void loadOwnerTreasuryDashboard()
+    return () => { cancelled = true }
+  }, [unlocked?.record.address])
+
 
   useEffect(() => {
     if (!unlocked) return
@@ -1253,6 +1324,43 @@ export default function WalletVault() {
         <p>The owner wallet authorizes payout requests; it does not create USDT. Server-funded payouts can send only genuine USDT already held by the configured treasury, and the treasury must also have sufficient network-fee funding. If either balance is insufficient, the payout stays blocked.</p>
       </div>
 
+      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading">
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step">LIVE</span>
+          <div>
+            <h2 id="owner-dashboard-treasury-heading">Mainnet treasury overview</h2>
+            <p>Loads automatically from the authenticated owner-console session. No external wallet app is needed to view status.</p>
+          </div>
+        </div>
+        {ownerTreasuryLoading && <p className="wallet-vault-caption" role="status"><RefreshCw size={14} /> Reading the configured treasury from TRON Mainnet…</p>}
+        {serverTreasuryReadiness && (
+          <>
+            <div className="wallet-vault-review-grid">
+              <div className="wallet-vault-review-wide">
+                <small>Server treasury address</small>
+                {ADDRESS_PATTERN.test(String(serverTreasuryReadiness.treasuryAddress || ''))
+                  ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a>
+                  : <strong>Not verified</strong>}
+              </div>
+              <div><small>Withdrawal readiness</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+              <div><small>Verified official USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
+              <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+            </div>
+            {Array.isArray(serverTreasuryReadiness.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && (
+              <p className="wallet-vault-risk-note" role="status"><strong>Withdrawal blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
+            )}
+            {Array.isArray(serverTreasuryReadiness.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
+              <p className="wallet-vault-risk-note" role="status"><strong>Backend settings missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
+            )}
+          </>
+        )}
+        {!serverTreasuryReadiness && !ownerTreasuryLoading && (
+          <p className="wallet-vault-caption">Live treasury status is not available yet. Check owner-console configuration, the backend database, allowed app origin, and TRON provider access.</p>
+        )}
+        {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
+        <p className="wallet-vault-caption">This is read-only status. It never generates USDT or authorizes a payout. A real payout still requires genuine treasury assets, sufficient network fees, and a fresh owner approval for the exact recipient and amount.</p>
+      </section>
+
       <nav className="wallet-vault-quick-nav" aria-label="Owner wallet sections">
         <a href="#wallet-owner-vault" aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={event => { event.preventDefault(); setActivePanel('wallet') }}>Wallet & balances</a>
         {network === 'mainnet' && <a href="#owner-treasury-funding" aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('treasury'); else setNotice('Unlock the owner wallet before opening treasury controls.') }}>Treasury payout</a>}
@@ -1404,7 +1512,7 @@ export default function WalletVault() {
                   </div>
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Read-only treasury funding check</strong>
-                    <p>This check signs only a short identity message with the unlocked local owner wallet. The backend must match it to TREASURY_OWNER_ADDRESS. It reads actual on-chain TRX and official Tether USDT balances from TREASURY_MAINNET_ADDRESS. If that is unset, the backend falls back to SPONSOR_MAINNET_ADDRESS, then TREASURY_OWNER_ADDRESS. It does not mint USDT, sign a payout, or broadcast a transfer. No USDT is generated.</p>
+                    <p>The overview above loads read-only treasury status from your private owner-console session. This optional verification signs a short identity message locally with the owner wallet; the backend checks it against TREASURY_OWNER_ADDRESS. The balance query reads real Mainnet TRX and official Tether USDT from TREASURY_MAINNET_ADDRESS (falling back to SPONSOR_MAINNET_ADDRESS, then TREASURY_OWNER_ADDRESS). It does not mint USDT or broadcast a transfer.</p>
                   </div>
                   <button type="button" className="wallet-vault-primary" disabled={ownerTreasuryLoading} onClick={() => void refreshOwnerTreasury()}>
                     <RefreshCw size={16} /> {ownerTreasuryLoading ? 'Verifying owner and reading chain…' : 'Sign owner check & read treasury'}
