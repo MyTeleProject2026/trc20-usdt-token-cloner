@@ -439,6 +439,7 @@ export function createOwnerAuthRouter({
     const packagedUiOriginAllowed = origins.has('tronstudio://app')
     const tatumApiKeyConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
     const signerKeyConfigured = typeof env.TREASURY_PRIVATE_KEY === 'string' && env.TREASURY_PRIVATE_KEY.trim().length > 0
+    const signerKeyValidFormat = signerKeyConfigured && /^(?:0x)?[0-9a-f]{64}$/i.test(env.TREASURY_PRIVATE_KEY.trim())
 
     const positiveUsdtLimitConfigured = (value) => {
       if (typeof value !== 'string' || value.length > 86) return false
@@ -469,7 +470,7 @@ export function createOwnerAuthRouter({
       ...(!databaseConfigured ? ['DATABASE_URL'] : []),
       ...(!ownerAddressesMatch ? ['OWNER_WALLET_ADDRESS and TREASURY_OWNER_ADDRESS must be identical valid Mainnet addresses'] : []),
       ...(!treasuryAddressConfigured ? ['TREASURY_ADDRESS (valid Mainnet address)'] : []),
-      ...(!signerKeyConfigured ? ['TREASURY_PRIVATE_KEY (backend secret only)'] : []),
+      ...(!signerKeyValidFormat ? ['TREASURY_PRIVATE_KEY (64 hex characters, optional 0x prefix; backend secret only)'] : []),
       ...(!maxPayoutLimitConfigured ? ['TREASURY_MAX_PAYOUT_USDT (positive decimal, up to 6 decimals)'] : []),
       ...(!dailyLimitConfigured ? ['TREASURY_DAILY_LIMIT_USDT (positive decimal, up to 6 decimals)'] : []),
       ...(!feeLimitConfigured ? ['TREASURY_FEE_LIMIT_SUN (positive integer, at most 1000000000)'] : []),
@@ -499,6 +500,7 @@ export function createOwnerAuthRouter({
         ownerAddressesMatch,
         treasuryAddressConfigured,
         signerKeyConfigured,
+        signerKeyValidFormat,
         maxPayoutLimitConfigured,
         dailyLimitConfigured,
         feeLimitConfigured,
