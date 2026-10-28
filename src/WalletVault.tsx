@@ -437,7 +437,7 @@ export default function WalletVault() {
     }
   }
 
-remove obsolete workspace-login action  function lockWallet() {
+  function lockWallet() {
     setUnlocked(null)
     setPassword('')
     setConfirmPassword('')
