@@ -77,10 +77,18 @@ test('native APK workflow bundles the local wallet UI and keeps the Android buil
 
 test('owner treasury payout UI invalidates stale sessions and requires matching, funded treasury readiness', async () => {
   const vault = await read('src/WalletVault.tsx')
+  const server = await read('server/routes/treasury-withdrawals.mjs')
   assert.match(vault, /setOwnerSessionToken\(''\)/)
   assert.match(vault, /\}, \[unlocked\?\.record\.address\]\)/)
   assert.match(vault, /serverTreasuryAddressMatchesSnapshot/)
   assert.match(vault, /serverTreasuryHasFunds/)
   assert.match(vault, /!canSubmitServerTreasuryPayout/)
   assert.match(vault, /matching official Transfer event were verified on TRON/)
+  assert.match(vault, /buildTreasuryWithdrawalAuthorizationMessage/)
+  assert.match(vault, /localSigner\.trx\.signMessageV2\(authorizationMessage\)/)
+  assert.match(vault, /ownerAuthorizationSignature/)
+  assert.match(vault, /authorizationExpiresAt/)
+  assert.match(server, /verifyTreasuryOwnerPayoutSignature/)
+  assert.match(server, /owner-payout-signature-invalid/)
+  assert.match(server, /owner-payout-authorization-expired-or-outside-window/)
 })
