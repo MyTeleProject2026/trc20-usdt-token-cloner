@@ -4,16 +4,21 @@ import { readFile } from 'node:fs/promises'
 
 const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
 
-test('wallet vault is reachable without bypassing the signed workspace gate', async () => {
+test('standalone owner wallet is the default screen and legacy TronLink workspace is not promoted in its UI', async () => {
   const entry = await read('src/main.tsx')
+  const vault = await read('src/WalletVault.tsx')
   const authGate = await read('src/AuthGate.tsx')
   const workflow = await read('src/WorkflowApp.tsx')
   assert.match(entry, /const isWalletVault = route === '#\/wallet'/)
-  assert.match(entry, /isWalletVault\s*\n\s*\? <>/)
-  assert.match(entry, /<WalletVault \/>/)
-  assert.match(authGate, /href="#\/wallet"/)
-  assert.match(workflow, /href="#\/wallet"><Wallet/)
+  assert.match(entry, /:\s*<WalletVault \/>/)
+  assert.match(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
+  assert.doesNotMatch(entry, /Open watch-only address monitor/)
+  assert.match(vault, /OWNER WALLET CONTROL/)
+  assert.match(vault, /No TronLink connection is required/)
+  assert.match(vault, /TREASURY_OWNER_ADDRESS/)
+  assert.doesNotMatch(vault, /Sign in to workspace|Switch to Nile for workspace login|Workspace login signs/)
   assert.match(authGate, /\/api\/auth\/tron\/verify/)
+  assert.match(workflow, /href="#\/wallet"><Wallet/)
 })
 
 test('wallet creation, import and restore encrypt key material before local persistence', async () => {
@@ -34,7 +39,7 @@ test('wallet vault signs identity challenges locally and wires guarded real on-c
   const transfer = await read('src/wallet-transfer.mjs')
   assert.match(vault, /\/api\/auth\/tron\/challenge/)
   assert.match(vault, /signer\.trx\.signMessageV2\(challenge\.message\)/)
-  assert.match(vault, /JSON\.stringify\(\{ address, network, nonce: challenge\.nonce, signature \}\)/)
+  assert.match(vault, /JSON\.stringify\(\{\s*address,\s*network:\s*'mainnet',\s*nonce:\s*challenge\.nonce,\s*signature\s*\}\)/)
   assert.match(vault, /buildSignAndBroadcastTransfer/)
   assert.match(vault, /estimateTRC20TransferFee/)
   assert.match(vault, /verifyTransferRecordOnChain/)

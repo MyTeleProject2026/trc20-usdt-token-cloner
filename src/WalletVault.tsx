@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowLeft, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Network, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
+import { Activity, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import {
@@ -98,8 +98,6 @@ const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const VAULT_KEY = 'tron-token-studio:encrypted-wallet-vault:v1'
 const TOKEN_WATCH_KEY = 'tron-token-studio:token-watchlist:v1'
-const SESSION_KEY = 'tron-token-studio:auth-session:v1'
-const NETWORK_KEY = 'tron-token-studio:auth-network:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
 const RPC: Record<NetworkId, string> = {
@@ -437,44 +435,6 @@ export default function WalletVault() {
     } finally {
       setBusy(false)
     }
-  }
-
-  async function loginToWorkspace() {
-    if (!unlocked) throw new Error('Unlock a local wallet first.')
-    if (network === 'mainnet') throw new Error('The current workspace login gate is testnet-only. Select Nile or Shasta to sign in; this does not move any funds.')
-    const address = unlocked.record.address
-    const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, network }),
-      credentials: 'omit',
-      cache: 'no-store',
-    })
-    const challenge = await challengeResponse.json().catch(() => null)
-    if (!challengeResponse.ok || challenge?.success !== true || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string') {
-      throw new Error(challenge?.message || challenge?.error || 'The wallet login challenge could not be issued.')
-    }
-    const signer = createTronWeb(network, unlocked.privateKey)
-    const signature = await signer.trx.signMessageV2(challenge.message)
-    if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
-      throw new Error('The wallet SDK did not return a valid message signature.')
-    }
-    const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, network, nonce: challenge.nonce, signature }),
-      credentials: 'omit',
-      cache: 'no-store',
-    })
-    const verified = await verifyResponse.json().catch(() => null)
-    if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
-      || verified.address !== address || verified.network !== network
-      || typeof verified.sessionToken !== 'string' || !Number.isFinite(verified.expiresAt)) {
-      throw new Error(verified?.message || verified?.error || 'The backend did not verify this wallet signature.')
-    }
-    window.sessionStorage.setItem(SESSION_KEY, verified.sessionToken)
-    window.sessionStorage.setItem(NETWORK_KEY, network)
-    window.location.hash = '#/'
   }
 
   function lockWallet() {
@@ -1048,17 +1008,17 @@ export default function WalletVault() {
   return (
     <main className="wallet-vault-page">
       <header className="wallet-vault-topbar">
-        <a className="wallet-vault-brand" href="#/" aria-label="Return to TRON Token Studio workspace">
+        <a className="wallet-vault-brand" href="#/wallet" aria-label="TRON Token Studio owner wallet home">
           <span className="wallet-vault-logo"><Wallet size={22} aria-hidden="true" /></span>
-          <span><strong>TRON Token Studio</strong><small>SELF-CUSTODY WALLET</small></span>
+          <span><strong>TRON Token Studio</strong><small>OWNER WALLET CONTROL</small></span>
         </a>
-        <a className="wallet-vault-back" href="#/"><ArrowLeft size={16} aria-hidden="true" /> Workspace</a>
+        <span className="wallet-vault-back" aria-label="Standalone self-custody owner wallet">Owner panel</span>
       </header>
 
       <section className="wallet-vault-hero">
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> LOCAL KEY CUSTODY · REAL TRON NETWORK READS</p>
         <h1>Your wallet. Your keys.</h1>
-        <p>Create a new TRON address, import a private key, or restore an encrypted backup. Key creation and encryption happen in this app; the API receives only a public address and a message signature for login.</p>
+        <p>Create or restore the owner wallet on this device, check real TRON balances, and prepare genuine on-chain transfers. No TronLink connection is required. Owner treasury access is separately restricted to the configured owner address.</p>
         <div className="wallet-vault-network" role="group" aria-label="Blockchain network">
           {(['nile', 'shasta', 'mainnet'] as NetworkId[]).map(item => (
             <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
@@ -1195,12 +1155,9 @@ export default function WalletVault() {
 
               <div className="wallet-vault-wallet-actions">
                 <button type="button" className="wallet-vault-secondary" onClick={downloadEncryptedBackup}><Download size={16} /> Download encrypted backup</button>
-                {network === 'mainnet'
-                  ? <button type="button" className="wallet-vault-secondary" onClick={() => { setNetwork('nile'); setNotice('Changed to Nile testnet. Sign-in only proves wallet identity; it does not transfer funds.') }}><Network size={16} /> Switch to Nile for workspace login</button>
-                  : <button type="button" className="wallet-vault-primary" disabled={busy} onClick={() => void performWalletAction(loginToWorkspace)}><ShieldCheck size={16} /> Sign in to workspace</button>}
-                <button type="button" className="wallet-vault-lock" onClick={lockWallet}><LockKeyhole size={16} /> Lock</button>
+                <button type="button" className="wallet-vault-lock" onClick={lockWallet}><LockKeyhole size={16} /> Lock wallet</button>
               </div>
-              <p className="wallet-vault-caption"><Activity size={14} /> Workspace login signs a short identity message only. No transfer is authorized or broadcast by this button.</p>
+              <p className="wallet-vault-caption"><Activity size={14} /> This is a standalone local wallet. The encrypted vault is stored on this device; the backend never receives the private key. Keep an offline backup.</p>
 
               {network === 'mainnet' && (
                 <section className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading">
