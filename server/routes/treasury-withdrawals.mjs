@@ -217,7 +217,10 @@ export function createTreasuryWithdrawalsRouter({
       await ensureSchema(db)
       const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
       const treasuryAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim())
-      if (!ADDRESS_PATTERN.test(treasuryAddress) || treasuryAddress !== env.TREASURY_ADDRESS.trim() || treasuryAddress === body.recipientAddress) {
+      if (!tronWeb.isAddress(body.recipientAddress)
+        || !ADDRESS_PATTERN.test(treasuryAddress)
+        || treasuryAddress !== env.TREASURY_ADDRESS.trim()
+        || treasuryAddress === body.recipientAddress) {
         return res.status(503).json({ success: false, error: 'invalid-treasury-or-recipient' })
       }
       const configuredFeeLimit = Number(env.TREASURY_FEE_LIMIT_SUN)
