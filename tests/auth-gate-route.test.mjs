@@ -21,7 +21,7 @@ test('the bundled app has one owner-only entry point and does not expose legacy 
 test('owner login is separate from TronLink and initializes exactly one account', () => {
   assert.match(ownerApp, /Create your owner account/)
   assert.match(ownerApp, /No TronLink required for app login/)
-  assert.match(ownerApp, /Wallet keys remain separately encrypted/)
+  assert.match(ownerApp, /wallet keys remain separately encrypted in the local vault/)
   assert.match(ownerRoute, /owner-account-already-initialized/)
   assert.match(ownerRoute, /OWNER_SETUP_KEY/)
   assert.match(ownerRoute, /passwordHasher/)
