@@ -75,7 +75,7 @@ test('incomplete owner-console environment lists missing variable names without 
   assert.ok(data.ownerConsole.requiredEnvironment.includes('OWNER_PASSWORD_HASH (valid scrypt hash)'))
   assert.ok(data.ownerConsole.requiredEnvironment.includes('DATABASE_URL'))
   assert.ok(data.ownerConsole.requiredEnvironment.some((item) => item.includes('FRONTEND_ORIGIN must allow')))
-  assert.ok(data.ownerConsole.requiredEnvironment.some((item) => item.includes('PACKAGED_APP_ORIGINS must allow'))
+  assert.ok(data.ownerConsole.requiredEnvironment.some((item) => item.includes('PACKAGED_APP_ORIGINS must allow')))
   assert.equal(data.ownerConsole.hostedUiOriginAllowed, false)
   assert.equal(data.ownerConsole.packagedUiOriginAllowed, false)
   assert.equal('treasuryPayout' in data, false)
