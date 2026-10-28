@@ -880,3 +880,9 @@ main .grid > button[aria-pressed] > span {
 
 .wallet-vault-status-tag.status-local-not-verified { color:#ffe0aa; border-color:#7b6035; background:#2a2113; }
 .wallet-vault-status-tag.status-identity-mismatch { color:#ffcdc0; border-color:#8a4a40; background:#2b1715; }
+
+
+/* Focused owner-panel navigation: hidden panels must stay hidden despite component display rules. */
+.wallet-vault-page [hidden] { display: none !important; }
+.wallet-vault-layout--single { grid-template-columns: minmax(0, 1fr); }
+.wallet-vault-quick-nav a[aria-current="page"] { color:#e5fff4; border-color:#49c696; background:#10352a; box-shadow:inset 0 0 0 1px rgba(73,198,150,.12); }
