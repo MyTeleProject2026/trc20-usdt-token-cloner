@@ -4,19 +4,19 @@ import { readFile } from 'node:fs/promises'
 
 const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
 
-test('wallet vault is reachable without bypassing the signed workspace gate', async () => {
+test('wallet vault is reachable only through the owner-authenticated application shell', async () => {
   const entry = await read('src/main.tsx')
-  const authGate = await read('src/AuthGate.tsx')
-  const workflow = await read('src/WorkflowApp.tsx')
-  assert.match(entry, /const isWalletVault = route === '#\/wallet'/)
-  assert.match(entry, /isWalletVault\s*\n\s*\? <>/)
-  assert.match(entry, /<WalletVault \/>/)
-  assert.match(authGate, /href="#\/wallet"/)
-  assert.match(workflow, /href="#\/wallet"><Wallet/)
-  assert.match(authGate, /\/api\/auth\/tron\/verify/)
+  const ownerApp = await read('src/OwnerControlApp.tsx')
+  assert.match(entry, /import OwnerControlApp from '\.\/OwnerControlApp'/)
+  assert.match(entry, /<OwnerControlApp \/>/)
+  assert.doesNotMatch(entry, /AuthGate|WorkflowApp|SponsorSignerConsole|MainnetExchangeDeposit|OkxDepositStatus|WatchOnlyWallets/)
+  assert.match(ownerApp, /<WalletVault \/>/)
+  assert.match(ownerApp, /\/api\/owner-auth\/login/)
+  assert.match(ownerApp, /\/api\/owner-auth\/session/)
+  assert.match(ownerApp, /one owner account/)
 })
 
-test('wallet creation, import and restore encrypt key material before local persistence', async () => {
+test('wallet creation, import and restore encrypt key material before local persistence', async () => {test('wallet creation, import and restore encrypt key material before local persistence', async () => {
   const vault = await read('src/WalletVault.tsx')
   const crypto = await read('src/wallet-vault-crypto.mjs')
   assert.match(vault, /await web\.createAccount\(\)/)
