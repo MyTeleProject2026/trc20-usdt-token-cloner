@@ -22,15 +22,17 @@ function renderRoute() {
 
   root.render(
     <StrictMode>
-      {isWatchOnlyWallets
-        ? <WatchOnlyWallets />
-        : isMainnetExchangeDeposit
-          ? <MainnetExchangeDeposit />
-          : isOkxDepositStatus
-            ? <OkxDepositStatus />
-            : isLegacyWorkspace || isSponsorOperator
-              ? <AuthGate>{isSponsorOperator ? <SponsorSignerConsole /> : <App />}</AuthGate>
-              : <WalletVault />}
+      {isWalletVault
+        ? <WalletVault />
+        : isWatchOnlyWallets
+          ? <WatchOnlyWallets />
+          : isMainnetExchangeDeposit
+            ? <MainnetExchangeDeposit />
+            : isOkxDepositStatus
+              ? <OkxDepositStatus />
+              : isLegacyWorkspace || isSponsorOperator
+                ? <AuthGate>{isSponsorOperator ? <SponsorSignerConsole /> : <App />}</AuthGate>
+                : <WalletVault />}
     </StrictMode>,
   )
 }
