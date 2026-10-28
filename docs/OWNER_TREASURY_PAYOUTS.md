@@ -30,6 +30,12 @@ Configure these values on the **backend API service only**. Never commit credent
 
 The API also requires valid values for all payout configuration fields and checks that the private key derives exactly `TREASURY_ADDRESS`. Readiness also verifies a positive official-USDT principal balance and a treasury TRX balance at least equal to `TREASURY_FEE_LIMIT_SUN`; the actual withdrawal request repeats the TRX check under the database reservation lock. This is a conservative check of the full configured cap, not a claim that the full amount will be spent. A missing setting, zero principal balance, or insufficient fee budget keeps withdrawals disabled. The local frontend is not permitted to enable this route by itself.
 
+## Owner-console environment check
+
+The public read-only endpoint `GET /api/auth/owner/config` reports only whether the owner address, scrypt password hash, database URL, and allowed application origins are configured. It returns missing **variable names** when setup is incomplete; it never returns the owner address, password hash, database URL, private keys, or other credential values. This endpoint is not proof that treasury withdrawals are enabled or funded.
+
+To verify actual payout readiness, sign into the private owner console, unlock the correct local owner wallet, and use **Sign owner check & read treasury** in Wallet Vault on TRON Mainnet. The authenticated **withdrawals readiness** request checks the configured treasury signer/address relationship, the real official-USDT balance, and fee coverage. If any check is missing or ambiguous, the payout remains disabled. Do not share owner passwords, private keys, recovery phrases, or environment secret values to troubleshoot the configuration.
+
 ## Real transfer flow
 
 1. Unlock the configured owner wallet and sign the one-time identity challenge. A typed address alone is not authentication.
