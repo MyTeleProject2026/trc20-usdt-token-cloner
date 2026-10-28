@@ -21,7 +21,7 @@ function header(req, name) {
  * The owner identity address is the final fallback for one-wallet deployments.
  */
 export function resolveOwnerTreasuryFundingAddress(env = process.env) {
-  for (const name of ['TREASURY_MAINNET_ADDRESS', 'SPONSOR_MAINNET_ADDRESS', 'TREASURY_OWNER_ADDRESS']) {
+  for (const name of ['TREASURY_ADDRESS', 'TREASURY_MAINNET_ADDRESS', 'SPONSOR_MAINNET_ADDRESS', 'TREASURY_OWNER_ADDRESS']) {
     const value = typeof env[name] === 'string' ? env[name].trim() : ''
     if (value) return value
   }
