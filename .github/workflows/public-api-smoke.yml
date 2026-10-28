@@ -244,7 +244,7 @@ jobs:
             throw new Error('Sanitized owner configuration response has an unexpected shape')
           }
           const serialized = JSON.stringify(data)
-          if (/"(?:ownerAddress|treasuryAddress|privateKey|passwordHash|databaseUrl|apiKey|sessionToken|treasuryPayout|ownerTreasuryFunding)"\\s*:/i.test(serialized)) {
+          if (/"(?:ownerAddress|treasuryAddress|privateKey|passwordHash|databaseUrl|apiKey|sessionToken|treasuryPayout|ownerTreasuryFunding)"\s*:/i.test(serialized)) {
             throw new Error('Owner configuration diagnostic attempted to return a secret or restricted state')
           }
           const summary = {
