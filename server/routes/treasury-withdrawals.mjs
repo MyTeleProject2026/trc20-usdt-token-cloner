@@ -75,6 +75,40 @@ function readLimit(value) {
   return typeof value === 'string' ? parsePositiveDecimal(value, 6) : null
 }
 
+/**
+ * Conservative balance available for a new treasury payout. Pending/ambiguous
+ * withdrawals remain reserved until their chain outcome is reconciled.
+ */
+export function unreservedTreasuryBalance(balanceBaseUnits, outstandingReservationBaseUnits) {
+  const balance = typeof balanceBaseUnits === 'string' ? balanceBaseUnits : String(balanceBaseUnits ?? '')
+  const reserved = typeof outstandingReservationBaseUnits === 'string'
+    ? outstandingReservationBaseUnits : String(outstandingReservationBaseUnits ?? '')
+  if (!/^(0|[1-9][0-9]{0,77})$/.test(balance)
+    || !/^(0|[1-9][0-9]{0,77})$/.test(reserved)) return null
+  const balanceValue = BigInt(balance)
+  const reservedValue = BigInt(reserved)
+  return (balanceValue > reservedValue ? balanceValue - reservedValue : 0n).toString()
+}
+
+/** Idempotency keys are bound to the original owner, recipient and amount. */
+export function matchesTreasuryWithdrawalRequest(row, {
+  ownerAddress,
+  treasuryAddress,
+  recipientAddress,
+  amountBaseUnits,
+} = {}) {
+  if (!row || typeof row !== 'object') return false
+  try {
+    return row.owner_address === ownerAddress
+      && row.treasury_address === treasuryAddress
+      && row.recipient_address === recipientAddress
+      && row.token_contract === USDT_MAINNET
+      && BigInt(String(row.amount_base_units)) === BigInt(String(amountBaseUnits))
+  } catch {
+    return false
+  }
+}
+
 function bearerToken(req) {
   const value = req.get('authorization') || ''
   const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(value)
@@ -140,7 +174,29 @@ export function verifyTreasuryTransferEvidence(tronWeb, {
   if (!Number.isSafeInteger(transactionInfo?.blockNumber) || transactionInfo.blockNumber < 1) return pending
   const result = transactionInfo?.receipt?.result
   if (result === 'SUCCESS') {
-    return { verified: true, status: 'confirmed', reason: 'confirmed-solidified-successful-receipt', blockNumber: transactionInfo.blockNumber }
+    // A successful VM receipt alone is not enough to report that USDT moved:
+    // require the event emitted by the official Tether TRON token contract.
+    const transferTopic = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+    const contractAddress = expectedContract.replace(/^41(?=[0-9a-f]{40}$)/, '')
+    const fromTopic = expectedOwner.replace(/^41(?=[0-9a-f]{40}$)/, '').padStart(64, '0')
+    const toTopic = expectedRecipient.replace(/^41(?=[0-9a-f]{40}$)/, '').padStart(64, '0')
+    const expectedData = BigInt(amountBaseUnits).toString(16).padStart(64, '0')
+    const logs = Array.isArray(transactionInfo?.log) ? transactionInfo.log : []
+    const tokenTransferLogs = logs.filter((log) => {
+      const logAddress = normalizedHex(log?.address).replace(/^41(?=[0-9a-f]{40}$)/, '')
+      return logAddress === contractAddress
+        && Array.isArray(log?.topics)
+        && normalizedHex(log.topics[0]) === transferTopic
+    })
+    const exactTransferEvents = tokenTransferLogs.filter((log) =>
+      log.topics.length >= 3
+      && normalizedHex(log.topics[1]).padStart(64, '0') === fromTopic
+      && normalizedHex(log.topics[2]).padStart(64, '0') === toTopic
+      && normalizedHex(log.data).padStart(64, '0') === expectedData)
+    if (tokenTransferLogs.length !== 1 || exactTransferEvents.length !== 1) {
+      return { verified: false, status: 'verification-mismatch', reason: 'official-usdt-transfer-event-missing-or-mismatched' }
+    }
+    return { verified: true, status: 'confirmed', reason: 'confirmed-solidified-successful-receipt-and-transfer-event', blockNumber: transactionInfo.blockNumber }
   }
   if (typeof result === 'string' && result.length > 0) {
     return { verified: true, status: 'failed', reason: 'confirmed-solidified-failed-receipt', blockNumber: transactionInfo.blockNumber }
@@ -298,14 +354,12 @@ export function createTreasuryWithdrawalsRouter({
       }
       const configuredFeeLimit = Number(env.TREASURY_FEE_LIMIT_SUN)
       const contract = await tronWeb.contract(ABI).at(USDT_MAINNET)
-      const [decimals, symbol, balanceValue] = await Promise.all([
-        contract.decimals().call(), contract.symbol().call(), contract.balanceOf(treasuryAddress).call(),
+      const [decimals, symbol] = await Promise.all([
+        contract.decimals().call(), contract.symbol().call(),
       ])
       if (Number(decimals) !== 6 || String(symbol).toUpperCase() !== 'USDT') {
         return res.status(503).json({ success: false, error: 'official-token-metadata-check-failed' })
       }
-      const balance = BigInt(String(balanceValue))
-      if (balance < amount) return res.status(409).json({ success: false, error: 'treasury-usdt-insufficient', treasuryUsdtBalanceBaseUnits: balance.toString() })
 
       const client = await db.connect()
       let reservation
@@ -314,9 +368,50 @@ export function createTreasuryWithdrawalsRouter({
         await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
         const existing = await client.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1 FOR UPDATE', [body.idempotencyKey])
         if (existing.rows.length) {
+          const prior = existing.rows[0]
           await client.query('COMMIT')
-          return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existing.rows[0]), note: 'Existing request returned; no second transfer was broadcast.' })
+          if (!matchesTreasuryWithdrawalRequest(prior, {
+            ownerAddress: auth.ownerAddress,
+            treasuryAddress,
+            recipientAddress: body.recipientAddress,
+            amountBaseUnits: amount.toString(),
+          })) {
+            return res.status(409).json({
+              success: false,
+              error: 'idempotency-key-conflict',
+              message: 'This idempotency key is already bound to a different owner, recipient, treasury, or amount. No second transfer was broadcast.',
+            })
+          }
+          return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
         }
+
+        // Read current chain balance while the database advisory lock serializes
+        // treasury requests, then subtract all unresolved prior reservations.
+        // This conservatively avoids accepting simultaneous payouts against the
+        // same on-chain balance. Unknown broadcasts remain reserved until reconciled.
+        const balanceValue = await contract.balanceOf(treasuryAddress).call()
+        const balance = BigInt(String(balanceValue))
+        const unsettled = await client.query(`
+          SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+           WHERE treasury_address = $1
+             AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')
+        `, [treasuryAddress])
+        const reservedBaseUnits = BigInt(unsettled.rows[0]?.amount || '0')
+        const availableBaseUnits = unreservedTreasuryBalance(balance.toString(), reservedBaseUnits.toString())
+        if (availableBaseUnits === null || amount > BigInt(availableBaseUnits)) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'treasury-usdt-insufficient-after-reservations',
+            treasuryUsdtBalanceBaseUnits: balance.toString(),
+            outstandingReservationBaseUnits: reservedBaseUnits.toString(),
+            availableUsdtBaseUnits: availableBaseUnits ?? '0',
+            requestedAmountBaseUnits: amount.toString(),
+            message: 'The verified treasury balance is not sufficient after accounting for other unresolved withdrawals.',
+          })
+        }
+
         const spent = await client.query(`
           SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
             FROM trc20_token_clone.treasury_withdrawal_requests
