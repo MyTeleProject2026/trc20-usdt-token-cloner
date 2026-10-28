@@ -233,6 +233,7 @@ export default function WalletVault() {
   const [selectedAddress, setSelectedAddress] = useState(() => readWalletRecords()[0]?.address || '')
   const [unlocked, setUnlocked] = useState<UnlockedWallet | null>(null)
   const [network, setNetwork] = useState<NetworkId>('nile')
+  const [activePanel, setActivePanel] = useState<'wallet' | 'treasury' | 'send' | 'activity'>('wallet')
   const [mode, setMode] = useState<'create' | 'import-key' | 'restore-backup'>('create')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -492,6 +493,7 @@ export default function WalletVault() {
   }
 
   function lockWallet() {
+    setActivePanel('wallet')
     setUnlocked(null)
     setPassword('')
     setConfirmPassword('')
@@ -1238,7 +1240,7 @@ export default function WalletVault() {
         <p>Standalone, owner-only wallet controls. Create or restore the owner identity wallet on this device, read genuine TRON balances, and request treasury-backed payouts without requiring the owner identity wallet to hold the USDT principal. No TronLink connection is required.</p>
         <div className="wallet-vault-network" role="group" aria-label="Blockchain network">
           {(['nile', 'shasta', 'mainnet'] as NetworkId[]).map(item => (
-            <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
+            <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); if (item !== 'mainnet' && activePanel === 'treasury') setActivePanel('wallet'); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
               {item === 'mainnet' ? 'TRON Mainnet' : item === 'nile' ? 'Nile Testnet' : 'Shasta Testnet'}
             </button>
           ))}
@@ -1251,17 +1253,17 @@ export default function WalletVault() {
       </div>
 
       <nav className="wallet-vault-quick-nav" aria-label="Owner wallet sections">
-        <a href="#wallet-owner-vault">Wallet & balances</a>
-        {network === 'mainnet' && <a href="#owner-treasury-funding">Treasury payout</a>}
-        <a href="#wallet-vault-transfer">{network === 'mainnet' ? 'Wallet transfer' : 'Testnet transfer'}</a>
-        <a href="#wallet-vault-history">Wallet transaction activity</a>
+        <a href="#wallet-owner-vault" aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={event => { event.preventDefault(); setActivePanel('wallet') }}>Wallet & balances</a>
+        {network === 'mainnet' && <a href="#owner-treasury-funding" aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('treasury'); else setNotice('Unlock the owner wallet before opening treasury controls.') }}>Treasury payout</a>}
+        <a href="#wallet-vault-transfer" aria-current={activePanel === 'send' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('send'); else setNotice('Unlock the owner wallet before opening transfer controls.') }}>{network === 'mainnet' ? 'Send' : 'Testnet send'}</a>
+        <a href="#wallet-vault-history" aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('activity'); else setNotice('Unlock the owner wallet before opening transaction activity.') }}>Activity</a>
       </nav>
 
       {error && <div className="wallet-vault-message is-error" role="alert"><X size={17} aria-hidden="true" /> {error}</div>}
       {notice && <div className="wallet-vault-message is-notice" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</div>}
 
       <div className="wallet-vault-layout">
-        <section className="wallet-vault-panel wallet-vault-setup">
+        <section className="wallet-vault-panel wallet-vault-setup" hidden={activePanel !== 'wallet'}>
           <details className="wallet-vault-setup-details" open={records.length === 0}>
             <summary className="wallet-vault-panel-head wallet-vault-setup-summary">
               <span className="wallet-vault-step">01</span>
@@ -1313,12 +1315,12 @@ export default function WalletVault() {
         </section>
 
         <section id="wallet-owner-vault" className="wallet-vault-panel wallet-vault-account">
-          <div className="wallet-vault-panel-head"><span className="wallet-vault-step">02</span><div><h2>Wallet vault</h2><p>{records.length} encrypted wallet{records.length === 1 ? '' : 's'} on this device.</p></div></div>
+          <div className="wallet-vault-panel-head" hidden={activePanel !== 'wallet'}><span className="wallet-vault-step">02</span><div><h2>Wallet vault</h2><p>{records.length} encrypted wallet{records.length === 1 ? '' : 's'} on this device.</p></div></div>
 
           {records.length > 0 ? (
-            <div className="wallet-vault-wallet-list">
+            <div className="wallet-vault-wallet-list" hidden={activePanel !== 'wallet'}>
               {records.map(record => (
-                <button type="button" key={record.address} className={'wallet-vault-wallet-choice' + (selectedAddress === record.address ? ' is-selected' : '')} onClick={() => { setSelectedAddress(record.address); if (unlocked?.record.address !== record.address) setUnlocked(null); setPassword(''); setPortfolio(null); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setError(''); setNotice('') }}>
+                <button type="button" key={record.address} className={'wallet-vault-wallet-choice' + (selectedAddress === record.address ? ' is-selected' : '')} onClick={() => { setActivePanel('wallet'); setSelectedAddress(record.address); if (unlocked?.record.address !== record.address) setUnlocked(null); setPassword(''); setPortfolio(null); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setError(''); setNotice('') }}>
                   <span className="wallet-vault-avatar"><Wallet size={18} /></span>
                   <span className="wallet-vault-wallet-details"><strong>{shortenAddress(record.address)}</strong><small>Saved {new Date(record.createdAt).toLocaleDateString()}</small></span>
                   <span className="wallet-vault-choice-status">{unlocked?.record.address === record.address ? 'Unlocked' : 'Encrypted'}</span>
@@ -1333,19 +1335,19 @@ export default function WalletVault() {
               )}
             </div>
           ) : (
-            <div className="wallet-vault-empty"><span className="wallet-vault-empty-icon"><Wallet size={25} /></span><h3>No wallet saved yet</h3><p>Create a new wallet or import an existing key in the first panel. The address does not need USDT to be created.</p></div>
+            <div className="wallet-vault-empty" hidden={activePanel !== 'wallet'}><span className="wallet-vault-empty-icon"><Wallet size={25} /></span><h3>No wallet saved yet</h3><p>Create a new wallet or import an existing key in the first panel. The address does not need USDT to be created.</p></div>
           )}
 
           {unlocked && (
             <div className="wallet-vault-portfolio">
-              <div className="wallet-vault-address-row"><div><small>Public address</small><a href={explorerUrl(network, unlocked.record.address)} target="_blank" rel="noopener noreferrer">{shortenAddress(unlocked.record.address)} ↗</a></div><button type="button" className="wallet-vault-icon-button" aria-label="Copy public address" onClick={() => void copyAddress(unlocked.record.address)}><Copy size={17} /></button></div>
-              <div className="wallet-vault-balance">
+              <div className="wallet-vault-address-row" hidden={activePanel !== 'wallet'}><div><small>Public address</small><a href={explorerUrl(network, unlocked.record.address)} target="_blank" rel="noopener noreferrer">{shortenAddress(unlocked.record.address)} ↗</a></div><button type="button" className="wallet-vault-icon-button" aria-label="Copy public address" onClick={() => void copyAddress(unlocked.record.address)}><Copy size={17} /></button></div>
+              <div className="wallet-vault-balance" hidden={activePanel !== 'wallet'}>
                 <div className="wallet-vault-balance-icon">T</div>
                 <div><small>Native TRX balance · {network === 'mainnet' ? 'Mainnet' : network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</small><strong>{balanceLoading ? 'Reading chain…' : portfolio?.trx ?? '—'} <span>TRX</span></strong><small>Read directly from the selected network; this is not an exchange balance.</small></div>
                 <button type="button" className="wallet-vault-icon-button" aria-label="Refresh chain balance" disabled={balanceLoading} onClick={() => setRefreshNonce(value => value + 1)}><RefreshCw size={17} className={balanceLoading ? 'wallet-vault-spinning' : ''} /></button>
               </div>
 
-              <div className="wallet-vault-token-section">
+              <div className="wallet-vault-token-section" hidden={activePanel !== 'wallet'}>
                 <div className="wallet-vault-section-title">
                   <div><h3>TRC-20 contract watchlist</h3><p>Network code, token methods, supply, balances and explorer evidence.</p></div>
                 </div>
@@ -1387,14 +1389,14 @@ export default function WalletVault() {
                 <p className="wallet-vault-caption">Balances are queried from the selected chain. A symbol or a fully verified source does not guarantee an issuer, a peg, liquidity, or value. Mainnet token transfers are limited to the official Tether TRON USDT contract or source-verified contracts without explorer risk markers.</p>
               </div>
 
-              <div className="wallet-vault-wallet-actions">
+              <div className="wallet-vault-wallet-actions" hidden={activePanel !== 'wallet'}>
                 <button type="button" className="wallet-vault-secondary" onClick={downloadEncryptedBackup}><Download size={16} /> Download encrypted backup</button>
                 <button type="button" className="wallet-vault-lock" onClick={lockWallet}><LockKeyhole size={16} /> Lock wallet</button>
               </div>
-              <p className="wallet-vault-caption"><Activity size={14} /> This is a standalone local wallet. The encrypted vault is stored on this device; the backend never receives the private key. Keep an offline backup.</p>
+              <p className="wallet-vault-caption" hidden={activePanel !== 'wallet'}><Activity size={14} /> This is a standalone local wallet. The encrypted vault is stored on this device; the backend never receives the private key. Keep an offline backup.</p>
 
               {network === 'mainnet' && (
-                <section id="owner-treasury-funding" className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading">
+                <section id="owner-treasury-funding" className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading" hidden={activePanel !== 'treasury'}>
                   <div className="wallet-vault-panel-head">
                     <span className="wallet-vault-step">OWNER</span>
                     <div><h2 id="owner-treasury-funding-heading">Owner treasury funding check</h2><p>Verify actual funds held by the server-configured treasury.</p></div>
@@ -1497,7 +1499,7 @@ export default function WalletVault() {
                 </section>
               )}
 
-              <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading">
+              <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
                   <div><h2 id="wallet-vault-transfer-heading">{network === 'mainnet' ? 'Send from this wallet' : 'Send a testnet transfer'}</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review, sign locally and broadcast a real testnet transaction. Testnet tokens have no Mainnet value.'}</p></div>
@@ -1570,7 +1572,7 @@ export default function WalletVault() {
                 )}
               </section>
 
-              <section id="wallet-vault-history" className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading">
+              <section id="wallet-vault-history" className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading" hidden={activePanel !== 'activity'}>
                 <div className="wallet-vault-history-header"><div><h3 id="wallet-vault-history-heading">Real transfer history</h3><p>Locally saved transaction IDs; status is re-read from the selected chain.</p></div><span>{transferHistory.length} record{transferHistory.length === 1 ? '' : 's'}</span></div>
                 {transferHistory.length === 0 ? (
                   <div className="wallet-vault-history-empty">No transfers have been submitted from this device yet. History entries are added only after the network accepts a signed transaction.</div>
