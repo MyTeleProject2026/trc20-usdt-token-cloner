@@ -175,7 +175,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       // Account generation and encryption happen on this device only. The
       // private key is not put in React state, localStorage, a request, or logs.
       const web = new TronWeb({ fullHost: 'https://api.trongrid.io' })
-      const account = await web.createAccount()
+      const account = await TronWeb.createAccount()
       const privateKey = String(account?.privateKey || '').replace(/^0x/i, '')
       const publicAddress = String(account?.address?.base58 || '')
       if (!/^[0-9a-f]{64}$/i.test(privateKey)
