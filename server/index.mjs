@@ -18,6 +18,7 @@ import tronWalletAuthRoutes from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
+import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
 import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
@@ -143,6 +144,7 @@ app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
+app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 
 if (process.env.DATABASE_URL) {
