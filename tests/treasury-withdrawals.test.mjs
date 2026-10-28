@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { createHash } from 'node:crypto'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
@@ -124,7 +125,8 @@ const realOwnerAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const realTreasuryAddress = 'TNPeeaaFB7K9cmo4uQpcU32zGK8G1NYqeL'
 const realRecipientAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const officialUsdtAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-const payoutTxId = 'c'.repeat(64)
+const payoutTxRawHex = '01020304'
+const payoutTxId = createHash('sha256').update(Buffer.from(payoutTxRawHex, 'hex')).digest('hex')
 
 function createPayoutTestHarness({ usdtBalance = '50000000', trxBalance = '200000000' } = {}) {
   const addresses = new Map([
@@ -139,6 +141,9 @@ function createPayoutTestHarness({ usdtBalance = '50000000', trxBalance = '20000
       const q = sql.replace(/\s+/g, ' ').trim()
       if (['SELECT 1', 'BEGIN', 'COMMIT', 'ROLLBACK'].includes(q) || q.includes('pg_advisory_xact_lock')) return { rows: [] }
       if (q.includes('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1 FOR UPDATE')) {
+        return { rows: state.row && state.row.idempotency_key === params[0] ? [state.row] : [] }
+      }
+      if (q === 'SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1') {
         return { rows: state.row && state.row.idempotency_key === params[0] ? [state.row] : [] }
       }
       if (q.includes('COALESCE(SUM(amount_base_units)')) return { rows: [{ amount: '0' }] }
@@ -211,6 +216,7 @@ function createPayoutTestHarness({ usdtBalance = '50000000', trxBalance = '20000
           result: { result: true },
           transaction: {
             txID: payoutTxId,
+            raw_data_hex: payoutTxRawHex,
             raw_data: { contract: [{
               type: 'TriggerSmartContract',
               parameter: { value: {
@@ -262,6 +268,7 @@ test('treasury transaction intent guard requires the exact sender, official cont
     + BigInt(amountBaseUnits).toString(16).padStart(64, '0')
   const transaction = {
     txID: payoutTxId,
+    raw_data_hex: payoutTxRawHex,
     raw_data: { contract: [{
       type: 'TriggerSmartContract',
       parameter: { value: {
