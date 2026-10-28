@@ -106,6 +106,14 @@ export function assertTreasuryPayoutTransactionIntent(tronWeb, transaction, {
     || transaction.raw_data.contract.length !== 1) {
     throw new Error('Treasury transfer intent is malformed.')
   }
+  if (transaction.raw_data_hex !== undefined) {
+    const rawDataHex = typeof transaction.raw_data_hex === 'string'
+      ? transaction.raw_data_hex.replace(/^0x/i, '') : ''
+    if (!/^(?:[0-9a-f]{2})+$/i.test(rawDataHex)
+      || createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest('hex') !== transaction.txID.toLowerCase()) {
+      throw new Error('Treasury transaction ID does not match its raw transaction payload.')
+    }
+  }
   const operation = transaction.raw_data.contract[0]
   const value = operation?.parameter?.value
   const ownerHex = addressHex(tronWeb, treasuryAddress)
@@ -356,8 +364,16 @@ export function createTreasuryWithdrawalsRouter({
         await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
         const existing = await client.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1 FOR UPDATE', [body.idempotencyKey])
         if (existing.rows.length) {
+          const existingRow = existing.rows[0]
           await client.query('COMMIT')
-          return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existing.rows[0]), note: 'Existing request returned; no second transfer was broadcast.' })
+          if (existingRow.owner_address !== auth.ownerAddress
+            || existingRow.recipient_address !== body.recipientAddress
+            || String(existingRow.amount_base_units) !== amount.toString()
+            || existingRow.treasury_address !== treasuryAddress
+            || existingRow.token_contract !== USDT_MAINNET) {
+            return res.status(409).json({ success: false, error: 'idempotency-key-conflict', note: 'This key already identifies a different withdrawal. Look up the original request; do not reuse the key for different parameters.' })
+          }
+          return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existingRow), note: 'Existing request returned; no second transfer was broadcast.' })
         }
         const spent = await client.query(`
           SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
@@ -394,7 +410,17 @@ export function createTreasuryWithdrawalsRouter({
         try { await client.query('ROLLBACK') } catch {}
         if (error?.code === '23505') {
           const existing = await db.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1', [body.idempotencyKey])
-          if (existing.rows.length) return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existing.rows[0]), note: 'Existing request returned; no second transfer was broadcast.' })
+          if (existing.rows.length) {
+            const existingRow = existing.rows[0]
+            if (existingRow.owner_address !== auth.ownerAddress
+              || existingRow.recipient_address !== body.recipientAddress
+              || String(existingRow.amount_base_units) !== amount.toString()
+              || existingRow.treasury_address !== treasuryAddress
+              || existingRow.token_contract !== USDT_MAINNET) {
+              return res.status(409).json({ success: false, error: 'idempotency-key-conflict' })
+            }
+            return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existingRow), note: 'Existing request returned; no second transfer was broadcast.' })
+          }
         }
         throw error
       } finally {
@@ -439,19 +465,17 @@ export function createTreasuryWithdrawalsRouter({
         })
         txid = unsignedTransaction.txID
       } catch {
-        await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
           SET status='rejected', failure_code='transaction-build-or-sign-failed', updated_at=now()
-          WHERE id=$1\`, [reservation.id]).catch(() => {})
-        // The schema name is fixed by this application. Keep a fallback using the
-        // actual table name below for databases retaining the original schema.
+          WHERE id=$1`, [reservation.id]).catch(() => {})
         return res.status(503).json({ success: false, error: 'treasury-transaction-build-or-sign-failed', note: 'No transaction was broadcast.' })
       }
 
       // Save the locally calculated transaction ID before network submission so an
       // ambiguous timeout can be reconciled by the exact same hash without resending.
-      const storedTx = await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+      const storedTx = await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET transaction_hash=$2, updated_at=now()
-        WHERE id=$1 AND status='broadcasting' RETURNING id\`, [reservation.id, txid])
+        WHERE id=$1 AND status='broadcasting' RETURNING id`, [reservation.id, txid])
       if (!storedTx.rows.length) {
         return res.status(503).json({ success: false, error: 'transaction-id-not-persisted', note: 'No broadcast was attempted.' })
       }
@@ -460,9 +484,9 @@ export function createTreasuryWithdrawalsRouter({
       try {
         broadcast = await tronWeb.trx.sendRawTransaction(signedTransaction)
       } catch {
-        await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
           SET status='broadcast-unknown', failure_code='broadcast-outcome-unknown', updated_at=now()
-          WHERE id=$1\`, [reservation.id]).catch(() => {})
+          WHERE id=$1`, [reservation.id]).catch(() => {})
         return res.status(202).json({
           success: false,
           status: 'broadcast-unknown',
@@ -475,9 +499,9 @@ export function createTreasuryWithdrawalsRouter({
       const reportedTxid = typeof broadcast?.txid === 'string' ? broadcast.txid
         : typeof broadcast?.txID === 'string' ? broadcast.txID : ''
       if (broadcast?.result !== true || (reportedTxid && reportedTxid.toLowerCase() !== txid.toLowerCase())) {
-        await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
           SET status='broadcast-unknown', failure_code=$2, updated_at=now()
-          WHERE id=$1\`, [reservation.id, reportedTxid && reportedTxid.toLowerCase() !== txid.toLowerCase()
+          WHERE id=$1`, [reservation.id, reportedTxid && reportedTxid.toLowerCase() !== txid.toLowerCase()
             ? 'broadcast-response-id-mismatch' : 'broadcast-outcome-unknown']).catch(() => {})
         return res.status(202).json({
           success: false,
@@ -488,9 +512,9 @@ export function createTreasuryWithdrawalsRouter({
           note: 'The node response did not safely confirm acceptance. The signed transaction ID is recorded for reconciliation; do not submit a replacement.',
         })
       }
-      const updated = await db.query(\`UPDATE trc20_token_clone.treasury_withdrawal_requests
+      const updated = await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET status='broadcast-accepted', updated_at=now()
-        WHERE id=$1 RETURNING *\`, [reservation.id])
+        WHERE id=$1 RETURNING *`, [reservation.id])
       return res.status(202).json({
         success: true,
         status: 'broadcast-accepted',
