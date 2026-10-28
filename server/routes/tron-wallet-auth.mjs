@@ -429,7 +429,7 @@ export function createOwnerAuthRouter({
     const databaseConfigured = typeof env.DATABASE_URL === 'string' && env.DATABASE_URL.trim().length > 0
     const allowedOriginConfigured = origins.size > 0
     const hostedUiOriginAllowed = origins.has('https://trc20-usdt-token-cloner.onrender.com')
-    const packagedUiOriginAllowed = origins.has('tronstudio://app')
+    const packagedUiOriginAllowed = origins.has('https://localhost')
     const requiredEnvironment = [
       ...(!ownerAddressConfigured ? ['OWNER_WALLET_ADDRESS (valid TRON Mainnet address)'] : []),
       ...(!passwordHashConfigured ? ['OWNER_PASSWORD_HASH (valid scrypt hash)'] : []),
