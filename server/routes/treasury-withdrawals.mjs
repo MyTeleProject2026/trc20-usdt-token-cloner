@@ -229,7 +229,8 @@ export function createTreasuryWithdrawalsRouter({
       && Boolean(readLimit(env.TREASURY_MIN_TRX_RESERVE))
       && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
       && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
-      && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
+      && Number.isSafeInteger(Number(env.TREASURY_FEE_LIMIT_SUN))
+      && Number(env.TREASURY_FEE_LIMIT_SUN) <= 100_000_000
     return { enabled, missing, signerMode: env.TREASURY_SIGNER_MODE === 'env-hot-wallet' ? 'env-hot-wallet' : 'not-configured' }
   }
 
