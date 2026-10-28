@@ -74,3 +74,25 @@ Open `#/watch-wallets` from the Wallet Vault to add public TRON addresses for mo
 
 A watch-only address does not grant control over the wallet. A public address cannot be reversed into a private key; this screen does not recover, reveal, copy, or transmit private keys and does not sign or broadcast transactions. To spend from an address, the authorized owner must use the original key/seed or an appropriate secure signer. No balance is created by monitoring an address. Treasury payouts, if introduced later, require a separately authorized signer, genuine treasury assets, access controls, payout limits, replay protection, and verified transaction receipts.
 
+
+
+## Single-owner application login
+
+The application UI is gated by a single-owner login. There is no public registration or self-service account creation. Configure these variables on the **backend service only**:
+
+- `OWNER_WALLET_ADDRESS`: the one permitted TRON address in Base58 format.
+- `OWNER_PASSWORD_HASH`: a scrypt password hash. Never store the plaintext password in Render variables or Git.
+- `DATABASE_URL`: required for server-side session persistence and logout revocation.
+- `FRONTEND_ORIGIN`: the exact deployed frontend origin; packaged clients must be explicitly allowlisted in `PACKAGED_APP_ORIGINS`.
+
+Generate a password hash locally with Node.js 22+ (replace the example password locally; do not send it to anyone):
+
+```sh
+node --input-type=module -e "import { randomBytes, scrypt } from 'node:crypto'; import { promisify } from 'node:util'; const derive = promisify(scrypt); const password = process.argv[1]; if (!password || password.length < 16) throw new Error('Use a unique password with at least 16 characters'); const salt = randomBytes(16); const key = await derive(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 67108864 }); console.log('scrypt$' + salt.toString('base64url') + '$' + Buffer.from(key).toString('base64url'))" 'REPLACE_WITH_A_LONG_UNIQUE_PASSWORD'
+```
+
+Copy only the printed `scrypt$...` output into Render's `OWNER_PASSWORD_HASH` value. Set `OWNER_WALLET_ADDRESS` to the exact owner address. Restart/redeploy the backend after setting the variables. Do not put any private key or seed phrase into these variables.
+
+Owner login issues a 15-minute session stored server-side by token hash. The browser keeps the bearer token in session storage, clears the password after login, and exposes a sign-out action. Failed attempts are rate-limited per backend process; use a strong unique password and protect the Render account with MFA. The login session proves access to the owner console only; it does not create USDT, fund withdrawals, or authorize transfers without actual assets and network fees.
+
+**Deployment note:** setting these variables is an operator action; repository changes cannot set secret Render environment variables on your behalf. The app will fail closed with an explicit configuration message until the owner address, password hash, database and origin allowlist are configured.
