@@ -872,3 +872,42 @@ main .grid > button[aria-pressed] > span {
 
 .wallet-vault-status-tag.status-local-not-verified { color:#ffe0aa; border-color:#7b6035; background:#2a2113; }
 .wallet-vault-status-tag.status-identity-mismatch { color:#ffcdc0; border-color:#8a4a40; background:#2b1715; }
+
+
+/* Single-owner authentication and focused Wallet Vault shell. */
+.owner-auth-form { display:grid; gap:14px; margin-top:24px; }
+.owner-auth-label { display:grid; gap:7px; color:#c4e0d6; font-size:12px; font-weight:700; }
+.owner-auth-input-wrap { display:flex; align-items:center; gap:10px; min-height:46px; padding:0 12px; border:1px solid #294840; border-radius:10px; background:#081615; color:#77e1bb; }
+.owner-auth-input-wrap:focus-within { border-color:#65e4b9; box-shadow:0 0 0 3px rgba(101,228,185,.12); }
+.owner-auth-input-wrap svg { flex:0 0 auto; }
+.owner-auth-input-wrap input { width:100%; min-width:0; padding:11px 0; border:0; outline:none; color:#eafff6; background:transparent; font:inherit; font-size:13px; }
+.owner-auth-input-wrap input::placeholder { color:#65867b; }
+.owner-auth-hint { margin:0; color:#85a99c; font-size:11px; line-height:1.65; }
+.owner-auth-switch { margin-top:20px; text-align:center; color:#83a99a; font-size:12px; }
+.owner-auth-switch button { margin-left:4px; color:#7fffd2; font-weight:800; text-decoration:underline; text-underline-offset:3px; }
+.owner-auth-switch button:disabled { opacity:.5; cursor:not-allowed; }
+.owner-console { min-height:100vh; padding-bottom:28px; color:#e6fff7; background:#071114; }
+.owner-console-topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; padding:14px clamp(14px,3vw,32px); border-bottom:1px solid #1f3935; background:#091818; }
+.owner-console-brand { display:flex; align-items:center; gap:10px; min-width:0; }
+.owner-console-brand > span:last-child { display:grid; gap:3px; }
+.owner-console-brand strong { color:#eafff6; font-size:14px; letter-spacing:-.02em; }
+.owner-console-brand small { color:#80a99a; font-size:9px; font-weight:800; letter-spacing:.14em; }
+.owner-console-session { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:10px; color:#a9d9c9; font-size:11px; }
+.owner-console-session > span { display:flex; align-items:center; gap:6px; max-width:100%; overflow-wrap:anywhere; }
+.owner-console-session button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:35px; padding:7px 11px; border:1px solid #31574d; border-radius:9px; color:#c8ffeb; background:#0b211c; font-size:11px; font-weight:750; }
+.owner-console-intro { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:18px; max-width:1180px; margin:0 auto; padding:26px 18px 18px; }
+.owner-console-intro h1 { margin:5px 0 8px; color:#f1fff8; font-size:clamp(24px,4vw,32px); line-height:1.1; letter-spacing:-.04em; }
+.owner-console-intro p:not(.studio-eyebrow) { max-width:720px; margin:0; color:#9bb9ae; font-size:12px; line-height:1.8; }
+.owner-console-status { display:inline-flex; align-items:center; gap:6px; padding:8px 10px; border:1px solid rgba(92,216,173,.28); border-radius:999px; color:#a8ffdc; background:rgba(20,80,58,.22); white-space:nowrap; font-size:10px; font-weight:800; }
+.owner-console-guidance { display:flex; align-items:flex-start; gap:10px; max-width:1144px; margin:0 auto 10px; padding:13px 15px; border:1px solid rgba(212,171,88,.3); border-radius:12px; background:rgba(65,45,13,.24); color:#f7dca0; }
+.owner-console-guidance svg { flex:0 0 auto; margin-top:2px; }
+.owner-console-guidance p { margin:0; font-size:11px; line-height:1.75; }
+.owner-console-guidance strong { color:#ffe8b4; }
+.owner-console-footer { max-width:1144px; margin:20px auto 0; padding:0 15px; color:#668b80; font-size:10px; line-height:1.7; }
+@media (max-width:760px) {
+  .owner-console-topbar { align-items:flex-start; }
+  .owner-console-session { width:100%; justify-content:space-between; }
+  .owner-console-guidance { margin-right:12px; margin-left:12px; }
+  .owner-console-intro { padding:20px 14px 14px; }
+  .owner-console-footer { padding:0 12px; }
+}
