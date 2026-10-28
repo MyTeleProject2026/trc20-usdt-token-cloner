@@ -2,7 +2,26 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, treasuryFeeCapCovered, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, treasuryFeeCapCovered, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+
+test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  assert.equal(isUnifiedTreasuryOwnerConfiguration({
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+  }), true)
+  assert.equal(isUnifiedTreasuryOwnerConfiguration({
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: 'T' + 'B'.repeat(33),
+  }), false)
+  assert.equal(isUnifiedTreasuryOwnerConfiguration({
+    TREASURY_OWNER_ADDRESS: owner,
+  }), false)
+  assert.equal(isUnifiedTreasuryOwnerConfiguration({
+    OWNER_WALLET_ADDRESS: 'invalid',
+    TREASURY_OWNER_ADDRESS: 'invalid',
+  }), false)
+})
 
 test('USDT decimal parser converts exact six-decimal amounts to base units', () => {
   assert.equal(parsePositiveDecimal('1'), 1_000_000n)
