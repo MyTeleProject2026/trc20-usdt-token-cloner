@@ -83,7 +83,7 @@ The application UI is gated by a single-owner login. There is no public registra
 - `OWNER_WALLET_ADDRESS`: the one permitted TRON address in Base58 format.
 - `OWNER_PASSWORD_HASH`: a scrypt password hash. Never store the plaintext password in Render variables or Git.
 - `DATABASE_URL`: required for server-side session persistence and logout revocation.
-- `FRONTEND_ORIGIN`: the exact deployed frontend origin; packaged clients must be explicitly allowlisted in `PACKAGED_APP_ORIGINS`.
+- `FRONTEND_ORIGIN`: the exact deployed frontend origin; packaged clients must be explicitly allowlisted in `PACKAGED_APP_ORIGINS` (for the current Capacitor APK, include `https://localhost`; include `tronstudio://app` only if the desktop shell is deployed).
 
 Generate a password hash locally with Node.js 22+ (replace the example password locally; do not send it to anyone):
 
