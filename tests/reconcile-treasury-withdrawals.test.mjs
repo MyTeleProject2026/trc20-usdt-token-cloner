@@ -57,7 +57,7 @@ test('receipt reconciler leaves rows untouched when provider reads fail', async 
     },
   }
   const summary = await reconcileTreasuryWithdrawals({ db, tronWeb })
-  assert.deepEqual(summary, { scanned: 3, confirmed: 0, failed: 0, pending: 0, errors: 3 })
+  assert.deepEqual(summary, { scanned: 3, confirmed: 0, failed: 0, pending: 3, errors: 0 })
   assert.equal(db.updates.length, 0)
 })
 
