@@ -233,6 +233,9 @@ export function createTreasuryWithdrawalsRouter({
   env = process.env,
   sessionLookup = getWalletAuthSession,
   tronWebFactory = (privateKey) => new TronWeb({ fullHost: MAINNET_RPC, privateKey }),
+  readOnlyTronWebFactory = () => new TronWeb({ fullHost: MAINNET_RPC }),
+  databaseProvider = getPool,
+  prepareDatabase = ensureSchema,
   now = () => new Date(),
 } = {}) {
   const router = Router()
@@ -626,10 +629,10 @@ export function createTreasuryWithdrawalsRouter({
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     if (!IDEMPOTENCY_PATTERN.test(req.params.idempotencyKey || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
-    const db = getPool(env)
+    const db = databaseProvider(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
-      await ensureSchema(db)
+      await prepareDatabase(db)
       const result = await db.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1 AND owner_address = $2', [req.params.idempotencyKey, auth.ownerAddress])
       if (!result.rows.length) return res.status(404).json({ success: false, error: 'withdrawal-not-found' })
       return res.json({ success: true, withdrawal: safeStatus(result.rows[0]) })
