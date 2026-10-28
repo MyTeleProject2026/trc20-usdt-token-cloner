@@ -74,3 +74,13 @@ test('native APK workflow bundles the local wallet UI and keeps the Android buil
   assert.match(apiSmoke, /Origin: https:\/\/localhost/)
   assert.match(apiSmoke, /Configure PACKAGED_APP_ORIGINS on the Render API service/)
 })
+
+test('owner treasury payout UI invalidates stale sessions and requires matching, funded treasury readiness', async () => {
+  const vault = await read('src/WalletVault.tsx')
+  assert.match(vault, /setOwnerSessionToken\(''\)/)
+  assert.match(vault, /\}, \[unlocked\?\.record\.address\]\)/)
+  assert.match(vault, /serverTreasuryAddressMatchesSnapshot/)
+  assert.match(vault, /serverTreasuryHasFunds/)
+  assert.match(vault, /!canSubmitServerTreasuryPayout/)
+  assert.match(vault, /matching official Transfer event were verified on TRON/)
+})

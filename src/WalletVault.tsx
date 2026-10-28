@@ -270,6 +270,18 @@ export default function WalletVault() {
   const [notice, setNotice] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const selectedRecord = useMemo(() => records.find(item => item.address === selectedAddress) || null, [records, selectedAddress])
+  const serverTreasuryBalanceBaseUnits = serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits
+  const serverTreasuryHasFunds = typeof serverTreasuryBalanceBaseUnits === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(serverTreasuryBalanceBaseUnits)
+    && BigInt(serverTreasuryBalanceBaseUnits) > 0n
+  const serverTreasuryAddressMatchesSnapshot = typeof serverTreasuryReadiness?.treasuryAddress === 'string'
+    && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
+    && serverTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot.treasuryAddress
+  const canSubmitServerTreasuryPayout = Boolean(ownerSessionToken
+    && ownerTreasurySnapshot?.ownerAccessVerified === true
+    && serverTreasuryReadiness?.withdrawalsEnabled === true
+    && serverTreasuryAddressMatchesSnapshot
+    && serverTreasuryHasFunds)
 
   useEffect(() => {
     const contracts = readTokenWatchlist(network)
@@ -279,9 +291,25 @@ export default function WalletVault() {
     setTransferReview(null)
     setTransferAcknowledged(false)
     setMainnetSendPhrase('')
+    setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
+    setServerTreasuryReadiness(null)
+    setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
+    setTreasuryPayoutError('')
   }, [network])
+
+  // A reusable owner bearer session must not survive a lock or wallet switch.
+  // Server authorization is the primary boundary; this prevents stale UI state
+  // from accidentally submitting a payout after the owner context changes.
+  useEffect(() => {
+    setOwnerSessionToken('')
+    setOwnerTreasurySnapshot(null)
+    setServerTreasuryReadiness(null)
+    setTreasuryPayoutConfirm('')
+    setOwnerTreasuryError('')
+    setTreasuryPayoutError('')
+  }, [unlocked?.record.address])
 
   useEffect(() => {
     if (!unlocked) return
@@ -784,7 +812,7 @@ export default function WalletVault() {
       const combined = { ...payload, verification: verification?.verification || null }
       setTreasuryPayoutStatus(combined)
       if (verification?.verification?.status === 'confirmed') {
-        setNotice('The exact treasury sender, official USDT contract, recipient, amount, and successful confirmed receipt were verified on TRON.')
+        setNotice('The exact treasury sender, official USDT contract, recipient, amount, successful solidified receipt, and matching official Transfer event were verified on TRON.')
       } else if (verification?.verification?.status === 'failed') {
         setTreasuryPayoutError('The transaction is confirmed on-chain but its contract execution failed. No successful USDT transfer was verified.')
       } else if (verification?.verification?.status === 'verification-mismatch') {
@@ -1352,12 +1380,21 @@ export default function WalletVault() {
                       <div><small>Verified treasury USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
                     </div>
                   )}
+                  {serverTreasuryReadiness?.withdrawalsEnabled === true
+                    && typeof serverTreasuryReadiness.treasuryAddress === 'string'
+                    && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
+                    && !serverTreasuryAddressMatchesSnapshot && (
+                    <p className="wallet-vault-risk-note" role="alert">Payout is blocked: the server signing address does not match the treasury address whose on-chain balance was checked. Fix the backend address configuration and repeat the owner check.</p>
+                  )}
+                  {serverTreasuryReadiness?.withdrawalsEnabled === true && !serverTreasuryHasFunds && (
+                    <p className="wallet-vault-risk-note" role="note">The server treasury has no verified positive USDT balance. Fund it with genuine USDT and verify the balance before requesting a payout.</p>
+                  )}
                   <div className="wallet-vault-form-grid">
                     <label className="wallet-vault-field"><span>Recipient TRON address</span><input value={treasuryPayoutRecipient} onChange={event => setTreasuryPayoutRecipient(event.target.value.trim())} placeholder="T..." autoComplete="off" /></label>
                     <label className="wallet-vault-field"><span>USDT amount</span><input value={treasuryPayoutAmount} onChange={event => setTreasuryPayoutAmount(event.target.value)} placeholder="0.00" inputMode="decimal" autoComplete="off" /></label>
                     <label className="wallet-vault-field wallet-vault-review-wide"><span>Type SEND TREASURY USDT to confirm</span><input value={treasuryPayoutConfirm} onChange={event => setTreasuryPayoutConfirm(event.target.value)} placeholder="SEND TREASURY USDT" autoComplete="off" /></label>
                   </div>
-                  <button type="button" className="wallet-vault-primary" disabled={treasuryPayoutBusy || ownerTreasuryLoading || !serverTreasuryReadiness?.withdrawalsEnabled} onClick={() => void submitServerTreasuryPayout()}>
+                  <button type="button" className="wallet-vault-primary" disabled={treasuryPayoutBusy || ownerTreasuryLoading || !canSubmitServerTreasuryPayout} onClick={() => void submitServerTreasuryPayout()}>
                     <ShieldCheck size={16} /> {treasuryPayoutBusy ? 'Processing treasury request…' : 'Send genuine USDT from server treasury'}
                   </button>
                   {treasuryPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryPayoutError}</p>}
