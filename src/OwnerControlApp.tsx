@@ -91,7 +91,7 @@ export default function OwnerControlApp() {
 
     setBusy(true)
     try {
-      const response = await fetch(API_BASE + '/api/owner-auth/' + (mode === 'setup' ? 'setup' : 'login'), {
+      const response = await fetch(API_BASE + (mode === 'setup' ? '/api/owner-auth/setup' : '/api/owner-auth/login'), {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify(mode === 'setup'
