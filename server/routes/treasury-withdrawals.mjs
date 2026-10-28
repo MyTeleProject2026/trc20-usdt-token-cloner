@@ -244,7 +244,7 @@ export function createTreasuryWithdrawalsRouter({
     const origin = req.get('origin')
     const token = bearerToken(req)
     const expectedOwner = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
-    if (!token || !origin || !ADDRESS_PATTERN.test(expectedOwner)) return { ok: false, status: 401, error: 'owner-auth-required' }
+    if (!token || !origin || !ADDRESS_PATTERN.test(expectedOwner) || !isValidTronAddress(expectedOwner)) return { ok: false, status: 401, error: 'owner-auth-required' }
     const result = await sessionLookup({
       tokenHash: createHash('sha256').update(token, 'utf8').digest('hex'),
       origin,
@@ -263,7 +263,10 @@ export function createTreasuryWithdrawalsRouter({
       && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
       && missing.length === 0
       && ADDRESS_PATTERN.test(env.TREASURY_OWNER_ADDRESS || '')
+      && isValidTronAddress(env.TREASURY_OWNER_ADDRESS || '')
       && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
+      && isValidTronAddress(env.TREASURY_ADDRESS || '')
+      && env.TREASURY_OWNER_ADDRESS.trim() !== env.TREASURY_ADDRESS.trim()
       && Boolean(readLimit(env.TREASURY_MAX_PAYOUT_USDT))
       && Boolean(readLimit(env.TREASURY_DAILY_LIMIT_USDT))
       && Boolean(readLimit(env.TREASURY_MIN_TRX_RESERVE))
