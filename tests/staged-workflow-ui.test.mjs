@@ -18,7 +18,7 @@ test('the live frontend entrypoint exposes only the single-owner wallet workspac
   assert.ok(app.includes('Review & availability'))
 })
 
-test('workspace sections are directly navigable while validation still gates continuation and review', () => {test('workspace sections are directly navigable while validation still gates continuation and review', () => {
+test('workspace sections are directly navigable while validation still gates continuation and review', () => {
   assert.ok(app.includes('const canEnterStep = (index: number) => index >= 0 && index < STEPS.length'))
   assert.ok(app.includes('aria-label="Workspace sections"'))
   assert.ok(app.includes('aria-label="Mobile workspace sections"'))
