@@ -7,14 +7,15 @@ This feature lets the single configured owner request a withdrawal from a separa
 - Route prefix: `/api/treasury`
 - `GET /withdrawals/readiness`: owner-authenticated configuration and on-chain funding check.
 - `POST /withdrawals`: owner-authenticated treasury payout.
+- `POST /withdrawals/:idempotencyKey/verify`: independently verify the saved transaction against a confirmed TRON transaction and explicit contract execution receipt.
 - `GET /withdrawals/:idempotencyKey`: retrieve a previously recorded request.
 - Only the official TRON Mainnet USDT contract is accepted: `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`.
 - The existing wallet-auth signed challenge/session must identify the exact `TREASURY_OWNER_ADDRESS` on Mainnet and match the request Origin.
 - The treasury signing key is server-side only. The client never submits a private key.
 - The treasury signer key must derive `TREASURY_ADDRESS`. That address must hold actual USDT.
-- Per-transfer and daily limits are mandatory; requests are persisted with a unique idempotency key before broadcast to reduce duplicate-send risk.
-- An uncertain broadcast is recorded as `broadcast-unknown`; do not retry with a new key. Reconcile the original request and chain state first.
-- `broadcast-accepted` means the node accepted a broadcast response, not that the transaction is confirmed or that an exchange credited it.
+- Per-transfer, daily, and minimum native-TRX reserve limits are mandatory. Pending or ambiguous requests reserve principal until reconciled; idempotency keys are bound to the exact owner, treasury, recipient, token contract, and amount.
+- The exact unsigned/signed transaction intent is validated before broadcast, and the locally calculated transaction ID is persisted before network submission. An uncertain broadcast is recorded as `broadcast-unknown`; do not retry with a new key. Reconcile the saved transaction hash first.
+- `broadcast-accepted` means the node accepted the broadcast response, not that the transaction is confirmed. The verify endpoint requires the exact official token contract, sender, recipient, amount, transaction ID, and a successful confirmed receipt before setting `confirmed`. Exchange credit is controlled by the receiving exchange.
 
 ## Required backend environment variables
 
@@ -30,13 +31,14 @@ Set these only in the backend service's secret/environment settings, never in `V
 | `TREASURY_PRIVATE_KEY` | Treasury private key; high-risk secret, never expose to clients |
 | `TREASURY_MAX_PAYOUT_USDT` | Maximum amount per withdrawal, decimal USDT (up to 6 decimals) |
 | `TREASURY_DAILY_LIMIT_USDT` | Maximum aggregate reserved amount per UTC database day |
-| `TREASURY_FEE_LIMIT_SUN` | Explicit TRON smart-contract fee limit in SUN |
+| `TREASURY_FEE_LIMIT_SUN` | Explicit TRON smart-contract fee limit in SUN; positive integer, at most `100000000` SUN (100 TRX) |
+| `TREASURY_MIN_TRX_RESERVE` | Minimum TRX reserve in decimal TRX (up to 6 decimals). The treasury must hold this reserve plus the configured fee cap before sending. |
 
 The feature stays disabled unless all required values are configured and valid. The private key must correspond to `TREASURY_ADDRESS`; the owner wallet and treasury wallet are intentionally separate.
 
 ## Security and rollout requirements
 
-1. Use a dedicated, low-balance treasury and fund it with genuine USDT and enough TRX for fees. Fee sponsorship cannot pay the USDT principal.
+1. Use a dedicated, low-balance treasury and fund it with genuine USDT and enough TRX for fees. Set `TREASURY_MIN_TRX_RESERVE` to a conservative minimum. The configured reserve plus the transaction fee cap must be available in TRX; fee sponsorship cannot supply the USDT principal.
 2. The current `env-hot-wallet` signer is a simple server-side custody integration, not an HSM/KMS. Do not put significant assets at risk before an independent security review. Prefer a custody provider or isolated signer with transaction-policy enforcement before production use.
 3. Set a small per-withdrawal cap and daily cap first. Restrict backend access, protect Render environment access, rotate credentials, and monitor all withdrawal records.
 4. Deploy only after CI passes, database persistence is verified, and the owner session origin is configured in the backend allowlist.
@@ -63,7 +65,7 @@ The idempotency key must be reused to query an uncertain request. A duplicate ke
 
 ## Known limitations
 
-- The API reports broadcast status; it does not yet automatically transition records to confirmed based on an independent solidified receipt worker.
-- The owner-facing UI has not yet been connected to these endpoints.
+- Receipt verification is request-driven through `POST /withdrawals/:idempotencyKey/verify`; there is no independent background confirmation worker yet.
+- The Wallet Vault owner panel invokes the treasury readiness, withdrawal, and receipt-verification routes. It still requires the backend's allowed Origin list, owner session, and secret environment variables to be configured.
 - Environment-key custody requires hardening before significant Mainnet use.
 - Deployment and end-to-end Mainnet behavior must be validated separately; adding this code does not prove it is live or funded.
