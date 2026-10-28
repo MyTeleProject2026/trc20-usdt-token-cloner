@@ -16,7 +16,7 @@ test('wallet vault is reachable only through the owner-authenticated application
   assert.match(ownerApp, /one owner account/)
 })
 
-test('wallet creation, import and restore encrypt key material before local persistence', async () => {test('wallet creation, import and restore encrypt key material before local persistence', async () => {
+test('wallet creation, import and restore encrypt key material before local persistence', async () => {
   const vault = await read('src/WalletVault.tsx')
   const crypto = await read('src/wallet-vault-crypto.mjs')
   assert.match(vault, /await web\.createAccount\(\)/)
