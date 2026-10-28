@@ -911,8 +911,8 @@ export async function getOwnerAuthAccount() {
 
 /** Race-safe one-time creation of the single owner account. */
 export async function createOwnerAuthAccount({ email, passwordHash } = {}) {
-  if (typeof email !== 'string' || !/^[^\\s@]{1,128}@[^\\s@]{1,190}$/.test(email)
-    || typeof passwordHash !== 'string' || !/^scrypt\\$32768\\$8\\$1\\$[A-Za-z0-9_-]{20,30}\\$[A-Za-z0-9_-]{80,100}$/.test(passwordHash)) {
+  if (typeof email !== 'string' || !/^[^\s@]{1,128}@[^\s@]{1,190}$/.test(email)
+    || typeof passwordHash !== 'string' || !/^scrypt\$32768\$8\$1\$[A-Za-z0-9_-]{20,30}\$[A-Za-z0-9_-]{80,100}$/.test(passwordHash)) {
     return { success: false, reason: 'invalid-owner-account' }
   }
   const db = getPool()
@@ -934,7 +934,7 @@ export async function createOwnerAuthAccount({ email, passwordHash } = {}) {
 /** Store an opaque owner session by token digest and bind it to the app origin. */
 export async function persistOwnerAuthSession({ tokenHash, email, origin, expiresAt } = {}) {
   if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)
-    || typeof email !== 'string' || !/^[^\\s@]{1,128}@[^\\s@]{1,190}$/.test(email)
+    || typeof email !== 'string' || !/^[^\s@]{1,128}@[^\s@]{1,190}$/.test(email)
     || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
     || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
     return { success: false, reason: 'invalid-session' }
