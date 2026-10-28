@@ -6,6 +6,8 @@ TRON Token Studio is a standalone, locally signed owner wallet. The backend can 
 
 The app cannot mint genuine Tether USDT. The official TRON USDT contract is fixed at `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`. Deploying another Solidity token—even one with a matching symbol or a mint function—creates a different asset and does not make it official USDT or an accepted exchange deposit.
 
+Every Mainnet send in the Wallet Vault is also gated by a fresh (five-minute) owner treasury verification at both transfer review and broadcast. The locally unlocked sender must exactly match the configured treasury address. This protects the owner-only application flow and prevents a stale UI snapshot from being reused; the actual transfer still depends on live on-chain balances and local transaction signing.
+
 ## Environment configuration
 
 Configure these in the backend service environment, never in frontend variables:

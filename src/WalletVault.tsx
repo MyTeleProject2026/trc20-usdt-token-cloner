@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
+import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
   decryptWalletPrivateKey,
   encryptWalletPrivateKey,
@@ -85,6 +86,8 @@ type OwnerTreasurySnapshot = {
   success?: boolean
   ownerAccessVerified?: boolean
   status?: string
+  network?: string
+  onChainBalanceRead?: boolean
   treasuryAddress?: string
   checkedAt?: string
   native?: { status?: string; balanceTRX?: string }
@@ -705,6 +708,9 @@ export default function WalletVault() {
     const web = createTronWeb(network, unlocked.privateKey)
     const from = String(web.defaultAddress?.base58 || '')
     if (from !== unlocked.record.address || !web.isAddress(from)) throw new Error('Unlocked signing address does not match the selected wallet record.')
+    // Mainnet sends are owner-only. Require a recent server-verified owner
+    // session and the exact configured treasury as the locally signed sender.
+    assertOwnerMainnetTransferAccess({ network, from, snapshot: ownerTreasurySnapshot })
     const to = recipientInput.trim()
     if (!web.isAddress(to) || !ADDRESS_PATTERN.test(to)) throw new Error('Enter a valid TRON Base58Check recipient address.')
     if (to === from) throw new Error('Sender and recipient must be different addresses.')
@@ -768,6 +774,8 @@ export default function WalletVault() {
     if (!unlocked || !review) throw new Error('Prepare a fresh transfer review before broadcasting.')
     if (!transferAcknowledged) throw new Error('Confirm that you checked the network, recipient, amount and irreversibility before signing.')
     if (review.network !== network || review.from !== unlocked.record.address) throw new Error('Network or wallet changed after review. Prepare the transfer again.')
+    // Recheck authorization at broadcast time, not only when the review was made.
+    assertOwnerMainnetTransferAccess({ network, from: review.from, snapshot: ownerTreasurySnapshot })
     if (network === 'mainnet' && mainnetSendPhrase.trim() !== 'SEND MAINNET') {
       throw new Error('For Mainnet, type SEND MAINNET exactly after reviewing the recipient and amount.')
     }
