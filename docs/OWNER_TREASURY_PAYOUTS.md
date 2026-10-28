@@ -2,7 +2,7 @@
 
 ## What this feature does
 
-The Wallet Vault is intended for one configured owner, not a public no-auth wallet service. The owner signs the app's one-time wallet-identity challenge. The API accepts a payout only when that authenticated Mainnet address matches `TREASURY_OWNER_ADDRESS`.
+The Wallet Vault is intended for one configured owner, not a public no-auth wallet service. The owner signs the app's one-time wallet-identity challenge. The API accepts a payout only when that authenticated Mainnet address matches `TREASURY_OWNER_ADDRESS`. The private console login address `OWNER_WALLET_ADDRESS` must also exactly match `TREASURY_OWNER_ADDRESS`; mismatches disable the payout route.
 
 The withdrawal API signs a transfer using a separate server-side treasury key. Therefore, the owner identity wallet does not need to personally hold the USDT principal if the server treasury is funded. **The treasury must hold the genuine USDT being paid out. This service does not mint, generate, clone, or manufacture USDT.** A zero-balance treasury cannot send USDT.
 
@@ -15,6 +15,7 @@ Configure these values on the **backend API service only**. Never commit credent
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Persistent PostgreSQL connection for owner sessions and withdrawal idempotency/reservation records. |
+| `OWNER_WALLET_ADDRESS` | The one public address allowed through the password-protected console login; must match `TREASURY_OWNER_ADDRESS` exactly. |
 | `TATUM_API_KEY` | Provider credential used by the owner panel's read-only funding check. |
 | `FRONTEND_ORIGIN` | Existing hosted frontend origin allowed by the API's CORS policy. Preserve existing entries when changing it. |
 | `PACKAGED_APP_ORIGINS` | Optional additional origin allowlist for the packaged application; use the exact configured origins. |

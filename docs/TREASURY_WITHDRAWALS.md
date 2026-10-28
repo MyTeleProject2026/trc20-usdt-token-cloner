@@ -10,6 +10,7 @@ This feature lets the single configured owner request a payout from a separately
 - `POST /api/treasury/withdrawals/:idempotencyKey/verify`: reads the confirmed transaction and receipt, then checks the exact treasury sender, recipient, amount, official USDT contract and matching Transfer event.
 - `npm run treasury:reconcile`: one bounded reconciliation pass over stored broadcasts that have transaction hashes. It can finalize a request only when the existing on-chain verifier proves a successful official-USDT Transfer event or a confirmed failed receipt.
 - The API requires the existing Mainnet wallet-auth session to match `TREASURY_OWNER_ADDRESS` and the request Origin; each payout also requires a short-lived owner signature bound to the exact request.
+- The private console setting `OWNER_WALLET_ADDRESS` must exactly match `TREASURY_OWNER_ADDRESS`. A missing or mismatched value fails closed and disables treasury withdrawals.
 - The server-side signer must derive exactly `TREASURY_ADDRESS`. Only the official Mainnet Tether TRC-20 address is used.
 - PostgreSQL idempotency reservations, payout limits, and conservative accounting for unresolved broadcasts prevent retries from casually duplicating payments.
 - Pending, ambiguous, or unverifiable transactions remain unresolved; a broadcast response or transaction hash alone is not success evidence.
@@ -21,6 +22,7 @@ Keep these in the backend service's secret/environment settings only. Never put 
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Persistent PostgreSQL database for payout idempotency and audit records |
+| `OWNER_WALLET_ADDRESS` | The single address allowed through private owner-console login; must exactly match `TREASURY_OWNER_ADDRESS` |
 | `TREASURY_WITHDRAWALS_ENABLED=true` | Explicitly enables the withdrawal route after review |
 | `TREASURY_SIGNER_MODE=env-hot-wallet` | Enables the current server-side environment key signer |
 | `TREASURY_OWNER_ADDRESS` | The one owner address allowed to request payouts |
