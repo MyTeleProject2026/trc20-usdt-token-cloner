@@ -97,6 +97,27 @@ export async function initializeDatabase() {
   if (!initPromise) {
     initPromise = (async () => {
       await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Standalone-app owner account: only the first account row can ever be created.
+      // Passwords are scrypt hashes; active bearer sessions are stored by SHA-256 digest.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.owner_auth_accounts (
+          singleton_id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (singleton_id = 1),
+          email TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.owner_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          email TEXT NOT NULL REFERENCES ${schema}.owner_auth_accounts(email) ON DELETE CASCADE,
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_owner_auth_sessions_expiry ON ${schema}.owner_auth_sessions (expires_at)`)
       // Wallet auth stores only the public address, origin, expiry and hashes of
       // one-time challenge/session secrets. Raw bearer tokens and private keys
       // are never persisted. Sessions are shared across Render instances/restarts.
@@ -864,6 +885,115 @@ export async function revokeWalletAuthSession({ tokenHash } = {}) {
     return { success: true }
   } catch (error) {
     console.error('Wallet auth session revocation failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Read the sole owner account. The password hash never leaves the server route.
+ */
+export async function getOwnerAuthAccount() {
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', account: null }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT email, password_hash, created_at FROM ${schema}.owner_auth_accounts WHERE singleton_id = 1 LIMIT 1`,
+    )
+    if (!result.rows.length) return { success: true, account: null }
+    const row = result.rows[0]
+    return { success: true, account: { email: row.email, passwordHash: row.password_hash, createdAt: new Date(row.created_at).getTime() } }
+  } catch (error) {
+    console.error('Owner account lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', account: null }
+  }
+}
+
+/** Race-safe one-time creation of the single owner account. */
+export async function createOwnerAuthAccount({ email, passwordHash } = {}) {
+  if (typeof email !== 'string' || !/^[^\s@]{1,128}@[^\s@]{1,190}$/.test(email)
+    || typeof passwordHash !== 'string' || !/^scrypt\$32768\$8\$1\$[A-Za-z0-9_-]{20,30}\$[A-Za-z0-9_-]{80,100}$/.test(passwordHash)) {
+    return { success: false, reason: 'invalid-owner-account' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `INSERT INTO ${schema}.owner_auth_accounts (singleton_id, email, password_hash)
+       VALUES (1, $1, $2) ON CONFLICT DO NOTHING RETURNING email`,
+      [email, passwordHash],
+    )
+    return { success: true, created: result.rowCount === 1 }
+  } catch (error) {
+    console.error('Owner account creation failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Store an opaque owner session by token digest and bind it to the app origin. */
+export async function persistOwnerAuthSession({ tokenHash, email, origin, expiresAt } = {}) {
+  if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)
+    || typeof email !== 'string' || !/^[^\s@]{1,128}@[^\s@]{1,190}$/.test(email)
+    || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
+    || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    return { success: false, reason: 'invalid-session' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    await db.query(`DELETE FROM ${schema}.owner_auth_sessions WHERE expires_at <= now()`)
+    const result = await db.query(
+      `INSERT INTO ${schema}.owner_auth_sessions (token_hash, email, origin, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [tokenHash, email, origin, new Date(expiresAt)],
+    )
+    await db.query(
+      `UPDATE ${schema}.owner_auth_accounts SET last_authenticated_at = now() WHERE singleton_id = 1 AND email = $1`,
+      [email],
+    )
+    return { success: true, persisted: result.rowCount === 1 }
+  } catch (error) {
+    console.error('Owner session persistence failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Read a current owner session by hash, expiry and exact allowed origin. */
+export async function getOwnerAuthSession({ tokenHash, origin, nowMs = Date.now() } = {}) {
+  if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)
+    || typeof origin !== 'string' || origin.length < 1 || origin.length > 512
+    || !Number.isFinite(nowMs)) return { success: false, reason: 'invalid-session' }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    await db.query(`DELETE FROM ${schema}.owner_auth_sessions WHERE expires_at <= now()`)
+    const result = await db.query(
+      `SELECT email, origin, expires_at FROM ${schema}.owner_auth_sessions
+       WHERE token_hash = $1 AND origin = $2 AND expires_at > $3 LIMIT 1`,
+      [tokenHash, origin, new Date(nowMs)],
+    )
+    if (!result.rows.length) return { success: true, session: null }
+    const row = result.rows[0]
+    return { success: true, session: { email: row.email, origin: row.origin, expiresAt: new Date(row.expires_at).getTime() } }
+  } catch (error) {
+    console.error('Owner session lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+export async function revokeOwnerAuthSession({ tokenHash } = {}) {
+  if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)) return { success: false, reason: 'invalid-session' }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    await db.query(`DELETE FROM ${schema}.owner_auth_sessions WHERE token_hash = $1`, [tokenHash])
+    return { success: true }
+  } catch (error) {
+    console.error('Owner session revocation failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable' }
   }
 }

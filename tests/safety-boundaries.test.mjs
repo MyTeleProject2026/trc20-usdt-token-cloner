@@ -6,8 +6,9 @@ const token = await readFile(new URL('../contracts/IndependentTRC20.sol', import
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const app = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 
-test('the local-only simulator is no longer part of the live UI', () => {
-  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+test('the active owner UI excludes legacy simulator routes and fictional balances', () => {
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
   assert.ok(!entry.includes('TransferSimulator'))
   assert.ok(!app.includes('SIMULATION ONLY'))
   assert.ok(!app.includes('fictional balances and records'))

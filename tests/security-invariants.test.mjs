@@ -44,8 +44,9 @@ test('token contract exposes no arbitrary balance-edit or privileged transfer fu
   assert.match(contract, /symbol must be VTRC/)
 })
 
-test('the active frontend is the staged workflow and not the legacy simulator', () => {
-  assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
+test('the active frontend is the owner wallet shell and excludes simulation paths', () => {
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.ok(!entry.includes("import App from './WorkflowApp.tsx'"))
   assert.ok(!app.includes('TransferSimulator'))
   assert.ok(!app.includes('fictional balances and records'))
   assert.ok(!app.includes('/api/gasfree/submit'))

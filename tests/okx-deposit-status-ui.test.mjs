@@ -6,12 +6,10 @@ const page = await readFile(new URL('../src/OkxDepositStatus.tsx', import.meta.u
 const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
 const workflow = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 
-test('OKX history page is routable and linked from the workspace', () => {
-  assert.match(main, /import OkxDepositStatus from '\.\/OkxDepositStatus\.tsx'/)
-  assert.match(main, /route === '#\/okx-deposit-status'/)
-  assert.match(main, /isOkxDepositStatus\s*\?\s*<OkxDepositStatus\s*\/>/)
-  assert.match(main, /isOkxDepositStatus\s*\?\s*<OkxDepositStatus\s*\/>\s*:\s*<AuthGate>/)
-  assert.match(workflow, /href="#\/okx-deposit-status">OKX deposit records/)
+test('OKX read-only history page is intentionally excluded from the owner control navigation', () => {
+  assert.match(main, /import OwnerControlApp from '\.\/OwnerControlApp'/)
+  assert.doesNotMatch(main, /OkxDepositStatus|okx-deposit-status/)
+  assert.doesNotMatch(workflow, /href="#\/okx-deposit-status"/)
 })
 
 test('page makes a no-cache authenticated GET and never persists the access token', () => {

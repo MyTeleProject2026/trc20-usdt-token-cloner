@@ -1,44 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './WorkflowApp.tsx'
-import AuthGate from './AuthGate.tsx'
-import SponsorSignerConsole from './SponsorSignerConsole.tsx'
-import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'
-import OkxDepositStatus from './OkxDepositStatus.tsx'
-import WalletVault from './WalletVault.tsx'
-import WatchOnlyWallets from './WatchOnlyWallets.tsx'
+import OwnerControlApp from './OwnerControlApp'
 import './index.css'
 
+// The bundled web UI and Android APK share one owner-only entry point.
+// Legacy explorer, sponsor-console and exchange-status pages are not exposed
+// as client-side routes; the only operational workspace is Wallet Vault.
 const root = createRoot(document.getElementById('root')!)
-
-function renderRoute() {
-  const route = window.location.hash
-  const isMainnetExchangeDeposit = route === '#/exchange-deposit'
-  const isSponsorOperator = route === '#/sponsor-operator'
-  const isOkxDepositStatus = route === '#/okx-deposit-status'
-  const isWalletVault = route === '#/wallet'
-  const isWatchOnlyWallets = route === '#/watch-wallets'
-  root.render(
-    <StrictMode>
-      {isWalletVault
-        ? <>
-          <div style={{ background: '#0a1114', padding: '10px 16px', textAlign: 'right' }}>
-            <a href="#/watch-wallets" style={{ color: '#5dffc8' }}>Open watch-only address monitor ↗</a>
-          </div>
-          <WalletVault />
-          </>
-        : isWatchOnlyWallets
-          ? <WatchOnlyWallets />
-          : isMainnetExchangeDeposit
-          ? <MainnetExchangeDeposit />
-          : isOkxDepositStatus
-            ? <OkxDepositStatus />
-            : <AuthGate>
-              {isSponsorOperator ? <SponsorSignerConsole /> : <App />}
-              </AuthGate>}
-    </StrictMode>,
-  )
-}
-
-window.addEventListener('hashchange', renderRoute)
-renderRoute()
+root.render(
+  <StrictMode>
+    <OwnerControlApp />
+  </StrictMode>,
+)
