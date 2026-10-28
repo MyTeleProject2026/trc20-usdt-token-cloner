@@ -52,7 +52,11 @@ async function ensureSchema(db) {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
-    `).catch((error) => { schemaPromise = null; throw error })
+    `)
+    await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_withdrawal_requests_status_check`)
+    await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests
+      ADD CONSTRAINT treasury_withdrawal_requests_status_check
+      CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`).catch((error) => { schemaPromise = null; throw error })
   }
   await schemaPromise
 }
@@ -73,6 +77,73 @@ function bearerToken(req) {
   const value = req.get('authorization') || ''
   const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(value)
   return match ? match[1] : ''
+}
+
+function normalizedHex(value) {
+  return typeof value === 'string' ? value.replace(/^0x/i, '').toLowerCase() : ''
+}
+
+/**
+ * Verify the exact official-USDT transfer intent against a transaction from
+ * TRON's confirmed node and its execution receipt. This helper is pure apart
+ * from the supplied SDK's address conversion and never trusts local UI status.
+ */
+export function verifyTreasuryTransferEvidence(tronWeb, {
+  transaction,
+  transactionInfo,
+  transactionHash,
+  treasuryAddress,
+  recipientAddress,
+  amountBaseUnits,
+} = {}) {
+  const pending = { verified: false, status: 'awaiting-confirmed-receipt', reason: 'confirmed-transaction-or-receipt-unavailable' }
+  if (!tronWeb || !TXID_PATTERN.test(transactionHash || '')
+    || !ADDRESS_PATTERN.test(treasuryAddress || '')
+    || !ADDRESS_PATTERN.test(recipientAddress || '')
+    || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+    return { verified: false, status: 'verification-mismatch', reason: 'invalid-verification-input' }
+  }
+  const txid = String(transaction?.txID || transaction?.txid || '').toLowerCase()
+  const infoId = String(transactionInfo?.id || transactionInfo?.txID || transactionInfo?.txid || '').toLowerCase()
+  if (txid !== transactionHash.toLowerCase() || infoId !== transactionHash.toLowerCase()
+    || !Array.isArray(transaction?.raw_data?.contract)) return pending
+  const operations = transaction.raw_data.contract
+  if (operations.length !== 1 || operations[0]?.type !== 'TriggerSmartContract') {
+    return { verified: false, status: 'verification-mismatch', reason: 'unexpected-transaction-operation' }
+  }
+  let expectedOwner
+  let expectedRecipient
+  let expectedContract
+  try {
+    expectedOwner = normalizedHex(tronWeb.address.toHex(treasuryAddress))
+    expectedRecipient = normalizedHex(tronWeb.address.toHex(recipientAddress))
+    expectedContract = normalizedHex(tronWeb.address.toHex(USDT_MAINNET))
+  } catch {
+    return { verified: false, status: 'verification-mismatch', reason: 'address-encoding-failed' }
+  }
+  const value = operations[0]?.parameter?.value
+  if (normalizedHex(value?.owner_address) !== expectedOwner
+    || normalizedHex(value?.contract_address) !== expectedContract) {
+    return { verified: false, status: 'verification-mismatch', reason: 'sender-or-token-contract-mismatch' }
+  }
+  const receiverBytes = expectedRecipient.startsWith('41') ? expectedRecipient.slice(2) : expectedRecipient
+  if (!/^[0-9a-f]{40}$/.test(receiverBytes)) {
+    return { verified: false, status: 'verification-mismatch', reason: 'recipient-address-encoding-invalid' }
+  }
+  const expectedData = 'a9059cbb' + receiverBytes.padStart(64, '0')
+    + BigInt(amountBaseUnits).toString(16).padStart(64, '0')
+  if (normalizedHex(value?.data) !== expectedData) {
+    return { verified: false, status: 'verification-mismatch', reason: 'recipient-or-amount-mismatch' }
+  }
+  if (!Number.isSafeInteger(transactionInfo?.blockNumber) || transactionInfo.blockNumber < 1) return pending
+  const result = transactionInfo?.receipt?.result
+  if (result === 'SUCCESS') {
+    return { verified: true, status: 'confirmed', reason: 'confirmed-solidified-successful-receipt', blockNumber: transactionInfo.blockNumber }
+  }
+  if (typeof result === 'string' && result.length > 0) {
+    return { verified: true, status: 'failed', reason: 'confirmed-solidified-failed-receipt', blockNumber: transactionInfo.blockNumber }
+  }
+  return pending
 }
 
 function safeStatus(row) {
@@ -309,6 +380,60 @@ export function createTreasuryWithdrawalsRouter({
       }
     } catch {
       return res.status(503).json({ success: false, error: 'treasury-withdrawal-unavailable' })
+    }
+  })
+
+  router.post('/withdrawals/:idempotencyKey/verify', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const key = req.params.idempotencyKey
+    if (!IDEMPOTENCY_PATTERN.test(key || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const lookup = await db.query(
+        'SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1 AND owner_address = $2',
+        [key, auth.ownerAddress],
+      )
+      if (!lookup.rows.length) return res.status(404).json({ success: false, error: 'withdrawal-not-found' })
+      const row = lookup.rows[0]
+      if (row.status === 'confirmed' || row.status === 'failed') {
+        return res.json({ success: true, withdrawal: safeStatus(row), verification: { verified: true, status: row.status, reason: 'previously-verified-solidified-receipt' } })
+      }
+      const txid = typeof row.transaction_hash === 'string' ? row.transaction_hash.trim() : ''
+      if (!TXID_PATTERN.test(txid)) {
+        return res.status(409).json({ success: false, error: 'transaction-hash-not-available', withdrawal: safeStatus(row) })
+      }
+      const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
+      const [transaction, transactionInfo] = await Promise.all([
+        tronWeb.trx.getConfirmedTransaction(txid).catch(() => null),
+        tronWeb.trx.getTransactionInfo(txid).catch(() => null),
+      ])
+      const evidence = verifyTreasuryTransferEvidence(tronWeb, {
+        transaction, transactionInfo, transactionHash: txid,
+        treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address,
+        amountBaseUnits: String(row.amount_base_units),
+      })
+      if (evidence.status === 'confirmed' || evidence.status === 'failed') {
+        const updated = await db.query(
+          `UPDATE trc20_token_clone.treasury_withdrawal_requests
+              SET status = $2, failure_code = $3, updated_at = now()
+            WHERE id = $1 AND status NOT IN ('confirmed','failed')
+            RETURNING *`,
+          [row.id, evidence.status, evidence.status === 'failed' ? evidence.reason : null],
+        )
+        const saved = updated.rows[0] || row
+        return res.json({ success: evidence.status === 'confirmed', withdrawal: safeStatus(saved), verification: evidence })
+      }
+      return res.status(evidence.status === 'verification-mismatch' ? 409 : 202).json({
+        success: false, withdrawal: safeStatus(row), verification: evidence,
+        note: 'No confirmation is inferred from a transaction hash alone. Retry verification after the transaction is indexed/solidified.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-withdrawal-verification-unavailable' })
     }
   })
 
