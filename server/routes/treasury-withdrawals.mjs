@@ -71,7 +71,8 @@ function parsePositiveDecimal(value, decimals = 6) {
 }
 
 function readLimit(value) {
-  return typeof value === 'string' ? parsePositiveDecimal(value, 6) : null
+  const units = typeof value === 'string' ? parsePositiveDecimal(value, 6) : null
+  return units !== null && units < (1n << 256n) ? units : null
 }
 
 function normalizedHex(value) {
@@ -312,7 +313,7 @@ export function createTreasuryWithdrawalsRouter({
     const amount = parsePositiveDecimal(body.amountUsdt)
     const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
     const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
-    if (!amount || !maxPayout || !dailyLimit || amount > maxPayout || amount > dailyLimit) {
+    if (!amount || amount >= (1n << 256n) || !maxPayout || !dailyLimit || amount > maxPayout || amount > dailyLimit) {
       return res.status(400).json({ success: false, error: 'amount-outside-configured-limits' })
     }
     const db = getPool(env)
