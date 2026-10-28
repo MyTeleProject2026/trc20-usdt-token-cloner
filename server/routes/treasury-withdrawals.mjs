@@ -455,6 +455,23 @@ export function createTreasuryWithdrawalsRouter({
           await client.query('ROLLBACK')
           return res.status(429).json({ success: false, error: 'treasury-daily-limit-exceeded' })
         }
+        const pendingExisting = await client.query(`
+          SELECT * FROM trc20_token_clone.treasury_withdrawal_requests
+           WHERE treasury_address = $1
+             AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')
+           ORDER BY created_at ASC
+           LIMIT 1
+           FOR UPDATE
+        `, [treasuryAddress])
+        if (pendingExisting.rows.length) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'pending-withdrawal-requires-reconciliation',
+            withdrawal: safeStatus(pendingExisting.rows[0]),
+            note: 'Verify the saved transaction hash before creating another treasury payout.',
+          })
+        }
         const activeReservations = await client.query(`
           SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
             FROM trc20_token_clone.treasury_withdrawal_requests
@@ -597,6 +614,28 @@ export function createTreasuryWithdrawalsRouter({
         note: 'The node accepted the signed transaction. Verify the solidified receipt before treating it as confirmed.',
       })
 
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-withdrawal-unavailable' })
+    }
+  })
+
+  router.get('/withdrawals/pending', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = databaseProvider(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await prepareDatabase(db)
+      const pending = await db.query(`
+        SELECT * FROM trc20_token_clone.treasury_withdrawal_requests
+         WHERE owner_address = $1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')
+         ORDER BY created_at ASC LIMIT 1
+      `, [auth.ownerAddress])
+      return res.json({
+        success: true,
+        withdrawal: pending.rows.length ? safeStatus(pending.rows[0]) : null,
+      })
     } catch {
       return res.status(503).json({ success: false, error: 'treasury-withdrawal-unavailable' })
     }
