@@ -14,7 +14,7 @@ This feature lets the single configured owner request a withdrawal from a separa
 - The treasury signer key must derive `TREASURY_ADDRESS`. That address must hold actual USDT.
 - Per-transfer, daily, and minimum native-TRX reserve limits are mandatory. Pending or ambiguous payouts reserve their principal until reconciliation; a unique idempotency key is bound to the exact owner, treasury, recipient, token contract, and amount.
 - The exact locally signed transaction intent is checked before broadcast. Its transaction ID is persisted before network submission, so an uncertain broadcast can be reconciled by that same ID. An uncertain broadcast is recorded as `broadcast-unknown`; do not retry with a new key.
-- `broadcast-accepted` means the node accepted a broadcast response, not that the transaction is confirmed or that an exchange credited it.
+- `broadcast-accepted` means the node accepted the broadcast response, not that the transaction is confirmed. Owner lookup checks for a matching confirmed transaction, exact token contract/sender/recipient/amount, and explicit execution result; only then does it update the record to `confirmed` or `failed`. This is request-driven reconciliation, not a background worker. Exchange credit is still controlled by the receiving platform.
 
 ## Required backend environment variables
 
@@ -37,7 +37,7 @@ The feature stays disabled unless all required values are configured and valid. 
 
 ## Security and rollout requirements
 
-1. Use a dedicated, low-balance treasury and fund it with genuine USDT and enough TRX for fees. Set `TREASURY_MIN_TRX_RESERVE` to a conservative floor. A missing reserve, low TRX balance, or low USDT balance blocks payouts. Fee sponsorship cannot pay the USDT principal.
+1. Use a dedicated, low-balance treasury and fund it with genuine USDT and enough TRX for fees. Set `TREASURY_MIN_TRX_RESERVE` to a conservative floor. The treasury must hold at least the configured reserve plus the configured transaction fee cap in native TRX; a missing reserve, low TRX balance, or low USDT balance blocks payouts. Fee sponsorship cannot pay the USDT principal.
 2. The current `env-hot-wallet` signer is a simple server-side custody integration, not an HSM/KMS. Do not put significant assets at risk before an independent security review. Prefer a custody provider or isolated signer with transaction-policy enforcement before production use.
 3. Set a small per-withdrawal cap and daily cap first. Restrict backend access, protect Render environment access, rotate credentials, and monitor all withdrawal records.
 4. Deploy only after CI passes, database persistence is verified, and the owner session origin is configured in the backend allowlist.
