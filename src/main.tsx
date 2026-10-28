@@ -28,8 +28,8 @@ function renderRoute() {
         ? <MainnetExchangeDeposit />
         : isOkxDepositStatus
           ? <OkxDepositStatus />
-          : isLegacyWorkspace || isSponsorOperator
-            ? (isSponsorOperator ? <SponsorSignerConsole /> : <App />)
+          : isSponsorOperator
+            ? <SponsorSignerConsole />
             : <WalletVault />
 
   // Every application route shares the same single-owner authentication gate.
