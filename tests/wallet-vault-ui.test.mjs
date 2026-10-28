@@ -85,7 +85,12 @@ test('owner wallet screen exposes focused navigation and explains blocked treasu
   assert.match(vault, /href="#wallet-vault-history"/)
   assert.match(vault, /Backend configuration still missing:/)
   assert.match(vault, /This screen never creates USDT/)
+  assert.match(vault, /open=\{records\.length === 0\}/)
+  assert.match(vault, /Current funding\/readiness blockers/)
+  assert.match(vault, /treasuryTrxBalanceSun/)
+  assert.match(vault, /networkFeeCapCovered/)
   assert.match(css, /\.wallet-vault-quick-nav/)
+  assert.match(css, /\.wallet-vault-setup-details/)
 })
 
 test('owner treasury payout UI invalidates stale sessions and requires matching, funded treasury readiness', async () => {

@@ -83,6 +83,19 @@ function readLimit(value) {
 }
 
 /**
+ * Conservative fee preflight. A treasury payout is enabled only when its actual
+ * TRX balance covers the configured maximum fee cap. This route does not assume
+ * a gas sponsor exists or treat an unverified delegation as fee coverage.
+ */
+export function treasuryFeeCapCovered(balanceSun, feeLimitSun) {
+  const balance = typeof balanceSun === 'string' || typeof balanceSun === 'number' ? String(balanceSun) : ''
+  const limit = typeof feeLimitSun === 'string' || typeof feeLimitSun === 'number' ? String(feeLimitSun) : ''
+  if (!/^(0|[1-9][0-9]{0,20})$/.test(balance)
+    || !/^[1-9][0-9]{0,9}$/.test(limit)) return false
+  return BigInt(balance) >= BigInt(limit)
+}
+
+/**
  * Conservative balance available for a new treasury payout. Pending/ambiguous
  * withdrawals remain reserved until their chain outcome is reconciled.
  */
@@ -311,28 +324,53 @@ export function createTreasuryWithdrawalsRouter({
       } catch {}
     }
     let usdtBalance = null
+    let treasuryTrxBalanceSun = null
     if (databaseReady && config.enabled && signerMatchesConfiguredAddress) {
       try {
         const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
+        const nativeBalance = await tronWeb.trx.getBalance(treasuryAddress)
+        const nativeText = String(nativeBalance)
+        if (/^(0|[1-9][0-9]{0,20})$/.test(nativeText)) treasuryTrxBalanceSun = nativeText
         const contract = await tronWeb.contract(ABI).at(USDT_MAINNET)
-        const decimals = Number(await contract.decimals().call())
-        const symbol = String(await contract.symbol().call())
-        if (decimals === 6 && symbol.toUpperCase() === 'USDT') {
-          usdtBalance = String(await contract.balanceOf(treasuryAddress).call())
+        const [decimals, symbol] = await Promise.all([
+          contract.decimals().call(),
+          contract.symbol().call(),
+        ])
+        if (Number(decimals) === 6 && String(symbol).toUpperCase() === 'USDT') {
+          const rawUsdtBalance = String(await contract.balanceOf(treasuryAddress).call())
+          if (/^(0|[1-9][0-9]{0,77})$/.test(rawUsdtBalance)) usdtBalance = rawUsdtBalance
         }
       } catch {}
     }
+    const configuredFeeLimitSun = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
+      ? String(env.TREASURY_FEE_LIMIT_SUN) : null
+    const networkFeeCapCovered = treasuryTrxBalanceSun !== null
+      && treasuryFeeCapCovered(treasuryTrxBalanceSun, configuredFeeLimitSun)
+    const hasUsdtPrincipal = usdtBalance !== null && BigInt(usdtBalance) > 0n
+    const payoutBlockers = []
+    if (!config.enabled) payoutBlockers.push('withdrawal-configuration-incomplete')
+    if (!databaseReady) payoutBlockers.push('database-not-ready')
+    if (!signerMatchesConfiguredAddress) payoutBlockers.push('treasury-signer-address-mismatch')
+    if (usdtBalance === null) payoutBlockers.push('treasury-usdt-balance-unavailable')
+    else if (!hasUsdtPrincipal) payoutBlockers.push('treasury-usdt-balance-zero')
+    if (treasuryTrxBalanceSun === null) payoutBlockers.push('treasury-trx-balance-unavailable')
+    else if (!networkFeeCapCovered) payoutBlockers.push('treasury-trx-below-fee-cap')
+    const withdrawalsEnabled = payoutBlockers.length === 0
     return res.json({
       success: true,
       network: 'mainnet',
       asset: 'USDT',
       tokenContract: USDT_MAINNET,
-      withdrawalsEnabled: config.enabled && databaseReady && signerMatchesConfiguredAddress && usdtBalance !== null,
+      withdrawalsEnabled,
       configuration: { enabled: config.enabled, missing: config.missing, signerMode: config.signerMode },
       databaseReady,
       treasuryAddress,
       signerMatchesConfiguredAddress,
       treasuryUsdtBalanceBaseUnits: usdtBalance,
+      treasuryTrxBalanceSun,
+      treasuryFeeLimitSun: configuredFeeLimitSun,
+      networkFeeCapCovered,
+      payoutBlockers,
       limitations: [
         'This is a treasury-funded withdrawal service, not a token minting mechanism.',
         'A broadcast-accepted response is not proof of confirmation; verify the transaction receipt on TRON.',
@@ -429,6 +467,21 @@ export function createTreasuryWithdrawalsRouter({
             })
           }
           return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
+        }
+
+        // Re-read the treasury's actual native TRX before reserving principal.
+        // This path conservatively requires the full configured fee cap to be
+        // available, rather than assuming an external gas sponsor will cover it.
+        const nativeBalanceSun = String(await tronWeb.trx.getBalance(treasuryAddress))
+        if (!treasuryFeeCapCovered(nativeBalanceSun, configuredFeeLimit)) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'treasury-trx-insufficient-for-fee-cap',
+            treasuryTrxBalanceSun: /^(0|[1-9][0-9]{0,20})$/.test(nativeBalanceSun) ? nativeBalanceSun : null,
+            requiredFeeLimitSun: String(configuredFeeLimit),
+            message: 'The treasury must hold enough real TRX to cover the configured fee cap before the payout is reserved. No USDT was sent.',
+          })
         }
 
         // Read current chain balance while the database advisory lock serializes

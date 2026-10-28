@@ -706,6 +706,10 @@ main .grid > button[aria-pressed] > span {
 .wallet-vault-layout { display:grid; grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr); gap:16px; max-width:1280px; margin:0 auto; align-items:start; }
 .wallet-vault-panel { min-width:0; padding:20px; border:1px solid #203b35; border-radius:17px; background:linear-gradient(155deg,rgba(16,37,32,.94),rgba(7,19,20,.98)); box-shadow:0 18px 60px rgba(0,0,0,.16); }
 .wallet-vault-panel-head { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+.wallet-vault-setup-details > summary { list-style:none; cursor:pointer; user-select:none; }
+.wallet-vault-setup-details > summary::-webkit-details-marker { display:none; }
+.wallet-vault-setup-summary::after { content:'Open'; margin-left:auto; padding:6px 9px; color:#bdeed7; border:1px solid #2a5844; border-radius:8px; background:#0b2119; font-size:9px; font-weight:800; }
+.wallet-vault-setup-details[open] > .wallet-vault-setup-summary::after { content:'Hide'; }
 .wallet-vault-step { display:grid; width:37px; height:37px; flex:0 0 auto; place-items:center; border:1px solid #28634d; border-radius:12px; color:#73f7c9; background:#0a2920; font-size:12px; font-weight:800; }
 .wallet-vault-panel-head h2 { margin:0; color:#effff8; font-size:16px; letter-spacing:-.02em; }
 .wallet-vault-panel-head p { margin:3px 0 0; color:#8daf9f; font-size:11px; }

@@ -27,7 +27,7 @@ Configure these values on the **backend API service only**. Never commit credent
 | `TREASURY_WITHDRAWALS_ENABLED` | Must be exactly `true` to opt in after reviewing all controls. |
 | `TREASURY_SIGNER_MODE` | Must be exactly `env-hot-wallet` for the current implementation. |
 
-The API also requires valid values for all payout configuration fields and checks that the private key derives exactly `TREASURY_ADDRESS`. A missing setting or mismatch keeps the withdrawal route disabled. The local frontend is not permitted to enable this route by itself.
+The API also requires valid values for all payout configuration fields and checks that the private key derives exactly `TREASURY_ADDRESS`. Readiness also verifies a positive official-USDT principal balance and a treasury TRX balance at least equal to `TREASURY_FEE_LIMIT_SUN`; the actual withdrawal request repeats the TRX check under the database reservation lock. This is a conservative check of the full configured cap, not a claim that the full amount will be spent. A missing setting, zero principal balance, or insufficient fee budget keeps withdrawals disabled. The local frontend is not permitted to enable this route by itself.
 
 ## Real transfer flow
 
@@ -37,7 +37,7 @@ The API also requires valid values for all payout configuration fields and check
 4. The app signs a separate, short-lived owner authorization message with the unlocked local owner wallet. The signed message binds the app origin, owner, treasury, official USDT contract, recipient, exact six-decimal base-unit amount, idempotency key, and expiry. The private key is never sent to the API. This signature is not a blockchain transaction; it authorizes only the listed payout request.
 5. The backend verifies the recovered signer equals the authenticated owner and rejects changed, expired, or malformed authorization before reserving funds or broadcasting.
 6. The backend serializes payout reservations in PostgreSQL, re-reads the live on-chain balance, and subtracts funds committed to unresolved broadcasts before accepting a new request.
-7. The server signs and broadcasts the official USDT transfer from the funded treasury. The treasury's available TRX, staked resources, or separately configured supported sponsorship must cover network execution costs. **This endpoint does not make the transfer gas-free automatically.**
+7. Before reserving USDT, the server checks that the treasury's actual TRX balance covers the configured `TREASURY_FEE_LIMIT_SUN` maximum fee cap. This conservative gate can block a wallet that might have sufficient delegated resources, because this endpoint does not yet integrate a verified gas-sponsorship adapter. The server then signs and broadcasts the official USDT transfer from the funded treasury. **This endpoint does not make the transfer gas-free automatically.**
 8. Use **Verify receipt & look up saved status** with the same stored idempotency key. The verifier checks the transaction body, sender, official contract, recipient, amount, solidified receipt, and the single matching official-USDT `Transfer` event.
 
 A node's broadcast response is only an accepted submission. It is not a successful transaction receipt. If the outcome is ambiguous, keep the original request key and reconcile it; do not create a new key to repeat the payout. Outstanding ambiguous requests remain reserved conservatively until resolved.

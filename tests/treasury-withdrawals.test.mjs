@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, treasuryFeeCapCovered, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('USDT decimal parser converts exact six-decimal amounts to base units', () => {
   assert.equal(parsePositiveDecimal('1'), 1_000_000n)
@@ -155,6 +155,16 @@ test('treasury receipt verifier refuses success when the official USDT Transfer 
   const duplicate = validEvidence()
   duplicate.transactionInfo.log.push({ ...duplicate.transactionInfo.log[0], topics: [...duplicate.transactionInfo.log[0].topics] })
   assert.equal(verify(duplicate).reason, 'official-usdt-transfer-event-missing-or-mismatched')
+})
+
+test('treasury fee preflight requires real native TRX to cover the configured maximum fee cap', () => {
+  assert.equal(treasuryFeeCapCovered('50000000', '50000000'), true)
+  assert.equal(treasuryFeeCapCovered('50000001', '50000000'), true)
+  assert.equal(treasuryFeeCapCovered('49999999', '50000000'), false)
+  assert.equal(treasuryFeeCapCovered('0', '1'), false)
+  assert.equal(treasuryFeeCapCovered('invalid', '50000000'), false)
+  assert.equal(treasuryFeeCapCovered('50000000', '0'), false)
+  assert.equal(treasuryFeeCapCovered('50000000', '1e6'), false)
 })
 
 test('treasury available-balance calculation reserves ambiguous or pending payouts conservatively', () => {

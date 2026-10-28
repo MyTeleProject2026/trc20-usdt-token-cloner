@@ -1257,7 +1257,11 @@ export default function WalletVault() {
 
       <div className="wallet-vault-layout">
         <section className="wallet-vault-panel wallet-vault-setup">
-          <div className="wallet-vault-panel-head"><span className="wallet-vault-step">01</span><div><h2>Create or import</h2><p>Keys are generated or decrypted locally.</p></div></div>
+          <details className="wallet-vault-setup-details" open={records.length === 0}>
+            <summary className="wallet-vault-panel-head wallet-vault-setup-summary">
+              <span className="wallet-vault-step">01</span>
+              <div><h2>{records.length === 0 ? 'Create or import' : 'Wallet setup & recovery'}</h2><p>{records.length === 0 ? 'Create or restore the owner wallet on this device.' : 'Collapsed to keep balances and transfer controls in focus.'}</p></div>
+            </summary>
           <div className="wallet-vault-mode" role="tablist" aria-label="Wallet setup method">
             <button type="button" role="tab" aria-selected={mode === 'create'} className={mode === 'create' ? 'is-selected' : ''} onClick={() => { setMode('create'); setError(''); setNotice('') }}><Plus size={15} /> Create wallet</button>
             <button type="button" role="tab" aria-selected={mode === 'import-key'} className={mode === 'import-key' ? 'is-selected' : ''} onClick={() => { setMode('import-key'); setError(''); setNotice('') }}><KeyRound size={15} /> Import key</button>
@@ -1300,6 +1304,7 @@ export default function WalletVault() {
           )}
 
           <div className="wallet-vault-security-note"><LockKeyhole size={17} /><div><strong>Encrypted locally, not custodial</strong><p>AES-256-GCM with a PBKDF2-SHA-256 password key. The web app does not receive or store your private key. This is password-encrypted web storage, not a hardware-backed mobile keystore.</p></div></div>
+          </details>
         </section>
 
         <section id="wallet-owner-vault" className="wallet-vault-panel wallet-vault-account">
@@ -1433,8 +1438,11 @@ export default function WalletVault() {
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
                       <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
-                      <div><small>Server payout API</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Enabled' : 'Disabled'}</strong></div>
+                      <div><small>Server payout readiness</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
                       <div><small>Verified treasury USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
+                      <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                      <div><small>Configured max fee cap</small><strong>{typeof serverTreasuryReadiness.treasuryFeeLimitSun === 'string' ? formatUnits(serverTreasuryReadiness.treasuryFeeLimitSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                      <div><small>Fee cap funding check</small><strong>{serverTreasuryReadiness.networkFeeCapCovered === true ? 'Covered' : 'Not covered'}</strong></div>
                     </div>
                   )}
                   {serverTreasuryReadiness?.withdrawalsEnabled !== true && (
@@ -1443,6 +1451,12 @@ export default function WalletVault() {
                       <p>Server-funded USDT withdrawals remain disabled unless the backend signer, persistent database, payout limits and actual treasury balance all pass checks. This screen never creates USDT or pays a recipient from an empty treasury.</p>
                       {Array.isArray(serverTreasuryReadiness?.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
                         <p><strong>Backend configuration still missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
+                      )}
+                      {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && (
+                        <p><strong>Current funding/readiness blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
+                      )}
+                      {serverTreasuryReadiness?.payoutBlockers?.includes('treasury-trx-below-fee-cap') && (
+                        <p>The treasury needs a verified TRX balance at least equal to the configured fee cap before this payout path is enabled. The owner wallet does not pay the treasury's fee.</p>
                       )}
                     </div>
                   )}
