@@ -417,6 +417,42 @@ export function createOwnerAuthRouter({
   const origins = allowedOrigins(env)
   const attempts = new Map()
 
+  // Sanitized, read-only owner-console diagnostics. This public pre-login
+  // endpoint reports only booleans and missing variable NAMES; it never returns
+  // addresses, hashes, database URLs, or any secret. Treasury signer and payout
+  // readiness stays behind the owner-authenticated withdrawal readiness route.
+  router.get('/config', (_req, res) => {
+    setNoStore(res)
+    const ownerAddress = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
+    const ownerAddressConfigured = ADDRESS_PATTERN.test(ownerAddress) && isValidTronAddress(ownerAddress)
+    const passwordHashConfigured = Boolean(parseOwnerPasswordHash(env.OWNER_PASSWORD_HASH))
+    const databaseConfigured = typeof env.DATABASE_URL === 'string' && env.DATABASE_URL.trim().length > 0
+    const allowedOriginConfigured = origins.size > 0
+    const hostedUiOriginAllowed = origins.has('https://trc20-usdt-token-cloner.onrender.com')
+    const packagedUiOriginAllowed = origins.has('tronstudio://app')
+    const requiredEnvironment = [
+      ...(!ownerAddressConfigured ? ['OWNER_WALLET_ADDRESS (valid TRON Mainnet address)'] : []),
+      ...(!passwordHashConfigured ? ['OWNER_PASSWORD_HASH (valid scrypt hash)'] : []),
+      ...(!databaseConfigured ? ['DATABASE_URL'] : []),
+      ...(!allowedOriginConfigured ? ['FRONTEND_ORIGIN and/or PACKAGED_APP_ORIGINS'] : []),
+    ]
+    return res.json({
+      success: true,
+      ownerConsole: {
+        configured: ownerAddressConfigured && passwordHashConfigured && databaseConfigured && allowedOriginConfigured,
+        ownerAddressConfigured,
+        passwordHashConfigured,
+        databaseConfigured,
+        allowedOriginConfigured,
+        hostedUiOriginAllowed,
+        packagedUiOriginAllowed,
+        registrationEnabled: false,
+        requiredEnvironment,
+      },
+      note: 'Pre-login owner-console configuration only. It does not report treasury signer configuration, verify on-chain funds, authorize a transfer, or enable payouts. Use the authenticated owner treasury panel for those checks.',
+    })
+  })
+
   router.post('/login', async (req, res) => {
     setNoStore(res)
     if (!validOrigin(req, origins)) return res.status(403).json({ success: false, error: 'origin-not-allowed' })

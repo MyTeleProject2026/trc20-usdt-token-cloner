@@ -223,6 +223,50 @@ jobs:
             throw new Error('Production read-only dependency readiness is not healthy')
           }
           NODE
+      - name: Audit owner-console environment readiness without exposing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f owner-config.json' EXIT
+          http_code="$(curl --connect-timeout 5 --max-time 15 --silent --show-error --output owner-config.json --write-out '%{http_code}' 'https://trc20-usdt-token-cloner-api.onrender.com/api/auth/owner/config')"
+          if [[ "$http_code" != "200" ]]; then
+            echo "Sanitized owner configuration endpoint returned HTTP $http_code." >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const data = JSON.parse(fs.readFileSync('owner-config.json', 'utf8'))
+          if (data.success !== true
+            || typeof data.ownerConsole?.configured !== 'boolean'
+            || !Array.isArray(data.ownerConsole?.requiredEnvironment)
+            || typeof data.ownerConsole?.hostedUiOriginAllowed !== 'boolean'
+            || typeof data.ownerConsole?.packagedUiOriginAllowed !== 'boolean') {
+            throw new Error('Sanitized owner configuration response has an unexpected shape')
+          }
+          const serialized = JSON.stringify(data)
+          if (/"(?:ownerAddress|treasuryAddress|privateKey|passwordHash|databaseUrl|apiKey|sessionToken|treasuryPayout|ownerTreasuryFunding)"\s*:/i.test(serialized)) {
+            throw new Error('Owner configuration diagnostic attempted to return a secret or restricted state')
+          }
+          const summary = {
+            ownerConsole: {
+              configured: data.ownerConsole.configured,
+              ownerAddressConfigured: data.ownerConsole.ownerAddressConfigured,
+              passwordHashConfigured: data.ownerConsole.passwordHashConfigured,
+              databaseConfigured: data.ownerConsole.databaseConfigured,
+              allowedOriginConfigured: data.ownerConsole.allowedOriginConfigured,
+              hostedUiOriginAllowed: data.ownerConsole.hostedUiOriginAllowed,
+              packagedUiOriginAllowed: data.ownerConsole.packagedUiOriginAllowed,
+              registrationEnabled: data.ownerConsole.registrationEnabled,
+              requiredEnvironment: data.ownerConsole.requiredEnvironment
+            }
+          }
+          console.log(JSON.stringify(summary, null, 2))
+          if (!data.ownerConsole.configured
+            || !data.ownerConsole.hostedUiOriginAllowed
+            || !data.ownerConsole.packagedUiOriginAllowed) {
+            throw new Error('Owner login or frontend origin configuration is incomplete; review missing variable names above.')
+          }
+          NODE
       - name: Report sponsor integration prerequisites without exposing addresses
         shell: bash
         run: |
