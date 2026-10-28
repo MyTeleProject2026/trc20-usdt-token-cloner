@@ -255,6 +255,14 @@ export default function WalletVault() {
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
+  const [ownerSessionToken, setOwnerSessionToken] = useState('')
+  const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
+  const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
+  const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
+  const [treasuryPayoutConfirm, setTreasuryPayoutConfirm] = useState('')
+  const [treasuryPayoutBusy, setTreasuryPayoutBusy] = useState(false)
+  const [treasuryPayoutStatus, setTreasuryPayoutStatus] = useState<any>(null)
+  const [treasuryPayoutError, setTreasuryPayoutError] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -660,11 +668,113 @@ export default function WalletVault() {
         }
         throw new Error('Owner-only treasury verification failed. No payout was signed or submitted.')
       }
+      setOwnerSessionToken(verified.sessionToken)
       setOwnerTreasurySnapshot(status as OwnerTreasurySnapshot)
+      const payoutReadinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payoutReadiness = await payoutReadinessResponse.json().catch(() => null)
+      setServerTreasuryReadiness(payoutReadiness && typeof payoutReadiness === 'object' ? payoutReadiness : null)
     } catch (caught) {
       setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
     } finally {
       setOwnerTreasuryLoading(false)
+    }
+  }
+
+  async function submitServerTreasuryPayout() {
+    if (!unlocked || network !== 'mainnet') {
+      setTreasuryPayoutError('Unlock the configured owner wallet and select TRON Mainnet first.')
+      return
+    }
+    if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true) {
+      setTreasuryPayoutError('Verify the owner wallet signature before requesting a treasury payout.')
+      return
+    }
+    if (treasuryPayoutConfirm !== 'SEND TREASURY USDT') {
+      setTreasuryPayoutError('Type SEND TREASURY USDT exactly to confirm this real on-chain payout.')
+      return
+    }
+    if (!ADDRESS_PATTERN.test(treasuryPayoutRecipient)) {
+      setTreasuryPayoutError('Enter a valid TRON recipient address.')
+      return
+    }
+    setTreasuryPayoutBusy(true)
+    setTreasuryPayoutError('')
+    setTreasuryPayoutStatus(null)
+    const idempotencyKey = 'withdrawal-' + crypto.randomUUID()
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/withdrawals', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({
+          recipientAddress: treasuryPayoutRecipient,
+          amountUsdt: treasuryPayoutAmount,
+          idempotencyKey,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      setTreasuryPayoutStatus(payload && typeof payload === 'object' ? payload : { status: 'invalid-response', idempotencyKey })
+      if (!response.ok || payload?.success !== true) {
+        setTreasuryPayoutError(typeof payload?.error === 'string'
+          ? payload.error + (typeof payload?.note === 'string' ? ': ' + payload.note : '')
+          : 'Treasury payout did not complete. Check the recorded request before retrying.')
+      } else {
+        setTreasuryPayoutAmount('')
+        setTreasuryPayoutConfirm('')
+        setNotice('Treasury payout request recorded. Verify its on-chain receipt before treating it as confirmed.')
+        const readinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+        const readiness = await readinessResponse.json().catch(() => null)
+        if (readiness && typeof readiness === 'object') setServerTreasuryReadiness(readiness)
+      }
+    } catch {
+      setTreasuryPayoutError('The request outcome could not be read. Do not create a replacement request until you check the original idempotency key and chain status.')
+      setTreasuryPayoutStatus({ status: 'request-outcome-unknown', idempotencyKey })
+    } finally {
+      setTreasuryPayoutBusy(false)
+    }
+  }
+
+  async function lookupServerTreasuryPayout() {
+    const key = treasuryPayoutStatus?.withdrawal?.idempotencyKey || treasuryPayoutStatus?.idempotencyKey
+    if (!ownerSessionToken || typeof key !== 'string') {
+      setTreasuryPayoutError('There is no stored withdrawal key to look up.')
+      return
+    }
+    setTreasuryPayoutBusy(true)
+    setTreasuryPayoutError('')
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/withdrawals/' + encodeURIComponent(key), {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Withdrawal status lookup failed.')
+      setTreasuryPayoutStatus(payload)
+    } catch (caught) {
+      setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Withdrawal status lookup failed.')
+    } finally {
+      setTreasuryPayoutBusy(false)
     }
   }
 
@@ -1210,6 +1320,36 @@ export default function WalletVault() {
                       )}
                     </>
                   )}
+                  <div className="wallet-vault-transfer-warning" role="note">
+                    <strong>Server treasury payout (separate funded wallet)</strong>
+                    <p>The backend signs from TREASURY_ADDRESS using a server-only key. Your owner wallet only authorizes the request; it does not need to hold the USDT principal. This remains disabled until the backend is configured with a funded treasury, persistent database, explicit payout limits, and the signer key matching the treasury address.</p>
+                  </div>
+                  {serverTreasuryReadiness && (
+                    <div className="wallet-vault-review-grid">
+                      <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
+                      <div><small>Server payout API</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Enabled' : 'Disabled'}</strong></div>
+                      <div><small>Verified treasury USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
+                    </div>
+                  )}
+                  <div className="wallet-vault-form-grid">
+                    <label className="wallet-vault-field"><span>Recipient TRON address</span><input value={treasuryPayoutRecipient} onChange={event => setTreasuryPayoutRecipient(event.target.value.trim())} placeholder="T..." autoComplete="off" /></label>
+                    <label className="wallet-vault-field"><span>USDT amount</span><input value={treasuryPayoutAmount} onChange={event => setTreasuryPayoutAmount(event.target.value)} placeholder="0.00" inputMode="decimal" autoComplete="off" /></label>
+                    <label className="wallet-vault-field wallet-vault-review-wide"><span>Type SEND TREASURY USDT to confirm</span><input value={treasuryPayoutConfirm} onChange={event => setTreasuryPayoutConfirm(event.target.value)} placeholder="SEND TREASURY USDT" autoComplete="off" /></label>
+                  </div>
+                  <button type="button" className="wallet-vault-primary" disabled={treasuryPayoutBusy || ownerTreasuryLoading || !serverTreasuryReadiness?.withdrawalsEnabled} onClick={() => void submitServerTreasuryPayout()}>
+                    <ShieldCheck size={16} /> {treasuryPayoutBusy ? 'Processing treasury request…' : 'Send genuine USDT from server treasury'}
+                  </button>
+                  {treasuryPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryPayoutError}</p>}
+                  {treasuryPayoutStatus && (
+                    <div className="wallet-vault-review-grid">
+                      <div><small>Request status</small><strong>{treasuryPayoutStatus.withdrawal?.status || treasuryPayoutStatus.status || 'unknown'}</strong></div>
+                      <div className="wallet-vault-review-wide"><small>Idempotency key</small><strong>{treasuryPayoutStatus.withdrawal?.idempotencyKey || treasuryPayoutStatus.idempotencyKey || 'Unavailable'}</strong></div>
+                      {treasuryPayoutStatus.withdrawal?.transactionHash && <div className="wallet-vault-review-wide"><small>Transaction</small><a href={explorerTransactionUrl('mainnet', treasuryPayoutStatus.withdrawal.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryPayoutStatus.withdrawal.transactionHash} ↗</a></div>}
+                      {treasuryPayoutStatus.transactionHash && <div className="wallet-vault-review-wide"><small>Transaction</small><a href={explorerTransactionUrl('mainnet', treasuryPayoutStatus.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryPayoutStatus.transactionHash} ↗</a></div>}
+                      <div className="wallet-vault-review-wide"><small>Verification reminder</small><strong>Broadcast acceptance is not confirmation. Check the successful solidified receipt and exchange deposit status.</strong></div>
+                    </div>
+                  )}
+                  <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !treasuryPayoutStatus} onClick={() => void lookupServerTreasuryPayout()}>Look up saved withdrawal status</button>
                   <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
                 </section>
               )}
