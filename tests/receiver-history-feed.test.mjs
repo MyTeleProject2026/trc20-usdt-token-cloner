@@ -26,7 +26,7 @@ test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.doesNotMatch(endpoint, /fetch\(req\.query|new URL\(req\.query/i)
 })
 
-test('receiver history UI distinguishes solidified receipts from indexed candidates', () => {
+test('history verification ignores stale responses after the selected receiver or network changes', () => {
   assert.ok(routes.includes("receiver-history/persisted"))
   assert.match(routes, /listPersistedReceiverHistory/)
   assert.match(routes, /persisted-history-unavailable/)
