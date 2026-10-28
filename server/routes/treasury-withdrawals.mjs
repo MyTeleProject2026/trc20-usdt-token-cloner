@@ -495,7 +495,17 @@ export function createTreasuryWithdrawalsRouter({
         try { await client.query('ROLLBACK') } catch {}
         if (error?.code === '23505') {
           const existing = await db.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1', [body.idempotencyKey])
-          if (existing.rows.length) return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existing.rows[0]), note: 'Existing request returned; no second transfer was broadcast.' })
+          if (existing.rows.length) {
+            const prior = existing.rows[0]
+            if (prior.owner_address !== auth.ownerAddress
+              || prior.recipient_address !== body.recipientAddress
+              || String(prior.amount_base_units) !== amount.toString()
+              || prior.treasury_address !== treasuryAddress
+              || prior.token_contract !== USDT_MAINNET) {
+              return res.status(409).json({ success: false, error: 'idempotency-key-conflict' })
+            }
+            return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Existing request returned; no second transfer was broadcast.' })
+          }
         }
         throw error
       } finally {
