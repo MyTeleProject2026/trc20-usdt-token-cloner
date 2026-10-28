@@ -26,7 +26,7 @@ function validEnvironment() {
     OWNER_WALLET_ADDRESS: ownerAddress,
     DATABASE_URL: databaseMarker,
     FRONTEND_ORIGIN: 'https://trc20-usdt-token-cloner.onrender.com',
-    PACKAGED_APP_ORIGINS: 'tronstudio://app',
+    PACKAGED_APP_ORIGINS: 'https://localhost,tronstudio://app',
     // These values are deliberately present as tripwires: a public
     // pre-login endpoint must not report any treasury signer or secret posture.
     TREASURY_PRIVATE_KEY: '1a'.repeat(32),
@@ -78,6 +78,20 @@ test('incomplete owner-console environment lists missing variable names without 
   assert.equal(data.ownerConsole.hostedUiOriginAllowed, false)
   assert.equal(data.ownerConsole.packagedUiOriginAllowed, false)
   assert.equal('treasuryPayout' in data, false)
+})
+
+test('the diagnostic verifies the actual Capacitor origin, not only a custom scheme', async (t) => {
+  const { response, data } = await queryConfig({
+    OWNER_WALLET_ADDRESS: ownerAddress,
+    OWNER_PASSWORD_HASH: passwordHash,
+    DATABASE_URL: databaseMarker,
+    FRONTEND_ORIGIN: 'https://trc20-usdt-token-cloner.onrender.com',
+    PACKAGED_APP_ORIGINS: 'tronstudio://app',
+  }, t)
+  assert.equal(response.status, 200)
+  assert.equal(data.ownerConsole.hostedUiOriginAllowed, true)
+  assert.equal(data.ownerConsole.packagedUiOriginAllowed, false)
+  assert.equal(data.ownerConsole.configured, true)
 })
 
 test('invalid owner address and malformed password hash keep owner console disabled', async (t) => {
