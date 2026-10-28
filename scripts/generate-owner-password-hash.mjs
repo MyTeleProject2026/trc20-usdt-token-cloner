@@ -78,7 +78,7 @@ async function main() {
   const second = await readHiddenPassword('Confirm owner password (hidden): ')
   if (first !== second) throw new Error('Passwords do not match.')
   const encoded = await createOwnerPasswordHash(first)
-  process.stdout.write('\nOWNER_PASSWORD_HASH=' + encoded + '\n')
+  process.stdout.write('OWNER_PASSWORD_HASH=' + encoded + '\n')
   process.stdout.write('Copy only the hash value to the backend Render environment. Do not share or commit it.\n')
 }
 
