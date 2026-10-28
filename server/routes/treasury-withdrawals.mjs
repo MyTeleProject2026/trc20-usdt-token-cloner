@@ -113,12 +113,13 @@ export function assertTreasuryPayoutTransactionIntent(tronWeb, transaction, {
     || transaction.raw_data.contract.length !== 1) {
     throw new Error('Treasury transfer intent is malformed.')
   }
-  if (typeof transaction.raw_data_hex === 'string') {
-    const raw = transaction.raw_data_hex.replace(/^0x/i, '')
-    if (!/^(?:[0-9a-f]{2})+$/i.test(raw)
-      || createHash('sha256').update(Buffer.from(raw, 'hex')).digest('hex') !== transaction.txID.toLowerCase()) {
-      throw new Error('Treasury transaction ID does not match its raw transaction payload.')
-    }
+  if (typeof transaction.raw_data_hex !== 'string' || transaction.raw_data_hex.length === 0) {
+    throw new Error('Treasury transaction has no canonical raw payload for transaction-ID verification.')
+  }
+  const raw = transaction.raw_data_hex.replace(/^0x/i, '')
+  if (!/^(?:[0-9a-f]{2})+$/i.test(raw)
+    || createHash('sha256').update(Buffer.from(raw, 'hex')).digest('hex') !== transaction.txID.toLowerCase()) {
+    throw new Error('Treasury transaction ID does not match its raw transaction payload.')
   }
   const operation = transaction.raw_data.contract[0]
   const value = operation?.parameter?.value
