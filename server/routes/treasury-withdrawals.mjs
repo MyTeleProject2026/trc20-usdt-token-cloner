@@ -15,6 +15,18 @@ const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const OWNER_PAYOUT_SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
 const OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS = 120_000
 const UINT256_MAX = (1n << 256n) - 1n
+/**
+ * Require the console's only permitted owner and the payout authorizer to be
+ * the exact same TRON address. This prevents an accidental split-owner setup.
+ */
+export function isUnifiedTreasuryOwnerConfiguration(env = process.env) {
+  const consoleOwner = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
+  const treasuryOwner = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
+  return ADDRESS_PATTERN.test(consoleOwner)
+    && ADDRESS_PATTERN.test(treasuryOwner)
+    && consoleOwner === treasuryOwner
+}
+
 const ABI = [
   { constant: true, inputs: [{ name: 'owner', type: 'address' }], name: 'balanceOf', outputs: [{ name: 'balance', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { constant: true, inputs: [], name: 'decimals', outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view', type: 'function' },
@@ -274,6 +286,11 @@ export function createTreasuryWithdrawalsRouter({
     const token = bearerToken(req)
     const expectedOwner = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
     if (!token || !origin || !ADDRESS_PATTERN.test(expectedOwner)) return { ok: false, status: 401, error: 'owner-auth-required' }
+    // The UI login identity and treasury signing identity must be one and the
+    // same configured wallet. Fail closed if environment settings drift apart.
+    if (!isUnifiedTreasuryOwnerConfiguration(env)) {
+      return { ok: false, status: 503, error: 'owner-address-configuration-mismatch' }
+    }
     const result = await sessionLookup({
       tokenHash: createHash('sha256').update(token, 'utf8').digest('hex'),
       origin,
@@ -286,19 +303,25 @@ export function createTreasuryWithdrawalsRouter({
   }
 
   function configuration() {
-    const required = ['DATABASE_URL', 'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_FEE_LIMIT_SUN']
+    const required = ['DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_FEE_LIMIT_SUN']
     const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
+    const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
     const enabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
       && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
       && missing.length === 0
-      && ADDRESS_PATTERN.test(env.TREASURY_OWNER_ADDRESS || '')
+      && ownerAddressesMatch
       && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
       && Boolean(readLimit(env.TREASURY_MAX_PAYOUT_USDT))
       && Boolean(readLimit(env.TREASURY_DAILY_LIMIT_USDT))
       && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
       && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
       && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
-    return { enabled, missing, signerMode: env.TREASURY_SIGNER_MODE === 'env-hot-wallet' ? 'env-hot-wallet' : 'not-configured' }
+    return {
+      enabled,
+      missing,
+      ownerAddressesMatch,
+      signerMode: env.TREASURY_SIGNER_MODE === 'env-hot-wallet' ? 'env-hot-wallet' : 'not-configured',
+    }
   }
 
   router.get('/withdrawals/readiness', async (req, res) => {
