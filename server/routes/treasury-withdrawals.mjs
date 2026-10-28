@@ -376,6 +376,24 @@ export function createTreasuryWithdrawalsRouter({
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await prepareDatabase(db)
+      // Check an existing idempotency key before current funding checks: a retry of
+      // a payout that already consumed USDT must return the original record, not a
+      // misleading "insufficient balance" response or a second attempted send.
+      const previous = await db.query(
+        'SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1',
+        [body.idempotencyKey],
+      )
+      if (previous.rows.length) {
+        const prior = previous.rows[0]
+        if (prior.owner_address !== auth.ownerAddress
+          || prior.recipient_address !== body.recipientAddress
+          || String(prior.amount_base_units) !== amount.toString()
+          || prior.treasury_address !== String(env.TREASURY_ADDRESS || '').trim()
+          || prior.token_contract !== USDT_MAINNET) {
+          return res.status(409).json({ success: false, error: 'idempotency-key-conflict' })
+        }
+        return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Existing request returned; no second transfer was broadcast.' })
+      }
       const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
       const treasuryAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim())
       if (!tronWeb.isAddress(body.recipientAddress) || !isValidTronAddress(body.recipientAddress)
