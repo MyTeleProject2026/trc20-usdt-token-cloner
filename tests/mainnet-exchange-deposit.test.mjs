@@ -8,11 +8,10 @@ const workspace = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.u
 const verifier = await readFile(new URL('../server/routes/trc20-verification.mjs', import.meta.url), 'utf8')
 const authRoute = await readFile(new URL('../server/routes/tron-wallet-auth.mjs', import.meta.url), 'utf8')
 
-test('real deposit page is separate from the existing testnet-only workspace', () => {
-  assert.ok(entry.includes("import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'"))
-  assert.ok(entry.includes("route === '#/exchange-deposit'"))
-  assert.ok(entry.includes('<MainnetExchangeDeposit />'))
-  assert.ok(workspace.includes('href="#/exchange-deposit"'))
+test('exchange deposit pages are no longer exposed in the owner-only application navigation', () => {
+  assert.ok(entry.includes("import OwnerControlApp from './OwnerControlApp'"))
+  assert.doesNotMatch(entry, /MainnetExchangeDeposit|exchange-deposit|OkxDepositStatus/)
+  assert.doesNotMatch(workspace, /href="#\/exchange-deposit"/)
   assert.ok(flow.includes('TRON Mainnet'))
   assert.ok(flow.includes('Nile/Shasta assets'))
 })
