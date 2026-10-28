@@ -37,26 +37,28 @@ function getPool(env) {
 
 async function ensureSchema(db) {
   if (!schemaPromise) {
-    schemaPromise = db.query(`
-      CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_withdrawal_requests (
-        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        idempotency_key TEXT NOT NULL UNIQUE,
-        owner_address TEXT NOT NULL,
-        treasury_address TEXT NOT NULL,
-        recipient_address TEXT NOT NULL,
-        token_contract TEXT NOT NULL,
-        amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
-        status TEXT NOT NULL CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected')),
-        transaction_hash CHAR(64),
-        failure_code TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `)
-    await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_withdrawal_requests_status_check`)
-    await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests
-      ADD CONSTRAINT treasury_withdrawal_requests_status_check
-      CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`).catch((error) => { schemaPromise = null; throw error })
+    schemaPromise = (async () => {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_withdrawal_requests (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          owner_address TEXT NOT NULL,
+          treasury_address TEXT NOT NULL,
+          recipient_address TEXT NOT NULL,
+          token_contract TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          status TEXT NOT NULL CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected')),
+          transaction_hash CHAR(64),
+          failure_code TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_withdrawal_requests_status_check`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests
+        ADD CONSTRAINT treasury_withdrawal_requests_status_check
+        CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
+    })().catch((error) => { schemaPromise = null; throw error })
   }
   await schemaPromise
 }
