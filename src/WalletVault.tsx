@@ -323,9 +323,11 @@ export default function WalletVault() {
   }
 
   function noticeKind(message: string): WalletToast['kind'] {
-    if (/(could not|failed|failure|unavailable|invalid|blocked|insufficient|not verified|expired|error)/i.test(message)) return 'error'
-    if (/(cancelled|network changed|checking|reading chain|open account|nothing was signed|broadcast|submitted|accepted|pending|reserved|awaiting confirmation|not confirmed)/i.test(message)) return 'info'
-    return 'success'
+    // Pending/ambiguous chain states are never presented as completed actions.
+    if (/(pending|not indexed|not yet solidified|unresolved|not confirmed|receipt.{0,40}(unavailable|pending)|broadcast|submitted|accepted|reserved|nothing (?:has been sent|was signed)|no transaction has been sent|cancelled|network changed|checking|reading chain|open account|selected|review the|requires?|needs? real|does not guarantee|watch-only)/i.test(message)) return 'info'
+    if (/(could not|failed|failure|invalid|blocked|insufficient|does not match|mismatch|not authorized|not configured|unavailable|expired|not verified|error)/i.test(message)) return 'error'
+    if (/(wallet encrypted and saved|encrypted backup restored|wallet unlocked|wallet locked|encrypted wallet backup exported|contract checks completed|verified on TRON|live chain checks passed|public wallet address copied|backup loaded locally|verified from the selected network)/i.test(message)) return 'success'
+    return 'info'
   }
 
   useEffect(() => {
