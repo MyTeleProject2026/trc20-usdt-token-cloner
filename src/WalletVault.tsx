@@ -1871,9 +1871,9 @@ export default function WalletVault() {
                       <div><small>Provider-available USDT</small><strong>{typeof serverTreasuryReadiness.providerAvailableUsdtBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.providerAvailableUsdtBaseUnits) ? formatUnits(serverTreasuryReadiness.providerAvailableUsdtBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
                       <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
                       <div><small>Provider-available TRX</small><strong>{typeof serverTreasuryReadiness.providerAvailableTrxBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.providerAvailableTrxBaseUnits) ? formatUnits(serverTreasuryReadiness.providerAvailableTrxBaseUnits, 6) + ' TRX' : 'Unavailable'}</strong></div>
-                      <div><small>Configured max fee cap</small><strong>{typeof serverTreasuryReadiness.treasuryFeeLimitSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryFeeLimitSun) ? formatUnits(serverTreasuryReadiness.treasuryFeeLimitSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                      <div><small>Configured fee reserve / estimate threshold</small><strong>{typeof serverTreasuryReadiness.treasuryFeeLimitSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryFeeLimitSun) ? formatUnits(serverTreasuryReadiness.treasuryFeeLimitSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
                       <div><small>Current reserved fee requirement</small><strong>{typeof serverTreasuryReadiness.requiredFeeReserveSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.requiredFeeReserveSun) ? formatUnits(serverTreasuryReadiness.requiredFeeReserveSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
-                      <div><small>Fee cap funding check</small><strong>{serverTreasuryReadiness.networkFeeCapCovered === true ? 'Covered' : 'Not covered'}</strong></div>
+                      <div><small>Fee reserve funding check</small><strong>{serverTreasuryReadiness.networkFeeCapCovered === true ? 'Covered' : 'Not covered'}</strong></div>
                       <div><small>All pending fee reservations</small><strong>{serverTreasuryReadiness.feeReserveCovered === true ? 'Covered' : 'Not covered'}</strong></div>
                     </div>
                   )}
@@ -1888,7 +1888,7 @@ export default function WalletVault() {
                         <p><strong>Current funding/readiness blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
                       )}
                       {serverTreasuryReadiness?.payoutBlockers?.includes('treasury-trx-below-fee-cap') && (
-                        <p>The treasury needs a verified TRX balance at least equal to the configured fee cap before this payout path is enabled. The owner wallet does not pay the treasury's fee.</p>
+                        <p>The treasury needs verified TRX for the configured reserve. The backend checks Fireblocks low/medium/high estimates before submission, but that estimate threshold is not a provider-enforced hard fee cap. Actual costs must be reconciled after the transaction; the owner wallet does not pay the treasury's fee.</p>
                       )}
                     </div>
                   )}
