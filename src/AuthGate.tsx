@@ -205,13 +205,19 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setError('Signed out.')
   }
 
+  // The primary Wallet Vault has its own unified top bar with session identity,
+  // Settings, and Logout. Keep the legacy session strip only on secondary routes.
+  const isPrimaryOwnerWalletRoute = !window.location.hash || window.location.hash === '#/wallet'
+
   if (session && session.expiresAt > Date.now()) {
     return (
       <>
-        <div className="studio-auth-session-strip">
-          <span><ShieldCheck size={14} aria-hidden="true" /> Owner session · {session.address.slice(0, 7)}…{session.address.slice(-5)} · Mainnet</span>
-          <button type="button" onClick={signOut}><LogOut size={14} aria-hidden="true" /> Sign out</button>
-        </div>
+        {!isPrimaryOwnerWalletRoute && (
+          <div className="studio-auth-session-strip">
+            <span><ShieldCheck size={14} aria-hidden="true" /> Owner session · {session.address.slice(0, 7)}…{session.address.slice(-5)} · Mainnet</span>
+            <button type="button" onClick={signOut}><LogOut size={14} aria-hidden="true" /> Sign out</button>
+          </div>
+        )}
         {children}
         {renderAuthToast()}
       </>
