@@ -86,4 +86,4 @@ The UI already separates read-only diagnostics, testnet sponsor operations, dire
 - [ ] Complete independent security/operator review before considering any Mainnet submission.
 - [ ] Verify exchange deposit credit from the receiving exchange's own authorized record when that is part of the use case.
 
-**Current verdict:** backend runtime configuration is deployed and basic startup/database connectivity has been observed. Step 2 is not fully production-complete until database durability, CI-gated deployment and post-update verification are closed. Step 3 remains blocked because no fully authorized, funded and end-to-end verified sponsored payout path has been established.
+**Current verdict:** backend runtime configuration is deployed and basic startup/database connectivity has been observed. Step 2 is not fully production-complete until database durability and CI-gated deployment are closed; post-update live smoke verification passed in run #40951784898. Step 3 remains blocked because no fully authorized, funded and end-to-end verified sponsored payout path has been established.
