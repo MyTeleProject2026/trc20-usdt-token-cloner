@@ -462,10 +462,10 @@ export function verifyTreasuryTrxTransferEvidence(tronWeb, {
 
 
 /**
- * Owner-only treasury-backed withdrawals. The owner signs in with the existing
- * wallet-auth challenge; the server signs transfers from a separate treasury
- * key. The signer is disabled unless explicitly opted in. This route never
- * mints tokens and only transfers USDT already held by the configured treasury.
+ * Owner-only treasury payouts. The owner authenticates with the existing wallet-auth
+ * challenge and signs each exact payout intent. Fireblocks handles the managed-vault
+ * transaction signing; the API never loads a treasury blockchain private key.
+ * USDT and native TRX routes transfer only genuine assets already held by that vault.
  */
 export function createTreasuryWithdrawalsRouter({
   env = process.env,
