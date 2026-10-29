@@ -43,19 +43,19 @@ Set these in the **backend Render service only**. Do not send credentials in cha
 | `FIREBLOCKS_SECRET_KEY_PATH` | Absolute path to a mounted secret file containing the Fireblocks **API authentication** RSA key, not a blockchain signing key |
 | `FIREBLOCKS_VAULT_ACCOUNT_ID` | Existing provider vault account ID (numeric) |
 | `FIREBLOCKS_USDT_ASSET_ID` | Existing provider asset ID whose metadata must resolve to official TRON USDT |
-| `FIREBLOCKS_TRX_ASSET_ID` | Existing provider asset ID for native TRX; only the TRX route uses it, and metadata is independently verified |
+| `FIREBLOCKS_TRX_ASSET_ID` | Existing provider asset ID for native TRX; required by both payout routes to verify provider-available fee funds and independently validate native-TRX metadata |
 | `TRONGRID_API_KEY` | Optional server-side read-provider key; never required as a wallet signing secret |
 | `DATABASE_SSL` | Optional strict TLS for external PostgreSQL where appropriate |
 
-Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the USDT and native-TRX routes use the Fireblocks vault as the source and let Fireblocks custody perform transaction signing; neither should load a blockchain private key into the application. Native TRX uses its separate `FIREBLOCKS_TRX_ASSET_ID` configuration and requires provider metadata to confirm the asset is native TRX with six decimals and no token contract. Keep `TREASURY_TRX_WITHDRAWALS_ENABLED=false` until the actual provider asset ID, authorized vault, exact treasury address, provider-available balance, on-chain TRX balance, fee reserve, limits and a controlled end-to-end test are verified. No native-TRX route should fall back to an application-held key.
+Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the USDT and native-TRX routes use the Fireblocks vault as the source and let Fireblocks custody perform transaction signing; neither should load a blockchain private key into the application. `FIREBLOCKS_TRX_ASSET_ID` is required for both routes: provider metadata must confirm native TRX with six decimals and no token contract, and the asset address must match `TREASURY_ADDRESS`. USDT withdrawals also verify the provider-available TRX balance, then reserve one maximum fee cap for every unresolved USDT/TRX request plus the new payout. Both provider-available and chain-observed TRX must cover the complete reserve. Keep `TREASURY_WITHDRAWALS_ENABLED=false` and `TREASURY_TRX_WITHDRAWALS_ENABLED=false` until the actual provider asset IDs, authorized vault, exact treasury address, provider-available balances, on-chain balances, fee reservations, limits and a controlled end-to-end test are verified. No payout route should fall back to an application-held key.
 
 ## Request flow and fail-closed behavior
 
 1. The owner signs into the single-owner console and signs a short-lived message that binds the exact origin, treasury, official token contract, recipient, amount, idempotency key and expiry.
 2. The backend checks the authenticated session and fresh owner signature.
 3. It queries Fireblocks for the configured asset metadata, available balance and vault addresses. It verifies the asset's contract address and checks the provider's available balance.
-4. It independently queries the configured TRON address for the actual official-USDT balance and TRX fee coverage. Both provider-available USDT and chain USDT must cover the payout.
-5. A PostgreSQL lock serializes the reservation. Existing pending, provider-pending, accepted or ambiguous requests remain reserved. Per-transfer and daily limits are checked before calling the provider.
+4. It independently queries the configured TRON address for actual official-USDT and TRX balances, verifies Fireblocks' native-TRX asset metadata and matching vault address, and reads provider-available TRX. Both USDT ledgers must cover the principal, while chain and provider TRX must cover the maximum fee cap for every unresolved payout plus the new request.
+5. A shared PostgreSQL advisory lock serializes USDT and native-TRX reservations. Existing pending, provider-pending, accepted or ambiguous requests remain reserved, including a cross-asset fee-cap reservation. Per-transfer and daily limits are checked before calling the provider.
 6. The backend requests a transfer via Fireblocks with the same idempotency key as `externalTxId`. Fireblocks' own approval policy remains in force. On a timeout, the service looks up that same external ID; it does not blindly create a replacement transfer.
 7. While Fireblocks has no chain transaction hash, the request remains `provider-pending` or `broadcast-unknown`, and the funds remain reserved. Once a transaction ID is available, the verifier checks the transaction from a public read-only TRON connection.
 8. Only a confirmed/solidified transaction with matching sender, recipient, amount, official contract, successful execution receipt, and exact official-USDT `Transfer` event is labelled `confirmed`.
@@ -78,7 +78,7 @@ Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the US
 - [ ] API authentication RSA key is installed via a Render secret file, never in Git, APK or chat.
 - [ ] Fireblocks asset metadata maps to the exact official TRON USDT contract.
 - [ ] Exactly one provider address matches `TREASURY_ADDRESS`.
-- [ ] The treasury holds actual official USDT and enough TRX for the configured fee cap.
+- [ ] The treasury holds actual official USDT; both the TRON chain and Fireblocks provider report enough available TRX for one fee cap per unresolved payout plus the proposed request.
 - [ ] Owner wallet matches the owner console identity and approves every request with a fresh signature.
 - [ ] Per-payout and daily limits, database idempotency, conservative pending reservations, alerts and pause/recovery procedures are reviewed.
 - [ ] Mock tests and the full Node/build CI pass.
