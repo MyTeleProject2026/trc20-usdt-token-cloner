@@ -64,6 +64,12 @@ Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the US
 ## API endpoints
 
 - `GET /api/treasury/withdrawals/readiness` — owner-authenticated configuration, provider authorization credentials, asset identity, provider balance, on-chain balance and fee budget checks.
+
+### Readiness checks while payout gates are off
+
+The readiness endpoints are diagnostics, not transfer-submission endpoints. For USDT, when Fireblocks provider credentials, the configured USDT/TRX asset IDs and a syntactically valid `TREASURY_ADDRESS` are present, the API probes provider metadata, vault addresses, provider-available balances, and public-chain balances even when `TREASURY_WITHDRAWALS_ENABLED=false`. The response separates `configurationComplete` and `featureFlagEnabled`; `withdrawalsEnabled` remains false if any release blocker exists. The native-TRX readiness route follows the same distinction for its own gate.
+
+Do not enable a payout switch to make readiness diagnostics run. The probe is read-only and must never create, sign or broadcast a transaction. A successful read-only snapshot still does not authorize spending or prove that a controlled transfer has settled.
 - `POST /api/treasury/withdrawals` — transaction-specific owner-signed transfer request and database reservation.
 - `GET /api/treasury/withdrawals/:idempotencyKey` — lookup and refresh provider transaction status without resubmitting.
 - `POST /api/treasury/withdrawals/:idempotencyKey/verify` — reconcile provider state and independently verify a returned on-chain transaction.
