@@ -17,6 +17,7 @@ import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
+import treasuryTrxWithdrawalsRoutes from './routes/treasury-trx-withdrawals.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
 import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
@@ -144,6 +145,7 @@ app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/auth/owner', createOwnerAuthRouter())
 app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/treasury', treasuryWithdrawalsRoutes)
+app.use('/api/treasury', treasuryTrxWithdrawalsRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
