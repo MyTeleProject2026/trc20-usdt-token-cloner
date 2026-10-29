@@ -82,3 +82,18 @@ Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does n
 - [ ] Obtain an independent security review before production use.
 
 The repository code alone cannot create provider access, configure the provider's vault or policy, upload credentials to Render, fund the treasury, or prove a successful Mainnet transfer. This integration must remain disabled until those independent setup tasks are complete.
+
+## Managed native-TRX treasury payouts
+
+The managed-signer path uses the same owner-only console and Fireblocks API-user authentication secret file as the USDT route. Native TRX must be configured as an actual Fireblocks native asset: set FIREBLOCKS_TRX_ASSET_ID to the asset ID returned by the operator's workspace. Readiness verifies the provider asset metadata reports assetClass=NATIVE and the TRX symbol, that the vault returns exactly the configured TREASURY_ADDRESS, and that the provider balance agrees with a live public TRON balance read.
+
+Required backend configuration:
+- TREASURY_TRX_WITHDRAWALS_ENABLED=false until independently reviewed; never flip this on merely because the variables exist.
+- TREASURY_SIGNER_MODE=fireblocks.
+- FIREBLOCKS_TRX_ASSET_ID, validated through the provider asset endpoint. Do not guess the identifier if it is not listed in the workspace.
+- TREASURY_TRX_MAX_PAYOUT and TREASURY_TRX_DAILY_LIMIT as exact positive decimal TRX values with up to six fractional digits.
+- TREASURY_TRX_FEE_RESERVE_SUN as a positive integer. This reserve and the current configured TREASURY_FEE_LIMIT_SUN multiplied by unresolved USDT payouts are excluded from available native TRX.
+
+The route shares the PostgreSQL advisory lock with USDT payouts, uses a unique per-request owner signature and idempotency key, reserves unresolved requests, and submits through Fireblocks. Provider acceptance does not mean the transfer is confirmed. Only a confirmed transaction whose native TransferContract matches the configured treasury, recipient and exact SUN amount is considered on-chain confirmed.
+
+This capability transfers real TRX held by the managed treasury; it is not a separate external organization promising fee sponsorship. Sponsored submission remains disabled until a sponsor agreement, actual funded resource/fee path, provider permissions and end-to-end evidence are independently verified. Keep withdrawals disabled until all configuration, CI, operational and security gates are complete.
