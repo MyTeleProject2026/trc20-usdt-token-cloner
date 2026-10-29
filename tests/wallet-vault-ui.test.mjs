@@ -48,6 +48,8 @@ test('wallet vault signs identity challenges locally and wires guarded real on-c
   assert.match(vault, /transferAcknowledged/)
   assert.match(vault, /web\.trx\.getBalance\(unlocked\.record\.address\)/)
   assert.match(vault, /TOKEN_ABI/)
+  assert.match(vault, /\/api\/tron\/inspect-token\?network=/)
+  assert.match(vault, /chain provider is rate limiting requests/)
   assert.match(vault, /the contract is neither the official Tether TRON USDT address/)
   assert.match(transfer, /const signed = await tronWeb\.trx\.sign\(unsigned\)/)
   assert.match(transfer, /sendRawTransaction\(signed\)/)
