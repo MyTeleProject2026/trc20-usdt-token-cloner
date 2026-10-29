@@ -125,8 +125,8 @@ export function inspectProductionEnvironment(env = process.env, { fileExists = e
   const feeLimitText = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
   const feeLimitValid = /^[1-9][0-9]{0,9}$/.test(feeLimitText) && BigInt(feeLimitText || '0') <= 1_000_000_000n
   add('TREASURY_FEE_LIMIT_SUN', feeLimitValid
-    ? check('configured', 'Positive integer fee cap in SUN; must be approved and covered by actual TRX.')
-    : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee cap in SUN, no greater than 1000000000.')
+    ? check('configured', 'Positive integer fee-estimate threshold/reserve in SUN; Fireblocks estimates are preflight checks, not an enforceable hard cap, and actual TRX must cover the reserve.')
+    : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee-estimate threshold/reserve in SUN, no greater than 1000000000.')
   , { error: !feeLimitValid })
 
   add('TREASURY_SIGNER_MODE', env.TREASURY_SIGNER_MODE === 'fireblocks'
