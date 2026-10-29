@@ -18,8 +18,7 @@ function renderRoute() {
   const isOkxDepositStatus = route === '#/okx-deposit-status'
   const isWalletVault = route === '#/wallet'
   const isWatchOnlyWallets = route === '#/watch-wallets'
-  // The authenticated default route opens the owner wallet dashboard. Keep the workflow builder as an explicit workspace route.
-  const isWorkspace = route === '#/workspace'
+  const isLegacyWorkspace = route === '#/workspace'
 
   const page = isWalletVault
     ? <WalletVault />
@@ -29,7 +28,7 @@ function renderRoute() {
         ? <MainnetExchangeDeposit />
         : isOkxDepositStatus
           ? <OkxDepositStatus />
-          : isWorkspace || isSponsorOperator
+          : isLegacyWorkspace || isSponsorOperator
             ? (isSponsorOperator ? <SponsorSignerConsole /> : <App />)
             : <WalletVault />
 
