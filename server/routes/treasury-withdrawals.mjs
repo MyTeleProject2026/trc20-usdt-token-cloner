@@ -1398,31 +1398,84 @@ export function createTreasuryWithdrawalsRouter({
     if (!IDEMPOTENCY_PATTERN.test(key || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+
     try {
       await ensureSchema(db)
-      const lookup = await db.query('SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 AND owner_address=$2', [key, authResult.ownerAddress])
+      const lookup = await db.query(
+        'SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 AND owner_address=$2',
+        [key, authResult.ownerAddress],
+      )
       if (!lookup.rows.length) return res.status(404).json({ success: false, error: 'trx-withdrawal-not-found' })
-      const row = lookup.rows[0]
-      if (row.status === 'confirmed' || row.status === 'failed') return res.json({ success: row.status === 'confirmed', withdrawal: safeTrxStatus(row), verification: { verified: true, status: row.status, reason: 'previously-verified-solidified-transfer' } })
+
+      const row = await refreshProviderTrxTransaction(db, lookup.rows[0])
+      if (row.status === 'confirmed') {
+        return res.json({
+          success: true,
+          withdrawal: safeTrxStatus(row),
+          verification: { verified: true, status: 'confirmed', reason: 'previously-verified-solidified-native-transfer' },
+        })
+      }
+      // A provider-reported failure is not an on-chain receipt. Only release a
+      // failed withdrawal as independently verified if our chain verifier set
+      // the reason recorded below.
+      if (row.status === 'failed' && String(row.failure_code || '').startsWith('confirmed-solidified-')) {
+        return res.status(202).json({
+          success: false,
+          withdrawal: safeTrxStatus(row),
+          verification: { verified: true, status: 'failed', reason: String(row.failure_code) },
+        })
+      }
+      if (row.status === 'failed') {
+        return res.status(202).json({
+          success: false,
+          withdrawal: safeTrxStatus(row),
+          verification: { verified: false, status: 'provider-failed', reason: 'provider-terminal-failure-not-chain-verified' },
+          note: 'Fireblocks reported a terminal failure, but no on-chain receipt was independently verified.',
+        })
+      }
+
       const txid = typeof row.transaction_hash === 'string' ? row.transaction_hash.trim() : ''
-      if (!TXID_PATTERN.test(txid)) return res.status(409).json({ success: false, error: 'transaction-hash-not-available', withdrawal: safeTrxStatus(row) })
-      const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
+      if (!TXID_PATTERN.test(txid)) {
+        const pending = ['provider-pending', 'broadcasting', 'broadcast-unknown'].includes(row.status)
+        return res.status(pending ? 202 : 409).json({
+          success: false,
+          status: row.status,
+          error: 'transaction-hash-not-available',
+          withdrawal: safeTrxStatus(row),
+          note: 'No chain hash is available yet. Keep the original request and do not submit a replacement.',
+        })
+      }
+
+      const tronWeb = tronWebFactory()
       const [transaction, transactionInfo] = await Promise.all([
         tronWeb.trx.getConfirmedTransaction(txid).catch(() => null),
         tronWeb.trx.getTransactionInfo(txid).catch(() => null),
       ])
       const evidence = verifyTreasuryTrxTransferEvidence(tronWeb, {
-        transaction, transactionInfo, transactionHash: txid, treasuryAddress: row.treasury_address,
-        recipientAddress: row.recipient_address, amountBaseUnits: String(row.amount_base_units),
+        transaction,
+        transactionInfo,
+        transactionHash: txid,
+        treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address,
+        amountBaseUnits: String(row.amount_base_units),
       })
       if (evidence.status === 'confirmed' || evidence.status === 'failed') {
-        const updated = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status=$2,failure_code=$3,updated_at=now() WHERE id=$1 AND status NOT IN ('confirmed','failed') RETURNING *`, [row.id,evidence.status,evidence.status === 'failed' ? evidence.reason : null])
+        const updated = await db.query(\`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+          SET status=$2, failure_code=$3, updated_at=now()
+          WHERE id=$1 AND status NOT IN ('confirmed','failed') RETURNING *\`,
+        [row.id, evidence.status, evidence.status === 'failed' ? evidence.reason : null])
         const saved = updated.rows[0] || row
-        return res.status(evidence.status === 'confirmed' ? 200 : 202).json({ success: evidence.status === 'confirmed', withdrawal: safeTrxStatus(saved), verification: evidence })
+        return res.status(evidence.status === 'confirmed' ? 200 : 202).json({
+          success: evidence.status === 'confirmed',
+          withdrawal: safeTrxStatus(saved),
+          verification: evidence,
+        })
       }
       return res.status(evidence.status === 'verification-mismatch' ? 409 : 202).json({
-        success: false, withdrawal: safeTrxStatus(row), verification: evidence,
-        note: 'A hash alone is not confirmation; retry after this transaction is indexed in a confirmed block.',
+        success: false,
+        withdrawal: safeTrxStatus(row),
+        verification: evidence,
+        note: 'A hash alone is not confirmation; retry once the transaction is indexed in the solidified chain.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'treasury-trx-withdrawal-verification-unavailable' })
@@ -1433,14 +1486,25 @@ export function createTreasuryWithdrawalsRouter({
     res.setHeader('Cache-Control', 'no-store, private')
     const authResult = await authenticateOwner(req)
     if (!authResult.ok) return res.status(authResult.status).json({ success: false, error: authResult.error })
-    if (!IDEMPOTENCY_PATTERN.test(req.params.idempotencyKey || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const key = req.params.idempotencyKey
+    if (!IDEMPOTENCY_PATTERN.test(key || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
-      const found = await db.query('SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 AND owner_address=$2', [req.params.idempotencyKey,authResult.ownerAddress])
+      const found = await db.query(
+        'SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 AND owner_address=$2',
+        [key, authResult.ownerAddress],
+      )
       if (!found.rows.length) return res.status(404).json({ success: false, error: 'trx-withdrawal-not-found' })
-      return res.json({ success: true, withdrawal: safeTrxStatus(found.rows[0]) })
+      const row = await refreshProviderTrxTransaction(db, found.rows[0])
+      return res.json({
+        success: true,
+        withdrawal: safeTrxStatus(row),
+        note: row.status === 'confirmed'
+          ? 'The chain verifier confirmed the exact native TRX transfer.'
+          : 'Provider and chain status are separate; only an independently verified solidified receipt is a confirmed transfer.',
+      })
     } catch {
       return res.status(503).json({ success: false, error: 'treasury-trx-withdrawal-unavailable' })
     }
