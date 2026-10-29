@@ -994,3 +994,76 @@ main .grid > button[aria-pressed] > span {
   .wallet-vault-header-balance > div { min-width: 0; }
   .wallet-vault-header-balance strong { font-size: 11px; }
 }
+
+
+/* Actionable home hub and complete mobile navigation. */
+.wallet-vault-quick-actions { margin-top: 16px; }
+.wallet-vault-quick-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.wallet-vault-quick-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 88px;
+  padding: 14px;
+  border: 1px solid #24483e;
+  border-radius: 13px;
+  color: #d5f4e6;
+  background: linear-gradient(145deg, rgba(17, 46, 37, .92), rgba(7, 20, 20, .92));
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.wallet-vault-quick-action > svg { flex: 0 0 auto; margin-top: 1px; color: #83e5ba; }
+.wallet-vault-quick-action > span { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.wallet-vault-quick-action strong { color: #e2fff3; font-size: 12px; line-height: 1.4; }
+.wallet-vault-quick-action small { color: #91b3a7; font-size: 10px; line-height: 1.6; }
+.wallet-vault-quick-action:hover,
+.wallet-vault-quick-action:focus-visible {
+  border-color: #59c79a;
+  background: linear-gradient(145deg, rgba(23, 67, 51, .98), rgba(9, 29, 24, .98));
+}
+.wallet-vault-quick-action:focus-visible { outline: 2px solid #65e5b2; outline-offset: 2px; }
+.wallet-vault-quick-action:active { transform: translateY(1px); }
+
+@media (max-width: 1050px) {
+  .wallet-vault-quick-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  /* All workflow sections remain reachable without squeezing eight tabs into
+     unreadable labels; swipe the dock horizontally on narrow devices. */
+  .wallet-vault-bottom-nav {
+    display: flex;
+    justify-content: flex-start;
+    gap: 3px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+  .wallet-vault-bottom-nav::-webkit-scrollbar { display: none; }
+  .wallet-vault-bottom-nav button {
+    flex: 0 0 58px;
+    min-width: 58px;
+    scroll-snap-align: start;
+  }
+  .wallet-vault-quick-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wallet-vault-quick-action { min-height: 96px; padding: 12px; gap: 9px; }
+}
+@media (max-width: 430px) {
+  .wallet-vault-quick-action { min-height: 92px; padding: 10px; gap: 8px; }
+  .wallet-vault-quick-action > svg { width: 18px; height: 18px; }
+  .wallet-vault-quick-action strong { font-size: 11px; }
+  .wallet-vault-quick-action small { font-size: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallet-vault-quick-action { transition: none; }
+  .wallet-vault-quick-action:active { transform: none; }
+}
