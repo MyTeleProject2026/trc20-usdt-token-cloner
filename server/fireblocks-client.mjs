@@ -117,13 +117,20 @@ export function extractFireblocksAddresses(value) {
   }).filter(Boolean)
 }
 
-export function providerAssetAvailableBaseUnits(assetResponse, parseAmount) {
-  if (!assetResponse || typeof assetResponse !== 'object' || typeof parseAmount !== 'function') return null
-  // "available" excludes provider-side locked amounts. Missing/invalid values fail closed.
-  const amount = assetResponse.available
-  if (typeof amount !== 'string' && typeof amount !== 'number') return null
-  const parsed = parseAmount(String(amount), 6)
-  return parsed === null ? null : parsed.toString()
+export function providerAssetAvailableBaseUnits(assetResponse) {
+  if (!assetResponse || typeof assetResponse !== 'object') return null
+  // Fireblocks "available" excludes funds locked by other transactions. Accept
+  // zero as a valid reading, but reject exponent notation, excess precision,
+  // malformed values and uint256 overflow.
+  const amount = typeof assetResponse.available === 'string'
+    ? assetResponse.available.trim()
+    : typeof assetResponse.available === 'number' && Number.isFinite(assetResponse.available)
+      ? String(assetResponse.available) : ''
+  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(amount)) return null
+  const [whole, fraction = ''] = amount.split('.')
+  if (whole.length > 78) return null
+  const units = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
+  return units <= ((1n << 256n) - 1n) ? units.toString() : null
 }
 
 export function isOfficialFireblocksUsdtAsset(assetResponse, tronWeb, officialAddress) {
