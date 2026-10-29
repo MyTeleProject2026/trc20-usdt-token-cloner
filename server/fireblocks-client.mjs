@@ -154,7 +154,9 @@ export function isOfficialFireblocksUsdtAsset(assetResponse, tronWeb, officialAd
   if (fields.length === 0) return false
   try {
     const expected = String(tronWeb.address.toHex(officialAddress)).replace(/^0x/i, '').toLowerCase()
-    return fields.some((field) => {
+    // Reject contradictory provider metadata. A single matching alias must not
+    // mask another populated contract field that identifies a different token.
+    return fields.every((field) => {
       const value = field.trim()
       const asHex = /^(?:0x)?41[0-9a-f]{40}$/i.test(value)
         ? value.replace(/^0x/i, '').toLowerCase()
