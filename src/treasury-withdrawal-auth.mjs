@@ -107,7 +107,7 @@ export function buildTreasuryTrxWithdrawalAuthorizationMessage({
     `Owner: ${ownerAddress}`,
     `Treasury: ${treasuryAddress}`,
     `Recipient: ${recipientAddress}`,
-    `Amount SUN: ${exactAmountSun}`,
+    `Amount base units (sun): ${exactAmountSun}`,
     `Idempotency key: ${idempotencyKey}`,
     `Expires at Unix milliseconds: ${authorizationExpiresAt}`,
   ].join('\n')
