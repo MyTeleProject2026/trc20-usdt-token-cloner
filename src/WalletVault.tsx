@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, CheckCircle2, Copy, Download, Eye, EyeOff, FileKey2, KeyRound, LockKeyhole, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
@@ -234,7 +234,7 @@ export default function WalletVault() {
   const [selectedAddress, setSelectedAddress] = useState(() => readWalletRecords()[0]?.address || '')
   const [unlocked, setUnlocked] = useState<UnlockedWallet | null>(null)
   const [network, setNetwork] = useState<NetworkId>('nile')
-  const [activePanel, setActivePanel] = useState<'dashboard' | 'wallet' | 'treasury' | 'send' | 'activity'>('dashboard')
+  const [activePanel, setActivePanel] = useState<'dashboard' | 'wallet' | 'treasury' | 'send' | 'activity' | 'account' | 'settings'>('dashboard')
   const [mode, setMode] = useState<'create' | 'import-key' | 'restore-backup'>('create')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -260,6 +260,7 @@ export default function WalletVault() {
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
   const [ownerSessionToken, setOwnerSessionToken] = useState('')
+  const [ownerSessionAddress, setOwnerSessionAddress] = useState('')
   const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
   const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
   const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
@@ -286,6 +287,9 @@ export default function WalletVault() {
     && serverTreasuryReadiness?.withdrawalsEnabled === true
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
+  const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || serverTreasuryReadiness?.treasuryAddress || selectedAddress || ''
+  const headerTreasuryUsdt = typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) : 'Not verified'
+  const headerTreasuryTrx = typeof serverTreasuryReadiness?.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) : 'Not verified'
 
   useEffect(() => {
     const contracts = readTokenWatchlist(network)
@@ -359,6 +363,7 @@ export default function WalletVault() {
           throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
         }
 
+        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
         const [fundingResponse, readinessResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
@@ -384,6 +389,7 @@ export default function WalletVault() {
         }
       } catch (caught) {
         if (cancelled) return
+        setOwnerSessionAddress('')
         setOwnerTreasurySnapshot(null)
         setServerTreasuryReadiness(null)
         setOwnerTreasuryError(caught instanceof Error
@@ -1296,27 +1302,141 @@ export default function WalletVault() {
     }
   }
 
+  function navigatePanel(panel: 'dashboard' | 'wallet' | 'treasury' | 'send' | 'activity' | 'account' | 'settings') {
+    setActivePanel(panel)
+    if (panel === 'treasury' && network !== 'mainnet') {
+      setNetwork('mainnet')
+      setNotice('Treasury monitoring and organization payouts use TRON Mainnet. An exact owner approval is required for each payout.')
+    }
+    if (panel !== 'send') {
+      setTransferReview(null)
+      setTransferAcknowledged(false)
+      setMainnetSendPhrase('')
+    }
+  }
+
+  function navigateSendAsset(asset: TransferAsset) {
+    setActivePanel('send')
+    setNetwork('mainnet')
+    setTransferAsset(asset)
+    setTransferReview(null)
+    setTransferAcknowledged(false)
+    setMainnetSendPhrase('')
+    if (asset === 'TRC20') {
+      const existingContracts = readTokenWatchlist('mainnet')
+      const mainnetContracts = existingContracts.includes(OFFICIAL_MAINNET_USDT) ? existingContracts : [OFFICIAL_MAINNET_USDT, ...existingContracts]
+      if (!existingContracts.includes(OFFICIAL_MAINNET_USDT)) {
+        try {
+          const savedWatchlist = JSON.parse(window.localStorage.getItem(TOKEN_WATCH_KEY) || '{}')
+          window.localStorage.setItem(TOKEN_WATCH_KEY, JSON.stringify({ ...savedWatchlist, mainnet: mainnetContracts }))
+        } catch {
+          setError('The official USDT contract could not be added to the device watchlist. Verify it under Assets before sending.')
+        }
+      }
+      setTokenContracts(mainnetContracts)
+      setSelectedTokenContract(OFFICIAL_MAINNET_USDT)
+    }
+    setNotice(unlocked
+      ? (asset === 'TRC20'
+        ? 'Official TRON Mainnet USDT selected. A genuine transfer needs real USDT at the sender and sufficient network-fee resources.'
+        : 'TRON Mainnet TRX selected. A genuine transfer needs enough TRX for the amount and network fee.')
+      : 'Open Account to unlock the authorized signer. If the local wallet has no USDT, organization payouts require a genuinely funded treasury.')
+  }
+
+  async function logoutOwnerSession() {
+    let sessionToken = ''
+    try {
+      sessionToken = window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+      window.sessionStorage.removeItem(OWNER_CONSOLE_SESSION_KEY)
+    } catch {
+      sessionToken = ''
+    }
+    setUnlocked(null)
+    setPortfolio(null)
+    setPassword('')
+    setConfirmPassword('')
+    setPrivateKeyInput('')
+    setOwnerSessionToken('')
+    setOwnerSessionAddress('')
+    setOwnerTreasurySnapshot(null)
+    setServerTreasuryReadiness(null)
+    setActivePanel('dashboard')
+    if (sessionToken) {
+      try {
+        await fetch(API_BASE + '/api/auth/owner/logout', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + sessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+        })
+      } catch {
+        // Local session is cleared even if the API is unreachable.
+      }
+    }
+    window.location.reload()
+  }
+
   return (
-    <main className="wallet-vault-page">
-      <header className="wallet-vault-topbar">
+    <main className="wallet-vault-page wallet-vault-owner-app">
+      <header className="wallet-vault-topbar wallet-vault-topbar--owner">
         <a className="wallet-vault-brand" href="#/wallet" aria-label="TRON Token Studio owner wallet home">
           <span className="wallet-vault-logo"><Wallet size={22} aria-hidden="true" /></span>
-          <span><strong>TRON Token Studio</strong><small>OWNER WALLET CONTROL</small></span>
+          <span><strong>TRON Token Studio</strong><small>PRIVATE OWNER WORKSPACE</small></span>
         </a>
-        <span className="wallet-vault-back" aria-label="Standalone self-custody owner wallet">Owner panel</span>
-      </header>
-
-      <section id="owner-dashboard" className="wallet-vault-hero">
-        <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> LOCAL KEY CUSTODY · REAL TRON NETWORK READS</p>
-        <h1>Owner dashboard</h1>
-        <p>Private owner console for live treasury status, verified on-chain assets, withdrawals, and transaction activity. Read-only account and treasury data load automatically after owner sign-in. Unlock a locally encrypted wallet only when a private-key action or payout authorization is required. No TronLink connection is required.</p>
-        <div className="wallet-vault-network" role="group" aria-label="Blockchain network">
-          {(['nile', 'shasta', 'mainnet'] as NetworkId[]).map(item => (
-            <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); if (item !== 'mainnet' && activePanel === 'treasury') setActivePanel('dashboard'); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
-              {item === 'mainnet' ? 'TRON Mainnet' : item === 'nile' ? 'Nile Testnet' : 'Shasta Testnet'}
-            </button>
-          ))}
+        <div className="wallet-vault-topbar-owner">
+          <div className="wallet-vault-owner-identity"><small>OWNER ACCOUNT</small><strong title={ownerAddressForHeader || 'Owner address has not been verified'}>{ownerAddressForHeader ? shortenAddress(ownerAddressForHeader) : 'Session not verified'}</strong></div>
+          <div className="wallet-vault-header-balance">
+            <div><small>TREASURY USDT</small><strong>{headerTreasuryUsdt}</strong></div>
+            <div><small>TREASURY TRX</small><strong>{headerTreasuryTrx}</strong></div>
+          </div>
+          <button type="button" className="wallet-vault-logout" onClick={() => void logoutOwnerSession()}><LogOut size={15} /> Logout</button>
         </div>
+      </header>
+      <aside className="wallet-vault-sidebar" aria-label="Owner workspace sidebar">
+        <div className="wallet-vault-sidebar-kicker">WORKSPACE</div>
+        <nav className="wallet-vault-sidebar-nav" aria-label="Primary owner navigation">
+          <button type="button" className={activePanel === 'dashboard' ? 'is-active' : ''} aria-current={activePanel === 'dashboard' ? 'page' : undefined} onClick={() => navigatePanel('dashboard')}><Home size={17} /><span>Home</span></button>
+          <button type="button" className={activePanel === 'wallet' ? 'is-active' : ''} aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={() => navigatePanel('wallet')}><Coins size={17} /><span>Assets</span></button>
+          <button type="button" className={activePanel === 'send' && transferAsset === 'TRC20' ? 'is-active' : ''} aria-current={activePanel === 'send' && transferAsset === 'TRC20' ? 'page' : undefined} onClick={() => navigateSendAsset('TRC20')}><ArrowDownToLine size={17} /><span>Send USDT</span></button>
+          <button type="button" className={activePanel === 'send' && transferAsset === 'TRX' ? 'is-active' : ''} aria-current={activePanel === 'send' && transferAsset === 'TRX' ? 'page' : undefined} onClick={() => navigateSendAsset('TRX')}><Send size={17} /><span>Send TRX</span></button>
+          <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={17} /><span>Organization payouts</span></button>
+          <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={17} /><span>Account</span></button>
+          <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={17} /><span>Activity</span></button>
+        </nav>
+        <div className="wallet-vault-sidebar-settings">
+          <div className="wallet-vault-sidebar-kicker"><Settings size={14} /> SETTINGS</div>
+          <div className="wallet-vault-sidebar-setting-label">TRON network</div>
+          <div className="wallet-vault-network wallet-vault-network--sidebar" role="group" aria-label="Blockchain network">
+            {(['mainnet', 'nile', 'shasta'] as NetworkId[]).map(item => (
+              <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => {
+                setNetwork(item)
+                setNotice('Network changed. Balances are read separately from the selected TRON network.')
+              }}>{item === 'mainnet' ? 'Mainnet' : item === 'nile' ? 'Nile' : 'Shasta'}</button>
+            ))}
+          </div>
+          <div className="wallet-vault-sidebar-status"><div><strong>Public treasury</strong><span>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? 'Address configured' : 'Not configured'}</span></div><button type="button" onClick={() => navigatePanel('treasury')}>View</button></div>
+          <div className="wallet-vault-sidebar-status"><div><strong>Organization payouts</strong><span className={serverTreasuryReadiness?.withdrawalsEnabled === true ? 'is-ready' : 'is-blocked'}>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</span></div><button type="button" onClick={() => navigatePanel('treasury')}>Status</button></div>
+          <button type="button" className={'wallet-vault-sidebar-settings-link' + (activePanel === 'settings' ? ' is-active' : '')} aria-current={activePanel === 'settings' ? 'page' : undefined} onClick={() => navigatePanel('settings')}><Settings size={16} /> All settings</button>
+        </div>
+      </aside>
+
+      <section id="owner-dashboard" className="wallet-vault-hero wallet-vault-hero--compact">
+        <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
+        <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
+        <p>{activePanel === 'dashboard'
+          ? 'Overview of your authenticated owner account, verified treasury balances, and payout readiness.'
+          : activePanel === 'wallet'
+            ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
+            : activePanel === 'send'
+              ? 'Prepare and review real transfers. The sender must hold the asset, or a funded treasury must authorize a payout.'
+              : activePanel === 'treasury'
+                ? 'Inspect the public treasury address and request organization-funded payouts only from real, funded on-chain assets.'
+                : activePanel === 'account'
+                  ? 'Create, import, unlock, or recover the local owner signing wallet. Key material is processed on this device.'
+                  : activePanel === 'activity'
+                    ? 'Review local transaction records against actual chain status.'
+                    : 'View public treasury settings and organization payout provider readiness.'}
+        </p>
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note">
@@ -1324,7 +1444,7 @@ export default function WalletVault() {
         <p>The owner wallet authorizes payout requests; it does not create USDT. Server-funded payouts can send only genuine USDT already held by the configured treasury, and the treasury must also have sufficient network-fee funding. If either balance is insufficient, the payout stays blocked.</p>
       </div>
 
-      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard' && activePanel !== 'treasury'}>
+      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step">LIVE</span>
           <div>
@@ -1361,20 +1481,64 @@ export default function WalletVault() {
         <p className="wallet-vault-caption">This is read-only status. It never generates USDT or authorizes a payout. A real payout still requires genuine treasury assets, sufficient network fees, and a fresh owner approval for the exact recipient and amount.</p>
       </section>
 
-      <nav className="wallet-vault-quick-nav" aria-label="Owner wallet sections">
-        <a href="#owner-dashboard" aria-current={activePanel === 'dashboard' ? 'page' : undefined} onClick={event => { event.preventDefault(); setActivePanel('dashboard') }}>Home</a>
-        <a href="#wallet-owner-vault" aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={event => { event.preventDefault(); setActivePanel('wallet') }}>Wallet & balances</a>
-        {network === 'mainnet' && <a href="#owner-treasury-funding" aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('treasury'); else setNotice('Unlock the owner wallet before opening treasury controls.') }}>Treasury payout</a>}
-        <a href="#wallet-vault-transfer" aria-current={activePanel === 'send' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('send'); else setNotice('Unlock the owner wallet before opening transfer controls.') }}>{network === 'mainnet' ? 'Send' : 'Testnet send'}</a>
-        <a href="#wallet-vault-history" aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('activity'); else setNotice('Unlock the owner wallet before opening transaction activity.') }}>Activity</a>
-      </nav>
+
 
       {error && <div className="wallet-vault-message is-error" role="alert"><X size={17} aria-hidden="true" /> {error}</div>}
       {notice && <div className="wallet-vault-message is-notice" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</div>}
 
-      <div className={'wallet-vault-layout' + (activePanel === 'wallet' ? '' : ' wallet-vault-layout--single')}>
-        <section className="wallet-vault-panel wallet-vault-setup" hidden={activePanel !== 'wallet'}>
-          <details className="wallet-vault-setup-details" open={records.length === 0}>
+      <section className="wallet-vault-panel wallet-vault-settings-panel" hidden={activePanel !== 'settings'}>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Settings size={16} /></span><div><h2>Settings</h2><p>These values reflect server configuration and chain reads; controls here do not pretend to change Render settings.</p></div></div>
+        <div className="wallet-vault-settings-grid">
+          <article className="wallet-vault-setting-card">
+            <div className="wallet-vault-setting-card-title"><Landmark size={18} /><div><strong>Public treasury address</strong><small>Read-only monitoring</small></div></div>
+            <p>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? serverTreasuryReadiness.treasuryAddress : 'No public treasury address is configured.'}</p>
+            <span className={'wallet-vault-state-pill ' + (ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? 'is-ready' : 'is-blocked')}>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? 'Address configured' : 'Not configured'}</span>
+            <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Open treasury monitor</button>
+          </article>
+          <article className="wallet-vault-setting-card">
+            <div className="wallet-vault-setting-card-title"><ShieldCheck size={18} /><div><strong>Organization payout provider</strong><small>Backend-enforced readiness</small></div></div>
+            <p>Payouts require an exact owner signature, an authorized treasury signer, genuine on-chain USDT, persistent request records, and network-fee funding.</p>
+            <span className={'wallet-vault-state-pill ' + (serverTreasuryReadiness?.withdrawalsEnabled === true ? 'is-ready' : 'is-blocked')}>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked by backend checks'}</span>
+            <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Review payout readiness</button>
+          </article>
+          <article className="wallet-vault-setting-card">
+            <div className="wallet-vault-setting-card-title"><Wallet size={18} /><div><strong>Local wallet security</strong><small>Owner-controlled keys</small></div></div>
+            <p>The owner signing wallet can authorize a payout without holding the payout USDT. The treasury still must hold real USDT and transaction-fee resources.</p>
+            <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('account')}>Open Account</button>
+          </article>
+          <article className="wallet-vault-setting-card">
+            <div className="wallet-vault-setting-card-title"><Settings size={18} /><div><strong>Network</strong><small>Current read target</small></div></div>
+            <p>{network === 'mainnet' ? 'TRON Mainnet' : network === 'nile' ? 'Nile Testnet' : 'Shasta Testnet'} · balances are separate per network.</p>
+            <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Open payout status</button>
+          </article>
+        </div>
+        <div className="wallet-vault-transfer-warning" role="note"><strong>Verified balances only</strong><p>Displayed balances come from chain reads. No local generator or hidden setting creates official USDT or alters external exchange balances.</p></div>
+      </section>
+
+      <section className="wallet-vault-panel wallet-vault-locked-treasury" hidden={activePanel !== 'treasury' || Boolean(unlocked)}>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Landmark size={16} /></span><div><h2>Public treasury monitoring</h2><p>The public address and balance can be viewed without importing its private key.</p></div></div>
+        <div className="wallet-vault-review-grid">
+          <div className="wallet-vault-review-wide"><small>Public treasury address</small>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
+          <div><small>Verified official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
+          <div><small>Verified TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
+          <div><small>Payout readiness</small><strong>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+        </div>
+        {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
+        {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
+        <p className="wallet-vault-caption">The owner's personal wallet need not hold the payout USDT. An organization must fund the treasury first, and the authorized owner must sign each exact payout request.</p>
+        <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Open Account to authorize a payout</button>
+      </section>
+
+      <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><LockKeyhole size={16} /></span><div><h2>{activePanel === 'wallet' ? 'Unlock to view assets' : activePanel === 'send' ? 'Unlock to authorize a transfer' : 'Unlock to verify activity'}</h2><p>This is a private owner console. A public address can be monitored without its private key, but it cannot authorize spending.</p></div></div>
+        <p className="wallet-vault-caption">{activePanel === 'send' && transferAsset === 'TRC20' ? 'A genuine USDT transfer requires real USDT at the sender or a separately funded treasury payout.' : 'Open Account to unlock the local signing wallet and continue.'}</p>
+        <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Go to Account</button>
+        {activePanel === 'send' && <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Check organization payout funding</button>}
+      </section>
+
+      <div className={'wallet-vault-layout' + (activePanel === 'account' ? '' : ' wallet-vault-layout--single')} hidden={activePanel === 'dashboard' || activePanel === 'settings' || (activePanel === 'treasury' && !unlocked) || (!unlocked && activePanel !== 'account')}>
+        <section className="wallet-vault-panel wallet-vault-setup" hidden={activePanel !== 'account'}>
+          <details className="wallet-vault-setup-details" open={false}>
             <summary className="wallet-vault-panel-head wallet-vault-setup-summary">
               <span className="wallet-vault-step">01</span>
               <div><h2>{records.length === 0 ? 'Create or import' : 'Wallet setup & recovery'}</h2><p>{records.length === 0 ? 'Create or restore the owner wallet on this device.' : 'Collapsed to keep balances and transfer controls in focus.'}</p></div>
@@ -1424,13 +1588,13 @@ export default function WalletVault() {
           </details>
         </section>
 
-        <section id="wallet-owner-vault" className="wallet-vault-panel wallet-vault-account">
-          <div className="wallet-vault-panel-head" hidden={activePanel !== 'wallet'}><span className="wallet-vault-step">02</span><div><h2>Wallet vault</h2><p>{records.length} encrypted wallet{records.length === 1 ? '' : 's'} on this device.</p></div></div>
+        <section id="wallet-owner-vault" className="wallet-vault-panel wallet-vault-account" hidden={activePanel === 'dashboard' || activePanel === 'settings' || (!unlocked && activePanel !== 'account')}>
+          <div className="wallet-vault-panel-head" hidden={activePanel !== 'account'}><span className="wallet-vault-step">02</span><div><h2>Wallet vault</h2><p>{records.length} encrypted wallet{records.length === 1 ? '' : 's'} on this device.</p></div></div>
 
           {records.length > 0 ? (
-            <div className="wallet-vault-wallet-list" hidden={activePanel !== 'wallet'}>
+            <div className="wallet-vault-wallet-list" hidden={activePanel !== 'account'}>
               {records.map(record => (
-                <button type="button" key={record.address} className={'wallet-vault-wallet-choice' + (selectedAddress === record.address ? ' is-selected' : '')} onClick={() => { setActivePanel('wallet'); setSelectedAddress(record.address); if (unlocked?.record.address !== record.address) setUnlocked(null); setPassword(''); setPortfolio(null); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setError(''); setNotice('') }}>
+                <button type="button" key={record.address} className={'wallet-vault-wallet-choice' + (selectedAddress === record.address ? ' is-selected' : '')} onClick={() => { setActivePanel('account'); setSelectedAddress(record.address); if (unlocked?.record.address !== record.address) setUnlocked(null); setPassword(''); setPortfolio(null); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setError(''); setNotice('') }}>
                   <span className="wallet-vault-avatar"><Wallet size={18} /></span>
                   <span className="wallet-vault-wallet-details"><strong>{shortenAddress(record.address)}</strong><small>Saved {new Date(record.createdAt).toLocaleDateString()}</small></span>
                   <span className="wallet-vault-choice-status">{unlocked?.record.address === record.address ? 'Unlocked' : 'Encrypted'}</span>
@@ -1445,11 +1609,11 @@ export default function WalletVault() {
               )}
             </div>
           ) : (
-            <div className="wallet-vault-empty" hidden={activePanel !== 'wallet'}><span className="wallet-vault-empty-icon"><Wallet size={25} /></span><h3>No wallet saved yet</h3><p>Create a new wallet or import an existing key in the first panel. The address does not need USDT to be created.</p></div>
+            <div className="wallet-vault-empty" hidden={activePanel !== 'account'}><span className="wallet-vault-empty-icon"><Wallet size={25} /></span><h3>No wallet saved yet</h3><p>Create a new wallet or import an existing key in the first panel. The address does not need USDT to be created.</p></div>
           )}
 
           {unlocked && (
-            <div className="wallet-vault-portfolio">
+            <div className="wallet-vault-portfolio" hidden={activePanel === 'account'}>
               <div className="wallet-vault-address-row" hidden={activePanel !== 'wallet'}><div><small>Public address</small><a href={explorerUrl(network, unlocked.record.address)} target="_blank" rel="noopener noreferrer">{shortenAddress(unlocked.record.address)} ↗</a></div><button type="button" className="wallet-vault-icon-button" aria-label="Copy public address" onClick={() => void copyAddress(unlocked.record.address)}><Copy size={17} /></button></div>
               <div className="wallet-vault-balance" hidden={activePanel !== 'wallet'}>
                 <div className="wallet-vault-balance-icon">T</div>
@@ -1716,6 +1880,15 @@ export default function WalletVault() {
           )}
         </section>
       </div>
+
+      <nav className="wallet-vault-bottom-nav" aria-label="Owner wallet sections">
+        <button type="button" className={activePanel === 'dashboard' ? 'is-active' : ''} aria-current={activePanel === 'dashboard' ? 'page' : undefined} onClick={() => navigatePanel('dashboard')}><Home size={18} /><span>Home</span></button>
+        <button type="button" className={activePanel === 'wallet' ? 'is-active' : ''} aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={() => navigatePanel('wallet')}><Coins size={18} /><span>Assets</span></button>
+        <button type="button" className={activePanel === 'send' && transferAsset === 'TRC20' ? 'is-active' : ''} aria-current={activePanel === 'send' && transferAsset === 'TRC20' ? 'page' : undefined} onClick={() => navigateSendAsset('TRC20')}><ArrowDownToLine size={18} /><span>USDT</span></button>
+        <button type="button" className={activePanel === 'send' && transferAsset === 'TRX' ? 'is-active' : ''} aria-current={activePanel === 'send' && transferAsset === 'TRX' ? 'page' : undefined} onClick={() => navigateSendAsset('TRX')}><Send size={18} /><span>TRX</span></button>
+        <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={18} /><span>Treasury</span></button>
+        <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={18} /><span>Account</span></button>
+      </nav>
 
       <footer className="wallet-vault-footer"><span><ShieldCheck size={15} /> Keys stay on this device</span><span><Activity size={15} /> Real on-chain reads</span><span><LockKeyhole size={15} /> No hidden balance edits</span></footer>
     </main>
