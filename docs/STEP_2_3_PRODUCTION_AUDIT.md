@@ -21,12 +21,14 @@ The following non-secret values were applied to the backend service using a merg
 
 The pre-update live API smoke on commit `b74be09d4b35a2db88c7b57086fd5de6b6092bbf` passed before the last environment update. A follow-up smoke run, [#40951784898](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40951784898), completed successfully after the environment-update deployment. It verified the public health endpoint, the current database/Tatum read-only readiness response, Tatum status `connected`, owner-console configuration with no missing required environment names, live sponsor/testnet preflight response shapes, and that sponsor/treasury submission remains disabled. Future environment changes require a fresh smoke run.
 
+### Latest repository CI validation
+
+On audit commit `bf96c14ca6ad0c28a079e2108948cbceb4ca0b98`, the latest repository checks all completed successfully: [CI test/build run #40952127414](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40952127414), [dependency security audit #40952127433](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40952127433), and [Node 22/24 build-and-contract matrix #40952127643](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40952127643). The public API smoke run #40951784898 also passed after the environment update. That smoke targeted the live backend deployment from code commit `b74be09d4b35a2db88c7b57086fd5de6b6092bbf`; subsequent audit-only commits use `[skip render]` intentionally and do not redeploy runtime code.
+
 ### Remaining Step 2 release blockers
 
 1. **PostgreSQL durability is not production-ready.** Render reports the current database `tronlink_skills_sponsor_ledger` as available on the Free plan with expiry `2026-11-17`. Free Render Postgres instances expire and lack backups. The application has successfully connected, but a current connection is not a durable-storage plan. Upgrade the existing database to a paid plan or migrate to a durable database, verify the migrated data, and only then update the application connection. This requires a billing decision and a controlled migration; this audit did not create a billable resource or modify data.
 2. **Auto-deploy is still set to On Commit.** The Render service metadata reports `autoDeploy=yes` / `autoDeployTrigger=commit`. Production should use **After CI Checks Pass** so a commit is not deployed before the required GitHub checks finish. The available Render integration can inspect services and update environment variables, but does not expose the service-settings mutation needed to change this setting. Set this in the backend service's Settings page; see https://render.com/docs/deploys.
-3. **A post-environment-update smoke is required.** The prior smoke passed before the latest environment change. The next public smoke result must be checked before recording final Step 2 verification.
-
 Do not add database passwords, provider API credentials, wallet secrets or admin tokens to this file or the frontend.
 
 ## Step 3 — real sponsor and treasury funding
