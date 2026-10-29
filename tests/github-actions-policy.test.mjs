@@ -33,6 +33,14 @@ test('authoritative CI keeps PostgreSQL integration, tests, and production build
   assert.match(source, /run:\s*npm run build/)
   assert.match(source, /uses:\s*actions\/checkout@[a-f0-9]{40}/i)
   assert.match(source, /uses:\s*actions\/setup-node@[a-f0-9]{40}/i)
+  assert.match(source, /^\s*pull_request:\s*$/m, 'authoritative CI must validate pull requests')
+
+  const secondaryWorkflow = await readFile(new URL('webpack.yml', workflowsDirectory), 'utf8')
+  assert.doesNotMatch(
+    secondaryWorkflow,
+    /^\s*pull_request:\s*$/m,
+    'the Node version matrix must not duplicate the authoritative pull-request test/build run',
+  )
 })
 
 test('public API smoke rejects forged wallet signatures without issuing sessions', async () => {
