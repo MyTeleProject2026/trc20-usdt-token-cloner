@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowDownToLine, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
-import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import {
+  buildTreasuryWithdrawalAuthorizationMessage,
+  buildTreasuryTrxWithdrawalAuthorizationMessage,
+  parsePositiveTrxAmount,
+} from './treasury-withdrawal-auth.mjs'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -103,6 +107,7 @@ const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const VAULT_KEY = 'tron-token-studio:encrypted-wallet-vault:v1'
 const OWNER_CONSOLE_SESSION_KEY = 'tron-token-studio:owner-session:v1'
+const TREASURY_TRX_PAYOUT_REFERENCE_KEY = 'tron-token-studio:treasury-trx-payout-reference:v1'
 const TOKEN_WATCH_KEY = 'tron-token-studio:token-watchlist:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
@@ -122,6 +127,29 @@ const TOKEN_ABI = [
 
 function createTronWeb(network: NetworkId, privateKey?: string): any {
   return new TronWeb({ fullHost: RPC[network], ...(privateKey ? { privateKey } : {}) } as any) as any
+}
+
+function readTreasuryTrxPayoutReference(): { ownerAddress: string; idempotencyKey: string } | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(TREASURY_TRX_PAYOUT_REFERENCE_KEY) || 'null')
+    if (value && ADDRESS_PATTERN.test(value.ownerAddress)
+      && typeof value.idempotencyKey === 'string'
+      && /^trx-withdrawal-[A-Za-z0-9._:-]{24,128}$/.test(value.idempotencyKey)) {
+      return { ownerAddress: value.ownerAddress, idempotencyKey: value.idempotencyKey }
+    }
+  } catch {
+    // Storage can be unavailable in private browsing; the current request key remains visible in memory.
+  }
+  return null
+}
+
+function saveTreasuryTrxPayoutReference(ownerAddress: string, idempotencyKey: string): boolean {
+  try {
+    window.localStorage.setItem(TREASURY_TRX_PAYOUT_REFERENCE_KEY, JSON.stringify({ ownerAddress, idempotencyKey }))
+    return true
+  } catch {
+    return false
+  }
 }
 
 function readWalletRecords(): WalletRecord[] {
@@ -268,6 +296,13 @@ export default function WalletVault() {
   const [treasuryPayoutBusy, setTreasuryPayoutBusy] = useState(false)
   const [treasuryPayoutStatus, setTreasuryPayoutStatus] = useState<any>(null)
   const [treasuryPayoutError, setTreasuryPayoutError] = useState('')
+  const [serverTrxTreasuryReadiness, setServerTrxTreasuryReadiness] = useState<any>(null)
+  const [treasuryTrxPayoutRecipient, setTreasuryTrxPayoutRecipient] = useState('')
+  const [treasuryTrxPayoutAmount, setTreasuryTrxPayoutAmount] = useState('')
+  const [treasuryTrxPayoutConfirm, setTreasuryTrxPayoutConfirm] = useState('')
+  const [treasuryTrxPayoutBusy, setTreasuryTrxPayoutBusy] = useState(false)
+  const [treasuryTrxPayoutStatus, setTreasuryTrxPayoutStatus] = useState<any>(null)
+  const [treasuryTrxPayoutError, setTreasuryTrxPayoutError] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -287,6 +322,12 @@ export default function WalletVault() {
     && serverTreasuryReadiness?.withdrawalsEnabled === true
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
+  const canSubmitServerTreasuryTrxPayout = Boolean(ownerSessionToken
+    && unlocked?.record.address === ownerSessionAddress
+    && ownerTreasurySnapshot?.ownerAccessVerified === true
+    && serverTrxTreasuryReadiness?.trxWithdrawalsEnabled === true
+    && typeof serverTrxTreasuryReadiness?.treasuryAddress === 'string'
+    && serverTrxTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot?.treasuryAddress)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
   const monitoredTreasuryAddress = ownerTreasurySnapshot?.treasuryAddress || serverTreasuryReadiness?.treasuryAddress || ''
   const headerTreasuryUsdt = ownerTreasurySnapshot?.officialUsdt?.status === 'verified'
@@ -319,9 +360,12 @@ export default function WalletVault() {
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
     setServerTreasuryReadiness(null)
+    setServerTrxTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
+    setTreasuryTrxPayoutConfirm('')
     setOwnerTreasuryError('')
     setTreasuryPayoutError('')
+    setTreasuryTrxPayoutError('')
   }, [network])
 
   // A reusable owner bearer session must not survive a lock or wallet switch.
@@ -331,9 +375,23 @@ export default function WalletVault() {
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
     setServerTreasuryReadiness(null)
+    setServerTrxTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
+    setTreasuryTrxPayoutConfirm('')
     setOwnerTreasuryError('')
     setTreasuryPayoutError('')
+    setTreasuryTrxPayoutError('')
+    const savedTrxReference = unlocked?.record.address ? readTreasuryTrxPayoutReference() : null
+    if (savedTrxReference && savedTrxReference.ownerAddress === unlocked?.record.address) {
+      setTreasuryTrxPayoutStatus({
+        status: 'saved-reference',
+        idempotencyKey: savedTrxReference.idempotencyKey,
+        ownerAddress: savedTrxReference.ownerAddress,
+        note: 'Saved native-TRX request reference only. Re-authenticate and verify this same request before retrying.',
+      })
+    } else {
+      setTreasuryTrxPayoutStatus(null)
+    }
     const savedReference = unlocked?.record.address
       ? readTreasuryPayoutReference()
       : null
@@ -383,19 +441,26 @@ export default function WalletVault() {
           throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
         }
 
-        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
+        if (!cancelled) {
+          setOwnerSessionAddress(String(sessionPayload.address))
+          setOwnerSessionToken(token)
+        }
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, trxReadinessResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
           fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
+          fetch(API_BASE + '/api/treasury/trx-withdrawals/readiness', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
         ])
-        const [funding, readiness] = await Promise.all([
+        const [funding, readiness, trxReadiness] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
+          trxReadinessResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -404,6 +469,7 @@ export default function WalletVault() {
           setOwnerTreasurySnapshot(null)
         }
         setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
+        setServerTrxTreasuryReadiness(trxReadiness && typeof trxReadiness === 'object' ? trxReadiness : null)
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
         }
@@ -412,6 +478,7 @@ export default function WalletVault() {
         setOwnerSessionAddress('')
         setOwnerTreasurySnapshot(null)
         setServerTreasuryReadiness(null)
+        setServerTrxTreasuryReadiness(null)
         setOwnerTreasuryError(caught instanceof Error
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
@@ -844,6 +911,15 @@ export default function WalletVault() {
       })
       const payoutReadiness = await payoutReadinessResponse.json().catch(() => null)
       setServerTreasuryReadiness(payoutReadiness && typeof payoutReadiness === 'object' ? payoutReadiness : null)
+      const trxReadinessResponse = await fetch(API_BASE + '/api/treasury/trx-withdrawals/readiness', {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const trxReadiness = await trxReadinessResponse.json().catch(() => null)
+      setServerTrxTreasuryReadiness(trxReadiness && typeof trxReadiness === 'object' ? trxReadiness : null)
     } catch (caught) {
       setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
     } finally {
@@ -996,6 +1072,157 @@ export default function WalletVault() {
       setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Withdrawal status lookup failed.')
     } finally {
       setTreasuryPayoutBusy(false)
+    }
+  }
+
+  async function submitServerTreasuryTrxPayout() {
+    if (!unlocked || network !== 'mainnet') {
+      setTreasuryTrxPayoutError('Unlock the owner wallet and select TRON Mainnet first.')
+      return
+    }
+    if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true
+      || unlocked.record.address !== ownerSessionAddress) {
+      setTreasuryTrxPayoutError('Sign in and verify using the single configured owner wallet before requesting a treasury TRX payout.')
+      return
+    }
+    if (serverTrxTreasuryReadiness?.trxWithdrawalsEnabled !== true) {
+      setTreasuryTrxPayoutError('The managed treasury is not payout-ready. No transaction was submitted.')
+      return
+    }
+    if (treasuryTrxPayoutConfirm !== 'SEND TREASURY TRX') {
+      setTreasuryTrxPayoutError('Type SEND TREASURY TRX exactly to confirm this real Mainnet payout.')
+      return
+    }
+    if (!ADDRESS_PATTERN.test(treasuryTrxPayoutRecipient)) {
+      setTreasuryTrxPayoutError('Enter a valid TRON recipient address.')
+      return
+    }
+    const amountSun = parsePositiveTrxAmount(treasuryTrxPayoutAmount)
+    if (!amountSun) {
+      setTreasuryTrxPayoutError('Enter a positive TRX amount with at most six decimal places.')
+      return
+    }
+    setTreasuryTrxPayoutBusy(true)
+    setTreasuryTrxPayoutError('')
+    setTreasuryTrxPayoutStatus(null)
+    const idempotencyKey = 'trx-withdrawal-' + crypto.randomUUID()
+    const referenceSaved = saveTreasuryTrxPayoutReference(unlocked.record.address, idempotencyKey)
+    setTreasuryTrxPayoutStatus({
+      status: 'request-started',
+      idempotencyKey,
+      ownerAddress: unlocked.record.address,
+      ...(!referenceSaved ? { note: 'The request key is visible here but could not be saved in device storage. Copy it before closing this screen.' } : {}),
+    })
+    try {
+      const treasuryAddress = serverTrxTreasuryReadiness?.treasuryAddress
+      if (!ADDRESS_PATTERN.test(treasuryAddress || '')
+        || treasuryAddress !== ownerTreasurySnapshot?.treasuryAddress) {
+        throw new Error('The provider vault address and verified treasury snapshot do not match. No TRX payout was submitted.')
+      }
+      const authorizationExpiresAt = Date.now() + 90_000
+      const authorizationMessage = buildTreasuryTrxWithdrawalAuthorizationMessage({
+        origin: window.location.origin,
+        ownerAddress: unlocked.record.address,
+        treasuryAddress,
+        recipientAddress: treasuryTrxPayoutRecipient,
+        amountSun,
+        idempotencyKey,
+        authorizationExpiresAt,
+      })
+      const localSigner = createTronWeb('mainnet', unlocked.privateKey)
+      const ownerAuthorizationSignature = await localSigner.trx.signMessageV2(authorizationMessage)
+      if (typeof ownerAuthorizationSignature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(ownerAuthorizationSignature)) {
+        throw new Error('The local wallet did not return a valid owner authorization signature. No payout was submitted.')
+      }
+      const response = await fetch(API_BASE + '/api/treasury/trx-withdrawals', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({
+          recipientAddress: treasuryTrxPayoutRecipient,
+          amountTrx: treasuryTrxPayoutAmount,
+          idempotencyKey,
+          ownerAuthorizationSignature,
+          authorizationExpiresAt,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      setTreasuryTrxPayoutStatus(payload && typeof payload === 'object' ? payload : { status: 'invalid-response', idempotencyKey })
+      if (!response.ok || payload?.success !== true) {
+        setTreasuryTrxPayoutError(typeof payload?.error === 'string'
+          ? payload.error + (typeof payload?.note === 'string' ? ': ' + payload.note : '')
+          : 'Treasury TRX payout was not confirmed. Check the original request before retrying.')
+      } else {
+        setTreasuryTrxPayoutAmount('')
+        setTreasuryTrxPayoutConfirm('')
+        setNotice('Native TRX payout request recorded. Verify the confirmed solidified TRON transaction before treating it as complete.')
+        const readinessResponse = await fetch(API_BASE + '/api/treasury/trx-withdrawals/readiness', {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+        const readiness = await readinessResponse.json().catch(() => null)
+        if (readiness && typeof readiness === 'object') setServerTrxTreasuryReadiness(readiness)
+      }
+    } catch {
+      setTreasuryTrxPayoutError('The outcome could not be read. Do not create a new request key until you query the original request and verify its chain status.')
+      setTreasuryTrxPayoutStatus({ status: 'request-outcome-unknown', idempotencyKey })
+    } finally {
+      setTreasuryTrxPayoutBusy(false)
+    }
+  }
+
+  async function lookupServerTreasuryTrxPayout() {
+    const key = treasuryTrxPayoutStatus?.withdrawal?.idempotencyKey || treasuryTrxPayoutStatus?.idempotencyKey
+    if (!ownerSessionToken || typeof key !== 'string') {
+      setTreasuryTrxPayoutError('There is no saved native-TRX request key to look up.')
+      return
+    }
+    setTreasuryTrxPayoutBusy(true)
+    setTreasuryTrxPayoutError('')
+    try {
+      const verifyResponse = await fetch(API_BASE + '/api/treasury/trx-withdrawals/' + encodeURIComponent(key) + '/verify', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const verification = await verifyResponse.json().catch(() => null)
+      if (verifyResponse.status >= 500) {
+        throw new Error(typeof verification?.error === 'string' ? verification.error : 'On-chain TRX receipt verification is temporarily unavailable.')
+      }
+      const response = await fetch(API_BASE + '/api/treasury/trx-withdrawals/' + encodeURIComponent(key), {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Native-TRX withdrawal lookup failed.')
+      setTreasuryTrxPayoutStatus({ ...payload, verification: verification?.verification || null })
+      if (verification?.verification?.status === 'confirmed') {
+        setNotice('The exact treasury sender, recipient, native TRX amount and confirmed solidified transfer were verified on TRON.')
+      } else if (verification?.verification?.status === 'failed') {
+        setTreasuryTrxPayoutError('The transaction is confirmed on-chain but the native transfer did not succeed. No successful TRX payout was verified.')
+      } else if (verification?.verification?.status === 'verification-mismatch') {
+        setTreasuryTrxPayoutError('The transaction does not match the saved payout intent. Treat it as unverified and investigate before any retry.')
+      } else {
+        setNotice('The request record was loaded. A provider response or transaction hash alone is not confirmation.')
+      }
+    } catch (caught) {
+      setTreasuryTrxPayoutError(caught instanceof Error ? caught.message : 'Native-TRX withdrawal lookup failed.')
+    } finally {
+      setTreasuryTrxPayoutBusy(false)
     }
   }
 
@@ -1402,6 +1629,8 @@ export default function WalletVault() {
     setOwnerSessionAddress('')
     setOwnerTreasurySnapshot(null)
     setServerTreasuryReadiness(null)
+    setServerTrxTreasuryReadiness(null)
+    setTreasuryTrxPayoutStatus(null)
     setActivePanel('dashboard')
     if (sessionToken) {
       try {
@@ -1759,13 +1988,13 @@ export default function WalletVault() {
                         </button>
                       )}
                       {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
-                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
+                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The local Send section can spend only assets held by the unlocked wallet. Treasury payouts use the separately authorized managed-vault workflow and require a real funded provider vault; a watch-only address cannot authorize transfers by itself.</p>
                       )}
                     </>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Server treasury payout (separate funded wallet)</strong>
-                    <p>The backend signs from TREASURY_ADDRESS using a server-only key. Your owner wallet only authorizes the request; it does not need to hold the USDT principal. This remains disabled until the backend is configured with a funded treasury, persistent database, explicit payout limits, and the signer key matching the treasury address.</p>
+                    <p>The backend requests payouts from the configured Fireblocks managed vault; the app server does not load the vault's blockchain signing key. Your owner wallet authorizes the exact request and does not need to hold the USDT principal. Withdrawals remain disabled until the provider vault, genuine USDT and fee balances, persistent database, limits and signing policy are independently verified.</p>
                   </div>
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
@@ -1823,6 +2052,60 @@ export default function WalletVault() {
                   <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
                 </section>
               )}
+
+              <section id="wallet-vault-trx-payout" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-trx-payout-heading" hidden={activePanel !== 'treasury'}>
+                <div className="wallet-vault-panel-head">
+                  <span className="wallet-vault-step">04</span>
+                  <div><h2 id="wallet-vault-trx-payout-heading">Managed native TRX treasury payout</h2><p>Send genuine TRX from the verified organization treasury using the managed Fireblocks signer. The owner wallet signs only the exact request.</p></div>
+                </div>
+                <div className="wallet-vault-transfer-warning" role="note">
+                  <strong>Real Mainnet funds only</strong>
+                  <p>This route is separate from sending TRX held by the local owner wallet. It requires a correctly configured Fireblocks vault, verified native-TRX asset, actual TRX balances, remaining fee reserves, daily limits and database reservations. Provider acceptance is not confirmation, and a receiving exchange controls deposit credit.</p>
+                </div>
+                {serverTrxTreasuryReadiness && (
+                  <div className="wallet-vault-review-grid">
+                    <div className="wallet-vault-review-wide"><small>Managed treasury address</small><strong>{serverTrxTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
+                    <div><small>Native TRX payout readiness</small><strong>{serverTrxTreasuryReadiness.trxWithdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+                    <div><small>Verified on-chain TRX</small><strong>{typeof serverTrxTreasuryReadiness.treasuryTrxBalanceSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                    <div><small>Fireblocks available TRX</small><strong>{typeof serverTrxTreasuryReadiness.providerAvailableSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.providerAvailableSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                    <div><small>Spendable after reserves</small><strong>{typeof serverTrxTreasuryReadiness.availableTrxSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.availableTrxSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                    <div><small>Reserved USDT fee cap</small><strong>{typeof serverTrxTreasuryReadiness.pendingUsdtFeeReserveSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.pendingUsdtFeeReserveSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                  </div>
+                )}
+                {serverTrxTreasuryReadiness?.trxWithdrawalsEnabled !== true && (
+                  <div className="wallet-vault-transfer-warning" role="status">
+                    <strong>Native TRX payouts are fail-closed</strong>
+                    <p>No transfer can be submitted unless the managed signer, native TRX metadata, vault address, live balances, database, limits and fee reserves all pass.</p>
+                    {Array.isArray(serverTrxTreasuryReadiness?.configuration?.missing) && serverTrxTreasuryReadiness.configuration.missing.length > 0 && (
+                      <p><strong>Configuration required:</strong> {serverTrxTreasuryReadiness.configuration.missing.join(', ')}</p>
+                    )}
+                    {Array.isArray(serverTrxTreasuryReadiness?.payoutBlockers) && serverTrxTreasuryReadiness.payoutBlockers.length > 0 && (
+                      <p><strong>Current blockers:</strong> {serverTrxTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
+                    )}
+                  </div>
+                )}
+                <div className="wallet-vault-form-grid">
+                  <label className="wallet-vault-field"><span>Recipient TRON address</span><input value={treasuryTrxPayoutRecipient} onChange={event => setTreasuryTrxPayoutRecipient(event.target.value.trim())} placeholder="T..." autoComplete="off" /></label>
+                  <label className="wallet-vault-field"><span>TRX amount</span><input value={treasuryTrxPayoutAmount} onChange={event => setTreasuryTrxPayoutAmount(event.target.value)} placeholder="0.00" inputMode="decimal" autoComplete="off" /></label>
+                  <label className="wallet-vault-field wallet-vault-review-wide"><span>Type SEND TREASURY TRX to confirm</span><input value={treasuryTrxPayoutConfirm} onChange={event => setTreasuryTrxPayoutConfirm(event.target.value)} placeholder="SEND TREASURY TRX" autoComplete="off" /></label>
+                </div>
+                <button type="button" className="wallet-vault-primary" disabled={treasuryTrxPayoutBusy || ownerTreasuryLoading || !canSubmitServerTreasuryTrxPayout} onClick={() => void submitServerTreasuryTrxPayout()}>
+                  <ShieldCheck size={16} /> {treasuryTrxPayoutBusy ? 'Processing TRX payout request…' : 'Send genuine TRX from managed treasury'}
+                </button>
+                {treasuryTrxPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryTrxPayoutError}</p>}
+                {treasuryTrxPayoutStatus && (
+                  <div className="wallet-vault-review-grid">
+                    <div><small>Request status</small><strong>{treasuryTrxPayoutStatus.withdrawal?.status || treasuryTrxPayoutStatus.status || 'unknown'}</strong></div>
+                    <div className="wallet-vault-review-wide"><small>Idempotency key</small><strong>{treasuryTrxPayoutStatus.withdrawal?.idempotencyKey || treasuryTrxPayoutStatus.idempotencyKey || 'Unavailable'}</strong></div>
+                    {(treasuryTrxPayoutStatus.withdrawal?.transactionHash || treasuryTrxPayoutStatus.transactionHash) && (
+                      <div className="wallet-vault-review-wide"><small>TRON transaction</small><a href={explorerTransactionUrl('mainnet', treasuryTrxPayoutStatus.withdrawal?.transactionHash || treasuryTrxPayoutStatus.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryTrxPayoutStatus.withdrawal?.transactionHash || treasuryTrxPayoutStatus.transactionHash} ↗</a></div>
+                    )}
+                    <div className="wallet-vault-review-wide"><small>Confirmation status</small><strong>{treasuryTrxPayoutStatus.verification?.status || 'Not yet independently confirmed'}</strong></div>
+                  </div>
+                )}
+                <button type="button" className="wallet-vault-secondary" disabled={treasuryTrxPayoutBusy || !treasuryTrxPayoutStatus} onClick={() => void lookupServerTreasuryTrxPayout()}>Verify native TRX receipt & look up request</button>
+                <p className="wallet-vault-caption">This is a real treasury payout flow, not a promise of external fee sponsorship. It will not fabricate balances or show a payout as complete without matching confirmed on-chain evidence.</p>
+              </section>
 
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
                 <div className="wallet-vault-panel-head">

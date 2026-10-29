@@ -46,7 +46,7 @@ Set these in the **backend Render service only**. Do not send credentials in cha
 | `TRONGRID_API_KEY` | Optional server-side read-provider key; never required as a wallet signing secret |
 | `DATABASE_SSL` | Optional strict TLS for external PostgreSQL where appropriate |
 
-Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does not accept or derive a blockchain private key from the Render environment. The separate legacy native-TRX payout path is disabled in Fireblocks mode; this integration is specifically for USDT withdrawals.
+Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks-managed USDT or native-TRX payout path. The managed routes do not load a treasury blockchain private key from Render. Both asset types require provider metadata and the exact vault address to be verified, and both withdrawal flags stay disabled until the relevant fee reservations, budgets, approvals and tests are reviewed.
 
 ## Request flow and fail-closed behavior
 
@@ -82,3 +82,22 @@ Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does n
 - [ ] Obtain an independent security review before production use.
 
 The repository code alone cannot create provider access, configure the provider's vault or policy, upload credentials to Render, fund the treasury, or prove a successful Mainnet transfer. This integration must remain disabled until those independent setup tasks are complete.
+
+## Native TRX fee asset is also required for USDT payouts
+
+USDT and native TRX share the same managed treasury. Before accepting either payout type, readiness verifies the provider's configured native-TRX asset and available balance against the on-chain TRX balance. Both paths account for unresolved TRX principal, outstanding USDT/TRX fee-cap reservations, and the configured minimum native-TRX reserve under the shared PostgreSQL advisory lock. Set `FIREBLOCKS_TRX_ASSET_ID` and `TREASURY_TRX_FEE_RESERVE_SUN` on the backend, and leave both withdrawal flags disabled until those exact provider metadata and balance checks pass. Merely reading a positive on-chain TRX balance is not enough to prove the managed vault can submit a payout.
+
+## Managed native-TRX treasury payouts
+
+The managed-signer path uses the same owner-only console and Fireblocks API-user authentication secret file as the USDT route. Native TRX must be configured as an actual Fireblocks native asset: set FIREBLOCKS_TRX_ASSET_ID to the asset ID returned by the operator's workspace. Readiness verifies the provider asset metadata reports assetClass=NATIVE and the TRX symbol, that the vault returns exactly the configured TREASURY_ADDRESS, and that the provider balance agrees with a live public TRON balance read.
+
+Required backend configuration:
+- TREASURY_TRX_WITHDRAWALS_ENABLED=false until independently reviewed; never flip this on merely because the variables exist.
+- TREASURY_SIGNER_MODE=fireblocks.
+- FIREBLOCKS_TRX_ASSET_ID, validated through the provider asset endpoint. Do not guess the identifier if it is not listed in the workspace.
+- TREASURY_TRX_MAX_PAYOUT and TREASURY_TRX_DAILY_LIMIT as exact positive decimal TRX values with up to six fractional digits.
+- TREASURY_TRX_FEE_RESERVE_SUN as a positive integer. This reserve and the current configured TREASURY_FEE_LIMIT_SUN multiplied by unresolved USDT payouts are excluded from available native TRX.
+
+The route shares the PostgreSQL advisory lock with USDT payouts, uses a unique per-request owner signature and idempotency key, reserves unresolved requests, and submits through Fireblocks. Provider acceptance does not mean the transfer is confirmed. Only a confirmed transaction whose native TransferContract matches the configured treasury, recipient and exact SUN amount is considered on-chain confirmed.
+
+This capability transfers real TRX held by the managed treasury; it is not a separate external organization promising fee sponsorship. Sponsored submission remains disabled until a sponsor agreement, actual funded resource/fee path, provider permissions and end-to-end evidence are independently verified. Keep withdrawals disabled until all configuration, CI, operational and security gates are complete.

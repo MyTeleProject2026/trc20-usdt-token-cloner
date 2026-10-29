@@ -4,6 +4,7 @@ import {
   buildTreasuryWithdrawalAuthorizationMessage,
   buildTreasuryTrxWithdrawalAuthorizationMessage,
   isTreasuryAuthorizationExpiryValid,
+  parsePositiveTrxAmount,
   OFFICIAL_TRON_MAINNET_USDT,
 } from '../src/treasury-withdrawal-auth.mjs'
 import { verifyTreasuryOwnerPayoutSignature } from '../server/routes/treasury-withdrawals.mjs'
@@ -114,7 +115,12 @@ test('treasury withdrawal authorization verifier fails closed for malformed sign
 
 
 test('native TRX payout authorization binds exact asset, amount, identities, origin and expiry', () => {
-  const message = buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, amountBaseUnits: '2500000' })
+  const trxBase = {
+    ...base,
+    amountBaseUnits: '2500000',
+    idempotencyKey: 'trx-withdrawal-12345678-1234-4123-8123-123456789abc',
+  }
+  const message = buildTreasuryTrxWithdrawalAuthorizationMessage(trxBase)
   for (const expected of [
     'Purpose: authorize exactly one native TRX transfer',
     'Network: TRON Mainnet',
@@ -125,9 +131,19 @@ test('native TRX payout authorization binds exact asset, amount, identities, ori
     'Asset decimals: 6',
     `Recipient: ${recipientAddress}`,
     'Amount base units (sun): 2500000',
-    `Idempotency key: ${base.idempotencyKey}`,
+    `Idempotency key: ${trxBase.idempotencyKey}`,
     `Expires at Unix milliseconds: ${base.authorizationExpiresAt}`,
   ]) assert.ok(message.includes(expected), expected)
   assert.match(message, /does not create assets/)
-  assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, amountBaseUnits: '0' }))
+  assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...trxBase, amountBaseUnits: '0' }))
+  assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...trxBase, idempotencyKey: base.idempotencyKey }))
+})
+
+test('native TRX decimal parser uses exact SUN units and rejects unsafe values', () => {
+  assert.equal(parsePositiveTrxAmount('1'), '1000000')
+  assert.equal(parsePositiveTrxAmount('1.000001'), '1000001')
+  assert.equal(parsePositiveTrxAmount('0.000001'), '1')
+  for (const value of ['0', '0.0000001', '-1', '+1', '1e3', '01', '.5', '1.', '', ' 1', '1'.repeat(30)]) {
+    assert.equal(parsePositiveTrxAmount(value), null, value)
+  }
 })

@@ -9,6 +9,7 @@ import {
   fireblocksAssetIdentifierMatches,
   fireblocksConfiguration,
   isOfficialFireblocksUsdtAsset,
+  isOfficialFireblocksNativeTrxAsset,
   providerAssetAvailableBaseUnits,
 } from '../server/fireblocks-client.mjs'
 
@@ -47,6 +48,42 @@ test('Fireblocks integration remains disabled when required provider configurati
   assert.ok(status.missing.includes('FIREBLOCKS_SECRET_KEY_PATH'))
   assert.ok(status.missing.includes('FIREBLOCKS_VAULT_ACCOUNT_ID'))
   assert.ok(status.missing.includes('FIREBLOCKS_USDT_ASSET_ID'))
+})
+
+test('native TRX asset metadata must match the configured Fireblocks ID, native asset class and TRX symbol', () => {
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRX',
+    legacyId: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'TRX', name: 'TRON' },
+  }, 'TRX'), true)
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRC20_WRONG',
+    legacyId: 'TRX',
+    assetClass: 'FT',
+    onchain: { symbol: 'TRX' },
+  }, 'TRX'), false)
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'USDT' },
+  }, 'TRX'), false)
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'TRX' },
+  }, ''), false)
+})
+
+test('Fireblocks config keeps USDT and native TRX readiness independently scoped', () => {
+  const trx = fireblocksConfiguration({ ...configuredEnv, FIREBLOCKS_TRX_ASSET_ID: 'TRX' })
+  assert.equal(trx.configured, true)
+  assert.equal(trx.trxConfigured, true)
+  assert.deepEqual(trx.trxMissing, [])
+  const withoutTrx = fireblocksConfiguration(configuredEnv)
+  assert.equal(withoutTrx.configured, true)
+  assert.equal(withoutTrx.trxConfigured, false)
+  assert.ok(withoutTrx.trxMissing.includes('FIREBLOCKS_TRX_ASSET_ID'))
 })
 
 test('Fireblocks accepts only an absolute mounted secret-file path and known production API origin', () => {
@@ -207,6 +244,55 @@ test('Fireblocks uses current asset metadata and paginates vault addresses', asy
     '/v1/vault/accounts/0/USDT_TRON/addresses_paginated?limit=500',
     '/v1/vault/accounts/0/USDT_TRON/addresses_paginated?limit=500&after=cursor-2',
   ])
+})
+
+test('Fireblocks native TRX transfer submits only the configured native asset and exact decimal amount', async () => {
+  const { privateKey, publicKey } = keyPair()
+  const trxEnv = { ...configuredEnv, FIREBLOCKS_TRX_ASSET_ID: 'TRX' }
+  const calls = []
+  const client = createFireblocksClient(trxEnv, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return new Response(JSON.stringify({ id: 'trx-provider-request-123', status: 'SUBMITTED' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    },
+    readSecretFile: async (path) => {
+      assert.equal(path, trxEnv.FIREBLOCKS_SECRET_KEY_PATH)
+      return privateKey
+    },
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'trx-nonce-unique',
+  })
+  assert.equal(client.isTrxConfigured(), true)
+  const result = await client.createTrxTransfer({
+    recipientAddress: 'T' + 'A'.repeat(33),
+    amountTrx: '1.250001',
+    externalTxId: 'trx-withdrawal-12345678-1234-4123-8123-123456789abc',
+  })
+  assert.equal(result.id, 'trx-provider-request-123')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://api.fireblocks.io/v1/transactions')
+  const sentBody = JSON.parse(calls[0].init.body)
+  assert.equal(sentBody.assetId, 'TRX')
+  assert.equal(sentBody.amount, '1.250001')
+  assert.deepEqual(sentBody.source, { type: 'VAULT_ACCOUNT', id: '0' })
+  assert.deepEqual(sentBody.destination, {
+    type: 'ONE_TIME_ADDRESS',
+    oneTimeAddress: { address: 'T' + 'A'.repeat(33) },
+  })
+  assert.equal(sentBody.externalTxId, 'trx-withdrawal-12345678-1234-4123-8123-123456789abc')
+  assert.equal(JSON.stringify(sentBody).includes('privateKey'), false)
+  const token = calls[0].init.headers.Authorization.slice('Bearer '.length)
+  const [header64, payload64, signature64] = token.split('.')
+  const payload = JSON.parse(Buffer.from(payload64, 'base64url').toString('utf8'))
+  assert.equal(payload.bodyHash, createHash('sha256').update(calls[0].init.body).digest('hex'))
+  assert.equal(verify('RSA-SHA256', Buffer.from(header64 + '.' + payload64), publicKey, Buffer.from(signature64, 'base64url')), true)
+  await assert.rejects(client.createTrxTransfer({
+    recipientAddress: 'T' + 'A'.repeat(33),
+    amountTrx: '1.0000001',
+    externalTxId: 'trx-withdrawal-12345678-1234-4123-8123-123456789abc',
+  }))
 })
 
 test('Fireblocks transaction POST uses a provider vault source and never includes wallet key material', async () => {

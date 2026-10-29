@@ -1,9 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import express from 'express'
+import { createServer } from 'node:http'
 import {
   buildTreasuryTrxWithdrawalAuthorizationMessage,
 } from '../src/treasury-withdrawal-auth.mjs'
 import {
+  createTreasuryWithdrawalsRouter,
   matchesTreasuryTrxWithdrawalRequest,
   verifyTreasuryTrxTransferEvidence,
 } from '../server/routes/treasury-withdrawals.mjs'
@@ -87,4 +90,88 @@ test('TRX withdrawal authorization rejects a non TRX amount, an invalid recipien
   assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, recipientAddress:'T' }))
   assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, amountBaseUnits:'0' }))
   assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, idempotencyKey:'short' }))
+})
+
+
+const managedTrxOwnerEnv = {
+  OWNER_WALLET_ADDRESS: ownerAddress,
+  TREASURY_OWNER_ADDRESS: ownerAddress,
+  TREASURY_ADDRESS: treasuryAddress,
+  TREASURY_TRX_WITHDRAWALS_ENABLED: 'false',
+  TREASURY_SIGNER_MODE: 'fireblocks',
+}
+
+function createOwnerSessionApp(env = managedTrxOwnerEnv) {
+  const app = express()
+  app.use(express.json())
+  app.use('/api/treasury', createTreasuryWithdrawalsRouter({
+    env,
+    sessionLookup: async ({ origin }) => ({
+      success: true,
+      session: { network: 'mainnet', address: ownerAddress, origin },
+    }),
+  }))
+  return app
+}
+
+test('managed native-TRX readiness is fail-closed when Fireblocks credentials, vault asset and database are not configured', async (t) => {
+  const server = createServer(createOwnerSessionApp())
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const address = server.address()
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/treasury/trx-withdrawals/readiness`, {
+    headers: {
+      origin: 'https://owner.example',
+      authorization: 'Bearer ' + 'a'.repeat(43),
+    },
+  })
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.success, true)
+  assert.equal(payload.trxWithdrawalsEnabled, false)
+  assert.equal(payload.withdrawalsEnabled, false)
+  assert.ok(payload.payoutBlockers.includes('trx-payout-feature-disabled'))
+  assert.ok(payload.payoutBlockers.includes('database-not-ready'))
+  assert.equal(payload.configuration.signerMode, 'fireblocks-managed')
+  assert.equal(payload.configuration.providerConfigured, false)
+})
+
+test('managed native-TRX submission remains disabled and cannot call the provider without reviewed configuration', async (t) => {
+  const server = createServer((() => {
+    const app = createOwnerSessionApp()
+    return app
+  })())
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const address = server.address()
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/treasury/trx-withdrawals`, {
+    method: 'POST',
+    headers: {
+      origin: 'https://owner.example',
+      authorization: 'Bearer ' + 'a'.repeat(43),
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      recipientAddress,
+      amountTrx: '1',
+      idempotencyKey,
+      ownerAuthorizationSignature: '0x' + 'a'.repeat(130),
+      authorizationExpiresAt: Date.now() + 60_000,
+    }),
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 503)
+  assert.equal(payload.error, 'treasury-trx-withdrawals-disabled')
+})
+
+test('managed TRX source no longer depends on a treasury blockchain private-key environment variable', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const routeSource = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
+  const trxStart = routeSource.indexOf("router.get('/trx-withdrawals/readiness'")
+  const trxEnd = routeSource.indexOf("  return router", trxStart)
+  assert.ok(trxStart > 0 && trxEnd > trxStart)
+  const trxRoute = routeSource.slice(trxStart, trxEnd)
+  assert.match(trxRoute, /provider\.createTrxTransfer/)
+  assert.match(trxRoute, /provider\.getTransaction|refreshManagedTrxProviderTransaction/)
+  assert.doesNotMatch(trxRoute, /TREASURY_PRIVATE_KEY/)
 })

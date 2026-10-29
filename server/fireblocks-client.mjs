@@ -29,24 +29,34 @@ export function fireblocksConfiguration(env = process.env) {
   const secretKeyPath = typeof env.FIREBLOCKS_SECRET_KEY_PATH === 'string' ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
   const vaultAccountId = typeof env.FIREBLOCKS_VAULT_ACCOUNT_ID === 'string' ? env.FIREBLOCKS_VAULT_ACCOUNT_ID.trim() : ''
   const usdtAssetId = typeof env.FIREBLOCKS_USDT_ASSET_ID === 'string' ? env.FIREBLOCKS_USDT_ASSET_ID.trim() : ''
+  const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
   const apiBaseInput = typeof env.FIREBLOCKS_API_BASE === 'string' && env.FIREBLOCKS_API_BASE.trim()
     ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '')
     : DEFAULT_API_BASE
+  const commonMissing = []
   const missing = []
-  if (!apiKey) missing.push('FIREBLOCKS_API_KEY')
+  if (!apiKey) commonMissing.push('FIREBLOCKS_API_KEY')
   // This is the Fireblocks API-user RSA credential, not a blockchain wallet key.
   // Transaction signing is performed by Fireblocks custody infrastructure.
-  if (!secretKeyPath || !isAbsolute(secretKeyPath)) missing.push('FIREBLOCKS_SECRET_KEY_PATH')
-  if (!/^\d{1,32}$/.test(vaultAccountId)) missing.push('FIREBLOCKS_VAULT_ACCOUNT_ID')
+  if (!secretKeyPath || !isAbsolute(secretKeyPath)) commonMissing.push('FIREBLOCKS_SECRET_KEY_PATH')
+  if (!/^\d{1,32}$/.test(vaultAccountId)) commonMissing.push('FIREBLOCKS_VAULT_ACCOUNT_ID')
+  if (!ALLOWED_API_BASES.has(apiBaseInput)) commonMissing.push('FIREBLOCKS_API_BASE (unsupported production URL)')
   if (!IDENTIFIER_PATTERN.test(usdtAssetId)) missing.push('FIREBLOCKS_USDT_ASSET_ID')
-  if (!ALLOWED_API_BASES.has(apiBaseInput)) missing.push('FIREBLOCKS_API_BASE (unsupported production URL)')
+  const trxMissing = [...commonMissing]
+  if (!IDENTIFIER_PATTERN.test(trxAssetId)) trxMissing.push('FIREBLOCKS_TRX_ASSET_ID')
+  missing.push(...commonMissing)
   return {
     configured: missing.length === 0,
+    baseConfigured: commonMissing.length === 0,
+    baseMissing: commonMissing,
+    trxConfigured: trxMissing.length === 0,
+    trxMissing,
     missing,
     apiKey,
     secretKeyPath,
     vaultAccountId,
     usdtAssetId,
+    trxAssetId,
     apiBase: apiBaseInput,
   }
 }
@@ -139,6 +149,17 @@ export function fireblocksAssetIdentifierMatches(assetResponse, configuredAssetI
   return candidates.some((value) => typeof value === 'string' && value === configuredAssetId)
 }
 
+export function isOfficialFireblocksNativeTrxAsset(assetResponse, configuredAssetId) {
+  if (!assetResponse || typeof assetResponse !== 'object'
+    || !fireblocksAssetIdentifierMatches(assetResponse, configuredAssetId)) return false
+  // Fireblocks asset metadata distinguishes native-chain assets from TRC-20 tokens.
+  // The explicit symbol check prevents a configured token alias from being treated as native TRX.
+  const assetClass = typeof assetResponse.assetClass === 'string' ? assetResponse.assetClass.toUpperCase() : ''
+  const symbol = typeof assetResponse.onchain?.symbol === 'string' ? assetResponse.onchain.symbol.toUpperCase()
+    : typeof assetResponse.symbol === 'string' ? assetResponse.symbol.toUpperCase() : ''
+  return assetClass === 'NATIVE' && symbol === 'TRX'
+}
+
 export function isOfficialFireblocksUsdtAsset(assetResponse, tronWeb, officialAddress) {
   if (!assetResponse || typeof assetResponse !== 'object'
     || !tronWeb?.address?.toHex || typeof officialAddress !== 'string') return false
@@ -196,7 +217,7 @@ export function createFireblocksClient(env = process.env, {
   const config = fireblocksConfiguration(env)
 
   async function request(method, uri, payload) {
-    if (!config.configured) throw new FireblocksApiError(503, 'fireblocks-not-configured')
+    if (!config.baseConfigured) throw new FireblocksApiError(503, 'fireblocks-not-configured')
     if (typeof fetchImpl !== 'function') throw new FireblocksApiError(503, 'fetch-unavailable')
     if (typeof uri !== 'string' || !uri.startsWith('/v1/') || uri.includes('://') || uri.includes('#')) {
       throw new FireblocksApiError(400, 'invalid-fireblocks-path')
@@ -260,21 +281,31 @@ export function createFireblocksClient(env = process.env, {
 
   return Object.freeze({
     isConfigured: () => config.configured,
-    configuration: () => ({ configured: config.configured, missing: [...config.missing], apiBase: config.apiBase }),
-    async getVaultAccountAsset() {
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(config.usdtAssetId))
+    isTrxConfigured: () => config.trxConfigured,
+    configuration: () => ({
+      configured: config.configured,
+      trxConfigured: config.trxConfigured,
+      missing: [...config.missing],
+      trxMissing: [...config.trxMissing],
+      apiBase: config.apiBase,
+    }),
+    async getVaultAccountAsset(assetId = config.usdtAssetId) {
+      if (!IDENTIFIER_PATTERN.test(assetId || '')) throw new FireblocksApiError(503, 'fireblocks-asset-not-configured')
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))
     },
-    async getAssetMetadata() {
+    async getAssetMetadata(assetId = config.usdtAssetId) {
+      if (!IDENTIFIER_PATTERN.test(assetId || '')) throw new FireblocksApiError(503, 'fireblocks-asset-not-configured')
       // /v1/vault/assets/{assetId} is an aggregate vault balance, not asset
       // metadata. /v1/assets/{id} returns the supported asset's on-chain details.
-      return request('GET', '/v1/assets/' + encodeURIComponent(config.usdtAssetId))
+      return request('GET', '/v1/assets/' + encodeURIComponent(assetId))
     },
-    async getAssetAddresses() {
+    async getAssetAddresses(assetId = config.usdtAssetId) {
+      if (!IDENTIFIER_PATTERN.test(assetId || '')) throw new FireblocksApiError(503, 'fireblocks-asset-not-configured')
       // The non-paginated /addresses endpoint is deprecated and may be disabled
       // for newer workspaces. Read every page; if pagination cannot be completed,
       // throw so the payout route fails closed rather than assuming one address.
       const basePath = '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId)
-        + '/' + encodeURIComponent(config.usdtAssetId) + '/addresses_paginated'
+        + '/' + encodeURIComponent(assetId) + '/addresses_paginated'
       const allAddresses = []
       let after = ''
       const seenCursors = new Set()
@@ -307,6 +338,29 @@ export function createFireblocksClient(env = process.env, {
         amount: amountUsdt,
         externalTxId,
         note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury payout',
+      }
+      return request('POST', '/v1/transactions', requestBody)
+    },
+    async createTrxTransfer({ recipientAddress, amountTrx, externalTxId, note } = {}) {
+      if (!config.trxConfigured) throw new FireblocksApiError(503, 'fireblocks-trx-asset-not-configured')
+      if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
+        || typeof amountTrx !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountTrx)
+        || !IDENTIFIER_PATTERN.test(externalTxId || '')) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-trx-transfer-request')
+      }
+      const [whole, fraction = ''] = amountTrx.split('.')
+      const amountSun = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
+      if (amountSun <= 0n || amountSun > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-trx-transfer-amount')
+      }
+      const requestBody = {
+        operation: 'TRANSFER',
+        assetId: config.trxAssetId,
+        source: { type: 'VAULT_ACCOUNT', id: config.vaultAccountId },
+        destination: { type: 'ONE_TIME_ADDRESS', oneTimeAddress: { address: recipientAddress } },
+        amount: amountTrx,
+        externalTxId,
+        note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio native TRX treasury payout',
       }
       return request('POST', '/v1/transactions', requestBody)
     },
