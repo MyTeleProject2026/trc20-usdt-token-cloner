@@ -509,32 +509,44 @@ export function createTreasuryWithdrawalsRouter({
     const required = [
       'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
       'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
-      'TREASURY_FEE_LIMIT_SUN',
+      'TREASURY_FEE_LIMIT_SUN', 'TREASURY_TRX_FEE_RESERVE_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
     ]
     const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
     const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
     const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
     const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
-    const feeLimitValid = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
-      && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
-      && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
+    const feeLimitSun = typeof env.TREASURY_FEE_LIMIT_SUN === 'string'
+      && /^(0|[1-9][0-9]{0,20})$/.test(env.TREASURY_FEE_LIMIT_SUN)
+      ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : 0n
+    const feeReserveSun = typeof env.TREASURY_TRX_FEE_RESERVE_SUN === 'string'
+      && /^(0|[1-9][0-9]{0,20})$/.test(env.TREASURY_TRX_FEE_RESERVE_SUN)
+      ? BigInt(env.TREASURY_TRX_FEE_RESERVE_SUN) : 0n
+    const feeLimitValid = feeLimitSun >= 1n && feeLimitSun <= 1_000_000_000n
+    const feeReserveValid = feeReserveSun >= 1n && feeReserveSun <= 1_000_000_000_000n
     if (!provider.configured) missing.push(...provider.missing)
+    if (!provider.trxConfigured) missing.push(...provider.trxMissing)
+    if (!feeLimitValid) missing.push('TREASURY_FEE_LIMIT_SUN (positive integer no greater than 1000000000)')
+    if (!feeReserveValid) missing.push('TREASURY_TRX_FEE_RESERVE_SUN (positive integer)')
+    if (!ownerAddressesMatch) missing.push('OWNER_WALLET_ADDRESS must equal TREASURY_OWNER_ADDRESS')
     const enabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
       && env.TREASURY_SIGNER_MODE === 'fireblocks'
       && missing.length === 0 && ownerAddressesMatch
       && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
-      && Boolean(maxPayout) && Boolean(dailyLimit) && feeLimitValid
+      && Boolean(maxPayout) && Boolean(dailyLimit)
     return {
       enabled, missing: [...new Set(missing)], ownerAddressesMatch,
       signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
-      providerConfigured: provider.configured,
+      providerConfigured: provider.configured && provider.trxConfigured,
+      feeLimit: feeLimitSun,
+      feeReserve: feeReserveSun,
     }
   }
 
   async function readManagedTreasurySnapshot(treasuryAddress) {
     const fireblocks = managedSigner()
-    if (typeof fireblocks?.isConfigured !== 'function' || fireblocks.isConfigured() !== true) {
-      return { ok: false, reason: 'fireblocks-not-configured' }
+    if (typeof fireblocks?.isConfigured !== 'function' || fireblocks.isConfigured() !== true
+      || typeof fireblocks?.isTrxConfigured !== 'function' || fireblocks.isTrxConfigured() !== true) {
+      return { ok: false, reason: 'fireblocks-usdt-or-native-trx-not-configured' }
     }
     try {
       const tronWeb = tronWebFactory()
@@ -546,7 +558,7 @@ export function createTreasuryWithdrawalsRouter({
         fireblocks.getAssetMetadata(), fireblocks.getVaultAccountAsset(), fireblocks.getAssetAddresses(),
       ])
       if (!fireblocksAssetIdentifierMatches(assetMetadata, String(env.FIREBLOCKS_USDT_ASSET_ID || ''))
-        || (providerAsset?.id !== undefined && String(providerAsset.id) !== String(env.FIREBLOCKS_USDT_ASSET_ID || ''))
+        || !fireblocksAssetIdentifierMatches(providerAsset, String(env.FIREBLOCKS_USDT_ASSET_ID || ''))
         || !isOfficialFireblocksUsdtAsset(assetMetadata, tronWeb, USDT_MAINNET)) {
         return { ok: false, reason: 'fireblocks-asset-not-official-tron-usdt' }
       }
@@ -986,7 +998,7 @@ export function createTreasuryWithdrawalsRouter({
         provider.getAssetAddresses(assetId),
       ])
       if (!isOfficialFireblocksNativeTrxAsset(metadata, assetId)
-        || (providerAsset?.id !== undefined && String(providerAsset.id) !== assetId)) {
+        || !fireblocksAssetIdentifierMatches(providerAsset, assetId)) {
         return { ok: false, reason: 'fireblocks-asset-not-native-trx' }
       }
       const addresses = [...new Set(extractFireblocksAddresses(addressResponse))]
