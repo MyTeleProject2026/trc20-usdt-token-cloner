@@ -18,7 +18,7 @@ Required safeguards include:
 - The provider's configured vault account and asset ID must identify the actual official TRON USDT contract.
 - The provider must return exactly one configured TRON address matching `TREASURY_ADDRESS`.
 - Provider-available balance and public on-chain balance must both cover the requested amount after reservations.
-- The real TRX balance must cover the configured fee cap; this branch does not presume automatic fee sponsorship.
+- The public chain and provider-available TRX balances must cover one maximum fee cap for each unresolved USDT/TRX payout plus the new request; no automatic fee sponsorship is presumed.
 - Provider transaction policy must enforce approved source, asset, recipient rules, and required approvals. The app does not bypass provider review.
 - Each request is owner-signed, idempotent, database-reserved and subject to per-payout and daily limits.
 - Provider-pending and ambiguous requests remain reserved. A new transfer must not be submitted just because the first request has not yet returned a chain hash.
@@ -26,6 +26,6 @@ Required safeguards include:
 
 ## Important setup limitations
 
-`TREASURY_WITHDRAWALS_ENABLED` and `TREASURY_TRX_WITHDRAWALS_ENABLED` must remain `false` until the provider account, API credential file, vault, asset mappings, policy, database and limits have been configured and reviewed. Both USDT and native TRX payout routes use the managed Fireblocks vault signer; neither route should load a blockchain private key into the app. Native TRX additionally requires the exact `FIREBLOCKS_TRX_ASSET_ID` to resolve to verified native-TRX metadata and the provider's TRX address to match the configured on-chain treasury address.
+`TREASURY_WITHDRAWALS_ENABLED` and `TREASURY_TRX_WITHDRAWALS_ENABLED` must remain `false` until the provider account, API credential file, vault, asset mappings, policy, database and limits have been configured and reviewed. Both USDT and native TRX payout routes use the managed Fireblocks vault signer; neither route should load a blockchain private key into the app. `FIREBLOCKS_TRX_ASSET_ID` is required for both routes so provider-available TRX can be independently verified; its metadata must identify native TRX, and its provider address must match the configured on-chain treasury address. USDT readiness and submission reserve fee capacity across unresolved USDT and TRX payouts.
 
 The code integration does not create a Fireblocks workspace, generate provider credentials, upload Render secret files, fund the treasury, or prove a real Mainnet payout. No live provider call was performed while implementing this branch. Start with mock-based tests, then complete a small controlled payout and independently verify it on TRON before handling meaningful value. A confirmed chain transfer does not guarantee a recipient exchange credits the deposit; exchange credit must be confirmed by the exchange's own authorized records.
