@@ -11,6 +11,7 @@ import {
   isOfficialFireblocksUsdtAsset,
   classifyFireblocksTransaction,
   isNativeFireblocksTrxAsset,
+  maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
 import {
@@ -1108,6 +1109,32 @@ export function createTreasuryWithdrawalsRouter({
       }
 
       const fireblocks = managedSigner()
+      let estimatedFeeSun = null
+      try {
+        const estimate = await fireblocks.estimateUsdtTransferFee({
+          recipientAddress: body.recipientAddress,
+          amountUsdt: formatUnitsDecimal(amount, 6),
+        })
+        estimatedFeeSun = maxFireblocksEstimatedFeeSun(estimate)
+      } catch {
+        // Do not submit when the provider cannot produce a complete fee estimate.
+      }
+      if (estimatedFeeSun === null || BigInt(estimatedFeeSun) > BigInt(String(configuredFeeLimit))) {
+        const estimateUnavailable = estimatedFeeSun === null
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
+          SET status='rejected', failure_code=$2, updated_at=now()
+          WHERE id=$1 AND status='broadcasting'`,
+        [reservation.id, estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve'])
+        return res.status(estimateUnavailable ? 503 : 409).json({
+          success: false,
+          status: 'rejected',
+          error: estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve',
+          ...(estimatedFeeSun !== null ? { estimatedFeeSun } : {}),
+          feeReserveSun: String(configuredFeeLimit),
+          transactionSubmitted: false,
+          note: 'No Fireblocks transfer request was created because the fee estimate was unavailable or exceeded the configured reserve. This estimate is not a provider-enforced hard fee cap.',
+        })
+      }
       let providerTransaction
       try {
         providerTransaction = await fireblocks.createUsdtTransfer({
@@ -1533,6 +1560,32 @@ export function createTreasuryWithdrawalsRouter({
       }
 
       const fireblocks = managedSigner()
+      let estimatedFeeSun = null
+      try {
+        const estimate = await fireblocks.estimateTrxTransferFee({
+          recipientAddress: body.recipientAddress,
+          amountTrx: formatUnitsDecimal(amount, 6),
+        })
+        estimatedFeeSun = maxFireblocksEstimatedFeeSun(estimate)
+      } catch {
+        // Do not submit when the provider cannot produce a complete fee estimate.
+      }
+      if (estimatedFeeSun === null || BigInt(estimatedFeeSun) > config.feeLimit) {
+        const estimateUnavailable = estimatedFeeSun === null
+        await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+          SET status='rejected', failure_code=$2, updated_at=now()
+          WHERE id=$1 AND status='broadcasting'`,
+        [reservation.id, estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve'])
+        return res.status(estimateUnavailable ? 503 : 409).json({
+          success: false,
+          status: 'rejected',
+          error: estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve',
+          ...(estimatedFeeSun !== null ? { estimatedFeeSun } : {}),
+          feeReserveSun: config.feeLimit.toString(),
+          transactionSubmitted: false,
+          note: 'No Fireblocks transfer request was created because the fee estimate was unavailable or exceeded the configured reserve. This estimate is not a provider-enforced hard fee cap.',
+        })
+      }
       let providerTransaction
       try {
         providerTransaction = await fireblocks.createTrxTransfer({
