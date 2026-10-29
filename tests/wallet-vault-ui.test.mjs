@@ -100,6 +100,8 @@ test('owner wallet uses responsive owner navigation and separates recovery from 
   assert.match(vault, /treasuryTrxBalanceSun/)
   assert.match(vault, /ownerTreasurySnapshot\?\.officialUsdt\?\.status === 'verified'/)
   assert.match(vault, /Configured watch address/)
+  assert.match(vault, /setInterval\(\(\) => \{ void loadOwnerTreasuryDashboard\(\) \}, 60_000\)/)
+  assert.match(vault, /requestInFlight \|\| cancelled/)
   assert.match(vault, /Monitoring is read-only and does not authorize spending/)
   assert.match(vault, /networkFeeCapCovered/)
   assert.match(css, /\.wallet-vault-sidebar/)
