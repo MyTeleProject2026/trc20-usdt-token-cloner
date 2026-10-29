@@ -10,7 +10,8 @@
     "worker:receiver-history": "node server/receiver-history-worker.mjs",
     "sponsor:reconcile": "node scripts/reconcile-sponsor-transfer.mjs",
     "sponsor:reserve": "node scripts/reserve-sponsor-transfer.mjs",
-    "treasury:reconcile": "node scripts/reconcile-treasury-withdrawals.mjs"
+    "treasury:reconcile": "node scripts/reconcile-treasury-withdrawals.mjs",
+    "check:env": "node scripts/check-production-env.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.1",
