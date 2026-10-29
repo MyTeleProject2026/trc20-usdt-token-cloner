@@ -403,13 +403,17 @@ export function treasuryUsdtConfiguration(env = process.env) {
     && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
     && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
   if (!provider.configured) missing.push(...provider.missing)
-  const enabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
-    && env.TREASURY_SIGNER_MODE === 'fireblocks'
+  const configurationComplete = env.TREASURY_SIGNER_MODE === 'fireblocks'
     && missing.length === 0 && ownerAddressesMatch
     && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
     && Boolean(maxPayout) && Boolean(dailyLimit) && feeLimitValid
+  const featureFlagEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
   return {
-    enabled, missing: [...new Set(missing)], ownerAddressesMatch,
+    enabled: featureFlagEnabled && configurationComplete,
+    configurationComplete,
+    featureFlagEnabled,
+    missing: [...new Set(missing)],
+    ownerAddressesMatch,
     signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
     providerConfigured: provider.configured,
   }
@@ -426,20 +430,21 @@ export function trxConfiguration(env = process.env) {
   if (!provider.providerConfigured) missing.push(...provider.providerMissing)
   if (!provider.trxAssetConfigured) missing.push('FIREBLOCKS_TRX_ASSET_ID')
   if (env.TREASURY_SIGNER_MODE !== 'fireblocks') missing.push('TREASURY_SIGNER_MODE=fireblocks')
-  if (env.TREASURY_TRX_WITHDRAWALS_ENABLED !== 'true') missing.push('TREASURY_TRX_WITHDRAWALS_ENABLED=true')
-
   const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_TRX)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_TRX)
   const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
     ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : 0n
-  const enabled = missing.length === 0
+  const configurationComplete = missing.length === 0
     && ownerAddressesMatch
     && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
     && maxPayout !== null && dailyLimit !== null
     && feeLimit >= 1n && feeLimit <= 1_000_000_000n
+  const featureFlagEnabled = env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
   return {
-    enabled,
+    enabled: featureFlagEnabled && configurationComplete,
+    configurationComplete,
+    featureFlagEnabled,
     missing: [...new Set(missing)],
     ownerAddressesMatch,
     maxPayout,
@@ -777,13 +782,19 @@ export function createTreasuryWithdrawalsRouter({
     if (db) { try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {} }
     const treasuryAddress = ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '') ? env.TREASURY_ADDRESS.trim() : null
     let snapshot = { ok: false, reason: 'treasury-address-not-configured' }
-    if (config.enabled && treasuryAddress) snapshot = await readManagedTreasurySnapshot(treasuryAddress)
+    // Read-only readiness must work while payouts are deliberately disabled.
+    // Probe Fireblocks and public Mainnet balances when provider credentials and
+    // the configured treasury address are present; this never submits a transfer.
+    if (config.providerConfigured && treasuryAddress) {
+      snapshot = await readManagedTreasurySnapshot(treasuryAddress)
+    }
     const blockers = []
     let pendingUsdtCount = '0'
     let pendingTrxCount = '0'
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
-    if (!config.enabled) blockers.push('managed-signer-configuration-incomplete')
+    if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
+    if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
     if (!treasuryAddress) blockers.push('treasury-address-not-configured')
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
@@ -817,7 +828,14 @@ export function createTreasuryWithdrawalsRouter({
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
       withdrawalsEnabled: blockers.length === 0,
-      configuration: { enabled: config.enabled, missing: config.missing, signerMode: config.signerMode, providerConfigured: config.providerConfigured },
+      configuration: {
+        enabled: config.enabled,
+        configurationComplete: config.configurationComplete,
+        featureFlagEnabled: config.featureFlagEnabled,
+        missing: config.missing,
+        signerMode: config.signerMode,
+        providerConfigured: config.providerConfigured,
+      },
       databaseReady, treasuryAddress,
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
@@ -1198,7 +1216,7 @@ export function createTreasuryWithdrawalsRouter({
     let pendingUsdtCount = '0'
 
     if (env.TREASURY_TRX_WITHDRAWALS_ENABLED !== 'true') blockers.push('trx-payout-feature-disabled')
-    if (!config.enabled) blockers.push('trx-withdrawal-configuration-incomplete')
+    if (!config.configurationComplete) blockers.push('trx-withdrawal-configuration-incomplete')
     if (!ADDRESS_PATTERN.test(treasuryAddress)) blockers.push('treasury-address-not-configured')
     if (ADDRESS_PATTERN.test(treasuryAddress)) snapshot = await readManagedTreasuryTrxSnapshot(treasuryAddress)
     if (!snapshot.ok) blockers.push(snapshot.reason || 'fireblocks-trx-funding-unverified')
@@ -1260,6 +1278,8 @@ export function createTreasuryWithdrawalsRouter({
       treasuryAddress: ADDRESS_PATTERN.test(treasuryAddress) ? treasuryAddress : null,
       configuration: {
         enabled: config.enabled,
+        configurationComplete: config.configurationComplete,
+        featureFlagEnabled: config.featureFlagEnabled,
         missing: config.missing,
         signerMode: config.signerMode,
         providerConfigured: typeof managedSigner()?.isTrxAssetConfigured === 'function' && managedSigner().isTrxAssetConfigured() === true,
