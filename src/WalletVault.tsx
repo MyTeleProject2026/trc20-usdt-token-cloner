@@ -1534,11 +1534,7 @@ export default function WalletVault() {
           <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={17} /><span>Account</span></button>
           <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={17} /><span>Activity</span></button>
         </nav>
-        <div className="wallet-vault-sidebar-settings">
-          <div className="wallet-vault-sidebar-kicker"><Settings size={14} /> SETTINGS</div>
 
-          <button type="button" className={'wallet-vault-sidebar-settings-link' + (activePanel === 'settings' ? ' is-active' : '')} aria-current={activePanel === 'settings' ? 'page' : undefined} onClick={() => navigatePanel('settings')}><Settings size={16} /> All settings</button>
-        </div>
       </aside>
 
       <section id="owner-dashboard" className="wallet-vault-hero wallet-vault-hero--compact">
