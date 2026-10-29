@@ -18,7 +18,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "express": "^4.21.0",
     "lucide-react": "^1.31.0",
-    "react": "^18.3.1",
+    "react": "^19.3.1",
     "react-dom": "^18.3.1",
     "undici": "^8.12.2",
     "vite": "^6.4.5",
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.0",
-    "@types/react": "^18.3.12",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^18.3.1",
     "postcss": "^8.5.31",
     "tailwindcss": "^4.3.3",
