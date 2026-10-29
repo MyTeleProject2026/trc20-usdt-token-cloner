@@ -5,9 +5,19 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+# Avoid wasting hosted-runner capacity on superseded pushes to the same ref.
+concurrency:
+  group: node-matrix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# This workflow only checks out source and runs builds/tests; it needs no write token.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       # The package manifest includes Undici 8.x, which requires Node.js >=22.19.0.
