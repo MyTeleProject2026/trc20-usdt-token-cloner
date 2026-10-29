@@ -365,7 +365,7 @@ export function trxConfiguration(env = process.env) {
     'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
   ]
   const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
-  if (!provider.configured) missing.push(...provider.missing)
+  if (!provider.providerConfigured) missing.push(...provider.providerMissing)
   if (!provider.trxAssetConfigured) missing.push('FIREBLOCKS_TRX_ASSET_ID')
   if (env.TREASURY_SIGNER_MODE !== 'fireblocks') missing.push('TREASURY_SIGNER_MODE=fireblocks')
   if (env.TREASURY_TRX_WITHDRAWALS_ENABLED !== 'true') missing.push('TREASURY_TRX_WITHDRAWALS_ENABLED=true')
@@ -1133,7 +1133,7 @@ export function createTreasuryWithdrawalsRouter({
         enabled: config.enabled,
         missing: config.missing,
         signerMode: config.signerMode,
-        providerConfigured: typeof managedSigner()?.isConfigured === 'function' && managedSigner().isConfigured() === true,
+        providerConfigured: typeof managedSigner()?.isTrxAssetConfigured === 'function' && managedSigner().isTrxAssetConfigured() === true,
       },
       databaseReady,
       ...(snapshot.ok ? {
