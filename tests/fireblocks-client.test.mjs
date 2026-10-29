@@ -6,6 +6,7 @@ import {
   createFireblocksClient,
   createFireblocksJwt,
   extractFireblocksAddresses,
+  fireblocksAssetIdentifierMatches,
   fireblocksConfiguration,
   isOfficialFireblocksUsdtAsset,
   providerAssetAvailableBaseUnits,
@@ -108,9 +109,16 @@ test('Fireblocks vault addresses are extracted only from structured address fiel
   assert.deepEqual(extractFireblocksAddresses(null), [])
 })
 
-test('managed asset identity must match the official TRON USDT contract', () => {
+test('managed asset identity must match a configured provider ID and the official TRON USDT contract', () => {
+  assert.equal(fireblocksAssetIdentifierMatches({ id: 'USDT_TRON' }, 'USDT_TRON'), true)
+  assert.equal(fireblocksAssetIdentifierMatches({ legacyId: 'USDT_TRON' }, 'USDT_TRON'), true)
+  assert.equal(fireblocksAssetIdentifierMatches({ id: 'other', legacyId: 'USDT_TRON' }, 'USDT_TRON'), true)
+  assert.equal(fireblocksAssetIdentifierMatches({ id: 'other' }, 'USDT_TRON'), false)
   assert.equal(isOfficialFireblocksUsdtAsset({
     id: 'USDT_TRON', contractAddress: officialUsdt,
+  }, fakeTronWeb, officialUsdt), true)
+  assert.equal(isOfficialFireblocksUsdtAsset({
+    id: 'USDT_TRON', onchain: { address: officialUsdt },
   }, fakeTronWeb, officialUsdt), true)
   assert.equal(isOfficialFireblocksUsdtAsset({
     id: 'USDT_TRON', contractAddress: 'TWrongContractAddressThatIsNotOfficial111',
@@ -144,6 +152,41 @@ test('provider status cannot be treated as chain confirmation without an actual 
   assert.equal(classifyFireblocksTransaction({
     id: 'provider-id-4', status: 'COMPLETED', txHash: 'not-a-chain-hash',
   }).localStatus, 'provider-pending')
+})
+
+test('Fireblocks uses current asset metadata and paginates vault addresses', async () => {
+  const { privateKey } = keyPair()
+  const paths = []
+  let addressPage = 0
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async (url) => {
+      paths.push(new URL(url).pathname + new URL(url).search)
+      const pathname = new URL(url).pathname
+      if (pathname === '/v1/assets/USDT_TRON') {
+        return new Response(JSON.stringify({ id: 'TRON_USDT', legacyId: 'USDT_TRON', onchain: { address: officialUsdt } }), { status: 200 })
+      }
+      if (pathname.endsWith('/addresses_paginated')) {
+        addressPage += 1
+        const response = addressPage === 1
+          ? { addresses: [{ address: 'T' + 'A'.repeat(33) }], paging: { after: 'cursor-2' } }
+          : { addresses: [{ addressString: 'T' + 'B'.repeat(33) }], paging: {} }
+        return new Response(JSON.stringify(response), { status: 200 })
+      }
+      throw new Error('unexpected URL')
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'nonce-unique',
+  })
+  const metadata = await client.getAssetMetadata()
+  assert.equal(metadata.legacyId, 'USDT_TRON')
+  const addresses = await client.getAssetAddresses()
+  assert.deepEqual(addresses.addresses, ['T' + 'A'.repeat(33), 'T' + 'B'.repeat(33)])
+  assert.deepEqual(paths, [
+    '/v1/assets/USDT_TRON',
+    '/v1/vault/accounts/0/USDT_TRON/addresses_paginated?limit=500',
+    '/v1/vault/accounts/0/USDT_TRON/addresses_paginated?limit=500&after=cursor-2',
+  ])
 })
 
 test('Fireblocks transaction POST uses a provider vault source and never includes wallet key material', async () => {
