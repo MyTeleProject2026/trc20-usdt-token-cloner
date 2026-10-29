@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -21,6 +21,38 @@ test('treasury payouts require the owner-console and treasury owner address to m
     OWNER_WALLET_ADDRESS: 'invalid',
     TREASURY_OWNER_ADDRESS: 'invalid',
   }), false)
+})
+
+test('USDT payout configuration fails closed without a separately identified native TRX fee asset', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  const base = {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/etc/secrets/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: 'TRON_USDT',
+  }
+  const missingNativeAsset = treasuryUsdtConfiguration(base)
+  assert.equal(missingNativeAsset.enabled, false)
+  assert.equal(missingNativeAsset.providerConfigured, true)
+  assert.ok(missingNativeAsset.missing.includes('FIREBLOCKS_TRX_ASSET_ID'))
+
+  const withNativeAsset = treasuryUsdtConfiguration({ ...base, FIREBLOCKS_TRX_ASSET_ID: 'TRX' })
+  assert.equal(withNativeAsset.enabled, true, 'syntactic config only; runtime readiness still validates provider metadata, balances and vault addresses')
+
+  const featureDisabled = treasuryUsdtConfiguration({
+    ...base, FIREBLOCKS_TRX_ASSET_ID: 'TRX', TREASURY_WITHDRAWALS_ENABLED: 'false',
+  })
+  assert.equal(featureDisabled.enabled, false, 'the environment feature gate remains authoritative')
 })
 
 test('native TRX payout never enables through a legacy application-held hot wallet', () => {
