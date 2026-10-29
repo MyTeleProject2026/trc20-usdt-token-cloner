@@ -234,7 +234,7 @@ export default function WalletVault() {
   const [selectedAddress, setSelectedAddress] = useState(() => readWalletRecords()[0]?.address || '')
   const [unlocked, setUnlocked] = useState<UnlockedWallet | null>(null)
   const [network, setNetwork] = useState<NetworkId>('nile')
-  const [activePanel, setActivePanel] = useState<'wallet' | 'treasury' | 'send' | 'activity'>('wallet')
+  const [activePanel, setActivePanel] = useState<'dashboard' | 'wallet' | 'treasury' | 'send' | 'activity'>('dashboard')
   const [mode, setMode] = useState<'create' | 'import-key' | 'restore-backup'>('create')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -402,7 +402,7 @@ export default function WalletVault() {
     if (!unlocked) return
     let timeout = 0
     const autoLock = () => {
-      setActivePanel('wallet')
+      setActivePanel('dashboard')
       setUnlocked(null)
       setPortfolio(null)
       setTransferReview(null)
@@ -1306,13 +1306,13 @@ export default function WalletVault() {
         <span className="wallet-vault-back" aria-label="Standalone self-custody owner wallet">Owner panel</span>
       </header>
 
-      <section className="wallet-vault-hero">
+      <section id="owner-dashboard" className="wallet-vault-hero">
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> LOCAL KEY CUSTODY · REAL TRON NETWORK READS</p>
-        <h1>Your wallet. Your keys.</h1>
-        <p>Standalone, owner-only wallet controls. Create or restore the owner identity wallet on this device, read genuine TRON balances, and request treasury-backed payouts without requiring the owner identity wallet to hold the USDT principal. No TronLink connection is required.</p>
+        <h1>Owner dashboard</h1>
+        <p>Private owner console for live treasury status, verified on-chain assets, withdrawals, and transaction activity. Read-only account and treasury data load automatically after owner sign-in. Unlock a locally encrypted wallet only when a private-key action or payout authorization is required; no external wallet app connection is needed.</p>
         <div className="wallet-vault-network" role="group" aria-label="Blockchain network">
           {(['nile', 'shasta', 'mainnet'] as NetworkId[]).map(item => (
-            <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); if (item !== 'mainnet' && activePanel === 'treasury') setActivePanel('wallet'); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
+            <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); if (item !== 'mainnet' && activePanel === 'treasury') setActivePanel('dashboard'); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
               {item === 'mainnet' ? 'TRON Mainnet' : item === 'nile' ? 'Nile Testnet' : 'Shasta Testnet'}
             </button>
           ))}
@@ -1324,7 +1324,7 @@ export default function WalletVault() {
         <p>The owner wallet authorizes payout requests; it does not create USDT. Server-funded payouts can send only genuine USDT already held by the configured treasury, and the treasury must also have sufficient network-fee funding. If either balance is insufficient, the payout stays blocked.</p>
       </div>
 
-      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading">
+      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard' && activePanel !== 'treasury'}>
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step">LIVE</span>
           <div>
@@ -1362,6 +1362,7 @@ export default function WalletVault() {
       </section>
 
       <nav className="wallet-vault-quick-nav" aria-label="Owner wallet sections">
+        <a href="#owner-dashboard" aria-current={activePanel === 'dashboard' ? 'page' : undefined} onClick={event => { event.preventDefault(); setActivePanel('dashboard') }}>Home</a>
         <a href="#wallet-owner-vault" aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={event => { event.preventDefault(); setActivePanel('wallet') }}>Wallet & balances</a>
         {network === 'mainnet' && <a href="#owner-treasury-funding" aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('treasury'); else setNotice('Unlock the owner wallet before opening treasury controls.') }}>Treasury payout</a>}
         <a href="#wallet-vault-transfer" aria-current={activePanel === 'send' ? 'page' : undefined} onClick={event => { event.preventDefault(); if (unlocked) setActivePanel('send'); else setNotice('Unlock the owner wallet before opening transfer controls.') }}>{network === 'mainnet' ? 'Send' : 'Testnet send'}</a>
