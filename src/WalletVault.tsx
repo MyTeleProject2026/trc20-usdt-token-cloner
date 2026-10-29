@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, ArrowDownToLine, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, Info, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, Info, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
@@ -324,7 +324,7 @@ export default function WalletVault() {
 
   function noticeKind(message: string): WalletToast['kind'] {
     if (/(could not|failed|failure|unavailable|invalid|blocked|insufficient|not verified|expired|error)/i.test(message)) return 'error'
-    if (/(cancelled|network changed|checking|reading chain|open account|nothing was signed)/i.test(message)) return 'info'
+    if (/(cancelled|network changed|checking|reading chain|open account|nothing was signed|broadcast|submitted|accepted|pending|reserved|awaiting confirmation|not confirmed)/i.test(message)) return 'info'
     return 'success'
   }
 
