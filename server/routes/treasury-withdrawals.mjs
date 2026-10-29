@@ -686,6 +686,7 @@ export function createTreasuryWithdrawalsRouter({
       const initialSnapshot = await readManagedTreasurySnapshot(treasuryAddress)
       if (!initialSnapshot.ok) return res.status(503).json({ success: false, error: 'treasury-provider-funding-not-verified', reason: initialSnapshot.reason, submissionEnabled: false })
       if (!initialSnapshot.networkFeeCapCovered) return res.status(409).json({ success: false, error: 'treasury-trx-insufficient-for-fee-cap', treasuryTrxBalanceSun: initialSnapshot.treasuryTrxBalanceSun, requiredFeeLimitSun: String(configuredFeeLimit), submissionEnabled: false })
+      const chainContract = await tronWeb.contract(ABI).at(USDT_MAINNET)
 
       const client = await db.connect()
       let reservation
@@ -730,7 +731,7 @@ export function createTreasuryWithdrawalsRouter({
         // treasury requests, then subtract all unresolved prior reservations.
         // This conservatively avoids accepting simultaneous payouts against the
         // same on-chain balance. Unknown broadcasts remain reserved until reconciled.
-        const balanceValue = await contract.balanceOf(treasuryAddress).call()
+        const balanceValue = await chainContract.balanceOf(treasuryAddress).call()
         const balance = BigInt(String(balanceValue))
         const unsettled = await client.query(`
           SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
