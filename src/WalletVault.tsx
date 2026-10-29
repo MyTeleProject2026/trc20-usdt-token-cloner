@@ -274,6 +274,10 @@ export default function WalletVault() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [apiHealthStatus, setApiHealthStatus] = useState<'checking' | 'online' | 'offline'>('checking')
+  const [apiHealthCheckedAt, setApiHealthCheckedAt] = useState<number | null>(null)
+  const [apiHealthLoading, setApiHealthLoading] = useState(false)
+  const [apiHealthError, setApiHealthError] = useState('')
   const selectedRecord = useMemo(() => records.find(item => item.address === selectedAddress) || null, [records, selectedAddress])
   const serverTreasuryBalanceBaseUnits = serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits
   const serverTreasuryHasFunds = typeof serverTreasuryBalanceBaseUnits === 'string'
@@ -307,6 +311,40 @@ export default function WalletVault() {
   const ownerHeaderTrx = unlocked && network === 'mainnet' && portfolio ? portfolio.trx + ' TRX' : ownerHeaderBalance
   const officialOwnerUsdt = network === 'mainnet' ? portfolio?.tokens.find(token => token.contract === OFFICIAL_MAINNET_USDT && !token.error)?.balance : undefined
   const ownerHeaderUsdt = unlocked && network === 'mainnet' ? (officialOwnerUsdt !== undefined ? officialOwnerUsdt + ' USDT' : portfolio ? 'Not in Assets' : ownerHeaderBalance) : ownerHeaderBalance
+
+  async function checkApiHealth() {
+    setApiHealthLoading(true)
+    setApiHealthStatus('checking')
+    setApiHealthError('')
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000)
+    try {
+      const response = await fetch(API_BASE + '/health', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        signal: controller.signal,
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.status !== 'ok' || payload?.service !== 'tron-token-studio-api') {
+        throw new Error('The API did not return its expected health contract.')
+      }
+      setApiHealthStatus('online')
+    } catch {
+      setApiHealthStatus('offline')
+      setApiHealthError('The API health check failed. Check connectivity and the frontend origin configuration.')
+    } finally {
+      window.clearTimeout(timeoutId)
+      setApiHealthCheckedAt(Date.now())
+      setApiHealthLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void checkApiHealth()
+  }, [])
 
   useEffect(() => {
     const contracts = readTokenWatchlist(network)
@@ -1536,6 +1574,15 @@ export default function WalletVault() {
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step"><Activity size={16} /></span>
           <div><h2 id="wallet-vault-quick-actions-heading">Workspace shortcuts</h2><p>Open a section directly. Each workflow reports real wallet or backend status before sensitive actions.</p></div>
+        </div>
+        <div className={'wallet-vault-api-health is-' + apiHealthStatus} role="status" aria-live="polite">
+          <span className="wallet-vault-api-health-dot" aria-hidden="true" />
+          <div className="wallet-vault-api-health-copy">
+            <strong>{apiHealthStatus === 'online' ? 'Backend API online' : apiHealthStatus === 'offline' ? 'Backend API unavailable' : 'Checking backend API…'}</strong>
+            <small>{apiHealthCheckedAt ? 'Last checked ' + new Date(apiHealthCheckedAt).toLocaleTimeString() : 'Waiting for first health response'}</small>
+            {apiHealthError && <small className="wallet-vault-api-health-error">{apiHealthError}</small>}
+          </div>
+          <button type="button" className="wallet-vault-secondary wallet-vault-api-health-refresh" disabled={apiHealthLoading} onClick={() => void checkApiHealth()}>{apiHealthLoading ? 'Checking…' : 'Refresh connection'}</button>
         </div>
         <div className="wallet-vault-quick-action-grid">
           <button type="button" className="wallet-vault-quick-action" onClick={() => navigatePanel('wallet')}><Coins size={20} /><span><strong>Assets</strong><small>Read on-chain balances and manage token watchlist</small></span></button>
