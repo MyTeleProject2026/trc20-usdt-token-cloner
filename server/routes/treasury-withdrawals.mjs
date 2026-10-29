@@ -1236,7 +1236,8 @@ export function createTreasuryWithdrawalsRouter({
       return res.status(400).json({ success: false, error: 'invalid-trx-withdrawal-request' })
     }
     const amount = parsePositiveDecimal(body.amountTrx, 6)
-    if (!amount || amount > config.maxPayout || amount > config.dailyLimit) {
+    if (!amount || amount > config.maxPayout || amount > config.dailyLimit
+      || amount > BigInt(Number.MAX_SAFE_INTEGER)) {
       return res.status(400).json({ success: false, error: 'amount-outside-configured-limits' })
     }
     if (!isTreasuryAuthorizationExpiryValid(body.authorizationExpiresAt, now().getTime(), OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS)) {
