@@ -1,57 +1,84 @@
-# Owner-only treasury-funded USDT withdrawals
+# Owner-only managed-provider USDT withdrawals
 
-This feature lets the single configured owner request a payout from a separately funded TRON Mainnet treasury. It does not mint USDT, fabricate balances, or force an exchange to credit a deposit.
+## Scope and non-negotiable requirements
 
-## Current implementation
+This is a single-owner, treasury-funded TRON Mainnet payout workflow. It does not mint USDT, generate a local balance that can be spent on-chain, forge transaction hashes, or guarantee a receiving exchange's deposit credit.
 
-- `GET /api/treasury/withdrawals/readiness`: owner-authenticated configuration and official-USDT funding check.
-- `POST /api/treasury/withdrawals`: transaction-specific owner-signed payout request.
-- `GET /api/treasury/withdrawals/:idempotencyKey`: status lookup for the stored request.
-- `POST /api/treasury/withdrawals/:idempotencyKey/verify`: reads the confirmed transaction and receipt, then checks the exact treasury sender, recipient, amount, official USDT contract and matching Transfer event.
-- `npm run treasury:reconcile`: one bounded reconciliation pass over stored broadcasts that have transaction hashes. It can finalize a request only when the existing on-chain verifier proves a successful official-USDT Transfer event or a confirmed failed receipt.
-- The API requires the existing Mainnet wallet-auth session to match `TREASURY_OWNER_ADDRESS` and the request Origin; each payout also requires a short-lived owner signature bound to the exact request.
-- The private console setting `OWNER_WALLET_ADDRESS` must exactly match `TREASURY_OWNER_ADDRESS`. A missing or mismatched value fails closed and disables treasury withdrawals.
-- The server-side signer must derive exactly `TREASURY_ADDRESS`. Only the official Mainnet Tether TRC-20 address is used.
-- PostgreSQL idempotency reservations, payout limits, and conservative accounting for unresolved broadcasts prevent retries from casually duplicating payments.
-- Pending, ambiguous, or unverifiable transactions remain unresolved; a broadcast response or transaction hash alone is not success evidence.
+A successful payout must move genuine USDT from the configured Fireblocks vault to the exact recipient by calling Fireblocks' managed signing API, then independently verify the confirmed TRON transaction, successful receipt, official Tether TRC-20 contract and matching `Transfer` event. A provider request ID or broadcast hash alone is not confirmation.
+
+The owner’s local Wallet Vault identity wallet does not need to hold the USDT principal. The authorized Fireblocks vault must hold the real USDT, the matching on-chain address must hold that USDT, and actual TRX must cover `TREASURY_FEE_LIMIT_SUN` unless a separately verified fee sponsor is integrated. This repository currently does **not** assume a sponsored-fee path.
+
+## Provider integration
+
+The feature branch uses Fireblocks' production REST API. The API-user RSA key is used only to authenticate requests to Fireblocks and is read from a mounted secret file on the backend. The blockchain signing key is not loaded into Tron Token Studio: the provider's custody system signs according to its configured transaction policy.
+
+Official references:
+- [Fireblocks request authentication](https://developers.fireblocks.com/docs/api-authentication)
+- [Fireblocks create transaction API](https://developers.fireblocks.com/api-reference/transactions/create-a-new-transaction)
+- [Fireblocks vault account asset API](https://developers.fireblocks.com/api-reference/vault/get-vault-account-asset)
+
+Before using real funds, the operator must have an eligible Fireblocks workspace and vault account, an API user/key with only the required permissions, the API authentication key installed as a Render secret file, and a Fireblocks asset ID whose provider metadata maps to the official TRON USDT contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`. A generic USDT symbol is not sufficient to prove asset identity.
+
+Configure Fireblocks' **own transaction policy** independently. Restrict the source vault, TRON USDT asset, allowed recipients, transaction and daily limits, and required approvals. Do not configure a policy that silently bypasses required approvals. If the provider holds a transfer for approval, the app displays it as pending and retains the reservation; it does not claim it has been paid.
+
+The code deliberately requires exactly one provider-returned address for the configured asset and requires it to match `TREASURY_ADDRESS`. If a workspace contains multiple addresses for that asset, the address/sender mapping must be reconciled before enabling the route; the integration fails closed instead of assuming which address the provider will spend from.
 
 ## Backend environment variables
 
-Keep these in the backend service's secret/environment settings only. Never put private keys, admin tokens, or provider credentials into `VITE_*` values, frontend files, APK resources or Git.
+Set these in the **backend Render service only**. Do not send credentials in chat, commit them to GitHub, put them in `VITE_*` variables, or place them in the APK.
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Persistent PostgreSQL database for payout idempotency and audit records |
-| `OWNER_WALLET_ADDRESS` | The single address allowed through private owner-console login; must exactly match `TREASURY_OWNER_ADDRESS` |
-| `TREASURY_WITHDRAWALS_ENABLED=true` | Explicitly enables the withdrawal route after review |
-| `TREASURY_SIGNER_MODE=env-hot-wallet` | Enables the current server-side environment key signer |
-| `TREASURY_OWNER_ADDRESS` | The one owner address allowed to request payouts |
-| `TREASURY_ADDRESS` | Public address of the separately funded treasury |
-| `TREASURY_PRIVATE_KEY` | Secret server-side treasury signer; must derive `TREASURY_ADDRESS` |
-| `TREASURY_MAX_PAYOUT_USDT` | Maximum amount per payout, decimal USDT with up to six places |
-| `TREASURY_DAILY_LIMIT_USDT` | Maximum reserved payout principal per database day |
-| `TREASURY_FEE_LIMIT_SUN` | TRON smart-contract fee cap in SUN; not a source of fees |
-| `DATABASE_SSL=true` | Optional strict TLS for external PostgreSQL when appropriate |
+| `DATABASE_URL` | Persistent PostgreSQL database for the idempotency ledger and payout reservations |
+| `OWNER_WALLET_ADDRESS` | Single owner identity for the private console |
+| `TREASURY_OWNER_ADDRESS` | Must exactly match `OWNER_WALLET_ADDRESS` |
+| `TREASURY_WITHDRAWALS_ENABLED` | Keep `false` until the provider policy, config, tests, and recovery procedures are reviewed |
+| `TREASURY_SIGNER_MODE` | Must be `fireblocks` for this managed USDT signer |
+| `TREASURY_ADDRESS` | The single configured TRON address returned for the Fireblocks vault USDT asset |
+| `TREASURY_MAX_PAYOUT_USDT` | Positive decimal maximum for one payout (up to six decimal places) |
+| `TREASURY_DAILY_LIMIT_USDT` | Positive decimal cap for payouts per database day |
+| `TREASURY_FEE_LIMIT_SUN` | Positive integer maximum transaction fee limit in SUN; actual TRX must cover it |
+| `FIREBLOCKS_API_BASE` | Normally `https://api.fireblocks.io`; only known production API origins are accepted |
+| `FIREBLOCKS_API_KEY` | Provider-issued API key ID |
+| `FIREBLOCKS_SECRET_KEY_PATH` | Absolute path to a mounted secret file containing the Fireblocks **API authentication** RSA key, not a blockchain signing key |
+| `FIREBLOCKS_VAULT_ACCOUNT_ID` | Existing provider vault account ID (numeric) |
+| `FIREBLOCKS_USDT_ASSET_ID` | Existing provider asset ID whose metadata must resolve to official TRON USDT |
+| `TRONGRID_API_KEY` | Optional server-side read-provider key; never required as a wallet signing secret |
+| `DATABASE_SSL` | Optional strict TLS for external PostgreSQL where appropriate |
 
-All required payout settings must be valid before the route is enabled. The treasury must hold actual official USDT and enough TRX or available network resources for execution. Paying network fees on behalf of a sender does not provide the USDT principal.
+Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does not accept or derive a blockchain private key from the Render environment. The separate legacy native-TRX payout path is disabled in Fireblocks mode; this integration is specifically for USDT withdrawals.
 
-## Receipt reconciliation
+## Request flow and fail-closed behavior
 
-The reconciliation command is read-only with respect to TRON. It never signs, broadcasts, retries, or creates a transaction. It needs `DATABASE_URL` (and `DATABASE_SSL=true` only if required for the database connection) and reads the public Mainnet RPC. It does **not** require `TREASURY_PRIVATE_KEY`.
+1. The owner signs into the single-owner console and signs a short-lived message that binds the exact origin, treasury, official token contract, recipient, amount, idempotency key and expiry.
+2. The backend checks the authenticated session and fresh owner signature.
+3. It queries Fireblocks for the configured asset metadata, available balance and vault addresses. It verifies the asset's contract address and checks the provider's available balance.
+4. It independently queries the configured TRON address for the actual official-USDT balance and TRX fee coverage. Both provider-available USDT and chain USDT must cover the payout.
+5. A PostgreSQL lock serializes the reservation. Existing pending, provider-pending, accepted or ambiguous requests remain reserved. Per-transfer and daily limits are checked before calling the provider.
+6. The backend requests a transfer via Fireblocks with the same idempotency key as `externalTxId`. Fireblocks' own approval policy remains in force. On a timeout, the service looks up that same external ID; it does not blindly create a replacement transfer.
+7. While Fireblocks has no chain transaction hash, the request remains `provider-pending` or `broadcast-unknown`, and the funds remain reserved. Once a transaction ID is available, the verifier checks the transaction from a public read-only TRON connection.
+8. Only a confirmed/solidified transaction with matching sender, recipient, amount, official contract, successful execution receipt, and exact official-USDT `Transfer` event is labelled `confirmed`.
+9. Exchange deposit credit is separate. The recipient exchange must report its own deposit status through an authorized source.
 
-Run one pass with `npm run treasury:reconcile`. The optional `TREASURY_RECONCILE_BATCH_SIZE` is an integer from 1 to 200 and defaults to 50. To automate it, configure a Render Cron Job using this repository's `main` branch, build command `npm ci`, start command `npm run treasury:reconcile`, and a modest schedule such as every 10 minutes. Add the backend's database connection setting through Render's secure environment UI; never paste it into source control or this conversation. The withdrawal table must already have been initialized by the API.
+## API endpoints
 
-A row is finalized only after the verifier validates the confirmed transaction and exact official-USDT event. Missing receipt data and provider errors leave the row unresolved so the principal remains conservatively reserved. A request that never received a transaction ID cannot be conclusively reconciled by this worker and requires operator investigation; do not submit a replacement payout while the outcome is unknown.
+- `GET /api/treasury/withdrawals/readiness` — owner-authenticated configuration, provider authorization credentials, asset identity, provider balance, on-chain balance and fee budget checks.
+- `POST /api/treasury/withdrawals` — transaction-specific owner-signed transfer request and database reservation.
+- `GET /api/treasury/withdrawals/:idempotencyKey` — lookup and refresh provider transaction status without resubmitting.
+- `POST /api/treasury/withdrawals/:idempotencyKey/verify` — reconcile provider state and independently verify a returned on-chain transaction.
 
-The owner app now stores only the latest payout's non-secret idempotency reference (owner address plus request key) in device storage so it can be looked up after a reload. The owner must unlock the same wallet and authenticate again before status lookup. This reference is not a bearer credential or proof of success; verification still comes from the backend record and confirmed on-chain receipt. If device storage is unavailable, copy the displayed request key before closing the screen.
+## Production readiness checklist
 
-## Production cautions and verification
+- [ ] Eligible provider account and vault exist; access is authorized for the operator.
+- [ ] Provider API user has minimal read/transaction permissions and is protected by provider-side approvals.
+- [ ] API authentication RSA key is installed via a Render secret file, never in Git, APK or chat.
+- [ ] Fireblocks asset metadata maps to the exact official TRON USDT contract.
+- [ ] Exactly one provider address matches `TREASURY_ADDRESS`.
+- [ ] The treasury holds actual official USDT and enough TRX for the configured fee cap.
+- [ ] Owner wallet matches the owner console identity and approves every request with a fresh signature.
+- [ ] Per-payout and daily limits, database idempotency, conservative pending reservations, alerts and pause/recovery procedures are reviewed.
+- [ ] Mock tests and the full Node/build CI pass.
+- [ ] Conduct a small, controlled end-to-end payout with the provider and verify its confirmed transaction on TRON before meaningful value.
+- [ ] Obtain an independent security review before production use.
 
-1. Start with test coverage and a small, controlled Mainnet payout only after independent security review.
-2. The current `env-hot-wallet` signer is a custody risk and has not been independently audited. Prefer a dedicated signer/custody component with enforced transaction policy before storing material assets.
-3. Keep conservative per-transfer and daily limits, database backups, monitoring, alerting, and a documented recovery procedure.
-4. Validate the actual transaction on TRON with its sender, recipient, amount, contract and successful solidified receipt. Do not infer success from a node's broadcast acknowledgement.
-5. External wallet display and exchange deposit credit are controlled by the receiving platform. On-chain confirmation does not guarantee exchange credit.
-6. No transaction can send USDT if the treasury lacks sufficient genuine USDT. The smart-contract compiler cannot create supply in Tether's official token contract.
-
-The automated code checks and APK artifact prove that the current source compiled and tests ran; they do not constitute a live funded Mainnet transfer, a third-party exchange credit, or an independent security audit.
+The repository code alone cannot create provider access, configure the provider's vault or policy, upload credentials to Render, fund the treasury, or prove a successful Mainnet transfer. This integration must remain disabled until those independent setup tasks are complete.

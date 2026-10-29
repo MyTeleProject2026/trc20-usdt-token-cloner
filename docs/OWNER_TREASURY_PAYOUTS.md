@@ -1,68 +1,31 @@
-# Owner-only treasury-backed USDT withdrawals
+# Owner-only treasury payout setup
 
-## What this feature does
+This guide describes the single-owner authorization gate and points to the current managed signing integration. It is not a way to create or mint USDT.
 
-The Wallet Vault is intended for one configured owner, not a public no-auth wallet service. The owner signs the app's one-time wallet-identity challenge. The API accepts a payout only when that authenticated Mainnet address matches `TREASURY_OWNER_ADDRESS`. The private console login address `OWNER_WALLET_ADDRESS` must also exactly match `TREASURY_OWNER_ADDRESS`; mismatches disable the payout route.
+## Owner identity
 
-The withdrawal API signs a transfer using a separate server-side treasury key. Therefore, the owner identity wallet does not need to personally hold the USDT principal if the server treasury is funded. **The treasury must hold the genuine USDT being paid out. This service does not mint, generate, clone, or manufacture USDT.** A zero-balance treasury cannot send USDT.
+The private console uses the existing single-owner wallet-auth challenge/session. Configure `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` to the same owner-controlled Mainnet address, and configure the password hash as described in the owner-auth documentation. A wallet identity session alone does not authorize a payout: each payout request must also include a fresh owner signature tied to the exact recipient, amount, treasury, app origin and idempotency reference.
 
-Only the official TRON Mainnet Tether USDT contract is used by this route: `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`. The route does not create a credit in an exchange's internal ledger. The receiving exchange controls whether and when a deposit is credited.
+Never share passwords, API credentials, secret files, private keys or recovery phrases in chat, source control, APK resources, or logs.
 
-## Render backend environment
+## Managed signer
 
-Configure these values on the **backend API service only**. Never commit credentials, paste them into the APK, or expose them through any `VITE_*` variable.
+The USDT payout route on this feature branch uses the Fireblocks production REST API. Fireblocks holds the vault transaction signing authority; Tron Token Studio sends a bounded transaction request using server-only API credentials. The Fireblocks API authentication RSA key is mounted as a backend secret file; it is not a blockchain private key, and it is never sent to the frontend.
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | Persistent PostgreSQL connection for owner sessions and withdrawal idempotency/reservation records. |
-| `OWNER_WALLET_ADDRESS` | The one public address allowed through the password-protected console login; must match `TREASURY_OWNER_ADDRESS` exactly. |
-| `TATUM_API_KEY` | Provider credential used by the owner panel's read-only funding check. |
-| `FRONTEND_ORIGIN` | Existing hosted frontend origin allowed by the API's CORS policy. Preserve existing entries when changing it. |
-| `PACKAGED_APP_ORIGINS` | Optional additional origin allowlist for the packaged application; use the exact configured origins. |
-| `TREASURY_OWNER_ADDRESS` | Public Mainnet address permitted to authenticate as the owner. The owner must sign the wallet identity challenge for this address. |
-| `TREASURY_ADDRESS` | Public address derived from the server treasury private key; it must match the key and the address reported by the owner funding check. |
-| `TREASURY_PRIVATE_KEY` | **Secret.** Private key for a dedicated Mainnet treasury signer. Server environment only; never in source control, browser storage, application logs, or the APK. |
-| `TREASURY_MAX_PAYOUT_USDT` | Maximum allowed amount per payout, as a positive decimal with at most six fractional digits. |
-| `TREASURY_DAILY_LIMIT_USDT` | Maximum reserved payout principal per UTC/database day, as a positive decimal with at most six fractional digits. |
-| `TREASURY_FEE_LIMIT_SUN` | Integer TRON transaction fee limit in SUN. Choose a conservative value after fee/resource testing; the value is not a source of fees or funds. |
-| `TREASURY_WITHDRAWALS_ENABLED` | Must be exactly `true` to opt in after reviewing all controls. |
-| `TREASURY_SIGNER_MODE` | Must be exactly `env-hot-wallet` for the current implementation. |
+See [TREASURY_WITHDRAWALS.md](TREASURY_WITHDRAWALS.md) for exact endpoints, environment variables, provider policy requirements, and reconciliation rules.
 
-The API also requires valid values for all payout configuration fields and checks that the private key derives exactly `TREASURY_ADDRESS`. Readiness also verifies a positive official-USDT principal balance and a treasury TRX balance at least equal to `TREASURY_FEE_LIMIT_SUN`; the actual withdrawal request repeats the TRX check under the database reservation lock. This is a conservative check of the full configured cap, not a claim that the full amount will be spent. A missing setting, zero principal balance, or insufficient fee budget keeps withdrawals disabled. The local frontend is not permitted to enable this route by itself.
+Required safeguards include:
+- The provider's configured vault account and asset ID must identify the actual official TRON USDT contract.
+- The provider must return exactly one configured TRON address matching `TREASURY_ADDRESS`.
+- Provider-available balance and public on-chain balance must both cover the requested amount after reservations.
+- The real TRX balance must cover the configured fee cap; this branch does not presume automatic fee sponsorship.
+- Provider transaction policy must enforce approved source, asset, recipient rules, and required approvals. The app does not bypass provider review.
+- Each request is owner-signed, idempotent, database-reserved and subject to per-payout and daily limits.
+- Provider-pending and ambiguous requests remain reserved. A new transfer must not be submitted just because the first request has not yet returned a chain hash.
+- A request is only labelled confirmed after independent verification of the solidified TRON transaction, exact sender/recipient/amount, official USDT contract, successful receipt and matching Transfer event.
 
-### Configure the private owner login
+## Important setup limitations
 
-The production smoke check currently identifies these missing/invalid settings on the backend: `OWNER_WALLET_ADDRESS` and `OWNER_PASSWORD_HASH`. The live database and allowed application origins passed their checks. Do not enter placeholder values.
+`TREASURY_WITHDRAWALS_ENABLED` must remain `false` until the provider account, secret file, vault, asset mapping, policy, database and limits have been configured and reviewed. Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The legacy native TRX withdrawal implementation uses a different signer mode and should remain disabled when `TREASURY_SIGNER_MODE=fireblocks`.
 
-1. Set `OWNER_WALLET_ADDRESS` to the public TRON Mainnet address you control and intend to authorize as the sole owner. The payout route separately requires `TREASURY_OWNER_ADDRESS` to match this owner address exactly.
-2. On a trusted local checkout of this repository, run `node scripts/generate-owner-password-hash.mjs` in an interactive terminal. Type and confirm a strong password at least 16 characters long; the prompt does not echo it. The script outputs `OWNER_PASSWORD_HASH=<hash>` using the same scrypt format consumed by the backend.
-3. In Render Dashboard → the **backend API service** → Environment, set `OWNER_WALLET_ADDRESS` to the public address and `OWNER_PASSWORD_HASH` to the hash value only (omit the `OWNER_PASSWORD_HASH=` prefix). Save changes so Render deploys/restarts the service. Do not commit the hash, put it in any `VITE_*` variable, or share the password/hash in chat.
-4. Re-run the production API smoke check. The owner console should report configured only after the backend validates the address/hash format, database presence, and origin allowlists. Then sign in through the frontend owner gate to confirm the credentials; this step does not test treasury funding.
-5. Separately, use the authenticated Wallet Vault treasury check to determine whether a real payout is possible. Owner login configuration alone never establishes that the treasury signer matches its address, that USDT/TRX are present, or that payouts are enabled.
-
-## Owner-console environment check
-
-The public read-only endpoint `GET /api/auth/owner/config` reports only whether the owner address, scrypt password hash, database URL, and allowed application origins are configured. It returns missing **variable names** when setup is incomplete; it never returns the owner address, password hash, database URL, private keys, or other credential values. This endpoint is not proof that treasury withdrawals are enabled or funded.
-
-To verify actual payout readiness, sign into the private owner console, unlock the correct local owner wallet, and use **Sign owner check & read treasury** in Wallet Vault on TRON Mainnet. The authenticated **withdrawals readiness** request checks the configured treasury signer/address relationship, the real official-USDT balance, and fee coverage. If any check is missing or ambiguous, the payout remains disabled. Do not share owner passwords, private keys, recovery phrases, or environment secret values to troubleshoot the configuration.
-
-## Real transfer flow
-
-1. Unlock the configured owner wallet and sign the one-time identity challenge. A typed address alone is not authentication.
-2. Refresh the owner treasury panel. It must read the actual official-USDT balance and identify the same treasury address as the server signer.
-3. Enter a valid TRON recipient, a decimal USDT amount within both configured limits, and type `SEND TREASURY USDT`.
-4. The app signs a separate, short-lived owner authorization message with the unlocked local owner wallet. The signed message binds the app origin, owner, treasury, official USDT contract, recipient, exact six-decimal base-unit amount, idempotency key, and expiry. The private key is never sent to the API. This signature is not a blockchain transaction; it authorizes only the listed payout request.
-5. The backend verifies the recovered signer equals the authenticated owner and rejects changed, expired, or malformed authorization before reserving funds or broadcasting.
-6. The backend serializes payout reservations in PostgreSQL, re-reads the live on-chain balance, and subtracts funds committed to unresolved broadcasts before accepting a new request.
-7. Before reserving USDT, the server checks that the treasury's actual TRX balance covers the configured `TREASURY_FEE_LIMIT_SUN` maximum fee cap. This conservative gate can block a wallet that might have sufficient delegated resources, because this endpoint does not yet integrate a verified gas-sponsorship adapter. The server then signs and broadcasts the official USDT transfer from the funded treasury. **This endpoint does not make the transfer gas-free automatically.**
-8. Use **Verify receipt & look up saved status** with the same stored idempotency key. The verifier checks the transaction body, sender, official contract, recipient, amount, solidified receipt, and the single matching official-USDT `Transfer` event.
-
-A node's broadcast response is only an accepted submission. It is not a successful transaction receipt. If the outcome is ambiguous, keep the original request key and reconcile it; do not create a new key to repeat the payout. Outstanding ambiguous requests remain reserved conservatively until resolved.
-
-## Operational safety
-
-- Use a dedicated treasury wallet and keep its exposure low. The environment hot-wallet mode places a valuable signing secret on the backend and carries custody risk; it has not been independently audited.
-- Do not enable this against a personal wallet or an unreviewed production service. Verify backup/recovery, environment access control, database durability, rate limits, alerting, spend caps, and rollback/reconciliation procedures first.
-- First test application logic with mocked providers and TRON testnet assets. This withdrawal endpoint is Mainnet-only and must not be used for testnet simulations.
-- No Mainnet payout is considered confirmed until the confirmation endpoint verifies the actual transaction and its event. Exchange credit is a separate status that must be observed from authorized exchange records, where available.
-- No amount in this application can make a transaction spendable if real tokens were not transferred to the recipient's address. Do not display fabricated balances as genuine assets.
+The code integration does not create a Fireblocks workspace, generate provider credentials, upload Render secret files, fund the treasury, or prove a real Mainnet payout. No live provider call was performed while implementing this branch. Start with mock-based tests, then complete a small controlled payout and independently verify it on TRON before handling meaningful value. A confirmed chain transfer does not guarantee a recipient exchange credits the deposit; exchange credit must be confirmed by the exchange's own authorized records.
