@@ -774,6 +774,25 @@ export function createTreasuryWithdrawalsRouter({
       const initialSnapshot = await readManagedTreasurySnapshot(treasuryAddress)
       if (!initialSnapshot.ok) return res.status(503).json({ success: false, error: 'treasury-provider-funding-not-verified', reason: initialSnapshot.reason, submissionEnabled: false })
       if (!initialSnapshot.networkFeeCapCovered) return res.status(409).json({ success: false, error: 'treasury-trx-insufficient-for-fee-cap', treasuryTrxBalanceSun: initialSnapshot.treasuryTrxBalanceSun, requiredFeeLimitSun: String(configuredFeeLimit), submissionEnabled: false })
+      const initialTrxSnapshot = await readManagedTrxSnapshot(treasuryAddress)
+      if (!initialTrxSnapshot.ok) return res.status(503).json({
+        success: false, error: 'treasury-trx-provider-funding-not-verified',
+        reason: initialTrxSnapshot.reason, submissionEnabled: false,
+      })
+      let initialTrxAvailability
+      try {
+        initialTrxAvailability = await readManagedTrxAvailability(db, treasuryAddress, initialTrxSnapshot, config, false)
+      } catch {
+        return res.status(503).json({ success: false, error: 'treasury-trx-reservations-unavailable', submissionEnabled: false })
+      }
+      if (initialTrxAvailability.availableSun < config.feeLimit) return res.status(409).json({
+        success: false,
+        error: 'treasury-trx-insufficient-after-reservations',
+        availableTrxAfterReservationsSun: initialTrxAvailability.availableSun.toString(),
+        requiredFeeLimitSun: String(configuredFeeLimit),
+        message: 'The managed vault must have enough verified native TRX for the fee cap after outstanding TRX principal, existing payout fee reservations and the treasury reserve.',
+        submissionEnabled: false,
+      })
       const chainContract = await tronWeb.contract(ABI).at(USDT_MAINNET)
 
       const client = await db.connect()
@@ -800,18 +819,36 @@ export function createTreasuryWithdrawalsRouter({
           return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
         }
 
-        // Re-read the treasury's actual native TRX before reserving principal.
-        // This path conservatively requires the full configured fee cap to be
-        // available, rather than assuming an external gas sponsor will cover it.
-        const nativeBalanceSun = String(await tronWeb.trx.getBalance(treasuryAddress))
-        if (!treasuryFeeCapCovered(nativeBalanceSun, configuredFeeLimit)) {
+        // Re-read provider-available and actual on-chain TRX under the same
+        // cross-asset lock. Reserve unresolved TRX principal, existing USDT/TRX
+        // fee caps, and the configured treasury floor before accepting this USDT payout.
+        const nativeSnapshot = await readManagedTrxSnapshot(treasuryAddress)
+        if (!nativeSnapshot.ok) {
+          await client.query('ROLLBACK')
+          return res.status(503).json({
+            success: false,
+            error: 'treasury-trx-provider-funding-not-verified',
+            reason: nativeSnapshot.reason,
+            submissionEnabled: false,
+          })
+        }
+        let trxAvailability
+        try {
+          trxAvailability = await readManagedTrxAvailability(client, treasuryAddress, nativeSnapshot, config, false)
+        } catch {
+          await client.query('ROLLBACK')
+          return res.status(503).json({ success: false, error: 'treasury-trx-reservations-unavailable', submissionEnabled: false })
+        }
+        if (trxAvailability.availableSun < config.feeLimit) {
           await client.query('ROLLBACK')
           return res.status(409).json({
             success: false,
-            error: 'treasury-trx-insufficient-for-fee-cap',
-            treasuryTrxBalanceSun: /^(0|[1-9][0-9]{0,20})$/.test(nativeBalanceSun) ? nativeBalanceSun : null,
+            error: 'treasury-trx-insufficient-after-reservations',
+            treasuryTrxBalanceSun: nativeSnapshot.chainBalanceSun.toString(),
+            providerAvailableTrxSun: nativeSnapshot.providerAvailableSun.toString(),
+            availableTrxAfterReservationsSun: trxAvailability.availableSun.toString(),
             requiredFeeLimitSun: String(configuredFeeLimit),
-            message: 'The treasury must hold enough real TRX to cover the configured fee cap before the payout is reserved. No USDT was sent.',
+            message: 'No USDT was submitted. Verified native TRX must cover the fee cap after all unresolved payout reservations and the treasury reserve.',
           })
         }
 
