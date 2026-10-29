@@ -80,7 +80,7 @@ The UI already separates read-only diagnostics, testnet sponsor operations, dire
 
 - [ ] Upgrade/migrate PostgreSQL to a durable plan, verify data and confirm the active backend connection uses the intended database.
 - [ ] Set the backend service to **After CI Checks Pass** in Render and verify the setting.
-- [ ] Confirm a successful public API smoke run after the latest environment update.
+- [x] Confirm a successful public API smoke run after the latest environment update ([run #40951784898](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40951784898)).
 - [ ] Receive and independently verify a real sponsor agreement/mandate and funded sponsor account(s) for the exact network, USDT contract, principal and fees.
 - [ ] Complete a controlled authorized testnet sponsor transfer and independently verify the solidified receipt, exact recipient/amount/token event, and settled sponsor cost.
 - [ ] Complete independent security/operator review before considering any Mainnet submission.
