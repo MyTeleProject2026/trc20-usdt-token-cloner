@@ -109,7 +109,7 @@ export function inspectProductionEnvironment(env = process.env, { fileExists = e
 
   const positiveDecimal6 = (value) => {
     if (typeof value !== 'string' || value.length > 86
-      || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(value)) return false
+      || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
     const [whole, fraction = ''] = value.split('.')
     if (whole.length > 78) return false
     return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
