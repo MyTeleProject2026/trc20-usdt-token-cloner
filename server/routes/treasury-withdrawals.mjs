@@ -418,7 +418,13 @@ export function verifyTreasuryTrxTransferEvidence(tronWeb, {
 export function createTreasuryWithdrawalsRouter({
   env = process.env,
   sessionLookup = getWalletAuthSession,
-  tronWebFactory = (privateKey) => new TronWeb({ fullHost: MAINNET_RPC, privateKey }),
+  tronWebFactory = (privateKey) => new TronWeb({
+    fullHost: MAINNET_RPC,
+    privateKey,
+    ...(typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()
+      ? { headers: { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim() } }
+      : {}),
+  }),
   now = () => new Date(),
 } = {}) {
   const router = Router()
