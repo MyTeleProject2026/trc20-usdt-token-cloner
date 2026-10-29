@@ -92,6 +92,8 @@ async function ensureSchema(db) {
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_fee_reserve_idx
+        ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, status)`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_trx_withdrawal_requests (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -115,6 +117,8 @@ async function ensureSchema(db) {
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_trx_withdrawal_fee_reserve_idx
+        ON trc20_token_clone.treasury_trx_withdrawal_requests (treasury_address, status)`)
     })().catch((error) => { schemaPromise = null; throw error })
   }
   await schemaPromise
