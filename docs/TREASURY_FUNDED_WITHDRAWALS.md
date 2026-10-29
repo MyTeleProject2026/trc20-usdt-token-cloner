@@ -56,7 +56,7 @@ A gas-sponsorship provider may cover eligible transaction fees under its terms, 
 
 ## Current feature-branch integration status (2026-10-29)
 
-The existing main branch already has the single-owner login gate, treasury balance reads, per-request owner signature, database reservations, payout caps, idempotency ledger, and on-chain receipt verification. The feature branch adds a Fireblocks-managed USDT signing adapter to avoid loading the treasury's blockchain private key in the application environment.
+The main branch includes the single-owner login gate, treasury balance reads, per-request owner signature, database reservations, payout caps, an idempotency ledger, and independent on-chain receipt verification. The USDT and native-TRX payout paths use a managed Fireblocks vault signer instead of loading the treasury's blockchain private key into the application. Native TRX uses a separate configured provider asset ID and requires exact native-asset metadata plus a matching Fireblocks vault address.
 
 The managed USDT route expects:
 - `TREASURY_SIGNER_MODE=fireblocks`, `TREASURY_WITHDRAWALS_ENABLED=true` only after review, and the existing single owner address configuration.
