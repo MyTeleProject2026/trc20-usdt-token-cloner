@@ -52,6 +52,8 @@ test('USDT payout configuration fails closed without a separately identified nat
   const featureDisabled = treasuryUsdtConfiguration({
     ...base, FIREBLOCKS_TRX_ASSET_ID: 'TRX', TREASURY_WITHDRAWALS_ENABLED: 'false',
   })
+  assert.equal(featureDisabled.configurationComplete, true, 'readiness configuration can be validated while the transfer gate is disabled')
+  assert.equal(featureDisabled.featureFlagEnabled, false)
   assert.equal(featureDisabled.enabled, false, 'the environment feature gate remains authoritative')
 })
 
@@ -302,4 +304,106 @@ test('withdrawal idempotency binds an existing key to the exact owner, treasury,
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, recipientAddress: treasuryAddress }), false)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, amountBaseUnits: '1' }), false)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, ownerAddress: recipientAddress }), false)
+})
+
+test('USDT readiness still probes provider and chain funding while transfer submission remains disabled', async (t) => {
+  const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const treasury = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+  const usdtContract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const usdtAssetId = 'TRON_USDT'
+  const trxAssetId = 'TRX'
+  const sessionToken = 'a'.repeat(43)
+  const env = {
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: treasury,
+    TREASURY_WITHDRAWALS_ENABLED: 'false',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    FIREBLOCKS_API_KEY: 'test-provider-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/tmp/fireblocks-api-key.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: usdtAssetId,
+    FIREBLOCKS_TRX_ASSET_ID: trxAssetId,
+  }
+  let metadataReads = 0
+  let balanceReads = 0
+  const app = express()
+  app.use('/api/treasury', createTreasuryWithdrawalsRouter({
+    env,
+    sessionLookup: async ({ tokenHash, origin }) => ({
+      success: true,
+      session: {
+        address: owner,
+        network: 'mainnet',
+        origin,
+      },
+    }),
+    tronWebFactory: () => ({
+      isAddress: (value) => typeof value === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value),
+      address: {
+        toHex: (value) => value === usdtContract
+          ? '41' + '33'.repeat(20)
+          : value === treasury
+            ? '41' + '11'.repeat(20)
+            : value === owner
+              ? '41' + '22'.repeat(20)
+              : '',
+      },
+      trx: { getBalance: async (address) => {
+        assert.equal(address, treasury)
+        balanceReads += 1
+        return '100000000'
+      } },
+      contract: () => ({
+        at: async (address) => {
+          assert.equal(address, usdtContract)
+          return {
+            decimals: () => ({ call: async () => 6 }),
+            symbol: () => ({ call: async () => 'USDT' }),
+            balanceOf: (address) => ({ call: async () => {
+              assert.equal(address, treasury)
+              return '1000000'
+            } }),
+          }
+        },
+      }),
+    }),
+    fireblocksClientFactory: () => ({
+      isConfigured: () => true,
+      isTrxAssetConfigured: () => true,
+      getAssetMetadata: async (assetId = usdtAssetId) => {
+        metadataReads += 1
+        return assetId === trxAssetId
+          ? { id: trxAssetId, assetClass: 'NATIVE', symbol: 'TRX', decimals: 6 }
+          : { id: usdtAssetId, contractAddress: usdtContract }
+      },
+      getVaultAccountAsset: async (assetId = usdtAssetId) => ({ id: assetId, available: '1' }),
+      getAssetAddresses: async () => ({ addresses: [treasury] }),
+    }),
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/treasury/withdrawals/readiness`, {
+    headers: {
+      authorization: 'Bearer ' + sessionToken,
+      origin: 'https://owner.example',
+    },
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.configuration.configurationComplete, false, 'database config is intentionally absent in this fixture')
+  assert.equal(payload.configuration.featureFlagEnabled, false)
+  assert.equal(payload.configuration.enabled, false)
+  assert.equal(payload.withdrawalsEnabled, false)
+  assert.ok(payload.payoutBlockers.includes('usdt-payout-feature-disabled'))
+  assert.ok(payload.payoutBlockers.includes('database-not-ready'))
+  assert.equal(payload.providerAssetIdentityVerified, true, 'readiness should still verify Fireblocks asset metadata')
+  assert.equal(payload.providerVaultAddressVerified, true, 'readiness should still verify the configured vault address')
+  assert.equal(payload.nativeTrxAssetIdentityVerified, true)
+  assert.ok(metadataReads >= 2)
+  assert.ok(balanceReads >= 1)
 })
