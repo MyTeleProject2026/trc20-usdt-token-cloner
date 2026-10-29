@@ -46,7 +46,7 @@ Set these in the **backend Render service only**. Do not send credentials in cha
 | `TRONGRID_API_KEY` | Optional server-side read-provider key; never required as a wallet signing secret |
 | `DATABASE_SSL` | Optional strict TLS for external PostgreSQL where appropriate |
 
-Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does not accept or derive a blockchain private key from the Render environment. The separate legacy native-TRX payout path is disabled in Fireblocks mode; this integration is specifically for USDT withdrawals.
+Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks-managed USDT or native-TRX payout path. The managed routes do not load a treasury blockchain private key from Render. Both asset types require provider metadata and the exact vault address to be verified, and both withdrawal flags stay disabled until the relevant fee reservations, budgets, approvals and tests are reviewed.
 
 ## Request flow and fail-closed behavior
 
