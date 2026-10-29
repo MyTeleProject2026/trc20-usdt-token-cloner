@@ -2044,6 +2044,60 @@ export default function WalletVault() {
                 </section>
               )}
 
+              <section id="wallet-vault-trx-payout" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-trx-payout-heading" hidden={activePanel !== 'treasury'}>
+                <div className="wallet-vault-panel-head">
+                  <span className="wallet-vault-step">04</span>
+                  <div><h2 id="wallet-vault-trx-payout-heading">Managed native TRX treasury payout</h2><p>Send genuine TRX from the verified organization treasury using the managed Fireblocks signer. The owner wallet signs only the exact request.</p></div>
+                </div>
+                <div className="wallet-vault-transfer-warning" role="note">
+                  <strong>Real Mainnet funds only</strong>
+                  <p>This route is separate from sending TRX held by the local owner wallet. It requires a correctly configured Fireblocks vault, verified native-TRX asset, actual TRX balances, remaining fee reserves, daily limits and database reservations. Provider acceptance is not confirmation, and a receiving exchange controls deposit credit.</p>
+                </div>
+                {serverTrxTreasuryReadiness && (
+                  <div className="wallet-vault-review-grid">
+                    <div className="wallet-vault-review-wide"><small>Managed treasury address</small><strong>{serverTrxTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
+                    <div><small>Native TRX payout readiness</small><strong>{serverTrxTreasuryReadiness.trxWithdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+                    <div><small>Verified on-chain TRX</small><strong>{typeof serverTrxTreasuryReadiness.treasuryTrxBalanceSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                    <div><small>Fireblocks available TRX</small><strong>{typeof serverTrxTreasuryReadiness.providerAvailableSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.providerAvailableSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                    <div><small>Spendable after reserves</small><strong>{typeof serverTrxTreasuryReadiness.availableTrxSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.availableTrxSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                    <div><small>Reserved USDT fee cap</small><strong>{typeof serverTrxTreasuryReadiness.pendingUsdtFeeReserveSun === 'string' ? formatUnits(serverTrxTreasuryReadiness.pendingUsdtFeeReserveSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+                  </div>
+                )}
+                {serverTrxTreasuryReadiness?.trxWithdrawalsEnabled !== true && (
+                  <div className="wallet-vault-transfer-warning" role="status">
+                    <strong>Native TRX payouts are fail-closed</strong>
+                    <p>No transfer can be submitted unless the managed signer, native TRX metadata, vault address, live balances, database, limits and fee reserves all pass.</p>
+                    {Array.isArray(serverTrxTreasuryReadiness?.configuration?.missing) && serverTrxTreasuryReadiness.configuration.missing.length > 0 && (
+                      <p><strong>Configuration required:</strong> {serverTrxTreasuryReadiness.configuration.missing.join(', ')}</p>
+                    )}
+                    {Array.isArray(serverTrxTreasuryReadiness?.payoutBlockers) && serverTrxTreasuryReadiness.payoutBlockers.length > 0 && (
+                      <p><strong>Current blockers:</strong> {serverTrxTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
+                    )}
+                  </div>
+                )}
+                <div className="wallet-vault-form-grid">
+                  <label className="wallet-vault-field"><span>Recipient TRON address</span><input value={treasuryTrxPayoutRecipient} onChange={event => setTreasuryTrxPayoutRecipient(event.target.value.trim())} placeholder="T..." autoComplete="off" /></label>
+                  <label className="wallet-vault-field"><span>TRX amount</span><input value={treasuryTrxPayoutAmount} onChange={event => setTreasuryTrxPayoutAmount(event.target.value)} placeholder="0.00" inputMode="decimal" autoComplete="off" /></label>
+                  <label className="wallet-vault-field wallet-vault-review-wide"><span>Type SEND TREASURY TRX to confirm</span><input value={treasuryTrxPayoutConfirm} onChange={event => setTreasuryTrxPayoutConfirm(event.target.value)} placeholder="SEND TREASURY TRX" autoComplete="off" /></label>
+                </div>
+                <button type="button" className="wallet-vault-primary" disabled={treasuryTrxPayoutBusy || ownerTreasuryLoading || !canSubmitServerTreasuryTrxPayout} onClick={() => void submitServerTreasuryTrxPayout()}>
+                  <ShieldCheck size={16} /> {treasuryTrxPayoutBusy ? 'Processing TRX payout request…' : 'Send genuine TRX from managed treasury'}
+                </button>
+                {treasuryTrxPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryTrxPayoutError}</p>}
+                {treasuryTrxPayoutStatus && (
+                  <div className="wallet-vault-review-grid">
+                    <div><small>Request status</small><strong>{treasuryTrxPayoutStatus.withdrawal?.status || treasuryTrxPayoutStatus.status || 'unknown'}</strong></div>
+                    <div className="wallet-vault-review-wide"><small>Idempotency key</small><strong>{treasuryTrxPayoutStatus.withdrawal?.idempotencyKey || treasuryTrxPayoutStatus.idempotencyKey || 'Unavailable'}</strong></div>
+                    {(treasuryTrxPayoutStatus.withdrawal?.transactionHash || treasuryTrxPayoutStatus.transactionHash) && (
+                      <div className="wallet-vault-review-wide"><small>TRON transaction</small><a href={explorerTransactionUrl('mainnet', treasuryTrxPayoutStatus.withdrawal?.transactionHash || treasuryTrxPayoutStatus.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryTrxPayoutStatus.withdrawal?.transactionHash || treasuryTrxPayoutStatus.transactionHash} ↗</a></div>
+                    )}
+                    <div className="wallet-vault-review-wide"><small>Confirmation status</small><strong>{treasuryTrxPayoutStatus.verification?.status || 'Not yet independently confirmed'}</strong></div>
+                  </div>
+                )}
+                <button type="button" className="wallet-vault-secondary" disabled={treasuryTrxPayoutBusy || !treasuryTrxPayoutStatus} onClick={() => void lookupServerTreasuryTrxPayout()}>Verify native TRX receipt & look up request</button>
+                <p className="wallet-vault-caption">This is a real treasury payout flow, not a promise of external fee sponsorship. It will not fabricate balances or show a payout as complete without matching confirmed on-chain evidence.</p>
+              </section>
+
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
