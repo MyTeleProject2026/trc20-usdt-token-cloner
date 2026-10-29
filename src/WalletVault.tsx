@@ -1071,6 +1071,152 @@ export default function WalletVault() {
     }
   }
 
+  async function submitServerTreasuryTrxPayout() {
+    if (!unlocked || network !== 'mainnet') {
+      setTreasuryTrxPayoutError('Unlock the owner wallet and select TRON Mainnet first.')
+      return
+    }
+    if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true) {
+      setTreasuryTrxPayoutError('Verify the owner wallet signature before requesting a treasury TRX payout.')
+      return
+    }
+    if (treasuryTrxPayoutConfirm !== 'SEND TREASURY TRX') {
+      setTreasuryTrxPayoutError('Type SEND TREASURY TRX exactly to confirm this real Mainnet payout.')
+      return
+    }
+    if (!ADDRESS_PATTERN.test(treasuryTrxPayoutRecipient)) {
+      setTreasuryTrxPayoutError('Enter a valid TRON recipient address.')
+      return
+    }
+    const amountSun = parsePositiveTrxAmount(treasuryTrxPayoutAmount)
+    if (!amountSun) {
+      setTreasuryTrxPayoutError('Enter a positive TRX amount with at most six decimal places.')
+      return
+    }
+    setTreasuryTrxPayoutBusy(true)
+    setTreasuryTrxPayoutError('')
+    setTreasuryTrxPayoutStatus(null)
+    const idempotencyKey = 'trx-withdrawal-' + crypto.randomUUID()
+    const referenceSaved = saveTreasuryTrxPayoutReference(unlocked.record.address, idempotencyKey)
+    setTreasuryTrxPayoutStatus({
+      status: 'request-started',
+      idempotencyKey,
+      ownerAddress: unlocked.record.address,
+      ...(!referenceSaved ? { note: 'The request key is visible here but could not be saved in device storage. Copy it before closing this screen.' } : {}),
+    })
+    try {
+      const treasuryAddress = serverTrxTreasuryReadiness?.treasuryAddress
+      if (!ADDRESS_PATTERN.test(treasuryAddress || '')
+        || treasuryAddress !== ownerTreasurySnapshot?.treasuryAddress) {
+        throw new Error('The provider vault address and verified treasury snapshot do not match. No TRX payout was submitted.')
+      }
+      const authorizationExpiresAt = Date.now() + 90_000
+      const authorizationMessage = buildTreasuryTrxWithdrawalAuthorizationMessage({
+        origin: window.location.origin,
+        ownerAddress: unlocked.record.address,
+        treasuryAddress,
+        recipientAddress: treasuryTrxPayoutRecipient,
+        amountSun,
+        idempotencyKey,
+        authorizationExpiresAt,
+      })
+      const localSigner = createTronWeb('mainnet', unlocked.privateKey)
+      const ownerAuthorizationSignature = await localSigner.trx.signMessageV2(authorizationMessage)
+      if (typeof ownerAuthorizationSignature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(ownerAuthorizationSignature)) {
+        throw new Error('The local wallet did not return a valid owner authorization signature. No payout was submitted.')
+      }
+      const response = await fetch(API_BASE + '/api/treasury/trx-withdrawals', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({
+          recipientAddress: treasuryTrxPayoutRecipient,
+          amountTrx: treasuryTrxPayoutAmount,
+          idempotencyKey,
+          ownerAuthorizationSignature,
+          authorizationExpiresAt,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      setTreasuryTrxPayoutStatus(payload && typeof payload === 'object' ? payload : { status: 'invalid-response', idempotencyKey })
+      if (!response.ok || payload?.success !== true) {
+        setTreasuryTrxPayoutError(typeof payload?.error === 'string'
+          ? payload.error + (typeof payload?.note === 'string' ? ': ' + payload.note : '')
+          : 'Treasury TRX payout was not confirmed. Check the original request before retrying.')
+      } else {
+        setTreasuryTrxPayoutAmount('')
+        setTreasuryTrxPayoutConfirm('')
+        setNotice('Native TRX payout request recorded. Verify the confirmed solidified TRON transaction before treating it as complete.')
+        const readinessResponse = await fetch(API_BASE + '/api/treasury/trx-withdrawals/readiness', {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+        const readiness = await readinessResponse.json().catch(() => null)
+        if (readiness && typeof readiness === 'object') setServerTrxTreasuryReadiness(readiness)
+      }
+    } catch {
+      setTreasuryTrxPayoutError('The outcome could not be read. Do not create a new request key until you query the original request and verify its chain status.')
+      setTreasuryTrxPayoutStatus({ status: 'request-outcome-unknown', idempotencyKey })
+    } finally {
+      setTreasuryTrxPayoutBusy(false)
+    }
+  }
+
+  async function lookupServerTreasuryTrxPayout() {
+    const key = treasuryTrxPayoutStatus?.withdrawal?.idempotencyKey || treasuryTrxPayoutStatus?.idempotencyKey
+    if (!ownerSessionToken || typeof key !== 'string') {
+      setTreasuryTrxPayoutError('There is no saved native-TRX request key to look up.')
+      return
+    }
+    setTreasuryTrxPayoutBusy(true)
+    setTreasuryTrxPayoutError('')
+    try {
+      const verifyResponse = await fetch(API_BASE + '/api/treasury/trx-withdrawals/' + encodeURIComponent(key) + '/verify', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const verification = await verifyResponse.json().catch(() => null)
+      if (verifyResponse.status >= 500) {
+        throw new Error(typeof verification?.error === 'string' ? verification.error : 'On-chain TRX receipt verification is temporarily unavailable.')
+      }
+      const response = await fetch(API_BASE + '/api/treasury/trx-withdrawals/' + encodeURIComponent(key), {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Native-TRX withdrawal lookup failed.')
+      setTreasuryTrxPayoutStatus({ ...payload, verification: verification?.verification || null })
+      if (verification?.verification?.status === 'confirmed') {
+        setNotice('The exact treasury sender, recipient, native TRX amount and confirmed solidified transfer were verified on TRON.')
+      } else if (verification?.verification?.status === 'failed') {
+        setTreasuryTrxPayoutError('The transaction is confirmed on-chain but the native transfer did not succeed. No successful TRX payout was verified.')
+      } else if (verification?.verification?.status === 'verification-mismatch') {
+        setTreasuryTrxPayoutError('The transaction does not match the saved payout intent. Treat it as unverified and investigate before any retry.')
+      } else {
+        setNotice('The request record was loaded. A provider response or transaction hash alone is not confirmation.')
+      }
+    } catch (caught) {
+      setTreasuryTrxPayoutError(caught instanceof Error ? caught.message : 'Native-TRX withdrawal lookup failed.')
+    } finally {
+      setTreasuryTrxPayoutBusy(false)
+    }
+  }
+
   async function selectTreasuryUsdtSender() {
     if (!unlocked) throw new Error('Unlock the treasury wallet locally before preparing a payout.')
     if (network !== 'mainnet') throw new Error('Treasury payouts are available only on TRON Mainnet.')
