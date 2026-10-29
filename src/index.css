@@ -1067,3 +1067,45 @@ main .grid > button[aria-pressed] > span {
   .wallet-vault-quick-action { transition: none; }
   .wallet-vault-quick-action:active { transform: none; }
 }
+
+
+/* Honest live API connection status; readiness of money-moving services is separate. */
+.wallet-vault-api-health {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 4px;
+  padding: 13px 14px;
+  border: 1px solid #2a4940;
+  border-radius: 12px;
+  background: rgba(6, 20, 19, .8);
+}
+.wallet-vault-api-health-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #93a69e;
+  box-shadow: 0 0 0 4px rgba(147, 166, 158, .12);
+}
+.wallet-vault-api-health.is-online { border-color: #286b4e; }
+.wallet-vault-api-health.is-online .wallet-vault-api-health-dot {
+  background: #68e6ad;
+  box-shadow: 0 0 0 4px rgba(104, 230, 173, .13);
+}
+.wallet-vault-api-health.is-offline { border-color: #78513b; }
+.wallet-vault-api-health.is-offline .wallet-vault-api-health-dot {
+  background: #f1ae73;
+  box-shadow: 0 0 0 4px rgba(241, 174, 115, .13);
+}
+.wallet-vault-api-health-copy { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.wallet-vault-api-health-copy strong { color: #e2fff3; font-size: 11px; }
+.wallet-vault-api-health-copy small { color: #91b3a7; font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
+.wallet-vault-api-health-copy .wallet-vault-api-health-error { color: #ffd0a9; }
+.wallet-vault-api-health-refresh { flex: 0 0 auto; min-height: 34px; padding: 0 10px; white-space: nowrap; }
+@media (max-width: 560px) {
+  .wallet-vault-api-health { align-items: flex-start; flex-wrap: wrap; }
+  .wallet-vault-api-health-copy { flex-basis: calc(100% - 24px); }
+  .wallet-vault-api-health-refresh { width: 100%; }
+}
