@@ -49,6 +49,31 @@ test('Fireblocks integration remains disabled when required provider configurati
   assert.ok(status.missing.includes('FIREBLOCKS_USDT_ASSET_ID'))
 })
 
+test('native TRX asset metadata must match the configured Fireblocks ID, native asset class and TRX symbol', () => {
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRX',
+    legacyId: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'TRX', name: 'TRON' },
+  }, 'TRX'), true)
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRC20_WRONG',
+    legacyId: 'TRX',
+    assetClass: 'FT',
+    onchain: { symbol: 'TRX' },
+  }, 'TRX'), false)
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'USDT' },
+  }, 'TRX'), false)
+  assert.equal(isOfficialFireblocksNativeTrxAsset({
+    id: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'TRX' },
+  }, ''), false)
+})
+
 test('Fireblocks accepts only an absolute mounted secret-file path and known production API origin', () => {
   assert.equal(fireblocksConfiguration(configuredEnv).configured, true)
   assert.equal(fireblocksConfiguration({
