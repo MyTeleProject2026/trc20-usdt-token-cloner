@@ -36,16 +36,20 @@ export function fireblocksConfiguration(env = process.env) {
   const apiBaseInput = typeof env.FIREBLOCKS_API_BASE === 'string' && env.FIREBLOCKS_API_BASE.trim()
     ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '')
     : DEFAULT_API_BASE
-  const missing = []
-  if (!apiKey) missing.push('FIREBLOCKS_API_KEY')
+  const providerMissing = []
+  if (!apiKey) providerMissing.push('FIREBLOCKS_API_KEY')
   // This is the Fireblocks API-user RSA credential, not a blockchain wallet key.
   // Transaction signing is performed by Fireblocks custody infrastructure.
-  if (!secretKeyPath || !isAbsolute(secretKeyPath)) missing.push('FIREBLOCKS_SECRET_KEY_PATH')
-  if (!/^\d{1,32}$/.test(vaultAccountId)) missing.push('FIREBLOCKS_VAULT_ACCOUNT_ID')
+  if (!secretKeyPath || !isAbsolute(secretKeyPath)) providerMissing.push('FIREBLOCKS_SECRET_KEY_PATH')
+  if (!/^\d{1,32}$/.test(vaultAccountId)) providerMissing.push('FIREBLOCKS_VAULT_ACCOUNT_ID')
+  if (!ALLOWED_API_BASES.has(apiBaseInput)) providerMissing.push('FIREBLOCKS_API_BASE (unsupported production URL)')
+  const missing = [...providerMissing]
   if (!IDENTIFIER_PATTERN.test(usdtAssetId)) missing.push('FIREBLOCKS_USDT_ASSET_ID')
-  if (!ALLOWED_API_BASES.has(apiBaseInput)) missing.push('FIREBLOCKS_API_BASE (unsupported production URL)')
+  const providerConfigured = providerMissing.length === 0
   return {
-    configured: missing.length === 0,
+    configured: providerConfigured && IDENTIFIER_PATTERN.test(usdtAssetId),
+    providerConfigured,
+    providerMissing,
     missing,
     apiKey,
     secretKeyPath,
@@ -237,7 +241,7 @@ export function createFireblocksClient(env = process.env, {
   const config = fireblocksConfiguration(env)
 
   async function request(method, uri, payload) {
-    if (!config.configured) throw new FireblocksApiError(503, 'fireblocks-not-configured')
+    if (!config.providerConfigured) throw new FireblocksApiError(503, 'fireblocks-not-configured')
     if (typeof fetchImpl !== 'function') throw new FireblocksApiError(503, 'fetch-unavailable')
     if (typeof uri !== 'string' || !uri.startsWith('/v1/') || uri.includes('://') || uri.includes('#')) {
       throw new FireblocksApiError(400, 'invalid-fireblocks-path')
@@ -301,11 +305,14 @@ export function createFireblocksClient(env = process.env, {
 
   return Object.freeze({
     isConfigured: () => config.configured,
-    isTrxAssetConfigured: () => config.configured && config.trxAssetConfigured,
+    isProviderConfigured: () => config.providerConfigured,
+    isTrxAssetConfigured: () => config.providerConfigured && config.trxAssetConfigured,
     configuration: () => ({
       configured: config.configured,
+      providerConfigured: config.providerConfigured,
       missing: [...config.missing],
-      trxAssetConfigured: config.trxAssetConfigured,
+      providerMissing: [...config.providerMissing],
+      trxAssetConfigured: config.providerConfigured && config.trxAssetConfigured,
       missingTrxAsset: config.trxAssetConfigured ? [] : ['FIREBLOCKS_TRX_ASSET_ID'],
       apiBase: config.apiBase,
     }),
@@ -345,6 +352,7 @@ export function createFireblocksClient(env = process.env, {
       throw new FireblocksApiError(502, 'fireblocks-address-pagination-limit')
     },
     async createUsdtTransfer({ recipientAddress, amountUsdt, externalTxId, note } = {}) {
+      if (!config.configured) throw new FireblocksApiError(503, 'fireblocks-usdt-asset-not-configured')
       if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
         || typeof amountUsdt !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
         || !IDENTIFIER_PATTERN.test(externalTxId || '')) {
@@ -362,7 +370,7 @@ export function createFireblocksClient(env = process.env, {
       return request('POST', '/v1/transactions', requestBody)
     },
     async createTrxTransfer({ recipientAddress, amountTrx, externalTxId, note } = {}) {
-      if (!config.configured || !config.trxAssetConfigured) {
+      if (!config.providerConfigured || !config.trxAssetConfigured) {
         throw new FireblocksApiError(503, 'fireblocks-trx-asset-not-configured')
       }
       if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
