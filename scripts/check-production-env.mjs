@@ -99,13 +99,40 @@ export function inspectProductionEnvironment(env = process.env, { fileExists = e
     : check(present(env.OWNER_PASSWORD_HASH) ? 'invalid' : 'missing', 'Generate locally with node scripts/generate-owner-password-hash.mjs.')
   , { error: !OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '') })
 
-  const treasuryAddressValid = !present(env.TREASURY_ADDRESS) || isValidTronAddress(env.TREASURY_ADDRESS)
+  const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
   add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
     ? check('missing', 'Required for managed payouts; do not guess this address.')
     : treasuryAddressValid
       ? check('configured', 'Valid address syntax only; it must match the actual Fireblocks vault address.')
       : check('invalid', 'Must be a valid TRON Base58Check address.')
-  , { error: present(env.TREASURY_ADDRESS) && !treasuryAddressValid })
+  , { error: !treasuryAddressValid })
+
+  const positiveDecimal6 = (value) => {
+    if (typeof value !== 'string' || value.length > 86
+      || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(value)) return false
+    const [whole, fraction = ''] = value.split('.')
+    if (whole.length > 78) return false
+    return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
+  }
+  for (const key of ['TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX']) {
+    const valid = positiveDecimal6(env[key])
+    add(key, valid
+      ? check('configured', 'Positive decimal limit with at most six fractional digits; operator approval is not verified.')
+      : check(present(env[key]) ? 'invalid' : 'missing', 'Set a positive decimal payout/daily limit, up to six decimal places.')
+    , { error: !valid })
+  }
+
+  const feeLimitText = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
+  const feeLimitValid = /^[1-9][0-9]{0,9}$/.test(feeLimitText) && BigInt(feeLimitText || '0') <= 1_000_000_000n
+  add('TREASURY_FEE_LIMIT_SUN', feeLimitValid
+    ? check('configured', 'Positive integer fee cap in SUN; must be approved and covered by actual TRX.')
+    : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee cap in SUN, no greater than 1000000000.')
+  , { error: !feeLimitValid })
+
+  add('TREASURY_SIGNER_MODE', env.TREASURY_SIGNER_MODE === 'fireblocks'
+    ? check('configured', 'Managed Fireblocks signer selected.')
+    : check(present(env.TREASURY_SIGNER_MODE) ? 'invalid' : 'missing', 'Use fireblocks; the legacy application-held-key path is not an approved payout fallback.')
+  , { error: env.TREASURY_SIGNER_MODE !== 'fireblocks' })
 
   const fireblocksBase = present(env.FIREBLOCKS_API_BASE) ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : 'https://api.fireblocks.io'
   add('FIREBLOCKS_API_BASE', FIREBLOCKS_API_BASES.has(fireblocksBase)
@@ -164,18 +191,18 @@ export function inspectProductionEnvironment(env = process.env, { fileExists = e
     }
   }
 
-  for (const [key, first, second] of [
-    ['GASFREE_MAINNET_CREDENTIAL_PAIR', 'GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET'],
-    ['GASFREE_NILE_CREDENTIAL_PAIR', 'GASFREE_NILE_API_KEY', 'GASFREE_NILE_API_SECRET'],
-    ['OKX_API_CREDENTIAL_SET', 'OKX_API_KEY', 'OKX_API_SECRET'],
+  for (const [key, requiredKeys] of [
+    ['GASFREE_MAINNET_CREDENTIAL_PAIR', ['GASFREE_MAINNET_API_KEY', 'GASFREE_MAINNET_API_SECRET']],
+    ['GASFREE_NILE_CREDENTIAL_PAIR', ['GASFREE_NILE_API_KEY', 'GASFREE_NILE_API_SECRET']],
+    ['OKX_API_CREDENTIAL_SET', ['OKX_API_KEY', 'OKX_API_SECRET', 'OKX_API_PASSPHRASE']],
   ]) {
-    const count = Number(present(env[first])) + Number(present(env[second]))
+    const count = requiredKeys.filter((name) => present(env[name])).length
     add(key, count === 0
       ? check('not-configured', 'Optional provider integration.')
-      : count === 2
-        ? check('configured', 'Both credential fields are present; provider access was not tested.')
-        : check('incomplete', 'Both paired credential fields must be set together.')
-    , { error: count === 1 })
+      : count === requiredKeys.length
+        ? check('configured', 'Required credential fields are present; provider access was not tested.')
+        : check('incomplete', 'All paired credential fields must be set together.')
+    , { error: count > 0 && count !== requiredKeys.length })
   }
 
   for (const key of ['SPONSOR_ADMIN_API_TOKEN', 'TREASURY_ADMIN_API_TOKEN', 'RECEIVER_WATCHLIST_ADMIN_TOKEN', 'OKX_STATUS_ACCESS_TOKEN']) {
