@@ -128,6 +128,26 @@ test('managed asset identity must match a configured provider ID and the officia
   }, fakeTronWeb, officialUsdt), false)
 })
 
+test('Fireblocks rejects conflicting populated contract metadata instead of accepting one matching alias', () => {
+  assert.equal(isOfficialFireblocksUsdtAsset({
+    id: 'USDT_TRON',
+    contractAddress: officialUsdt,
+    onchain: { address: 'TWrongContractAddressThatIsNotOfficial111' },
+  }, fakeTronWeb, officialUsdt), false)
+
+  assert.equal(isOfficialFireblocksUsdtAsset({
+    id: 'USDT_TRON',
+    contractAddress: officialUsdt,
+    details: { contractAddress: 'TWrongContractAddressThatIsNotOfficial111' },
+  }, fakeTronWeb, officialUsdt), false)
+
+  assert.equal(isOfficialFireblocksUsdtAsset({
+    id: 'USDT_TRON',
+    contractAddress: officialUsdt,
+    onchain: { address: officialUsdt },
+  }, fakeTronWeb, officialUsdt), true)
+})
+
 test('provider status cannot be treated as chain confirmation without an actual transaction hash', () => {
   assert.deepEqual(classifyFireblocksTransaction({ id: 'provider-id-1', status: 'SUBMITTED' }), {
     providerStatus: 'SUBMITTED',
