@@ -1344,8 +1344,14 @@ export default function WalletVault() {
     }
   }
 
+  function scrollWorkspaceToTop() {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
+  }
+
   function navigatePanel(panel: 'dashboard' | 'wallet' | 'treasury' | 'send' | 'activity' | 'account' | 'settings') {
     setActivePanel(panel)
+    scrollWorkspaceToTop()
     if (panel === 'treasury' && network !== 'mainnet') {
       setNetwork('mainnet')
       setNotice('Treasury monitoring and organization payouts use TRON Mainnet. An exact owner approval is required for each payout.')
@@ -1359,6 +1365,7 @@ export default function WalletVault() {
 
   function navigateSendAsset(asset: TransferAsset) {
     setActivePanel('send')
+    scrollWorkspaceToTop()
     setNetwork('mainnet')
     setTransferAsset(asset)
     setTransferReview(null)
@@ -1426,7 +1433,7 @@ export default function WalletVault() {
           <span><strong>TRON Token Studio</strong><small>PRIVATE OWNER WORKSPACE</small></span>
         </a>
         <div className="wallet-vault-topbar-owner">
-          <div className="wallet-vault-owner-identity"><small>OWNER ACCOUNT</small><strong title={ownerAddressForHeader || 'Owner address has not been verified'}>{ownerAddressForHeader ? shortenAddress(ownerAddressForHeader) : 'Session not verified'}</strong></div>
+          <div className="wallet-vault-owner-identity"><small>{ownerSessionToken && ownerSessionAddress ? 'VERIFIED OWNER SESSION' : unlocked?.record.address ? 'UNLOCKED LOCAL WALLET' : 'OWNER ACCOUNT'}</small><strong title={ownerAddressForHeader || 'Owner address has not been verified'}>{ownerAddressForHeader ? shortenAddress(ownerAddressForHeader) : 'Session not verified'}</strong></div>
           <div className="wallet-vault-header-balance">
             <div><small>OWNER WALLET USDT</small><strong>{ownerHeaderUsdt}</strong></div>
             <div><small>OWNER WALLET TRX</small><strong>{ownerHeaderTrx}</strong></div>
@@ -1525,6 +1532,21 @@ export default function WalletVault() {
       </section>
 
 
+      <section className="wallet-vault-panel wallet-vault-quick-actions" aria-labelledby="wallet-vault-quick-actions-heading" hidden={activePanel !== 'dashboard'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Activity size={16} /></span>
+          <div><h2 id="wallet-vault-quick-actions-heading">Workspace shortcuts</h2><p>Open a section directly. Each workflow reports real wallet or backend status before sensitive actions.</p></div>
+        </div>
+        <div className="wallet-vault-quick-action-grid">
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigatePanel('wallet')}><Coins size={20} /><span><strong>Assets</strong><small>Read on-chain balances and manage token watchlist</small></span></button>
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigateSendAsset('TRC20')}><ArrowDownToLine size={20} /><span><strong>Send USDT</strong><small>Review recipient, contract, amount and chain fee</small></span></button>
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigateSendAsset('TRX')}><Send size={20} /><span><strong>Send TRX</strong><small>Prepare a real native-TRX transfer</small></span></button>
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigatePanel('treasury')}><Landmark size={20} /><span><strong>Treasury</strong><small>Check funding and payout blockers</small></span></button>
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigatePanel('activity')}><Activity size={20} /><span><strong>Activity</strong><small>Re-verify saved transaction records on-chain</small></span></button>
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigatePanel('account')}><UserRound size={20} /><span><strong>Account</strong><small>Create, import, unlock or back up a local wallet</small></span></button>
+          <button type="button" className="wallet-vault-quick-action" onClick={() => navigatePanel('settings')}><Settings size={20} /><span><strong>Settings</strong><small>Review selected network and provider readiness</small></span></button>
+        </div>
+      </section>
 
       {error && <div className="wallet-vault-message is-error" role="alert"><X size={17} aria-hidden="true" /> {error}</div>}
       {notice && <div className="wallet-vault-message is-notice" role="status"><CheckCircle2 size={17} aria-hidden="true" /> {notice}</div>}
@@ -1938,6 +1960,7 @@ export default function WalletVault() {
         <button type="button" className={activePanel === 'send' && transferAsset === 'TRC20' ? 'is-active' : ''} aria-current={activePanel === 'send' && transferAsset === 'TRC20' ? 'page' : undefined} onClick={() => navigateSendAsset('TRC20')}><ArrowDownToLine size={18} /><span>USDT</span></button>
         <button type="button" className={activePanel === 'send' && transferAsset === 'TRX' ? 'is-active' : ''} aria-current={activePanel === 'send' && transferAsset === 'TRX' ? 'page' : undefined} onClick={() => navigateSendAsset('TRX')}><Send size={18} /><span>TRX</span></button>
         <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={18} /><span>Treasury</span></button>
+        <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={18} /><span>Activity</span></button>
         <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={18} /><span>Account</span></button>
       </nav>
 
