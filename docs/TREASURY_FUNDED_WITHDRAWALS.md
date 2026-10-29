@@ -54,17 +54,16 @@ A gas-sponsorship provider may cover eligible transaction fees under its terms, 
 - [ ] No Mainnet payout is enabled until independent security review and end-to-end tests pass.
 - [ ] The owner understands that deployment, API credentials, provider access, and a funded treasury are required; source code alone does not fund transactions.
 
-## Current repository integration status (2026-10-28)
+## Current feature-branch integration status (2026-10-29)
 
-The current `main` branch includes:
-- The single-owner login gate (`server/routes/owner-auth.mjs` and `src/AuthGate.tsx`).
-- Owner-only, read-only treasury funding status (`server/routes/owner-treasury.mjs`).
-- A treasury-backed Mainnet USDT withdrawal API (`server/routes/treasury-withdrawals.mjs`), mounted at `/api/treasury/withdrawals`, with owner-console controls in `src/WalletVault.tsx`.
-- Per-payout owner authorization signatures, amount/daily limits, database reservations, idempotency handling, and independent solidified receipt/official-USDT Transfer-event verification.
-- A read-only reconciliation worker (`scripts/reconcile-treasury-withdrawals.mjs`) for already broadcast requests.
+The existing main branch already has the single-owner login gate, treasury balance reads, per-request owner signature, database reservations, payout caps, idempotency ledger, and on-chain receipt verification. The feature branch adds a Fireblocks-managed USDT signing adapter to avoid loading the treasury's blockchain private key in the application environment.
 
-The current payout signer mode is `env-hot-wallet`: `TREASURY_PRIVATE_KEY` is a server-side environment secret. This is a high-risk custody arrangement and has not been independently security-audited. The code being deployed does not prove that Render environment values are configured correctly, that the treasury is funded, or that a real Mainnet payout has passed an end-to-end test.
+The managed USDT route expects:
+- `TREASURY_SIGNER_MODE=fireblocks`, `TREASURY_WITHDRAWALS_ENABLED=true` only after review, and the existing single owner address configuration.
+- Fireblocks API key ID, an absolute path to a mounted Fireblocks **API-authentication** RSA secret file, an existing vault account ID, and the provider's asset ID.
+- Provider metadata that matches the official TRON Tether USDT contract, exactly one provider-returned source address matching `TREASURY_ADDRESS`, provider available balance and public chain balance sufficient for the requested principal, and a TRX balance covering the configured fee cap.
+- Fireblocks' own transaction policy configured to require appropriate authorization/approval, with separate destination and spending controls.
 
-The withdrawal API remains disabled unless `TREASURY_WITHDRAWALS_ENABLED=true`, `TREASURY_SIGNER_MODE=env-hot-wallet`, the database/signer/address/limits are valid, the signer derives the configured treasury address, the official Mainnet USDT balance is positive, and the treasury's actual TRX balance covers the configured fee cap. It transfers only real tokens already held by the official USDT contract; it cannot mint or generate USDT. GasFree endpoints are discovery/preflight only and do not automatically make this payout path gas-free.
+The code uses a provider transaction ID and `externalTxId` to reconcile ambiguous submissions. It does not treat provider acceptance as chain confirmation. No Mainnet payout is considered confirmed until the independent verifier validates the real transaction, sender, recipient, amount, official USDT contract, successful solidified receipt, and Transfer event.
 
-Before enabling payouts with meaningful value, verify the environment configuration in the Render dashboard, use a dedicated low-balance treasury, complete end-to-end testing with controlled assets, configure monitoring and recovery, and obtain an independent security review. Prefer a managed signer or multisig design over a raw private key in ordinary service environment variables. Never treat a successful build, an HTTP broadcast response, or a transaction hash alone as proof of a successful transfer or an exchange credit.
+The feature branch is code integration, not a live provider setup. No Fireblocks credentials were available during implementation, so there has been no authenticated provider call, no live asset metadata check, no funded Mainnet payout, and no exchange deposit credit test. Keep the withdrawal feature disabled until the operator installs the provider credential as a backend secret file, configures the real vault and policy, validates the balance endpoints, and completes a small controlled end-to-end transfer. Never paste API credentials or key files into chat or source control.
