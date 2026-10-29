@@ -586,8 +586,10 @@ export function createTreasuryWithdrawalsRouter({
   async function readManagedTreasuryTrxSnapshot(treasuryAddress) {
     const fireblocks = managedSigner()
     const assetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
-    if (typeof fireblocks?.isConfigured !== 'function' || fireblocks.isConfigured() !== true
-      || typeof fireblocks?.isTrxAssetConfigured !== 'function' || fireblocks.isTrxAssetConfigured() !== true
+    // Native TRX requires shared provider authentication and its own verified asset
+    // ID; do not require the unrelated USDT asset ID to be configured.
+    if (typeof fireblocks?.isTrxAssetConfigured !== 'function'
+      || fireblocks.isTrxAssetConfigured() !== true
       || !assetId) {
       return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
     }
