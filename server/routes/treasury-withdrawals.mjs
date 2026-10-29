@@ -559,18 +559,33 @@ export function createTreasuryWithdrawalsRouter({
   }
 
   async function refreshProviderTransaction(db, row) {
-    if (!row?.provider_transaction_id || ['confirmed', 'failed', 'rejected'].includes(row.status)) return row
+    if (!row || ['confirmed', 'failed', 'rejected'].includes(row.status)) return row
     try {
-      const providerTx = await managedSigner().getTransaction(String(row.provider_transaction_id))
+      const fireblocks = managedSigner()
+      let providerTx
+      if (row.provider_transaction_id) {
+        providerTx = await fireblocks.getTransaction(String(row.provider_transaction_id))
+      } else if (row.idempotency_key) {
+        // Resolve unknown outcomes by the provider's external id before allowing
+        // any further action. This is lookup-only; it never creates a transfer.
+        providerTx = await fireblocks.findTransactionByExternalId(String(row.idempotency_key))
+      } else {
+        return row
+      }
+      const providerId = typeof providerTx?.id === 'string' ? providerTx.id
+        : typeof providerTx?.transactionId === 'string' ? providerTx.transactionId
+          : String(row.provider_transaction_id || '')
+      if (!providerId) return row
       const state = classifyFireblocksTransaction(providerTx)
       const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
         : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
       const updated = await db.query(
         `UPDATE trc20_token_clone.treasury_withdrawal_requests
             SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
-                provider_status=$4, failure_code=$5, updated_at=now()
+                provider_transaction_id=$4, provider_status=$5,
+                failure_code=$6, updated_at=now()
           WHERE id=$1 RETURNING *`,
-        [row.id, nextStatus, state.transactionHash, state.providerStatus,
+        [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
           nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
       )
       return updated.rows[0] || row
@@ -865,7 +880,14 @@ export function createTreasuryWithdrawalsRouter({
       }
       const txid = typeof row.transaction_hash === 'string' ? row.transaction_hash.trim() : ''
       if (!TXID_PATTERN.test(txid)) {
-        return res.status(409).json({ success: false, error: 'transaction-hash-not-available', withdrawal: safeStatus(row) })
+        const pending = ['provider-pending', 'broadcasting', 'broadcast-unknown'].includes(row.status)
+        return res.status(pending ? 202 : 409).json({
+          success: false,
+          status: row.status,
+          error: 'transaction-hash-not-available',
+          withdrawal: safeStatus(row),
+          note: 'Provider has not returned a chain transaction hash yet. The request remains reserved; use the same request reference and do not submit a replacement.',
+        })
       }
       const tronWeb = tronWebFactory()
       const [transaction, transactionInfo] = await Promise.all([
