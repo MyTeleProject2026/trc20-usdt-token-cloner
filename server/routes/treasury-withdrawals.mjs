@@ -10,6 +10,7 @@ import {
   fireblocksAssetIdentifierMatches,
   isOfficialFireblocksUsdtAsset,
   classifyFireblocksTransaction,
+  isNativeFireblocksTrxAsset,
 } from '../fireblocks-client.mjs'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
 import {
@@ -99,8 +100,10 @@ async function ensureSchema(db) {
           treasury_address TEXT NOT NULL,
           recipient_address TEXT NOT NULL,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
-          status TEXT NOT NULL CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected')),
+          status TEXT NOT NULL CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected')),
           transaction_hash CHAR(64),
+          provider_transaction_id TEXT,
+          provider_status TEXT,
           failure_code TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -109,7 +112,9 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_trx_withdrawal_requests_status_check`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests
         ADD CONSTRAINT treasury_trx_withdrawal_requests_status_check
-        CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
+        CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
     })().catch((error) => { schemaPromise = null; throw error })
   }
   await schemaPromise
@@ -344,6 +349,8 @@ function safeTrxStatus(row) {
     decimals: 6,
     status: row.status,
     ...(row.transaction_hash ? { transactionHash: String(row.transaction_hash).trim() } : {}),
+    ...(row.provider_transaction_id ? { providerTransactionId: String(row.provider_transaction_id) } : {}),
+    ...(row.provider_status ? { providerStatus: String(row.provider_status) } : {}),
     ...(row.failure_code ? { failureCode: row.failure_code } : {}),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -351,31 +358,37 @@ function safeTrxStatus(row) {
 }
 
 export function trxConfiguration(env = process.env) {
+  const provider = fireblocksConfiguration(env)
   const required = [
     'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
-    'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_TRX',
-    'TREASURY_DAILY_LIMIT_TRX', 'TREASURY_FEE_LIMIT_SUN',
+    'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX',
+    'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
   ]
   const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
+  if (!provider.configured) missing.push(...provider.missing)
+  if (!provider.trxAssetConfigured) missing.push('FIREBLOCKS_TRX_ASSET_ID')
+  if (env.TREASURY_SIGNER_MODE !== 'fireblocks') missing.push('TREASURY_SIGNER_MODE=fireblocks')
+  if (env.TREASURY_TRX_WITHDRAWALS_ENABLED !== 'true') missing.push('TREASURY_TRX_WITHDRAWALS_ENABLED=true')
+
   const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_TRX)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_TRX)
-  const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
+  const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
     ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : 0n
-  // Native TRX payouts still use the legacy application-held wallet key. Never
-  // permit that signer in production; production requires a managed TRX signer
-  // adapter, which is not yet implemented. Do not silently fall back to a key.
-  const productionSignerBlocked = env.NODE_ENV === 'production'
-  if (productionSignerBlocked) missing.push('managed-TRX-signer-not-integrated-for-production')
-  const enabled = !productionSignerBlocked
-    && env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
-    && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
-    && missing.length === 0
+  const enabled = missing.length === 0
     && ownerAddressesMatch
     && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
     && maxPayout !== null && dailyLimit !== null
     && feeLimit >= 1n && feeLimit <= 1_000_000_000n
-  return { enabled, missing, ownerAddressesMatch, maxPayout, dailyLimit, feeLimit }
+  return {
+    enabled,
+    missing: [...new Set(missing)],
+    ownerAddressesMatch,
+    maxPayout,
+    dailyLimit,
+    feeLimit,
+    signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
+  }
 }
 function nativeTrxIntentMatches(tronWeb, transaction, {
   treasuryAddress,
