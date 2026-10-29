@@ -11,6 +11,18 @@ const ALLOWED_API_BASES = new Set([
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
 
+function isPositiveSixDecimalAmount(value) {
+  if (typeof value !== 'string' || value.length > 86
+    || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
+  const [whole, fraction = ''] = value.split('.')
+  if (whole.length > 78) return false
+  try {
+    return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
+  } catch {
+    return false
+  }
+}
+
 export class FireblocksApiError extends Error {
   constructor(status, code = 'fireblocks-provider-error') {
     super(code)
@@ -354,7 +366,7 @@ export function createFireblocksClient(env = process.env, {
     async createUsdtTransfer({ recipientAddress, amountUsdt, externalTxId, note } = {}) {
       if (!config.configured) throw new FireblocksApiError(503, 'fireblocks-usdt-asset-not-configured')
       if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
-        || typeof amountUsdt !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
+        || !isPositiveSixDecimalAmount(amountUsdt)
         || !IDENTIFIER_PATTERN.test(externalTxId || '')) {
         throw new FireblocksApiError(400, 'invalid-fireblocks-transfer-request')
       }
@@ -374,8 +386,8 @@ export function createFireblocksClient(env = process.env, {
         throw new FireblocksApiError(503, 'fireblocks-trx-asset-not-configured')
       }
       if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
-        || typeof amountTrx !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountTrx)
-        || amountTrx === '0' || !IDENTIFIER_PATTERN.test(externalTxId || '')) {
+        || !isPositiveSixDecimalAmount(amountTrx)
+        || !IDENTIFIER_PATTERN.test(externalTxId || '')) {
         throw new FireblocksApiError(400, 'invalid-fireblocks-trx-transfer-request')
       }
       const requestBody = {
