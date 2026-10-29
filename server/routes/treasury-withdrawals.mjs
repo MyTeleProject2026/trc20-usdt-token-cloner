@@ -350,6 +350,51 @@ function safeStatus(row) {
   }
 }
 
+/**
+ * A Fireblocks terminal state is not independent chain evidence. Only a state
+ * written after the TRON solidified-receipt verifier may be reported as verified.
+ */
+export function terminalTreasuryWithdrawalVerification(row) {
+  if (!row || typeof row !== 'object') return { terminal: false }
+
+  if (row.status === 'confirmed') {
+    return {
+      terminal: true,
+      success: true,
+      verification: {
+        verified: true,
+        status: 'confirmed',
+        reason: 'previously-verified-solidified-receipt',
+      },
+    }
+  }
+
+  if (row.status !== 'failed') return { terminal: false }
+
+  const failureCode = typeof row.failure_code === 'string' ? row.failure_code : ''
+  if (failureCode.startsWith('confirmed-solidified-')) {
+    return {
+      terminal: true,
+      success: false,
+      verification: {
+        verified: true,
+        status: 'failed',
+        reason: failureCode,
+      },
+    }
+  }
+
+  return {
+    terminal: true,
+    success: false,
+    verification: {
+      verified: false,
+      status: 'provider-failed',
+      reason: 'provider-terminal-failure-not-chain-verified',
+    },
+  }
+}
+
 export function matchesTreasuryTrxWithdrawalRequest(row, {
   ownerAddress,
   treasuryAddress,
@@ -1129,8 +1174,17 @@ export function createTreasuryWithdrawalsRouter({
       )
       if (!lookup.rows.length) return res.status(404).json({ success: false, error: 'withdrawal-not-found' })
       let row = await refreshProviderTransaction(db, lookup.rows[0])
-      if (row.status === 'confirmed' || row.status === 'failed') {
-        return res.json({ success: true, withdrawal: safeStatus(row), verification: { verified: true, status: row.status, reason: 'previously-verified-solidified-receipt' } })
+      const terminalVerification = terminalTreasuryWithdrawalVerification(row)
+      if (terminalVerification.terminal) {
+        const httpStatus = terminalVerification.verification.status === 'confirmed' ? 200 : 202
+        return res.status(httpStatus).json({
+          success: terminalVerification.success,
+          withdrawal: safeStatus(row),
+          verification: terminalVerification.verification,
+          ...(terminalVerification.verification.verified === false
+            ? { note: 'Fireblocks reported a terminal failure, but no solidified on-chain receipt has been verified. This is not proof of an on-chain failure.' }
+            : {}),
+        })
       }
       const txid = typeof row.transaction_hash === 'string' ? row.transaction_hash.trim() : ''
       if (!TXID_PATTERN.test(txid)) {
