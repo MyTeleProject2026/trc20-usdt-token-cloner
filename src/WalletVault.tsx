@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowDownToLine, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
-import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import {
+  buildTreasuryWithdrawalAuthorizationMessage,
+  buildTreasuryTrxWithdrawalAuthorizationMessage,
+  parsePositiveTrxAmount,
+} from './treasury-withdrawal-auth.mjs'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -103,6 +107,7 @@ const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const VAULT_KEY = 'tron-token-studio:encrypted-wallet-vault:v1'
 const OWNER_CONSOLE_SESSION_KEY = 'tron-token-studio:owner-session:v1'
+const TREASURY_TRX_PAYOUT_REFERENCE_KEY = 'tron-token-studio:treasury-trx-payout-reference:v1'
 const TOKEN_WATCH_KEY = 'tron-token-studio:token-watchlist:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
@@ -122,6 +127,29 @@ const TOKEN_ABI = [
 
 function createTronWeb(network: NetworkId, privateKey?: string): any {
   return new TronWeb({ fullHost: RPC[network], ...(privateKey ? { privateKey } : {}) } as any) as any
+}
+
+function readTreasuryTrxPayoutReference(): { ownerAddress: string; idempotencyKey: string } | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(TREASURY_TRX_PAYOUT_REFERENCE_KEY) || 'null')
+    if (value && ADDRESS_PATTERN.test(value.ownerAddress)
+      && typeof value.idempotencyKey === 'string'
+      && /^trx-withdrawal-[A-Za-z0-9._:-]{24,128}$/.test(value.idempotencyKey)) {
+      return { ownerAddress: value.ownerAddress, idempotencyKey: value.idempotencyKey }
+    }
+  } catch {
+    // Storage can be unavailable in private browsing; the current request key remains visible in memory.
+  }
+  return null
+}
+
+function saveTreasuryTrxPayoutReference(ownerAddress: string, idempotencyKey: string): boolean {
+  try {
+    window.localStorage.setItem(TREASURY_TRX_PAYOUT_REFERENCE_KEY, JSON.stringify({ ownerAddress, idempotencyKey }))
+    return true
+  } catch {
+    return false
+  }
 }
 
 function readWalletRecords(): WalletRecord[] {
@@ -268,6 +296,13 @@ export default function WalletVault() {
   const [treasuryPayoutBusy, setTreasuryPayoutBusy] = useState(false)
   const [treasuryPayoutStatus, setTreasuryPayoutStatus] = useState<any>(null)
   const [treasuryPayoutError, setTreasuryPayoutError] = useState('')
+  const [serverTrxTreasuryReadiness, setServerTrxTreasuryReadiness] = useState<any>(null)
+  const [treasuryTrxPayoutRecipient, setTreasuryTrxPayoutRecipient] = useState('')
+  const [treasuryTrxPayoutAmount, setTreasuryTrxPayoutAmount] = useState('')
+  const [treasuryTrxPayoutConfirm, setTreasuryTrxPayoutConfirm] = useState('')
+  const [treasuryTrxPayoutBusy, setTreasuryTrxPayoutBusy] = useState(false)
+  const [treasuryTrxPayoutStatus, setTreasuryTrxPayoutStatus] = useState<any>(null)
+  const [treasuryTrxPayoutError, setTreasuryTrxPayoutError] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -287,6 +322,11 @@ export default function WalletVault() {
     && serverTreasuryReadiness?.withdrawalsEnabled === true
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
+  const canSubmitServerTreasuryTrxPayout = Boolean(ownerSessionToken
+    && ownerTreasurySnapshot?.ownerAccessVerified === true
+    && serverTrxTreasuryReadiness?.trxWithdrawalsEnabled === true
+    && typeof serverTrxTreasuryReadiness?.treasuryAddress === 'string'
+    && serverTrxTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot?.treasuryAddress)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
   const monitoredTreasuryAddress = ownerTreasurySnapshot?.treasuryAddress || serverTreasuryReadiness?.treasuryAddress || ''
   const headerTreasuryUsdt = ownerTreasurySnapshot?.officialUsdt?.status === 'verified'
