@@ -362,7 +362,10 @@ export default function WalletVault() {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
 
     let cancelled = false
+    let requestInFlight = false
     async function loadOwnerTreasuryDashboard() {
+      if (requestInFlight || cancelled) return
+      requestInFlight = true
       setOwnerTreasuryLoading(true)
       setOwnerTreasuryError('')
       try {
@@ -413,11 +416,18 @@ export default function WalletVault() {
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
       } finally {
+        requestInFlight = false
         if (!cancelled) setOwnerTreasuryLoading(false)
       }
     }
     void loadOwnerTreasuryDashboard()
-    return () => { cancelled = true }
+    // Keep the owner-only treasury monitor fresh without creating overlapping
+    // provider requests. The backend still verifies every response on-chain.
+    const refreshInterval = window.setInterval(() => { void loadOwnerTreasuryDashboard() }, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(refreshInterval)
+    }
   }, [unlocked?.record.address, network])
 
 
