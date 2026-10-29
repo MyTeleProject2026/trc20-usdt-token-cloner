@@ -323,6 +323,7 @@ export default function WalletVault() {
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
   const canSubmitServerTreasuryTrxPayout = Boolean(ownerSessionToken
+    && unlocked?.record.address === ownerSessionAddress
     && ownerTreasurySnapshot?.ownerAccessVerified === true
     && serverTrxTreasuryReadiness?.trxWithdrawalsEnabled === true
     && typeof serverTrxTreasuryReadiness?.treasuryAddress === 'string'
@@ -440,7 +441,10 @@ export default function WalletVault() {
           throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
         }
 
-        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
+        if (!cancelled) {
+          setOwnerSessionAddress(String(sessionPayload.address))
+          setOwnerSessionToken(token)
+        }
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
         const [fundingResponse, readinessResponse, trxReadinessResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
@@ -1076,8 +1080,13 @@ export default function WalletVault() {
       setTreasuryTrxPayoutError('Unlock the owner wallet and select TRON Mainnet first.')
       return
     }
-    if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true) {
-      setTreasuryTrxPayoutError('Verify the owner wallet signature before requesting a treasury TRX payout.')
+    if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true
+      || unlocked.record.address !== ownerSessionAddress) {
+      setTreasuryTrxPayoutError('Sign in and verify using the single configured owner wallet before requesting a treasury TRX payout.')
+      return
+    }
+    if (serverTrxTreasuryReadiness?.trxWithdrawalsEnabled !== true) {
+      setTreasuryTrxPayoutError('The managed treasury is not payout-ready. No transaction was submitted.')
       return
     }
     if (treasuryTrxPayoutConfirm !== 'SEND TREASURY TRX') {
@@ -1979,13 +1988,13 @@ export default function WalletVault() {
                         </button>
                       )}
                       {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
-                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
+                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The local Send section can spend only assets held by the unlocked wallet. Treasury payouts use the separately authorized managed-vault workflow and require a real funded provider vault; a watch-only address cannot authorize transfers by itself.</p>
                       )}
                     </>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Server treasury payout (separate funded wallet)</strong>
-                    <p>The backend signs from TREASURY_ADDRESS using a server-only key. Your owner wallet only authorizes the request; it does not need to hold the USDT principal. This remains disabled until the backend is configured with a funded treasury, persistent database, explicit payout limits, and the signer key matching the treasury address.</p>
+                    <p>The backend requests payouts from the configured Fireblocks managed vault; the app server does not load the vault's blockchain signing key. Your owner wallet authorizes the exact request and does not need to hold the USDT principal. Withdrawals remain disabled until the provider vault, genuine USDT and fee balances, persistent database, limits and signing policy are independently verified.</p>
                   </div>
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
