@@ -126,7 +126,7 @@ export function providerAssetAvailableBaseUnits(assetResponse) {
     ? assetResponse.available.trim()
     : typeof assetResponse.available === 'number' && Number.isFinite(assetResponse.available)
       ? String(assetResponse.available) : ''
-  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(amount)) return null
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)) return null
   const [whole, fraction = ''] = amount.split('.')
   if (whole.length > 78) return null
   const units = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
