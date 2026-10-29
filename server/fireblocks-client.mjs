@@ -23,6 +23,31 @@ function isPositiveSixDecimalAmount(value) {
   }
 }
 
+export function parseSixDecimalBaseUnits(value) {
+  if (typeof value !== 'string' || value.length > 86
+    || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return null
+  const [whole, fraction = ''] = value.split('.')
+  if (whole.length > 78) return null
+  try {
+    const units = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
+    return units <= ((1n << 256n) - 1n) ? units.toString() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Return the highest of Fireblocks' low/medium/high network-fee estimates in
+ * six-decimal native-asset base units. Requiring all three avoids treating a
+ * partial provider response as a complete cost preflight.
+ */
+export function maxFireblocksEstimatedFeeSun(estimate) {
+  const values = ['low', 'medium', 'high'].map((level) =>
+    parseSixDecimalBaseUnits(estimate?.[level]?.networkFee))
+  if (values.some((value) => value === null)) return null
+  return values.reduce((max, value) => BigInt(value) > max ? BigInt(value) : max, 0n).toString()
+}
+
 export class FireblocksApiError extends Error {
   constructor(status, code = 'fireblocks-provider-error') {
     super(code)
@@ -363,6 +388,20 @@ export function createFireblocksClient(env = process.env, {
       }
       throw new FireblocksApiError(502, 'fireblocks-address-pagination-limit')
     },
+    async estimateUsdtTransferFee({ recipientAddress, amountUsdt } = {}) {
+      if (!config.configured) throw new FireblocksApiError(503, 'fireblocks-usdt-asset-not-configured')
+      if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
+        || !isPositiveSixDecimalAmount(amountUsdt)) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-fee-estimate-request')
+      }
+      return request('POST', '/v1/transactions/estimate_fee', {
+        operation: 'TRANSFER',
+        assetId: config.usdtAssetId,
+        source: { type: 'VAULT_ACCOUNT', id: config.vaultAccountId },
+        destination: { type: 'ONE_TIME_ADDRESS', oneTimeAddress: { address: recipientAddress } },
+        amount: amountUsdt,
+      })
+    },
     async createUsdtTransfer({ recipientAddress, amountUsdt, externalTxId, note } = {}) {
       if (!config.configured) throw new FireblocksApiError(503, 'fireblocks-usdt-asset-not-configured')
       if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
@@ -380,6 +419,22 @@ export function createFireblocksClient(env = process.env, {
         note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury USDT payout',
       }
       return request('POST', '/v1/transactions', requestBody)
+    },
+    async estimateTrxTransferFee({ recipientAddress, amountTrx } = {}) {
+      if (!config.providerConfigured || !config.trxAssetConfigured) {
+        throw new FireblocksApiError(503, 'fireblocks-trx-asset-not-configured')
+      }
+      if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
+        || !isPositiveSixDecimalAmount(amountTrx)) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-fee-estimate-request')
+      }
+      return request('POST', '/v1/transactions/estimate_fee', {
+        operation: 'TRANSFER',
+        assetId: config.trxAssetId,
+        source: { type: 'VAULT_ACCOUNT', id: config.vaultAccountId },
+        destination: { type: 'ONE_TIME_ADDRESS', oneTimeAddress: { address: recipientAddress } },
+        amount: amountTrx,
+      })
     },
     async createTrxTransfer({ recipientAddress, amountTrx, externalTxId, note } = {}) {
       if (!config.providerConfigured || !config.trxAssetConfigured) {
