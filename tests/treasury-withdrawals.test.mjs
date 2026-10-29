@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -430,4 +430,55 @@ test('native TRX configuration distinguishes an incomplete setup from a delibera
   assert.equal(config.featureFlagEnabled, false)
   assert.equal(config.enabled, false)
   assert.deepEqual(config.missing, [])
+})
+
+
+test('Fireblocks terminal failure is not misreported as a verified on-chain failure', () => {
+  const result = terminalTreasuryWithdrawalVerification({
+    status: 'failed',
+    failure_code: 'fireblocks-terminal-failed',
+  })
+  assert.deepEqual(result, {
+    terminal: true,
+    success: false,
+    verification: {
+      verified: false,
+      status: 'provider-failed',
+      reason: 'provider-terminal-failure-not-chain-verified',
+    },
+  })
+})
+
+test('previously verified solidified USDT success can be returned as verified', () => {
+  assert.deepEqual(terminalTreasuryWithdrawalVerification({
+    status: 'confirmed',
+    failure_code: null,
+  }), {
+    terminal: true,
+    success: true,
+    verification: {
+      verified: true,
+      status: 'confirmed',
+      reason: 'previously-verified-solidified-receipt',
+    },
+  })
+})
+
+test('failed USDT withdrawal is chain-verified only when its failure code came from the solidified receipt verifier', () => {
+  assert.deepEqual(terminalTreasuryWithdrawalVerification({
+    status: 'failed',
+    failure_code: 'confirmed-solidified-failed-receipt',
+  }), {
+    terminal: true,
+    success: false,
+    verification: {
+      verified: true,
+      status: 'failed',
+      reason: 'confirmed-solidified-failed-receipt',
+    },
+  })
+  assert.equal(terminalTreasuryWithdrawalVerification({
+    status: 'provider-pending',
+    failure_code: 'confirmed-solidified-failed-receipt',
+  }).terminal, false)
 })
