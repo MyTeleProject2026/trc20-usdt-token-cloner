@@ -13,7 +13,7 @@ test('standalone owner wallet is the default screen and legacy TronLink workspac
   assert.match(entry, /:\s*<WalletVault \/>/)
   assert.match(entry, /isLegacyWorkspace \|\| isSponsorOperator/)
   assert.doesNotMatch(entry, /Open watch-only address monitor/)
-  assert.match(vault, /OWNER WALLET CONTROL/)
+  assert.match(vault, /PRIVATE OWNER WORKSPACE/)
   assert.match(vault, /No TronLink connection is required/)
   assert.match(vault, /TREASURY_OWNER_ADDRESS/)
   assert.doesNotMatch(vault, /Sign in to workspace|Switch to Nile for workspace login|Workspace login signs/)

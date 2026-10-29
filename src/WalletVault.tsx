@@ -1389,6 +1389,7 @@ export default function WalletVault() {
             <div><small>TREASURY USDT</small><strong>{headerTreasuryUsdt}</strong></div>
             <div><small>TREASURY TRX</small><strong>{headerTreasuryTrx}</strong></div>
           </div>
+          <button type="button" className="wallet-vault-mobile-settings" aria-label="Open Settings" onClick={() => navigatePanel('settings')}><Settings size={16} /></button>
           <button type="button" className="wallet-vault-logout" onClick={() => void logoutOwnerSession()}><LogOut size={15} /> Logout</button>
         </div>
       </header>
@@ -1424,7 +1425,7 @@ export default function WalletVault() {
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
         <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
         <p>{activePanel === 'dashboard'
-          ? 'Overview of your authenticated owner account, verified treasury balances, and payout readiness.'
+          ? 'Overview of your authenticated owner account, verified treasury balances, and payout readiness. No TronLink connection is required to use this standalone owner wallet.'
           : activePanel === 'wallet'
             ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
             : activePanel === 'send'
@@ -1509,6 +1510,14 @@ export default function WalletVault() {
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><Settings size={18} /><div><strong>Network</strong><small>Current read target</small></div></div>
             <p>{network === 'mainnet' ? 'TRON Mainnet' : network === 'nile' ? 'Nile Testnet' : 'Shasta Testnet'} · balances are separate per network.</p>
+            <div className="wallet-vault-network wallet-vault-network--settings" role="group" aria-label="Blockchain network settings">
+              {(['mainnet', 'nile', 'shasta'] as NetworkId[]).map(item => (
+                <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => {
+                  setNetwork(item)
+                  setNotice('Network changed. Balances are read separately from the selected TRON network.')
+                }}>{item === 'mainnet' ? 'Mainnet' : item === 'nile' ? 'Nile' : 'Shasta'}</button>
+              ))}
+            </div>
             <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Open payout status</button>
           </article>
         </div>
