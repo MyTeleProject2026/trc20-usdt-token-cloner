@@ -287,9 +287,13 @@ export default function WalletVault() {
     && serverTreasuryReadiness?.withdrawalsEnabled === true
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
-  const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || serverTreasuryReadiness?.treasuryAddress || selectedAddress || ''
+  const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
   const headerTreasuryUsdt = typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) : 'Not verified'
   const headerTreasuryTrx = typeof serverTreasuryReadiness?.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) : 'Not verified'
+  const ownerHeaderBalance = !unlocked ? 'Locked' : network !== 'mainnet' ? 'Select Mainnet' : 'Refresh in Assets'
+  const ownerHeaderTrx = unlocked && network === 'mainnet' && portfolio ? portfolio.trx + ' TRX' : ownerHeaderBalance
+  const officialOwnerUsdt = network === 'mainnet' ? portfolio?.tokens.find(token => token.contract === OFFICIAL_MAINNET_USDT && !token.error)?.balance : undefined
+  const ownerHeaderUsdt = unlocked && network === 'mainnet' ? (officialOwnerUsdt !== undefined ? officialOwnerUsdt + ' USDT' : portfolio ? 'Not in Assets' : ownerHeaderBalance) : ownerHeaderBalance
 
   useEffect(() => {
     const contracts = readTokenWatchlist(network)
@@ -1386,8 +1390,8 @@ export default function WalletVault() {
         <div className="wallet-vault-topbar-owner">
           <div className="wallet-vault-owner-identity"><small>OWNER ACCOUNT</small><strong title={ownerAddressForHeader || 'Owner address has not been verified'}>{ownerAddressForHeader ? shortenAddress(ownerAddressForHeader) : 'Session not verified'}</strong></div>
           <div className="wallet-vault-header-balance">
-            <div><small>TREASURY USDT</small><strong>{headerTreasuryUsdt}</strong></div>
-            <div><small>TREASURY TRX</small><strong>{headerTreasuryTrx}</strong></div>
+            <div><small>OWNER WALLET USDT</small><strong>{ownerHeaderUsdt}</strong></div>
+            <div><small>OWNER WALLET TRX</small><strong>{ownerHeaderTrx}</strong></div>
           </div>
           <button type="button" className="wallet-vault-mobile-settings" aria-label="Open Settings" onClick={() => navigatePanel('settings')}><Settings size={16} /></button>
           <button type="button" className="wallet-vault-logout" onClick={() => void logoutOwnerSession()}><LogOut size={15} /> Logout</button>
