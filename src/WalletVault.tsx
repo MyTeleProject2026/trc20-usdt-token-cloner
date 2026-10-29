@@ -1309,7 +1309,7 @@ export default function WalletVault() {
       <section id="owner-dashboard" className="wallet-vault-hero">
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> LOCAL KEY CUSTODY · REAL TRON NETWORK READS</p>
         <h1>Owner dashboard</h1>
-        <p>Private owner console for live treasury status, verified on-chain assets, withdrawals, and transaction activity. Read-only account and treasury data load automatically after owner sign-in. Unlock a locally encrypted wallet only when a private-key action or payout authorization is required; no external wallet app connection is needed.</p>
+        <p>Private owner console for live treasury status, verified on-chain assets, withdrawals, and transaction activity. Read-only account and treasury data load automatically after owner sign-in. Unlock a locally encrypted wallet only when a private-key action or payout authorization is required. No TronLink connection is required.</p>
         <div className="wallet-vault-network" role="group" aria-label="Blockchain network">
           {(['nile', 'shasta', 'mainnet'] as NetworkId[]).map(item => (
             <button type="button" key={item} className={network === item ? 'is-selected' : ''} aria-pressed={network === item} onClick={() => { setNetwork(item); if (item !== 'mainnet' && activePanel === 'treasury') setActivePanel('dashboard'); setNotice('Network changed. A wallet address is identical across TRON networks; balances are read separately on the selected network.') }}>
