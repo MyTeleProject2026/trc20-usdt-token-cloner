@@ -29,6 +29,10 @@ export function fireblocksConfiguration(env = process.env) {
   const secretKeyPath = typeof env.FIREBLOCKS_SECRET_KEY_PATH === 'string' ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
   const vaultAccountId = typeof env.FIREBLOCKS_VAULT_ACCOUNT_ID === 'string' ? env.FIREBLOCKS_VAULT_ACCOUNT_ID.trim() : ''
   const usdtAssetId = typeof env.FIREBLOCKS_USDT_ASSET_ID === 'string' ? env.FIREBLOCKS_USDT_ASSET_ID.trim() : ''
+  // Native TRX is a separate provider asset. It is optional for USDT-only
+  // operations and must be configured and verified independently for TRX payouts.
+  const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
+  const trxAssetConfigured = IDENTIFIER_PATTERN.test(trxAssetId)
   const apiBaseInput = typeof env.FIREBLOCKS_API_BASE === 'string' && env.FIREBLOCKS_API_BASE.trim()
     ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '')
     : DEFAULT_API_BASE
@@ -47,6 +51,8 @@ export function fireblocksConfiguration(env = process.env) {
     secretKeyPath,
     vaultAccountId,
     usdtAssetId,
+    trxAssetId,
+    trxAssetConfigured,
     apiBase: apiBaseInput,
   }
 }
@@ -183,6 +189,41 @@ export function classifyFireblocksTransaction(transaction) {
 }
 
 /**
+ * Accept only metadata that identifies the configured Fireblocks asset as native
+ * TRX. An address and a "TRX" label alone are not sufficient; contract-token
+ * metadata or contradictory symbol/decimal fields fail closed.
+ */
+export function isNativeFireblocksTrxAsset(assetResponse, configuredAssetId) {
+  if (!fireblocksAssetIdentifierMatches(assetResponse, configuredAssetId)) return false
+  if (String(assetResponse?.assetClass || '').toUpperCase() !== 'NATIVE') return false
+
+  const symbols = [
+    assetResponse?.onchain?.symbol,
+    assetResponse?.displaySymbol,
+    assetResponse?.symbol,
+  ].filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.trim().toUpperCase())
+  const decimals = [
+    assetResponse?.onchain?.decimals,
+    assetResponse?.decimals,
+  ].filter((value) => value !== undefined && value !== null)
+    .map((value) => Number(value))
+  const contractAddresses = [
+    assetResponse?.contractAddress,
+    assetResponse?.contract_address,
+    assetResponse?.onchain?.address,
+    assetResponse?.onchain?.contractAddress,
+    assetResponse?.details?.contractAddress,
+  ].filter((value) => typeof value === 'string' && value.trim())
+
+  return symbols.length > 0
+    && symbols.every((value) => value === 'TRX')
+    && decimals.length > 0
+    && decimals.every((value) => value === 6)
+    && contractAddresses.length === 0
+}
+
+/**
  * Strict production-only Fireblocks client for a pre-existing, operator-owned
  * vault account. It never creates vaults, approves policies, or accepts a wallet
  * private key. Use an API-user RSA key mounted as a backend secret file.
@@ -260,21 +301,31 @@ export function createFireblocksClient(env = process.env, {
 
   return Object.freeze({
     isConfigured: () => config.configured,
-    configuration: () => ({ configured: config.configured, missing: [...config.missing], apiBase: config.apiBase }),
-    async getVaultAccountAsset() {
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(config.usdtAssetId))
+    isTrxAssetConfigured: () => config.configured && config.trxAssetConfigured,
+    configuration: () => ({
+      configured: config.configured,
+      missing: [...config.missing],
+      trxAssetConfigured: config.trxAssetConfigured,
+      missingTrxAsset: config.trxAssetConfigured ? [] : ['FIREBLOCKS_TRX_ASSET_ID'],
+      apiBase: config.apiBase,
+    }),
+    async getVaultAccountAsset(assetId = config.usdtAssetId) {
+      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))
     },
-    async getAssetMetadata() {
-      // /v1/vault/assets/{assetId} is an aggregate vault balance, not asset
-      // metadata. /v1/assets/{id} returns the supported asset's on-chain details.
-      return request('GET', '/v1/assets/' + encodeURIComponent(config.usdtAssetId))
+    async getAssetMetadata(assetId = config.usdtAssetId) {
+      // /v1/assets/{id} is provider metadata; vault/account asset responses are
+      // separate available-balance records. Never confuse the two.
+      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
+      return request('GET', '/v1/assets/' + encodeURIComponent(assetId))
     },
-    async getAssetAddresses() {
+    async getAssetAddresses(assetId = config.usdtAssetId) {
+      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
       // The non-paginated /addresses endpoint is deprecated and may be disabled
       // for newer workspaces. Read every page; if pagination cannot be completed,
       // throw so the payout route fails closed rather than assuming one address.
       const basePath = '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId)
-        + '/' + encodeURIComponent(config.usdtAssetId) + '/addresses_paginated'
+        + '/' + encodeURIComponent(assetId) + '/addresses_paginated'
       const allAddresses = []
       let after = ''
       const seenCursors = new Set()
@@ -306,7 +357,27 @@ export function createFireblocksClient(env = process.env, {
         destination: { type: 'ONE_TIME_ADDRESS', oneTimeAddress: { address: recipientAddress } },
         amount: amountUsdt,
         externalTxId,
-        note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury payout',
+        note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury USDT payout',
+      }
+      return request('POST', '/v1/transactions', requestBody)
+    },
+    async createTrxTransfer({ recipientAddress, amountTrx, externalTxId, note } = {}) {
+      if (!config.configured || !config.trxAssetConfigured) {
+        throw new FireblocksApiError(503, 'fireblocks-trx-asset-not-configured')
+      }
+      if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
+        || typeof amountTrx !== 'string' || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountTrx)
+        || amountTrx === '0' || !IDENTIFIER_PATTERN.test(externalTxId || '')) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-trx-transfer-request')
+      }
+      const requestBody = {
+        operation: 'TRANSFER',
+        assetId: config.trxAssetId,
+        source: { type: 'VAULT_ACCOUNT', id: config.vaultAccountId },
+        destination: { type: 'ONE_TIME_ADDRESS', oneTimeAddress: { address: recipientAddress } },
+        amount: amountTrx,
+        externalTxId,
+        note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury TRX payout',
       }
       return request('POST', '/v1/transactions', requestBody)
     },
