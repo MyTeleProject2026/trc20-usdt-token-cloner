@@ -350,7 +350,7 @@ function safeTrxStatus(row) {
   }
 }
 
-function trxConfiguration(env) {
+export function trxConfiguration(env = process.env) {
   const required = [
     'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
     'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_TRX',
@@ -360,9 +360,15 @@ function trxConfiguration(env) {
   const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_TRX)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_TRX)
-  const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
+  const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
     ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : 0n
-  const enabled = env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
+  // Native TRX payouts still use the legacy application-held wallet key. Never
+  // permit that signer in production; production requires a managed TRX signer
+  // adapter, which is not yet implemented. Do not silently fall back to a key.
+  const productionSignerBlocked = env.NODE_ENV === 'production'
+  if (productionSignerBlocked) missing.push('managed-TRX-signer-not-integrated-for-production')
+  const enabled = !productionSignerBlocked
+    && env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
     && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
     && missing.length === 0
     && ownerAddressesMatch
@@ -371,7 +377,6 @@ function trxConfiguration(env) {
     && feeLimit >= 1n && feeLimit <= 1_000_000_000n
   return { enabled, missing, ownerAddressesMatch, maxPayout, dailyLimit, feeLimit }
 }
-
 function nativeTrxIntentMatches(tronWeb, transaction, {
   treasuryAddress,
   recipientAddress,
