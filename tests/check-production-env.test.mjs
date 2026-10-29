@@ -67,7 +67,7 @@ test('syntactically valid configuration reports names and statuses only, never v
 
 test('preflight rejects mismatched owner/treasury owner and malformed sponsor addresses', () => {
   const report = inspectProductionEnvironment(completeSyntacticEnv({
-    TREASURY_OWNER_ADDRESS: 'TAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    TREASURY_OWNER_ADDRESS: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
     SPONSOR_FEE_MAINNET_ADDRESS: 'not-a-tron-address',
   }), {
     fileExists: () => true,
