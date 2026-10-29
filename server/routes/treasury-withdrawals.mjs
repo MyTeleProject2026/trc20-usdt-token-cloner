@@ -1069,7 +1069,12 @@ export function createTreasuryWithdrawalsRouter({
       try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
     }
     const treasuryAddress = ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '') ? env.TREASURY_ADDRESS.trim() : null
-    let snapshot = { ok: false, reason: 'treasury-address-not-configured' }
+    let snapshot = {
+      ok: false,
+      reason: !treasuryAddress ? 'treasury-address-not-configured'
+        : !config.providerConfigured ? 'fireblocks-trx-not-configured'
+          : !databaseReady ? 'database-not-ready' : 'provider-funding-unverified',
+    }
     let availability = null
     if (databaseReady && treasuryAddress && config.providerConfigured) {
       snapshot = await readManagedTrxSnapshot(treasuryAddress)
