@@ -43,10 +43,11 @@ Set these in the **backend Render service only**. Do not send credentials in cha
 | `FIREBLOCKS_SECRET_KEY_PATH` | Absolute path to a mounted secret file containing the Fireblocks **API authentication** RSA key, not a blockchain signing key |
 | `FIREBLOCKS_VAULT_ACCOUNT_ID` | Existing provider vault account ID (numeric) |
 | `FIREBLOCKS_USDT_ASSET_ID` | Existing provider asset ID whose metadata must resolve to official TRON USDT |
+| `FIREBLOCKS_TRX_ASSET_ID` | Existing provider asset ID for native TRX; only the TRX route uses it, and metadata is independently verified |
 | `TRONGRID_API_KEY` | Optional server-side read-provider key; never required as a wallet signing secret |
 | `DATABASE_SSL` | Optional strict TLS for external PostgreSQL where appropriate |
 
-Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does not accept or derive a blockchain private key from the Render environment. The separate legacy native-TRX payout path is disabled in Fireblocks mode and is now hard-blocked in production because it still requires an application-held blockchain private key. A managed Fireblocks native-TRX signer is not yet implemented; keep `TREASURY_TRX_WITHDRAWALS_ENABLED=false`. This integration is specifically for USDT withdrawals.
+Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the USDT and native-TRX routes use the Fireblocks vault as the source and let Fireblocks custody perform transaction signing; neither should load a blockchain private key into the application. Native TRX uses its separate `FIREBLOCKS_TRX_ASSET_ID` configuration and requires provider metadata to confirm the asset is native TRX with six decimals and no token contract. Keep `TREASURY_TRX_WITHDRAWALS_ENABLED=false` until the actual provider asset ID, authorized vault, exact treasury address, provider-available balance, on-chain TRX balance, fee reserve, limits and a controlled end-to-end test are verified. No native-TRX route should fall back to an application-held key.
 
 ## Request flow and fail-closed behavior
 
@@ -66,6 +67,9 @@ Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does n
 - `POST /api/treasury/withdrawals` — transaction-specific owner-signed transfer request and database reservation.
 - `GET /api/treasury/withdrawals/:idempotencyKey` — lookup and refresh provider transaction status without resubmitting.
 - `POST /api/treasury/withdrawals/:idempotencyKey/verify` — reconcile provider state and independently verify a returned on-chain transaction.
+- `GET /api/treasury/trx-withdrawals/readiness` — owner-authenticated native-TRX provider, vault address, balances, fee reservations and limit checks.
+- `POST /api/treasury/trx-withdrawals` — owner-authorized native-TRX request through Fireblocks, with database idempotency and provider external ID.
+- `GET /api/treasury/trx-withdrawals/:idempotencyKey` and `POST /api/treasury/trx-withdrawals/:idempotencyKey/verify` — lookup and independently reconcile native-TRX chain receipt evidence.
 
 ## Production readiness checklist
 
