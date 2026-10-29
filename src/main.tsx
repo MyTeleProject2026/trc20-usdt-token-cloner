@@ -18,7 +18,8 @@ function renderRoute() {
   const isOkxDepositStatus = route === '#/okx-deposit-status'
   const isWalletVault = route === '#/wallet'
   const isWatchOnlyWallets = route === '#/watch-wallets'
-  const isLegacyWorkspace = route === '#/workspace'
+  // Send the root route to the owner workspace after login; keep Wallet Vault explicit.
+  const isWorkspace = route === '' || route === '#/' || route === '#/workspace'
 
   const page = isWalletVault
     ? <WalletVault />
@@ -28,7 +29,7 @@ function renderRoute() {
         ? <MainnetExchangeDeposit />
         : isOkxDepositStatus
           ? <OkxDepositStatus />
-          : isLegacyWorkspace || isSponsorOperator
+          : isWorkspace || isSponsorOperator
             ? (isSponsorOperator ? <SponsorSignerConsole /> : <App />)
             : <WalletVault />
 
