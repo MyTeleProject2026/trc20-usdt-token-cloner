@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, treasuryFeeCapCovered, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -221,6 +221,27 @@ test('treasury fee preflight requires real native TRX to cover the configured ma
   assert.equal(treasuryFeeCapCovered('invalid', '50000000'), false)
   assert.equal(treasuryFeeCapCovered('50000000', '0'), false)
   assert.equal(treasuryFeeCapCovered('50000000', '1e6'), false)
+})
+
+test('cross-asset fee reserve budgets one fee cap per unresolved payout plus the new request', () => {
+  const feeCap = '50000000'
+  assert.equal(requiredTreasuryFeeReserveSun(feeCap, '0', '0'), '50000000')
+  assert.equal(requiredTreasuryFeeReserveSun(feeCap, '1', '0'), '100000000')
+  assert.equal(requiredTreasuryFeeReserveSun(feeCap, '0', '2'), '150000000')
+  assert.equal(requiredTreasuryFeeReserveSun(feeCap, '2', '3'), '300000000')
+  assert.equal(requiredTreasuryFeeReserveSun('0', '0', '0'), null)
+  assert.equal(requiredTreasuryFeeReserveSun(feeCap, '-1', '0'), null)
+  assert.equal(requiredTreasuryFeeReserveSun(feeCap, '01', '0'), null)
+  assert.equal(requiredTreasuryFeeReserveSun('1000000000', '999999999999', '0'), null)
+})
+
+test('cross-asset fee reserve requires both on-chain and provider-available TRX to cover the full reserve', () => {
+  assert.equal(treasuryFeeReserveCovered('100000000', '100000000', '100000000'), true)
+  assert.equal(treasuryFeeReserveCovered('99999999', '100000000', '100000000'), false)
+  assert.equal(treasuryFeeReserveCovered('100000000', '99999999', '100000000'), false)
+  assert.equal(treasuryFeeReserveCovered('100000000', '100000000', '150000000'), false)
+  assert.equal(treasuryFeeReserveCovered('invalid', '100000000', '100000000'), false)
+  assert.equal(treasuryFeeReserveCovered('100000000', 'invalid', '100000000'), false)
 })
 
 test('treasury available-balance calculation reserves ambiguous or pending payouts conservatively', () => {
