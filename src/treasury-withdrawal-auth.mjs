@@ -98,7 +98,7 @@ export function buildTreasuryTrxWithdrawalAuthorizationMessage({
   return [
     'TRON Token Studio treasury payout authorization',
     'Version: 1',
-    'Purpose: authorize exactly one native TRX transfer; this signature does not create or mint assets.',
+    'Purpose: authorize exactly one native TRX transfer; this signature does not create assets or mint tokens.',
     'Network: TRON Mainnet',
     'Asset: TRX',
     'Asset decimals: 6',
