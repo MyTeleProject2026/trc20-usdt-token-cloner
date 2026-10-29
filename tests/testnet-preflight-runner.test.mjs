@@ -166,6 +166,7 @@ test('preflight detects any unexpected enabled submission gate instead of treati
 
   assert.ok(report.safetyInvariants.contractViolations.includes('sponsorship-enabled-flag-must-be-false'))
   assert.ok(report.safetyInvariants.contractViolations.includes('sponsored-submit-flag-must-be-false'))
+  assert.equal(report.safetyInvariants.sponsoredSubmissionEnabled, true)
   assert.equal(report.diagnosticsStatus, 'incomplete')
   assert.equal(report.step4Complete, false)
 })
