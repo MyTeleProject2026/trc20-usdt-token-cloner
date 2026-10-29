@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, treasuryFeeCapCovered, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, treasuryFeeCapCovered, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -21,6 +21,42 @@ test('treasury payouts require the owner-console and treasury owner address to m
     OWNER_WALLET_ADDRESS: 'invalid',
     TREASURY_OWNER_ADDRESS: 'invalid',
   }), false)
+})
+
+test('native TRX hot-wallet payout is blocked in production until a managed TRX signer exists', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  const config = trxConfiguration({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgres://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_PRIVATE_KEY: 'placeholder-not-a-real-key',
+    TREASURY_MAX_PAYOUT_TRX: '10',
+    TREASURY_DAILY_LIMIT_TRX: '100',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_TRX_WITHDRAWALS_ENABLED: 'true',
+    TREASURY_SIGNER_MODE: 'env-hot-wallet',
+  })
+  assert.equal(config.enabled, false)
+  assert.ok(config.missing.includes('managed-TRX-signer-not-integrated-for-production'))
+})
+
+test('native TRX payout does not fall back to the legacy key in Fireblocks signer mode', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  const config = trxConfiguration({
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgres://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_TRX: '10',
+    TREASURY_DAILY_LIMIT_TRX: '100',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_TRX_WITHDRAWALS_ENABLED: 'true',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+  })
+  assert.equal(config.enabled, false)
 })
 
 test('USDT decimal parser converts exact six-decimal amounts to base units', () => {
