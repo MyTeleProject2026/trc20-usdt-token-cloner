@@ -308,3 +308,46 @@ test('Fireblocks transaction POST uses a provider vault source and never include
   assert.equal(payload.bodyHash, createHash('sha256').update(calls[0].init.body).digest('hex'))
   assert.equal(verify('RSA-SHA256', Buffer.from(header64 + '.' + payload64), publicKey, Buffer.from(signature64, 'base64url')), true)
 })
+
+
+test('Fireblocks refuses zero-value USDT and TRX transfers at the provider boundary', async () => {
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async () => {
+      throw new Error('Provider request must not be attempted for an invalid amount')
+    },
+  })
+  const recipientAddress = 'T' + 'A'.repeat(33)
+
+  await assert.rejects(
+    client.createUsdtTransfer({
+      recipientAddress,
+      amountUsdt: '0',
+      externalTxId: 'zero-usdt-payout-test-0001',
+    }),
+    (error) => error?.code === 'invalid-fireblocks-transfer-request',
+  )
+  await assert.rejects(
+    client.createUsdtTransfer({
+      recipientAddress,
+      amountUsdt: '0.000000',
+      externalTxId: 'zero-usdt-payout-test-0002',
+    }),
+    (error) => error?.code === 'invalid-fireblocks-transfer-request',
+  )
+  await assert.rejects(
+    client.createTrxTransfer({
+      recipientAddress,
+      amountTrx: '0.000000',
+      externalTxId: 'zero-trx-payout-test-0001',
+    }),
+    (error) => error?.code === 'invalid-fireblocks-trx-transfer-request',
+  )
+  await assert.rejects(
+    client.createTrxTransfer({
+      recipientAddress,
+      amountTrx: '0',
+      externalTxId: 'zero-trx-payout-test-0002',
+    }),
+    (error) => error?.code === 'invalid-fireblocks-trx-transfer-request',
+  )
+})
