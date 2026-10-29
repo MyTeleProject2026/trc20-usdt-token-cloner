@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildTreasuryWithdrawalAuthorizationMessage,
+  buildTreasuryTrxWithdrawalAuthorizationMessage,
   isTreasuryAuthorizationExpiryValid,
   OFFICIAL_TRON_MAINNET_USDT,
 } from '../src/treasury-withdrawal-auth.mjs'
@@ -109,4 +110,24 @@ test('treasury withdrawal authorization verifier fails closed for malformed sign
     signature: '0x' + 'a'.repeat(130),
     expectedOwnerAddress: ownerAddress,
   }), false)
+})
+
+
+test('native TRX payout authorization binds exact asset, amount, identities, origin and expiry', () => {
+  const message = buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, amountBaseUnits: '2500000' })
+  for (const expected of [
+    'Purpose: authorize exactly one native TRX transfer',
+    'Network: TRON Mainnet',
+    `Origin: ${base.origin}`,
+    `Owner: ${ownerAddress}`,
+    `Treasury: ${treasuryAddress}`,
+    'Asset: TRX',
+    'Asset decimals: 6',
+    `Recipient: ${recipientAddress}`,
+    'Amount base units (sun): 2500000',
+    `Idempotency key: ${base.idempotencyKey}`,
+    `Expires at Unix milliseconds: ${base.authorizationExpiresAt}`,
+  ]) assert.ok(message.includes(expected), expected)
+  assert.match(message, /does not create assets/)
+  assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, amountBaseUnits: '0' }))
 })

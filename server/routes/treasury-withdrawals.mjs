@@ -3,7 +3,11 @@ import { Router } from 'express'
 import pg from 'pg'
 import { TronWeb } from 'tronweb'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
-import { buildTreasuryWithdrawalAuthorizationMessage, isTreasuryAuthorizationExpiryValid } from '../../src/treasury-withdrawal-auth.mjs'
+import {
+  buildTreasuryWithdrawalAuthorizationMessage,
+  buildTreasuryTrxWithdrawalAuthorizationMessage,
+  isTreasuryAuthorizationExpiryValid,
+} from '../../src/treasury-withdrawal-auth.mjs'
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
@@ -73,6 +77,25 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_withdrawal_requests_status_check`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests
         ADD CONSTRAINT treasury_withdrawal_requests_status_check
+        CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_trx_withdrawal_requests (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          owner_address TEXT NOT NULL,
+          treasury_address TEXT NOT NULL,
+          recipient_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          status TEXT NOT NULL CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected')),
+          transaction_hash CHAR(64),
+          failure_code TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_trx_withdrawal_requests_status_check`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests
+        ADD CONSTRAINT treasury_trx_withdrawal_requests_status_check
         CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
     })().catch((error) => { schemaPromise = null; throw error })
   }
@@ -266,6 +289,125 @@ function safeStatus(row) {
     updatedAt: new Date(row.updated_at).toISOString(),
   }
 }
+
+export function matchesTreasuryTrxWithdrawalRequest(row, {
+  ownerAddress,
+  treasuryAddress,
+  recipientAddress,
+  amountBaseUnits,
+} = {}) {
+  if (!row || typeof row !== 'object') return false
+  try {
+    return row.owner_address === ownerAddress
+      && row.treasury_address === treasuryAddress
+      && row.recipient_address === recipientAddress
+      && BigInt(String(row.amount_base_units)) === BigInt(String(amountBaseUnits))
+  } catch {
+    return false
+  }
+}
+
+function safeTrxStatus(row) {
+  return {
+    idempotencyKey: row.idempotency_key,
+    network: 'mainnet',
+    asset: 'TRX',
+    tokenContract: null,
+    treasuryAddress: row.treasury_address,
+    recipientAddress: row.recipient_address,
+    amountBaseUnits: String(row.amount_base_units),
+    decimals: 6,
+    status: row.status,
+    ...(row.transaction_hash ? { transactionHash: String(row.transaction_hash).trim() } : {}),
+    ...(row.failure_code ? { failureCode: row.failure_code } : {}),
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  }
+}
+
+function trxConfiguration(env) {
+  const required = [
+    'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
+    'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_TRX',
+    'TREASURY_DAILY_LIMIT_TRX', 'TREASURY_FEE_LIMIT_SUN',
+  ]
+  const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
+  const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
+  const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_TRX)
+  const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_TRX)
+  const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
+    ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : 0n
+  const enabled = env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
+    && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
+    && missing.length === 0
+    && ownerAddressesMatch
+    && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
+    && maxPayout !== null && dailyLimit !== null
+    && feeLimit >= 1n && feeLimit <= 1_000_000_000n
+  return { enabled, missing, ownerAddressesMatch, maxPayout, dailyLimit, feeLimit }
+}
+
+function nativeTrxIntentMatches(tronWeb, transaction, {
+  treasuryAddress,
+  recipientAddress,
+  amountBaseUnits,
+} = {}) {
+  const contracts = transaction?.raw_data?.contract
+  if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TransferContract') return false
+  try {
+    const expectedFrom = normalizedHex(tronWeb.address.toHex(treasuryAddress))
+    const expectedTo = normalizedHex(tronWeb.address.toHex(recipientAddress))
+    const value = contracts[0]?.parameter?.value
+    if (!expectedFrom || !expectedTo
+      || normalizedHex(value?.owner_address) !== expectedFrom
+      || normalizedHex(value?.to_address) !== expectedTo
+      || !/^(0|[1-9][0-9]{0,77})$/.test(String(value?.amount))) return false
+    return BigInt(String(value.amount)) === BigInt(String(amountBaseUnits))
+  } catch {
+    return false
+  }
+}
+
+/** Verify an exact native TRX transfer in a confirmed/solidified transaction. */
+export function verifyTreasuryTrxTransferEvidence(tronWeb, {
+  transaction,
+  transactionInfo,
+  transactionHash,
+  treasuryAddress,
+  recipientAddress,
+  amountBaseUnits,
+} = {}) {
+  const pending = { verified: false, status: 'awaiting-confirmed-receipt', reason: 'confirmed-transaction-or-receipt-unavailable' }
+  if (!tronWeb || !TXID_PATTERN.test(transactionHash || '')
+    || !ADDRESS_PATTERN.test(treasuryAddress || '')
+    || !ADDRESS_PATTERN.test(recipientAddress || '')
+    || typeof amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+    return { verified: false, status: 'verification-mismatch', reason: 'invalid-verification-input' }
+  }
+  const txid = String(transaction?.txID || transaction?.txid || '').toLowerCase()
+  const infoId = String(transactionInfo?.id || transactionInfo?.txID || transactionInfo?.txid || '').toLowerCase()
+  if (txid !== transactionHash.toLowerCase() || infoId !== transactionHash.toLowerCase()
+    || !nativeTrxIntentMatches(tronWeb, transaction, { treasuryAddress, recipientAddress, amountBaseUnits })) {
+    return transaction && transactionInfo ? { verified: false, status: 'verification-mismatch', reason: 'native-transfer-intent-mismatch' } : pending
+  }
+  if (!Number.isSafeInteger(transactionInfo?.blockNumber) || transactionInfo.blockNumber < 1) return pending
+  const executionResults = [
+    transaction?.ret?.[0]?.contractRet,
+    transactionInfo?.receipt?.result,
+  ].filter((value) => typeof value === 'string' && value.length > 0)
+  if (executionResults.some((value) => value !== 'SUCCESS')) {
+    return { verified: true, status: 'failed', reason: 'confirmed-solidified-failed-transfer', blockNumber: transactionInfo.blockNumber }
+  }
+  // A confirmed native TransferContract has no contract event. Verify its exact
+  // sender, recipient and amount in the solidified transaction instead.
+  return {
+    verified: true,
+    status: 'confirmed',
+    reason: executionResults.length ? 'confirmed-solidified-successful-native-transfer' : 'confirmed-solidified-native-transfer-intent',
+    blockNumber: transactionInfo.blockNumber,
+  }
+}
+
 
 /**
  * Owner-only treasury-backed withdrawals. The owner signs in with the existing
@@ -670,6 +812,307 @@ export function createTreasuryWithdrawalsRouter({
       return res.json({ success: true, withdrawal: safeStatus(result.rows[0]) })
     } catch {
       return res.status(503).json({ success: false, error: 'treasury-withdrawal-unavailable' })
+    }
+  })
+
+
+  // Native TRX treasury payouts are a separate, opt-in path with independent
+  // limits. The same owner-only challenge session and per-request signature
+  // apply; this route never borrows or fabricates chain balance.
+  router.get('/trx-withdrawals/readiness', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const authResult = await authenticateOwner(req)
+    if (!authResult.ok) return res.status(authResult.status).json({ success: false, error: authResult.error })
+    const config = trxConfiguration(env)
+    const blockers = []
+    if (env.TREASURY_TRX_WITHDRAWALS_ENABLED !== 'true') blockers.push('trx-payout-feature-disabled')
+    if (!config.enabled) blockers.push('trx-withdrawal-configuration-incomplete')
+    const db = getPool(env)
+    if (!db) blockers.push('database-not-configured')
+    let databaseReady = false
+    let signerMatchesConfiguredAddress = false
+    let treasuryTrxBalanceSun = null
+    let reservedNativeSun = '0'
+    let availableNativeSun = '0'
+    let reservedFeeCapSun = '0'
+    let maxPayoutTrx = typeof env.TREASURY_MAX_PAYOUT_TRX === 'string' ? env.TREASURY_MAX_PAYOUT_TRX : null
+    let dailyLimitTrx = typeof env.TREASURY_DAILY_LIMIT_TRX === 'string' ? env.TREASURY_DAILY_LIMIT_TRX : null
+    try {
+      if (db) {
+        await ensureSchema(db)
+        databaseReady = true
+        const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+        if (ADDRESS_PATTERN.test(treasuryAddress) && typeof env.TREASURY_PRIVATE_KEY === 'string' && env.TREASURY_PRIVATE_KEY.trim()) {
+          const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
+          signerMatchesConfiguredAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim()) === treasuryAddress
+          treasuryTrxBalanceSun = String(await tronWeb.trx.getBalance(treasuryAddress))
+          if (!/^(0|[1-9][0-9]{0,20})$/.test(treasuryTrxBalanceSun)) treasuryTrxBalanceSun = null
+          const [trxReserved, pendingTrxCount, pendingUsdtCount] = await Promise.all([
+            db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+              FROM trc20_token_clone.treasury_trx_withdrawal_requests
+              WHERE treasury_address=$1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+            db.query(`SELECT COUNT(*)::text AS count
+              FROM trc20_token_clone.treasury_trx_withdrawal_requests
+              WHERE treasury_address=$1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+            db.query(`SELECT COUNT(*)::text AS count
+              FROM trc20_token_clone.treasury_withdrawal_requests
+              WHERE treasury_address=$1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          ])
+          reservedNativeSun = String(trxReserved.rows[0]?.amount || '0')
+          const balanceMinusPrincipal = unreservedTreasuryBalance(treasuryTrxBalanceSun || '0', reservedNativeSun)
+          const pendingFeeCount = BigInt(pendingTrxCount.rows[0]?.count || '0') + BigInt(pendingUsdtCount.rows[0]?.count || '0') + 1n
+          reservedFeeCapSun = (config.feeLimit * pendingFeeCount).toString()
+          if (balanceMinusPrincipal !== null) {
+            const rawAvailable = BigInt(balanceMinusPrincipal) - BigInt(reservedFeeCapSun)
+            availableNativeSun = (rawAvailable > 0n ? rawAvailable : 0n).toString()
+          }
+        }
+      }
+    } catch {
+      databaseReady = false
+      blockers.push('chain-or-database-read-failed')
+    }
+    if (!databaseReady) blockers.push('database-not-ready')
+    if (!signerMatchesConfiguredAddress) blockers.push('treasury-signer-address-mismatch')
+    if (treasuryTrxBalanceSun === null) blockers.push('treasury-trx-balance-unavailable')
+    else if (BigInt(availableNativeSun) <= 0n) blockers.push('treasury-trx-no-unreserved-payout-balance')
+    const withdrawalsEnabled = blockers.length === 0
+    return res.json({
+      success: true,
+      network: 'mainnet',
+      asset: 'TRX',
+      decimals: 6,
+      withdrawalsEnabled,
+      ownerAddress: authResult.ownerAddress,
+      treasuryAddress: ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '') ? env.TREASURY_ADDRESS : null,
+      treasuryTrxBalanceSun,
+      outstandingTrxPrincipalSun: reservedNativeSun,
+      reservedFeeCapSun,
+      availableTrxBaseUnits: availableNativeSun,
+      maxPayoutTrx,
+      dailyLimitTrx,
+      payoutBlockers: [...new Set(blockers)],
+      note: 'Readiness is not a payout authorization. Every TRX payout requires a fresh owner signature, actual treasury funds and a confirmed chain receipt.',
+    })
+  })
+
+  router.post('/trx-withdrawals', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const authResult = await authenticateOwner(req)
+    if (!authResult.ok) return res.status(authResult.status).json({ success: false, error: authResult.error })
+    const config = trxConfiguration(env)
+    if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-trx-withdrawals-disabled', missing: config.missing })
+    const origin = req.get('origin')
+    const body = req.body || {}
+    const amount = parsePositiveDecimal(body.amountTrx, 6)
+    const authorizationExpiresAt = body.authorizationExpiresAt
+    if (!origin || !ADDRESS_PATTERN.test(body.recipientAddress || '')
+      || body.recipientAddress === env.TREASURY_ADDRESS
+      || !amount || amount > config.maxPayout || amount > BigInt(Number.MAX_SAFE_INTEGER)
+      || typeof body.idempotencyKey !== 'string' || !IDEMPOTENCY_PATTERN.test(body.idempotencyKey)
+      || !isTreasuryAuthorizationExpiryValid(authorizationExpiresAt, now().getTime(), OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS)
+      || typeof body.authorizationMessage !== 'string'
+      || typeof body.authorizationSignature !== 'string') {
+      return res.status(400).json({ success: false, error: 'invalid-trx-withdrawal-request' })
+    }
+    const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+    let tronWeb
+    try {
+      tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
+      const signerAddress = tronWeb.address.fromPrivateKey(env.TREASURY_PRIVATE_KEY.trim())
+      if (signerAddress !== treasuryAddress) return res.status(503).json({ success: false, error: 'treasury-signer-address-mismatch' })
+      const canonicalMessage = buildTreasuryTrxWithdrawalAuthorizationMessage({
+        origin,
+        ownerAddress: authResult.ownerAddress,
+        treasuryAddress,
+        recipientAddress: body.recipientAddress,
+        amountBaseUnits: amount.toString(),
+        idempotencyKey: body.idempotencyKey,
+        authorizationExpiresAt,
+      })
+      if (body.authorizationMessage !== canonicalMessage) return res.status(400).json({ success: false, error: 'payout-authorization-message-mismatch' })
+      const signatureValid = await verifyTreasuryOwnerPayoutSignature(tronWeb, {
+        message: canonicalMessage,
+        signature: body.authorizationSignature,
+        expectedOwnerAddress: authResult.ownerAddress,
+      })
+      if (!signatureValid) return res.status(403).json({ success: false, error: 'invalid-owner-payout-signature' })
+
+      const db = getPool(env)
+      if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+      await ensureSchema(db)
+      const feeLimit = config.feeLimit
+      const client = await db.connect()
+      let reservation
+      try {
+        await client.query('BEGIN')
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
+        const existing = await client.query('SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 FOR UPDATE', [body.idempotencyKey])
+        if (existing.rows.length) {
+          const prior = existing.rows[0]
+          await client.query('COMMIT')
+          if (!matchesTreasuryTrxWithdrawalRequest(prior, {
+            ownerAddress: authResult.ownerAddress,
+            treasuryAddress,
+            recipientAddress: body.recipientAddress,
+            amountBaseUnits: amount.toString(),
+          })) return res.status(409).json({ success: false, error: 'idempotency-key-conflict', message: 'This request key is already bound to a different TRX payout. No second transfer was broadcast.' })
+          return res.status(200).json({ success: true, duplicate: true, withdrawal: safeTrxStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
+        }
+
+        const nativeBalanceSun = String(await tronWeb.trx.getBalance(treasuryAddress))
+        if (!/^(0|[1-9][0-9]{0,20})$/.test(nativeBalanceSun)) {
+          await client.query('ROLLBACK')
+          return res.status(503).json({ success: false, error: 'treasury-trx-balance-unavailable' })
+        }
+        const [trxReserved, pendingTrxCount, pendingUsdtCount, dailyReserved] = await Promise.all([
+          client.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_trx_withdrawal_requests
+            WHERE treasury_address=$1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          client.query(`SELECT COUNT(*)::text AS count
+            FROM trc20_token_clone.treasury_trx_withdrawal_requests
+            WHERE treasury_address=$1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          client.query(`SELECT COUNT(*)::text AS count
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1 AND status IN ('broadcasting','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          client.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_trx_withdrawal_requests
+            WHERE treasury_address=$1 AND created_at >= date_trunc('day',now()) AND status <> 'rejected'`, [treasuryAddress]),
+        ])
+        const nativeReserved = BigInt(trxReserved.rows[0]?.amount || '0')
+        const currentPrincipal = BigInt(amount.toString())
+        const pendingFeeCount = BigInt(pendingTrxCount.rows[0]?.count || '0') + BigInt(pendingUsdtCount.rows[0]?.count || '0') + 1n
+        const reservedFeeSun = feeLimit * pendingFeeCount
+        const unreservedNative = unreservedTreasuryBalance(nativeBalanceSun, nativeReserved.toString())
+        const freeForPrincipal = unreservedNative === null ? 0n : BigInt(unreservedNative) - reservedFeeSun
+        if (freeForPrincipal < currentPrincipal) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'treasury-trx-insufficient-after-reservations',
+            treasuryTrxBalanceSun: nativeBalanceSun,
+            outstandingTrxPrincipalSun: nativeReserved.toString(),
+            reservedFeeCapSun: reservedFeeSun.toString(),
+            availableTrxBaseUnits: (freeForPrincipal > 0n ? freeForPrincipal : 0n).toString(),
+            requestedAmountBaseUnits: amount.toString(),
+            message: 'Real treasury TRX is insufficient after outstanding payouts and the conservative transaction-fee reserve.',
+          })
+        }
+        const alreadyReserved = BigInt(dailyReserved.rows[0]?.amount || '0')
+        if (alreadyReserved + currentPrincipal > config.dailyLimit) {
+          await client.query('ROLLBACK')
+          return res.status(429).json({ success: false, error: 'treasury-trx-daily-limit-exceeded' })
+        }
+        const inserted = await client.query(`
+          INSERT INTO trc20_token_clone.treasury_trx_withdrawal_requests
+            (idempotency_key,owner_address,treasury_address,recipient_address,amount_base_units,status)
+          VALUES ($1,$2,$3,$4,$5,'broadcasting')
+          RETURNING *
+        `, [body.idempotencyKey, authResult.ownerAddress, treasuryAddress, body.recipientAddress, amount.toString()])
+        reservation = inserted.rows[0]
+        await client.query('COMMIT')
+      } catch (error) {
+        try { await client.query('ROLLBACK') } catch {}
+        if (error?.code === '23505') {
+          const existing = await db.query('SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1', [body.idempotencyKey])
+          if (existing.rows.length) return res.status(200).json({ success: true, duplicate: true, withdrawal: safeTrxStatus(existing.rows[0]), note: 'Existing native TRX request returned; no second transfer was broadcast.' })
+        }
+        throw error
+      } finally {
+        client.release()
+      }
+
+      try {
+        const unsigned = await tronWeb.transactionBuilder.sendTrx(body.recipientAddress, Number(amount.toString()), treasuryAddress)
+        if (!nativeTrxIntentMatches(tronWeb, unsigned, {
+          treasuryAddress, recipientAddress: body.recipientAddress, amountBaseUnits: amount.toString(),
+        })) {
+          await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status='rejected',failure_code='unsigned-transaction-intent-mismatch',updated_at=now() WHERE id=$1`, [reservation.id])
+          return res.status(409).json({ success: false, error: 'unsigned-transaction-intent-mismatch' })
+        }
+        const signed = await tronWeb.trx.sign(unsigned, env.TREASURY_PRIVATE_KEY.trim())
+        if (!nativeTrxIntentMatches(tronWeb, signed, {
+          treasuryAddress, recipientAddress: body.recipientAddress, amountBaseUnits: amount.toString(),
+        })) {
+          await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status='rejected',failure_code='signed-transaction-intent-mismatch',updated_at=now() WHERE id=$1`, [reservation.id])
+          return res.status(409).json({ success: false, error: 'signed-transaction-intent-mismatch' })
+        }
+        const txid = String(signed?.txID || signed?.txid || '').toLowerCase()
+        if (!TXID_PATTERN.test(txid)) {
+          await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status='broadcast-unknown',failure_code='signed-transaction-id-unavailable',updated_at=now() WHERE id=$1`, [reservation.id])
+          return res.status(202).json({ success: false, status: 'broadcast-unknown', error: 'transaction-id-unavailable', note: 'Do not resubmit; verify this request key before retrying.' })
+        }
+        const broadcast = await tronWeb.trx.sendRawTransaction(signed)
+        const accepted = broadcast?.result === true || broadcast?.result?.result === true
+        const responseTxid = String(broadcast?.txid || broadcast?.txID || '').toLowerCase()
+        if (!accepted || (responseTxid && TXID_PATTERN.test(responseTxid) && responseTxid !== txid)) {
+          await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status='broadcast-unknown',transaction_hash=$2,failure_code=$3,updated_at=now() WHERE id=$1`, [reservation.id, txid, !accepted ? 'broadcast-acceptance-unconfirmed' : 'broadcast-transaction-id-mismatch'])
+          return res.status(202).json({ success: false, status: 'broadcast-unknown', idempotencyKey: body.idempotencyKey, transactionHash: txid, error: 'broadcast-outcome-unknown', note: 'The network response is ambiguous. Reconcile this request before any retry.' })
+        }
+        const updated = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status='broadcast-accepted',transaction_hash=$2,updated_at=now() WHERE id=$1 RETURNING *`, [reservation.id, txid])
+        return res.status(202).json({ success: true, status: 'broadcast-accepted', withdrawal: safeTrxStatus(updated.rows[0]), note: 'The node accepted the signed native TRX transaction. Confirmation and destination-platform credit are not implied.' })
+      } catch {
+        await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status='broadcast-unknown',failure_code='broadcast-outcome-unknown',updated_at=now() WHERE id=$1`, [reservation.id])
+        return res.status(202).json({ success: false, status: 'broadcast-unknown', idempotencyKey: body.idempotencyKey, error: 'broadcast-outcome-unknown', note: 'The network outcome is ambiguous. Verify this stored request; do not resubmit.' })
+      }
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-trx-withdrawal-unavailable' })
+    }
+  })
+
+  router.post('/trx-withdrawals/:idempotencyKey/verify', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const authResult = await authenticateOwner(req)
+    if (!authResult.ok) return res.status(authResult.status).json({ success: false, error: authResult.error })
+    const key = req.params.idempotencyKey
+    if (!IDEMPOTENCY_PATTERN.test(key || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const lookup = await db.query('SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 AND owner_address=$2', [key, authResult.ownerAddress])
+      if (!lookup.rows.length) return res.status(404).json({ success: false, error: 'trx-withdrawal-not-found' })
+      const row = lookup.rows[0]
+      if (row.status === 'confirmed' || row.status === 'failed') return res.json({ success: row.status === 'confirmed', withdrawal: safeTrxStatus(row), verification: { verified: true, status: row.status, reason: 'previously-verified-solidified-transfer' } })
+      const txid = typeof row.transaction_hash === 'string' ? row.transaction_hash.trim() : ''
+      if (!TXID_PATTERN.test(txid)) return res.status(409).json({ success: false, error: 'transaction-hash-not-available', withdrawal: safeTrxStatus(row) })
+      const tronWeb = tronWebFactory(env.TREASURY_PRIVATE_KEY.trim())
+      const [transaction, transactionInfo] = await Promise.all([
+        tronWeb.trx.getConfirmedTransaction(txid).catch(() => null),
+        tronWeb.trx.getTransactionInfo(txid).catch(() => null),
+      ])
+      const evidence = verifyTreasuryTrxTransferEvidence(tronWeb, {
+        transaction, transactionInfo, transactionHash: txid, treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address, amountBaseUnits: String(row.amount_base_units),
+      })
+      if (evidence.status === 'confirmed' || evidence.status === 'failed') {
+        const updated = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests SET status=$2,failure_code=$3,updated_at=now() WHERE id=$1 AND status NOT IN ('confirmed','failed') RETURNING *`, [row.id,evidence.status,evidence.status === 'failed' ? evidence.reason : null])
+        const saved = updated.rows[0] || row
+        return res.status(evidence.status === 'confirmed' ? 200 : 202).json({ success: evidence.status === 'confirmed', withdrawal: safeTrxStatus(saved), verification: evidence })
+      }
+      return res.status(evidence.status === 'verification-mismatch' ? 409 : 202).json({
+        success: false, withdrawal: safeTrxStatus(row), verification: evidence,
+        note: 'A hash alone is not confirmation; retry after this transaction is indexed in a confirmed block.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-trx-withdrawal-verification-unavailable' })
+    }
+  })
+
+  router.get('/trx-withdrawals/:idempotencyKey', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const authResult = await authenticateOwner(req)
+    if (!authResult.ok) return res.status(authResult.status).json({ success: false, error: authResult.error })
+    if (!IDEMPOTENCY_PATTERN.test(req.params.idempotencyKey || '')) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const found = await db.query('SELECT * FROM trc20_token_clone.treasury_trx_withdrawal_requests WHERE idempotency_key=$1 AND owner_address=$2', [req.params.idempotencyKey,authResult.ownerAddress])
+      if (!found.rows.length) return res.status(404).json({ success: false, error: 'trx-withdrawal-not-found' })
+      return res.json({ success: true, withdrawal: safeTrxStatus(found.rows[0]) })
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-trx-withdrawal-unavailable' })
     }
   })
 
