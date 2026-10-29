@@ -137,7 +137,6 @@ test('managed native-TRX readiness is fail-closed when Fireblocks credentials, v
 })
 
 test('managed native-TRX submission remains disabled and cannot call the provider without reviewed configuration', async (t) => {
-  let providerSubmissionCalled = false
   const server = createServer((() => {
     const app = createOwnerSessionApp()
     return app
@@ -163,11 +162,9 @@ test('managed native-TRX submission remains disabled and cannot call the provide
   const payload = await response.json()
   assert.equal(response.status, 503)
   assert.equal(payload.error, 'treasury-trx-withdrawals-disabled')
-  assert.equal(providerSubmissionCalled, false)
 })
 
 test('managed TRX source no longer depends on a treasury blockchain private-key environment variable', async () => {
-  const source = (await import('node:fs/promises')).readFile
   const { readFile } = await import('node:fs/promises')
   const routeSource = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
   const trxStart = routeSource.indexOf("router.get('/trx-withdrawals/readiness'")
