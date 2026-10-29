@@ -9,6 +9,7 @@ import {
   providerAssetAvailableBaseUnits,
   fireblocksAssetIdentifierMatches,
   isOfficialFireblocksUsdtAsset,
+  isOfficialFireblocksNativeTrxAsset,
   classifyFireblocksTransaction,
 } from '../fireblocks-client.mjs'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
@@ -24,6 +25,8 @@ const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,128}$/
+const TRX_IDEMPOTENCY_PATTERN = /^trx-withdrawal-[A-Za-z0-9._:-]{24,128}$/
+const UNRESOLVED_TRX_STATUSES = ['broadcasting','provider-pending','broadcast-accepted','broadcast-unknown']
 const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const OWNER_PAYOUT_SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
 const OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS = 120_000
@@ -99,14 +102,18 @@ async function ensureSchema(db) {
           treasury_address TEXT NOT NULL,
           recipient_address TEXT NOT NULL,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
-          status TEXT NOT NULL CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected')),
+          status TEXT NOT NULL CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed')),
           transaction_hash CHAR(64),
+          provider_transaction_id TEXT,
+          provider_status TEXT,
           failure_code TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_trx_withdrawal_requests_status_check`)
+      await db.query("ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT")
+      await db.query("ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT")
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests
         ADD CONSTRAINT treasury_trx_withdrawal_requests_status_check
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
@@ -351,25 +358,45 @@ function safeTrxStatus(row) {
 }
 
 function trxConfiguration(env) {
+  const provider = fireblocksConfiguration(env)
   const required = [
     'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
-    'TREASURY_ADDRESS', 'TREASURY_PRIVATE_KEY', 'TREASURY_MAX_PAYOUT_TRX',
-    'TREASURY_DAILY_LIMIT_TRX', 'TREASURY_FEE_LIMIT_SUN',
+    'TREASURY_ADDRESS', 'TREASURY_TRX_MAX_PAYOUT', 'TREASURY_TRX_DAILY_LIMIT',
+    'TREASURY_TRX_FEE_RESERVE_SUN', 'TREASURY_FEE_LIMIT_SUN',
   ]
   const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
+  if (!provider.trxConfigured) missing.push(...provider.trxMissing)
   const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
-  const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_TRX)
-  const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_TRX)
-  const feeLimit = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
+  const maxPayout = readLimit(env.TREASURY_TRX_MAX_PAYOUT)
+  const dailyLimit = readLimit(env.TREASURY_TRX_DAILY_LIMIT)
+  const feeLimitValue = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' && /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN)
     ? BigInt(env.TREASURY_FEE_LIMIT_SUN) : 0n
+  const feeReserveValue = typeof env.TREASURY_TRX_FEE_RESERVE_SUN === 'string'
+    && /^(0|[1-9]\d{0,20})$/.test(env.TREASURY_TRX_FEE_RESERVE_SUN)
+    ? BigInt(env.TREASURY_TRX_FEE_RESERVE_SUN) : 0n
+  const feeLimitValid = feeLimitValue >= 1n && feeLimitValue <= 1_000_000_000n
+  const feeReserveValid = feeReserveValue >= 1n && feeReserveValue <= 1_000_000_000_000n
+  if (!feeLimitValid) missing.push('TREASURY_FEE_LIMIT_SUN (positive integer no greater than 1000000000)')
+  if (!feeReserveValid) missing.push('TREASURY_TRX_FEE_RESERVE_SUN (positive integer)')
+  if (maxPayout === null) missing.push('TREASURY_TRX_MAX_PAYOUT (positive TRX amount)')
+  if (dailyLimit === null) missing.push('TREASURY_TRX_DAILY_LIMIT (positive TRX amount)')
   const enabled = env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
-    && env.TREASURY_SIGNER_MODE === 'env-hot-wallet'
+    && env.TREASURY_SIGNER_MODE === 'fireblocks'
     && missing.length === 0
     && ownerAddressesMatch
     && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
     && maxPayout !== null && dailyLimit !== null
-    && feeLimit >= 1n && feeLimit <= 1_000_000_000n
-  return { enabled, missing, ownerAddressesMatch, maxPayout, dailyLimit, feeLimit }
+  return {
+    enabled,
+    missing: [...new Set(missing)],
+    ownerAddressesMatch,
+    maxPayout,
+    dailyLimit,
+    feeLimit: feeLimitValue,
+    feeReserve: feeReserveValue,
+    providerConfigured: provider.trxConfigured,
+    signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
+  }
 }
 
 function nativeTrxIntentMatches(tronWeb, transaction, {
