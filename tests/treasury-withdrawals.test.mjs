@@ -23,7 +23,7 @@ test('treasury payouts require the owner-console and treasury owner address to m
   }), false)
 })
 
-test('native TRX hot-wallet payout is blocked in production until a managed TRX signer exists', () => {
+test('native TRX payout never enables through a legacy application-held hot wallet', () => {
   const owner = 'T' + 'A'.repeat(33)
   const config = trxConfiguration({
     NODE_ENV: 'production',
@@ -39,7 +39,8 @@ test('native TRX hot-wallet payout is blocked in production until a managed TRX 
     TREASURY_SIGNER_MODE: 'env-hot-wallet',
   })
   assert.equal(config.enabled, false)
-  assert.ok(config.missing.includes('managed-TRX-signer-not-integrated-for-production'))
+  assert.ok(config.missing.includes('FIREBLOCKS_TRX_ASSET_ID'))
+  assert.ok(config.missing.includes('TREASURY_SIGNER_MODE=fireblocks'))
 })
 
 test('native TRX payout does not fall back to the legacy key in Fireblocks signer mode', () => {
