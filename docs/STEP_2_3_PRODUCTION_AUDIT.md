@@ -4,6 +4,8 @@
 **Repository:** `MyTeleProject2026/trc20-usdt-token-cloner`  
 **Important:** this is a dated operational snapshot. The public smoke workflow must pass again after any live configuration update; provider credentials and balances are never recorded here.
 
+**Infrastructure budget decision (2026-10-30):** continue on Render Free because paid plans are currently unaffordable. No paid resources were created. The Free Postgres expiry risk remains acknowledged; do not claim durable production storage or sponsored payout readiness on the basis of a successful smoke test.
+
 ## Step 2 — backend configuration
 
 ### Confirmed Render service
@@ -24,6 +26,10 @@ The pre-update live API smoke on commit `b74be09d4b35a2db88c7b57086fd5de6b6092bb
 ### Latest repository CI validation
 
 On audit commit `bf96c14ca6ad0c28a079e2108948cbceb4ca0b98`, the latest repository checks all completed successfully: [CI test/build run #40952127414](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40952127414), [dependency security audit #40952127433](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40952127433), and [Node 22/24 build-and-contract matrix #40952127643](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40952127643). The public API smoke run #40951784898 also passed after the environment update. That smoke targeted the live backend deployment from code commit `b74be09d4b35a2db88c7b57086fd5de6b6092bbf`; subsequent audit-only commits use `[skip render]` intentionally and do not redeploy runtime code.
+
+### Free-plan operating mode
+
+The owner has confirmed that paid Render infrastructure is not currently affordable. Continue on Free plans; do not create a paid database/service or another billable resource. The current Free Postgres expiry remains `2026-11-17`. Keep this as an acknowledged durability risk, preserve a verified export/backup plan where available, and avoid claims of durable production operation. The backend's `autoDeployTrigger` remains `commit`; the connected Render integration cannot change that service setting. This is an operational limitation, not a reason to stop safe CI and read-only testnet preflight work.
 
 ### Remaining Step 2 release blockers
 
@@ -88,4 +94,4 @@ The UI already separates read-only diagnostics, testnet sponsor operations, dire
 - [ ] Complete independent security/operator review before considering any Mainnet submission.
 - [ ] Verify exchange deposit credit from the receiving exchange's own authorized record when that is part of the use case.
 
-**Current verdict:** backend runtime configuration is deployed and basic startup/database connectivity has been observed. Step 2 is not fully production-complete until database durability and CI-gated deployment are closed; post-update live smoke verification passed in run #40951784898. Step 3 remains blocked because no fully authorized, funded and end-to-end verified sponsored payout path has been established.
+**Current verdict:** backend runtime configuration is deployed and basic startup/database connectivity has been observed; CI, dependency audit, Node 22/24 matrix, and post-update public smoke all passed. The owner has chosen to stay on Free plans. Step 2 retains the known Free Postgres expiry/durability risk and the unchangeable-through-current-tooling CI-gated deployment setting. Step 3 remains blocked because no fully authorized, funded and end-to-end verified sponsored payout path has been established. Step 4 status and acceptance criteria are recorded separately in [STEP_4_TESTNET_E2E_STATUS.md](STEP_4_TESTNET_E2E_STATUS.md); live testnet transfer/settlement has not been verified, so Step 4 is not complete.
