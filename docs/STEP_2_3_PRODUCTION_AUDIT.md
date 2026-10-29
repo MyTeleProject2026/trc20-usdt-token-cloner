@@ -19,7 +19,7 @@
 
 The following non-secret values were applied to the backend service using a merge-only environment update: `NODE_ENV=production`, `FRONTEND_ORIGIN=https://trc20-usdt-token-cloner.onrender.com`, and `TATUM_API_BASE=https://api.tatum.io`. Existing environment variables were not replaced. The resulting deployment built successfully, started with `npm start`, logged `Project database initialization: ready`, and listened on Render's assigned port.
 
-The existing live API smoke run on commit `b74be09d4b35a2db88c7b57086fd5de6b6092bbf` passed on 2026-10-29 before this last environment update. It reported a successful health response, a healthy database/Tatum read-only readiness result, Tatum status `connected`, and a configured owner console with no missing required environment names. The smoke is expected to rerun after CI on this audit commit to check the currently deployed API with the updated environment. Do not infer that post-update verification passed until that run has a successful conclusion.
+The pre-update live API smoke on commit `b74be09d4b35a2db88b9c6a8da4dcc560597de4` passed before the last environment update. A follow-up smoke run, [#40951784898](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/runs/40951784898), completed successfully after the environment-update deployment. It verified the public health endpoint, the current database/Tatum read-only readiness response, Tatum status `connected`, owner-console configuration with no missing required environment names, live sponsor/testnet preflight response shapes, and that sponsor/treasury submission remains disabled. Future environment changes require a fresh smoke run.
 
 ### Remaining Step 2 release blockers
 
