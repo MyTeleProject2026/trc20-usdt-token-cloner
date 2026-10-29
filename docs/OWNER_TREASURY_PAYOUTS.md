@@ -26,6 +26,6 @@ Required safeguards include:
 
 ## Important setup limitations
 
-`TREASURY_WITHDRAWALS_ENABLED` must remain `false` until the provider account, secret file, vault, asset mapping, policy, database and limits have been configured and reviewed. Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The legacy native TRX withdrawal implementation uses a different signer mode and should remain disabled when `TREASURY_SIGNER_MODE=fireblocks`.
+`TREASURY_WITHDRAWALS_ENABLED` and `TREASURY_TRX_WITHDRAWALS_ENABLED` must remain `false` until the provider account, API credential file, vault, asset mappings, policy, database and limits have been configured and reviewed. Both USDT and native TRX payout routes use the managed Fireblocks vault signer; neither route should load a blockchain private key into the app. Native TRX additionally requires the exact `FIREBLOCKS_TRX_ASSET_ID` to resolve to verified native-TRX metadata and the provider's TRX address to match the configured on-chain treasury address.
 
 The code integration does not create a Fireblocks workspace, generate provider credentials, upload Render secret files, fund the treasury, or prove a real Mainnet payout. No live provider call was performed while implementing this branch. Start with mock-based tests, then complete a small controlled payout and independently verify it on TRON before handling meaningful value. A confirmed chain transfer does not guarantee a recipient exchange credits the deposit; exchange credit must be confirmed by the exchange's own authorized records.
