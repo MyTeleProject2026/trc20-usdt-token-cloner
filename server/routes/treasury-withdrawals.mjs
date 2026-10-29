@@ -688,11 +688,11 @@ export function createTreasuryWithdrawalsRouter({
       const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
         : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
       const updated = await db.query(
-        \`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+        `UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
             SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
                 provider_transaction_id=$4, provider_status=$5,
                 failure_code=$6, updated_at=now()
-          WHERE id=$1 RETURNING *\`,
+          WHERE id=$1 RETURNING *`,
         [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
           nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
       )
@@ -1081,18 +1081,18 @@ export function createTreasuryWithdrawalsRouter({
         databaseReady = true
         if (ADDRESS_PATTERN.test(treasuryAddress)) {
           const [trxReserved, trxPending, usdtPending, dailyReserved] = await Promise.all([
-            db.query(\`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
               FROM trc20_token_clone.treasury_trx_withdrawal_requests
-              WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')\`, [treasuryAddress]),
-            db.query(\`SELECT COUNT(*)::text AS count
+              WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+            db.query(`SELECT COUNT(*)::text AS count
               FROM trc20_token_clone.treasury_trx_withdrawal_requests
-              WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')\`, [treasuryAddress]),
-            db.query(\`SELECT COUNT(*)::text AS count
+              WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+            db.query(`SELECT COUNT(*)::text AS count
               FROM trc20_token_clone.treasury_withdrawal_requests
-              WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')\`, [treasuryAddress]),
-            db.query(\`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+              WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+            db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
               FROM trc20_token_clone.treasury_trx_withdrawal_requests
-              WHERE treasury_address=$1 AND created_at >= date_trunc('day',now()) AND status <> 'rejected'\`, [treasuryAddress]),
+              WHERE treasury_address=$1 AND created_at >= date_trunc('day',now()) AND status <> 'rejected'`, [treasuryAddress]),
           ])
           reservedNativeSun = String(trxReserved.rows[0]?.amount || '0')
           pendingTrxCount = String(trxPending.rows[0]?.count || '0')
@@ -1260,18 +1260,18 @@ export function createTreasuryWithdrawalsRouter({
         }
 
         const [trxReserved, pendingTrxCount, pendingUsdtCount, dailyReserved] = await Promise.all([
-          client.query(\`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+          client.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
-            WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')\`, [treasuryAddress]),
-          client.query(\`SELECT COUNT(*)::text AS count
+            WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          client.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
-            WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')\`, [treasuryAddress]),
-          client.query(\`SELECT COUNT(*)::text AS count
+            WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          client.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_withdrawal_requests
-            WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')\`, [treasuryAddress]),
-          client.query(\`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          client.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
-            WHERE treasury_address=$1 AND created_at >= date_trunc('day',now()) AND status <> 'rejected'\`, [treasuryAddress]),
+            WHERE treasury_address=$1 AND created_at >= date_trunc('day',now()) AND status <> 'rejected'`, [treasuryAddress]),
         ])
         const nativeReserved = BigInt(trxReserved.rows[0]?.amount || '0')
         const pendingFeeCount = BigInt(pendingTrxCount.rows[0]?.count || '0')
@@ -1300,12 +1300,12 @@ export function createTreasuryWithdrawalsRouter({
           return res.status(429).json({ success: false, error: 'treasury-trx-daily-limit-exceeded' })
         }
 
-        const inserted = await client.query(\`
+        const inserted = await client.query(`
           INSERT INTO trc20_token_clone.treasury_trx_withdrawal_requests
             (idempotency_key,owner_address,treasury_address,recipient_address,amount_base_units,status)
           VALUES ($1,$2,$3,$4,$5,'broadcasting')
           RETURNING *
-        \`, [body.idempotencyKey, authResult.ownerAddress, treasuryAddress, body.recipientAddress, amount.toString()])
+        `, [body.idempotencyKey, authResult.ownerAddress, treasuryAddress, body.recipientAddress, amount.toString()])
         reservation = inserted.rows[0]
         await client.query('COMMIT')
       } catch (error) {
@@ -1347,10 +1347,10 @@ export function createTreasuryWithdrawalsRouter({
       const providerTransactionId = typeof providerTransaction?.id === 'string' ? providerTransaction.id
         : typeof providerTransaction?.transactionId === 'string' ? providerTransaction.transactionId : ''
       if (!providerTransactionId) {
-        await db.query(\`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+        await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
           SET status='broadcast-unknown', provider_status='UNKNOWN',
               failure_code='provider-transaction-reference-unavailable', updated_at=now()
-          WHERE id=$1\`, [reservation.id])
+          WHERE id=$1`, [reservation.id])
         return res.status(202).json({
           success: false,
           status: 'broadcast-unknown',
@@ -1369,10 +1369,10 @@ export function createTreasuryWithdrawalsRouter({
       }
       const nextStatus = providerState.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
         : providerState.localStatus === 'failed' ? 'failed' : 'provider-pending'
-      const saved = await db.query(\`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+      const saved = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
         SET status=$2, transaction_hash=$3, provider_transaction_id=$4, provider_status=$5,
             failure_code=$6, updated_at=now()
-        WHERE id=$1 RETURNING *\`,
+        WHERE id=$1 RETURNING *`,
       [reservation.id, nextStatus, providerState.transactionHash, providerTransactionId,
         providerState.providerStatus, nextStatus === 'failed' ? 'fireblocks-terminal-' + providerState.providerStatus.toLowerCase() : null])
       return res.status(202).json({
@@ -1460,9 +1460,9 @@ export function createTreasuryWithdrawalsRouter({
         amountBaseUnits: String(row.amount_base_units),
       })
       if (evidence.status === 'confirmed' || evidence.status === 'failed') {
-        const updated = await db.query(\`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+        const updated = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
           SET status=$2, failure_code=$3, updated_at=now()
-          WHERE id=$1 AND status NOT IN ('confirmed','failed') RETURNING *\`,
+          WHERE id=$1 AND status NOT IN ('confirmed','failed') RETURNING *`,
         [row.id, evidence.status, evidence.status === 'failed' ? evidence.reason : null])
         const saved = updated.rows[0] || row
         return res.status(evidence.status === 'confirmed' ? 200 : 202).json({
