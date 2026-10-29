@@ -288,8 +288,21 @@ export default function WalletVault() {
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
-  const headerTreasuryUsdt = typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) : 'Not verified'
-  const headerTreasuryTrx = typeof serverTreasuryReadiness?.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) : 'Not verified'
+  const monitoredTreasuryAddress = ownerTreasurySnapshot?.treasuryAddress || serverTreasuryReadiness?.treasuryAddress || ''
+  const headerTreasuryUsdt = ownerTreasurySnapshot?.officialUsdt?.status === 'verified'
+    && typeof ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits)
+    ? formatUnits(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits, 6)
+    : typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string'
+      && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits)
+      ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) : 'Not verified'
+  const headerTreasuryTrx = ownerTreasurySnapshot?.native?.status === 'verified'
+    && typeof ownerTreasurySnapshot.native.balanceTRX === 'string'
+    && /^(0|[1-9][0-9]*(?:\.[0-9]+)?)$/.test(ownerTreasurySnapshot.native.balanceTRX)
+    ? ownerTreasurySnapshot.native.balanceTRX
+    : typeof serverTreasuryReadiness?.treasuryTrxBalanceSun === 'string'
+      && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun)
+      ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) : 'Not verified'
   const ownerHeaderBalance = !unlocked ? 'Locked' : network !== 'mainnet' ? 'Select Mainnet' : 'Refresh in Assets'
   const ownerHeaderTrx = unlocked && network === 'mainnet' && portfolio ? portfolio.trx + ' TRX' : ownerHeaderBalance
   const officialOwnerUsdt = network === 'mainnet' ? portfolio?.tokens.find(token => token.contract === OFFICIAL_MAINNET_USDT && !token.error)?.balance : undefined
@@ -1544,11 +1557,11 @@ export default function WalletVault() {
       </section>
 
       <section className="wallet-vault-panel wallet-vault-locked-treasury" hidden={activePanel !== 'treasury' || Boolean(unlocked)}>
-        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Landmark size={16} /></span><div><h2>Public treasury monitoring</h2><p>The public address and balance can be viewed without importing its private key.</p></div></div>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Landmark size={16} /></span><div><h2>Public treasury monitoring</h2><p>Balances load from the configured backend watch address. Monitoring is read-only and does not authorize spending.</p></div></div>
         <div className="wallet-vault-review-grid">
-          <div className="wallet-vault-review-wide"><small>Public treasury address</small>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
-          <div><small>Verified official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
-          <div><small>Verified TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
+          <div className="wallet-vault-review-wide"><small>Configured watch address</small>{ADDRESS_PATTERN.test(String(monitoredTreasuryAddress)) ? <a href={explorerUrl('mainnet', String(monitoredTreasuryAddress))} target="_blank" rel="noopener noreferrer">{monitoredTreasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
+          <div><small>Read-only official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
+          <div><small>Read-only TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
           <div><small>Payout readiness</small><strong>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
         </div>
         {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
