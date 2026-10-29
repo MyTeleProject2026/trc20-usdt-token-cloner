@@ -299,6 +299,14 @@ export async function collectTestnetPreflight({
   for (const code of contractViolations) pushBlocker('safety-contract', code)
 
   const uniqueBlockers = [...new Map(blockers.map((item) => [`${item.source}:${item.code}`, item])).values()]
+  const reportedSubmissionEnabled = sponsorStatus?.enabled === true
+    || sponsorStatus?.canSubmitSponsoredTransfer === true
+    || integration?.submission?.enabled === true
+    || integration?.submission?.canSubmitSponsoredTransfer === true
+    || pilot?.submission?.enabled === true
+    || pilot?.submission?.canSubmitSponsoredTransfer === true
+    || ['nile', 'shasta'].some((network) => pilot?.networks?.[network]?.canSubmitSponsoredTransfer === true
+      || pilot?.networks?.[network]?.submissionEnabled === true)
   const diagnosticsComplete = endpointIssues.length === 0 && contractViolations.length === 0
   const readinessHealthy = raw.readiness?.success === true
   return {
@@ -314,7 +322,7 @@ export async function collectTestnetPreflight({
     liveTransferEvidenceRecorded: false,
     safetyInvariants: {
       mainnetSubmissionEnabled: sponsorStatus?.mainnetEnabled === true,
-      sponsoredSubmissionEnabled: contractViolations.length > 0,
+      sponsoredSubmissionEnabled: reportedSubmissionEnabled,
       userFundedFallbackAllowed: sponsorStatus?.fundingPolicy?.unpaidFallbackToUserFunds === true
         || integration?.submission?.userFundedFallbackAllowed === true
         || pilot?.submission?.userFundedFallbackAllowed === true,
