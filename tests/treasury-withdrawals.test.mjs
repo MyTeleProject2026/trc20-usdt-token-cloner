@@ -407,3 +407,27 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.ok(metadataReads >= 2)
   assert.ok(balanceReads >= 1)
 })
+
+test('native TRX configuration distinguishes an incomplete setup from a deliberately closed payout gate', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  const config = trxConfiguration({
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_TRX: '10',
+    TREASURY_DAILY_LIMIT_TRX: '100',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    TREASURY_TRX_WITHDRAWALS_ENABLED: 'false',
+    FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/tmp/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+  })
+  assert.equal(config.configurationComplete, true)
+  assert.equal(config.featureFlagEnabled, false)
+  assert.equal(config.enabled, false)
+  assert.deepEqual(config.missing, [])
+})
