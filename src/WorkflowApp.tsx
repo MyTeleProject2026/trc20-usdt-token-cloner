@@ -921,6 +921,11 @@ export default function WorkflowApp() {
 
   useEffect(() => {
     void loadSponsorStatus(false)
+    // Refresh only read-only sponsor diagnostics while this workspace is mounted.
+    // Transfer signing/submission never runs from this timer.
+    const sponsorRefreshTimer = window.setInterval(() => {
+      void loadSponsorStatus(false)
+    }, 60_000)
     // Every network/asset/contract change invalidates any late balance response.
     senderSnapshotRequestGeneration.current += 1
     // Do not retain account or balance state when changing networks.
@@ -954,6 +959,7 @@ export default function WorkflowApp() {
     clearFeeEstimate()
     setReviewNotice('')
     // loadSponsorStatus is intentionally invoked when the selected network changes.
+    return () => window.clearInterval(sponsorRefreshTimer)
   }, [network])
 
   useEffect(() => {
