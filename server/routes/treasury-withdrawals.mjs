@@ -109,7 +109,7 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_trx_withdrawal_requests_status_check`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests
         ADD CONSTRAINT treasury_trx_withdrawal_requests_status_check
-        CHECK (status IN ('broadcasting','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
+        CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
     })().catch((error) => { schemaPromise = null; throw error })
   }
   await schemaPromise
