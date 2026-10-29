@@ -110,12 +110,12 @@ export function buildTreasuryTrxWithdrawalAuthorizationMessage({
     `Amount SUN: ${exactAmountSun}`,
     `Idempotency key: ${idempotencyKey}`,
     `Expires at Unix milliseconds: ${authorizationExpiresAt}`,
-  ].join('\\n')
+  ].join('\n')
 }
 
 export function parsePositiveTrxAmount(amountTrx) {
   if (typeof amountTrx !== 'string' || amountTrx.length > 64
-    || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/.test(amountTrx)) return null
+    || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(amountTrx)) return null
   const [whole, fraction = ''] = amountTrx.split('.')
   if (whole.length > 16 || fraction.length > 6) return null
   const amountSun = BigInt(whole) * 1_000_000n
