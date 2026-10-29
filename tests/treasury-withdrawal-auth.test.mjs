@@ -129,5 +129,7 @@ test('native TRX payout authorization binds exact asset, amount, identities, ori
     `Expires at Unix milliseconds: ${base.authorizationExpiresAt}`,
   ]) assert.ok(message.includes(expected), expected)
   assert.match(message, /does not create assets/)
+  assert.equal(message.split('\n').length, 13, 'wallet signing prompt should show a readable multi-line authorization')
+  assert.equal(message.includes('\\n'), false, 'literal backslash-n sequences must not replace line breaks')
   assert.throws(() => buildTreasuryTrxWithdrawalAuthorizationMessage({ ...base, amountBaseUnits: '0' }))
 })
