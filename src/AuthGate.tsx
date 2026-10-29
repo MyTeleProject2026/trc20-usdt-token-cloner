@@ -212,7 +212,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         {error && <p className="studio-inline-error" role="alert">{error}</p>}
         <div className="studio-auth-points">
           <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; no public account creation exists.</span></p>
-          <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 15 minutes and can be signed out.</span></p>
+          <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 30 minutes; sign out when finished.</span></p>
           <p><Activity size={16} aria-hidden="true" /><span><strong>Authentication is not funding.</strong> Login cannot create genuine USDT or bypass on-chain balance requirements.</span></p>
         </div>
         <p className="studio-auth-footnote">If login is not configured, the backend administrator must set OWNER_WALLET_ADDRESS and OWNER_PASSWORD_HASH in the private service environment. Never send the plaintext password or a private key to support.</p>
