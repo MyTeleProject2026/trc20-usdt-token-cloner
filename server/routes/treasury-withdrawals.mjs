@@ -387,6 +387,34 @@ function safeTrxStatus(row) {
   }
 }
 
+export function treasuryUsdtConfiguration(env = process.env) {
+  const provider = fireblocksConfiguration(env)
+  const required = [
+    'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
+    'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+    'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
+  ]
+  const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
+  if (!provider.trxAssetConfigured) missing.push('FIREBLOCKS_TRX_ASSET_ID')
+  const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
+  const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
+  const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
+  const feeLimitValid = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
+    && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
+    && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
+  if (!provider.configured) missing.push(...provider.missing)
+  const enabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
+    && env.TREASURY_SIGNER_MODE === 'fireblocks'
+    && missing.length === 0 && ownerAddressesMatch
+    && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
+    && Boolean(maxPayout) && Boolean(dailyLimit) && feeLimitValid
+  return {
+    enabled, missing: [...new Set(missing)], ownerAddressesMatch,
+    signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
+    providerConfigured: provider.configured,
+  }
+}
+
 export function trxConfiguration(env = process.env) {
   const provider = fireblocksConfiguration(env)
   const required = [
@@ -526,31 +554,7 @@ export function createTreasuryWithdrawalsRouter({
   }
 
   function configuration() {
-    const provider = fireblocksConfiguration(env)
-    const required = [
-      'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
-      'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
-      'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
-    ]
-    const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
-    if (!provider.trxAssetConfigured) missing.push('FIREBLOCKS_TRX_ASSET_ID')
-    const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
-    const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
-    const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
-    const feeLimitValid = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
-      && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
-      && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
-    if (!provider.configured) missing.push(...provider.missing)
-    const enabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
-      && env.TREASURY_SIGNER_MODE === 'fireblocks'
-      && missing.length === 0 && ownerAddressesMatch
-      && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
-      && Boolean(maxPayout) && Boolean(dailyLimit) && feeLimitValid
-    return {
-      enabled, missing: [...new Set(missing)], ownerAddressesMatch,
-      signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
-      providerConfigured: provider.configured,
-    }
+    return treasuryUsdtConfiguration(env)
   }
 
   async function readManagedTreasurySnapshot(treasuryAddress) {
