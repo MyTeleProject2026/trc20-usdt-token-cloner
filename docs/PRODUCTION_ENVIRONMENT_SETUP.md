@@ -73,7 +73,7 @@ Set the following only after a legitimate, authorized Fireblocks account/vault e
 | `TREASURY_ADDRESS` | Exact single TRON address returned by both configured Fireblocks assets. |
 | `TREASURY_MAX_PAYOUT_USDT`, `TREASURY_DAILY_LIMIT_USDT` | Set only to written, provider-approved limits. |
 | `TREASURY_MAX_PAYOUT_TRX`, `TREASURY_DAILY_LIMIT_TRX` | Set only to written, provider-approved limits. |
-| `TREASURY_FEE_LIMIT_SUN` | Positive integer maximum fee cap in SUN, approved for this service. One TRX equals 1,000,000 SUN. |
+| `TREASURY_FEE_LIMIT_SUN` | Positive integer fee-estimate threshold and per-request TRX reserve in SUN. Fireblocks estimates are checked before submission, but this is not a provider-enforced hard fee cap; reconcile actual on-chain cost. One TRX equals 1,000,000 SUN. |
 | `TREASURY_WITHDRAWALS_ENABLED` | Keep `false` until release gates pass. |
 | `TREASURY_TRX_WITHDRAWALS_ENABLED` | Keep `false` until the native-TRX path is separately qualified. |
 

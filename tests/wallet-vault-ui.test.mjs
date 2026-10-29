@@ -104,6 +104,8 @@ test('owner wallet uses responsive owner navigation and separates recovery from 
   assert.match(vault, /requestInFlight \|\| cancelled/)
   assert.match(vault, /Monitoring is read-only and does not authorize spending/)
   assert.match(vault, /networkFeeCapCovered/)
+  assert.match(vault, /Configured fee reserve \/ estimate threshold/)
+  assert.match(vault, /not a provider-enforced hard fee cap/)
   assert.match(css, /\.wallet-vault-sidebar/)
   assert.match(css, /\.wallet-vault-bottom-nav/)
   assert.match(css, /\.wallet-vault-setup-details/)

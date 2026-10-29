@@ -11,6 +11,7 @@ import {
   isOfficialFireblocksUsdtAsset,
   classifyFireblocksTransaction,
   isNativeFireblocksTrxAsset,
+  maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
 import {
@@ -347,6 +348,51 @@ function safeStatus(row) {
     ...(row.failure_code ? { failureCode: row.failure_code } : {}),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  }
+}
+
+/**
+ * A Fireblocks terminal state is not independent chain evidence. Only a state
+ * written after the TRON solidified-receipt verifier may be reported as verified.
+ */
+export function terminalTreasuryWithdrawalVerification(row) {
+  if (!row || typeof row !== 'object') return { terminal: false }
+
+  if (row.status === 'confirmed') {
+    return {
+      terminal: true,
+      success: true,
+      verification: {
+        verified: true,
+        status: 'confirmed',
+        reason: 'previously-verified-solidified-receipt',
+      },
+    }
+  }
+
+  if (row.status !== 'failed') return { terminal: false }
+
+  const failureCode = typeof row.failure_code === 'string' ? row.failure_code : ''
+  if (failureCode.startsWith('confirmed-solidified-')) {
+    return {
+      terminal: true,
+      success: false,
+      verification: {
+        verified: true,
+        status: 'failed',
+        reason: failureCode,
+      },
+    }
+  }
+
+  return {
+    terminal: true,
+    success: false,
+    verification: {
+      verified: false,
+      status: 'provider-failed',
+      reason: 'provider-terminal-failure-not-chain-verified',
+    },
   }
 }
 
@@ -1063,6 +1109,32 @@ export function createTreasuryWithdrawalsRouter({
       }
 
       const fireblocks = managedSigner()
+      let estimatedFeeSun = null
+      try {
+        const estimate = await fireblocks.estimateUsdtTransferFee({
+          recipientAddress: body.recipientAddress,
+          amountUsdt: formatUnitsDecimal(amount, 6),
+        })
+        estimatedFeeSun = maxFireblocksEstimatedFeeSun(estimate)
+      } catch {
+        // Do not submit when the provider cannot produce a complete fee estimate.
+      }
+      if (estimatedFeeSun === null || BigInt(estimatedFeeSun) > BigInt(String(configuredFeeLimit))) {
+        const estimateUnavailable = estimatedFeeSun === null
+        await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
+          SET status='rejected', failure_code=$2, updated_at=now()
+          WHERE id=$1 AND status='broadcasting'`,
+        [reservation.id, estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve'])
+        return res.status(estimateUnavailable ? 503 : 409).json({
+          success: false,
+          status: 'rejected',
+          error: estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve',
+          ...(estimatedFeeSun !== null ? { estimatedFeeSun } : {}),
+          feeReserveSun: String(configuredFeeLimit),
+          transactionSubmitted: false,
+          note: 'No Fireblocks transfer request was created because the fee estimate was unavailable or exceeded the configured reserve. This estimate is not a provider-enforced hard fee cap.',
+        })
+      }
       let providerTransaction
       try {
         providerTransaction = await fireblocks.createUsdtTransfer({
@@ -1129,8 +1201,17 @@ export function createTreasuryWithdrawalsRouter({
       )
       if (!lookup.rows.length) return res.status(404).json({ success: false, error: 'withdrawal-not-found' })
       let row = await refreshProviderTransaction(db, lookup.rows[0])
-      if (row.status === 'confirmed' || row.status === 'failed') {
-        return res.json({ success: true, withdrawal: safeStatus(row), verification: { verified: true, status: row.status, reason: 'previously-verified-solidified-receipt' } })
+      const terminalVerification = terminalTreasuryWithdrawalVerification(row)
+      if (terminalVerification.terminal) {
+        const httpStatus = terminalVerification.verification.status === 'confirmed' ? 200 : 202
+        return res.status(httpStatus).json({
+          success: terminalVerification.success,
+          withdrawal: safeStatus(row),
+          verification: terminalVerification.verification,
+          ...(terminalVerification.verification.verified === false
+            ? { note: 'Fireblocks reported a terminal failure, but no solidified on-chain receipt has been verified. This is not proof of an on-chain failure.' }
+            : {}),
+        })
       }
       const txid = typeof row.transaction_hash === 'string' ? row.transaction_hash.trim() : ''
       if (!TXID_PATTERN.test(txid)) {
@@ -1479,6 +1560,32 @@ export function createTreasuryWithdrawalsRouter({
       }
 
       const fireblocks = managedSigner()
+      let estimatedFeeSun = null
+      try {
+        const estimate = await fireblocks.estimateTrxTransferFee({
+          recipientAddress: body.recipientAddress,
+          amountTrx: formatUnitsDecimal(amount, 6),
+        })
+        estimatedFeeSun = maxFireblocksEstimatedFeeSun(estimate)
+      } catch {
+        // Do not submit when the provider cannot produce a complete fee estimate.
+      }
+      if (estimatedFeeSun === null || BigInt(estimatedFeeSun) > config.feeLimit) {
+        const estimateUnavailable = estimatedFeeSun === null
+        await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+          SET status='rejected', failure_code=$2, updated_at=now()
+          WHERE id=$1 AND status='broadcasting'`,
+        [reservation.id, estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve'])
+        return res.status(estimateUnavailable ? 503 : 409).json({
+          success: false,
+          status: 'rejected',
+          error: estimateUnavailable ? 'fireblocks-fee-estimate-unavailable' : 'fireblocks-estimated-fee-exceeds-reserve',
+          ...(estimatedFeeSun !== null ? { estimatedFeeSun } : {}),
+          feeReserveSun: config.feeLimit.toString(),
+          transactionSubmitted: false,
+          note: 'No Fireblocks transfer request was created because the fee estimate was unavailable or exceeded the configured reserve. This estimate is not a provider-enforced hard fee cap.',
+        })
+      }
       let providerTransaction
       try {
         providerTransaction = await fireblocks.createTrxTransfer({
