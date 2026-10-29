@@ -58,8 +58,9 @@ Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the US
 5. A shared PostgreSQL advisory lock serializes USDT and native-TRX reservations. Existing pending, provider-pending, accepted or ambiguous requests remain reserved, including a cross-asset fee-cap reservation. Per-transfer and daily limits are checked before calling the provider.
 6. The backend requests a transfer via Fireblocks with the same idempotency key as `externalTxId`. Fireblocks' own approval policy remains in force. On a timeout, the service looks up that same external ID; it does not blindly create a replacement transfer.
 7. While Fireblocks has no chain transaction hash, the request remains `provider-pending` or `broadcast-unknown`, and the funds remain reserved. Once a transaction ID is available, the verifier checks the transaction from a public read-only TRON connection.
-8. Only a confirmed/solidified transaction with matching sender, recipient, amount, official contract, successful execution receipt, and exact official-USDT `Transfer` event is labelled `confirmed`.
-9. Exchange deposit credit is separate. The recipient exchange must report its own deposit status through an authorized source.
+8. **Provider-side terminal failure is not chain-verified failure.** The status endpoint must not label a Fireblocks `FAILED` response as an independently verified TRON receipt unless the solidified-chain verifier itself recorded the failure evidence. A provider-side failure without that evidence is returned as `provider-failed` with `verification.verified=false`.
+9. Only a confirmed/solidified transaction with matching sender, recipient, amount, official contract, successful execution receipt, and exact official-USDT `Transfer` event is labelled `confirmed`.
+10. Exchange deposit credit is separate. The recipient exchange must report its own deposit status through an authorized source.
 
 ## API endpoints
 
