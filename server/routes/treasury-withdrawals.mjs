@@ -645,16 +645,37 @@ export function createTreasuryWithdrawalsRouter({
     let databaseReady = false
     if (db) { try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {} }
     const treasuryAddress = ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '') ? env.TREASURY_ADDRESS.trim() : null
-    let snapshot = { ok: false, reason: 'treasury-address-not-configured' }
-    if (config.enabled && treasuryAddress) snapshot = await readManagedTreasurySnapshot(treasuryAddress)
+    let snapshot = { ok: false, reason: !treasuryAddress ? 'treasury-address-not-configured' : 'provider-funding-unverified' }
+    let trxSnapshot = {
+      ok: false,
+      reason: !treasuryAddress ? 'treasury-address-not-configured'
+        : !config.providerConfigured ? 'fireblocks-trx-not-configured'
+          : !databaseReady ? 'database-not-ready' : 'provider-funding-unverified',
+    }
+    let trxAvailability = null
+    if (config.enabled && treasuryAddress) {
+      snapshot = await readManagedTreasurySnapshot(treasuryAddress)
+      trxSnapshot = await readManagedTrxSnapshot(treasuryAddress)
+      if (trxSnapshot.ok && databaseReady) {
+        try {
+          trxAvailability = await readManagedTrxAvailability(db, treasuryAddress, trxSnapshot, config, false)
+        } catch {
+          trxSnapshot = { ok: false, reason: 'treasury-trx-reservations-unavailable' }
+        }
+      }
+    }
     const blockers = []
     if (!config.enabled) blockers.push('managed-signer-configuration-incomplete')
     if (!databaseReady) blockers.push('database-not-ready')
     if (!treasuryAddress) blockers.push('treasury-address-not-configured')
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
+    if (!trxSnapshot.ok) blockers.push(trxSnapshot.reason || 'native-trx-funding-unverified')
     if (snapshot.ok) {
       if (BigInt(snapshot.spendableUsdtBaseUnits) <= 0n) blockers.push('treasury-usdt-balance-zero-or-unavailable')
       if (!snapshot.networkFeeCapCovered) blockers.push('treasury-trx-below-fee-cap')
+    }
+    if (trxAvailability && trxAvailability.availableSun < config.feeLimit) {
+      blockers.push('treasury-trx-insufficient-after-reservations')
     }
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
@@ -671,6 +692,17 @@ export function createTreasuryWithdrawalsRouter({
         networkFeeCapCovered: snapshot.networkFeeCapCovered,
         providerAssetIdentityVerified: snapshot.contractMetadataVerified,
         providerVaultAddressVerified: snapshot.vaultAddressVerified,
+      } : {}),
+      ...(trxSnapshot.ok ? {
+        providerAvailableTrxSun: trxSnapshot.providerAvailableSun.toString(),
+        independentlyVerifiedTreasuryTrxBalanceSun: trxSnapshot.chainBalanceSun.toString(),
+      } : {}),
+      ...(trxAvailability ? {
+        availableTrxAfterReservationsSun: trxAvailability.availableSun.toString(),
+        reservedTrxPrincipalSun: trxAvailability.reservedPrincipalSun.toString(),
+        pendingTrxPayoutCount: trxAvailability.pendingTrxCount.toString(),
+        pendingUsdtPayoutCount: trxAvailability.pendingUsdtCount.toString(),
+        configuredTrxFeeReserveSun: config.feeReserve.toString(),
       } : {}),
       payoutBlockers: [...new Set(blockers)],
       limitations: [
