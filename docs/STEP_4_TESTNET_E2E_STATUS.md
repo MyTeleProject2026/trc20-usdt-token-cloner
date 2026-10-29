@@ -12,6 +12,14 @@
 - The live preflight endpoint is read-only: `GET /api/tron/sponsorship/testnet-pilot-readiness?network=both&refresh=1`. Its contract always reports `submission.enabled=false`, `canSubmitSponsoredTransfer=false`, and `userFundedFallbackAllowed=false`. A preflight response is not a transaction.
 - Existing automated tests cover the route gates, intent validation, signature/transaction identity checks, and settlement/reconciliation logic in isolated tests. These are not proof of a successful live Nile/Shasta sponsor transfer.
 
+## Reproducible read-only preflight command
+
+The repository now provides `npm run testnet:preflight` via `scripts/run-testnet-preflight.mjs`. It makes GET-only requests to the health, dependency-readiness, sponsorship-status, integration-readiness, and dual-testnet pilot endpoints. It writes a sanitized `testnet-preflight-report.json` suitable for review.
+
+To inspect a non-default HTTPS API deployment, set `TESTNET_PREFLIGHT_API_BASE_URL` to its HTTPS origin. The script rejects URLs containing credentials, paths, queries, fragments, or non-HTTPS schemes. It reports only allowlisted health/configuration/readiness fields and blocker codes; it does not save raw provider responses, public sponsor addresses, API secrets, or database URLs. Its tests cover GET-only behavior, sanitization, unsafe submission-gate detection, and transport failures.
+
+This command is a **diagnostic improvement, not a sponsored-transfer implementation or live end-to-end transaction**. The report deliberately keeps `step4Complete=false` and `liveTransferEvidenceRecorded=false`. It does not sign, broadcast, reserve a funded budget, or claim receiver settlement. The existing production and user-funded-fallback gates must remain closed until the external sponsor prerequisites and real chain evidence below are satisfied.
+
 ## Step 4 verdict
 
 **Status: NOT COMPLETE — live testnet transaction and settlement evidence are missing.**
