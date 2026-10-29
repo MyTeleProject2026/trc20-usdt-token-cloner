@@ -83,6 +83,10 @@ Do not set `TREASURY_PRIVATE_KEY` for the Fireblocks USDT path. The route does n
 
 The repository code alone cannot create provider access, configure the provider's vault or policy, upload credentials to Render, fund the treasury, or prove a successful Mainnet transfer. This integration must remain disabled until those independent setup tasks are complete.
 
+## Native TRX fee asset is also required for USDT payouts
+
+USDT and native TRX share the same managed treasury. Before accepting either payout type, readiness verifies the provider's configured native-TRX asset and available balance against the on-chain TRX balance. Both paths account for unresolved TRX principal, outstanding USDT/TRX fee-cap reservations, and the configured minimum native-TRX reserve under the shared PostgreSQL advisory lock. Set `FIREBLOCKS_TRX_ASSET_ID` and `TREASURY_TRX_FEE_RESERVE_SUN` on the backend, and leave both withdrawal flags disabled until those exact provider metadata and balance checks pass. Merely reading a positive on-chain TRX balance is not enough to prove the managed vault can submit a payout.
+
 ## Managed native-TRX treasury payouts
 
 The managed-signer path uses the same owner-only console and Fireblocks API-user authentication secret file as the USDT route. Native TRX must be configured as an actual Fireblocks native asset: set FIREBLOCKS_TRX_ASSET_ID to the asset ID returned by the operator's workspace. Readiness verifies the provider asset metadata reports assetClass=NATIVE and the TRX symbol, that the vault returns exactly the configured TREASURY_ADDRESS, and that the provider balance agrees with a live public TRON balance read.
