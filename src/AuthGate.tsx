@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import { Activity, Layers, LockKeyhole, RefreshCw, ShieldCheck, LogOut } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, Info, Layers, LockKeyhole, RefreshCw, ShieldCheck, LogOut, X } from 'lucide-react'
 
 type OwnerSession = { address: string; expiresAt: number; sessionToken: string }
 type OwnerConsoleConfig = {
@@ -9,6 +9,7 @@ type OwnerConsoleConfig = {
   hostedUiOriginAllowed: boolean
   packagedUiOriginAllowed: boolean
 }
+type AuthToast = { id: number; kind: 'success' | 'error' | 'info'; message: string }
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const SESSION_KEY = 'tron-token-studio:owner-session:v1'
@@ -23,6 +24,52 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState('')
   const [ownerConfig, setOwnerConfig] = useState<OwnerConsoleConfig | null>(null)
   const [configError, setConfigError] = useState('')
+  const [toast, setToast] = useState<AuthToast | null>(null)
+  const toastSequence = useRef(0)
+
+  function showAuthToast(kind: AuthToast['kind'], message: string) {
+    const clean = String(message || '').trim()
+    if (!clean) return
+    setToast({ id: ++toastSequence.current, kind, message: clean })
+  }
+
+  function renderAuthToast() {
+    if (!toast) return null
+    return (
+      <div className={'wallet-vault-toast wallet-vault-toast--' + toast.kind} role={toast.kind === 'error' ? 'alert' : 'status'} aria-live={toast.kind === 'error' ? 'assertive' : 'polite'} aria-atomic="true">
+        <span className="wallet-vault-toast-icon" aria-hidden="true">
+          {toast.kind === 'error' ? <AlertTriangle size={20} /> : toast.kind === 'success' ? <CheckCircle2 size={20} /> : <Info size={20} />}
+        </span>
+        <div className="wallet-vault-toast-content">
+          <strong>{toast.kind === 'error' ? 'Action needs attention' : toast.kind === 'success' ? 'Action completed' : 'Status update'}</strong>
+          <p>{toast.message}</p>
+        </div>
+        <button type="button" className="wallet-vault-toast-dismiss" aria-label="Dismiss notification" onClick={() => setToast(null)}><X size={17} /></button>
+      </div>
+    )
+  }
+
+  useEffect(() => {
+    if (configError) showAuthToast('error', configError)
+  }, [configError])
+
+  useEffect(() => {
+    if (ownerConfig && !ownerConfig.configured) {
+      showAuthToast('error', 'Owner sign-in setup is incomplete: ' + ownerConfig.requiredEnvironment.join(', '))
+    }
+  }, [ownerConfig])
+
+  useEffect(() => {
+    if (error) showAuthToast(/^signed out\.?$/i.test(error) ? 'info' : 'error', error)
+  }, [error])
+
+  useEffect(() => {
+    if (!toast) return
+    const timeoutId = window.setTimeout(() => {
+      setToast(current => current?.id === toast.id ? null : current)
+    }, toast.kind === 'error' ? 6500 : 4200)
+    return () => window.clearTimeout(timeoutId)
+  }, [toast])
 
   function clearSession() {
     try {
@@ -140,6 +187,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       }
       window.sessionStorage.setItem(SESSION_KEY, payload.sessionToken)
       setSession({ address: payload.address, expiresAt: payload.expiresAt, sessionToken: payload.sessionToken })
+      showAuthToast('success', 'Owner identity verified. Your authenticated session is active for 30 minutes.')
       setPassword('')
       setAddress(payload.address)
     } catch (caught) {
@@ -165,6 +213,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           <button type="button" onClick={signOut}><LogOut size={14} aria-hidden="true" /> Sign out</button>
         </div>
         {children}
+        {renderAuthToast()}
       </>
     )
   }
@@ -217,6 +266,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         </div>
         <p className="studio-auth-footnote">If login is still blocked, configure the missing backend settings listed above: OWNER_WALLET_ADDRESS, OWNER_PASSWORD_HASH, DATABASE_URL, the exact hosted FRONTEND_ORIGIN, and PACKAGED_APP_ORIGINS including https://localhost for Android. Store secrets only in the backend environment; never paste plaintext passwords, API tokens, or private keys into chat or GitHub.</p>
       </section>
+      {renderAuthToast()}
     </div>
   )
 }
