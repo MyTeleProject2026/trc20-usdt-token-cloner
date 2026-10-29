@@ -56,12 +56,12 @@ A gas-sponsorship provider may cover eligible transaction fees under its terms, 
 
 ## Current feature-branch integration status (2026-10-29)
 
-The main branch includes the single-owner login gate, treasury balance reads, per-request owner signature, database reservations, payout caps, an idempotency ledger, and independent on-chain receipt verification. The USDT and native-TRX payout paths use a managed Fireblocks vault signer instead of loading the treasury's blockchain private key into the application. Native TRX uses a separate configured provider asset ID and requires exact native-asset metadata plus a matching Fireblocks vault address.
+The main branch includes the single-owner login gate, treasury balance reads, per-request owner signature, database reservations, payout caps, an idempotency ledger, and independent on-chain receipt verification. The USDT and native-TRX payout paths use a managed Fireblocks vault signer instead of loading the treasury's blockchain private key into the application. Both paths require `FIREBLOCKS_TRX_ASSET_ID` so fee funds can be checked against provider metadata and the matching vault address; USDT readiness and submission reserve one maximum fee cap for every unresolved USDT/TRX request plus the proposed payout.
 
 The managed USDT route expects:
 - `TREASURY_SIGNER_MODE=fireblocks`, `TREASURY_WITHDRAWALS_ENABLED=true` only after review, and the existing single owner address configuration.
 - Fireblocks API key ID, an absolute path to a mounted Fireblocks **API-authentication** RSA secret file, an existing vault account ID, and the provider's asset ID.
-- Provider metadata that matches the official TRON Tether USDT contract, exactly one provider-returned source address matching `TREASURY_ADDRESS`, provider available balance and public chain balance sufficient for the requested principal, and a TRX balance covering the configured fee cap.
+- Provider metadata that matches the official TRON Tether USDT contract, exactly one provider-returned source address matching `TREASURY_ADDRESS`, and both provider-available and on-chain USDT covering the requested principal. `FIREBLOCKS_TRX_ASSET_ID` must identify native TRX with six decimals and no token contract; both provider-available and on-chain TRX must cover one maximum fee cap per unresolved USDT/TRX payout plus the proposed payout.
 - Fireblocks' own transaction policy configured to require appropriate authorization/approval, with separate destination and spending controls.
 
 The code uses a provider transaction ID and `externalTxId` to reconcile ambiguous submissions. It does not treat provider acceptance as chain confirmation. No Mainnet payout is considered confirmed until the independent verifier validates the real transaction, sender, recipient, amount, official USDT contract, successful solidified receipt, and Transfer event.
