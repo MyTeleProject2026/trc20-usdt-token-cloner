@@ -94,3 +94,31 @@ test('preflight warns when any transfer gate is enabled and never reports produc
   assert.ok(report.warnings.includes('TREASURY_WITHDRAWALS_ENABLED'))
   assert.equal(report.releaseAuthorized, false)
 })
+
+test('preflight accepts valid decimal payout limits and rejects excess fractional precision', () => {
+  const valid = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_MAX_PAYOUT_USDT: '0.25',
+    TREASURY_DAILY_LIMIT_USDT: '100.125',
+    TREASURY_MAX_PAYOUT_TRX: '1.000001',
+    TREASURY_DAILY_LIMIT_TRX: '2.5',
+  }), {
+    fileExists: () => true,
+  })
+  assert.equal(valid.status, 'syntactic-preflight-passed')
+  for (const key of [
+    'TREASURY_MAX_PAYOUT_USDT',
+    'TREASURY_DAILY_LIMIT_USDT',
+    'TREASURY_MAX_PAYOUT_TRX',
+    'TREASURY_DAILY_LIMIT_TRX',
+  ]) {
+    assert.equal(valid.checks[key].status, 'configured', key + ' should accept decimal amounts')
+  }
+
+  const invalid = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_MAX_PAYOUT_USDT: '1.0000001',
+  }), {
+    fileExists: () => true,
+  })
+  assert.equal(invalid.checks.TREASURY_MAX_PAYOUT_USDT.status, 'invalid')
+  assert.ok(invalid.errors.includes('TREASURY_MAX_PAYOUT_USDT'))
+})
