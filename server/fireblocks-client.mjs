@@ -281,7 +281,14 @@ export function createFireblocksClient(env = process.env, {
 
   return Object.freeze({
     isConfigured: () => config.configured,
-    configuration: () => ({ configured: config.configured, missing: [...config.missing], apiBase: config.apiBase }),
+    isTrxConfigured: () => config.trxConfigured,
+    configuration: () => ({
+      configured: config.configured,
+      trxConfigured: config.trxConfigured,
+      missing: [...config.missing],
+      trxMissing: [...config.trxMissing],
+      apiBase: config.apiBase,
+    }),
     async getVaultAccountAsset(assetId = config.usdtAssetId) {
       if (!IDENTIFIER_PATTERN.test(assetId || '')) throw new FireblocksApiError(503, 'fireblocks-asset-not-configured')
       return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))
