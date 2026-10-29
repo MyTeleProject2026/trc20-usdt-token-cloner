@@ -41,6 +41,26 @@ test('authoritative CI keeps PostgreSQL integration, tests, and production build
     /^\s*pull_request:\s*$/m,
     'the Node version matrix must not duplicate the authoritative pull-request test/build run',
   )
+  assert.match(
+    secondaryWorkflow,
+    /^permissions:\s*\n\s+contents:\s*read\s*$/m,
+    'the Node matrix must use a read-only GITHUB_TOKEN',
+  )
+  assert.match(
+    secondaryWorkflow,
+    /^concurrency:\s*\n\s+group:\s*node-matrix-/m,
+    'superseded Node matrix runs must share a concurrency group per ref',
+  )
+  assert.match(
+    secondaryWorkflow,
+    /^\s+cancel-in-progress:\s*true\s*$/m,
+    'newer commits must cancel obsolete matrix runs on the same ref',
+  )
+  assert.match(
+    secondaryWorkflow,
+    /^\s+timeout-minutes:\s*20\s*$/m,
+    'matrix jobs must have a bounded execution time',
+  )
 })
 
 test('public API smoke rejects forged wallet signatures without issuing sessions', async () => {
