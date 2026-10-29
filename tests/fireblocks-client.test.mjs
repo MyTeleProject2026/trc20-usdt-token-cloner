@@ -4,6 +4,8 @@ import { createHash, generateKeyPairSync, verify } from 'node:crypto'
 import {
   classifyFireblocksTransaction,
   createFireblocksClient,
+  maxFireblocksEstimatedFeeSun,
+  parseSixDecimalBaseUnits,
   createFireblocksJwt,
   extractFireblocksAddresses,
   fireblocksAssetIdentifierMatches,
@@ -350,4 +352,79 @@ test('Fireblocks refuses zero-value USDT and TRX transfers at the provider bound
     }),
     (error) => error?.code === 'invalid-fireblocks-trx-transfer-request',
   )
+})
+
+
+test('Fireblocks fee estimate parser accepts only exact six-decimal strings and chooses the highest estimate', () => {
+  assert.equal(parseSixDecimalBaseUnits('0'), '0')
+  assert.equal(parseSixDecimalBaseUnits('1.234567'), '1234567')
+  assert.equal(parseSixDecimalBaseUnits('2'), '2000000')
+  for (const value of ['1.0000001', '1e3', '-1', '01', '', 1, '9'.repeat(100)]) {
+    assert.equal(parseSixDecimalBaseUnits(value), null)
+  }
+  assert.equal(maxFireblocksEstimatedFeeSun({
+    low: { networkFee: '0.10' },
+    medium: { networkFee: '0.20' },
+    high: { networkFee: '0.15' },
+  }), '200000')
+  assert.equal(maxFireblocksEstimatedFeeSun({
+    low: { networkFee: '0.30' },
+    medium: { networkFee: '0.20' },
+    high: { networkFee: '0.40' },
+  }), '400000')
+  assert.equal(maxFireblocksEstimatedFeeSun({
+    low: { networkFee: '0.10' },
+    medium: { networkFee: 'invalid' },
+    high: { networkFee: '0.20' },
+  }), null)
+  assert.equal(maxFireblocksEstimatedFeeSun({
+    low: { networkFee: '0.10' },
+    medium: { networkFee: '0.20' },
+  }), null)
+})
+
+test('Fireblocks fee estimation submits a read-only estimate request for the exact configured vault transfer', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return new Response(JSON.stringify({
+        low: { networkFee: '0.10' },
+        medium: { networkFee: '0.20' },
+        high: { networkFee: '0.30' },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'fee-estimate-nonce',
+  })
+  const recipientAddress = 'T' + 'A'.repeat(33)
+  const usdtEstimate = await client.estimateUsdtTransferFee({
+    recipientAddress,
+    amountUsdt: '1.000001',
+  })
+  const trxEstimate = await client.estimateTrxTransferFee({
+    recipientAddress,
+    amountTrx: '2.5',
+  })
+
+  assert.equal(usdtEstimate.high.networkFee, '0.30')
+  assert.equal(trxEstimate.high.networkFee, '0.30')
+  assert.equal(calls.length, 2)
+  assert.ok(calls.every((call) => call.init.method === 'POST'))
+  assert.ok(calls.every((call) => call.url === 'https://api.fireblocks.io/v1/transactions/estimate_fee'))
+  const usdtBody = JSON.parse(calls[0].init.body)
+  assert.equal(usdtBody.assetId, 'USDT_TRON')
+  assert.equal(usdtBody.amount, '1.000001')
+  assert.deepEqual(usdtBody.source, { type: 'VAULT_ACCOUNT', id: '0' })
+  assert.deepEqual(usdtBody.destination, {
+    type: 'ONE_TIME_ADDRESS',
+    oneTimeAddress: { address: recipientAddress },
+  })
+  const trxBody = JSON.parse(calls[1].init.body)
+  assert.equal(trxBody.assetId, 'TRX')
+  assert.equal(trxBody.amount, '2.5')
+  assert.equal('externalTxId' in usdtBody, false)
+  assert.equal('privateKey' in usdtBody, false)
 })
