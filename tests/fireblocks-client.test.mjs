@@ -9,6 +9,7 @@ import {
   fireblocksAssetIdentifierMatches,
   fireblocksConfiguration,
   isOfficialFireblocksUsdtAsset,
+  isNativeFireblocksTrxAsset,
   providerAssetAvailableBaseUnits,
 } from '../server/fireblocks-client.mjs'
 
@@ -37,6 +38,7 @@ const configuredEnv = {
   FIREBLOCKS_SECRET_KEY_PATH: '/run/secrets/fireblocks-api.pem',
   FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
   FIREBLOCKS_USDT_ASSET_ID: 'USDT_TRON',
+  FIREBLOCKS_TRX_ASSET_ID: 'TRX',
   FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
 }
 
@@ -146,6 +148,59 @@ test('Fireblocks rejects conflicting populated contract metadata instead of acce
     contractAddress: officialUsdt,
     onchain: { address: officialUsdt },
   }, fakeTronWeb, officialUsdt), true)
+})
+
+
+test('native Fireblocks TRX asset metadata must identify the configured six-decimal native asset', () => {
+  const nativeTrx = {
+    id: 'TRX',
+    legacyId: 'TRX',
+    assetClass: 'NATIVE',
+    onchain: { symbol: 'TRX', name: 'TRON', decimals: 6 },
+  }
+  assert.equal(isNativeFireblocksTrxAsset(nativeTrx, 'TRX'), true)
+  assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, assetClass: 'FT' }, 'TRX'), false)
+  assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, onchain: { symbol: 'USDT', decimals: 6 } }, 'TRX'), false)
+  assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, onchain: { symbol: 'TRX', decimals: 18 } }, 'TRX'), false)
+  assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, contractAddress: officialUsdt }, 'TRX'), false)
+  assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, id: 'OTHER', legacyId: 'OTHER' }, 'TRX'), false)
+})
+
+test('native TRX transfer uses its separate Fireblocks asset ID and works without a configured USDT asset ID', async () => {
+  const { privateKey } = keyPair()
+  const env = { ...configuredEnv, FIREBLOCKS_USDT_ASSET_ID: '' }
+  const calls = []
+  const client = createFireblocksClient(env, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init })
+      return new Response(JSON.stringify({ id: 'provider-trx-request-123', status: 'SUBMITTED' }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'nonce-trx',
+  })
+  assert.equal(client.isConfigured(), false, 'USDT route should remain unconfigured')
+  assert.equal(client.isTrxAssetConfigured(), true, 'native TRX route can use shared provider auth without USDT asset metadata')
+  const result = await client.createTrxTransfer({
+    recipientAddress: 'T' + 'A'.repeat(33),
+    amountTrx: '12.340005',
+    externalTxId: 'trx-payout-key-0000000001',
+  })
+  assert.equal(result.id, 'provider-trx-request-123')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].url, 'https://api.fireblocks.io/v1/transactions')
+  const sent = JSON.parse(calls[0].init.body)
+  assert.equal(sent.assetId, 'TRX')
+  assert.equal(sent.amount, '12.340005')
+  assert.deepEqual(sent.source, { type: 'VAULT_ACCOUNT', id: '0' })
+  assert.deepEqual(sent.destination, {
+    type: 'ONE_TIME_ADDRESS',
+    oneTimeAddress: { address: 'T' + 'A'.repeat(33) },
+  })
+  assert.equal(sent.externalTxId, 'trx-payout-key-0000000001')
+  assert.equal(Object.hasOwn(sent, 'privateKey'), false)
 })
 
 test('provider status cannot be treated as chain confirmation without an actual transaction hash', () => {
