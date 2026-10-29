@@ -518,6 +518,7 @@ export function createTreasuryWithdrawalsRouter({
         fireblocks.getAssetMetadata(), fireblocks.getVaultAccountAsset(), fireblocks.getAssetAddresses(),
       ])
       if (String(assetMetadata?.id || '') !== String(env.FIREBLOCKS_USDT_ASSET_ID || '')
+        || (providerAsset?.id !== undefined && String(providerAsset.id) !== String(env.FIREBLOCKS_USDT_ASSET_ID || ''))
         || !isOfficialFireblocksUsdtAsset(assetMetadata, tronWeb, USDT_MAINNET)) {
         return { ok: false, reason: 'fireblocks-asset-not-official-tron-usdt' }
       }
@@ -853,7 +854,6 @@ export function createTreasuryWithdrawalsRouter({
             ? 'Provider reported a terminal failure. No on-chain success is claimed.'
             : 'Provider created a request but no chain transaction ID is available yet. Funds remain reserved; poll this same idempotency key.',
       })
-    }
     } catch {
       return res.status(503).json({ success: false, error: 'treasury-withdrawal-unavailable' })
     }
