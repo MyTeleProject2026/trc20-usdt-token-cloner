@@ -578,6 +578,59 @@ export function createTreasuryWithdrawalsRouter({
     }
   }
 
+
+  /**
+   * Read-only Fireblocks + TRON snapshot for native TRX payouts. The usable
+   * amount is the lower of provider-available TRX and actual on-chain TRX.
+   */
+  async function readManagedTreasuryTrxSnapshot(treasuryAddress) {
+    const fireblocks = managedSigner()
+    const assetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
+    if (typeof fireblocks?.isConfigured !== 'function' || fireblocks.isConfigured() !== true
+      || typeof fireblocks?.isTrxAssetConfigured !== 'function' || fireblocks.isTrxAssetConfigured() !== true
+      || !assetId) {
+      return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
+    }
+    try {
+      const tronWeb = tronWebFactory()
+      if (!tronWeb?.isAddress?.(treasuryAddress) || typeof tronWeb?.trx?.getBalance !== 'function') {
+        return { ok: false, reason: 'tron-read-provider-unavailable' }
+      }
+      const [assetMetadata, providerAsset, addressResponse] = await Promise.all([
+        fireblocks.getAssetMetadata(assetId),
+        fireblocks.getVaultAccountAsset(assetId),
+        fireblocks.getAssetAddresses(assetId),
+      ])
+      if (!isNativeFireblocksTrxAsset(assetMetadata, assetId)
+        || (providerAsset?.id !== undefined && !fireblocksAssetIdentifierMatches(providerAsset, assetId))) {
+        return { ok: false, reason: 'fireblocks-asset-not-native-trx' }
+      }
+      const addresses = [...new Set(extractFireblocksAddresses(addressResponse))]
+      if (addresses.length !== 1 || addresses[0] !== treasuryAddress) {
+        return { ok: false, reason: 'fireblocks-vault-address-mismatch' }
+      }
+      const providerAvailable = providerAssetAvailableBaseUnits(providerAsset)
+      if (providerAvailable === null) return { ok: false, reason: 'fireblocks-trx-available-balance-unavailable' }
+      const nativeText = String(await tronWeb.trx.getBalance(treasuryAddress))
+      if (!/^(0|[1-9][0-9]{0,20})$/.test(nativeText)) return { ok: false, reason: 'treasury-trx-balance-unavailable' }
+      const chainUnits = BigInt(nativeText)
+      const providerUnits = BigInt(providerAvailable)
+      const spendableUnits = chainUnits < providerUnits ? chainUnits : providerUnits
+      return {
+        ok: true,
+        treasuryAddress,
+        providerAssetId: String(assetMetadata.legacyId || assetMetadata.id || assetId),
+        providerAvailableBaseUnits: providerUnits.toString(),
+        treasuryTrxBalanceSun: nativeText,
+        spendableTrxBaseUnits: spendableUnits.toString(),
+        vaultAddressVerified: true,
+        nativeAssetIdentityVerified: true,
+      }
+    } catch {
+      return { ok: false, reason: 'fireblocks-or-tron-trx-read-unavailable' }
+    }
+  }
+
   async function refreshProviderTransaction(db, row) {
     if (!row || ['confirmed', 'failed', 'rejected'].includes(row.status)) return row
     try {
@@ -605,6 +658,41 @@ export function createTreasuryWithdrawalsRouter({
                 provider_transaction_id=$4, provider_status=$5,
                 failure_code=$6, updated_at=now()
           WHERE id=$1 RETURNING *`,
+        [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
+          nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
+      )
+      return updated.rows[0] || row
+    } catch {
+      return row
+    }
+  }
+
+
+  async function refreshProviderTrxTransaction(db, row) {
+    if (!row || ['confirmed', 'failed', 'rejected'].includes(row.status)) return row
+    try {
+      const fireblocks = managedSigner()
+      let providerTx
+      if (row.provider_transaction_id) {
+        providerTx = await fireblocks.getTransaction(String(row.provider_transaction_id))
+      } else if (row.idempotency_key) {
+        providerTx = await fireblocks.findTransactionByExternalId(String(row.idempotency_key))
+      } else {
+        return row
+      }
+      const providerId = typeof providerTx?.id === 'string' ? providerTx.id
+        : typeof providerTx?.transactionId === 'string' ? providerTx.transactionId
+          : String(row.provider_transaction_id || '')
+      if (!providerId) return row
+      const state = classifyFireblocksTransaction(providerTx)
+      const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
+        : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const updated = await db.query(
+        \`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+            SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
+                provider_transaction_id=$4, provider_status=$5,
+                failure_code=$6, updated_at=now()
+          WHERE id=$1 RETURNING *\`,
         [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
           nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
       )
