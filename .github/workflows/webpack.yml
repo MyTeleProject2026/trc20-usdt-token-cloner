@@ -3,6 +3,8 @@ name: NodeJS build and contract compile
 on:
   push:
     branches: ["main"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
