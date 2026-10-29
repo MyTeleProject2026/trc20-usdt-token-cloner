@@ -71,9 +71,11 @@ export function buildTreasuryTrxWithdrawalAuthorizationMessage({
   treasuryAddress,
   recipientAddress,
   amountBaseUnits,
+  amountSun,
   idempotencyKey,
   authorizationExpiresAt,
 } = {}) {
+  const exactAmountSun = amountSun ?? amountBaseUnits
   if (typeof origin !== 'string' || !origin.trim() || origin.length > 512) {
     throw new Error('An exact application origin is required for payout authorization.')
   }
@@ -82,11 +84,13 @@ export function buildTreasuryTrxWithdrawalAuthorizationMessage({
       throw new Error(`A valid TRON ${field} is required for payout authorization.`)
     }
   }
-  if (typeof amountBaseUnits !== 'string' || !BASE_UNIT_PATTERN.test(amountBaseUnits)) {
-    throw new Error('A positive six-decimal TRX base-unit amount is required for payout authorization.')
+  if (typeof exactAmountSun !== 'string' || !BASE_UNIT_PATTERN.test(exactAmountSun)
+    || BigInt(exactAmountSun) > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('A positive six-decimal TRX amount in SUN is required for payout authorization.')
   }
-  if (typeof idempotencyKey !== 'string' || !IDEMPOTENCY_PATTERN.test(idempotencyKey)) {
-    throw new Error('A valid one-use withdrawal request key is required for payout authorization.')
+  if (typeof idempotencyKey !== 'string' || !IDEMPOTENCY_PATTERN.test(idempotencyKey)
+    || !idempotencyKey.startsWith('trx-withdrawal-')) {
+    throw new Error('A TRX-specific one-use withdrawal request key is required for payout authorization.')
   }
   if (!Number.isSafeInteger(authorizationExpiresAt) || authorizationExpiresAt <= 0) {
     throw new Error('A valid payout authorization expiry timestamp is required.')
@@ -94,16 +98,28 @@ export function buildTreasuryTrxWithdrawalAuthorizationMessage({
   return [
     'TRON Token Studio treasury payout authorization',
     'Version: 1',
-    'Purpose: authorize exactly one native TRX transfer; this signature does not create assets.',
+    'Purpose: authorize exactly one genuine native TRX transfer; this signature does not create assets.',
     'Network: TRON Mainnet',
+    'Asset: TRX',
+    'Asset decimals: 6',
+    'Units: SUN (1 TRX = 1000000 SUN)',
     `Origin: ${origin}`,
     `Owner: ${ownerAddress}`,
     `Treasury: ${treasuryAddress}`,
-    'Asset: TRX',
-    'Asset decimals: 6',
     `Recipient: ${recipientAddress}`,
-    `Amount base units (sun): ${amountBaseUnits}`,
+    `Amount SUN: ${exactAmountSun}`,
     `Idempotency key: ${idempotencyKey}`,
     `Expires at Unix milliseconds: ${authorizationExpiresAt}`,
   ].join('\\n')
+}
+
+export function parsePositiveTrxAmount(amountTrx) {
+  if (typeof amountTrx !== 'string' || amountTrx.length > 64
+    || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/.test(amountTrx)) return null
+  const [whole, fraction = ''] = amountTrx.split('.')
+  if (whole.length > 16 || fraction.length > 6) return null
+  const amountSun = BigInt(whole) * 1_000_000n
+    + BigInt((fraction + '000000').slice(0, 6))
+  if (amountSun <= 0n || amountSun > BigInt(Number.MAX_SAFE_INTEGER)) return null
+  return amountSun.toString()
 }
