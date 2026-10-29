@@ -605,33 +605,47 @@ export default function WalletVault() {
   }
 
   async function inspectTokenContract(contractAddress: string): Promise<TokenEvidence> {
-    if (!unlocked) throw new Error('Unlock a wallet to verify a token contract and query the address balance.')
+    if (!unlocked) throw new Error('Unlock the owner wallet to verify a token contract and query its on-chain balance.')
     const web = createTronWeb(network)
     if (!web.isAddress(contractAddress)) throw new Error('Enter a valid TRON contract address for the selected network.')
-    const deployed = await web.trx.getContract(contractAddress)
-    const bytecode = typeof deployed?.bytecode === 'string' ? deployed.bytecode.replace(/^0x/i, '') : ''
-    if (!bytecode || /^0+$/.test(bytecode)) {
-      throw new Error('This address did not return deployed contract bytecode from the selected TRON network.')
+
+    // Use the backend's credentialed, cached, rate-limit-aware read-only RPC.
+    // The APK/browser sends only public addresses; provider credentials remain server-side.
+    const inspectionUrl = API_BASE + '/api/tron/inspect-token?network='
+      + encodeURIComponent(network) + '&contract=' + encodeURIComponent(contractAddress)
+      + '&owner=' + encodeURIComponent(unlocked.record.address)
+    const inspectionResponse = await fetch(inspectionUrl, {
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+    })
+    const inspection = await inspectionResponse.json().catch(() => null)
+    if (!inspectionResponse.ok || inspection?.success !== true
+      || inspection.contractAddress !== contractAddress
+      || inspection.ownerAddress !== unlocked.record.address
+      || inspection.network !== network) {
+      if (inspection?.error === 'chain-provider-rate-limited') {
+        throw new Error('The chain provider is rate limiting requests. Wait 15–30 seconds and retry; no verification or transfer was performed.')
+      }
+      if (inspection?.error === 'contract-not-deployed') {
+        throw new Error('This address has no deployed contract bytecode on the selected TRON network.')
+      }
+      throw new Error(typeof inspection?.message === 'string'
+        ? inspection.message
+        : 'The backend could not verify this token on-chain. No verification or transfer was performed.')
     }
-    const contract = await web.contract(TOKEN_ABI, contractAddress)
-    const [rawBalance, rawDecimals, rawSymbol, rawName, rawSupply] = await Promise.all([
-      contract.balanceOf(unlocked.record.address).call(),
-      contract.decimals().call(),
-      contract.symbol().call(),
-      contract.name().call(),
-      contract.totalSupply().call(),
-    ])
-    const decimals = Number(String(rawDecimals))
-    const symbol = String(rawSymbol || '').trim().slice(0, 32)
-    const name = String(rawName || '').trim().slice(0, 80)
+
+    const decimals = Number(inspection.tokenDecimals)
+    const symbol = String(inspection.tokenSymbol || '').trim().slice(0, 32)
+    const name = String(inspection.tokenName || '').trim().slice(0, 80)
+    const totalSupply = BigInt(String(inspection.totalSupplyBaseUnits))
+    // Validate the returned balance too; it is an actual read-only balance result,
+    // not a local balance edit or a credit that can be sent to an exchange.
+    BigInt(String(inspection.balanceBaseUnits))
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36 || !symbol || !name) {
       throw new Error('The contract did not return usable TRC-20 name, symbol, and decimal metadata.')
     }
-    const totalSupply = BigInt(String(rawSupply))
-    if (totalSupply < 0n) throw new Error('The contract returned an invalid total supply.')
-    // Ensure the address's actual on-chain balance method executes too. It is
-    // not trusted as an identity signal; it is a live balance query only.
-    BigInt(String(rawBalance))
 
     let explorer: Partial<TokenEvidence> = {
       network,
@@ -645,7 +659,12 @@ export default function WalletVault() {
     try {
       const url = API_BASE + '/api/tron/token-authenticity?network='
         + encodeURIComponent(network) + '&contract=' + encodeURIComponent(contractAddress)
-      const response = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' })
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
       const payload = await response.json().catch(() => null)
       if (response.ok && payload?.success === true && payload.contractAddress === contractAddress && payload.network === network) {
         explorer = {
@@ -670,10 +689,6 @@ export default function WalletVault() {
     } catch {
       // Source-indexer outages are represented as unknown, never "verified".
     }
-    // The fixed official address plus matching on-chain metadata is sufficient
-    // to recognize the known Mainnet Tether deployment if the optional explorer
-    // metadata service is unavailable. Any returned explorer risk marker still
-    // blocks transfers below; this is not a promise that the token is risk-free.
     const officialMainnetUsdtAddressMatch = network === 'mainnet'
       && contractAddress === OFFICIAL_MAINNET_USDT
       && symbol.toUpperCase() === 'USDT'
@@ -684,8 +699,8 @@ export default function WalletVault() {
       network,
       contractAddress,
       officialMainnetUsdtAddressMatch,
-      onChainContractDeployed: true,
-      onChainMetadataReadable: true,
+      onChainContractDeployed: inspection.onChainContractDeployed === true,
+      onChainMetadataReadable: inspection.onChainMetadataReadable === true,
       tokenName: name,
       tokenSymbol: symbol,
       tokenType: 'trc20',
