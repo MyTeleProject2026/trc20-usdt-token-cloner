@@ -133,6 +133,12 @@ export function providerAssetAvailableBaseUnits(assetResponse) {
   return units <= ((1n << 256n) - 1n) ? units.toString() : null
 }
 
+export function fireblocksAssetIdentifierMatches(assetResponse, configuredAssetId) {
+  if (!assetResponse || typeof assetResponse !== 'object' || typeof configuredAssetId !== 'string') return false
+  const candidates = [assetResponse.id, assetResponse.legacyId, assetResponse.legacyID]
+  return candidates.some((value) => typeof value === 'string' && value === configuredAssetId)
+}
+
 export function isOfficialFireblocksUsdtAsset(assetResponse, tronWeb, officialAddress) {
   if (!assetResponse || typeof assetResponse !== 'object'
     || !tronWeb?.address?.toHex || typeof officialAddress !== 'string') return false
@@ -141,6 +147,9 @@ export function isOfficialFireblocksUsdtAsset(assetResponse, tronWeb, officialAd
     assetResponse.contract_address,
     assetResponse.contract?.address,
     assetResponse.details?.contractAddress,
+    assetResponse.onchain?.address,
+    assetResponse.onChain?.address,
+    assetResponse.onchain?.contractAddress,
   ].filter((value) => typeof value === 'string' && value.trim())
   if (fields.length === 0) return false
   try {
@@ -254,10 +263,33 @@ export function createFireblocksClient(env = process.env, {
       return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(config.usdtAssetId))
     },
     async getAssetMetadata() {
-      return request('GET', '/v1/vault/assets/' + encodeURIComponent(config.usdtAssetId))
+      // /v1/vault/assets/{assetId} is an aggregate vault balance, not asset
+      // metadata. /v1/assets/{id} returns the supported asset's on-chain details.
+      return request('GET', '/v1/assets/' + encodeURIComponent(config.usdtAssetId))
     },
     async getAssetAddresses() {
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(config.usdtAssetId) + '/addresses')
+      // The non-paginated /addresses endpoint is deprecated and may be disabled
+      // for newer workspaces. Read every page; if pagination cannot be completed,
+      // throw so the payout route fails closed rather than assuming one address.
+      const basePath = '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId)
+        + '/' + encodeURIComponent(config.usdtAssetId) + '/addresses_paginated'
+      const allAddresses = []
+      let after = ''
+      const seenCursors = new Set()
+      for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+        const query = new URLSearchParams({ limit: '500' })
+        if (after) query.set('after', after)
+        const page = await request('GET', basePath + '?' + query.toString())
+        allAddresses.push(...extractFireblocksAddresses(page))
+        const nextAfter = typeof page?.paging?.after === 'string' ? page.paging.after
+          : typeof page?.after === 'string' ? page.after
+            : typeof page?.next === 'string' ? page.next : ''
+        if (!nextAfter) return { addresses: allAddresses }
+        if (seenCursors.has(nextAfter)) throw new FireblocksApiError(502, 'fireblocks-address-pagination-loop')
+        seenCursors.add(nextAfter)
+        after = nextAfter
+      }
+      throw new FireblocksApiError(502, 'fireblocks-address-pagination-limit')
     },
     async createUsdtTransfer({ recipientAddress, amountUsdt, externalTxId, note } = {}) {
       if (typeof recipientAddress !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(recipientAddress)
