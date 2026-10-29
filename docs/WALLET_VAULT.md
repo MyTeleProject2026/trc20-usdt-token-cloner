@@ -28,7 +28,8 @@ This build does not generate a BIP-39 mnemonic/recovery phrase. The recovery pat
 
 - Nile, Shasta and Mainnet are selected independently; switching the network does not switch a key's identity.
 - Native TRX balance comes from TronWeb's read-only `getBalance` call.
-- The token watchlist calls real read-only contract methods. Mainnet source/risk annotations come from TronScan's public API; testnet source-verification evidence remains unknown rather than being borrowed from Mainnet.
+- The token watchlist calls the backend's read-only `GET /api/tron/inspect-token` endpoint for deployed bytecode, balance, decimals, symbol, name and total supply. That endpoint uses a configured server-side `TRONGRID_API_KEY` when available, otherwise the configured `TATUM_API_KEY`, caches successful results briefly, shares concurrent reads, serializes token RPC calls and retries rate-limited reads. Mainnet source/risk annotations come from TronScan's public API; testnet source-verification evidence remains unknown rather than being borrowed from Mainnet.
+- If a provider remains rate limited, the API returns a safe retryable status and the UI tells the owner to wait and retry. It never converts a failed provider read into a verified token or balance.
 - Mainnet TRC-20 transfers are blocked unless the contract matches the official Tether TRON USDT address under additional on-chain metadata checks, or TronScan reports fully verified source with no risk markers. Source verification is not a guarantee of safety, issuer identity, liquidity, peg or value.
 - Native TRX transfers and supported TRC-20 transfers are signed locally and broadcast to the selected public node. The app checks balances, simulates TRC-20 calls, estimates a fee cap, requires explicit review and acknowledgement, and requires typing `SEND MAINNET` before Mainnet broadcast.
 - The transaction ID is read back from the network; a transaction is only labeled confirmed when a successful execution receipt is available. An explicit failed receipt wins over conflicting success-shaped metadata; ambiguous receipts remain unresolved. Local history is an activity aid, not a ledger guarantee, and exchange credit remains dependent on the recipient exchange's authenticated deposit record.
@@ -57,7 +58,8 @@ The Wallet Vault now has a Mainnet-only owner treasury check. The owner unlocks 
 - `TREASURY_OWNER_ADDRESS`: public Base58Check address allowed to view treasury status; the owner must unlock this address in the local Wallet Vault and sign the identity challenge.
 - `TREASURY_MAINNET_ADDRESS`: preferred watch-only address whose actual Mainnet TRX and official Tether TRC-20 USDT balances are read. No private key is needed to monitor this address.
 - `SPONSOR_MAINNET_ADDRESS`: backward-compatible fallback monitor address if `TREASURY_MAINNET_ADDRESS` is blank. If both monitor variables are blank, the owner address is monitored.
-- `TATUM_API_KEY`: server-side provider credential for solidified/read-only balance queries.
+- `TATUM_API_KEY`: server-side provider credential for solidified/read-only balance queries and as the token-inspection RPC fallback.
+- `TRONGRID_API_KEY`: optional server-side TronGrid key used by token inspection and treasury payout RPC calls to reduce public-node rate limits. Keep it only in the backend environment; never use a `VITE_*` variable.
 - `DATABASE_URL`: persistent session storage required by wallet authentication.
 - `FRONTEND_ORIGIN`: existing hosted frontend origin allowlist.
 - `PACKAGED_APP_ORIGINS=https://localhost,tronstudio://app`: add packaged app origins without replacing `FRONTEND_ORIGIN`.

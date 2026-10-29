@@ -288,8 +288,21 @@ export default function WalletVault() {
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
-  const headerTreasuryUsdt = typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) : 'Not verified'
-  const headerTreasuryTrx = typeof serverTreasuryReadiness?.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) : 'Not verified'
+  const monitoredTreasuryAddress = ownerTreasurySnapshot?.treasuryAddress || serverTreasuryReadiness?.treasuryAddress || ''
+  const headerTreasuryUsdt = ownerTreasurySnapshot?.officialUsdt?.status === 'verified'
+    && typeof ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits)
+    ? formatUnits(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits, 6)
+    : typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string'
+      && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits)
+      ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) : 'Not verified'
+  const headerTreasuryTrx = ownerTreasurySnapshot?.native?.status === 'verified'
+    && typeof ownerTreasurySnapshot.native.balanceTRX === 'string'
+    && /^(0|[1-9][0-9]*(?:\.[0-9]+)?)$/.test(ownerTreasurySnapshot.native.balanceTRX)
+    ? ownerTreasurySnapshot.native.balanceTRX
+    : typeof serverTreasuryReadiness?.treasuryTrxBalanceSun === 'string'
+      && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun)
+      ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) : 'Not verified'
   const ownerHeaderBalance = !unlocked ? 'Locked' : network !== 'mainnet' ? 'Select Mainnet' : 'Refresh in Assets'
   const ownerHeaderTrx = unlocked && network === 'mainnet' && portfolio ? portfolio.trx + ' TRX' : ownerHeaderBalance
   const officialOwnerUsdt = network === 'mainnet' ? portfolio?.tokens.find(token => token.contract === OFFICIAL_MAINNET_USDT && !token.error)?.balance : undefined
@@ -349,7 +362,10 @@ export default function WalletVault() {
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
 
     let cancelled = false
+    let requestInFlight = false
     async function loadOwnerTreasuryDashboard() {
+      if (requestInFlight || cancelled) return
+      requestInFlight = true
       setOwnerTreasuryLoading(true)
       setOwnerTreasuryError('')
       try {
@@ -400,11 +416,18 @@ export default function WalletVault() {
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
       } finally {
+        requestInFlight = false
         if (!cancelled) setOwnerTreasuryLoading(false)
       }
     }
     void loadOwnerTreasuryDashboard()
-    return () => { cancelled = true }
+    // Keep the owner-only treasury monitor fresh without creating overlapping
+    // provider requests. The backend still verifies every response on-chain.
+    const refreshInterval = window.setInterval(() => { void loadOwnerTreasuryDashboard() }, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(refreshInterval)
+    }
   }, [unlocked?.record.address, network])
 
 
@@ -605,33 +628,47 @@ export default function WalletVault() {
   }
 
   async function inspectTokenContract(contractAddress: string): Promise<TokenEvidence> {
-    if (!unlocked) throw new Error('Unlock a wallet to verify a token contract and query the address balance.')
+    if (!unlocked) throw new Error('Unlock the owner wallet to verify a token contract and query its on-chain balance.')
     const web = createTronWeb(network)
     if (!web.isAddress(contractAddress)) throw new Error('Enter a valid TRON contract address for the selected network.')
-    const deployed = await web.trx.getContract(contractAddress)
-    const bytecode = typeof deployed?.bytecode === 'string' ? deployed.bytecode.replace(/^0x/i, '') : ''
-    if (!bytecode || /^0+$/.test(bytecode)) {
-      throw new Error('This address did not return deployed contract bytecode from the selected TRON network.')
+
+    // Use the backend's credentialed, cached, rate-limit-aware read-only RPC.
+    // The APK/browser sends only public addresses; provider credentials remain server-side.
+    const inspectionUrl = API_BASE + '/api/tron/inspect-token?network='
+      + encodeURIComponent(network) + '&contract=' + encodeURIComponent(contractAddress)
+      + '&owner=' + encodeURIComponent(unlocked.record.address)
+    const inspectionResponse = await fetch(inspectionUrl, {
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+    })
+    const inspection = await inspectionResponse.json().catch(() => null)
+    if (!inspectionResponse.ok || inspection?.success !== true
+      || inspection.contractAddress !== contractAddress
+      || inspection.ownerAddress !== unlocked.record.address
+      || inspection.network !== network) {
+      if (inspection?.error === 'chain-provider-rate-limited') {
+        throw new Error('The chain provider is rate limiting requests. Wait 15–30 seconds and retry; no verification or transfer was performed.')
+      }
+      if (inspection?.error === 'contract-not-deployed') {
+        throw new Error('This address has no deployed contract bytecode on the selected TRON network.')
+      }
+      throw new Error(typeof inspection?.message === 'string'
+        ? inspection.message
+        : 'The backend could not verify this token on-chain. No verification or transfer was performed.')
     }
-    const contract = await web.contract(TOKEN_ABI, contractAddress)
-    const [rawBalance, rawDecimals, rawSymbol, rawName, rawSupply] = await Promise.all([
-      contract.balanceOf(unlocked.record.address).call(),
-      contract.decimals().call(),
-      contract.symbol().call(),
-      contract.name().call(),
-      contract.totalSupply().call(),
-    ])
-    const decimals = Number(String(rawDecimals))
-    const symbol = String(rawSymbol || '').trim().slice(0, 32)
-    const name = String(rawName || '').trim().slice(0, 80)
+
+    const decimals = Number(inspection.tokenDecimals)
+    const symbol = String(inspection.tokenSymbol || '').trim().slice(0, 32)
+    const name = String(inspection.tokenName || '').trim().slice(0, 80)
+    const totalSupply = BigInt(String(inspection.totalSupplyBaseUnits))
+    // Validate the returned balance too; it is an actual read-only balance result,
+    // not a local balance edit or a credit that can be sent to an exchange.
+    BigInt(String(inspection.balanceBaseUnits))
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36 || !symbol || !name) {
       throw new Error('The contract did not return usable TRC-20 name, symbol, and decimal metadata.')
     }
-    const totalSupply = BigInt(String(rawSupply))
-    if (totalSupply < 0n) throw new Error('The contract returned an invalid total supply.')
-    // Ensure the address's actual on-chain balance method executes too. It is
-    // not trusted as an identity signal; it is a live balance query only.
-    BigInt(String(rawBalance))
 
     let explorer: Partial<TokenEvidence> = {
       network,
@@ -645,7 +682,12 @@ export default function WalletVault() {
     try {
       const url = API_BASE + '/api/tron/token-authenticity?network='
         + encodeURIComponent(network) + '&contract=' + encodeURIComponent(contractAddress)
-      const response = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' })
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
       const payload = await response.json().catch(() => null)
       if (response.ok && payload?.success === true && payload.contractAddress === contractAddress && payload.network === network) {
         explorer = {
@@ -670,10 +712,6 @@ export default function WalletVault() {
     } catch {
       // Source-indexer outages are represented as unknown, never "verified".
     }
-    // The fixed official address plus matching on-chain metadata is sufficient
-    // to recognize the known Mainnet Tether deployment if the optional explorer
-    // metadata service is unavailable. Any returned explorer risk marker still
-    // blocks transfers below; this is not a promise that the token is risk-free.
     const officialMainnetUsdtAddressMatch = network === 'mainnet'
       && contractAddress === OFFICIAL_MAINNET_USDT
       && symbol.toUpperCase() === 'USDT'
@@ -684,8 +722,8 @@ export default function WalletVault() {
       network,
       contractAddress,
       officialMainnetUsdtAddressMatch,
-      onChainContractDeployed: true,
-      onChainMetadataReadable: true,
+      onChainContractDeployed: inspection.onChainContractDeployed === true,
+      onChainMetadataReadable: inspection.onChainMetadataReadable === true,
       tokenName: name,
       tokenSymbol: symbol,
       tokenType: 'trc20',
@@ -1529,11 +1567,11 @@ export default function WalletVault() {
       </section>
 
       <section className="wallet-vault-panel wallet-vault-locked-treasury" hidden={activePanel !== 'treasury' || Boolean(unlocked)}>
-        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Landmark size={16} /></span><div><h2>Public treasury monitoring</h2><p>The public address and balance can be viewed without importing its private key.</p></div></div>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Landmark size={16} /></span><div><h2>Public treasury monitoring</h2><p>Balances load from the configured backend watch address. Monitoring is read-only and does not authorize spending.</p></div></div>
         <div className="wallet-vault-review-grid">
-          <div className="wallet-vault-review-wide"><small>Public treasury address</small>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
-          <div><small>Verified official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
-          <div><small>Verified TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
+          <div className="wallet-vault-review-wide"><small>Configured watch address</small>{ADDRESS_PATTERN.test(String(monitoredTreasuryAddress)) ? <a href={explorerUrl('mainnet', String(monitoredTreasuryAddress))} target="_blank" rel="noopener noreferrer">{monitoredTreasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
+          <div><small>Read-only official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
+          <div><small>Read-only TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
           <div><small>Payout readiness</small><strong>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
         </div>
         {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
