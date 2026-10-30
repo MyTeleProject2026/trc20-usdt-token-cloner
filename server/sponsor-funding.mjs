@@ -21,10 +21,9 @@ function readTokenAllowlist(env, network) {
   for (const asset of TOKEN_ASSETS) {
     // Mainnet USDT has one well-known official Tether contract. Never let a
     // configurable symbol map a different contract to official USDT.
-    const contracts = asset === 'USDT' && network === 'mainnet'
-      ? [OFFICIAL_MAINNET_USDT]
-      : String(env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
-        .split(',').map((value) => value.trim()).filter(Boolean)
+    // Only the official Tether contract is a supported sponsor principal asset.
+    // Never treat a testnet lookalike contract as Tether USDT.
+    const contracts = asset === 'USDT' && network === 'mainnet' ? [OFFICIAL_MAINNET_USDT] : []
     for (const contract of [...new Set(contracts)]) {
       if (!ADDRESS_PATTERN.test(contract)) {
         return { valid: false, reason: 'invalid-token-contract-allowlist' }
