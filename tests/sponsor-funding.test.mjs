@@ -95,7 +95,7 @@ test('sponsor funding read rejects invalid networks and malformed allowlists wit
     env: {
       TATUM_API_KEY: 'server-test-key',
       SPONSOR_NILE_ADDRESS: sponsorAddress,
-      SPONSOR_VTRC_NILE_CONTRACTS: 'not-an-address',
+      SPONSOR_USDT_NILE_CONTRACTS: 'not-an-address',
     },
     tronWebFactory: async (host) => fakeTronWeb(host),
     fetchImpl: async () => ({ ok: true, json: async () => ({ address: '41' + hex, balance: 0 }) }),
