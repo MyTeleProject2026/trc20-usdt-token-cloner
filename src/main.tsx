@@ -7,6 +7,7 @@ import MainnetExchangeDeposit from './MainnetExchangeDeposit.tsx'
 import OkxDepositStatus from './OkxDepositStatus.tsx'
 import WalletVault from './WalletVault.tsx'
 import WatchOnlyWallets from './WatchOnlyWallets.tsx'
+import TestnetSandbox from './TestnetSandbox.tsx'
 import './index.css'
 
 const root = createRoot(document.getElementById('root')!)
@@ -17,20 +18,23 @@ function renderRoute() {
   const isSponsorOperator = route === '#/sponsor-operator'
   const isOkxDepositStatus = route === '#/okx-deposit-status'
   const isWalletVault = route === '#/wallet'
+  const isTestnetSandbox = route === '#/testnet-sandbox'
   const isWatchOnlyWallets = route === '#/watch-wallets'
   const isLegacyWorkspace = route === '#/workspace'
 
-  const page = isWalletVault
-    ? <WalletVault />
-    : isWatchOnlyWallets
+  const page = isTestnetSandbox
+    ? <TestnetSandbox />
+    : isWalletVault
+      ? <WalletVault />
+      : isWatchOnlyWallets
       ? <WatchOnlyWallets />
-      : isMainnetExchangeDeposit
+        : isMainnetExchangeDeposit
         ? <MainnetExchangeDeposit />
-        : isOkxDepositStatus
+          : isOkxDepositStatus
           ? <OkxDepositStatus />
-          : isLegacyWorkspace || isSponsorOperator
+            : isLegacyWorkspace || isSponsorOperator
             ? (isSponsorOperator ? <SponsorSignerConsole /> : <App />)
-            : <WalletVault />
+              : <WalletVault />
 
   // Every application route shares the same single-owner authentication gate.
   // The gate has no public registration flow and restores only a server-verified
