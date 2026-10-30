@@ -8,8 +8,8 @@ const NETWORKS = Object.freeze({
   nile: 'https://tron-nile.gateway.tatum.io',
 })
 const TOKEN_ALLOWLIST_ENV = Object.freeze({
-  shasta: { USDT: 'SPONSOR_USDT_SHASTA_CONTRACTS', VTRC: 'SPONSOR_VTRC_SHASTA_CONTRACTS' },
-  nile: { USDT: 'SPONSOR_USDT_NILE_CONTRACTS', VTRC: 'SPONSOR_VTRC_NILE_CONTRACTS' },
+  shasta: { USDT: 'SPONSOR_USDT_SHASTA_CONTRACTS' },
+  nile: { USDT: 'SPONSOR_USDT_NILE_CONTRACTS' },
 })
 const SAFE_PROVIDER_RESPONSE_FIELDS = new Set([
   'EnergyLimit', 'EnergyUsed', 'NetLimit', 'NetUsed', 'freeNetLimit', 'freeNetUsed',
