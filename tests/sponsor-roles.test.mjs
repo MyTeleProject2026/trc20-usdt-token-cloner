@@ -105,7 +105,7 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
   assert.equal(asset.onChainBalanceRead, true)
   assert.equal(asset.native.balanceTRX, '4.2')
   assert.equal(asset.tokens.length, 1)
-  assert.equal(asset.tokens[0].asset, 'USDT')
+  assert.equal(asset.tokens[0].asset, 'USDT (testnet)')
   assert.equal(asset.tokens[0].status, 'verified')
   assert.equal(asset.tokens[0].decimals, 6)
   assert.equal(asset.tokens[0].balanceBaseUnits, '987654321')
