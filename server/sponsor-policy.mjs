@@ -1,6 +1,7 @@
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
-const ASSETS = new Set(['TRX', 'USDT', 'VTRC'])
-const TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
+const ASSETS = new Set(['TRX', 'USDT'])
+const TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const PURPOSES = new Set(['network-fee', 'asset-grant'])
 const BUDGET_STATUSES = new Set(['disabled', 'pending-review', 'active', 'paused', 'depleted'])
 
@@ -27,6 +28,9 @@ export function validateSponsorBudget(input) {
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
   if (TOKEN_ASSETS.has(asset) && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
+  }
+  if (asset === 'USDT' && (network !== 'mainnet' || tokenContract !== OFFICIAL_MAINNET_USDT)) {
+    return { valid: false, reason: 'official-mainnet-usdt-only' }
   }
   if (!BUDGET_STATUSES.has(status)) return { valid: false, reason: 'invalid-budget-status' }
   const budget = baseUnits(budgetBaseUnits, { allowZero: true })
@@ -65,11 +69,8 @@ export function validateSponsorTransferIntent(input, { isValidAddress, maxTransf
   }
   // Fail closed: a token symbol/name is not proof of identity. The caller must
   // provide an explicitly configured allowlist for the selected network.
-  if (TOKEN_ASSETS.has(asset)) {
-    const allowed = allowedTokenContractsByNetwork[network]
-    if (!Array.isArray(allowed) || !allowed.some((contract) => typeof contract === 'string' && contract.trim() === tokenContract.trim())) {
-      return { valid: false, reason: 'token-contract-not-allowlisted-for-network' }
-    }
+  if (asset === 'USDT' && (network !== 'mainnet' || tokenContract !== OFFICIAL_MAINNET_USDT)) {
+    return { valid: false, reason: 'official-mainnet-usdt-only' }
   }
   if (typeof isValidAddress !== 'function' || !isValidAddress(receiverAddress)) {
     return { valid: false, reason: 'invalid-receiver-address' }
