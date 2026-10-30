@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { createSponsorOrganizationStore } from '../sponsor-organizations.mjs'
 import { selectSponsorOrganizationPair } from '../sponsor-organization-selection.mjs'
+import { isValidTronAddress } from '../tron-address.mjs'
 
 function isAdmin(req, env) {
   const expectedValue = env.SPONSOR_ADMIN_API_TOKEN
@@ -34,7 +35,7 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
     if (typeof network !== 'string' || typeof asset !== 'string'
       || typeof amountBaseUnits !== 'string' || !positiveUnits(amountBaseUnits)
       || typeof estimatedFeeSun !== 'string' || !positiveUnits(estimatedFeeSun)
-      || (asset === 'TRX' ? tokenContract !== undefined : typeof tokenContract !== 'string')) {
+      || (asset === 'TRX' ? tokenContract !== undefined : !isValidTronAddress(tokenContract))) {
       return res.status(400).json({ success: false, error: 'invalid-sponsor-selection-request' })
     }
     try {
