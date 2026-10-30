@@ -1,4 +1,9 @@
-# Dual-testnet VTRC deployment and sponsor configuration
+# Archived: VTRC deployment is not part of the supported product scope
+
+This historical runbook is retained for audit context only. Do not deploy, configure, use, or present VTRC as part of the active application. Active sponsor code no longer accepts VTRC. Genuine TRON Tether USDT is identified only by the official Mainnet contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`.
+
+---
+
 
 ## Important identity boundary
 
