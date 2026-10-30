@@ -1449,7 +1449,7 @@ export default function WalletVault() {
           <div className="wallet-vault-review-wide"><small>Configured watch address</small>{ADDRESS_PATTERN.test(String(monitoredTreasuryAddress)) ? <a href={explorerUrl('mainnet', String(monitoredTreasuryAddress))} target="_blank" rel="noopener noreferrer">{monitoredTreasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
           <div><small>Read-only official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
           <div><small>Read-only TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
-          <div><small>Application payout execution</small><strong>Disabled in this build</strong></div>
+          <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled' : serverTreasuryReadiness?.executionBlocker === 'real-value-payout-execution-disabled-in-this-build' ? 'Disabled by server safety gate' : 'Disabled in this build'}</strong></div>
         </div>
         {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
@@ -1648,7 +1648,7 @@ export default function WalletVault() {
                     <div className="wallet-vault-review-grid">
                       <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
                       <div><small>Backend preflight flag</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed (informational only)' : 'Not passed'}</strong></div>
-                      <div><small>Application payout execution</small><strong>Disabled in this build</strong></div>
+                      <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled' : serverTreasuryReadiness?.executionBlocker === 'real-value-payout-execution-disabled-in-this-build' ? 'Disabled by server safety gate' : 'Disabled in this build'}</strong></div>
                       <div><small>Configuration completeness</small><strong>{serverTreasuryReadiness.configuration?.configurationComplete === true ? 'Complete' : 'Incomplete'}</strong></div>
                       <div><small>USDT payout switch</small><strong>{serverTreasuryReadiness.configuration?.featureFlagEnabled === true ? 'Enabled' : 'Disabled (safe default)'}</strong></div>
                       <div><small>USDT asset identity</small><strong>{serverTreasuryReadiness.providerAssetIdentityVerified === true ? 'Verified' : 'Unverified'}</strong></div>
