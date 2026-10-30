@@ -328,6 +328,349 @@ export async function initializeDatabase() {
             OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
         END IF;
       END; $sponsor_budget_contract$`)
+      // Keep the old wide constraint for historical VTRC rows, but enforce the supported
+      // asset set for every new/updated row without scanning or deleting legacy records.
+      await db.query(`DO $sponsor_budget_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_budget_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+)
       // One sponsor may have independent budgets for each network/purpose/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
@@ -388,6 +731,751 @@ export async function initializeDatabase() {
             OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
         END IF;
       END; $sponsor_transfer_contract$`)
+      // Keep historical VTRC transfer rows readable while rejecting every new VTRC write.
+      await db.query(`DO $sponsor_transfer_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+      // Keep the old wide constraint for historical VTRC rows, but enforce the supported
+      // asset set for every new/updated row without scanning or deleting legacy records.
+      await db.query(`DO $sponsor_budget_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_budget_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+)
+      // One sponsor may have independent budgets for each network/purpose/asset/contract.
+      // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
+      await db.query(`DROP INDEX IF EXISTS ${schema}.idx_ttc_sponsor_budget_identity`)
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_budget_identity
+          ON ${schema}.sponsor_budgets (sponsor_reference, network, purpose, asset, COALESCE(token_contract, ''))
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          purpose TEXT NOT NULL CHECK (purpose IN ('network-fee','asset-grant')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          receiver_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','authorized','submitted','confirmed','failed','cancelled')),
+          transaction_hash CHAR(64),
+          authorization_reference TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_transaction JSONB`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_raw_data_hex TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_txid CHAR(64)`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_status_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers
+        ADD CONSTRAINT sponsor_transfers_status_check
+        CHECK (status IN ('pending-review','authorized','broadcasting','submitted','confirmed','failed','cancelled'))`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // The transfer ledger must preserve fee/principal separation and exact token identity too.
+      await db.query(`DO $sponsor_transfer_fee$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_transfer_fee$`)
+      await db.query(`DO $sponsor_transfer_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_contract$`)
+)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       await db.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_transfer_tx_identity
@@ -430,6 +1518,1539 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash)
         )
       `)
+      // Cost observations are immutable audit records. Preserve legacy VTRC observations,
+      // while blocking any new observation for an unsupported asset.
+      await db.query(`DO $sponsor_observation_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_chain_cost_observations_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_chain_cost_observations'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_chain_cost_observations
+          ADD CONSTRAINT sponsor_chain_cost_observations_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_observation_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+      // Keep the old wide constraint for historical VTRC rows, but enforce the supported
+      // asset set for every new/updated row without scanning or deleting legacy records.
+      await db.query(`DO $sponsor_budget_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_budget_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+)
+      // One sponsor may have independent budgets for each network/purpose/asset/contract.
+      // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
+      await db.query(`DROP INDEX IF EXISTS ${schema}.idx_ttc_sponsor_budget_identity`)
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_budget_identity
+          ON ${schema}.sponsor_budgets (sponsor_reference, network, purpose, asset, COALESCE(token_contract, ''))
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          purpose TEXT NOT NULL CHECK (purpose IN ('network-fee','asset-grant')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          receiver_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','authorized','submitted','confirmed','failed','cancelled')),
+          transaction_hash CHAR(64),
+          authorization_reference TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_transaction JSONB`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_raw_data_hex TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_txid CHAR(64)`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_status_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers
+        ADD CONSTRAINT sponsor_transfers_status_check
+        CHECK (status IN ('pending-review','authorized','broadcasting','submitted','confirmed','failed','cancelled'))`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // The transfer ledger must preserve fee/principal separation and exact token identity too.
+      await db.query(`DO $sponsor_transfer_fee$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_transfer_fee$`)
+      await db.query(`DO $sponsor_transfer_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_contract$`)
+      // Keep historical VTRC transfer rows readable while rejecting every new VTRC write.
+      await db.query(`DO $sponsor_transfer_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+      // Keep the old wide constraint for historical VTRC rows, but enforce the supported
+      // asset set for every new/updated row without scanning or deleting legacy records.
+      await db.query(`DO $sponsor_budget_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_budget_supported_assetimport pg from 'pg'
+import { createHash } from 'node:crypto'
+import { createSponsorFundingReader } from './sponsor-funding.mjs'
+import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
+
+const { Pool } = pg
+const schema = 'trc20_token_clone'
+const readSponsorFundingStatusForReservation = createSponsorFundingReader()
+const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
+const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+
+export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
+  if (!['mainnet', 'shasta', 'nile'].includes(network)
+    || !SPONSORED_TOKEN_ASSETS.has(asset)
+    || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
+  if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
+  return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
+}
+
+function configuredSponsorTokenContracts(network, asset) {
+  return (process.env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
+    .split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract) {
+  return isSponsorTokenContractAllowed(network, asset, tokenContract, configuredSponsorTokenContracts(network, asset))
+}
+let pool
+let initPromise
+
+/**
+ * Render's same-region internal Postgres host uses private networking and can
+ * present a self-signed certificate. Render documents that TLS is optional on
+ * internal URLs; do not force strict public-CA validation for those hosts.
+ * External hosts keep strict certificate verification when DATABASE_SSL=true.
+ */
+export function isRenderInternalDatabaseUrl(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase()
+    return /^dpg-[a-z0-9-]+$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+export function normalizeDatabaseConnectionString(connectionString) {
+  // Render's internal URL runs over its private network. Internal Postgres
+  // TLS uses self-signed certificates and is optional; remove any sslmode query
+  // copied from an external URL so node-postgres does not re-enable TLS.
+  if (!isRenderInternalDatabaseUrl(connectionString)) return connectionString
+  try {
+    const url = new URL(connectionString)
+    url.searchParams.delete('sslmode')
+    url.searchParams.delete('ssl')
+    url.searchParams.delete('sslcert')
+    url.searchParams.delete('sslkey')
+    url.searchParams.delete('sslrootcert')
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+export function databaseSslConfig(connectionString, env = process.env) {
+  if (env.DATABASE_SSL !== 'true') return undefined
+  if (isRenderInternalDatabaseUrl(connectionString)) return undefined
+  return { rejectUnauthorized: true }
+}
+
+function getPool() {
+  if (pool) return pool
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 5,
+    ssl: databaseSslConfig(connectionString),
+  })
+  pool.on('error', (error) => {
+    // Never log connection strings or provider details that might include secrets.
+    console.error('PostgreSQL idle client error:', error?.code || 'unknown')
+  })
+  return pool
+}
+
+export async function initializeDatabase() {
+  const db = getPool()
+  if (!db) return { configured: false, ready: false }
+  if (!initPromise) {
+    initPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      // Wallet auth stores only the public address, origin, expiry and hashes of
+      // one-time challenge/session secrets. Raw bearer tokens and private keys
+      // are never persisted. Sessions are shared across Render instances/restarts.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_accounts (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          wallet_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_authenticated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_challenges (
+          nonce_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          consumed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS message_hash CHAR(64)`)
+      // One-use challenges are ephemeral. Invalidate any challenge from the old
+      // raw-message schema or the intermediate nonce-only schema, then drop the
+      // stored text. New rows retain only hashes plus public metadata/timestamps.
+      await db.query(`DELETE FROM ${schema}.wallet_auth_challenges WHERE issued_at IS NULL OR message_hash IS NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP COLUMN IF EXISTS challenge_message`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN issued_at SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ALTER COLUMN message_hash SET NOT NULL`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_expiry
+        ON ${schema}.wallet_auth_challenges (expires_at)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_challenges_rate
+        ON ${schema}.wallet_auth_challenges (network, wallet_address, origin, created_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.wallet_auth_sessions (
+          token_hash CHAR(64) PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+          origin TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          expires_at TIMESTAMPTZ NOT NULL
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_wallet_auth_sessions_expiry
+        ON ${schema}.wallet_auth_sessions (expires_at)`)
+      // Expand identity scope from testnets to Mainnet without resetting existing accounts.
+      // Recreate named constraints idempotently so services deployed before this migration
+      // can safely keep their existing wallet records and active sessions.
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts DROP CONSTRAINT IF EXISTS wallet_auth_accounts_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_accounts ADD CONSTRAINT wallet_auth_accounts_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges DROP CONSTRAINT IF EXISTS wallet_auth_challenges_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_challenges ADD CONSTRAINT wallet_auth_challenges_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions DROP CONSTRAINT IF EXISTS wallet_auth_sessions_network_check`)
+      await db.query(`ALTER TABLE ${schema}.wallet_auth_sessions ADD CONSTRAINT wallet_auth_sessions_network_check CHECK (network IN ('mainnet','nile','shasta'))`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.token_deployments (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          token_name TEXT NOT NULL,
+          token_symbol TEXT NOT NULL,
+          decimals SMALLINT NOT NULL CHECK (decimals = 18),
+          total_supply_base_units NUMERIC(78,0) NOT NULL CHECK (total_supply_base_units > 0),
+          contract_address TEXT,
+          deployer_address TEXT,
+          transaction_hash CHAR(64),
+          deployment_status TEXT NOT NULL DEFAULT 'submitted'
+            CHECK (deployment_status IN ('submitted','confirmed','failed','unverified')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL DEFAULT 'TRON',
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          verification_status TEXT NOT NULL
+            CHECK (verification_status IN ('verified-on-chain','not-verified','awaiting-solidification','awaiting-solidified-receipt','provider-error')),
+          block_number BIGINT,
+          log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0),
+          result JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, token_contract, log_index)
+        )
+      `)
+      // Event-level identity migration. Existing rows predate log-index tracking;
+      // preserve them as event 0, then replace the coarser transaction-level key.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ADD COLUMN IF NOT EXISTS log_index INTEGER NOT NULL DEFAULT 0 CHECK (log_index >= 0)`)
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications DROP CONSTRAINT IF EXISTS transfer_verifications_network_transaction_hash_token_contract_key`)
+      await db.query(`DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'transfer_verifications_network_transaction_hash_token_contract_log_index_key'
+            AND conrelid = '${schema}.transfer_verifications'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.transfer_verifications
+          ADD CONSTRAINT transfer_verifications_network_transaction_hash_token_contract_log_index_key
+          UNIQUE (network, transaction_hash, token_contract, log_index);
+        END IF;
+      END; $$`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.log_index IS 'Zero-based index of the exact matching TRC20 Transfer event in the transaction receipt.'`)
+      // Older installations may have a legacy DEFAULT 'TRON'. Drop it so
+      // any future direct insert must name its network explicitly. Existing
+      // legacy rows are intentionally not relabelled: their chain is unknown.
+      await db.query(`ALTER TABLE ${schema}.transfer_verifications ALTER COLUMN network DROP DEFAULT`)
+      await db.query(`COMMENT ON COLUMN ${schema}.transfer_verifications.network IS 'Explicit chain environment: mainnet, shasta, or nile. Legacy TRON values are unclassified and must not be assumed to mean Mainnet.'`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.tracked_wallets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL,
+          wallet_address TEXT NOT NULL,
+          display_label TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address)
+        )
+      `)
+      // Do not let new watchlist rows silently inherit an ambiguous legacy network.
+      await db.query(`ALTER TABLE ${schema}.tracked_wallets ALTER COLUMN network DROP DEFAULT`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.receiver_history_events (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          wallet_address TEXT NOT NULL,
+          event_key CHAR(64) NOT NULL,
+          transaction_hash CHAR(64) NOT NULL,
+          token_contract TEXT NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          token_name TEXT,
+          token_symbol TEXT,
+          token_decimals SMALLINT,
+          event_index TEXT,
+          block_timestamp BIGINT NOT NULL,
+          verification_status TEXT NOT NULL DEFAULT 'indexed-candidate-awaiting-solidified-verification'
+            CHECK (verification_status IN ('indexed-candidate-awaiting-solidified-verification','verified-on-chain','not-verified','awaiting-solidified-receipt','provider-error')),
+          verified_on_chain BOOLEAN NOT NULL DEFAULT FALSE,
+          verification_result JSONB,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, wallet_address, event_key)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_receiver_history_wallet_time
+        ON ${schema}.receiver_history_events (network, wallet_address, block_timestamp DESC)`)
+
+      // Sponsor accounting groundwork only: these tables do not enable payments.
+      // Amounts are exact integer base units; no wallet secrets are stored.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.native_transfer_verifications (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          from_address TEXT NOT NULL,
+          to_address TEXT NOT NULL,
+          amount_sun NUMERIC(78,0) NOT NULL CHECK (amount_sun > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified-on-chain')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant')),
+          budget_base_units NUMERIC(78,0) NOT NULL CHECK (budget_base_units >= 0),
+          reserved_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (reserved_base_units >= 0),
+          spent_base_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (spent_base_units >= 0),
+          status TEXT NOT NULL DEFAULT 'disabled'
+            CHECK (status IN ('disabled','pending-review','active','paused','depleted')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (reserved_base_units + spent_base_units <= budget_base_units)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approval_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS review_reference TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`)
+      // Keep fee/resource budgets independent from asset principal budgets. Existing
+      // rows default to asset-grant; fee sponsorship requires its own explicit budget.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'asset-grant' CHECK (purpose IN ('network-fee','asset-grant'))`)
+      // Keep fee/resource budgets native-TRX-only. NOT VALID allows legacy rows to be audited
+      // separately; new and updated rows are checked immediately.
+      await db.query(`DO $sponsor_fee_budget$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_fee_budget$`)
+      // Legacy VTRC records may remain in the database for historical audit. Keep legacy
+      // database constraints non-destructive, but active application validators below
+      // reject VTRC for all new reservations, budgets, approvals, and observations.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // Native TRX has no token contract; a token budget must identify its exact contract.
+      await db.query(`DO $sponsor_budget_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_budget_contract$`)
+)
+      // One sponsor may have independent budgets for each network/purpose/asset/contract.
+      // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
+      await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
+      await db.query(`DROP INDEX IF EXISTS ${schema}.idx_ttc_sponsor_budget_identity`)
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_budget_identity
+          ON ${schema}.sponsor_budgets (sponsor_reference, network, purpose, asset, COALESCE(token_contract, ''))
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_transfers (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('mainnet','shasta','nile')),
+          purpose TEXT NOT NULL CHECK (purpose IN ('network-fee','asset-grant')),
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT')),
+          token_contract TEXT,
+          receiver_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','authorized','submitted','confirmed','failed','cancelled')),
+          transaction_hash CHAR(64),
+          authorization_reference TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_transaction JSONB`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_raw_data_hex TEXT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS prepared_txid CHAR(64)`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_status_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers
+        ADD CONSTRAINT sponsor_transfers_status_check
+        CHECK (status IN ('pending-review','authorized','broadcasting','submitted','confirmed','failed','cancelled'))`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
+      // The transfer ledger must preserve fee/principal separation and exact token identity too.
+      await db.query(`DO $sponsor_transfer_fee$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_network_fee_requires_trx'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_network_fee_requires_trx
+          CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
+        END IF;
+      END; $sponsor_transfer_fee$`)
+      await db.query(`DO $sponsor_transfer_contract$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_asset_contract_shape'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_asset_contract_shape
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_contract$`)
+)
+      await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_transfer_tx_identity
+          ON ${schema}.sponsor_transfers (network, transaction_hash)
+          WHERE transaction_hash IS NOT NULL
+      `)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_transfers_status_created
+          ON ${schema}.sponsor_transfers (status, created_at DESC)
+      `)
+      // Records immutable, transaction-specific costs observed from the selected testnet's
+      // solidified node. These observations are not proof that the distinct resource sponsor
+      // was economically debited; resource attribution and fee-budget settlement remain separate.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_chain_cost_observations (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          idempotency_key TEXT NOT NULL REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          sponsor_reference TEXT NOT NULL,
+          fee_sponsor_address TEXT NOT NULL,
+          asset_principal_address TEXT NOT NULL,
+          receiver_address TEXT NOT NULL,
+          asset TEXT NOT NULL CHECK (asset IN ('TRX','USDT','VTRC')),
+          token_contract TEXT,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          execution_result TEXT NOT NULL CHECK (execution_result = 'SUCCESS'),
+          reported_fee_sun NUMERIC(78,0) NOT NULL CHECK (reported_fee_sun >= 0),
+          energy_fee_sun NUMERIC(78,0),
+          net_fee_sun NUMERIC(78,0),
+          energy_usage_total NUMERIC(78,0),
+          energy_usage NUMERIC(78,0),
+          net_usage NUMERIC(78,0),
+          energy_penalty_total NUMERIC(78,0),
+          evidence_source TEXT NOT NULL DEFAULT 'Tatum TRON SolidityNode transaction body and receipt',
+          observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((asset = 'TRX' AND token_contract IS NULL)
+            OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)),
+          UNIQUE (network, transaction_hash)
+        )
+      `)
+)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_chain_cost_observations_created
         ON ${schema}.sponsor_chain_cost_observations (network, observed_at DESC)`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_chain_cost_observations IS
