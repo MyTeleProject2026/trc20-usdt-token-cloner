@@ -26,7 +26,7 @@ test('fee-purpose policy rejects token principal for budgets and transfer intent
   }
   assert.equal(validateSponsorBudget(base).valid, true)
   assert.equal(validateSponsorBudget({ ...base, asset: 'USDT', tokenContract: 'TContract' }).reason, 'network-fee-must-use-trx')
-  assert.equal(validateSponsorBudget({ ...base, asset: 'VTRC', tokenContract: 'TVtrc' }).reason, 'network-fee-must-use-trx')
+  assert.equal(validateSponsorBudget({ ...base, asset: 'VTRC', tokenContract: 'TVtrc' }).reason, 'invalid-asset')
 
   const intent = {
     idempotencyKey: 'fee-policy-test-0001',
