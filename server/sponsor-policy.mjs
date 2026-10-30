@@ -1,6 +1,6 @@
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
-const ASSETS = new Set(['TRX', 'USDT', 'VTRC'])
-const TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
+const ASSETS = new Set(['TRX', 'USDT'])
+const TOKEN_ASSETS = new Set(['USDT'])
 const PURPOSES = new Set(['network-fee', 'asset-grant'])
 const BUDGET_STATUSES = new Set(['disabled', 'pending-review', 'active', 'paused', 'depleted'])
 
