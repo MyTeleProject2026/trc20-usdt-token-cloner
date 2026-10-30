@@ -20,7 +20,7 @@ User instructions: [Simple testnet send guide](SIMPLE_TESTNET_SEND_GUIDE.md). Th
 
 Shasta is a test network. Shasta TRX and tokens deployed on Shasta have no mainnet monetary value. Sending them to an address that also exists on mainnet does not move or credit mainnet funds. Mainnet and Shasta have independent ledgers and transaction histories.
 
-A mainnet USDT transfer must use the official TRON USDT contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`, be signed by the token holder through a wallet, and pay the actual network resource/fee cost. Native TRX uses a native TRX transaction, not a token contract. This app must not present its independent `VTRC` token as Tether USDT.
+The only supported payout principal is official Tether USDT on TRON Mainnet at `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` (six decimals). A genuine transfer requires an authorized and funded treasury, provider-side transaction approval, and sufficient TRX fee/resources. Native TRX is a separate fee/resource asset. Testnet tokens and independent TRC-20 contracts are not Tether and are not accepted by the payout-request API. The current application is review-only; the backend payout execution gate remains disabled.
 
 An exchange may require a deposit address, network selection, minimum deposit, confirmations, and sometimes a memo/tag or other account-specific requirements. The application cannot force an exchange to credit deposits. Verify the exchange's official deposit page before sending; sending testnet assets to a mainnet deposit address does not create a credit.
 
