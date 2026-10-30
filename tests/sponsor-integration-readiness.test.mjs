@@ -113,6 +113,8 @@ test('GasFree credentials only show configuration presence, not zero-cost eligib
 test('testnet token principal allowlists are ignored because only Mainnet Tether is supported', () => {
   const result = getSponsorIntegrationReadiness({
     env: {
+      SPONSOR_USDT_NILE_CONTRACTS: `${addressA},${addressB}`,
+      SPONSOR_VTRC_NILE_CONTRACTS: `${addressA},not-a-contract`,
     },
   })
   assert.equal(result.networks.nile.tokenContractAllowlist.officialMainnetUsdt, false)
@@ -120,9 +122,11 @@ test('testnet token principal allowlists are ignored because only Mainnet Tether
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
-test('token contract allowlists reject empty list entries and whitespace-only values', () => {
+test('testnet token contract variables cannot enable sponsor principal', () => {
   const result = getSponsorIntegrationReadiness({
     env: {
+      SPONSOR_USDT_NILE_CONTRACTS: `${addressA},`,
+      SPONSOR_VTRC_NILE_CONTRACTS: '   ',
     },
   })
   assert.equal(result.networks.nile.tokenContractAllowlist.officialMainnetUsdt, false)
