@@ -230,7 +230,7 @@ export default function SponsorPayoutAuthorization() {
               <option value="asset-principal">Asset-principal sponsor</option>
               <option value="network-fee">Network-fee sponsor</option>
             </select>
-            <p className="sponsor-console-field-note">Each organization must use its own verified wallet. A wallet with the wrong role, network, account status or budget agreement is rejected before the sponsor approval message is shown.</p>
+            <p className="sponsor-console-field-note">Each organization must use its own verified wallet. The signature proves control of the linked address, not that the signer is legally authorized to bind the entity; that authority must be independently checked during administrator review. A wallet with the wrong role, network, account status or budget agreement is rejected before the sponsor approval message is shown.</p>
             <button type="button" className="sponsor-console-button sponsor-console-button--primary" onClick={() => void approveIntentRole()} disabled={busy || !intentId.trim()}>
               <Wallet size={16} aria-hidden="true" /> {busy ? 'Waiting for wallet approval…' : 'Connect wallet and sign sponsor approval'}
             </button>
