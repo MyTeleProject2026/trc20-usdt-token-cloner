@@ -543,19 +543,29 @@ export function verifyTreasuryTrxTransferEvidence(tronWeb, {
     return transaction && transactionInfo ? { verified: false, status: 'verification-mismatch', reason: 'native-transfer-intent-mismatch' } : pending
   }
   if (!Number.isSafeInteger(transactionInfo?.blockNumber) || transactionInfo.blockNumber < 1) return pending
-  const executionResults = [
-    transaction?.ret?.[0]?.contractRet,
-    transactionInfo?.receipt?.result,
-  ].filter((value) => typeof value === 'string' && value.length > 0)
-  if (executionResults.some((value) => value !== 'SUCCESS')) {
+  const receiptResult = transactionInfo?.receipt?.result
+  if (typeof receiptResult !== 'string' || receiptResult.length === 0) {
+    // A block number and matching transaction body are not enough to prove
+    // execution succeeded. Keep the request pending until the solidified
+    // transaction-info endpoint returns an explicit receipt result.
+    return pending
+  }
+  if (receiptResult !== 'SUCCESS') {
     return { verified: true, status: 'failed', reason: 'confirmed-solidified-failed-transfer', blockNumber: transactionInfo.blockNumber }
   }
-  // A confirmed native TransferContract has no contract event. Verify its exact
-  // sender, recipient and amount in the solidified transaction instead.
+  const transactionResults = Array.isArray(transaction?.ret)
+    ? transaction.ret.map((item) => item?.contractRet).filter((value) => typeof value === 'string' && value.length > 0)
+    : []
+  if (transactionResults.some((value) => value !== 'SUCCESS')) {
+    return { verified: false, status: 'verification-mismatch', reason: 'execution-result-conflicts-with-confirmed-receipt' }
+  }
+  // Native TransferContract has no contract event. Confirmation therefore
+  // requires the exact solidified transfer intent plus an explicit SUCCESS
+  // execution receipt from the solidified transaction-info response.
   return {
     verified: true,
     status: 'confirmed',
-    reason: executionResults.length ? 'confirmed-solidified-successful-native-transfer' : 'confirmed-solidified-native-transfer-intent',
+    reason: 'confirmed-solidified-successful-native-transfer',
     blockNumber: transactionInfo.blockNumber,
   }
 }
