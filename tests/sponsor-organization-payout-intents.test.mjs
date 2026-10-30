@@ -288,18 +288,6 @@ function walletHeaders(token) {
   }
 }
 
-function walletSessionReader({ tokenHash, origin }) {
-  if (origin !== WALLET_ORIGIN) return { success: true, session: null }
-  const isPrincipal = tokenHash.length === 64
-  const token = tokenHash // fixture lookup receives only the one-way hash
-  const address = token === '0'.repeat(64) ? PRINCIPAL_ADDRESS
-    : token === '1'.repeat(64) ? FEE_ADDRESS : null
-  return address ? {
-    success: true,
-    session: { address, network: 'nile', origin, expiresAt: Date.now() + 600000 },
-  } : { success: true, session: null }
-}
-
 test('sponsor owner challenges require a matching wallet identity session and are role-scoped', async (t) => {
   const store = createStore()
   const principalTokenHash = await import('node:crypto').then(({ createHash }) =>
