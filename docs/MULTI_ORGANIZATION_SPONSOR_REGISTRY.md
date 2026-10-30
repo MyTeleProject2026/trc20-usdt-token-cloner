@@ -71,7 +71,7 @@ The response includes account inventory and review references and is protected b
 
 ## Database controls
 
-The registry creates six tables in the existing `trc20_token_clone` PostgreSQL schema:
+The registry creates eight tables in the existing `trc20_token_clone` PostgreSQL schema:
 
 - `sponsor_organizations`
 - `sponsor_organization_accounts`
@@ -79,12 +79,14 @@ The registry creates six tables in the existing `trc20_token_clone` PostgreSQL s
 - `sponsor_organization_budget_links`
 - `sponsor_organization_payout_intents`
 - `sponsor_organization_payout_reservations`
+- `sponsor_organization_payout_authorization_challenges`
+- `sponsor_organization_payout_authorizations`
 
 Registration, review, budget linking and link revocation are written to the audit table in the same database transaction. Foreign keys prevent orphaned account/audit records. A unique constraint prevents reusing one network/address across multiple organizations. Provider credentials and signing material are neither accepted nor stored.
 
 ## Deliberately not enabled
 
-This release includes registry/review, exact budget association, read-only dual-sponsor candidate selection, and a short-lived two-budget accounting reservation bound to one immutable request intent. It still does not automatically validate legal documents or cryptographic wallet/custody attestations; verify transaction-specific fee coverage; cryptographically authorize a specific transfer; or sign, submit, or broadcast transactions.
+This release includes registry/review, exact budget association, read-only dual-sponsor candidate selection, short-lived atomic two-budget accounting reservations, and separate one-time wallet-message approvals from both sponsor accounts bound to the immutable request intent. It still does not automatically validate legal documents or custody attestations; verify transaction-specific fee coverage; create or sign the blockchain transaction; or submit or broadcast transactions.
 
 All API responses explicitly keep `submissionEnabled: false` and `canSubmitSponsoredTransfer: false`. Organization/account records also report `payoutEligible: false`. Keep the separate real-value payout execution hard gate disabled.
 
@@ -208,13 +210,13 @@ Expired intents can be swept by the administrator-only endpoint:
 
 Optional body: `{"limit":100}`.
 
-`feeCapSun` is only the amount held against the network-fee sponsor's budget; it is not an exact transaction fee quote. The current delegation observation is not proof of sufficient Energy/Bandwidth for a specific built transaction. The reservation API does not accept sponsor signatures, does not set the intent to authorized, does not create a transaction, and cannot submit or broadcast. Every response keeps `canSubmitSponsoredTransfer`, `submissionEnabled`, and `transactionSubmitted` false; `userFundedFallbackAllowed` also remains false.
+`feeCapSun` is only the amount held against the network-fee sponsor's budget; it is not an exact transaction fee quote. The current delegation observation is not proof of sufficient Energy/Bandwidth for a specific built transaction. The reservation endpoint itself does not accept sponsor signatures. Each sponsor separately signs a one-time, role-specific message on `#/sponsor-authorization`; after both wallets are verified, the intent becomes `sponsor_authorization_complete`. That status proves both owner-message approvals only. It does not authorize a blockchain transaction, create/sign a transaction, or permit submission/broadcast. Every response keeps `canSubmitSponsoredTransfer`, `submissionEnabled`, and `transactionSubmitted` false; `userFundedFallbackAllowed` also remains false.
 
-The next milestone is independent cryptographic authorization from each sponsor for this exact immutable intent, with replay-resistant nonces, expiry, signer identity and mandate policy, followed by transaction construction and transaction-specific energy/bandwidth/fee estimation. Only after a separately reviewed sponsor-owned signing/provider integration and controlled testnet validation should any submission path be considered. A real sponsor must provide genuine written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service. Keep the existing Mainnet payout execution hard gate disabled.
+The next milestone is transaction-specific resource/fee estimation against the actual built transaction, with sponsor authorization expiry/mandate checks repeated immediately before any possible transaction-signing action. Any later transaction signer must be separately reviewed and controlled by the sponsor, then validated end-to-end on a controlled testnet. A real sponsor must provide genuine written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service. Keep the existing Mainnet payout execution hard gate disabled.
 
 ## Remaining real-payout dependencies
 
-The implementation still lacks independent sponsor cryptographic authorization for an exact intent, transaction-specific fee/resource verification, a sponsor-owned signing/provider adapter, controlled testnet broadcast and settlement, and a complete receiver-side real deposit verification workflow. Do not change the existing real-value payout hard gate. Mainnet release still requires a controlled end-to-end test, independent security review, operational runbook, and explicit release approval.
+The implementation still lacks transaction-specific fee/Energy/Bandwidth verification for a constructed transfer, an independently reviewed sponsor-controlled transaction signer/provider adapter, controlled testnet transfer broadcast and settlement, and a complete receiver-side real deposit verification workflow. Do not change the existing real-value payout hard gate. Mainnet release still requires a controlled end-to-end test, independent security review, operational runbook, and explicit release approval.
 
 ## Independent owner approval page
 
