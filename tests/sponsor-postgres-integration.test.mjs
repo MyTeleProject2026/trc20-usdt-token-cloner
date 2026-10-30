@@ -188,6 +188,88 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
 }
 
 
+test('PostgreSQL keeps legacy VTRC history readable but rejects new VTRC ledger and intake writes', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-usdt-only-${suffix}`
+  const transferKey = `pg-usdt-only:${suffix}`
+  const rejectedTransferKey = `pg-vtrc-transfer:${suffix}`
+  const intakeKey = `pg-intake-usdt-only:${suffix}`
+  const contractAddress = receiverAddress
+  const { createSponsorRequestStore } = await import('../server/routes/sponsor-request-intake.mjs')
+  const intakeStore = createSponsorRequestStore({ DATABASE_URL: databaseUrl })
+  try {
+    // A migration marked NOT VALID must remain unvalidated (so prior VTRC rows are
+    // still readable) while PostgreSQL enforces it for every new row.
+    const guardNames = [
+      'sponsor_budgets_supported_asset_only',
+      'sponsor_transfers_supported_asset_only',
+      'sponsor_chain_cost_observations_supported_asset_only',
+    ]
+    const guards = await pool.query(
+      'SELECT conname, convalidated FROM pg_constraint WHERE conname = ANY($1::text[])',
+      [guardNames],
+    )
+    assert.equal(guards.rows.length, guardNames.length)
+    assert.ok(guards.rows.every((row) => row.convalidated === false))
+
+    await assert.rejects(
+      pool.query(`INSERT INTO trc20_token_clone.sponsor_budgets
+        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+         budget_base_units, reserved_base_units, spent_base_units, status)
+       VALUES ($1,$2,$3,'asset-grant','VTRC',$4,100,0,0,'pending-review')`,
+        [sponsorReference, sponsorAddress, network, contractAddress]),
+      (error) => error?.code === '23514' && error?.constraint === 'sponsor_budgets_supported_asset_only',
+    )
+
+    await assert.rejects(
+      pool.query(`INSERT INTO trc20_token_clone.sponsor_transfers
+        (idempotency_key, sponsor_reference, network, purpose, asset, token_contract, receiver_address, amount_base_units)
+       VALUES ($1,$2,$3,'asset-grant','VTRC',$4,$5,1)`,
+        [rejectedTransferKey, sponsorReference, network, contractAddress, receiverAddress]),
+      (error) => error?.code === '23514' && error?.constraint === 'sponsor_transfers_supported_asset_only',
+    )
+
+    // Create one supported parent transfer so the immutable cost-observation foreign
+    // key is valid; the VTRC observation must still be rejected by its own guard.
+    await pool.query(`INSERT INTO trc20_token_clone.sponsor_transfers
+      (idempotency_key, sponsor_reference, network, purpose, asset, token_contract, receiver_address, amount_base_units)
+      VALUES ($1,$2,$3,'asset-grant','TRX',NULL,$4,1)`,
+      [transferKey, sponsorReference, network, receiverAddress])
+    await assert.rejects(
+      pool.query(`INSERT INTO trc20_token_clone.sponsor_chain_cost_observations
+        (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
+         asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
+         block_number, execution_result, reported_fee_sun)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,'SUCCESS',0)`,
+        [network, 'a'.repeat(64), transferKey, sponsorReference, sponsorAddress, receiverAddress, receiverAddress, contractAddress]),
+      (error) => error?.code === '23514' && error?.constraint === 'sponsor_chain_cost_observations_supported_asset_only',
+    )
+
+    const intakeCreated = await intakeStore.createRequest({
+      idempotencyKey: intakeKey, requesterAddress, network, recipientAddress: receiverAddress,
+      asset: 'USDT', tokenContract: contractAddress, amountBaseUnits: '1', decimals: 6,
+    })
+    assert.equal(intakeCreated.success, true)
+    const intakeGuard = await pool.query(
+      `SELECT convalidated FROM pg_constraint
+        WHERE conname = 'sponsor_payout_intake_supported_asset_only'
+          AND conrelid = 'trc20_token_clone.sponsor_payout_intake_requests'::regclass`,
+    )
+    assert.equal(intakeGuard.rows.length, 1)
+    assert.equal(intakeGuard.rows[0].convalidated, false)
+  } finally {
+    await pool.query('DELETE FROM trc20_token_clone.sponsor_payout_intake_requests WHERE idempotency_key = $1', [intakeKey]).catch(() => {})
+    await intakeStore.close()
+    await pool.query('DELETE FROM trc20_token_clone.sponsor_chain_cost_observations WHERE idempotency_key = $1', [transferKey]).catch(() => {})
+    await pool.query('DELETE FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = ANY($1::text[])', [[transferKey, rejectedTransferKey]])
+    await pool.query('DELETE FROM trc20_token_clone.sponsor_budgets WHERE sponsor_reference = $1', [sponsorReference]).catch(() => {})
+    await pool.end()
+  }
+})
+
 test('PostgreSQL refuses new reservations from a legacy active budget without scope approval', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async () => {
