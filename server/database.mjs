@@ -2039,7 +2039,7 @@ function approvedSponsorAgreementScopes() {
         || !['mainnet', 'shasta', 'nile'].includes(network)
         || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)
         || !['network-fee', 'asset-grant'].includes(purpose)
-        || !['TRX', 'USDT', 'VTRC'].includes(asset)
+        || !['TRX', 'USDT'].includes(asset)
         || (purpose === 'network-fee' && asset !== 'TRX')
         || (asset === 'TRX'
           ? tokenContract !== '-'
