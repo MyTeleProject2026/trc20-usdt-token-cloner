@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, Info, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
-import { buildSignAndBroadcastTransfer, estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
+import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
@@ -1185,126 +1185,9 @@ export default function WalletVault() {
   }
 
   async function broadcastTransfer() {
-    const review = transferReview
-    if (!unlocked || !review) throw new Error('Prepare a fresh transfer review before broadcasting.')
-    if (!transferAcknowledged) throw new Error('Confirm that you checked the network, recipient, amount and irreversibility before signing.')
-    if (review.network !== network || review.from !== unlocked.record.address) throw new Error('Network or wallet changed after review. Prepare the transfer again.')
-    // Recheck authorization at broadcast time, not only when the review was made.
-    assertOwnerMainnetTransferAccess({ network, from: review.from, snapshot: ownerTreasurySnapshot })
-    if (network === 'mainnet' && mainnetSendPhrase.trim() !== 'SEND MAINNET') {
-      throw new Error('For Mainnet, type SEND MAINNET exactly after reviewing the recipient and amount.')
-    }
-
-    setTransferInProgress(true)
-    try {
-      const web = createTronWeb(network, unlocked.privateKey)
-      const from = String(web.defaultAddress?.base58 || '')
-      if (from !== review.from || from !== unlocked.record.address) throw new Error('The signing account changed. Broadcasting was stopped.')
-      const liveNativeBalance = BigInt(String(await web.trx.getBalance(from)))
-      if (review.asset === 'TRX') {
-        if (liveNativeBalance < BigInt(review.amountBaseUnits) + 1_000_000n) {
-          throw new Error('The live TRX balance changed and no longer covers the transfer plus a 1 TRX fee reserve. Review again.')
-        }
-      } else {
-        if (!review.tokenContract) throw new Error('Transfer contract is missing.')
-        const freshEvidence = await inspectTokenContract(review.tokenContract)
-        setTokenEvidence(current => ({ ...current, [review.tokenContract as string]: freshEvidence }))
-        assertTokenTransferEvidence(freshEvidence)
-        const token = await web.contract(TOKEN_ABI, review.tokenContract)
-        const liveTokenBalance = BigInt(String(await token.balanceOf(from).call()))
-        if (liveTokenBalance < BigInt(review.amountBaseUnits)) throw new Error('The live token balance is now lower than the reviewed amount.')
-        const estimate = await estimateTRC20TransferFee({
-          tronWeb: web, from, to: review.to, tokenContract: review.tokenContract, amountBaseUnits: review.amountBaseUnits,
-        })
-        if (estimate.recommendedFeeSun > review.feeLimitSun) {
-          throw new Error('The fresh fee estimate is higher than the reviewed cap. Review the transaction again; nothing was sent.')
-        }
-        if (liveNativeBalance < BigInt(review.feeLimitSun)) {
-          throw new Error('The live TRX balance no longer covers the reviewed transaction fee cap. Nothing was sent.')
-        }
-      }
-
-      const result = await buildSignAndBroadcastTransfer({
-        tronWeb: web,
-        from,
-        to: review.to,
-        asset: review.asset,
-        amountBaseUnits: review.amountBaseUnits,
-        tokenContract: review.tokenContract || undefined,
-        feeLimitSun: review.feeLimitSun,
-      })
-      const record: TransferActivity = {
-        txid: result.txid,
-        network: review.network,
-        asset: review.asset,
-        symbol: review.symbol,
-        tokenContract: review.tokenContract,
-        amount: review.amount,
-        amountBaseUnits: review.amountBaseUnits,
-        decimals: review.decimals,
-        from: review.from,
-        to: review.to,
-        status: 'broadcast-accepted',
-        submittedAt: Date.now(),
-        blockNumber: null,
-        solidified: false,
-      }
-      const next = [record, ...transferHistory.filter(item => item.txid !== record.txid)].slice(0, 100)
-      const historyInitiallySaved = saveTransferHistory(next)
-      setTransferHistory(next)
-      setTransferReview(null)
-      setTransferAcknowledged(false)
-      setMainnetSendPhrase('')
-      setRecipientInput('')
-      setAmountInput('')
-      setRefreshNonce(value => value + 1)
-
-      let status = 'broadcast-accepted' as TransferStatus
-      let blockNumber: number | null = null
-      let solidified = false
-      let verifiedOnChain = false
-      let verificationReason = 'transaction-not-indexed-yet'
-      try {
-        const chainRecord = await verifyTransferRecordOnChain(web, {
-          txid: record.txid,
-          from: record.from,
-          to: record.to,
-          asset: record.asset,
-          amountBaseUnits: record.amountBaseUnits,
-          tokenContract: record.tokenContract || undefined,
-        })
-        verifiedOnChain = chainRecord.identityMatches
-        verificationReason = chainRecord.reason || 'transaction-not-indexed-yet'
-        if (chainRecord.identityMatches) {
-          status = chainRecord.status as TransferStatus
-          blockNumber = chainRecord.blockNumber ?? null
-          solidified = chainRecord.solidified
-        } else if (chainRecord.reason !== 'transaction-not-found') {
-          status = 'identity-mismatch'
-        } else {
-          status = 'pending-or-not-indexed'
-        }
-      } catch {
-        // Broadcast acceptance stays recorded, but is not promoted to verified.
-      }
-      const refreshed = { ...record, status, verifiedOnChain, verificationReason, blockNumber, solidified }
-      const finalHistory = [refreshed, ...next.filter(item => item.txid !== refreshed.txid)].slice(0, 100)
-      const historyFinallySaved = saveTransferHistory(finalHistory)
-      setTransferHistory(finalHistory)
-      const detail = verifiedOnChain
-        ? 'The selected node returned a transaction whose sender, recipient, amount and asset match the review. Chain status: ' + status + '.'
-        : status === 'identity-mismatch'
-          ? 'The on-chain transaction does not match the reviewed sender, recipient, amount or token contract. Check the explorer before taking any further action.'
-          : 'The node accepted the broadcast, but the transaction details have not yet been independently verified from the chain.'
-      setNotice('Signed transaction broadcast was accepted by the selected TRON network. ' + detail
-        + ' Transaction ID: ' + record.txid
-        + (historyInitiallySaved && historyFinallySaved ? ' History saved on this device.' : ' Browser storage could not save history; copy the transaction ID now.')
-        + (result.broadcastTxidMismatch ? ' The node echoed a different transaction ID; this screen retains the ID derived from the signed transaction. Verify it before retrying.' : '')
-        + ' A transaction ID is not an exchange deposit credit.')
-      setError('')
-    } finally {
-      setTransferInProgress(false)
-    }
+    // Fail closed in this supervised development build. The isolated testnet
+    // sandbox creates local previews only and has no signing/broadcast path.
+    throw new Error('Transaction signing and broadcast are disabled in this build. Use the local-only Testnet Sandbox preview; no funds have been sent.')
   }
 
   async function refreshTransferStatus(record: TransferActivity) {
@@ -1547,7 +1430,7 @@ export default function WalletVault() {
           : activePanel === 'wallet'
             ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
             : activePanel === 'send'
-              ? 'Prepare and review real transfers. The sender must hold the asset, or a funded treasury must authorize a payout.'
+              ? 'Inspect transfer details and read-only chain information. Signing and broadcast are disabled in this build.'
               : activePanel === 'treasury'
                 ? 'Inspect the public treasury address and request organization-funded payouts only from real, funded on-chain assets.'
                 : activePanel === 'account'
@@ -1556,6 +1439,7 @@ export default function WalletVault() {
                     ? 'Review local transaction records against actual chain status.'
                     : 'View public treasury settings and organization payout provider readiness.'}
         </p>
+        <a className="wallet-vault-secondary" href="#/testnet-sandbox">Open read-only Testnet Sandbox</a>
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
@@ -1927,11 +1811,11 @@ export default function WalletVault() {
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
-                  <div><h2 id="wallet-vault-transfer-heading">{network === 'mainnet' ? 'Send from this wallet' : 'Send a testnet transfer'}</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review, sign locally and broadcast a real testnet transaction. Testnet tokens have no Mainnet value.'}</p></div>
+                  <div><h2 id="wallet-vault-transfer-heading">{network === 'mainnet' ? 'Send from this wallet' : 'Send a testnet transfer'}</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review transfer details only. Signing and broadcast are disabled in this build.'}</p></div>
                 </div>
                 <div className="wallet-vault-transfer-warning" role="note">
-                  <strong>Irreversible network transaction</strong>
-                  <p>This sends actual assets from the unlocked wallet. Check the complete recipient address and selected network. A successful chain transfer does not by itself create an exchange deposit credit; the receiving exchange must independently detect and credit a valid deposit. Do not send to an exchange without checking its deposit network and requirements.</p>
+                  <strong>Read-only transfer review</strong>
+                  <p>This panel may validate details and perform read-only checks, but this build cannot sign or broadcast a transaction. No payment is sent from this screen. A transfer preview is not proof of funds or an exchange deposit credit.</p>
                   {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this password-encrypted browser wallet has not undergone an independent wallet-security audit and is not hardware-backed. Do not keep substantial value in an unaudited browser wallet.</p>}
                   {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
                 </div>
@@ -1965,7 +1849,7 @@ export default function WalletVault() {
 
                 {transferReview && (
                   <div className="wallet-vault-transfer-review">
-                    <div className="wallet-vault-review-header"><ShieldCheck size={19} /><div><strong>Review before signing</strong><small>No transaction has been sent yet.</small></div></div>
+                    <div className="wallet-vault-review-header"><ShieldCheck size={19} /><div><strong>Review preview — signing disabled</strong><small>No transaction has been created or sent.</small></div></div>
                     <div className="wallet-vault-review-grid">
                       <div><small>Network</small><strong>{transferReview.network === 'mainnet' ? 'TRON Mainnet' : transferReview.network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</strong></div>
                       <div><small>Asset and amount</small><strong>{transferReview.amount} {transferReview.symbol}</strong></div>
@@ -1988,8 +1872,8 @@ export default function WalletVault() {
                       </div>
                     )}
                     <div className="wallet-vault-review-actions">
-                      <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || !transferAcknowledged || (network === 'mainnet' && mainnetSendPhrase.trim() !== 'SEND MAINNET')} onClick={() => void performWalletAction(broadcastTransfer)}>
-                        <ShieldCheck size={16} /> {transferInProgress || busy ? 'Signing/broadcasting…' : 'Sign and broadcast real transfer'}
+                      <button type="button" className="wallet-vault-primary" disabled={true} title="Signing and broadcast are disabled in this build">
+                        <ShieldCheck size={16} /> Signing and broadcast disabled
                       </button>
                       <button type="button" className="wallet-vault-secondary" disabled={busy || transferInProgress} onClick={() => { setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase(''); setNotice('Transfer review cancelled. Nothing was signed or sent.') }}>Cancel review</button>
                     </div>
