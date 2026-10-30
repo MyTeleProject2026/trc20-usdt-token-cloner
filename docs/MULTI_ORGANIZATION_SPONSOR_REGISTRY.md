@@ -222,7 +222,7 @@ The implementation still lacks transaction-specific fee/Energy/Bandwidth verific
 
 The standalone frontend route `#/sponsor-authorization` is intentionally outside the platform administrator's owner-password gate so each external sponsor organization can open it directly. It does not receive or require `SPONSOR_ADMIN_API_TOKEN`. Each sponsor owner must connect the wallet that matches the exact verified account/role stored in the approved budget link.
 
-The page performs two separate wallet message-signature steps:
+The page performs two separate wallet message-signature steps. The server-generated sponsor message identifies the sponsor legal name as well as its organization/account IDs, wallet, role and full transfer allocation. A valid signature demonstrates control of the linked address only; it does not independently prove that the signer is a director, employee or legally authorized agent of the sponsor organization. That authority remains a mandatory administrator evidence-review responsibility.
 1. A normal `/api/auth/tron` wallet-identity challenge creates a short-lived network/origin-scoped wallet session. This proves wallet control only.
 2. The session is used to request a short-lived role-specific payout-intent challenge. The wallet signs the server-generated message that includes the immutable intent digest, both sponsor budget-link IDs, network, receiver, asset/contract, principal amount and fee cap. The backend consumes the nonce once, recovers the signer address with TronWeb, and requires an exact match to the verified sponsor account.
 
