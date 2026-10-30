@@ -2703,7 +2703,7 @@ export default function WorkflowApp() {
 
               <div className="studio-notice studio-notice--warning">
                 <LockKeyhole size={18} aria-hidden="true" />
-                <div><strong>Testnet request intake only — no payout execution</strong><p>Sponsored transfer submission is blocked by the backend. {sponsorship?.message || 'The sponsor workflow remains blocked from signing and broadcasting. This request queue stores validated Nile/Shasta requests for an authorized sponsor organization to review; it does not reserve funds or authorize a transfer.'}</p></div>
+                <div><strong>Testnet request intake only — no payout execution</strong><p>Sponsored transfer submission is blocked by the backend. {sponsorship?.message || 'This sponsor workflow remains blocked from signing and broadcasting. The request queue stores validated Nile/Shasta requests for an authorized sponsor organization to review; it does not reserve funds or authorize a transfer.'}</p></div>
               </div>
               <div className="studio-inline-actions studio-review-actions">
                 <button type="button" className="studio-button studio-button--secondary" onClick={() => void refreshReview()} disabled={reviewRefreshing || sponsorLoading}><RefreshCw size={15} className={reviewRefreshing || sponsorLoading ? 'studio-spin' : ''} aria-hidden="true" /> {reviewRefreshing || sponsorLoading ? 'Refreshing sponsor gate…' : 'Recheck sponsor readiness'}</button>
