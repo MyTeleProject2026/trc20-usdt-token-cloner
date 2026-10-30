@@ -96,6 +96,7 @@ test('preflight warns when any transfer gate is enabled and never reports produc
     TREASURY_WITHDRAWALS_ENABLED: 'true',
   }), {
     fileExists: () => true,
+    readSecretFile: readValidFireblocksKey,
   })
   assert.equal(report.checks.TREASURY_WITHDRAWALS_ENABLED.status, 'enabled-needs-independent-release-approval')
   assert.ok(report.warnings.includes('TREASURY_WITHDRAWALS_ENABLED'))
@@ -110,6 +111,7 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
     TREASURY_DAILY_LIMIT_TRX: '2.5',
   }), {
     fileExists: () => true,
+    readSecretFile: readValidFireblocksKey,
   })
   assert.equal(valid.status, 'syntactic-preflight-passed')
   for (const key of [
@@ -125,6 +127,7 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
     TREASURY_MAX_PAYOUT_USDT: '1.0000001',
   }), {
     fileExists: () => true,
+    readSecretFile: readValidFireblocksKey,
   })
   assert.equal(invalid.checks.TREASURY_MAX_PAYOUT_USDT.status, 'invalid')
   assert.ok(invalid.errors.includes('TREASURY_MAX_PAYOUT_USDT'))
