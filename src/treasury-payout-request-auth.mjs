@@ -46,7 +46,7 @@ export function buildTreasuryPayoutRequestMessage({
     'Recipient: ' + recipientAddress,
     'Amount base units: ' + amountBaseUnits,
     'Idempotency key: ' + idempotencyKey,
-    'Request expires at Unix milliseconds: ' + requestExpiresAt,
+    'Request signature expires at Unix milliseconds: ' + requestExpiresAt,
   ].join('\n')
 }
 
