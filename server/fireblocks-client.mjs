@@ -393,6 +393,19 @@ export function createFireblocksClient(env = process.env, {
       if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
       return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))
     },
+    async getPublicKeyInfoForAddress({ assetId = config.usdtAssetId, change = 0, addressIndex = 0, compressed = true } = {}) {
+      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))
+        || !Number.isSafeInteger(change) || change < 0 || change > 0x7fffffff
+        || !Number.isSafeInteger(addressIndex) || addressIndex < 0 || addressIndex > 0x7fffffff
+        || typeof compressed !== 'boolean') {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-public-key-request')
+      }
+      const query = new URLSearchParams({ compressed: String(compressed) })
+      const uri = '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId)
+        + '/' + encodeURIComponent(assetId) + '/' + String(change) + '/' + String(addressIndex)
+        + '/public_key_info?' + query.toString()
+      return request('GET', uri)
+    },
     async getAssetMetadata(assetId = config.usdtAssetId) {
       // /v1/assets/{id} is provider metadata; vault/account asset responses are
       // separate available-balance records. Never confuse the two.
