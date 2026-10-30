@@ -1,10 +1,10 @@
-# Testnet sponsor request intake and organization handoff
+# Testnet request intake and USDT-only production asset policy
 
 ## Purpose and scope
 
 The workflow frontend can now persist a sponsor-review request instead of only copying an unsaved summary. This is an **intake and review handoff**, not a payout processor.
 
-The route is testnet-only (`nile` and `shasta`). It accepts an authenticated wallet session, validates the requester and recipient addresses, checks the exact TRC-20 contract against the server-side testnet sponsor allowlist, validates integer base units/decimals, and stores an idempotent request in PostgreSQL.
+The route is testnet-only (`nile` and `shasta`) and currently accepts native TRX requests for test-only review. It does not accept any testnet TRC-20 contract as Tether USDT. Even if a testnet contract is named `USDT`, symbol/metadata or a server allowlist cannot make it official Tether.
 
 It does not:
 - create or activate a sponsor budget;
@@ -27,21 +27,20 @@ Headers:
 - `Content-Type: application/json`
 - Browser-origin header must match the origin used when the wallet session was issued.
 
-Example JSON for an allowlisted testnet TRC-20 token:
+Example JSON for a native testnet TRX request:
 
 ```json
 {
   "idempotencyKey": "request-key-generated-with-crypto-randomuuid",
   "network": "nile",
   "recipientAddress": "T...",
-  "asset": "TRC20",
-  "tokenContract": "T...",
+  "asset": "TRX",
   "amountBaseUnits": "2500000",
   "decimals": 6
 }
 ```
 
-For native testnet TRX, use `"asset":"TRX"`, omit `tokenContract`, and use six decimals. Amounts are positive integer base units; decimal or exponent-form amounts are not accepted by the API.
+Native testnet TRX requests use `"asset":"TRX"`, omit `tokenContract`, and use six decimals. Amounts are positive integer base units; decimal or exponent-form amounts are not accepted by the API. Any TRC-20 token request on Nile or Shasta returns `422 official-usdt-mainnet-only`, including contracts present in legacy USDT/VTRC allowlist variables.
 
 The requester address is taken from the authenticated wallet session, not from the request body. The requested network must exactly match the wallet session network. Mainnet is rejected.
 
@@ -72,7 +71,7 @@ Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>
 
 Use `network=shasta` for Shasta or omit the network to inspect both testnets. The token must remain server-side. Do not place `SPONSOR_ADMIN_API_TOKEN` in frontend variables, browser code, a URL, an issue, a log, or chat.
 
-The queue contains only requests whose status is `pending-organization-review`. It is not an approval API. The organization's responsible sponsor administrator must independently check the recipient, intended token contract, network, amount, applicable agreement, budget, and signatory authority.
+The queue contains only requests whose status is `pending-organization-review`. It is not an approval API. The organization's responsible sponsor administrator must independently check the recipient, network, amount, applicable agreement, budget, and signatory authority. Legacy VTRC/test-token records may remain visible for audit history, but no new TRC-20 token request is accepted.
 
 ## Handoff to the existing sponsor ledger
 
@@ -88,6 +87,6 @@ The existing sponsor operator console is at `#/sponsor-operator`. It uses the co
 
 ## Production boundary
 
-This intake queue does not provide a Mainnet path. Real Mainnet USDT payout requires the actual treasury-owning organization to approve the arrangement, control the funded vault, authorize the exact use of its assets, and complete independent security and release reviews. Fireblocks credentials remain backend-only. The existing immutable Mainnet payout kill switch must remain in place.
+This intake queue does not provide a Mainnet path. Genuine TRON USDT is only the official Mainnet contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` with six decimals, as listed by Tether. Nile/Shasta contracts are not represented as Tether USDT. Real Mainnet USDT payout requires the actual treasury-owning organization to approve the arrangement, control the funded vault, authorize the exact use of its assets, and complete independent security and release reviews. Fireblocks credentials remain backend-only. The existing immutable Mainnet payout kill switch must remain in place.
 
 A solidified TRON transfer is still not proof that an exchange has credited a customer's deposit. Exchange credit must be confirmed by the receiving exchange's own authorized deposit records.
