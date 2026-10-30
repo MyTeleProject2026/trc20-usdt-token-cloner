@@ -54,7 +54,6 @@ function summarizeNetworkReadiness(value) {
     assetPrincipalSponsorAddressConfigured: safeBoolean(value?.addressMonitoring?.assetPrincipalSponsorAddressConfigured),
     roleAddressesDistinct: safeBoolean(value?.addressMonitoring?.roleAddressesDistinct),
     usdtContractAllowlisted: safeBoolean(value?.tokenContractAllowlist?.usdt),
-    vtrcContractAllowlisted: safeBoolean(value?.tokenContractAllowlist?.vtrc),
     gasFreeCredentialsConfigured: safeBoolean(value?.gasFree?.credentialsConfigured),
     gasFreeDiscoveryReachabilityVerified: safeBoolean(value?.gasFree?.discoveryReachabilityVerified),
     gasFreeSubmissionAdapterIntegrated: safeBoolean(value?.gasFree?.submitSignBroadcastAdapterIntegrated),
