@@ -19,18 +19,11 @@ function integerString(value, optional = false) {
   return null
 }
 
-function allowlistedAsset(env, network, contract) {
-  if (network === 'mainnet' && contract === OFFICIAL_MAINNET_USDT) return 'USDT'
-  for (const asset of ['USDT', 'VTRC']) {
-    const configured = String(env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
-      .split(',').map((item) => item.trim()).filter(Boolean)
-    if (configured.includes(contract)) return asset
-  }
-  return null
+function allowlistedAsset(_env, network, contract) {
+  return network === 'mainnet' && contract === OFFICIAL_MAINNET_USDT ? 'USDT' : null
 }
 
-function displayAssetLabel(network, asset) {
-  if (network !== 'mainnet' && asset === 'USDT') return 'USDT (testnet contract)'
+function displayAssetLabel(_network, asset) {
   return asset
 }
 
