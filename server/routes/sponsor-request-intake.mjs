@@ -122,8 +122,9 @@ export function createSponsorRequestStore(env = process.env) {
             CHECK ((asset = 'TRX' AND token_contract IS NULL AND decimals = 6)
               OR (asset = 'USDT' AND token_contract IS NOT NULL))
           )
-        // Legacy intake rows may be inspected, but every new write must use the supported
-        // TRX/USDT asset set. NOT VALID preserves old rows without allowing new VTRC rows.
+        `)
+        // A NOT VALID guard preserves legacy rows for audit while rejecting unsupported
+        // assets in all new inserts and updates to this intake table.
         await db.query(`DO $sponsor_intake_supported_asset$ BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
@@ -134,130 +135,7 @@ export function createSponsorRequestStore(env = process.env) {
             ADD CONSTRAINT sponsor_payout_intake_supported_asset_only
             CHECK (asset IN ('TRX','USDT')) NOT VALID;
           END IF;
-        END; $sponsor_intake_supported_assetimport { createHash, timingSafeEqual } from 'node:crypto'
-import { Router } from 'express'
-import pg from 'pg'
-import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
-import { isValidTronAddress } from '../tron-address.mjs'
-
-const { Pool } = pg
-const NETWORKS = new Set(['nile', 'shasta'])
-const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
-const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,160}$/
-const AMOUNT_PATTERN = /^[1-9][0-9]{0,77}$/
-const TOKEN_ASSETS = ['USDT']
-
-function noStore(res) {
-  res.setHeader('Cache-Control', 'no-store')
-  res.setHeader('Pragma', 'no-cache')
-  res.setHeader('Vary', 'Authorization')
-}
-
-function readBearerToken(req) {
-  const value = req.get('authorization') || ''
-  const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(value)
-  return match ? match[1] : ''
-}
-
-function isValidAdminToken(req, env) {
-  const expectedValue = env.SPONSOR_ADMIN_API_TOKEN
-  const header = req.get('authorization') || ''
-  if (typeof expectedValue !== 'string' || expectedValue.length < 32
-    || typeof header !== 'string' || !header.startsWith('Bearer ')) return false
-  const supplied = Buffer.from(header.slice(7))
-  const expected = Buffer.from(expectedValue)
-  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
-}
-
-function configuredTokenAssets(env, network) {
-  const suffix = network.toUpperCase()
-  return Object.fromEntries(TOKEN_ASSETS.map((asset) => {
-    const variable = `SPONSOR_${asset}_${suffix}_CONTRACTS`
-    const contracts = typeof env[variable] === 'string'
-      ? [...new Set(env[variable].split(',').map((value) => value.trim()).filter(isValidTronAddress))]
-      : []
-    return [asset, contracts]
-  }))
-}
-
-function resolveTokenAsset(env, network, contract) {
-  const configured = configuredTokenAssets(env, network)
-  const matches = TOKEN_ASSETS.filter((asset) => configured[asset].includes(contract))
-  return matches.length === 1 ? matches[0] : null
-}
-
-function sameIntent(row, input) {
-  return row
-    && row.requester_address === input.requesterAddress
-    && row.network === input.network
-    && row.recipient_address === input.recipientAddress
-    && row.asset === input.asset
-    && (row.token_contract || null) === (input.tokenContract || null)
-    && String(row.amount_base_units) === input.amountBaseUnits
-    && Number(row.decimals) === input.decimals
-}
-
-function toPublicRequest(row) {
-  return {
-    id: String(row.id),
-    idempotencyKey: row.idempotency_key,
-    requesterAddress: row.requester_address,
-    network: row.network,
-    recipientAddress: row.recipient_address,
-    asset: row.asset,
-    tokenContract: row.token_contract || null,
-    amountBaseUnits: String(row.amount_base_units),
-    decimals: Number(row.decimals),
-    status: row.status,
-    createdAt: new Date(row.created_at).toISOString(),
-  }
-}
-
-/**
- * A persisted, non-executable handoff queue. It cannot reserve sponsor budget,
- * create an unsigned transaction, invoke Fireblocks, sign, or broadcast.
- */
-export function createSponsorRequestStore(env = process.env) {
-  let pool
-  let schemaPromise
-
-  function getPool() {
-    if (pool) return pool
-    if (typeof env.DATABASE_URL !== 'string' || !env.DATABASE_URL.trim()) return null
-    const connectionString = normalizeDatabaseConnectionString(env.DATABASE_URL)
-    pool = new Pool({
-      connectionString,
-      connectionTimeoutMillis: 5000,
-      idleTimeoutMillis: 30000,
-      max: 3,
-      ssl: databaseSslConfig(connectionString, env),
-    })
-    pool.on('error', (error) => console.error('Sponsor request database error:', error?.code || 'unknown'))
-    return pool
-  }
-
-  async function ensureSchema(db) {
-    if (!schemaPromise) {
-      schemaPromise = (async () => {
-        await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
-        await db.query(`
-          CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_payout_intake_requests (
-            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            idempotency_key TEXT NOT NULL UNIQUE,
-            requester_address TEXT NOT NULL,
-            network TEXT NOT NULL CHECK (network IN ('nile', 'shasta')),
-            recipient_address TEXT NOT NULL,
-            asset TEXT NOT NULL CHECK (asset IN ('TRX', 'USDT')),
-            token_contract TEXT,
-            amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
-            decimals SMALLINT NOT NULL CHECK (decimals BETWEEN 0 AND 30),
-            status TEXT NOT NULL DEFAULT 'pending-organization-review'
-              CHECK (status IN ('pending-organization-review')),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            CHECK ((asset = 'TRX' AND token_contract IS NULL AND decimals = 6)
-              OR (asset = 'USDT' AND token_contract IS NOT NULL))
-)
+        END; $sponsor_intake_supported_asset$`)
         await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_payout_intake_owner_idx
           ON trc20_token_clone.sponsor_payout_intake_requests (requester_address, network, created_at DESC)
