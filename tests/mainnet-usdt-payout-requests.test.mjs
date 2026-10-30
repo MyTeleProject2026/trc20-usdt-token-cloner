@@ -302,7 +302,7 @@ test('requester can retrieve only their own payout request', async (t) => {
   })
   const otherBase = await serve(t, otherRequester.router)
   const notOwner = await fetch(otherBase + '/payout-requests/' + idempotencyKey, { headers: userHeaders() })
-  assert.equal(notOwner.status, 404)
+  assert.equal(notOwner.status, 403)
 })
 
 test('organization review queue uses a separate server-only token and cannot approve or broadcast', async (t) => {
