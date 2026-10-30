@@ -1480,6 +1480,14 @@ test('PostgreSQL atomically reserves and releases independent principal and fee 
     else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previousScopes
     if (intentIds.length) {
       await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_payout_authorizations WHERE intent_id = ANY($1::bigint[])',
+        [intentIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges WHERE intent_id = ANY($1::bigint[])',
+        [intentIds],
+      ).catch(() => {})
+      await pool.query(
         'DELETE FROM trc20_token_clone.sponsor_organization_payout_reservations WHERE intent_id = ANY($1::bigint[])',
         [intentIds],
       ).catch(() => {})
