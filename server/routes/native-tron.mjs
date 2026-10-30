@@ -1248,7 +1248,7 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
   if (typeof body.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(body.idempotencyKey)
     || typeof body.sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sponsorReference)
     || !['network-fee', 'asset-grant'].includes(body.purpose)
-    || !['TRX', 'USDT', 'VTRC'].includes(body.asset)
+    || body.asset !== 'TRX'
     || (body.purpose === 'network-fee' && body.asset !== 'TRX')
     || (body.asset === 'TRX' && body.tokenContract != null && body.tokenContract !== '')
     || (body.asset !== 'TRX' && !isValidTronAddress(body.tokenContract))
@@ -1258,7 +1258,7 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
       success: false,
       error: 'invalid-transfer-intent',
       canSubmitSponsoredTransfer: false,
-      message: 'The reservation request is malformed. Amounts must be positive integer base units; use an allowlisted contract for token assets.',
+      message: 'Only native TRX fee reservations are supported on this testnet route. Official Tether USDT asset grants require TRON Mainnet and the pinned Tether contract.',
     })
   }
 
