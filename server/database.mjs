@@ -1058,6 +1058,7 @@ export async function reserveSponsorTransfer(input, {
     || !['network-fee', 'asset-grant'].includes(purpose)
     || !['TRX', 'USDT'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
+    || (purpose === 'asset-grant' && (asset !== 'USDT' || network !== 'mainnet'))
     || (asset === 'TRX' && tokenContract)
     || (SPONSORED_TOKEN_ASSETS.has(asset) && !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))
     || typeof receiverAddress !== 'string' || !receiverAddress.trim() || receiverAddress.length > 128
@@ -1965,6 +1966,7 @@ export async function createSponsorBudgetDraft(input) {
     || !['network-fee', 'asset-grant'].includes(purpose)
     || !['TRX', 'USDT'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
+    || (purpose === 'asset-grant' && (asset !== 'USDT' || network !== 'mainnet'))
     || (asset === 'TRX' && tokenContract !== null)
     || (asset !== 'TRX' && (typeof tokenContract !== 'string'
       || !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract)))
@@ -2041,6 +2043,7 @@ function approvedSponsorAgreementScopes() {
         || !['network-fee', 'asset-grant'].includes(purpose)
         || !['TRX', 'USDT'].includes(asset)
         || (purpose === 'network-fee' && asset !== 'TRX')
+        || (purpose === 'asset-grant' && (asset !== 'USDT' || network !== 'mainnet'))
         || (asset === 'TRX'
           ? tokenContract !== '-'
           : typeof tokenContract !== 'string'
@@ -2846,9 +2849,8 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || !isValidTronAddress(input.assetPrincipalAddress)
     || !isValidTronAddress(input.receiverAddress)
     || feeSponsorAddress === input.assetPrincipalAddress
-    || !['TRX', 'USDT', 'VTRC'].includes(asset)
-    || (asset === 'TRX' && input.tokenContract != null)
-    || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
+    || asset !== 'TRX'
+    || input.tokenContract != null
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
     || input.executionResult !== 'SUCCESS'
     || integerValues.amountBaseUnits === '0') {
