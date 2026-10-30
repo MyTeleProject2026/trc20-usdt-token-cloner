@@ -341,7 +341,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         `)
         // Keep the status-constraint migration in one DDL statement so concurrent
         // application instances cannot interleave DROP/ADD during startup.
-        await db.query(\\`
+        await db.query(`
           DO $$
           BEGIN
             ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
