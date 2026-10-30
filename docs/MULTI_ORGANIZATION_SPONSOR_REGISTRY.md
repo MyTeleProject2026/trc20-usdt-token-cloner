@@ -71,24 +71,26 @@ The response includes account inventory and review references and is protected b
 
 ## Database controls
 
-The registry creates four tables in the existing `trc20_token_clone` PostgreSQL schema:
+The registry creates six tables in the existing `trc20_token_clone` PostgreSQL schema:
 
 - `sponsor_organizations`
 - `sponsor_organization_accounts`
 - `sponsor_organization_audit_events`
 - `sponsor_organization_budget_links`
+- `sponsor_organization_payout_intents`
+- `sponsor_organization_payout_reservations`
 
 Registration, review, budget linking and link revocation are written to the audit table in the same database transaction. Foreign keys prevent orphaned account/audit records. A unique constraint prevents reusing one network/address across multiple organizations. Provider credentials and signing material are neither accepted nor stored.
 
 ## Deliberately not enabled
 
-This release includes registry, review, exact budget association and read-only dual-sponsor candidate selection. It does not automatically validate legal documents or cryptographic wallet/custody attestations; create provider connections; reserve budgets for a selected payout; verify transaction-specific fee coverage; cryptographically authorize a specific transfer; or sign, submit, or broadcast transactions.
+This release includes registry/review, exact budget association, read-only dual-sponsor candidate selection, and a short-lived two-budget accounting reservation bound to one immutable request intent. It still does not automatically validate legal documents or cryptographic wallet/custody attestations; verify transaction-specific fee coverage; cryptographically authorize a specific transfer; or sign, submit, or broadcast transactions.
 
 All API responses explicitly keep `submissionEnabled: false` and `canSubmitSponsoredTransfer: false`. Organization/account records also report `payoutEligible: false`. Keep the separate real-value payout execution hard gate disabled.
 
-## Next milestone
+## Implemented dual-sponsor reservation milestone
 
-The next implementation step is to bind the selected principal/fee pair to one immutable transfer intent, reserve both budgets atomically, and require transaction-specific fee/resource estimates plus a sponsor-owned cryptographic authorization for that exact intent. Only then should a sponsor-owned provider/signer be integrated and tested on a controlled testnet. A real sponsor must first provide written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service.
+The selected principal and fee budgets can now be reserved together against one immutable transfer intent. This is an internal PostgreSQL accounting hold only: it does not lock on-chain tokens, TRX, Energy, or Bandwidth, and it does not establish sponsor consent or authority to spend.
 
 A solidified TRON transfer does not prove an exchange credited a deposit. Exchange credit requires the receiving exchange's own authenticated deposit-status evidence.
 
@@ -157,6 +159,59 @@ A successful result has status `dual-sponsor-preflight-passed-review-required`. 
 
 All endpoints require the server-only `SPONSOR_ADMIN_API_TOKEN`. The selection endpoint uses existing backend provider credentials and exact registered addresses; it does not accept provider credentials, private keys, or wallet signatures in request data. Keep all sponsor secrets in the approved backend secret store.
 
+### Create a short-lived, dual-sponsor payout intent
+
+`POST /api/tron/sponsorship/organizations/payout-intents`
+
+Headers:
+
+```http
+Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>
+Content-Type: application/json
+```
+
+Example request for a TRX principal transfer:
+
+```json
+{
+  "idempotencyKey": "operator-created-unique-intent-2026-0001",
+  "network": "nile",
+  "asset": "TRX",
+  "receiverAddress": "TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE",
+  "amountBaseUnits": "2500000",
+  "feeCapSun": "120000",
+  "principalBudgetLinkId": "31",
+  "feeBudgetLinkId": "32"
+}
+```
+
+For USDT, set `asset` to `USDT` and provide the exact network-allowlisted `tokenContract`. On Mainnet, only the official Tether TRC20 USDT contract is accepted. For a testnet, the configured network-specific token contract is a test asset and is not Tether-issued Mainnet USDT.
+
+The service re-reads the linked budgets and requires:
+- two different approved sponsor organizations and two different wallet addresses;
+- a verified `asset-principal` account linked to an active `asset-grant` budget;
+- a verified `network-fee` account linked to a separate active `network-fee` TRX budget;
+- exact matching organization/account/budget references, wallet addresses, networks, roles, purpose, asset, contract, and allowlisted agreement scopes;
+- fresh solidified chain balance snapshots for both exact sponsor wallets, budget reconciliation against their commitments, and a current observed fee-to-principal resource delegation.
+
+Both budget counters are incremented and both reservation rows, the intent row, and audit records are written in one PostgreSQL transaction. The intent digest binds the network, asset, token contract, receiver, exact base-unit principal amount, fee cap, and both budget-link IDs. Repeating the same idempotency key and identical intent returns the prior record; reusing that key with different intent data is rejected.
+
+A new intent has status `pending_authorization` and expires after ten minutes. The system releases both internal budget reservations when an operator cancels it:
+
+`POST /api/tron/sponsorship/payout-intents/{intentId}/cancel`
+
+Body: `{"reviewReference":"operator-cancellation-ticket-2026-001"}`.
+
+Expired intents can be swept by the administrator-only endpoint:
+
+`POST /api/tron/sponsorship/payout-intents/expire`
+
+Optional body: `{"limit":100}`.
+
+`feeCapSun` is only the amount held against the network-fee sponsor's budget; it is not an exact transaction fee quote. The current delegation observation is not proof of sufficient Energy/Bandwidth for a specific built transaction. The reservation API does not accept sponsor signatures, does not set the intent to authorized, does not create a transaction, and cannot submit or broadcast. Every response keeps `canSubmitSponsoredTransfer`, `submissionEnabled`, and `transactionSubmitted` false; `userFundedFallbackAllowed` also remains false.
+
+The next milestone is independent cryptographic authorization from each sponsor for this exact immutable intent, with replay-resistant nonces, expiry, signer identity and mandate policy, followed by transaction construction and transaction-specific energy/bandwidth/fee estimation. Only after a separately reviewed sponsor-owned signing/provider integration and controlled testnet validation should any submission path be considered. A real sponsor must provide genuine written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service. Keep the existing Mainnet payout execution hard gate disabled.
+
 ## Remaining real-payout dependencies
 
-This milestone adds registry-to-budget ownership and a live read-only dual-sponsor candidate preflight. It does not integrate a sponsor-owned signer/provider submitter, create reservations for the selected pair, cryptographically verify every off-chain sponsor mandate, establish transaction-specific fee coverage, or broadcast. Do not change the existing real-value payout hard gate. Mainnet release still requires a controlled end-to-end test, independent security review, operational runbook, and explicit release approval.
+The implementation still lacks independent sponsor cryptographic authorization for an exact intent, transaction-specific fee/resource verification, a sponsor-owned signing/provider adapter, controlled testnet broadcast and settlement, and a complete receiver-side real deposit verification workflow. Do not change the existing real-value payout hard gate. Mainnet release still requires a controlled end-to-end test, independent security review, operational runbook, and explicit release approval.
