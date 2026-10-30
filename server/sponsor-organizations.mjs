@@ -87,6 +87,14 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
   async function ensureSchema(db) {
     if (!schemaPromise) {
       schemaPromise = (async () => {
+        // The budget table belongs to the application migration. Initialize it before
+        // adding the registry's restrictive foreign key to that table.
+        if (!databasePool) {
+          const initialized = await initializeDatabase()
+          if (initialized.configured !== true || initialized.ready !== true) {
+            throw new Error('Sponsor registry database dependencies are unavailable')
+          }
+        }
         await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
         await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organizations (
