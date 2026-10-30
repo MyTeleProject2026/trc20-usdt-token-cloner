@@ -34,12 +34,11 @@ test('sponsor funding read requires server-side Tatum credentials', async () => 
   assert.equal(result.sponsorFundingVerified, false)
 })
 
-test('sponsor funding status verifies native TRX and configured token balances without enabling transfer submission', async () => {
+test('testnet sponsor funding reads native TRX only and ignores testnet token lookalikes', async () => {
   const requests = []
   const env = {
     TATUM_API_KEY: 'server-test-key',
     SPONSOR_NILE_ADDRESS: sponsorAddress,
-    SPONSOR_USDT_NILE_CONTRACTS: tokenAddress,
   }
   const reader = createSponsorFundingReader({
     env,
@@ -49,11 +48,6 @@ test('sponsor funding status verifies native TRX and configured token balances w
       if (url.endsWith('/walletsolidity/getaccount')) {
         return { ok: true, json: async () => ({ address: '41' + hex, balance: 1234567 }) }
       }
-      if (url.endsWith('/walletsolidity/triggerconstantcontract')) {
-        const body = JSON.parse(options.body)
-        const isDecimals = body.function_selector === 'decimals()'
-        return { ok: true, json: async () => ({ result: { result: true }, constant_result: [(isDecimals ? 6n : 2500000n).toString(16).padStart(64, '0')] }) }
-      }
       throw new Error('unexpected URL')
     },
   })
@@ -61,10 +55,8 @@ test('sponsor funding status verifies native TRX and configured token balances w
   assert.equal(result.status, 'solidified-sponsor-balances-read')
   assert.equal(result.native.balanceSun, '1234567')
   assert.equal(result.native.balanceTRX, '1.234567')
-  assert.equal(result.tokens.length, 1)
-  assert.equal(result.tokens[0].asset, 'USDT (testnet)')
-  assert.equal(result.tokens[0].balanceBaseUnits, '2500000')
-  assert.equal(result.tokens[0].decimals, 6)
+  assert.equal(result.tokens.length, 0)
+  assert.equal(result.tokenBalancesComplete, true)
   assert.equal(result.tokenBalancesComplete, true)
   assert.equal(result.sponsorFundingVerified, false)
   assert.equal(result.canSubmitSponsoredTransfer, false)
@@ -90,7 +82,7 @@ test('sponsor funding status verifies native TRX and configured token balances w
   assert.equal(requests.length, afterForceRefresh, 'repeated forced refreshes should not multiply provider calls')
 })
 
-test('sponsor funding read rejects invalid networks and malformed allowlists without reporting tokens', async () => {
+test('sponsor funding read rejects invalid networks and ignores testnet token allowlists', async () => {
   const reader = createSponsorFundingReader({
     env: {
       TATUM_API_KEY: 'server-test-key',
@@ -104,21 +96,23 @@ test('sponsor funding read rejects invalid networks and malformed allowlists wit
   const invalidNetwork = await reader('attacker')
   assert.equal(invalidNetwork.status, 'invalid-network')
   const malformed = await reader('nile')
-  assert.equal(malformed.status, 'invalid-token-contract-allowlist')
+  assert.equal(malformed.status, 'solidified-sponsor-balances-read')
+  assert.equal(malformed.tokens.length, 0)
+  assert.equal(malformed.tokenBalancesComplete, true)
   assert.equal(malformed.sponsorFundingVerified, false)
   assert.equal(malformed.canSubmitSponsoredTransfer, false)
 })
 
-test('sponsor funding read does not treat a failed token query as a zero balance', async () => {
+test('official Mainnet USDT funding read does not treat a failed token query as a zero balance', async () => {
   const reader = createSponsorFundingReader({
-    env: { TATUM_API_KEY: 'server-test-key', SPONSOR_NILE_ADDRESS: sponsorAddress, SPONSOR_USDT_NILE_CONTRACTS: tokenAddress },
+    env: { TATUM_API_KEY: 'server-test-key', SPONSOR_MAINNET_ADDRESS: sponsorAddress },
     tronWebFactory: async (host) => fakeTronWeb(host),
     fetchImpl: async (url) => {
       if (url.endsWith('/walletsolidity/getaccount')) return { ok: true, json: async () => ({ address: '41' + hex, balance: 0 }) }
       return { ok: false, status: 503 }
     },
   })
-  const result = await reader('nile')
+  const result = await reader('mainnet')
   assert.equal(result.native.balanceSun, '0')
   assert.equal(result.tokens[0].status, 'unavailable')
   assert.equal(Object.hasOwn(result.tokens[0], 'balanceBaseUnits'), false)
