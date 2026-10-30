@@ -884,9 +884,17 @@ export function createTreasuryWithdrawalsRouter({
       if (!snapshot.networkFeeCapCovered) blockers.push('treasury-trx-below-fee-cap')
     }
     if (!databaseReady && !blockers.includes('database-not-ready')) blockers.push('database-not-ready')
+    const preflightChecksPassed = blockers.length === 0
+    const executionEnabled = preflightChecksPassed && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+    const executionBlocker = REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+      ? 'real-value-payout-execution-disabled-in-this-build'
+      : null
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
-      withdrawalsEnabled: blockers.length === 0,
+      withdrawalsEnabled: preflightChecksPassed,
+      preflightChecksPassed,
+      executionEnabled,
+      executionBlocker,
       configuration: {
         enabled: config.enabled,
         configurationComplete: config.configurationComplete,
@@ -914,7 +922,7 @@ export function createTreasuryWithdrawalsRouter({
         nativeTrxAssetIdentityVerified: snapshot.nativeTrxAssetIdentityVerified,
         nativeTrxVaultAddressVerified: snapshot.nativeTrxVaultAddressVerified,
       } : {}),
-      payoutBlockers: [...new Set(blockers)],
+      payoutBlockers: [...new Set([...blockers, ...(executionBlocker ? [executionBlocker] : [])])],
       limitations: [
         'Transfers are initiated through the configured managed Fireblocks vault; blockchain signing keys are not loaded by the API.',
         'Provider transaction acceptance is not proof of on-chain confirmation; verify the successful solidified receipt and exact official-USDT Transfer event.',
@@ -1369,12 +1377,20 @@ export function createTreasuryWithdrawalsRouter({
     }
 
     const withdrawalsEnabled = config.enabled && databaseReady && snapshot.ok && blockers.length === 0
+    const preflightChecksPassed = withdrawalsEnabled
+    const executionEnabled = preflightChecksPassed && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+    const executionBlocker = REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+      ? 'real-value-payout-execution-disabled-in-this-build'
+      : null
     return res.json({
       success: true,
       network: 'mainnet',
       asset: 'TRX',
       decimals: 6,
       withdrawalsEnabled,
+      preflightChecksPassed,
+      executionEnabled,
+      executionBlocker,
       ownerAddress: authResult.ownerAddress,
       treasuryAddress: ADDRESS_PATTERN.test(treasuryAddress) ? treasuryAddress : null,
       configuration: {
@@ -1400,7 +1416,7 @@ export function createTreasuryWithdrawalsRouter({
       dailyReservedTrxBaseUnits: dailyReservedSun,
       maxPayoutTrx: typeof env.TREASURY_MAX_PAYOUT_TRX === 'string' ? env.TREASURY_MAX_PAYOUT_TRX : null,
       dailyLimitTrx: typeof env.TREASURY_DAILY_LIMIT_TRX === 'string' ? env.TREASURY_DAILY_LIMIT_TRX : null,
-      payoutBlockers: [...new Set(blockers)],
+      payoutBlockers: [...new Set([...blockers, ...(executionBlocker ? [executionBlocker] : [])])],
       note: 'Readiness is not a payout authorization. Every TRX payout requires owner authorization, a configured Fireblocks vault, real TRX covering principal and the reserved fee cap, and a verified chain receipt.',
     })
   })
