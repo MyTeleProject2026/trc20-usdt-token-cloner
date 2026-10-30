@@ -76,7 +76,8 @@ export async function reserveSponsorOrganizationPayoutIntent({
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
     || !NETWORKS.has(network) || !ASSETS.has(asset)
     || (asset === 'TRX' ? tokenContract !== null
-      : !isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts))
+      : !isValidTronAddress(tokenContract)
+        || !isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts))
     || !isValidTronAddress(receiverAddress)
     || !UINT_PATTERN.test(amountBaseUnits || '') || !UINT_PATTERN.test(feeCapSun || '')
     || typeof principalLinkId !== 'string' || !/^[1-9][0-9]{0,17}$/.test(principalLinkId)
