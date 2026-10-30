@@ -54,8 +54,8 @@ export function getSponsorIntegrationReadiness({
           ? feeAddress !== assetAddress : null,
       },
       tokenContractAllowlist: {
-        usdt: network === 'mainnet' || configuredContractList(env, `SPONSOR_USDT_${key}_CONTRACTS`),
-        vtrc: configuredContractList(env, `SPONSOR_VTRC_${key}_CONTRACTS`),
+        officialMainnetUsdt: network === 'mainnet',
+        testnetTokenPrincipalSupported: false,
       },
       gasFree: {
         documentedNetwork: gasFreeSupported,
