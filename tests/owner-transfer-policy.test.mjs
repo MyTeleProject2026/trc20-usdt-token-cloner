@@ -88,9 +88,10 @@ test('fresh authenticated owner treasury snapshot matching the local signer is a
   }), true)
 })
 
-test('Wallet Vault checks the owner policy at review and broadcast, not just in the UI button', async () => {
+test('Wallet Vault enforces owner review policy and disables transaction execution', async () => {
   const ui = await readFile(new URL('../src/WalletVault.tsx', import.meta.url), 'utf8')
   assert.ok(ui.includes("import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'"))
   assert.match(ui, /async function prepareTransfer\(\)[\s\S]{0,800}assertOwnerMainnetTransferAccess/)
-  assert.match(ui, /async function broadcastTransfer\(\)[\s\S]{0,900}assertOwnerMainnetTransferAccess/)
+  assert.match(ui, /async function broadcastTransfer\(\)[\s\S]{0,350}signing and broadcast are disabled/i)
+  assert.match(ui, /Signing and broadcast disabled/)
 })
