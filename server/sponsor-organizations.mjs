@@ -339,15 +339,19 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           CREATE INDEX IF NOT EXISTS sponsor_org_payout_intents_expiry_idx
           ON trc20_token_clone.sponsor_organization_payout_intents (status, expires_at)
         `)
-        await db.query(\`
-          ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
-          DROP CONSTRAINT IF EXISTS sponsor_organization_payout_intents_status_check
-        \`)
-        await db.query(\`
-          ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
-          ADD CONSTRAINT sponsor_organization_payout_intents_status_check
-          CHECK (status IN ('pending_authorization','sponsor_authorization_complete','cancelled','expired'))
-        \`)
+        // Keep the status-constraint migration in one DDL statement so concurrent
+        // application instances cannot interleave DROP/ADD during startup.
+        await db.query(\\`
+          DO $$
+          BEGIN
+            ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
+              DROP CONSTRAINT IF EXISTS sponsor_organization_payout_intents_status_check;
+            ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
+              ADD CONSTRAINT sponsor_organization_payout_intents_status_check
+              CHECK (status IN ('pending_authorization','sponsor_authorization_complete','cancelled','expired'));
+          END
+          $$;
+        \\`)
         await db.query(\`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_authorization_challenges (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
