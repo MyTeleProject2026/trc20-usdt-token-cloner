@@ -36,6 +36,7 @@ test('TRX native transfer verifier confirms only exact sender, recipient, amount
   const tronWeb = { address: { toHex: (address) => hex[address] || '' } }
   const transaction = {
     txID: txid,
+    ret: [{ contractRet: 'SUCCESS' }],
     raw_data: { contract: [{
       type: 'TransferContract',
       parameter: { value: {
@@ -45,14 +46,22 @@ test('TRX native transfer verifier confirms only exact sender, recipient, amount
       } },
     }] },
   }
-  const transactionInfo = { id: txid, blockNumber: 123 }
+  const transactionInfo = { id: txid, blockNumber: 123, receipt: { result: 'SUCCESS' } }
   const options = { transaction, transactionInfo, transactionHash: txid, treasuryAddress, recipientAddress, amountBaseUnits: '1234567' }
   assert.deepEqual(verifyTreasuryTrxTransferEvidence(tronWeb, options), {
-    verified: true, status: 'confirmed', reason: 'confirmed-solidified-native-transfer-intent', blockNumber: 123,
+    verified: true, status: 'confirmed', reason: 'confirmed-solidified-successful-native-transfer', blockNumber: 123,
   })
+  assert.equal(verifyTreasuryTrxTransferEvidence(tronWeb, {
+    ...options, transactionInfo: { id: txid, blockNumber: 123 },
+  }).status, 'awaiting-confirmed-receipt', 'a block number without an execution receipt is inconclusive')
+  assert.equal(verifyTreasuryTrxTransferEvidence(tronWeb, {
+    ...options, transaction: { ...transaction, ret: [{ contractRet: 'REVERT' }] },
+  }).status, 'verification-mismatch', 'conflicting transaction and receipt results must not be called successful')
   assert.equal(verifyTreasuryTrxTransferEvidence(tronWeb, { ...options, amountBaseUnits: '7654321' }).status, 'verification-mismatch')
   assert.equal(verifyTreasuryTrxTransferEvidence(tronWeb, { ...options, recipientAddress: ownerAddress }).status, 'verification-mismatch')
-  assert.equal(verifyTreasuryTrxTransferEvidence(tronWeb, { ...options, transactionInfo: { id: txid, blockNumber: 0 } }).status, 'awaiting-confirmed-receipt')
+  assert.equal(verifyTreasuryTrxTransferEvidence(tronWeb, {
+    ...options, transactionInfo: { id: txid, blockNumber: 0, receipt: { result: 'SUCCESS' } },
+  }).status, 'awaiting-confirmed-receipt')
 })
 
 test('TRX native transfer verifier treats an explicit failed result as failed after confirming request intent', () => {
@@ -71,7 +80,7 @@ test('TRX native transfer verifier treats an explicit failed result as failed af
     }] },
   }
   const result = verifyTreasuryTrxTransferEvidence(tronWeb, {
-    transaction, transactionInfo: { id: txid, blockNumber: 456 }, transactionHash: txid,
+    transaction, transactionInfo: { id: txid, blockNumber: 456, receipt: { result: 'REVERT' } }, transactionHash: txid,
     treasuryAddress, recipientAddress, amountBaseUnits: '5000000',
   })
   assert.equal(result.verified, true)
