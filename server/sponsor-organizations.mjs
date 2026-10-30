@@ -173,7 +173,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           CREATE INDEX IF NOT EXISTS sponsor_organization_budget_links_owner_idx
           ON trc20_token_clone.sponsor_organization_budget_links (organization_id, status, created_at DESC)
         `)
-        await db.query(\`
+        await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_intents (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             idempotency_key TEXT NOT NULL UNIQUE,
@@ -206,8 +206,8 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             CHECK ((asset = 'TRX' AND token_contract IS NULL)
               OR (asset = 'USDT' AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0))
           )
-        \`)
-        await db.query(\`
+        `)
+        await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_reservations (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             intent_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_payout_intents(id) ON DELETE RESTRICT,
@@ -220,11 +220,11 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             UNIQUE (intent_id, role),
             UNIQUE (intent_id, budget_id)
           )
-        \`)
-        await db.query(\`
+        `)
+        await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_org_payout_intents_expiry_idx
           ON trc20_token_clone.sponsor_organization_payout_intents (status, expires_at)
-        \`)
+        `)
       })().catch((error) => { schemaPromise = null; throw error })
     }
     await schemaPromise
