@@ -87,8 +87,7 @@ function requestBody(overrides = {}) {
     idempotencyKey: 'request-key-000000000000000001',
     network: 'nile',
     recipientAddress,
-    asset: 'TRC20',
-    tokenContract,
+    asset: 'TRX',
     amountBaseUnits: '2500000',
     decimals: 6,
     ...overrides,
@@ -137,7 +136,7 @@ test('request intake is testnet-scoped and binds the request to the authenticate
   assert.equal(store.rows.size, 0)
 })
 
-test('request intake accepts only an explicitly allowlisted token contract for the authenticated testnet', async (t) => {
+test('request intake rejects testnet TRC-20 contracts instead of representing them as genuine Tether USDT', async (t) => {
   const store = createMemoryStore()
   const base = await serve(t, createSponsorRequestIntakeRouter({
     env: { SPONSOR_USDT_NILE_CONTRACTS: tokenContract },
@@ -150,11 +149,38 @@ test('request intake accepts only an explicitly allowlisted token contract for t
     body: JSON.stringify(requestBody({ tokenContract: requesterAddress })),
   })
   assert.equal(response.status, 422)
-  assert.equal((await response.json()).error, 'token-contract-not-allowlisted-for-testnet')
+  assert.equal((await response.json()).error, 'official-usdt-mainnet-only')
   assert.equal(store.rows.size, 0)
 })
 
-test('request intake persists an authenticated, exact testnet intent without approving or submitting a transfer', async (t) => {
+
+test('request intake rejects both configured USDT-like and VTRC testnet contracts', async (t) => {
+  const store = createMemoryStore()
+  const base = await serve(t, createSponsorRequestIntakeRouter({
+    env: {
+      SPONSOR_USDT_NILE_CONTRACTS: tokenContract,
+      SPONSOR_VTRC_NILE_CONTRACTS: tokenContract,
+    },
+    store,
+    sessionLookup: sessionLookup(),
+  }))
+  for (const asset of ['TRC20', 'VTRC']) {
+    const response = await fetch(base + '/sponsorship/requests', {
+      method: 'POST',
+      headers: userHeaders(),
+      body: JSON.stringify(requestBody({
+        asset,
+        tokenContract,
+        idempotencyKey: `reject-${asset}-request-00000000000001`,
+      })),
+    })
+    assert.equal(response.status, 422)
+    assert.equal((await response.json()).error, 'official-usdt-mainnet-only')
+  }
+  assert.equal(store.rows.size, 0)
+})
+
+test('request intake persists an authenticated native-TRX testnet request without approving or submitting a transfer', async (t) => {
   const store = createMemoryStore()
   const base = await serve(t, createSponsorRequestIntakeRouter({
     env: { SPONSOR_USDT_NILE_CONTRACTS: tokenContract },
@@ -172,7 +198,8 @@ test('request intake persists an authenticated, exact testnet intent without app
   assert.equal(payload.status, 'pending-organization-review')
   assert.equal(payload.request.requesterAddress, requesterAddress)
   assert.equal(payload.request.recipientAddress, recipientAddress)
-  assert.equal(payload.request.asset, 'USDT')
+  assert.equal(payload.request.asset, 'TRX')
+  assert.equal(payload.request.tokenContract, null)
   assert.equal(payload.request.amountBaseUnits, '2500000')
   assert.equal(payload.payoutAuthorized, false)
   assert.equal(payload.canSubmitSponsoredTransfer, false)
@@ -239,7 +266,7 @@ test('sponsor organization queue requires the server-only admin token and stays 
   store.rows.set('key-000000000000000000000001', {
     id: '1', idempotencyKey: 'key-000000000000000000000001',
     requesterAddress, network: 'nile', recipientAddress,
-    asset: 'USDT', tokenContract, amountBaseUnits: '5000000', decimals: 6,
+    asset: 'TRX', tokenContract: null, amountBaseUnits: '5000000', decimals: 6,
     status: 'pending-organization-review', createdAt: '2026-10-30T00:00:00.000Z',
   })
   const base = await serve(t, createSponsorRequestIntakeRouter({
