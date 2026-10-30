@@ -132,9 +132,14 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
     return configured.some((value) => {
       try {
         const parsed = new URL(value.trim())
-        const normalized = parsed.protocol === 'tronstudio:' && parsed.host.toLowerCase() === 'app'
-          ? 'tronstudio://app'
-          : ['https:', 'http:'].includes(parsed.protocol) ? parsed.origin : ''
+        const desktopOrigin = parsed.protocol === 'tronstudio:' && parsed.host.toLowerCase() === 'app'
+        const secureWebOrigin = parsed.protocol === 'https:'
+        const localWebOrigin = parsed.protocol === 'http:'
+          && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname.toLowerCase())
+        if (!(desktopOrigin || secureWebOrigin || localWebOrigin)
+          || parsed.username || parsed.password || parsed.search || parsed.hash
+          || (parsed.pathname !== '' && parsed.pathname !== '/')) return false
+        const normalized = desktopOrigin ? 'tronstudio://app' : parsed.origin
         return normalized === origin
       } catch {
         return false
