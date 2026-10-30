@@ -249,7 +249,7 @@ test('PostgreSQL keeps legacy VTRC history readable but rejects new VTRC ledger 
     )
 
     const intakeCreated = await intakeStore.createRequest({
-      idempotencyKey: intakeKey, requesterAddress, network, recipientAddress: receiverAddress,
+      idempotencyKey: intakeKey, requesterAddress: sponsorAddress, network, recipientAddress: receiverAddress,
       asset: 'USDT', tokenContract: contractAddress, amountBaseUnits: '1', decimals: 6,
     })
     assert.equal(intakeCreated.success, true)
