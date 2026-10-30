@@ -837,6 +837,14 @@ export default function WorkflowApp() {
   const [reviewRefreshing, setReviewRefreshing] = useState(false)
   const [reviewNotice, setReviewNotice] = useState('')
   const [copyNotice, setCopyNotice] = useState('')
+  const [sponsorRequestBusy, setSponsorRequestBusy] = useState(false)
+  const [sponsorRequestError, setSponsorRequestError] = useState('')
+  const [sponsorRequestResult, setSponsorRequestResult] = useState<any>(null)
+
+  useEffect(() => {
+    setSponsorRequestResult(null)
+    setSponsorRequestError('')
+  }, [network, assetKind, tokenContract, senderAddress, receiverAddress, amount, walletIdentity?.address])
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
   const senderSnapshotRequestGeneration = useRef(0)
@@ -1942,6 +1950,56 @@ export default function WorkflowApp() {
     }
   }
 
+  const submitSponsorRequest = async () => {
+    if (!walletIdentity || walletIdentity.network !== network || walletIdentity.expiresAt <= Date.now()) {
+      setSponsorRequestError('Reconnect and authenticate the requester wallet on the selected testnet.')
+      return
+    }
+    if (!reviewStageValid || !assetKind || !amountBaseUnits || amountDecimals == null) {
+      setSponsorRequestError('Complete the validated recipient, asset, amount, and live balance checks before submitting the request.')
+      return
+    }
+    if (typeof window.crypto?.randomUUID !== 'function') {
+      setSponsorRequestError('Secure request identifiers are unavailable in this browser. Update the browser and retry.')
+      return
+    }
+    setSponsorRequestBusy(true)
+    setSponsorRequestError('')
+    try {
+      const idempotencyKey = window.crypto.randomUUID()
+      const response = await fetch(`${API_BASE}/api/tron/sponsorship/requests`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + walletIdentity.sessionToken,
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        body: JSON.stringify({
+          idempotencyKey,
+          network,
+          recipientAddress: receiverAddress.trim(),
+          asset: assetKind,
+          ...(assetKind === 'TRC20' ? { tokenContract: tokenContract.trim() } : {}),
+          amountBaseUnits,
+          decimals: amountDecimals,
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.request?.idempotencyKey !== idempotencyKey) {
+        throw new Error(payload?.message || payload?.error || `Sponsor request could not be stored (HTTP ${response.status}).`)
+      }
+      setSponsorRequestResult(payload)
+      setReviewNotice('The request was stored for organization review only. No budget was reserved and no transfer was signed or broadcast.')
+    } catch (error) {
+      setSponsorRequestError(error instanceof Error ? error.message : 'Sponsor request could not be stored.')
+    } finally {
+      setSponsorRequestBusy(false)
+    }
+  }
+
   const copyRequestSummary = async () => {
     const summary = [
       'TRON Token Studio — non-submitting sponsor request',
@@ -2642,7 +2700,7 @@ export default function WorkflowApp() {
 
               <div className="studio-notice studio-notice--warning">
                 <LockKeyhole size={18} aria-hidden="true" />
-                <div><strong>Sponsored transfer submission is blocked by the backend</strong><p>{sponsorship?.message || 'The backend has not confirmed a provider adapter, funded sponsor account, explicit signing authorization, and per-request controls. This sponsor workflow remains blocked; the separate wallet-funded testnet send is shown in the receiver stage.'}</p></div>
+                <div><strong>Testnet request intake only — no payout execution</strong><p>{sponsorship?.message || 'The sponsor workflow remains blocked from signing and broadcasting. This new request queue stores validated Nile/Shasta requests for an authorized sponsor organization to review; it does not reserve funds or authorize a transfer.'}</p></div>
               </div>
               <div className="studio-inline-actions studio-review-actions">
                 <button type="button" className="studio-button studio-button--secondary" onClick={() => void refreshReview()} disabled={reviewRefreshing || sponsorLoading}><RefreshCw size={15} className={reviewRefreshing || sponsorLoading ? 'studio-spin' : ''} aria-hidden="true" /> {reviewRefreshing || sponsorLoading ? 'Refreshing sponsor gate…' : 'Recheck sponsor readiness'}</button>
@@ -2650,12 +2708,42 @@ export default function WorkflowApp() {
               </div>
               {reviewNotice && <p className="studio-inline-note" role="status">{reviewNotice}</p>}
               {copyNotice && <p className="studio-inline-note" role="status">{copyNotice}</p>}
+              {sponsorRequestError && <p className="studio-inline-error" role="alert">{sponsorRequestError}</p>}
+
+              {sponsorRequestResult?.success === true && sponsorRequestResult.request && (
+                <article className="studio-account-summary" role="status">
+                  <div className="studio-account-heading">
+                    <div>
+                      <p className="studio-eyebrow">Saved sponsor request · {sponsorRequestResult.request.network}</p>
+                      <strong>Pending organization review</strong>
+                    </div>
+                    <Pill tone="warning">{sponsorRequestResult.duplicate ? 'Existing request' : 'Stored'}</Pill>
+                  </div>
+                  <div className="studio-review-list">
+                    <div className="studio-review-row"><span>Request ID</span><code>{sponsorRequestResult.request.idempotencyKey}</code></div>
+                    <div className="studio-review-row"><span>Requester</span><code>{sponsorRequestResult.request.requesterAddress}</code></div>
+                    <div className="studio-review-row"><span>Recipient</span><code>{sponsorRequestResult.request.recipientAddress}</code></div>
+                    <div className="studio-review-row"><span>Asset</span><strong>{sponsorRequestResult.request.asset === 'TRX' ? 'Testnet TRX' : 'Allowlisted testnet TRC-20'}</strong></div>
+                    {sponsorRequestResult.request.tokenContract && <div className="studio-review-row"><span>Token contract</span><code>{sponsorRequestResult.request.tokenContract}</code></div>}
+                    <div className="studio-review-row"><span>Amount base units</span><strong>{sponsorRequestResult.request.amountBaseUnits} · {sponsorRequestResult.request.decimals} decimals</strong></div>
+                    <div className="studio-review-row"><span>Request status</span><strong>{sponsorRequestResult.request.status}</strong></div>
+                  </div>
+                  <p className="studio-footnote">This confirms only that the request was stored. It is not sponsor approval, a budget reservation, a signed transaction, a blockchain transfer, or an exchange deposit.</p>
+                </article>
+              )}
 
               <div className="studio-submit-block">
-                <div><strong>Transfer not available</strong><p>Request details are prepared, but no verified sponsored submission service is active. This control deliberately cannot move funds or fall back to the sender wallet.</p></div>
-                <button type="button" className="studio-button studio-button--disabled" disabled aria-disabled="true"><LockKeyhole size={16} aria-hidden="true" /> Sponsored transfer unavailable</button>
+                <div><strong>{sponsorRequestResult?.success ? 'Request stored for review' : 'Request external sponsor review'}</strong><p>Submit only a Nile/Shasta request. The server records the authenticated requester, exact recipient, allowlisted testnet asset and integer amount so an authorized sponsor administrator can review it separately.</p></div>
+                <button
+                  type="button"
+                  className="studio-button studio-button--primary"
+                  onClick={() => void submitSponsorRequest()}
+                  disabled={!reviewStageValid || sponsorRequestBusy || sponsorRequestResult?.success === true}
+                >
+                  {sponsorRequestBusy ? 'Saving request…' : sponsorRequestResult?.success ? 'Request stored' : 'Submit for sponsor review'}
+                </button>
               </div>
-              <p className="studio-footnote">No transaction hash was created. No sender or sponsor balance was changed. The copied summary is not a transfer request stored on the server.</p>
+              <p className="studio-footnote">This route is testnet-only. It does not use your wallet balance, create a reservation, call Fireblocks, sign, submit or broadcast a transaction. Testnet assets cannot be withdrawn as real Mainnet USDT or credited as an exchange deposit.</p>
             </section>
           )}
 
