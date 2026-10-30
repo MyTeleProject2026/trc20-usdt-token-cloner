@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import { buildTreasuryPayoutRequestMessage } from './treasury-payout-request-auth.mjs'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -270,6 +271,11 @@ export default function WalletVault() {
   const [treasuryPayoutBusy, setTreasuryPayoutBusy] = useState(false)
   const [treasuryPayoutStatus, setTreasuryPayoutStatus] = useState<any>(null)
   const [treasuryPayoutError, setTreasuryPayoutError] = useState('')
+  const [treasuryRequestBusy, setTreasuryRequestBusy] = useState(false)
+  const [treasuryRequestError, setTreasuryRequestError] = useState('')
+  const [treasuryRequestResult, setTreasuryRequestResult] = useState<any>(null)
+  const [treasuryRequestKey, setTreasuryRequestKey] = useState('')
+  const [treasuryRequestAcknowledged, setTreasuryRequestAcknowledged] = useState(false)
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -937,6 +943,85 @@ export default function WalletVault() {
 
   async function submitServerTreasuryPayout() {
     throw new Error('Server-funded payout submission is disabled in this supervised development build. Read-only status checks remain available.')
+  }
+
+  async function submitMainnetUsdtPayoutRequest() {
+    if (network !== 'mainnet') {
+      setTreasuryRequestError('Select TRON Mainnet before creating an official USDT payout request.')
+      return
+    }
+    if (!unlocked || !ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true
+      || !ownerSessionAddress || ownerSessionAddress !== unlocked.record.address) {
+      setTreasuryRequestError('Unlock and verify the configured Mainnet treasury-owner wallet before requesting organization review.')
+      return
+    }
+    if (!treasuryRequestAcknowledged) {
+      setTreasuryRequestError('Acknowledge that this action creates a review request only, not a USDT transfer.')
+      return
+    }
+
+    let amountBaseUnits = ''
+    let recipient = treasuryPayoutRecipient.trim()
+    try {
+      const signer = createTronWeb('mainnet', unlocked.privateKey)
+      if (String(signer.defaultAddress?.base58 || '') !== unlocked.record.address
+        || !signer.isAddress(recipient) || recipient === unlocked.record.address) {
+        throw new Error('Check the recipient address and confirm the currently unlocked wallet is the authenticated owner.')
+      }
+      amountBaseUnits = parseUnitsDecimal(treasuryPayoutAmount, 6)
+      if (typeof window.crypto?.randomUUID !== 'function') {
+        throw new Error('Secure request identifiers are unavailable in this browser. Update the browser and retry.')
+      }
+      const idempotencyKey = treasuryRequestKey || window.crypto.randomUUID().replaceAll('-', '')
+      setTreasuryRequestKey(idempotencyKey)
+      const requestExpiresAt = Date.now() + 90_000
+      const message = buildTreasuryPayoutRequestMessage({
+        origin: window.location.origin,
+        requesterAddress: unlocked.record.address,
+        recipientAddress: recipient,
+        amountBaseUnits,
+        idempotencyKey,
+        requestExpiresAt,
+      })
+      setTreasuryRequestBusy(true)
+      setTreasuryRequestError('')
+      const signature = await signer.trx.signMessageV2(message)
+      if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+        throw new Error('The wallet did not return a valid request signature. No transfer was created.')
+      }
+      const response = await fetch(API_BASE + '/api/treasury/payout-requests', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({
+          idempotencyKey,
+          recipientAddress: recipient,
+          amountUsdt: treasuryPayoutAmount.trim(),
+          requestExpiresAt,
+          ownerRequestSignature: signature,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true
+        || payload?.request?.idempotencyKey !== idempotencyKey
+        || payload?.request?.tokenContract !== OFFICIAL_MAINNET_USDT
+        || payload?.request?.network !== 'mainnet') {
+        throw new Error(payload?.message || payload?.error || `Payout request could not be stored (HTTP ${response.status}).`)
+      }
+      setTreasuryRequestResult(payload)
+      setTreasuryRequestAcknowledged(false)
+      setNotice('Official Tether USDT payout request stored for organization review only. No USDT was reserved, signed as a transfer, or sent.')
+    } catch (caught) {
+      setTreasuryRequestError(caught instanceof Error ? caught.message : 'Official USDT payout request could not be stored.')
+    } finally {
+      setTreasuryRequestBusy(false)
+    }
   }
 
   async function lookupServerTreasuryPayout() {
@@ -1781,8 +1866,71 @@ export default function WalletVault() {
                     <p className="wallet-vault-risk-note" role="note">The server treasury has no verified positive USDT balance. Fund it with genuine USDT and verify the balance before requesting a payout.</p>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>No payout request can be submitted from this build</strong>
-                    <p>Recipient and amount entry are intentionally unavailable. This panel is limited to read-only treasury observations and previously saved request-reference lookup; it does not create a payout, reserve funds, sign, or broadcast a transaction.</p>
+                    <strong>Official Tether USDT Mainnet only</strong>
+                    <p>Only the official TRON Mainnet USDT contract is accepted: <code>{OFFICIAL_MAINNET_USDT}</code> (6 decimals). Nile/Shasta tokens and independent VTRC tokens are not accepted as Tether USDT.</p>
+                  </div>
+                  <div className="wallet-vault-transfer-form" aria-label="Mainnet Tether USDT payout request">
+                    <label htmlFor="treasury-request-recipient">External TRON Mainnet recipient address</label>
+                    <input
+                      id="treasury-request-recipient"
+                      value={treasuryPayoutRecipient}
+                      onChange={event => {
+                        setTreasuryPayoutRecipient(event.target.value)
+                        setTreasuryRequestResult(null)
+                        setTreasuryRequestError('')
+                        setTreasuryRequestKey('')
+                        setTreasuryRequestAcknowledged(false)
+                      }}
+                      placeholder="T…"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <label htmlFor="treasury-request-amount">Amount of Tether USDT</label>
+                    <input
+                      id="treasury-request-amount"
+                      inputMode="decimal"
+                      value={treasuryPayoutAmount}
+                      onChange={event => {
+                        setTreasuryPayoutAmount(event.target.value)
+                        setTreasuryRequestResult(null)
+                        setTreasuryRequestError('')
+                        setTreasuryRequestKey('')
+                        setTreasuryRequestAcknowledged(false)
+                      }}
+                      placeholder="e.g. 25.00"
+                    />
+                    <label className="wallet-vault-confirm-check">
+                      <input
+                        type="checkbox"
+                        checked={treasuryRequestAcknowledged}
+                        onChange={event => setTreasuryRequestAcknowledged(event.target.checked)}
+                      />
+                      <span>I understand this signs a request for independent organization review only. It does not authorize a transfer, reserve USDT, or guarantee exchange deposit credit.</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="wallet-vault-primary"
+                      disabled={treasuryRequestBusy || network !== 'mainnet' || !unlocked
+                        || !ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true
+                        || ownerSessionAddress !== unlocked?.record.address
+                        || !treasuryPayoutRecipient.trim() || !treasuryPayoutAmount.trim()
+                        || !treasuryRequestAcknowledged}
+                      onClick={() => void submitMainnetUsdtPayoutRequest()}
+                    >
+                      {treasuryRequestBusy ? 'Signing request & saving…' : 'Submit official USDT request for organization review'}
+                    </button>
+                    {treasuryRequestError && <p className="wallet-vault-risk-note" role="alert">{treasuryRequestError}</p>}
+                    {treasuryRequestResult?.success === true && treasuryRequestResult.request && (
+                      <div className="wallet-vault-review-grid" role="status">
+                        <div><small>Request status</small><strong>Pending organization review</strong></div>
+                        <div><small>Asset</small><strong>Official Tether USDT · TRON Mainnet</strong></div>
+                        <div><small>Amount</small><strong>{formatUnits(treasuryRequestResult.request.amountBaseUnits, 6)} USDT</strong></div>
+                        <div className="wallet-vault-review-wide"><small>Recipient</small><strong>{treasuryRequestResult.request.recipientAddress}</strong></div>
+                        <div className="wallet-vault-review-wide"><small>Verified contract identity</small><strong>{treasuryRequestResult.request.tokenContract}</strong></div>
+                        <div className="wallet-vault-review-wide"><small>Request reference</small><strong>{treasuryRequestResult.request.idempotencyKey}</strong></div>
+                        <p className="wallet-vault-caption">The backend stored a signed request for review. It has not approved the request, reserved funds, instructed Fireblocks, created a blockchain transaction, or transferred USDT.</p>
+                      </div>
+                    )}
                   </div>
                   {treasuryPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryPayoutError}</p>}
                   {treasuryPayoutStatus && (
