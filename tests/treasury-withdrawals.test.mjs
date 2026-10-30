@@ -439,6 +439,10 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.equal(payload.configuration.featureFlagEnabled, false)
   assert.equal(payload.configuration.enabled, false)
   assert.equal(payload.withdrawalsEnabled, false)
+  assert.equal(payload.preflightChecksPassed, false)
+  assert.equal(payload.executionEnabled, false)
+  assert.equal(payload.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
+  assert.ok(payload.payoutBlockers.includes('real-value-payout-execution-disabled-in-this-build'))
   assert.ok(payload.payoutBlockers.includes('usdt-payout-feature-disabled'))
   assert.ok(payload.payoutBlockers.includes('database-not-ready'))
   assert.equal(payload.providerAssetIdentityVerified, true, 'readiness should still verify Fireblocks asset metadata')
@@ -446,6 +450,36 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.equal(payload.nativeTrxAssetIdentityVerified, true)
   assert.ok(metadataReads >= 2)
   assert.ok(balanceReads >= 1)
+})
+
+test('native TRX readiness reports the immutable real-value execution gate separately from preflight', async (t) => {
+  const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const sessionToken = 'a'.repeat(43)
+  const app = express()
+  app.use('/api/treasury', createTreasuryWithdrawalsRouter({
+    env: {
+      OWNER_WALLET_ADDRESS: owner,
+      TREASURY_OWNER_ADDRESS: owner,
+      TREASURY_TRX_WITHDRAWALS_ENABLED: 'false',
+    },
+    sessionLookup: async ({ origin }) => ({
+      success: true,
+      session: { address: owner, network: 'mainnet', origin },
+    }),
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/treasury/trx-withdrawals/readiness`, {
+    headers: { authorization: 'Bearer ' + sessionToken, origin: 'https://owner.example' },
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.withdrawalsEnabled, false)
+  assert.equal(payload.preflightChecksPassed, false)
+  assert.equal(payload.executionEnabled, false)
+  assert.equal(payload.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
+  assert.ok(payload.payoutBlockers.includes('real-value-payout-execution-disabled-in-this-build'))
 })
 
 test('native TRX configuration distinguishes an incomplete setup from a deliberately closed payout gate', () => {
