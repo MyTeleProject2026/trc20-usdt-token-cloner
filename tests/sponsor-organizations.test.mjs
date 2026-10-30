@@ -11,6 +11,8 @@ const VALID_ADDRESS = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 function createMemoryStore() {
   const organizations = new Map()
   const accounts = new Map()
+  const links = new Map()
+  let nextLinkId = 1
   let nextOrganizationId = 1
   let nextAccountId = 1
 
@@ -24,6 +26,33 @@ function createMemoryStore() {
           .slice(0, limit)
           .map((item) => ({ ...item, accounts: [...accounts.values()].filter((account) => account.organizationId === item.id) })),
       }
+    },
+    async listBudgetLinks({ organizationId, limit }) {
+      return {
+        success: true,
+        links: [...links.values()].filter((item) => !organizationId || item.organizationId === organizationId).slice(0, limit),
+      }
+    },
+    async linkBudget(organizationId, accountId, budgetId, reviewReference) {
+      const existing = [...links.values()].find((item) => item.budgetId === budgetId)
+      if (existing) {
+        const same = existing.organizationId === organizationId && existing.accountId === accountId
+        return same ? { success: true, duplicate: true, link: existing }
+          : { success: false, reason: 'budget-already-linked-to-another-account' }
+      }
+      const link = {
+        id: String(nextLinkId++), organizationId, accountId, budgetId,
+        status: 'active', reviewReference, canSubmitSponsoredTransfer: false,
+      }
+      links.set(link.id, link)
+      return { success: true, duplicate: false, link }
+    },
+    async revokeBudgetLink(linkId, reviewReference) {
+      const link = links.get(linkId)
+      if (!link) return { success: false, reason: 'budget-link-not-found' }
+      link.status = 'revoked'
+      link.reviewReference = reviewReference
+      return { success: true, link }
     },
     async createOrganization(input) {
       if ([...organizations.values()].some((item) => item.sponsorReference === input.sponsorReference)) {
@@ -286,6 +315,57 @@ test('registry listing is protected, non-cacheable, and remains non-executable',
   assert.equal(payload.organizations.length, 1)
   assert.equal(payload.organizations[0].status, 'pending_review')
   assert.equal(payload.canSubmitSponsoredTransfer, false)
+})
+
+test('budget-link routes accept only bounded link metadata and remain non-executable', async (t) => {
+  const store = createMemoryStore()
+  const base = await serve(t, store)
+  const created = await fetch(base + '/sponsorship/organizations', {
+    method: 'POST', headers: adminHeaders(),
+    body: JSON.stringify({ sponsorReference: 'independent-org-alpha', legalName: 'Alpha Treasury Ltd' }),
+  })
+  const organization = (await created.json()).organization
+  const accountResponse = await fetch(base + `/sponsorship/organizations/${organization.id}/accounts`, {
+    method: 'POST', headers: adminHeaders(),
+    body: JSON.stringify({
+      sponsorReference: 'alpha-mainnet-principal', network: 'mainnet',
+      role: 'asset-principal', address: VALID_ADDRESS,
+    }),
+  })
+  const account = (await accountResponse.json()).account
+  const endpoint = base + `/sponsorship/organizations/${organization.id}/budget-links`
+
+  const secretRejected = await fetch(endpoint, {
+    method: 'POST', headers: adminHeaders(),
+    body: JSON.stringify({
+      accountId: account.id, budgetId: '45', reviewReference: 'budget-link-review-001',
+      privateKey: 'must-never-be-accepted',
+    }),
+  })
+  assert.equal(secretRejected.status, 400)
+
+  const createdLink = await fetch(endpoint, {
+    method: 'POST', headers: adminHeaders(),
+    body: JSON.stringify({ accountId: account.id, budgetId: '45', reviewReference: 'budget-link-review-001' }),
+  })
+  const linkPayload = await createdLink.json()
+  assert.equal(createdLink.status, 201)
+  assert.equal(linkPayload.link.status, 'active')
+  assert.equal(linkPayload.canSubmitSponsoredTransfer, false)
+  assert.equal(linkPayload.submissionEnabled, false)
+
+  const listed = await fetch(endpoint, { headers: adminHeaders() })
+  assert.equal(listed.status, 200)
+  assert.equal((await listed.json()).links.length, 1)
+
+  const revoked = await fetch(base + `/sponsorship/budget-links/${linkPayload.link.id}/revoke`, {
+    method: 'POST', headers: adminHeaders(),
+    body: JSON.stringify({ reviewReference: 'budget-link-revoke-001' }),
+  })
+  const revokedPayload = await revoked.json()
+  assert.equal(revoked.status, 200)
+  assert.equal(revokedPayload.link.status, 'revoked')
+  assert.equal(revokedPayload.canSubmitSponsoredTransfer, false)
 })
 
 test('registry database schema provides organization isolation and immutable audit references', async () => {
