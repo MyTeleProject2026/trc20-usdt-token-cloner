@@ -25,6 +25,7 @@ export function validateSponsorBudget(input) {
   if (!PURPOSES.has(purpose)) return { valid: false, reason: 'invalid-purpose' }
   if (!ASSETS.has(asset)) return { valid: false, reason: 'invalid-asset' }
   if (purpose === 'network-fee' && asset !== 'TRX') return { valid: false, reason: 'network-fee-must-use-trx' }
+  if (purpose === 'asset-grant' && asset !== 'USDT') return { valid: false, reason: 'asset-grant-must-use-official-mainnet-usdt' }
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
   if (TOKEN_ASSETS.has(asset) && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
@@ -63,6 +64,7 @@ export function validateSponsorTransferIntent(input, { isValidAddress, maxTransf
   if (!PURPOSES.has(purpose)) return { valid: false, reason: 'invalid-purpose' }
   if (!ASSETS.has(asset)) return { valid: false, reason: 'invalid-asset' }
   if (purpose === 'network-fee' && asset !== 'TRX') return { valid: false, reason: 'network-fee-must-use-trx' }
+  if (purpose === 'asset-grant' && asset !== 'USDT') return { valid: false, reason: 'asset-grant-must-use-official-mainnet-usdt' }
   if (asset === 'TRX' && tokenContract) return { valid: false, reason: 'native-trx-has-no-token-contract' }
   if (TOKEN_ASSETS.has(asset) && (typeof tokenContract !== 'string' || !tokenContract.trim())) {
     return { valid: false, reason: 'token-contract-required' }
