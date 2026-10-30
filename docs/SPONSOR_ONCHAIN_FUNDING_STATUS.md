@@ -1,118 +1,79 @@
-# Sponsor on-chain balance status
+# Sponsor on-chain balance status — Tether Mainnet only
 
-## Endpoint
+## Read-only funding endpoint
 
 `GET /api/tron/sponsorship/funding-status?network=mainnet|shasta|nile`
 
-The endpoint performs read-only queries against the selected Tatum TRON Solidity gateway. It reports the configured sponsor wallet's native TRX balance and, where the server has a reviewed network-specific contract list, the balance of those exact TRC-20 contracts. Token balances are returned as integer base units with the contract address and decimals. A failed token query is marked unavailable and is never converted into a zero balance.
+The endpoint reads the configured sponsor address's native TRX balance from the selected network's solidified TRON state. It also reads an official Tether USDT balance only on Mainnet, pinned in backend code to:
 
-Successful solidified balance snapshots are cached for up to 10 seconds per network, and simultaneous reads for the same network share one in-flight provider request. The response labels a cached snapshot and its age so the UI can distinguish reused data from a fresh read.
+- Network: TRON Mainnet
+- Contract: `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`
+- Decimals: `6`
 
-The endpoint does not sign, submit, or broadcast transactions. It deliberately returns `sponsorFundingVerified: false`, `canSubmitSponsoredTransfer: false`, and `submissionEnabled: false` even after a chain balance has been read. A public chain balance snapshot is not evidence of the sponsor's consent, control of a signing authority, availability of a separate approved budget, or permission to spend those assets.
+On Nile and Shasta the funding endpoint reports native TRX only. It ignores token-contract allowlist variables on testnets. A testnet token is not official Tether USDT and cannot be used as payout principal.
+
+Successful solidified snapshots cache for up to ten seconds. Failed token queries are marked unavailable and are never converted to a zero balance.
+
+This endpoint is read-only. It never signs, submits, or broadcasts a transaction. It always reports `sponsorFundingVerified: false`, `canSubmitSponsoredTransfer: false`, and `submissionEnabled: false` until separate approval and transaction controls are completed. A balance snapshot is not consent or spending authority.
 
 ## Backend environment
 
-Set these values only in the backend's server environment:
+Configure values only on the backend:
 
-- `SPONSOR_MAINNET_ADDRESS`, `SPONSOR_SHASTA_ADDRESS`, `SPONSOR_NILE_ADDRESS`: the public sponsor address intended to be monitored on each exact network.
-- `TATUM_API_KEY`: backend-only read API key for the Tatum TRON Solidity gateways.
-- `SPONSOR_USDT_SHASTA_CONTRACTS`, `SPONSOR_USDT_NILE_CONTRACTS`: reviewed testnet USDT-like contract addresses, comma separated. A testnet token is not official Mainnet USDT.
-- `SPONSOR_VTRC_MAINNET_CONTRACTS`, `SPONSOR_VTRC_SHASTA_CONTRACTS`, `SPONSOR_VTRC_NILE_CONTRACTS`: reviewed VTRC contract addresses for each network, comma separated. VTRC remains an independent project token.
-- On Mainnet, the USDT query is pinned to Tether's official TRON contract in the backend; a symbol or configurable address cannot redefine official USDT.
+- `SPONSOR_MAINNET_ADDRESS`: authorized organization Mainnet Tether treasury or principal sponsor address to monitor.
+- `SPONSOR_FEE_MAINNET_ADDRESS`: separate Mainnet fee/resource sponsor address where applicable.
+- `SPONSOR_ASSET_MAINNET_ADDRESS`: Mainnet asset-principal sponsor address; this must be the organization-approved Tether treasury.
+- `SPONSOR_SHASTA_ADDRESS`, `SPONSOR_NILE_ADDRESS` and corresponding fee/asset role addresses: test-only TRX resource diagnostics, not token payout principal.
+- `TATUM_API_KEY`: backend-only read API credential.
 
-The endpoint rejects malformed sponsor addresses, invalid networks, and malformed token allowlists. It checks the address returned by the Solidity gateway against the requested sponsor address. The API key is used only in a server-side header and is not returned in JSON.
+Do not configure `SPONSOR_USDT_NILE_CONTRACTS`, `SPONSOR_USDT_SHASTA_CONTRACTS`, or VTRC token lists. The backend ignores testnet token allowlists. Mainnet official USDT is pinned in source code; a Render variable cannot redefine its contract.
+
+The funding reader validates the address returned by the Solidity gateway against the requested sponsor address. The API key is sent only in a server-side header and is never returned in JSON.
 
 ## Readiness interpretation
 
-- `sponsor-address-not-configured`: no wallet address is configured for that network; no chain balance was queried.
-- `provider-credentials-missing`: a wallet address exists, but the read API key is missing; no balance was inferred.
-- `solidified-sponsor-balances-read`: the native TRX balance was obtained from the selected network's solidified state. Each token contract has its own `verified` or `unavailable` status.
-- `solidified-balance-read-failed`: the API could not verify the chain balance. Treat it as unknown, not zero.
+- `sponsor-address-not-configured`: no monitoring address configured for that network.
+- `provider-credentials-missing`: the read API credential is missing.
+- `solidified-sponsor-balances-read`: native TRX was read; on Mainnet the exact official USDT contract is also checked.
+- `solidified-balance-read-failed`: chain state could not be verified. Treat it as unknown, not zero.
+- A missing or failed Mainnet USDT read is not evidence that the treasury has no USDT; it is an unavailable observation.
 
-This view does not measure the PostgreSQL sponsor budget ledger. Operators must reconcile on-chain assets against separately approved per-network, per-asset budget limits; fee resources and transfer principal must remain distinct. It also does not enable a GasFree submission: GasFree's documented activation/transfer fees are paid in the transferred token and therefore do not prove external sponsor-paid fees.
+This view does not measure an approved budget or authorize a transfer. Operators must reconcile the Mainnet USDT principal separately from TRX fee/resource limits.
 
-## Remaining transaction activation gates
+## Sponsor budget rules
 
-The repository now has scoped sponsor budget drafts and activation, atomic ledger reservations, idempotency checks, a protected pause control, on-chain balance snapshots/reconciliation, and audited budget/transfer status changes. These are ledger safeguards, not a live signing or provider-submission implementation.
+Protected budget endpoints require `Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>`. That credential is server-only, belongs to the sponsoring organization, and must be held by its appointed administrator. Never expose it to the browser, a frontend environment variable, GitHub, or chat.
 
-Before any sponsored TRX or USDT transfer can be enabled, the project still needs a production provider/relay adapter, a reviewed user-wallet or managed-signer authorization model, recipient and per-user/daily spend controls enforced in the actual signing path, nonce/replay protections bound to the signed transfer intent, post-broadcast fee/failure reconciliation, monitoring and emergency response, and a complete test-network end-to-end run. Mainnet sending also requires explicit operator release approval and a verified sponsor agreement/funding model. The GasFree submission route remains disabled; no seed phrase or private key should be sent to this service.
+The sponsor budget API accepts:
+- `purpose: "network-fee"` with `asset: "TRX"` for fee/resource limits;
+- `purpose: "asset-grant"` only with `asset: "USDT"`, network `mainnet`, and the exact official contract above.
 
+It rejects VTRC, testnet USDT-like contracts, and native TRX asset-grant principal. The PostgreSQL schema retains old historical rows for compatibility, but runtime policy will not create new VTRC or testnet-token budgets.
 
-## Protected sponsor budget ledger
+A new budget draft is always `pending-review`. It is not an activated budget, funding proof, or transfer authorization. Mainnet budget activation remains separately gated and cannot enable payout submission.
 
-The following administrative endpoints require `Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>`. Configure a random server-only token of at least 32 characters in the backend environment. Never expose it as a Vite variable or embed it in the frontend.
+## Testnet reservation boundary
 
-- `GET /api/tron/sponsorship/budgets?network=mainnet|shasta|nile` lists configured budget caps, reservations, recorded spend and ledger-available base units. It is read-only and requires the admin token.
-- `POST /api/tron/sponsorship/budgets` creates a budget draft for a configured server-side sponsor address. Required JSON fields are `network`, `sponsorReference`, `purpose` (`network-fee` or `asset-grant`), `asset` (`TRX`, `USDT`, or `VTRC`), `budgetBaseUnits` (positive integer string), and `tokenContract` for token assets.
+`POST /api/tron/sponsorship/transfers/reserve` is a testnet-only fee-resource reservation route. It accepts Nile/Shasta `network-fee` reservations for native TRX only. It rejects USDT/VTRC principal grants.
 
-Creation always sets the row to `pending-review`; duplicate identities are rejected and audited in the same database transaction. The endpoint cannot activate, reserve, sign, submit, or broadcast a transfer. No public UI stores or sends the administrator token. The requested amount is a ledger cap, not a verified wallet balance; compare it with the read-only funding snapshot during operator review. Existing budgets are not edited by these endpoints.
+The endpoint does not use the end user's wallet balance, and it does not send Tether. Its response represents only an internal reservation. Testnet TRX and testnet token balances have no Mainnet monetary value.
 
+## Mainnet Tether payout requests
 
-## Safe cancellation of unsubmitted reservations
+The owner wallet UI submits an owner-signed request for organization review:
 
-`POST /api/tron/sponsorship/transfers/:idempotencyKey/cancel` requires the same server-only sponsor administrator bearer token as the ledger endpoints. The JSON body must contain exactly one `cancellationReason` selected from `operator-request`, `recipient-request`, `duplicate-request`, `eligibility-expired`, or `emergency-stop`.
+- `POST /api/treasury/payout-requests`
+- `GET /api/treasury/payout-requests/:idempotencyKey`
+- `GET /api/treasury/payout-requests?limit=50` (separate `TREASURY_PAYOUT_REVIEW_API_TOKEN`, read-only)
 
-The endpoint uses the database's locked state transition so the transfer status, release of the reserved budget, and audit event commit atomically. Repeating cancellation for an already-cancelled reservation is idempotent. Only `pending-review` or `authorized` reservations can be cancelled. A `submitted` transaction cannot be cancelled or have its reservation released through this endpoint because a broadcast transaction may still consume fees or settle on-chain; it must remain held for evidence-based reconciliation.
+The asset, network, contract and decimals are fixed by backend code. A stored request is `pending-organization-review`; it is not an approval, budget reservation, Fireblocks instruction, transaction ID, or transfer. The review token is different from `SPONSOR_ADMIN_API_TOKEN` and cannot approve or execute payouts.
 
-This is an administrative ledger operation only. It cannot sign or broadcast a transaction and does not enable sponsored submission. If the endpoint returns an unavailable/ambiguous response, check the protected transfer list before retrying with the same reservation identity.
+## Current production gate
 
-## Budget emergency pause
+The production payout routes still contain the immutable server-side execution gate:
 
-`POST /api/tron/sponsorship/budgets/:id/pause` is protected by the same server-only administrator bearer token. It requires one controlled reason code: `operator-request`, `funding-mismatch`, `provider-incident`, or `emergency-stop`. It uses a row lock and a database transaction to change the configured budget to `paused` and record an audit event. Repeated pauses are idempotent. Depleted budgets remain terminal. A paused budget cannot be used for new reservations by the existing reservation function. Pausing cannot reverse or cancel transactions already submitted to TRON.
+`REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true`
 
-The funding endpoint accepts `refresh=1` to bypass a fresh successful snapshot once per 10 seconds per network. Repeated forced refreshes are throttled; successful snapshots cache for up to 10 seconds and provider failures cache for 3 seconds to avoid retry storms. Responses carrying sponsor balances or ledger details include `Cache-Control: no-store`.
+Keep `TREASURY_WITHDRAWALS_ENABLED=false` and `TREASURY_TRX_WITHDRAWALS_ENABLED=false`. The code does not currently submit a genuine Mainnet USDT transfer. External organization approval, Fireblocks production vault authorization and funding, security review and a separately approved release are still outstanding.
 
-
-## Budget activation gate
-
-`POST /api/tron/sponsorship/budgets/:id/activate` requires the protected administrator token, a review/ticket reference, and an agreement reference that has already been placed in server-only `SPONSOR_APPROVED_AGREEMENT_REFERENCES` after an operator independently reviews the signed sponsor agreement. Merely supplying a string is not sufficient. The allowlist is semicolon-separated, with each entry encoded as `reference|sponsorReference|network|sponsorAddress|purpose|asset|tokenContract`; use `-` for `tokenContract` on TRX budgets. The reference, sponsor reference, wallet, network, purpose, asset, and token contract must all match the exact draft. The same scope comparison runs again inside the locked database transaction. The endpoint selects the funding reader from the budget purpose (`network-fee` uses `networkFeeSponsor`; `asset-grant` uses `assetPrincipalSponsor`), requires both role addresses to be configured and distinct, refreshes the exact role's solidified snapshot, and rejects throttled/stale reads, budget-address mismatches, missing exact-asset balances, and caps that exceed the chain balance after other active/paused allocations for that wallet/network/asset are included.
-
-Activation is serialized at the sponsor-wallet/network/asset level with a PostgreSQL transaction and advisory lock, stores the approval/review references and timestamp, and writes an audit event. Inactive drafts do not consume an allocation until approved, but outstanding reservations on other inactive records are still included. A successful activation makes the ledger budget eligible for internal reservations only; there is still no signing or submission capability.
-
-Mainnet activation additionally requires `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=true`, which defaults to `false`. Both the allowlisted agreement reference and this separate Mainnet gate are required in addition to administrator authentication and fresh balance reconciliation. These configuration settings never turn on the GasFree submission endpoint or a transfer broadcast path.
-
-
-## Read-only sponsor reconciliation
-
-`GET /api/tron/sponsorship/reconciliation?network=mainnet|shasta|nile` requires the server-only sponsor administrator bearer token. It obtains a fresh solidified-chain snapshot and compares TRX or exact-contract token balances with every sponsor budget recorded for that network. The ledger list is bounded to 99 records for this operation; when 100 records are present the endpoint stops and returns `sponsor-budget-ledger-truncated` rather than claiming the allocations are covered.
-
-The comparison groups allocations by exact token contract and network, counts active and paused remaining caps as commitments, and includes already-held reservations from other statuses. It reports `covered`, `underfunded`, `balance-unavailable`, `wallet-scope-mismatch`, `approval-required`, `no-committed-allocations`, or `no-sponsor-budgets` as applicable. The explicit `covered` boolean is true only when there is at least one committed allocation and all such groups are covered; a successful calculation of an underfunded or empty report is not a claim of funding. It does not use a stale/cached snapshot when a forced refresh is throttled. An active record without an activation timestamp and currently configured exact-scope sponsor approval is not considered covered.
-
-This is a point-in-time report only. It does not pause budgets automatically, modify reservations, sign transactions, or turn an underfunded budget into an approved transfer. A chain balance may change immediately after the report; any future provider-submission flow needs its own just-in-time spend authorization and reconciliation.
-
-## Reservation authorization safety
-
-New reservations require an active sponsor budget with an activation timestamp, a review reference, and a still-configured agreement scope matching the exact sponsor reference, wallet, network, purpose, asset, and token contract. Moving a reserved transfer to `authorized` or `submitted` rechecks the active approved budget again. Legacy/manual active rows that lack this evidence cannot create new reservations. Moving a reservation to `authorized` or `submitted` also rechecks that the budget is active and its scope approval is still valid; pausing a budget therefore blocks later authorization/submission transitions for reserved-but-not-submitted transfers. Existing already-submitted transfers can still be confirmed or reconciled because a pause cannot reverse an on-chain transaction.
-
-## Still required before any real sponsor-funded broadcast
-
-The ledger and reconciliation controls are implemented as accounting and readiness safeguards only. A live transaction provider/signing adapter is not enabled; no sponsor private key is stored; no wallet signature is validated by this ledger path; and no transfer is broadcast. Before that work can safely begin, the project still needs an independently reviewed wallet/provider authorization model, recipient and daily spend limits, nonce/replay handling in the actual signing path, failure/fee reconciliation after broadcast, monitoring and alerting, and a complete test-network end-to-end run. Mainnet transaction sending must remain separately gated and should not be enabled until that entire path is reviewed and verified.
-
-
-## Protected transfer lifecycle history
-
-`GET /api/tron/sponsorship/transfers` requires the same server-only administrator bearer token as the sponsor budget ledger. Optional filters are `network`, `status`, `sponsorReference`, and `limit` (1–100). The response is bounded, marks truncation, and is sent with `Cache-Control: no-store`. It reports internal intent lifecycle fields only; it does not prove a transaction was mined or credited, and cannot mutate transfer state or release reservations. Only the independent solidified-chain verifier may supply evidence for final confirmation.
-
-
-## Protected testnet sponsor reservation endpoint
-
-`POST /api/tron/sponsorship/transfers/reserve` is protected by `Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>`. It accepts only the following fields:
-
-```json
-{
-  "idempotencyKey": "testnet-usdt-grant-0001-01",
-  "network": "nile",
-  "sponsorReference": "approved-sponsor-reference",
-  "purpose": "asset-grant",
-  "asset": "USDT",
-  "tokenContract": "T...",
-  "receiverAddress": "T...",
-  "amountBaseUnits": "1000000"
-}
-```
-
-Use `purpose: "network-fee"` with `asset: "TRX"` for a separate fee/resource budget. Asset grants use `purpose: "asset-grant"` and an allowlisted `TRX`, `USDT`, or `VTRC` contract as applicable. The API rejects unknown fields, signing material, malformed integer amounts, Mainnet requests, and fee budgets that use a non-TRX asset. It never accepts a client-supplied sponsor address: the budget and funding snapshot must match the configured role address.
-
-The endpoint chooses the network-fee sponsor for `network-fee` reservations and the asset-principal sponsor for `asset-grant` reservations. For a new reservation it requests a fresh, exact-network role snapshot and delegates to the existing atomic PostgreSQL reservation helper. The helper requires an active budget, a still-allowlisted exact-scope agreement, a fresh solidified balance for the same sponsor wallet, exact token-contract identity, sufficient remaining ledger cap, and sufficient chain balance after other allocations. The `idempotencyKey` is unique; a retry with the same full intent is returned as a duplicate rather than creating another reservation, while a different intent under the same key is rejected.
-
-A successful response means only that the internal budget reservation was recorded as `pending-review`; it does not mean an operator approved the individual transfer, the sponsor signed anything, or the chain received a transaction. The response explicitly keeps `canSubmitSponsoredTransfer` and `submissionEnabled` false. No provider call for transaction submission, signing, or broadcast is made by this route. The GasFree submit endpoint remains disabled, and the asset-principal and fee/resource paths still require a separately reviewed real signing/submission implementation and testnet end-to-end evidence.
+A future production path must verify the exact solidified Mainnet Tether Transfer event and reconcile actual USDT principal and TRX costs. An on-chain transfer is not an exchange credit; the receiving exchange's own deposit record is required.
