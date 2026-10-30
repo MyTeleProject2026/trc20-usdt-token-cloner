@@ -14,10 +14,10 @@ function usage() {
     '  --network nile|shasta',
     '  --sponsor-reference <approved sponsorReference>',
     '  --purpose network-fee|asset-grant',
-    '  --asset TRX|USDT|VTRC',
+    '  --asset TRX|USDT',
     '  --receiver <TRON address>',
     '  --amount-base-units <positive integer string>',
-    '  --token-contract <allowlisted TRON token contract>  (required for USDT/VTRC)',
+    '  --token-contract <allowlisted TRON token contract>  (required for USDT)',
     '',
     'Optional:',
     '  --idempotency-key <24-160 character key>  (generated if omitted)',
@@ -124,7 +124,7 @@ async function main() {
 
   if (!['nile', 'shasta'].includes(network)) throw new Error('Only Nile or Shasta testnet reservations are supported.')
   if (!['network-fee', 'asset-grant'].includes(purpose)) throw new Error('--purpose must be network-fee or asset-grant.')
-  if (!['TRX', 'USDT', 'VTRC'].includes(asset)) throw new Error('--asset must be TRX, USDT, or VTRC.')
+  if (!['TRX', 'USDT'].includes(asset)) throw new Error('--asset must be TRX or USDT.')
   if (purpose === 'network-fee' && asset !== 'TRX') throw new Error('A network-fee reservation must use asset TRX.')
   if (typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference)) throw new Error('--sponsor-reference must be a reference already approved for the configured sponsor budget.')
   if (!/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) throw new Error('--idempotency-key must be 24-160 characters and use letters, numbers, dot, underscore, colon, or hyphen.')
