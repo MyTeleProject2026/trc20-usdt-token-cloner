@@ -1632,7 +1632,7 @@ export default function WalletVault() {
                         && /^(0|[1-9][0-9]*)$/.test(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits)
                         && BigInt(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits) > 0n && (
                         <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress} onClick={() => void performWalletAction(selectTreasuryUsdtSender)}>
-                          <ShieldCheck size={16} /> Use funded treasury for a real USDT payout
+                          <ShieldCheck size={16} /> View treasury status (read-only)
                         </button>
                       )}
                       {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
@@ -1641,8 +1641,8 @@ export default function WalletVault() {
                     </>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>Server treasury payout (separate funded wallet)</strong>
-                    <p>The backend signs from TREASURY_ADDRESS using a server-only key. Your owner wallet only authorizes the request; it does not need to hold the USDT principal. This remains disabled until the backend is configured with a funded treasury, persistent database, explicit payout limits, and the signer key matching the treasury address.</p>
+                    <strong>Server treasury payout — disabled in this build</strong>
+                    <p>This panel is read-only in the current supervised development build. It does not sign or submit a payout. Any future production treasury workflow requires separate review and authorization by the responsible organization.</p>
                   </div>
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
@@ -1714,7 +1714,7 @@ export default function WalletVault() {
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
-                  <div><h2 id="wallet-vault-transfer-heading">{network === 'mainnet' ? 'Send from this wallet' : 'Send a testnet transfer'}</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review transfer details only. Signing and broadcast are disabled in this build.'}</p></div>
+                  <div><h2 id="wallet-vault-transfer-heading">Transfer preview</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review transfer details only. Signing and broadcast are disabled in this build.'}</p></div>
                 </div>
                 <div className="wallet-vault-transfer-warning" role="note">
                   <strong>Read-only transfer review</strong>
