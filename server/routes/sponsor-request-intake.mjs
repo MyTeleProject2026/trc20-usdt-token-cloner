@@ -122,9 +122,8 @@ export function createSponsorRequestStore(env = process.env) {
             CHECK ((asset = 'TRX' AND token_contract IS NULL AND decimals = 6)
               OR (asset = 'USDT' AND token_contract IS NOT NULL))
           )
-        `)
-        // Legacy intake rows may be inspected, but new writes must use the supported
-        // TRX/USDT asset set. NOT VALID avoids a destructive table scan/migration.
+        // Legacy intake rows may be inspected, but every new write must use the supported
+        // TRX/USDT asset set. NOT VALID preserves old rows without allowing new VTRC rows.
         await db.query(`DO $sponsor_intake_supported_asset$ BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
@@ -258,7 +257,6 @@ export function createSponsorRequestStore(env = process.env) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CHECK ((asset = 'TRX' AND token_contract IS NULL AND decimals = 6)
               OR (asset = 'USDT' AND token_contract IS NOT NULL))
-          )
 )
         await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_payout_intake_owner_idx
