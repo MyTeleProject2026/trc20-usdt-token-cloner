@@ -351,8 +351,8 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
               CHECK (status IN ('pending_authorization','sponsor_authorization_complete','cancelled','expired'));
           END
           $$;
-        \\`)
-        await db.query(\`
+        `)
+        await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_authorization_challenges (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             intent_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_payout_intents(id) ON DELETE RESTRICT,
@@ -370,13 +370,13 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CHECK (expires_at > issued_at)
           )
-        \`)
-        await db.query(\`
+        `)
+        await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_org_payout_challenges_rate_idx
           ON trc20_token_clone.sponsor_organization_payout_authorization_challenges
             (intent_id, role, created_at DESC)
-        \`)
-        await db.query(\`
+        `)
+        await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_authorizations (
             id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             intent_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_payout_intents(id) ON DELETE RESTRICT,
@@ -391,12 +391,12 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             signed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE (intent_id, role)
           )
-        \`)
-        await db.query(\`
+        `)
+        await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_org_payout_authorizations_owner_idx
           ON trc20_token_clone.sponsor_organization_payout_authorizations
             (organization_id, account_id, signed_at DESC)
-        \`)
+        `)
       })().catch((error) => { schemaPromise = null; throw error })
     }
     await schemaPromise
