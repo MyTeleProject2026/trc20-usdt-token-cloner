@@ -29,7 +29,7 @@ Accepted JSON fields:
 - `receiverAddress`: TRON Base58 destination
 - `amountBaseUnits`: positive uint256 integer string
 
-Mainnet USDT is recognized only at the official Mainnet Tether contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`. Other contracts must be placed in the server-side allowlist `SPONSOR_USDT_<NETWORK>_CONTRACTS` or `SPONSOR_VTRC_<NETWORK>_CONTRACTS`. Configured USDT-like testnet contracts are labeled as testnet contracts and must not be presented as official Mainnet USDT.
+Official Tether USDT is recognized only on TRON Mainnet at `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` with six decimals. No configurable token allowlist can redefine Tether's contract identity. Nile/Shasta token contracts and independent project tokens are not eligible as Tether payout principal. Testnet diagnostics cover native TRX fee/resources only.
 
 The endpoint simulates the exact direct `transfer(address,uint256)` call from the principal sponsor, reads current energy pricing, and reports the principal sponsor's estimated Energy shortfall separately from the fee sponsor's own resources. It deliberately does not claim to estimate signed transaction bandwidth or total network fee.
 
