@@ -9,7 +9,7 @@ const NETWORKS = new Set(['nile', 'shasta'])
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,160}$/
 const AMOUNT_PATTERN = /^[1-9][0-9]{0,77}$/
-const TOKEN_ASSETS = ['USDT', 'VTRC']
+const TOKEN_ASSETS = ['USDT']
 
 function noStore(res) {
   res.setHeader('Cache-Control', 'no-store')
@@ -111,7 +111,7 @@ export function createSponsorRequestStore(env = process.env) {
             requester_address TEXT NOT NULL,
             network TEXT NOT NULL CHECK (network IN ('nile', 'shasta')),
             recipient_address TEXT NOT NULL,
-            asset TEXT NOT NULL CHECK (asset IN ('TRX', 'USDT', 'VTRC')),
+            asset TEXT NOT NULL CHECK (asset IN ('TRX', 'USDT')),
             token_contract TEXT,
             amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
             decimals SMALLINT NOT NULL CHECK (decimals BETWEEN 0 AND 30),
@@ -120,7 +120,7 @@ export function createSponsorRequestStore(env = process.env) {
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CHECK ((asset = 'TRX' AND token_contract IS NULL AND decimals = 6)
-              OR (asset IN ('USDT', 'VTRC') AND token_contract IS NOT NULL))
+              OR (asset = 'USDT' AND token_contract IS NOT NULL))
           )
         `)
         await db.query(`

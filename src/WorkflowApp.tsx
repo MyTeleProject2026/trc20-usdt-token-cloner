@@ -94,7 +94,7 @@ type SponsorIntegrationReadiness = {
       bothRoleAddressesConfigured?: boolean
       roleAddressesDistinct?: boolean | null
     }
-    tokenContractAllowlist?: { usdt?: boolean; vtrc?: boolean }
+    tokenContractAllowlist?: { usdt?: boolean }
     gasFree?: {
       documentedNetwork?: boolean
       credentialsConfigured?: boolean
@@ -649,7 +649,6 @@ function SponsorIntegrationReadinessPanel({ readiness, network }: { readiness: S
     ['Asset-principal sponsor address format', selected?.addressMonitoring?.assetPrincipalSponsorAddressConfigured],
     ['Both role addresses configured', selected?.addressMonitoring?.bothRoleAddressesConfigured],
     ['USDT contract allowlist configured', selected?.tokenContractAllowlist?.usdt],
-    ['VTRC contract allowlist configured', selected?.tokenContractAllowlist?.vtrc],
     ['GasFree network supported by provider API', selected?.gasFree?.documentedNetwork],
     ['GasFree credentials configured', selected?.gasFree?.credentialsConfigured],
     ['GasFree provider discovery reachable', selected?.gasFree?.discoveryReachabilityVerified],
