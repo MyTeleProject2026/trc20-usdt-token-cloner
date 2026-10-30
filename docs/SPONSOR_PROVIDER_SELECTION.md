@@ -50,7 +50,7 @@ A single organization can perform both roles only if its mandate, budgets, accou
 - Require the exchange's correct deposit network, address, minimum amount and any required memo/tag from an authoritative exchange source before submission.
 - After sending, verify the transaction against solidified chain state, including successful execution and the exact token Transfer event/contract for TRC-20.
 - Report exchange-credit-unverified until the exchange's own authenticated status source confirms credit. Never simulate exchange credit.
-- A project token such as VTRC must be labelled as a separate project token, not official Tether USDT.
+- Only the exact official Tether TRON Mainnet contract is supported as asset principal. Independent project tokens and testnet USDT-like contracts are outside the product scope and must not be labelled as Tether USDT.
 
 ## Required before production activation
 
