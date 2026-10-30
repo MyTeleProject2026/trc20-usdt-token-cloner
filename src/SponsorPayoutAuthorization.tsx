@@ -47,13 +47,18 @@ function readActiveWallet(provider: WalletProvider, network: Network) {
   const tronWeb = provider.tronWeb || window.tronWeb
   const address = String(tronWeb?.defaultAddress?.base58 || '')
   if (!ADDRESS_PATTERN.test(address)) throw new Error('TronLink has no active Base58 wallet address. Unlock the wallet and select an account.')
-  const hostValue = String(tronWeb?.fullNode?.host || '')
-  let hostname = ''
-  try { hostname = new URL(hostValue).hostname.toLowerCase() } catch { /* handled below */ }
-  if (hostname !== NETWORK_HOSTS[network]) {
-    throw new Error('The active TronLink RPC network does not match ' + network + '. Switch networks before approving this intent.')
+  const hostValue = String(tronWeb?.fullNode?.host || tronWeb?.fullNode?.nodeUrl || '')
+  let parsed: URL
+  try { parsed = new URL(hostValue) } catch {
+    throw new Error('TronLink RPC node could not be verified. Select the expected network before approving this intent.')
   }
-  return { address, hostname, tronWeb }
+  if (parsed.protocol !== 'https:'
+    || parsed.hostname.toLowerCase() !== NETWORK_HOSTS[network]
+    || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
+    || (parsed.pathname !== '' && parsed.pathname !== '/')) {
+    throw new Error('The active TronLink RPC network does not match ' + network + '. Switch to the exact official network endpoint before approving this intent.')
+  }
+  return { address, hostname: parsed.hostname.toLowerCase(), tronWeb }
 }
 
 async function requestJson(url: string, init: RequestInit = {}) {
