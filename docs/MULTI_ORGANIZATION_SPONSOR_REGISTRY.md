@@ -9,7 +9,7 @@ Organizations and accounts are separate. Each account records a network and one 
 - `asset-principal`: potential source of a sponsored TRX or allowlisted USDT principal grant.
 - `network-fee`: distinct account for separately approved network-fee/resource coverage.
 
-Each account has its own immutable `sponsorReference`, intended to match the exact sponsor reference used by the existing budget/agreement-scope workflow. This registry release does not yet enforce that cross-table relationship.
+Each account has its own immutable `sponsorReference`, which is checked against the sponsor reference on any budget linked to that account. A budget can belong to only one organization account.
 
 ## Administrator API
 
@@ -71,23 +71,24 @@ The response includes account inventory and review references and is protected b
 
 ## Database controls
 
-The registry creates three tables in the existing `trc20_token_clone` PostgreSQL schema:
+The registry creates four tables in the existing `trc20_token_clone` PostgreSQL schema:
 
 - `sponsor_organizations`
 - `sponsor_organization_accounts`
 - `sponsor_organization_audit_events`
+- `sponsor_organization_budget_links`
 
-Registration and review changes are written to the audit table in the same database transaction. Foreign keys prevent orphaned account/audit records. A unique constraint prevents reusing one network/address across multiple organizations. Provider credentials and signing material are neither accepted nor stored.
+Registration, review, budget linking and link revocation are written to the audit table in the same database transaction. Foreign keys prevent orphaned account/audit records. A unique constraint prevents reusing one network/address across multiple organizations. Provider credentials and signing material are neither accepted nor stored.
 
 ## Deliberately not enabled
 
-This release is registry and review workflow only. It does not yet link registry accounts to the existing sponsor-budget rows with a foreign key; validate sponsor agreements; verify wallet control or custodial attestations automatically; create provider connections; retrieve live balances/resources; allocate or select sponsors; reserve budgets; or create, sign, submit, or broadcast transactions.
+This release includes registry, review, exact budget association and read-only dual-sponsor candidate selection. It does not automatically validate legal documents or cryptographic wallet/custody attestations; create provider connections; reserve budgets for a selected payout; verify transaction-specific fee coverage; cryptographically authorize a specific transfer; or sign, submit, or broadcast transactions.
 
 All API responses explicitly keep `submissionEnabled: false` and `canSubmitSponsoredTransfer: false`. Organization/account records also report `payoutEligible: false`. Keep the separate real-value payout execution hard gate disabled.
 
 ## Next milestone
 
-The next implementation step is a reviewed, database-enforced mapping from approved organization accounts to the existing budget/agreement scopes, followed by a selection engine that checks principal and fee/resource capacity independently. Only then should the platform integrate a sponsor-owned provider/signer. A real sponsor must first provide written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service.
+The next implementation step is to bind the selected principal/fee pair to one immutable transfer intent, reserve both budgets atomically, and require transaction-specific fee/resource estimates plus a sponsor-owned cryptographic authorization for that exact intent. Only then should a sponsor-owned provider/signer be integrated and tested on a controlled testnet. A real sponsor must first provide written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service.
 
 A solidified TRON transfer does not prove an exchange credited a deposit. Exchange credit requires the receiving exchange's own authenticated deposit-status evidence.
 
