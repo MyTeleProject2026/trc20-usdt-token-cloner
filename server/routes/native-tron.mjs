@@ -1237,6 +1237,14 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
       message: 'Sponsor reservations are restricted to Shasta and Nile until separate production approval exists.',
     })
   }
+  if (body.purpose !== 'network-fee' || body.asset !== 'TRX') {
+    return res.status(409).json({
+      success: false,
+      error: 'testnet-asset-principal-grants-disabled',
+      canSubmitSponsoredTransfer: false,
+      message: 'This testnet route is limited to TRX network-fee reservations. Tether USDT principal is supported only on Mainnet using the official contract.',
+    })
+  }
   if (typeof body.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(body.idempotencyKey)
     || typeof body.sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sponsorReference)
     || !['network-fee', 'asset-grant'].includes(body.purpose)
