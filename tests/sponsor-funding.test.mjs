@@ -57,7 +57,6 @@ test('testnet sponsor funding reads native TRX only and ignores testnet token lo
   assert.equal(result.native.balanceTRX, '1.234567')
   assert.equal(result.tokens.length, 0)
   assert.equal(result.tokenBalancesComplete, true)
-  assert.equal(result.tokenBalancesComplete, true)
   assert.equal(result.sponsorFundingVerified, false)
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(result.submissionEnabled, false)
