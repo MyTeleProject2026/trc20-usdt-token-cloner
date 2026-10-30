@@ -618,9 +618,10 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
                l.created_at AS link_created_at, l.updated_at AS link_updated_at,
                o.sponsor_reference AS organization_reference, o.legal_name,
                o.status AS organization_status, o.agreement_reference,
-               a.sponsor_reference AS account_reference, a.network, a.role,
+               a.sponsor_reference AS account_reference, a.network AS account_network, a.role,
                a.wallet_address, a.status AS account_status,
-               b.sponsor_reference, b.sponsor_address, b.purpose, b.asset, b.token_contract,
+               b.sponsor_reference, b.sponsor_address, b.network AS budget_network,
+               b.purpose, b.asset, b.token_contract,
                b.budget_base_units::text AS budget_base_units,
                b.reserved_base_units::text AS reserved_base_units,
                b.spent_base_units::text AS spent_base_units,
@@ -641,7 +642,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           const budget = {
             sponsor_reference: row.sponsor_reference,
             sponsor_address: row.sponsor_address,
-            network: row.network,
+            network: row.budget_network,
             purpose: row.purpose,
             asset: row.asset,
             token_contract: row.token_contract,
@@ -655,10 +656,16 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             budget,
           })
           const available = BigInt(row.budget_base_units) - BigInt(row.reserved_base_units) - BigInt(row.spent_base_units)
+          const expectedRole = row.purpose === 'network-fee' ? 'network-fee'
+            : row.purpose === 'asset-grant' ? 'asset-principal' : null
           const active = row.link_status === 'active'
             && row.organization_status === 'approved'
             && row.account_status === 'verified'
             && row.budget_status === 'active'
+            && row.budget_network === row.account_network
+            && row.sponsor_reference === row.account_reference
+            && row.sponsor_address === row.wallet_address
+            && row.role === expectedRole
             && row.agreement_reference === row.approval_reference
             && row.approved_at != null && scopeVerified
             && available >= 0n
@@ -670,7 +677,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             organizationStatus: row.organization_status,
             accountId: row.account_id,
             accountReference: row.account_reference,
-            network: row.network,
+            network: row.budget_network,
             role: row.role,
             sponsorAddress: row.wallet_address,
             accountStatus: row.account_status,
