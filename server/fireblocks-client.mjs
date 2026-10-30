@@ -135,6 +135,12 @@ export function createFireblocksJwt({
   } catch {
     throw new Error('Fireblocks API authentication secret file is not a readable PEM private key.')
   }
+  // Fireblocks API-user credentials use an RSA-4096 key pair. Reject weaker
+  // or non-RSA keys before creating a request JWT; do not silently downgrade.
+  if (privateKey.asymmetricKeyType !== 'rsa'
+    || privateKey.asymmetricKeyDetails?.modulusLength !== 4096) {
+    throw new Error('Fireblocks API authentication requires an RSA-4096 private key.')
+  }
   const signature = sign('RSA-SHA256', Buffer.from(unsigned), privateKey).toString('base64url')
   return unsigned + '.' + signature
 }
