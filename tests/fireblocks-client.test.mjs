@@ -27,11 +27,15 @@ const fakeTronWeb = {
   },
 }
 
+let cachedKeyPair
 function keyPair() {
-  const pair = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  // Fireblocks production API-user credentials use RSA-4096.
+  if (!cachedKeyPair) {
+    cachedKeyPair = generateKeyPairSync('rsa', { modulusLength: 4096 })
+  }
   return {
-    privateKey: pair.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
-    publicKey: pair.publicKey,
+    privateKey: cachedKeyPair.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+    publicKey: cachedKeyPair.publicKey,
   }
 }
 
@@ -92,6 +96,21 @@ test('Fireblocks JWT rejects URL-based paths and malformed configuration', () =>
   assert.throws(() => createFireblocksJwt({
     apiKey: 'k', secretKey: privateKey, uri: 'https://attacker.example/v1/transactions',
   }))
+})
+
+test('Fireblocks JWT rejects RSA keys weaker than the provider-required 4096-bit size', () => {
+  const weak = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const weakPem = weak.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
+  assert.throws(
+    () => createFireblocksJwt({
+      apiKey: 'k',
+      secretKey: weakPem,
+      uri: '/v1/transactions',
+      now: 1_700_000_000_000,
+      nonce: 'weak-key-test',
+    }),
+    /RSA-4096/,
+  )
 })
 
 test('provider available USDT amount parses exactly and accepts zero without floating point', () => {
