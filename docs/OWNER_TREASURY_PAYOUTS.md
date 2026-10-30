@@ -12,7 +12,9 @@ Never share passwords, API credentials, secret files, private keys or recovery p
 
 The USDT payout route on this feature branch uses the Fireblocks production REST API. Fireblocks holds the vault transaction signing authority; Tron Token Studio sends a bounded transaction request using server-only API credentials. The Fireblocks API authentication RSA key is mounted as a backend secret file; it is not a blockchain private key, and it is never sent to the frontend.
 
-See [TREASURY_WITHDRAWALS.md](TREASURY_WITHDRAWALS.md) for exact endpoints, environment variables, provider policy requirements, and reconciliation rules.
+See [FIREBLOCKS_ORGANIZATION_VAULT_SETUP.md](FIREBLOCKS_ORGANIZATION_VAULT_SETUP.md) for the organization onboarding, dedicated TRON vault, USDT/TRX asset validation, RSA-4096 API-user, Render secret-file, and read-only readiness sequence.
+
+See [TREASURY_WITHDRAWALS.md](TREASURY_WITHDRAWALS.md) for the exact API endpoints, environment variables, provider policy requirements, and reconciliation rules.
 
 Required safeguards include:
 - The provider's configured vault account and asset ID must identify the actual official TRON USDT contract.
