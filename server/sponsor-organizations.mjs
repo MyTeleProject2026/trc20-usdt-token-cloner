@@ -868,6 +868,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         "WHERE intent_id = $1 AND status = 'active' ORDER BY budget_id FOR UPDATE",
         [intent.id],
       )
+      if (reservations.rows.length !== 2) throw new Error('Expired dual sponsor reservation pair is incomplete')
       for (const reservation of reservations.rows) {
         const updated = await client.query(
           "UPDATE trc20_token_clone.sponsor_budgets " +
@@ -933,7 +934,8 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       .split(',').map((item) => item.trim()).filter(Boolean)
     if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
       || !NETWORKS.has(network) || !['TRX', 'USDT'].includes(asset)
-      || (asset === 'TRX' ? tokenContract !== null : !isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts))
+      || (asset === 'TRX' ? tokenContract !== null
+        : !isValidTronAddress(tokenContract) || !isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts))
       || !isValidTronAddress(receiverAddress) || !uint(amountBaseUnits) || !uint(feeCapSun)
       || !validLinkId(principalLinkId) || !validLinkId(feeLinkId) || principalLinkId === feeLinkId) {
       return { success: false, reason: 'invalid-payout-intent' }
