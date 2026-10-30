@@ -1250,7 +1250,7 @@ export default function WalletVault() {
       'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
       'TREASURY_WITHDRAWALS_ENABLED=false',
       'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
-    ].join('\\n')
+    ].join('\n')
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
       await navigator.clipboard.writeText(template)
