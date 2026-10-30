@@ -110,27 +110,23 @@ test('GasFree credentials only show configuration presence, not zero-cost eligib
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
-test('token contract allowlists require every comma-separated item to be a valid TRON address', () => {
+test('testnet token principal allowlists are ignored because only Mainnet Tether is supported', () => {
   const result = getSponsorIntegrationReadiness({
     env: {
-      SPONSOR_USDT_NILE_CONTRACTS: `${addressA},${addressB}`,
-      SPONSOR_VTRC_NILE_CONTRACTS: `${addressA},not-a-contract`,
     },
   })
-  assert.equal(result.networks.nile.tokenContractAllowlist.usdt, true)
-  assert.equal(result.networks.nile.tokenContractAllowlist.vtrc, false)
+  assert.equal(result.networks.nile.tokenContractAllowlist.officialMainnetUsdt, false)
+  assert.equal(result.networks.nile.tokenContractAllowlist.testnetTokenPrincipalSupported, false)
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
 test('token contract allowlists reject empty list entries and whitespace-only values', () => {
   const result = getSponsorIntegrationReadiness({
     env: {
-      SPONSOR_USDT_NILE_CONTRACTS: `${addressA},`,
-      SPONSOR_VTRC_NILE_CONTRACTS: '   ',
     },
   })
-  assert.equal(result.networks.nile.tokenContractAllowlist.usdt, false)
-  assert.equal(result.networks.nile.tokenContractAllowlist.vtrc, false)
+  assert.equal(result.networks.nile.tokenContractAllowlist.officialMainnetUsdt, false)
+  assert.equal(result.networks.nile.tokenContractAllowlist.testnetTokenPrincipalSupported, false)
 })
 
 test('production readiness lists unresolved sponsor-funding, authorization and settlement release gates', () => {
