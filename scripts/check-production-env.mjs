@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs'
+import { createPrivateKey } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isValidTronAddress } from '../server/tron-address.mjs'
@@ -47,7 +48,10 @@ function check(status, detail) {
  * Safe environment preflight: reports variable names/status only, never values.
  * It cannot verify account ownership, provider metadata, balances, or settlement.
  */
-export function inspectProductionEnvironment(env = process.env, { fileExists = existsSync } = {}) {
+export function inspectProductionEnvironment(env = process.env, {
+  fileExists = existsSync,
+  readSecretFile = (path) => readFileSync(path, 'utf8'),
+} = {}) {
   const checks = {}
   const errors = []
   const warnings = []
@@ -143,14 +147,28 @@ export function inspectProductionEnvironment(env = process.env, { fileExists = e
   requiredString('FIREBLOCKS_API_KEY')
   const secretPath = present(env.FIREBLOCKS_SECRET_KEY_PATH) ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
   const secretFileAvailable = Boolean(secretPath && isAbsolute(secretPath) && fileExists(secretPath))
-  add('FIREBLOCKS_SECRET_KEY_PATH', !secretPath
+  let secretKeyStatus = !secretPath
     ? check('missing', 'Set an absolute Render Secret File path.')
     : !isAbsolute(secretPath)
       ? check('invalid', 'Must be an absolute file path.')
-      : secretFileAvailable
-        ? check('configured', 'The file path exists; PEM validity was not tested.')
-        : check('missing-file', 'The path does not exist in this runtime; upload the provider API-user RSA key as a Render Secret File.')
-  , { error: !secretFileAvailable })
+      : !secretFileAvailable
+        ? check('missing-file', 'The path does not exist in this runtime; upload the provider API-user RSA key as a Render Secret File.')
+        : null
+  if (secretFileAvailable) {
+    try {
+      const privateKey = createPrivateKey(readSecretFile(secretPath))
+      if (privateKey.asymmetricKeyType !== 'rsa') {
+        secretKeyStatus = check('invalid-key-type', 'The Fireblocks API authentication key must be an RSA private key.')
+      } else if (privateKey.asymmetricKeyDetails?.modulusLength !== 4096) {
+        secretKeyStatus = check('invalid-key-size', 'The Fireblocks API authentication key must be RSA-4096; no key material is displayed.')
+      } else {
+        secretKeyStatus = check('configured', 'The mounted PEM is readable and RSA-4096; key material is never displayed.')
+      }
+    } catch {
+      secretKeyStatus = check('invalid-key-file', 'The mounted file is not a readable PEM private key; key material is never displayed.')
+    }
+  }
+  add('FIREBLOCKS_SECRET_KEY_PATH', secretKeyStatus, { error: secretKeyStatus.status !== 'configured' })
 
   add('FIREBLOCKS_VAULT_ACCOUNT_ID', /^\d{1,32}$/.test(env.FIREBLOCKS_VAULT_ACCOUNT_ID || '')
     ? check('configured', 'Numeric vault account ID syntax.')
