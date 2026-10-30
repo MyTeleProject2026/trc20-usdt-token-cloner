@@ -9,7 +9,6 @@ const NETWORKS = new Set(['nile', 'shasta'])
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,160}$/
 const AMOUNT_PATTERN = /^[1-9][0-9]{0,77}$/
-const TOKEN_ASSETS = ['USDT', 'VTRC']
 
 function noStore(res) {
   res.setHeader('Cache-Control', 'no-store')
@@ -31,23 +30,6 @@ function isValidAdminToken(req, env) {
   const supplied = Buffer.from(header.slice(7))
   const expected = Buffer.from(expectedValue)
   return supplied.length === expected.length && timingSafeEqual(supplied, expected)
-}
-
-function configuredTokenAssets(env, network) {
-  const suffix = network.toUpperCase()
-  return Object.fromEntries(TOKEN_ASSETS.map((asset) => {
-    const variable = `SPONSOR_${asset}_${suffix}_CONTRACTS`
-    const contracts = typeof env[variable] === 'string'
-      ? [...new Set(env[variable].split(',').map((value) => value.trim()).filter(isValidTronAddress))]
-      : []
-    return [asset, contracts]
-  }))
-}
-
-function resolveTokenAsset(env, network, contract) {
-  const configured = configuredTokenAssets(env, network)
-  const matches = TOKEN_ASSETS.filter((asset) => configured[asset].includes(contract))
-  return matches.length === 1 ? matches[0] : null
 }
 
 function sameIntent(row, input) {
@@ -290,21 +272,15 @@ export function createSponsorRequestIntakeRouter({
         return res.status(400).json({ success: false, error: 'invalid-native-trx-request', submissionEnabled: false })
       }
     } else {
-      if (typeof body.tokenContract !== 'string' || !ADDRESS_PATTERN.test(body.tokenContract)
-        || !isValidTronAddress(body.tokenContract)) {
-        return res.status(400).json({ success: false, error: 'invalid-token-contract', submissionEnabled: false })
-      }
-      const resolvedAsset = resolveTokenAsset(env, auth.session.network, body.tokenContract.trim())
-      if (!resolvedAsset) {
-        return res.status(422).json({
-          success: false,
-          error: 'token-contract-not-allowlisted-for-testnet',
-          message: 'This contract is not in the sponsor organization’s explicit token allowlist for the selected testnet.',
-          submissionEnabled: false,
-        })
-      }
-      asset = resolvedAsset
-      tokenContract = body.tokenContract.trim()
+      // Nile and Shasta token contracts are not official Tether USDT. Do not
+      // accept a symbol/allowlist-based test token as a genuine USDT payout.
+      return res.status(422).json({
+        success: false,
+        error: 'official-usdt-mainnet-only',
+        message: 'TRC-20 token payout requests are disabled on testnets. Genuine Tether USDT on TRON uses the official Mainnet contract; Mainnet withdrawals remain separately disabled pending organization custody and authorization.',
+        officialUsdtMainnetContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        submissionEnabled: false,
+      })
     }
 
     const idempotencyInput = {
