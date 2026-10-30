@@ -29,6 +29,121 @@ function validId(value) {
   return typeof value === 'string' && /^[1-9][0-9]{0,17}$/.test(value)
 }
 
+function payoutIntentRoleFields(intent, role) {
+  if (role === 'asset-principal') {
+    return {
+      organizationId: String(intent.principal_organization_id),
+      accountId: String(intent.principal_account_id),
+      linkId: String(intent.principal_link_id),
+      budgetId: String(intent.principal_budget_id),
+      sponsorAddress: intent.principal_sponsor_address,
+    }
+  }
+  if (role === 'network-fee') {
+    return {
+      organizationId: String(intent.fee_organization_id),
+      accountId: String(intent.fee_account_id),
+      linkId: String(intent.fee_link_id),
+      budgetId: String(intent.fee_budget_id),
+      sponsorAddress: intent.fee_sponsor_address,
+    }
+  }
+  return null
+}
+
+export function buildSponsorPayoutAuthorizationMessage({
+  intentId, intentDigest, role, organizationId, accountId, sponsorAddress,
+  network, asset, tokenContract, receiverAddress, amountBaseUnits, feeCapSun,
+  principalLinkId, feeLinkId, nonce, issuedAt, expiresAt,
+}) {
+  const roleDescription = role === 'asset-principal'
+    ? 'Asset-principal sponsor: confirm this organization authorizes allocation of '
+      + amountBaseUnits + ' base units of ' + asset
+      + (tokenContract ? ' at contract ' + tokenContract : '') + '.'
+    : 'Network-fee sponsor: confirm this organization authorizes an allocation cap of '
+      + feeCapSun + ' SUN of TRX for network fees.'
+  return [
+    'TRON Token Studio sponsor payout authorization',
+    'Message version: 1',
+    'Purpose: approve only this organization account role and its listed contribution to one exact dual-sponsor payout intent.',
+    'This message is not a blockchain transaction. It does not sign, submit, broadcast, transfer, or debit funds.',
+    roleDescription,
+    'Intent ID: ' + intentId,
+    'Intent digest (SHA-256): ' + intentDigest,
+    'Sponsor role: ' + role,
+    'Organization ID: ' + organizationId,
+    'Sponsor account ID: ' + accountId,
+    'Sponsor wallet address: ' + sponsorAddress,
+    'Network: ' + network,
+    'Asset: ' + asset,
+    'Token contract: ' + (tokenContract || 'native-TRX'),
+    'Receiver address: ' + receiverAddress,
+    'Principal amount (base units): ' + amountBaseUnits,
+    'Network fee allocation cap (SUN): ' + feeCapSun,
+    'Principal budget link ID: ' + principalLinkId,
+    'Fee budget link ID: ' + feeLinkId,
+    'Nonce: ' + nonce,
+    'Issued at: ' + issuedAt,
+    'Expires at: ' + expiresAt,
+  ].join('\n')
+}
+
+function payoutRoleScopeIsCurrent(row, intent, role) {
+  const expectedRole = role
+  const expectedPurpose = role === 'asset-principal' ? 'asset-grant' : 'network-fee'
+  const expectedAsset = role === 'asset-principal' ? intent.asset : 'TRX'
+  const expectedContract = role === 'asset-principal' ? intent.token_contract : null
+  const expectedAddress = role === 'asset-principal'
+    ? intent.principal_sponsor_address : intent.fee_sponsor_address
+  const expectedOrganizationId = role === 'asset-principal'
+    ? String(intent.principal_organization_id) : String(intent.fee_organization_id)
+  const expectedAccountId = role === 'asset-principal'
+    ? String(intent.principal_account_id) : String(intent.fee_account_id)
+  const expectedLinkId = role === 'asset-principal'
+    ? String(intent.principal_link_id) : String(intent.fee_link_id)
+  const expectedBudgetId = role === 'asset-principal'
+    ? String(intent.principal_budget_id) : String(intent.fee_budget_id)
+
+  return Boolean(row)
+    && String(row.organization_id) === expectedOrganizationId
+    && String(row.account_id) === expectedAccountId
+    && String(row.link_id) === expectedLinkId
+    && String(row.budget_id) === expectedBudgetId
+    && row.organization_status === 'approved'
+    && row.account_status === 'verified'
+    && row.link_status === 'active'
+    && row.budget_status === 'active'
+    && row.role === expectedRole
+    && row.purpose === expectedPurpose
+    && row.network === intent.network
+    && row.account_network === intent.network
+    && row.budget_network === intent.network
+    && row.sponsor_reference === row.account_reference
+    && row.sponsor_reference === row.organization_reference
+    && row.sponsor_address === row.wallet_address
+    && row.wallet_address === expectedAddress
+    && row.agreement_reference === row.approval_reference
+    && Boolean(row.budget_review_reference)
+    && row.approved_at != null
+    && row.asset === expectedAsset
+    && (row.token_contract || null) === (expectedContract || null)
+    && isApprovedSponsorAgreementScope({
+      consentReference: row.approval_reference,
+      budget: {
+        sponsor_reference: row.sponsor_reference,
+        sponsor_address: row.sponsor_address,
+        network: row.budget_network,
+        purpose: row.purpose,
+        asset: row.asset,
+        token_contract: row.token_contract,
+        status: row.budget_status,
+        approval_reference: row.approval_reference,
+        review_reference: row.budget_review_reference,
+        approved_at: row.approved_at,
+      },
+    })
+}
+
 function toOrganization(row) {
   return {
     id: String(row.id),
