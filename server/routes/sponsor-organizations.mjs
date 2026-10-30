@@ -37,7 +37,9 @@ function resultStatus(reason) {
   if (reason?.includes('status-transition') || reason?.includes('not-active')
     || reason === 'organization-verification-required') return 409
   if (reason?.includes('evidence-required') || reason?.includes('agreement-reference-required')
-    || reason?.includes('verification-required')) return 422
+    || reason?.includes('verification-required') || reason?.includes('agreement-required')
+    || reason?.includes('scope-mismatch') || reason?.includes('scope-not-approved')
+    || reason?.includes('account-required')) return 422
   return 400
 }
 
@@ -90,6 +92,58 @@ export function createSponsorOrganizationRouter(options = {}) {
     return res.status(201).json({
       success: true, account: result.account,
       submissionEnabled: false, canSubmitSponsoredTransfer: false,
+    })
+  })
+
+  router.get('/sponsorship/organizations/:organizationId/budget-links', async (req, res) => {
+    const rawLimit = req.query.limit
+    const limit = rawLimit === undefined ? 100 : Number(rawLimit)
+    const result = await store.listBudgetLinks({ organizationId: req.params.organizationId, limit })
+    if (!result.success) return res.status(resultStatus(result.reason)).json({ success: false, error: result.reason })
+    return res.json({
+      success: true,
+      links: result.links,
+      submissionEnabled: false,
+      canSubmitSponsoredTransfer: false,
+    })
+  })
+
+  router.post('/sponsorship/organizations/:organizationId/budget-links', async (req, res) => {
+    if (!hasOnlyKeys(req.body, new Set(['accountId', 'budgetId', 'reviewReference']))
+      || !/^\d{1,18}$/.test(String(req.body?.accountId || ''))
+      || !/^\d{1,18}$/.test(String(req.body?.budgetId || ''))
+      || !isValidSponsorRegistryReference(req.body?.reviewReference)) {
+      return res.status(400).json({ success: false, error: 'invalid-budget-link-request' })
+    }
+    const result = await store.linkBudget(
+      req.params.organizationId,
+      String(req.body.accountId),
+      String(req.body.budgetId),
+      req.body.reviewReference,
+    )
+    if (!result.success) return res.status(resultStatus(result.reason)).json({ success: false, error: result.reason })
+    return res.status(result.duplicate ? 200 : 201).json({
+      success: true,
+      duplicate: result.duplicate === true,
+      link: result.link,
+      submissionEnabled: false,
+      canSubmitSponsoredTransfer: false,
+    })
+  })
+
+  router.post('/sponsorship/budget-links/:linkId/revoke', async (req, res) => {
+    if (!hasOnlyKeys(req.body, new Set(['reviewReference']))
+      || !isValidSponsorRegistryReference(req.body?.reviewReference)) {
+      return res.status(400).json({ success: false, error: 'invalid-budget-link-revocation' })
+    }
+    const result = await store.revokeBudgetLink(req.params.linkId, req.body.reviewReference)
+    if (!result.success) return res.status(resultStatus(result.reason)).json({ success: false, error: result.reason })
+    return res.json({
+      success: true,
+      duplicate: result.duplicate === true,
+      link: result.link,
+      submissionEnabled: false,
+      canSubmitSponsoredTransfer: false,
     })
   })
 
