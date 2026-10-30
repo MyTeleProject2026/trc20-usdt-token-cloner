@@ -118,9 +118,7 @@ export function createSponsorSettlementRouter({
           submissionEnabled: false,
         })
       }
-      if (!['TRX', 'USDT'].includes(transfer.asset)
-        || (transfer.asset === 'TRX' && transfer.tokenContract != null)
-        || (transfer.asset !== 'TRX' && (typeof transfer.tokenContract !== 'string' || !ADDRESS_PATTERN.test(transfer.tokenContract)))
+      if (transfer.asset !== 'TRX' || transfer.tokenContract != null
         || typeof transfer.sponsorAddress !== 'string' || !ADDRESS_PATTERN.test(transfer.sponsorAddress)
         || typeof transfer.receiverAddress !== 'string' || !ADDRESS_PATTERN.test(transfer.receiverAddress)
         || typeof transfer.amountBaseUnits !== 'string' || !/^[1-9][0-9]{0,77}$/.test(transfer.amountBaseUnits)) {
