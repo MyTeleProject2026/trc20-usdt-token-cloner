@@ -116,6 +116,46 @@ test('USDT parser rejects values above uint256 and accepts its exact six-decimal
   assert.equal(parsePositiveDecimal('9'.repeat(5000)), null)
 })
 
+test('real-value USDT and TRX payout submission is hard-disabled even when environment flags are true', async (t) => {
+  let sessionLookups = 0
+  let providerFactoryCalls = 0
+  const app = express()
+  app.use(express.json())
+  app.use('/api/treasury', createTreasuryWithdrawalsRouter({
+    env: {
+      TREASURY_WITHDRAWALS_ENABLED: 'true',
+      TREASURY_TRX_WITHDRAWALS_ENABLED: 'true',
+    },
+    sessionLookup: async () => {
+      sessionLookups += 1
+      throw new Error('owner session lookup must not run while execution is hard-disabled')
+    },
+    fireblocksClientFactory: () => {
+      providerFactoryCalls += 1
+      throw new Error('Fireblocks must not be contacted while execution is hard-disabled')
+    },
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api/treasury`
+  for (const path of ['/withdrawals', '/trx-withdrawals']) {
+    const response = await fetch(baseUrl + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://owner.example' },
+      body: JSON.stringify({ recipientAddress: 'T' + 'A'.repeat(33), amountUsdt: '1', amountTrx: '1' }),
+    })
+    assert.equal(response.status, 503)
+    assert.deepEqual(await response.json(), {
+      success: false,
+      error: 'real-value-payout-execution-disabled-in-this-build',
+      submissionEnabled: false,
+    })
+  }
+  assert.equal(sessionLookups, 0)
+  assert.equal(providerFactoryCalls, 0)
+})
+
 test('treasury endpoint requires an authenticated owner session before touching treasury configuration', async (t) => {
   const app = express()
   app.use(express.json())
