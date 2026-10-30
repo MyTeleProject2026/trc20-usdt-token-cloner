@@ -1188,6 +1188,16 @@ test('PostgreSQL binds independent verified sponsor accounts to exact approved p
     assert.ok(listed.links.every(link => link.linkCurrentlyActive === true))
     assert.ok(listed.links.every(link => link.agreementScopeVerified === true))
 
+    const accountSuspended = await store.reviewAccount(organizationId, feeAccount.account.id, {
+      decision: 'suspended',
+      reviewReference: `suspend-fee-account-${suffix}`,
+    })
+    assert.equal(accountSuspended.success, true)
+    const afterAccountSuspend = await store.listBudgetLinks({ organizationId, network, limit: 10 })
+    const suspendedFeeLink = afterAccountSuspend.links.find(link => link.budgetId === feeBudgetId)
+    assert.equal(suspendedFeeLink.linkStatus, 'suspended')
+    assert.equal(suspendedFeeLink.linkCurrentlyActive, false)
+
     const revoked = await store.revokeBudgetLink(principalLink.link.id, `revoke-link-${suffix}`)
     assert.equal(revoked.success, true)
     assert.equal(revoked.link.status, 'revoked')
