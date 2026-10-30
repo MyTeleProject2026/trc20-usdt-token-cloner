@@ -65,12 +65,9 @@ the explicitly reviewed network-specific allowlists:
 
 - `SPONSOR_USDT_SHASTA_CONTRACTS`
 - `SPONSOR_USDT_NILE_CONTRACTS`
-- `SPONSOR_VTRC_MAINNET_CONTRACTS`
-- `SPONSOR_VTRC_SHASTA_CONTRACTS`
-- `SPONSOR_VTRC_NILE_CONTRACTS`
 
 Use comma-separated contract addresses in the expected TRON address format. Do not assume a testnet
-contract is mainnet USDT. `VTRC` is a separate project token and must not be represented as official USDT.
+contract is mainnet USDT. Only TRX and official Mainnet USDT are in the supported production asset scope. Testnet USDT-labelled tokens are test-only, not Tether-issued.
 
 ### GasFree provider credentials (optional, read-only integration only)
 
