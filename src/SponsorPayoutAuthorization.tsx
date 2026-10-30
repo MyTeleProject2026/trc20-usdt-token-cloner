@@ -26,7 +26,7 @@ const SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
 function getWalletProvider(): WalletProvider | null {
   const candidates = [window.tron, window.tronLink]
   return candidates.find((provider) => provider?.isTronLink === true
-    && typeof provider.request === 'function' && provider.tronWeb) || null
+    && typeof provider.request === 'function' && (provider.tronWeb || window.tronWeb)) || null
 }
 
 async function requestWalletAccess(provider: WalletProvider) {
