@@ -1,5 +1,5 @@
 import pg from 'pg'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { normalizeDatabaseConnectionString, databaseSslConfig, initializeDatabase, isApprovedSponsorAgreementScope, isSponsorTokenContractAllowed } from './database.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
@@ -225,6 +225,60 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           CREATE INDEX IF NOT EXISTS sponsor_org_payout_intents_expiry_idx
           ON trc20_token_clone.sponsor_organization_payout_intents (status, expires_at)
         `)
+        await db.query(\`
+          ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
+          DROP CONSTRAINT IF EXISTS sponsor_organization_payout_intents_status_check
+        \`)
+        await db.query(\`
+          ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
+          ADD CONSTRAINT sponsor_organization_payout_intents_status_check
+          CHECK (status IN ('pending_authorization','sponsor_authorization_complete','cancelled','expired'))
+        \`)
+        await db.query(\`
+          CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_authorization_challenges (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            intent_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_payout_intents(id) ON DELETE RESTRICT,
+            role TEXT NOT NULL CHECK (role IN ('asset-principal','network-fee')),
+            intent_digest CHAR(64) NOT NULL,
+            organization_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organizations(id) ON DELETE RESTRICT,
+            account_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_accounts(id) ON DELETE RESTRICT,
+            sponsor_address TEXT NOT NULL,
+            network TEXT NOT NULL CHECK (network IN ('mainnet','nile','shasta')),
+            nonce_hash CHAR(64) NOT NULL UNIQUE,
+            message_hash CHAR(64) NOT NULL,
+            issued_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            consumed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CHECK (expires_at > issued_at)
+          )
+        \`)
+        await db.query(\`
+          CREATE INDEX IF NOT EXISTS sponsor_org_payout_challenges_rate_idx
+          ON trc20_token_clone.sponsor_organization_payout_authorization_challenges
+            (intent_id, role, created_at DESC)
+        \`)
+        await db.query(\`
+          CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_authorizations (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            intent_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_payout_intents(id) ON DELETE RESTRICT,
+            challenge_id BIGINT NOT NULL UNIQUE REFERENCES trc20_token_clone.sponsor_organization_payout_authorization_challenges(id) ON DELETE RESTRICT,
+            role TEXT NOT NULL CHECK (role IN ('asset-principal','network-fee')),
+            intent_digest CHAR(64) NOT NULL,
+            organization_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organizations(id) ON DELETE RESTRICT,
+            account_id BIGINT NOT NULL REFERENCES trc20_token_clone.sponsor_organization_accounts(id) ON DELETE RESTRICT,
+            sponsor_address TEXT NOT NULL,
+            signature_hash CHAR(64) NOT NULL,
+            message_hash CHAR(64) NOT NULL,
+            signed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (intent_id, role)
+          )
+        \`)
+        await db.query(\`
+          CREATE INDEX IF NOT EXISTS sponsor_org_payout_authorizations_owner_idx
+          ON trc20_token_clone.sponsor_organization_payout_authorizations
+            (organization_id, account_id, signed_at DESC)
+        \`)
       })().catch((error) => { schemaPromise = null; throw error })
     }
     await schemaPromise
