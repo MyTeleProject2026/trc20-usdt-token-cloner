@@ -97,7 +97,7 @@ test('USDT asset grants require an explicit contract and are not treated as fee 
 })
 
 
-test('VTRC asset grants require a network-specific contract allowlist and remain distinct from USDT', () => {
+test('VTRC is rejected even when a legacy contract allowlist is configured', () => {
   const input = {
     idempotencyKey: 'request:vtrc-1234',
     sponsorReference: 'sponsor-test',
@@ -106,27 +106,29 @@ test('VTRC asset grants require a network-specific contract allowlist and remain
     asset: 'VTRC',
     tokenContract: 'TVtrcShastaContract',
     receiverAddress: 'TValidReceiver',
-    amountBaseUnits: '2500000000000000000',
+    amountBaseUnits: '2500000',
   }
   const options = {
     isValidAddress: (address) => address === 'TValidReceiver',
     allowedTokenContractsByNetwork: { shasta: ['TVtrcShastaContract'] },
   }
-  const result = validateSponsorTransferIntent(input, options)
-  assert.equal(result.valid, true)
-  assert.equal(result.intent.asset, 'VTRC')
-  assert.equal(result.intent.tokenContract, 'TVtrcShastaContract')
-  assert.equal(result.providerSubmissionAllowed, false)
-  assert.equal(validateSponsorTransferIntent(input, {
-    ...options,
-    allowedTokenContractsByNetwork: { mainnet: ['TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'] },
-  }).reason, 'token-contract-not-allowlisted-for-network')
-  assert.equal(validateSponsorTransferIntent({ ...input, tokenContract: '' }, options).reason, 'token-contract-required')
-  assert.equal(validateSponsorTransferIntent({ ...input, purpose: 'network-fee' }, options).reason, 'network-fee-must-use-trx')
+  assert.equal(validateSponsorTransferIntent(input, options).reason, 'invalid-asset')
+  assert.equal(validateSponsorBudget({
+    ...validBudget,
+    asset: 'VTRC',
+    tokenContract: 'TVtrcShastaContract',
+  }).reason, 'invalid-asset')
 })
 
-test('TRX fee budget remains separate from VTRC/USDT asset-grant principal', () => {
-  assert.equal(validateSponsorBudget({ ...validBudget, asset: 'VTRC', tokenContract: 'TVtrcMainnetContract' }).valid, true)
-  assert.equal(validateSponsorBudget({ ...validBudget, asset: 'VTRC' }).reason, 'token-contract-required')
-  assert.equal(validateSponsorBudget({ ...validBudget, asset: 'TRX', tokenContract: 'TVtrcMainnetContract' }).reason, 'native-trx-has-no-token-contract')
+test('TRX fee budget remains separate from USDT asset-grant principal', () => {
+  assert.equal(validateSponsorBudget({
+    ...validBudget,
+    asset: 'USDT',
+    tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+  }).valid, true)
+  assert.equal(validateSponsorBudget({
+    ...validBudget,
+    asset: 'TRX',
+    tokenContract: 'TVtrcMainnetContract',
+  }).reason, 'native-trx-has-no-token-contract')
 })
