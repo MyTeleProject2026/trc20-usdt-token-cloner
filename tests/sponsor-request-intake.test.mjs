@@ -154,6 +154,23 @@ test('request intake accepts only an explicitly allowlisted token contract for t
   assert.equal(store.rows.size, 0)
 })
 
+test('VTRC contracts are rejected even if a legacy VTRC allowlist is configured', async (t) => {
+  const store = createMemoryStore()
+  const base = await serve(t, createSponsorRequestIntakeRouter({
+    env: { SPONSOR_USDT_NILE_CONTRACTS: tokenContract, SPONSOR_VTRC_NILE_CONTRACTS: requesterAddress },
+    store,
+    sessionLookup: sessionLookup(),
+  }))
+  const response = await fetch(base + '/sponsorship/requests', {
+    method: 'POST',
+    headers: userHeaders(),
+    body: JSON.stringify(requestBody({ tokenContract: requesterAddress })),
+  })
+  assert.equal(response.status, 422)
+  assert.equal((await response.json()).error, 'token-contract-not-allowlisted-for-testnet')
+  assert.equal(store.rows.size, 0)
+})
+
 test('request intake persists an authenticated, exact testnet intent without approving or submitting a transfer', async (t) => {
   const store = createMemoryStore()
   const base = await serve(t, createSponsorRequestIntakeRouter({
