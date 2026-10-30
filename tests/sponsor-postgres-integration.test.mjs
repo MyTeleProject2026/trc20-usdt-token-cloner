@@ -1359,6 +1359,66 @@ test('PostgreSQL atomically reserves and releases independent principal and fee 
     assert.equal(reserved.canSubmitSponsoredTransfer, false)
     intentIds.push(reserved.intentId)
 
+    async function authorizeRole(intentId, role, address, suffixRole) {
+      const challenge = await store.createPayoutAuthorizationChallenge(intentId, role, {
+        sessionAddress: address,
+        sessionNetwork: network,
+      })
+      assert.equal(challenge.success, true, JSON.stringify(challenge))
+      assert.equal(challenge.challenge.role, role)
+      assert.match(challenge.challenge.message, /Intent digest \(SHA-256\):/)
+      assert.match(challenge.challenge.message, /This message is not a blockchain transaction/)
+      const consumedChallenge = await store.consumePayoutAuthorizationChallenge(
+        intentId, role, challenge.challenge.nonce,
+        { sessionAddress: address, sessionNetwork: network },
+      )
+      assert.equal(consumedChallenge.success, true, JSON.stringify(consumedChallenge))
+      assert.equal(consumedChallenge.authorization.sponsorAddress, address)
+      const recorded = await store.recordPayoutAuthorization({
+        intentId,
+        role,
+        challengeId: consumedChallenge.authorization.challengeId,
+        intentDigest: consumedChallenge.authorization.intentDigest,
+        recoveredAddress: address,
+        signatureHash: (suffixRole === 'principal' ? 'a' : 'b').repeat(64),
+        messageHash: consumedChallenge.authorization.messageHash,
+      })
+      assert.equal(recorded.success, true, JSON.stringify(recorded))
+      return recorded
+    }
+
+    const principalApproval = await authorizeRole(
+      reserved.intentId, 'asset-principal', sponsorAddress, 'principal',
+    )
+    assert.equal(principalApproval.status, 'pending_authorization')
+    assert.deepEqual(principalApproval.missingRoles, ['network-fee'])
+    assert.equal(principalApproval.canSubmitSponsoredTransfer, false)
+
+    const feeApproval = await authorizeRole(
+      reserved.intentId, 'network-fee', receiverAddress, 'fee',
+    )
+    assert.equal(feeApproval.status, 'sponsor_authorization_complete')
+    assert.equal(feeApproval.bothSponsorsAuthorized, true)
+    assert.deepEqual(feeApproval.authorizedRoles, ['asset-principal', 'network-fee'])
+    assert.equal(feeApproval.canSubmitSponsoredTransfer, false)
+    assert.equal(feeApproval.submissionEnabled, false)
+
+    const authorizationRows = await pool.query(
+      "SELECT role, sponsor_address, signature_hash FROM trc20_token_clone.sponsor_organization_payout_authorizations " +
+      "WHERE intent_id = $1 ORDER BY role",
+      [reserved.intentId],
+    )
+    assert.equal(authorizationRows.rows.length, 2)
+    assert.equal(authorizationRows.rows[0].signature_hash.length, 64)
+    assert.equal(authorizationRows.rows[1].signature_hash.length, 64)
+    const challengeRows = await pool.query(
+      "SELECT nonce_hash, consumed_at FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges " +
+      "WHERE intent_id = $1 ORDER BY id",
+      [reserved.intentId],
+    )
+    assert.equal(challengeRows.rows.length, 2)
+    assert.ok(challengeRows.rows.every(row => row.consumed_at != null && row.nonce_hash.length === 64))
+
     const duplicate = await store.reservePayoutIntent(baseIntent)
     assert.equal(duplicate.success, true)
     assert.equal(duplicate.duplicate, true)
@@ -1388,6 +1448,14 @@ test('PostgreSQL atomically reserves and releases independent principal and fee 
     const expiring = await store.reservePayoutIntent({ ...baseIntent, idempotencyKey: expiryKey })
     assert.equal(expiring.success, true, JSON.stringify(expiring))
     intentIds.push(expiring.intentId)
+    const expiryPrincipalApproval = await authorizeRole(
+      expiring.intentId, 'asset-principal', sponsorAddress, 'principal',
+    )
+    assert.equal(expiryPrincipalApproval.status, 'pending_authorization')
+    const expiryFeeApproval = await authorizeRole(
+      expiring.intentId, 'network-fee', receiverAddress, 'fee',
+    )
+    assert.equal(expiryFeeApproval.status, 'sponsor_authorization_complete')
     await pool.query(
       "UPDATE trc20_token_clone.sponsor_organization_payout_intents " +
       "SET expires_at = now() - interval '1 second' WHERE id = $1",
