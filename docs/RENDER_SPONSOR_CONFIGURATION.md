@@ -30,6 +30,7 @@ Set values only for resources and agreements the project is authorized to use.
 | `TRONGRID_API_KEY` | Recommended | A server-side TronGrid API key used by backend token inspection and treasury payout RPC calls. It reduces reliance on shared public-node rate limits. Keep it only in Render backend Environment; never put it in a `VITE_*` variable. Token inspection falls back to `TATUM_API_KEY` when no TronGrid key is configured. |
 | `TRON_VERIFIED_TOKEN_CONTRACTS` | Optional | Comma-separated additional token contracts accepted by the read-only event verifier after review. This is not a sponsor spend allowlist. |
 | `SPONSOR_ADMIN_API_TOKEN` | Required only for privileged sponsor-admin endpoints | Generate a random secret of at least 32 characters, store it only in Render, and provide it only to authorized server-side administrators. Never send it in chat or expose it in the browser. |
+| `TREASURY_PAYOUT_REVIEW_API_TOKEN` | Required only for the read-only Mainnet Tether USDT request-review queue | Separate server-only random secret, minimum 32 characters, generated and held by the authorized treasury organization. It cannot approve or execute payouts. |
 | `SPONSOR_APPROVED_AGREEMENT_REFERENCES` | Optional until signed sponsor terms exist | Semicolon-separated reviewed scopes in the exact format described below. Do not add a scope without actual sponsor consent and documented authorization. |
 | `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED` | Keep `false` for now | This gate does not enable sponsored transfer submission. Do not set it to `true` as a shortcut for production readiness. |
 | `TREASURY_OWNER_ADDRESS` | Required for the owner-only treasury check | Public Mainnet address used to authenticate the owner. The matching wallet must sign the one-time identity message in Wallet Vault. Never enter a key here. |
@@ -57,20 +58,26 @@ sponsorship still needs signed consent/mandate, a secure authorized signer or pr
 spend limits, atomic reservations, idempotency/reconciliation, and independent solidified-chain
 verification. Neither address variables nor an admin token enable submission.
 
-### Token contracts
+### Token contracts and Tether payout requests
 
-Mainnet official USDT is fixed in the backend to Tether's TRON contract
-`TR7NHqjeKQxGTCi8q8ZY4p8L8otSzgjLj6t`. For test networks or project token contracts, set only
-the explicitly reviewed network-specific allowlists:
+The production payout-request path accepts only official TRON Mainnet Tether USDT, pinned in backend
+code to `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` with six decimals. It does not read a token contract
+from Render variables and does not accept Nile/Shasta token addresses or independent project tokens
+as Tether USDT.
 
-- `SPONSOR_USDT_SHASTA_CONTRACTS`
-- `SPONSOR_USDT_NILE_CONTRACTS`
-- `SPONSOR_VTRC_MAINNET_CONTRACTS`
-- `SPONSOR_VTRC_SHASTA_CONTRACTS`
-- `SPONSOR_VTRC_NILE_CONTRACTS`
+Add the separate read-only request-review credential only when the responsible organization appoints
+an administrator:
 
-Use comma-separated contract addresses in the expected TRON address format. Do not assume a testnet
-contract is mainnet USDT. `VTRC` is a separate project token and must not be represented as official USDT.
+- `TREASURY_PAYOUT_REVIEW_API_TOKEN`
+
+Generate a random secret of at least 32 characters with the organization's approved secret manager
+and store it only in the backend Render Environment. This token protects only
+`GET /api/treasury/payout-requests`; it is not a Fireblocks API key, it cannot approve requests,
+reserve funds, sign transactions, or submit a payout. Do not expose it to frontend variables, browser
+code, URLs, GitHub, logs, or chat.
+
+The legacy testnet sponsor diagnostics are separate. Testnet token contracts are not official Tether
+Mainnet USDT and must not be configured or displayed as such.
 
 ### GasFree provider credentials (optional, read-only integration only)
 
