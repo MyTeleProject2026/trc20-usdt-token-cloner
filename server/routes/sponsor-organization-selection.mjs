@@ -1,5 +1,7 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
+import { Trx } from 'tronweb'
+import { getWalletAuthSession } from '../database.mjs'
 import { createSponsorOrganizationStore } from '../sponsor-organizations.mjs'
 import { selectSponsorOrganizationPair } from '../sponsor-organization-selection.mjs'
 import { reserveSponsorOrganizationPayoutIntent } from '../sponsor-organization-payout-intents.mjs'
@@ -24,6 +26,8 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
   const store = options.store ?? createSponsorOrganizationStore({ env })
   const selector = options.selector ?? selectSponsorOrganizationPair
   const reserveIntent = options.reserveIntent ?? reserveSponsorOrganizationPayoutIntent
+  const readWalletSession = options.readWalletSession ?? getWalletAuthSession
+  const verifyMessage = options.verifyMessage ?? ((message, signature) => Trx.verifyMessageV2(message, signature))
 
   router.get('/sponsorship/organizations/selection', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -118,6 +122,149 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
         transactionSubmitted: false, canSubmitSponsoredTransfer: false, submissionEnabled: false,
       })
     }
+  })
+
+  const isAllowedWalletOrigin = (origin) => {
+    if (typeof origin !== 'string' || !origin) return false
+    const configured = [env.FRONTEND_ORIGIN, env.PACKAGED_APP_ORIGINS, env.OKX_UI_ORIGIN]
+      .filter((value) => typeof value === 'string')
+      .flatMap((value) => value.split(','))
+    return configured.some((value) => {
+      try {
+        const parsed = new URL(value.trim())
+        const normalized = parsed.protocol === 'tronstudio:' && parsed.host.toLowerCase() === 'app'
+          ? 'tronstudio://app'
+          : ['https:', 'http:'].includes(parsed.protocol) ? parsed.origin : ''
+        return normalized === origin
+      } catch {
+        return false
+      }
+    })
+  }
+
+  const resolveWalletSession = async (req) => {
+    const origin = req.get('origin')
+    const header = req.get('authorization') || ''
+    const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(header)
+    if (!match || !isAllowedWalletOrigin(origin)) return null
+    try {
+      const result = await readWalletSession({
+        tokenHash: createHash('sha256').update(match[1]).digest('hex'),
+        origin,
+        nowMs: Date.now(),
+      })
+      if (result?.success !== true || !result.session
+        || result.session.origin !== origin || result.session.expiresAt <= Date.now()) return null
+      return result.session
+    } catch {
+      return null
+    }
+  }
+
+  router.post('/sponsorship/payout-intents/:intentId/authorization-challenges', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Origin, Authorization')
+    const body = req.body || {}
+    if (Object.keys(body).some((key) => key !== 'role')
+      || !['asset-principal', 'network-fee'].includes(body.role)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-authorization-role' })
+    }
+    const session = await resolveWalletSession(req)
+    if (!session) {
+      return res.status(401).json({ success: false, error: 'matching-sponsor-wallet-session-required' })
+    }
+    const result = await store.createPayoutAuthorizationChallenge(req.params.intentId, body.role, {
+      sessionAddress: session.address,
+      sessionNetwork: session.network,
+    })
+    if (!result.success) {
+      const reason = result.reason || 'sponsor-authorization-challenge-unavailable'
+      const status = reason === 'payout-intent-not-found' ? 404
+        : reason.includes('rate-limited') ? 429
+          : reason.includes('database') || reason.includes('unavailable') ? 503
+            : reason.includes('wallet-session') ? 403
+              : reason.includes('already-authorized') ? 409 : 422
+      return res.status(status).json({ ...result, canSubmitSponsoredTransfer: false, submissionEnabled: false })
+    }
+    return res.status(201).json({
+      ...result,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      transactionSubmitted: false,
+    })
+  })
+
+  router.post('/sponsorship/payout-intents/:intentId/authorize', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Origin, Authorization')
+    const body = req.body || {}
+    if (Object.keys(body).some((key) => !['role', 'nonce', 'signature'].includes(key))
+      || !['asset-principal', 'network-fee'].includes(body.role)
+      || typeof body.nonce !== 'string' || !/^[0-9a-f]{48,128}$/i.test(body.nonce)
+      || typeof body.signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-authorization-payload' })
+    }
+    const session = await resolveWalletSession(req)
+    if (!session) {
+      return res.status(401).json({ success: false, error: 'matching-sponsor-wallet-session-required' })
+    }
+    const consumed = await store.consumePayoutAuthorizationChallenge(
+      req.params.intentId, body.role, body.nonce,
+      { sessionAddress: session.address, sessionNetwork: session.network },
+    )
+    if (!consumed?.success) {
+      const reason = consumed?.reason || 'sponsor-authorization-challenge-unavailable'
+      const status = reason.includes('not-found') || reason.includes('consumed') ? 409
+        : reason.includes('database') || reason.includes('unavailable') ? 503
+          : reason.includes('expired') ? 410
+            : 403
+      return res.status(status).json({ success: false, error: reason, canSubmitSponsoredTransfer: false })
+    }
+
+    let recoveredAddress
+    try {
+      recoveredAddress = await verifyMessage(consumed.authorization.message, body.signature)
+    } catch {
+      return res.status(401).json({
+        success: false, error: 'sponsor-authorization-signature-invalid',
+        challengeConsumed: true, canSubmitSponsoredTransfer: false,
+      })
+    }
+    if (recoveredAddress !== consumed.authorization.sponsorAddress
+      || recoveredAddress !== session.address) {
+      return res.status(401).json({
+        success: false, error: 'sponsor-authorization-signature-address-mismatch',
+        challengeConsumed: true, canSubmitSponsoredTransfer: false,
+      })
+    }
+    const signatureHash = createHash('sha256').update(body.signature).digest('hex')
+    const recorded = await store.recordPayoutAuthorization({
+      intentId: req.params.intentId,
+      role: body.role,
+      challengeId: consumed.authorization.challengeId,
+      intentDigest: consumed.authorization.intentDigest,
+      recoveredAddress,
+      signatureHash,
+      messageHash: consumed.authorization.messageHash,
+    })
+    if (!recorded?.success) {
+      const reason = recorded?.reason || 'sponsor-payout-authorization-record-unavailable'
+      const status = reason.includes('already-authorized') ? 409
+        : reason.includes('not-found') ? 404
+          : reason.includes('database') || reason.includes('unavailable') ? 503 : 422
+      return res.status(status).json({ ...recorded, error: reason, canSubmitSponsoredTransfer: false })
+    }
+    return res.json({
+      ...recorded,
+      transactionAuthorizationVerified: false,
+      canSubmitSponsoredTransfer: false,
+      submissionEnabled: false,
+      transactionSubmitted: false,
+      userFundedFallbackAllowed: false,
+      note: 'Both sponsor owners may have approved this exact allocation, but this is not transaction authorization. Transaction-specific fee verification, signed transaction validation, and a separate submission review remain required.',
+    })
   })
 
   router.post('/sponsorship/payout-intents/:intentId/cancel', async (req, res) => {
