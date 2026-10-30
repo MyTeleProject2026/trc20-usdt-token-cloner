@@ -215,3 +215,15 @@ The next milestone is independent cryptographic authorization from each sponsor 
 ## Remaining real-payout dependencies
 
 The implementation still lacks independent sponsor cryptographic authorization for an exact intent, transaction-specific fee/resource verification, a sponsor-owned signing/provider adapter, controlled testnet broadcast and settlement, and a complete receiver-side real deposit verification workflow. Do not change the existing real-value payout hard gate. Mainnet release still requires a controlled end-to-end test, independent security review, operational runbook, and explicit release approval.
+
+## Independent owner approval page
+
+The standalone frontend route `#/sponsor-authorization` is intentionally outside the platform administrator's owner-password gate so each external sponsor organization can open it directly. It does not receive or require `SPONSOR_ADMIN_API_TOKEN`. Each sponsor owner must connect the wallet that matches the exact verified account/role stored in the approved budget link.
+
+The page performs two separate wallet message-signature steps:
+1. A normal `/api/auth/tron` wallet-identity challenge creates a short-lived network/origin-scoped wallet session. This proves wallet control only.
+2. The session is used to request a short-lived role-specific payout-intent challenge. The wallet signs the server-generated message that includes the immutable intent digest, both sponsor budget-link IDs, network, receiver, asset/contract, principal amount and fee cap. The backend consumes the nonce once, recovers the signer address with TronWeb, and requires an exact match to the verified sponsor account.
+
+The backend stores the SHA-256 hash of the signature plus the challenge/message digests, not the raw wallet message signature. The raw session token is held only in memory by the page and is not written to browser storage. A wrong wallet, wrong network, inactive sponsor link, expired intent, replayed challenge or already-approved role is rejected. Each organization signs independently by opening the same page/intent ID with its own wallet.
+
+When both roles have signed, the intent status becomes `sponsor_authorization_complete`. This means only that both role-specific message signatures were validated. It is **not** a transaction signature, exact fee quote, resource sufficiency proof, authorization for the backend to broadcast, or a completed payout. The two internal budget holds still expire and can be cancelled. All submission flags remain false and the existing Mainnet real-value payout hard gate remains disabled.
