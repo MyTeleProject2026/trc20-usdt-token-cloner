@@ -119,7 +119,6 @@ function payoutRoleScopeIsCurrent(row, intent, role) {
     && row.account_network === intent.network
     && row.budget_network === intent.network
     && row.sponsor_reference === row.account_reference
-    && row.sponsor_reference === row.organization_reference
     && row.sponsor_address === row.wallet_address
     && row.wallet_address === expectedAddress
     && row.agreement_reference === row.approval_reference
@@ -1451,7 +1450,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       "o.id::text AS organization_id, o.sponsor_reference AS organization_reference, " +
       "o.status AS organization_status, o.agreement_reference, " +
       "a.id::text AS account_id, a.sponsor_reference AS account_reference, " +
-      "a.network AS account_network, a.role, a.wallet_address, a.status AS account_status, " +
+      "a.network AS network, a.network AS account_network, a.role, a.wallet_address, a.status AS account_status, " +
       "b.id::text AS budget_id, b.sponsor_reference, b.sponsor_address, b.network AS budget_network, " +
       "b.purpose, b.asset, b.token_contract, b.status AS budget_status, " +
       "b.approval_reference, b.review_reference AS budget_review_reference, b.approved_at " +
