@@ -146,7 +146,7 @@ test('request intake rejects testnet TRC-20 contracts instead of representing th
   const response = await fetch(base + '/sponsorship/requests', {
     method: 'POST',
     headers: userHeaders(),
-    body: JSON.stringify(requestBody({ tokenContract: requesterAddress })),
+    body: JSON.stringify(requestBody({ asset: 'TRC20', tokenContract: requesterAddress })),
   })
   assert.equal(response.status, 422)
   assert.equal((await response.json()).error, 'official-usdt-mainnet-only')
@@ -164,14 +164,14 @@ test('request intake rejects both configured USDT-like and VTRC testnet contract
     store,
     sessionLookup: sessionLookup(),
   }))
-  for (const asset of ['TRC20', 'VTRC']) {
+  for (const contractSource of ['USDT', 'VTRC']) {
     const response = await fetch(base + '/sponsorship/requests', {
       method: 'POST',
       headers: userHeaders(),
       body: JSON.stringify(requestBody({
-        asset,
+        asset: 'TRC20',
         tokenContract,
-        idempotencyKey: `reject-${asset}-request-00000000000001`,
+        idempotencyKey: `reject-${contractSource}-request-00000000000001`,
       })),
     })
     assert.equal(response.status, 422)
