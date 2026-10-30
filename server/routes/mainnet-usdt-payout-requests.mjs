@@ -62,7 +62,7 @@ function toPublicRequest(row) {
     amountBaseUnits: String(row.amount_base_units),
     status: row.status,
     createdAt: new Date(row.created_at).toISOString(),
-    expiresAt: Number(row.authorization_expires_at),
+    signatureExpiresAt: Number(row.authorization_expires_at),
   }
 }
 
