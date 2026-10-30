@@ -118,7 +118,7 @@ test('token contract allowlists require every comma-separated item to be a valid
     },
   })
   assert.equal(result.networks.nile.tokenContractAllowlist.usdt, true)
-  assert.equal(result.networks.nile.tokenContractAllowlist.vtrc, false)
+  assert.equal(Object.hasOwn(result.networks.nile.tokenContractAllowlist, 'vtrc'), false)
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
