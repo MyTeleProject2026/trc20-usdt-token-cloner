@@ -2703,7 +2703,7 @@ export default function WorkflowApp() {
 
               <div className="studio-notice studio-notice--warning">
                 <LockKeyhole size={18} aria-hidden="true" />
-                <div><strong>Testnet request intake only — no payout execution</strong><p>{sponsorship?.message || 'The sponsor workflow remains blocked from signing and broadcasting. This new request queue stores validated Nile/Shasta requests for an authorized sponsor organization to review; it does not reserve funds or authorize a transfer.'}</p></div>
+                <div><strong>Testnet request intake only — no payout execution</strong><p>Sponsored transfer submission is blocked by the backend. {sponsorship?.message || 'The sponsor workflow remains blocked from signing and broadcasting. This request queue stores validated Nile/Shasta requests for an authorized sponsor organization to review; it does not reserve funds or authorize a transfer.'}</p></div>
               </div>
               <div className="studio-inline-actions studio-review-actions">
                 <button type="button" className="studio-button studio-button--secondary" onClick={() => void refreshReview()} disabled={reviewRefreshing || sponsorLoading}><RefreshCw size={15} className={reviewRefreshing || sponsorLoading ? 'studio-spin' : ''} aria-hidden="true" /> {reviewRefreshing || sponsorLoading ? 'Refreshing sponsor gate…' : 'Recheck sponsor readiness'}</button>
@@ -2745,6 +2745,10 @@ export default function WorkflowApp() {
                 >
                   {sponsorRequestBusy ? 'Saving request…' : sponsorRequestResult?.success ? 'Request stored' : 'Submit for sponsor review'}
                 </button>
+              </div>
+              <div className="studio-submit-block">
+                <div><strong>Real transfer execution remains unavailable</strong><p>The application cannot sign or broadcast a sponsored transfer in this build. Only the sponsor-review request above is available on testnet.</p></div>
+                <button type="button" className="studio-button studio-button--disabled" disabled aria-disabled="true"><LockKeyhole size={16} aria-hidden="true" /> Sponsored transfer unavailable</button>
               </div>
               <p className="studio-footnote">This route is testnet-only. It does not use your wallet balance, create a reservation, call Fireblocks, sign, submit or broadcast a transaction. Testnet assets cannot be withdrawn as real Mainnet USDT or credited as an exchange deposit.</p>
             </section>
