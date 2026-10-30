@@ -840,10 +840,12 @@ export default function WorkflowApp() {
   const [sponsorRequestBusy, setSponsorRequestBusy] = useState(false)
   const [sponsorRequestError, setSponsorRequestError] = useState('')
   const [sponsorRequestResult, setSponsorRequestResult] = useState<any>(null)
+  const [pendingSponsorRequestKey, setPendingSponsorRequestKey] = useState('')
 
   useEffect(() => {
     setSponsorRequestResult(null)
     setSponsorRequestError('')
+    setPendingSponsorRequestKey('')
   }, [network, assetKind, tokenContract, senderAddress, receiverAddress, amount, walletIdentity?.address])
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
@@ -1966,7 +1968,8 @@ export default function WorkflowApp() {
     setSponsorRequestBusy(true)
     setSponsorRequestError('')
     try {
-      const idempotencyKey = window.crypto.randomUUID()
+      const idempotencyKey = pendingSponsorRequestKey || window.crypto.randomUUID()
+      setPendingSponsorRequestKey(idempotencyKey)
       const response = await fetch(`${API_BASE}/api/tron/sponsorship/requests`, {
         method: 'POST',
         headers: {
