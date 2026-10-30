@@ -617,7 +617,7 @@ export default function SponsorSignerConsole() {
         verificationParams.set('amountSun', reservation.amountBaseUnits)
         verificationPath = '/api/tron/verify-native-transfer/' + encodeURIComponent(transactionHash)
       } else {
-        if (reservation.asset !== 'USDT'
+        if (reservation.asset !== 'TRX'
           || typeof reservation.tokenContract !== 'string' || !reservation.tokenContract) {
           throw new Error('The saved token identity is incomplete; no receiver token balance will be inferred.')
         }
