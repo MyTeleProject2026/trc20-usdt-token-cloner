@@ -1368,6 +1368,7 @@ test('PostgreSQL atomically reserves and releases independent principal and fee 
       assert.equal(challenge.challenge.role, role)
       assert.match(challenge.challenge.message, /Intent digest \(SHA-256\):/)
       assert.match(challenge.challenge.message, /This message is not a blockchain transaction/)
+      assert.match(challenge.challenge.message, new RegExp(role === 'asset-principal' ? 'Independent Principal Sponsor Integration Ltd' : 'Independent Network Fee Sponsor Integration Ltd'))
       const consumedChallenge = await store.consumePayoutAuthorizationChallenge(
         intentId, role, challenge.challenge.nonce,
         { sessionAddress: address, sessionNetwork: network },
