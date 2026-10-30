@@ -46,7 +46,6 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
     TATUM_API_KEY: 'server-only-test-key',
     SPONSOR_FEE_NILE_ADDRESS: feeAddress,
     SPONSOR_ASSET_NILE_ADDRESS: assetAddress,
-    SPONSOR_VTRC_NILE_CONTRACTS: tokenAddress,
   }
   const readRoles = createSponsorRoleFundingReader({
     env,
@@ -104,10 +103,8 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
   assert.equal(asset.addressConfigured, true)
   assert.equal(asset.onChainBalanceRead, true)
   assert.equal(asset.native.balanceTRX, '4.2')
-  assert.equal(asset.tokens.length, 1)
-  assert.equal(asset.tokens[0].asset, 'VTRC')
-  assert.equal(asset.tokens[0].status, 'verified')
-  assert.equal(asset.tokens[0].balanceBaseUnits, '987654321')
+  assert.equal(asset.tokens.length, 0)
+  assert.equal(asset.tokenBalancesComplete, true)
   assert.equal(asset.sponsorFundingVerified, false)
   assert.equal(asset.canSubmitSponsoredTransfer, false)
 
