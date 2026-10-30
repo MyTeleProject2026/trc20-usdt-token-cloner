@@ -290,8 +290,8 @@ export default function WalletVault() {
   const serverTreasuryAddressMatchesSnapshot = typeof serverTreasuryReadiness?.treasuryAddress === 'string'
     && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
     && serverTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot.treasuryAddress
-  const treasuryPayoutAmountValid = /^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(treasuryPayoutAmount.trim())
-    && !/^0(?:\\.0{1,6})?$/.test(treasuryPayoutAmount.trim())
+  const treasuryPayoutAmountValid = /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(treasuryPayoutAmount.trim())
+    && !/^0(?:\.0{1,6})?$/.test(treasuryPayoutAmount.trim())
   const canSubmitServerTreasuryPayout = Boolean(unlocked
     && network === 'mainnet'
     && ownerSessionToken
