@@ -7,7 +7,7 @@ const NETWORKS = Object.freeze({
 
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-const TOKEN_ASSETS = Object.freeze(['USDT', 'VTRC'])
+const TOKEN_ASSETS = Object.freeze(['USDT'])
 
 function formatSun(value) {
   const sun = BigInt(value)

@@ -9,7 +9,7 @@ const { Pool } = pg
 const schema = 'trc20_token_clone'
 const readSponsorFundingStatusForReservation = createSponsorFundingReader()
 const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
-const SPONSORED_TOKEN_ASSETS = new Set(['USDT', 'VTRC'])
+const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
 const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 export function isSponsorTokenContractAllowed(network, asset, tokenContract, configuredContracts = []) {
@@ -17,8 +17,8 @@ export function isSponsorTokenContractAllowed(network, asset, tokenContract, con
     || !SPONSORED_TOKEN_ASSETS.has(asset)
     || typeof tokenContract !== 'string' || !tokenContract.trim()) return false
   if (asset === 'USDT' && network === 'mainnet') return tokenContract.trim() === OFFICIAL_MAINNET_USDT_CONTRACT
-  // Non-mainnet USDT and all VTRC deployments require an explicit operator-configured,
-  // network-scoped allowlist. Symbols and plausible addresses do not prove token identity.
+  // Non-mainnet USDT-labelled test assets require an explicit network-scoped allowlist.
+  // They are test assets only and are not Tether-issued Mainnet USDT.
   return Array.isArray(configuredContracts) && configuredContracts.some((item) => typeof item === 'string' && item.trim() === tokenContract.trim())
 }
 
@@ -310,8 +310,8 @@ export async function initializeDatabase() {
           CHECK (purpose <> 'network-fee' OR asset = 'TRX') NOT VALID;
         END IF;
       END; $sponsor_fee_budget$`)
-      // VTRC is an independent project token. Expand sponsor ledger constraints so
-      // it can be budgeted separately from official USDT and native TRX.
+      // Keep legacy VTRC rows readable for historical audit. The supported-asset-only
+      // NOT VALID checks added below reject all new/updated rows outside TRX and USDT.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_asset_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets ADD CONSTRAINT sponsor_budgets_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
       // Native TRX has no token contract; a token budget must identify its exact contract.
@@ -327,6 +327,19 @@ export async function initializeDatabase() {
             OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
         END IF;
       END; $sponsor_budget_contract$`)
+      // NOT VALID leaves old VTRC rows readable, but PostgreSQL rejects all new or updated
+      // rows outside the actively supported native TRX / USDT asset set.
+      await db.query(`DO $sponsor_budget_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_budgets_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_budgets'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_budgets
+          ADD CONSTRAINT sponsor_budgets_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_budget_supported_asset$`)
       // One sponsor may have independent budgets for each network/purpose/asset/contract.
       // Migrate the earlier one-budget-per-sponsor constraint without exposing secrets.
       await db.query(`ALTER TABLE ${schema}.sponsor_budgets DROP CONSTRAINT IF EXISTS sponsor_budgets_sponsor_reference_key`)
@@ -387,6 +400,18 @@ export async function initializeDatabase() {
             OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)) NOT VALID;
         END IF;
       END; $sponsor_transfer_contract$`)
+      // Preserve legacy rows but reject any new or updated transfer using unsupported assets.
+      await db.query(`DO $sponsor_transfer_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_transfers_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_transfers'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_transfers
+          ADD CONSTRAINT sponsor_transfers_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_transfer_supported_asset$`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD COLUMN IF NOT EXISTS sponsor_address TEXT`)
       await db.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_transfer_tx_identity
@@ -429,6 +454,19 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash)
         )
       `)
+      // Chain-cost evidence is an immutable audit ledger: keep old VTRC observations
+      // readable but reject any new observation for an unsupported asset.
+      await db.query(`DO $sponsor_observation_supported_asset$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'sponsor_chain_cost_observations_supported_asset_only'
+            AND conrelid = '${schema}.sponsor_chain_cost_observations'::regclass
+        ) THEN
+          ALTER TABLE ${schema}.sponsor_chain_cost_observations
+          ADD CONSTRAINT sponsor_chain_cost_observations_supported_asset_only
+          CHECK (asset IN ('TRX','USDT')) NOT VALID;
+        END IF;
+      END; $sponsor_observation_supported_asset$`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_chain_cost_observations_created
         ON ${schema}.sponsor_chain_cost_observations (network, observed_at DESC)`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_chain_cost_observations IS
@@ -1056,7 +1094,7 @@ export async function reserveSponsorTransfer(input, {
   if (!network || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{8,160}$/.test(idempotencyKey)
     || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorReference)
     || !['network-fee', 'asset-grant'].includes(purpose)
-    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || !['TRX', 'USDT'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
     || (asset === 'TRX' && tokenContract)
     || (SPONSORED_TOKEN_ASSETS.has(asset) && !isConfiguredSponsorTokenContractAllowed(network, asset, tokenContract))
@@ -1699,7 +1737,7 @@ export async function persistSponsorUnsignedTransaction({
       return { persisted: false, reason: 'approved-testnet-pending-transfer-required' }
     }
     if (row.sponsor_address === null || row.receiver_address === null
-      || !['TRX','USDT','VTRC'].includes(row.asset)
+      || !['TRX','USDT'].includes(row.asset)
       || !/^(0|[1-9][0-9]*)$/.test(row.amount_base_units)) {
       await client.query('ROLLBACK')
       return { persisted: false, reason: 'transfer-identity-incomplete' }
@@ -1963,7 +2001,7 @@ export async function createSponsorBudgetDraft(input) {
   if (!network
     || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
     || !['network-fee', 'asset-grant'].includes(purpose)
-    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || !['TRX', 'USDT'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
     || (asset === 'TRX' && tokenContract !== null)
     || (asset !== 'TRX' && (typeof tokenContract !== 'string'
@@ -2039,7 +2077,7 @@ function approvedSponsorAgreementScopes() {
         || !['mainnet', 'shasta', 'nile'].includes(network)
         || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)
         || !['network-fee', 'asset-grant'].includes(purpose)
-        || !['TRX', 'USDT', 'VTRC'].includes(asset)
+        || !['TRX', 'USDT'].includes(asset)
         || (purpose === 'network-fee' && asset !== 'TRX')
         || (asset === 'TRX'
           ? tokenContract !== '-'
@@ -2846,7 +2884,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || !isValidTronAddress(input.assetPrincipalAddress)
     || !isValidTronAddress(input.receiverAddress)
     || feeSponsorAddress === input.assetPrincipalAddress
-    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || !['TRX', 'USDT'].includes(asset)
     || (asset === 'TRX' && input.tokenContract != null)
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0

@@ -607,17 +607,18 @@ function makeSponsorTransitionPool(state) {
 }
 
 
-test('sponsor token contract allowlists are exact and network-scoped', () => {
+test('sponsor token contract allowlists accept only official Mainnet USDT or exact network-scoped testnet USDT', () => {
   const officialUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-  const vtrcShasta = 'TQ9u4P2xVtrcTestContract'
+  const testnetUsdt = 'TQ9u4P2xTestUsdtContract'
+  const legacyVtrc = 'TQ9u4P2xVtrcTestContract'
   assert.equal(isSponsorTokenContractAllowed('mainnet', 'USDT', officialUsdt), true)
   assert.equal(isSponsorTokenContractAllowed('shasta', 'USDT', officialUsdt), false)
   assert.equal(isSponsorTokenContractAllowed('mainnet', 'USDT', 'TWrongContract'), false)
-  assert.equal(isSponsorTokenContractAllowed('shasta', 'VTRC', vtrcShasta), false)
-  assert.equal(isSponsorTokenContractAllowed('shasta', 'VTRC', vtrcShasta, [vtrcShasta]), true)
-  assert.equal(isSponsorTokenContractAllowed('mainnet', 'VTRC', vtrcShasta), false)
-  assert.equal(isSponsorTokenContractAllowed('mainnet', 'VTRC', vtrcShasta, ['TAnotherContract']), false)
-  assert.equal(isSponsorTokenContractAllowed('TRON', 'VTRC', vtrcShasta, [vtrcShasta]), false)
+  assert.equal(isSponsorTokenContractAllowed('shasta', 'USDT', testnetUsdt, [testnetUsdt]), true)
+  assert.equal(isSponsorTokenContractAllowed('mainnet', 'USDT', testnetUsdt, [testnetUsdt]), false)
+  assert.equal(isSponsorTokenContractAllowed('shasta', 'VTRC', legacyVtrc, [legacyVtrc]), false)
+  assert.equal(isSponsorTokenContractAllowed('mainnet', 'VTRC', legacyVtrc, ['TAnotherContract']), false)
+  assert.equal(isSponsorTokenContractAllowed('TRON', 'VTRC', legacyVtrc, [legacyVtrc]), false)
 })
 
 

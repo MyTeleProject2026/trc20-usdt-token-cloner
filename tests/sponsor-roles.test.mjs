@@ -46,7 +46,7 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
     TATUM_API_KEY: 'server-only-test-key',
     SPONSOR_FEE_NILE_ADDRESS: feeAddress,
     SPONSOR_ASSET_NILE_ADDRESS: assetAddress,
-    SPONSOR_VTRC_NILE_CONTRACTS: tokenAddress,
+    SPONSOR_USDT_NILE_CONTRACTS: tokenAddress,
   }
   const readRoles = createSponsorRoleFundingReader({
     env,
@@ -59,7 +59,7 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
       }
       if (url.endsWith('/walletsolidity/triggerconstantcontract')) {
         const decimals = body.function_selector === 'decimals()'
-        const value = decimals ? 18n : 987654321n
+        const value = decimals ? 6n : 987654321n
         return { ok: true, json: async () => ({ result: { result: true }, constant_result: [value.toString(16).padStart(64, '0')] }) }
       }
       if (url.endsWith('/wallet/getaccountresource')) {
@@ -105,8 +105,9 @@ test('fee sponsor resources and asset sponsor balances are read independently wi
   assert.equal(asset.onChainBalanceRead, true)
   assert.equal(asset.native.balanceTRX, '4.2')
   assert.equal(asset.tokens.length, 1)
-  assert.equal(asset.tokens[0].asset, 'VTRC')
+  assert.equal(asset.tokens[0].asset, 'USDT (testnet)')
   assert.equal(asset.tokens[0].status, 'verified')
+  assert.equal(asset.tokens[0].decimals, 6)
   assert.equal(asset.tokens[0].balanceBaseUnits, '987654321')
   assert.equal(asset.sponsorFundingVerified, false)
   assert.equal(asset.canSubmitSponsoredTransfer, false)

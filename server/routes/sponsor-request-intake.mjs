@@ -123,6 +123,19 @@ export function createSponsorRequestStore(env = process.env) {
               OR (asset = 'USDT' AND token_contract IS NOT NULL))
           )
         `)
+        // A NOT VALID guard preserves legacy rows for audit while rejecting unsupported
+        // assets in all new inserts and updates to this intake table.
+        await db.query(`DO $sponsor_intake_supported_asset$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'sponsor_payout_intake_supported_asset_only'
+              AND conrelid = 'trc20_token_clone.sponsor_payout_intake_requests'::regclass
+          ) THEN
+            ALTER TABLE trc20_token_clone.sponsor_payout_intake_requests
+            ADD CONSTRAINT sponsor_payout_intake_supported_asset_only
+            CHECK (asset IN ('TRX','USDT')) NOT VALID;
+          END IF;
+        END; $sponsor_intake_supported_asset$`)
         await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_payout_intake_owner_idx
           ON trc20_token_clone.sponsor_payout_intake_requests (requester_address, network, created_at DESC)
@@ -227,7 +240,15 @@ export function createSponsorRequestStore(env = process.env) {
     return { success: true, requests: result.rows.map(toPublicRequest) }
   }
 
-  return { findRequest, createRequest, listRequests }
+  async function close() {
+    if (!pool) return
+    const currentPool = pool
+    pool = null
+    schemaPromise = null
+    await currentPool.end()
+  }
+
+  return { findRequest, createRequest, listRequests, close }
 }
 
 export function createSponsorRequestIntakeRouter({

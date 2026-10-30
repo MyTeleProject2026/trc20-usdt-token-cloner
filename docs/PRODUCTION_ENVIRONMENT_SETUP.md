@@ -29,7 +29,7 @@ There is **no universal or “usual” sponsor/treasury wallet address** that ca
 - `SPONSOR_MAINNET_ADDRESS`, `SPONSOR_SHASTA_ADDRESS`, `SPONSOR_NILE_ADDRESS`: set only to the correct sponsor address on that network and only with permission to monitor it.
 - `SPONSOR_FEE_<NETWORK>_ADDRESS`: fee/resource monitor address.
 - `SPONSOR_ASSET_<NETWORK>_ADDRESS`: source of the actual transfer principal. Do not confuse fee coverage with USDT/TRX principal funding.
-- Testnet USDT/VTRC contract allowlists must contain the correct contract for that exact network. Mainnet USDT is fixed in the backend; VTRC is not official USDT.
+- Only native TRX and official Mainnet USDT are in the supported production asset scope. Nile/Shasta USDT-labelled contracts are test assets only, not genuine Tether Mainnet USDT.
 
 Earlier environment notes contained conflicting owner/treasury address candidates. Do not designate any previously typed address as correct without reconciling it against the actual wallet and provider vault.
 

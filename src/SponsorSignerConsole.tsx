@@ -617,7 +617,7 @@ export default function SponsorSignerConsole() {
         verificationParams.set('amountSun', reservation.amountBaseUnits)
         verificationPath = '/api/tron/verify-native-transfer/' + encodeURIComponent(transactionHash)
       } else {
-        if (!['USDT', 'VTRC'].includes(reservation.asset)
+        if (reservation.asset !== 'USDT'
           || typeof reservation.tokenContract !== 'string' || !reservation.tokenContract) {
           throw new Error('The saved token identity is incomplete; no receiver token balance will be inferred.')
         }
@@ -988,8 +988,8 @@ export default function SponsorSignerConsole() {
                   <div className="sponsor-console-detail"><span>Live funding/resources</span><strong>Fee balance {item?.roleConfiguration?.feeSponsorOnChainBalanceRead === true ? 'read' : 'not verified'} · Principal balance {item?.roleConfiguration?.assetPrincipalSponsorOnChainBalanceRead === true ? 'read' : 'not verified'} · Resources {item?.feeSponsorResources?.read === true ? 'read' : [item?.feeSponsorResources?.status, item?.feeSponsorResources?.failureStage, item?.feeSponsorResources?.providerResponseCategory].filter(Boolean).join(' · ') || 'not verified'} · Delegation {item?.feeSponsorResources?.delegation?.activeDelegationObserved === true ? 'observed' : 'not observed'}</strong></div>
                   <div className="sponsor-console-detail"><span>Observed native balances</span><strong>Fee sponsor {feeNative?.status === 'verified' ? String(feeNative.balanceTRX) + ' TRX' : 'not verified'} · Asset-principal sponsor {principalNative?.status === 'verified' ? String(principalNative.balanceTRX) + ' TRX' : 'not verified'}</strong></div>
                   <div className="sponsor-console-detail"><span>Principal token balances</span><strong>{principalTokens.length > 0 ? principalTokens.map((token: ApiPayload) => token.asset + ': ' + (token.status === 'verified' ? String(token.balanceBaseUnits) + ' base units' + (Number.isSafeInteger(token.decimals) ? ' (decimals ' + String(token.decimals) + ')' : '') : 'not verified')).join(' · ') : 'No configured token balances reported'}</strong></div>
-                  <div className="sponsor-console-detail"><span>Token allowlists</span><strong>Testnet USDT contract {item?.tokenContractAllowlistConfigured?.USDT === true ? 'configured' : 'not configured'} · VTRC contract {item?.tokenContractAllowlistConfigured?.VTRC === true ? 'configured' : 'not configured'}</strong></div>
-                  {(item?.tokenContractAllowlistConfigured?.USDT !== true || item?.tokenContractAllowlistConfigured?.VTRC !== true) && <p className="sponsor-console-field-note">Configure verified network-specific test-token contracts server-side: SPONSOR_USDT_{pilotNetwork.toUpperCase()}_CONTRACTS and SPONSOR_VTRC_{pilotNetwork.toUpperCase()}_CONTRACTS. Use only the exact contract you independently checked on this testnet. A testnet token is not official Mainnet USDT, and an allowlist does not create token balances.</p>}
+                  <div className="sponsor-console-detail"><span>Testnet USDT-labelled contract</span><strong>{item?.tokenContractAllowlistConfigured?.USDT === true ? 'configured' : 'not configured'}</strong></div>
+                  {item?.tokenContractAllowlistConfigured?.USDT !== true && <p className="sponsor-console-field-note">Configure only an independently verified testnet contract in SPONSOR_USDT_{pilotNetwork.toUpperCase()}_CONTRACTS. Testnet tokens are not Tether-issued Mainnet USDT, and an allowlist does not create token balances.</p>}
                   {blockers.length > 0 && <div className="sponsor-console-result-note"><strong>Blockers ({blockers.length})</strong><ul>{blockers.map((blocker) => <li key={blocker}><code>{blocker}</code>{SPONSOR_BLOCKER_GUIDANCE[blocker] && <p>Next step: {SPONSOR_BLOCKER_GUIDANCE[blocker]}</p>}</li>)}</ul></div>}
                 </div>
               )

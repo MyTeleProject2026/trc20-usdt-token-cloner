@@ -41,7 +41,7 @@ function transferShape(transfer) {
   if (typeof transfer.sponsorAddress !== 'string' || !isValidTronAddress(transfer.sponsorAddress)
     || typeof transfer.receiverAddress !== 'string' || !isValidTronAddress(transfer.receiverAddress)
     || !safeBaseUnits(transfer.amountBaseUnits)) return 'invalid-transfer-intent'
-  if (!['TRX', 'USDT', 'VTRC'].includes(transfer.asset)) return 'unsupported-asset'
+  if (!['TRX', 'USDT'].includes(transfer.asset)) return 'unsupported-asset'
   if (transfer.asset === 'TRX' && transfer.tokenContract != null && transfer.tokenContract !== '') {
     return 'native-trx-contract-must-be-empty'
   }

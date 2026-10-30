@@ -604,11 +604,11 @@ router.post('/sponsorship/role-budget-drafts', async (req, res) => {
   }
   const feeRole = body.role === 'network-fee-sponsor'
   if (feeRole && (body.asset !== 'TRX' || (body.tokenContract !== undefined && body.tokenContract !== null && body.tokenContract !== ''))
-    || !feeRole && !['TRX', 'USDT', 'VTRC'].includes(body.asset)) {
+    || !feeRole && !['TRX', 'USDT'].includes(body.asset)) {
     return res.status(400).json({
       success: false,
       error: 'role-asset-mismatch',
-      message: 'The fee sponsor can draft only a native TRX resource/fee cap. The asset-principal sponsor may draft TRX, allowlisted USDT, or allowlisted VTRC.',
+      message: 'The fee sponsor can draft only a native TRX resource/fee cap. The asset-principal sponsor may draft native TRX or USDT only.',
     })
   }
   const networkKey = body.network.toUpperCase()
@@ -1240,7 +1240,7 @@ router.post('/sponsorship/transfers/reserve', async (req, res) => {
   if (typeof body.idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(body.idempotencyKey)
     || typeof body.sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(body.sponsorReference)
     || !['network-fee', 'asset-grant'].includes(body.purpose)
-    || !['TRX', 'USDT', 'VTRC'].includes(body.asset)
+    || !['TRX', 'USDT'].includes(body.asset)
     || (body.purpose === 'network-fee' && body.asset !== 'TRX')
     || (body.asset === 'TRX' && body.tokenContract != null && body.tokenContract !== '')
     || (body.asset !== 'TRX' && !isValidTronAddress(body.tokenContract))

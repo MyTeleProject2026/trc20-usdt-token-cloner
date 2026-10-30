@@ -118,7 +118,7 @@ test('token contract allowlists require every comma-separated item to be a valid
     },
   })
   assert.equal(result.networks.nile.tokenContractAllowlist.usdt, true)
-  assert.equal(result.networks.nile.tokenContractAllowlist.vtrc, false)
+  assert.equal(Object.hasOwn(result.networks.nile.tokenContractAllowlist, 'vtrc'), false)
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
 })
 
@@ -130,7 +130,7 @@ test('token contract allowlists reject empty list entries and whitespace-only va
     },
   })
   assert.equal(result.networks.nile.tokenContractAllowlist.usdt, false)
-  assert.equal(result.networks.nile.tokenContractAllowlist.vtrc, false)
+  assert.equal(Object.hasOwn(result.networks.nile.tokenContractAllowlist, 'vtrc'), false)
 })
 
 test('production readiness lists unresolved sponsor-funding, authorization and settlement release gates', () => {

@@ -118,7 +118,7 @@ export function createSponsorSettlementRouter({
           submissionEnabled: false,
         })
       }
-      if (!['TRX', 'USDT', 'VTRC'].includes(transfer.asset)
+      if (!['TRX', 'USDT'].includes(transfer.asset)
         || (transfer.asset === 'TRX' && transfer.tokenContract != null)
         || (transfer.asset !== 'TRX' && (typeof transfer.tokenContract !== 'string' || !ADDRESS_PATTERN.test(transfer.tokenContract)))
         || typeof transfer.sponsorAddress !== 'string' || !ADDRESS_PATTERN.test(transfer.sponsorAddress)

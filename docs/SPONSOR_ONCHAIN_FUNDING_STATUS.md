@@ -17,7 +17,6 @@ Set these values only in the backend's server environment:
 - `SPONSOR_MAINNET_ADDRESS`, `SPONSOR_SHASTA_ADDRESS`, `SPONSOR_NILE_ADDRESS`: the public sponsor address intended to be monitored on each exact network.
 - `TATUM_API_KEY`: backend-only read API key for the Tatum TRON Solidity gateways.
 - `SPONSOR_USDT_SHASTA_CONTRACTS`, `SPONSOR_USDT_NILE_CONTRACTS`: reviewed testnet USDT-like contract addresses, comma separated. A testnet token is not official Mainnet USDT.
-- `SPONSOR_VTRC_MAINNET_CONTRACTS`, `SPONSOR_VTRC_SHASTA_CONTRACTS`, `SPONSOR_VTRC_NILE_CONTRACTS`: reviewed VTRC contract addresses for each network, comma separated. VTRC remains an independent project token.
 - On Mainnet, the USDT query is pinned to Tether's official TRON contract in the backend; a symbol or configurable address cannot redefine official USDT.
 
 The endpoint rejects malformed sponsor addresses, invalid networks, and malformed token allowlists. It checks the address returned by the Solidity gateway against the requested sponsor address. The API key is used only in a server-side header and is not returned in JSON.
@@ -43,7 +42,7 @@ Before any sponsored TRX or USDT transfer can be enabled, the project still need
 The following administrative endpoints require `Authorization: Bearer <SPONSOR_ADMIN_API_TOKEN>`. Configure a random server-only token of at least 32 characters in the backend environment. Never expose it as a Vite variable or embed it in the frontend.
 
 - `GET /api/tron/sponsorship/budgets?network=mainnet|shasta|nile` lists configured budget caps, reservations, recorded spend and ledger-available base units. It is read-only and requires the admin token.
-- `POST /api/tron/sponsorship/budgets` creates a budget draft for a configured server-side sponsor address. Required JSON fields are `network`, `sponsorReference`, `purpose` (`network-fee` or `asset-grant`), `asset` (`TRX`, `USDT`, or `VTRC`), `budgetBaseUnits` (positive integer string), and `tokenContract` for token assets.
+- `POST /api/tron/sponsorship/budgets` creates a budget draft for a configured server-side sponsor address. Required JSON fields are `network`, `sponsorReference`, `purpose` (`network-fee` or `asset-grant`), `asset` (`TRX` or `USDT` only), `budgetBaseUnits` (positive integer string), and `tokenContract` for token assets.
 
 Creation always sets the row to `pending-review`; duplicate identities are rejected and audited in the same database transaction. The endpoint cannot activate, reserve, sign, submit, or broadcast a transfer. No public UI stores or sends the administrator token. The requested amount is a ledger cap, not a verified wallet balance; compare it with the read-only funding snapshot during operator review. Existing budgets are not edited by these endpoints.
 
@@ -111,7 +110,7 @@ The ledger and reconciliation controls are implemented as accounting and readine
 }
 ```
 
-Use `purpose: "network-fee"` with `asset: "TRX"` for a separate fee/resource budget. Asset grants use `purpose: "asset-grant"` and an allowlisted `TRX`, `USDT`, or `VTRC` contract as applicable. The API rejects unknown fields, signing material, malformed integer amounts, Mainnet requests, and fee budgets that use a non-TRX asset. It never accepts a client-supplied sponsor address: the budget and funding snapshot must match the configured role address.
+Use `purpose: "network-fee"` with `asset: "TRX"` for a separate fee/resource budget. Asset grants use `purpose: "asset-grant"` and an allowlisted `TRX` or `USDT` contract as applicable. The API rejects unknown fields, signing material, malformed integer amounts, Mainnet requests, and fee budgets that use a non-TRX asset. It never accepts a client-supplied sponsor address: the budget and funding snapshot must match the configured role address.
 
 The endpoint chooses the network-fee sponsor for `network-fee` reservations and the asset-principal sponsor for `asset-grant` reservations. For a new reservation it requests a fresh, exact-network role snapshot and delegates to the existing atomic PostgreSQL reservation helper. The helper requires an active budget, a still-allowlisted exact-scope agreement, a fresh solidified balance for the same sponsor wallet, exact token-contract identity, sufficient remaining ledger cap, and sufficient chain balance after other allocations. The `idempotencyKey` is unique; a retry with the same full intent is returned as a duplicate rather than creating another reservation, while a different intent under the same key is rejected.
 

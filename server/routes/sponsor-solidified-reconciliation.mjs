@@ -51,7 +51,7 @@ export async function readSolidifiedSponsorTransferEvidence({
   const hash = typeof transfer?.transactionHash === 'string' ? transfer.transactionHash.toLowerCase() : ''
   if (!host || !TXID.test(hash)) return { success: false, reason: 'invalid-stored-transfer-identity' }
   if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) return { success: false, reason: 'provider-credentials-missing' }
-  if (!['TRX', 'USDT', 'VTRC'].includes(transfer.asset)
+  if (!['TRX', 'USDT'].includes(transfer.asset)
     || !isValidTronAddress(transfer.sponsorAddress) || !isValidTronAddress(transfer.receiverAddress)
     || !POSITIVE.test(String(transfer.amountBaseUnits || ''))
     || (transfer.asset === 'TRX' ? transfer.tokenContract != null : !isValidTronAddress(transfer.tokenContract))) {
@@ -169,7 +169,7 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
       }
       const transfer = found.transfer
       if (!['nile','shasta'].includes(transfer.network) || transfer.purpose !== 'asset-grant'
-        || !['TRX','USDT','VTRC'].includes(transfer.asset) || !TXID.test(String(transfer.transactionHash || ''))) {
+        || !['TRX','USDT'].includes(transfer.asset) || !TXID.test(String(transfer.transactionHash || ''))) {
         return fail(409, 'submitted-testnet-asset-transfer-required', { network: transfer.network || null, status: transfer.status || null })
       }
       if (!['broadcasting','submitted','confirmed'].includes(transfer.status)) return fail(409, 'submitted-transfer-required', { status: transfer.status })
