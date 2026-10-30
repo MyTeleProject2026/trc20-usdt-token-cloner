@@ -604,11 +604,11 @@ router.post('/sponsorship/role-budget-drafts', async (req, res) => {
   }
   const feeRole = body.role === 'network-fee-sponsor'
   if (feeRole && (body.asset !== 'TRX' || (body.tokenContract !== undefined && body.tokenContract !== null && body.tokenContract !== ''))
-    || !feeRole && !['TRX', 'USDT', 'VTRC'].includes(body.asset)) {
+    || !feeRole && !['TRX', 'USDT'].includes(body.asset)) {
     return res.status(400).json({
       success: false,
       error: 'role-asset-mismatch',
-      message: 'The fee sponsor can draft only a native TRX resource/fee cap. The asset-principal sponsor may draft TRX, allowlisted USDT, or allowlisted VTRC.',
+      message: 'The fee sponsor can draft only a native TRX resource/fee cap. The asset-principal sponsor may draft native TRX or USDT only.',
     })
   }
   const networkKey = body.network.toUpperCase()
