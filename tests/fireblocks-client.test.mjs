@@ -447,3 +447,97 @@ test('Fireblocks fee estimation submits a read-only estimate request for the exa
   assert.equal('externalTxId' in usdtBody, false)
   assert.equal('privateKey' in usdtBody, false)
 })
+
+
+test('Fireblocks retrieves one existing vault account using the configured numeric account ID', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({
+        id: '0',
+        name: 'Production TRON Treasury',
+        assets: [{ id: 'TRON_USDT', available: '25.000000' }, { id: 'TRX', available: '90' }],
+        hiddenOnUI: false,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'vault-account-read-test',
+  })
+
+  const account = await client.getVaultAccount()
+  assert.equal(account.id, '0')
+  assert.equal(account.name, 'Production TRON Treasury')
+  assert.deepEqual(account.assets.map((asset) => asset.id), ['TRON_USDT', 'TRX'])
+  assert.equal(calls.length, 1)
+  assert.equal(new URL(calls[0].url).pathname, '/v1/vault/accounts/0')
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.body, undefined)
+})
+
+test('Fireblocks retrieves paged vault accounts with validated supported filters', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({
+        accounts: [{
+          id: '0',
+          name: 'Production TRON Treasury',
+          assets: [{ id: 'TRON_USDT', total: '25', available: '25' }],
+          tags: [{ id: 'df4c0987-30da-4976-8dcf-bc2dd41ae331', label: 'Treasury' }],
+        }],
+        paging: { before: '', after: 'next-page-cursor' },
+        previousUrl: '',
+        nextUrl: '/v1/vault/accounts_paged?after=next-page-cursor',
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'vault-account-page-test',
+  })
+
+  const page = await client.getPagedVaultAccounts({
+    limit: 300,
+    assetId: 'TRON_USDT',
+    orderBy: 'ASC',
+    after: 'cursor-next',
+    namePrefix: 'Production',
+    nameSuffix: 'Treasury',
+    minAmountThreshold: 0.5,
+  })
+  assert.equal(page.accounts[0].id, '0')
+  assert.equal(page.accounts[0].assets[0].id, 'TRON_USDT')
+  assert.equal(page.paging.after, 'next-page-cursor')
+  assert.equal(calls.length, 1)
+  const url = new URL(calls[0].url)
+  assert.equal(url.pathname, '/v1/vault/accounts_paged')
+  assert.deepEqual(Object.fromEntries(url.searchParams.entries()), {
+    limit: '300',
+    orderBy: 'ASC',
+    assetId: 'TRON_USDT',
+    after: 'cursor-next',
+    namePrefix: 'Production',
+    nameSuffix: 'Treasury',
+    minAmountThreshold: '0.5',
+  })
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.body, undefined)
+
+  await assert.rejects(
+    client.getPagedVaultAccounts({ before: 'old-cursor', after: 'new-cursor' }),
+    (error) => error?.code === 'invalid-fireblocks-vault-account-page-request',
+  )
+  await assert.rejects(
+    client.getPagedVaultAccounts({ limit: 501 }),
+    (error) => error?.code === 'invalid-fireblocks-vault-account-page-request',
+  )
+  await assert.rejects(
+    client.getPagedVaultAccounts({ minAmountThreshold: Number.NaN }),
+    (error) => error?.code === 'invalid-fireblocks-vault-account-page-request',
+  )
+  assert.equal(calls.length, 1, 'invalid page filters must be rejected before any provider request')
+})
