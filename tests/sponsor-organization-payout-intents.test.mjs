@@ -171,15 +171,26 @@ function adminHeaders() {
   return { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' }
 }
 
+const baseHttpInput = {
+  idempotencyKey: baseInput.idempotencyKey,
+  network: baseInput.network,
+  asset: baseInput.asset,
+  receiverAddress: baseInput.receiverAddress,
+  amountBaseUnits: baseInput.amountBaseUnits,
+  feeCapSun: baseInput.feeCapSun,
+  principalBudgetLinkId: baseInput.principalLinkId,
+  feeBudgetLinkId: baseInput.feeLinkId,
+}
+
 test('payout intent HTTP route requires admin auth and rejects secret-bearing fields', async (t) => {
   const store = createStore()
   const base = await serve(t, store, async (...args) => roleFunding(...args))
   const denied = await fetch(base + '/sponsorship/organizations/payout-intents', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(baseInput),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(baseHttpInput),
   })
   assert.equal(denied.status, 401)
   const rejected = await fetch(base + '/sponsorship/organizations/payout-intents', {
-    method: 'POST', headers: adminHeaders(), body: JSON.stringify({ ...baseInput, privateKey: 'never-accept' }),
+    method: 'POST', headers: adminHeaders(), body: JSON.stringify({ ...baseHttpInput, privateKey: 'never-accept' }),
   })
   assert.equal(rejected.status, 400)
   assert.equal(store.state.reserved.length, 0)
@@ -189,7 +200,7 @@ test('payout intent HTTP route returns a non-submittable pending authorization r
   const store = createStore()
   const base = await serve(t, store, async (...args) => roleFunding(...args))
   const response = await fetch(base + '/sponsorship/organizations/payout-intents', {
-    method: 'POST', headers: adminHeaders(), body: JSON.stringify(baseInput),
+    method: 'POST', headers: adminHeaders(), body: JSON.stringify(baseHttpInput),
   })
   const payload = await response.json()
   assert.equal(response.status, 201)
