@@ -8,7 +8,7 @@ import { createSponsorOrganizationSelectionRouter } from '../server/routes/spons
 const ADMIN_TOKEN = 'selection-test-admin-token-longer-than-thirty-two-characters'
 const PRINCIPAL_ADDRESS = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const FEE_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const TOKEN_CONTRACT = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
+const TOKEN_CONTRACT = FEE_ADDRESS
 
 function link(overrides = {}) {
   return {
@@ -126,14 +126,8 @@ test('selector returns a read-only pair only with fresh principal/fee chain bala
 })
 
 test('selector rejects stale snapshots even when ledger budget caps are sufficient', async () => {
-  const reader = async (network, feeAddress, principalAddress) => ({
-    ...await makeRoleFunding() (network, feeAddress, principalAddress),
-    fundingSnapshots: {
-      ...await makeRoleFunding() (network, feeAddress, principalAddress).then(value => value.fundingSnapshots),
-    },
-  })
   const staleReader = async (network, feeAddress, principalAddress) => {
-    const value = await makeRoleFunding() (network, feeAddress, principalAddress)
+    const value = await makeRoleFunding()(network, feeAddress, principalAddress)
     value.fundingSnapshots.assetPrincipalSponsor.cache = { status: 'cached', ageMs: 20000 }
     return value
   }
