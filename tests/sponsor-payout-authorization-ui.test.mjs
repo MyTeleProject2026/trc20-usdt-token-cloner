@@ -27,6 +27,8 @@ test('sponsor page proves wallet identity before requesting a role-bound approva
   assert.match(component, /signMessageV2\(challenge\.message\)/)
   assert.match(component, /afterApproval\.address !== before\.address/)
   assert.match(component, /afterApproval\.hostname !== before\.hostname/)
+  assert.match(component, /api\/auth\/tron\/logout/)
+  assert.match(component, /walletSessionToken/)
 })
 
 test('sponsor approval routes use wallet session and verify the recovered address against the current sponsor account', () => {
