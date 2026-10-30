@@ -12,6 +12,7 @@ test('independent sponsor approval page is a standalone route outside platform o
   assert.match(entrypoint, /if \(isSponsorPayoutAuthorization\) \{[\s\S]*?<SponsorPayoutAuthorization \/>[\s\S]*?return\n  \}/)
   assert.match(component, /Approve a sponsor payout intent/)
   assert.match(component, /Each organization must use its own verified wallet/)
+  assert.match(component, /provider\.tronWeb \|\| window\.tronWeb/)
   assert.match(component, /not that the signer is legally authorized/)
   assert.doesNotMatch(component, /SPONSOR_ADMIN_API_TOKEN|OWNER_PASSWORD|privateKey|seedPhrase|recoveryPhrase/i)
   assert.doesNotMatch(component, /sessionStorage|localStorage/)
