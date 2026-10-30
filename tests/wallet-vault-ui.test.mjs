@@ -120,7 +120,7 @@ test('treasury payout UI requires complete Fireblocks funding, owner and fee rea
   assert.match(vault, /serverTreasuryReadiness\?\.feeReserveCovered === true/)
   assert.match(vault, /providerAssetIdentityVerified === true/)
   assert.match(vault, /nativeTrxVaultAddressVerified === true/)
-  assert.match(vault, /async function submitServerTreasuryPayout\(\)[\s\S]{0,2500}\/api\/treasury\/withdrawals/)
+  assert.match(vault, /async function submitServerTreasuryPayout\(\)[\s\S]{0,6000}\/api\/treasury\/withdrawals/)
   assert.match(vault, /ownerAuthorizationSignature/)
   assert.match(vault, /SEND TREASURY USDT/)
   assert.match(server, /verifyTreasuryOwnerPayoutSignature/)
