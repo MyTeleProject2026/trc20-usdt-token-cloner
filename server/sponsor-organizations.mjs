@@ -52,7 +52,7 @@ function payoutIntentRoleFields(intent, role) {
 }
 
 export function buildSponsorPayoutAuthorizationMessage({
-  intentId, intentDigest, role, organizationId, accountId, sponsorAddress,
+  intentId, intentDigest, role, organizationId, organizationLegalName, accountId, sponsorAddress,
   network, asset, tokenContract, receiverAddress, amountBaseUnits, feeCapSun,
   principalLinkId, feeLinkId, nonce, issuedAt, expiresAt,
 }) {
@@ -71,6 +71,7 @@ export function buildSponsorPayoutAuthorizationMessage({
     'Intent ID: ' + intentId,
     'Intent digest (SHA-256): ' + intentDigest,
     'Sponsor role: ' + role,
+    'Organization legal name: ' + organizationLegalName,
     'Organization ID: ' + organizationId,
     'Sponsor account ID: ' + accountId,
     'Sponsor wallet address: ' + sponsorAddress,
@@ -1452,7 +1453,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
     const result = await client.query(
       "SELECT l.id::text AS link_id, l.status AS link_status, " +
       "o.id::text AS organization_id, o.sponsor_reference AS organization_reference, " +
-      "o.status AS organization_status, o.agreement_reference, " +
+      "o.legal_name AS organization_legal_name, o.status AS organization_status, o.agreement_reference, " +
       "a.id::text AS account_id, a.sponsor_reference AS account_reference, " +
       "a.network AS network, a.network AS account_network, a.role, a.wallet_address, a.status AS account_status, " +
       "b.id::text AS budget_id, b.sponsor_reference, b.sponsor_address, b.network AS budget_network, " +
@@ -1546,6 +1547,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           intentDigest: intent.intent_digest.trim(),
           role,
           organizationId: identity.organizationId,
+          organizationLegalName: identity.row.organization_legal_name,
           accountId: identity.accountId,
           sponsorAddress: identity.sponsorAddress,
           network: intent.network,
