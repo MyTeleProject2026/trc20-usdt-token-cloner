@@ -125,12 +125,14 @@ test('TRX fee budget remains separate from official Mainnet USDT principal', () 
   assert.equal(validateSponsorBudget({
     ...validBudget,
     network: 'mainnet',
+    purpose: 'asset-grant',
     asset: 'USDT',
     tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
   }).valid, true)
   assert.equal(validateSponsorBudget({
     ...validBudget,
     network: 'mainnet',
+    purpose: 'asset-grant',
     asset: 'USDT',
   }).reason, 'token-contract-required')
   assert.equal(validateSponsorBudget({ ...validBudget, asset: 'TRX', tokenContract: 'TToken' }).reason, 'native-trx-has-no-token-contract')
