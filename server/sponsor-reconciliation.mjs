@@ -56,6 +56,8 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
       continue
     }
     if (!['TRX', 'USDT'].includes(budget.asset)
+      || (budget.asset === 'USDT' && (network !== 'mainnet' || budget.token_contract !== 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'))
+      || (budget.purpose === 'asset-grant' && (network !== 'mainnet' || budget.asset !== 'USDT'))
       || !['network-fee', 'asset-grant'].includes(budget.purpose)
       || (budget.purpose === 'network-fee' && budget.asset !== 'TRX')
       || !['active', 'paused', 'pending-review', 'disabled', 'depleted'].includes(budget.status)
@@ -113,10 +115,8 @@ export function reconcileSponsorBudgets({ network, fundingSnapshot, budgets } = 
         balance = parseBaseUnits(raw)
       }
     } else {
-      const displayAsset = item.asset === 'USDT' && network !== 'mainnet'
-        ? 'USDT (testnet)' : item.asset
       const token = Array.isArray(fundingSnapshot.tokens)
-        ? fundingSnapshot.tokens.find((entry) => entry?.asset === displayAsset
+        ? fundingSnapshot.tokens.find((entry) => entry?.asset === item.asset
           && entry?.tokenContract === item.tokenContract
           && entry?.status === 'verified')
         : null
