@@ -82,6 +82,7 @@ export default function SponsorPayoutAuthorization() {
   const [result, setResult] = useState<ApiResult | null>(null)
 
   const approveIntentRole = async () => {
+    let walletSessionToken = ''
     setError('')
     setResult(null)
     setBusy(true)
@@ -131,14 +132,14 @@ export default function SponsorPayoutAuthorization() {
         || typeof loginVerification.payload.sessionToken !== 'string') {
         throw new Error(loginVerification.payload.message || loginVerification.payload.error || 'Wallet identity verification failed.')
       }
-      const sessionToken = loginVerification.payload.sessionToken
+      walletSessionToken = loginVerification.payload.sessionToken
 
       setMessage('Wallet identity verified. The backend is now checking whether this exact wallet is the approved account for the selected sponsor role.')
       const challengeResponse = await requestJson(
         API_BASE + '/api/tron/sponsorship/payout-intents/' + encodeURIComponent(intentId.trim()) + '/authorization-challenges',
         {
           method: 'POST',
-          headers: { Authorization: 'Bearer ' + sessionToken },
+          headers: { Authorization: 'Bearer ' + walletSessionToken },
           body: JSON.stringify({ role }),
         },
       )
@@ -162,7 +163,7 @@ export default function SponsorPayoutAuthorization() {
         API_BASE + '/api/tron/sponsorship/payout-intents/' + encodeURIComponent(intentId.trim()) + '/authorize',
         {
           method: 'POST',
-          headers: { Authorization: 'Bearer ' + sessionToken },
+          headers: { Authorization: 'Bearer ' + walletSessionToken },
           body: JSON.stringify({ role, nonce: challenge.nonce, signature: sponsorSignature }),
         },
       )
@@ -177,6 +178,14 @@ export default function SponsorPayoutAuthorization() {
       setError(caught instanceof Error ? caught.message : 'Sponsor payout authorization failed.')
       setMessage('No blockchain transaction was built, signed or submitted by this approval page.')
     } finally {
+      if (walletSessionToken) {
+        void fetch(API_BASE + '/api/auth/tron/logout', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + walletSessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+        }).catch(() => undefined)
+      }
       setBusy(false)
     }
   }
