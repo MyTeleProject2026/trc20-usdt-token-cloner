@@ -22,7 +22,7 @@ export function parseSandboxUnits(value, decimals) {
     throw new Error('Enter a valid decimal amount and token precision.')
   }
   const raw = value.trim()
-  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/.test(raw)) {
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(raw)) {
     throw new Error('Amount must be a positive decimal number without commas or scientific notation.')
   }
   const [whole, fraction = ''] = raw.split('.')
