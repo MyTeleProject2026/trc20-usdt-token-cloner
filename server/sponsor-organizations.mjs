@@ -1676,6 +1676,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           intentDigest: challenge.intent_digest.trim(),
           role,
           organizationId: identity.organizationId,
+          organizationLegalName: identity.row.organization_legal_name,
           accountId: identity.accountId,
           sponsorAddress: identity.sponsorAddress,
           network: challenge.network,
