@@ -22,6 +22,9 @@ import {
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
+// This supervised application build must never submit real-value treasury payouts.
+// The hard gate is deliberately not controlled by Render environment variables.
+const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
 const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
@@ -923,6 +926,13 @@ export function createTreasuryWithdrawalsRouter({
 
   router.post('/withdrawals', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
+    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
+      return res.status(503).json({
+        success: false,
+        error: 'real-value-payout-execution-disabled-in-this-build',
+        submissionEnabled: false,
+      })
+    }
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
@@ -1397,6 +1407,13 @@ export function createTreasuryWithdrawalsRouter({
 
   router.post('/trx-withdrawals', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
+    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
+      return res.status(503).json({
+        success: false,
+        error: 'real-value-payout-execution-disabled-in-this-build',
+        submissionEnabled: false,
+      })
+    }
     const authResult = await authenticateOwner(req)
     if (!authResult.ok) return res.status(authResult.status).json({ success: false, error: authResult.error })
 
