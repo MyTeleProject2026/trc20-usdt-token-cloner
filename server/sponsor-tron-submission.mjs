@@ -41,12 +41,11 @@ function transferShape(transfer) {
   if (typeof transfer.sponsorAddress !== 'string' || !isValidTronAddress(transfer.sponsorAddress)
     || typeof transfer.receiverAddress !== 'string' || !isValidTronAddress(transfer.receiverAddress)
     || !safeBaseUnits(transfer.amountBaseUnits)) return 'invalid-transfer-intent'
-  if (!['TRX', 'USDT'].includes(transfer.asset)) return 'unsupported-asset'
+  if (transfer.asset !== 'TRX') return 'unsupported-asset'
   if (transfer.asset === 'TRX' && transfer.tokenContract != null && transfer.tokenContract !== '') {
     return 'native-trx-contract-must-be-empty'
   }
-  if (transfer.asset !== 'TRX'
-    && (typeof transfer.tokenContract !== 'string' || !isValidTronAddress(transfer.tokenContract))) {
+  if (transfer.tokenContract != null && transfer.tokenContract !== '') {
     return 'invalid-token-contract'
   }
   return null
