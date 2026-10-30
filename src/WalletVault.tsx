@@ -1340,22 +1340,22 @@ export default function WalletVault() {
                   ? 'Create, import, unlock, or recover the local owner signing wallet. Key material is processed on this device.'
                   : activePanel === 'activity'
                     ? 'Review local transaction records against actual chain status.'
-                    : 'View public treasury settings and organization payout provider readiness.'}
+                    : 'View public treasury settings and read-only provider checks. Payout execution is unavailable in this build.'}
         </p>
         <a className="wallet-vault-secondary" href="#/testnet-sandbox">Open read-only Testnet Sandbox</a>
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
         <strong>Owner-only funding model</strong>
-        <p>The owner wallet authorizes payout requests; it does not create USDT. Server-funded payouts can send only genuine USDT already held by the configured treasury, and the treasury must also have sufficient network-fee funding. If either balance is insufficient, the payout stays blocked.</p>
+        <p>This build does not submit treasury payout requests. A future arrangement would require a treasury organization to control the genuine assets and separately authorize the service; observed balances do not grant this app spending permission.</p>
       </div>
 
       <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
-          <span className="wallet-vault-step">LIVE</span>
+          <span className="wallet-vault-step">READ-ONLY</span>
           <div>
-            <h2 id="owner-dashboard-treasury-heading">Mainnet treasury overview</h2>
-            <p>Loads automatically from the authenticated owner-console session. No external wallet app is needed to view status.</p>
+            <h2 id="owner-dashboard-treasury-heading">Read-only Mainnet treasury status</h2>
+            <p>Loads public treasury observations for review. A live chain read does not mean this build can submit payouts.</p>
           </div>
         </div>
         {ownerTreasuryLoading && <p className="wallet-vault-caption" role="status"><RefreshCw size={14} /> Reading the configured treasury from TRON Mainnet…</p>}
@@ -1368,7 +1368,7 @@ export default function WalletVault() {
                   ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a>
                   : <strong>Not verified</strong>}
               </div>
-              <div><small>Withdrawal readiness</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+              <div><small>Backend preflight flag (informational)</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed — execution still disabled' : 'Not passed — execution disabled'}</strong></div>
               <div><small>Verified official USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
               <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
             </div>
@@ -1384,7 +1384,7 @@ export default function WalletVault() {
           <p className="wallet-vault-caption">Live treasury status is not available yet. Check owner-console configuration, the backend database, allowed app origin, and TRON provider access.</p>
         )}
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
-        <p className="wallet-vault-caption">This is read-only status. It never generates USDT or authorizes a payout. A real payout still requires genuine treasury assets, sufficient network fees, and a fresh owner approval for the exact recipient and amount.</p>
+        <p className="wallet-vault-caption">This is read-only status. It never generates USDT or authorizes a payout. Real-value payout execution is disabled in this build even if the provider's informational readiness flag passes.</p>
       </section>
 
 
@@ -1419,12 +1419,12 @@ export default function WalletVault() {
           </article>
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><ShieldCheck size={18} /><div><strong>Organization payout provider</strong><small>Backend-enforced readiness</small></div></div>
-            <p>Payouts require an exact owner signature, an authorized treasury signer, genuine on-chain USDT, persistent request records, and network-fee funding.</p>
-            <span className={'wallet-vault-state-pill ' + (serverTreasuryReadiness?.withdrawalsEnabled === true ? 'is-ready' : 'is-blocked')}>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked by backend checks'}</span>
+            <p>Provider preflight values are informational only. This application build does not create, authorize, sign, or submit third-party treasury payouts.</p>
+            <span className="wallet-vault-state-pill is-blocked">Execution disabled in this build</span>
           </article>
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><Wallet size={18} /><div><strong>Local wallet security</strong><small>Owner-controlled keys</small></div></div>
-            <p>The owner signing wallet can authorize a payout without holding the payout USDT. The treasury still must hold real USDT and transaction-fee resources.</p>
+            <p>This build does not use a local wallet key to authorize or submit third-party treasury payments. Treasury custody and any future payout operation must remain with the organization's authorized operators.</p>
           </article>
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><Settings size={18} /><div><strong>Network</strong><small>Current read target</small></div></div>
@@ -1449,12 +1449,12 @@ export default function WalletVault() {
           <div className="wallet-vault-review-wide"><small>Configured watch address</small>{ADDRESS_PATTERN.test(String(monitoredTreasuryAddress)) ? <a href={explorerUrl('mainnet', String(monitoredTreasuryAddress))} target="_blank" rel="noopener noreferrer">{monitoredTreasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
           <div><small>Read-only official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
           <div><small>Read-only TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
-          <div><small>Payout readiness</small><strong>{serverTreasuryReadiness?.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+          <div><small>Application payout execution</small><strong>Disabled in this build</strong></div>
         </div>
         {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
-        <p className="wallet-vault-caption">The owner's personal wallet need not hold the payout USDT. An organization must fund the treasury first, and the authorized owner must sign each exact payout request.</p>
-        <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Open Account to authorize a payout</button>
+        <p className="wallet-vault-caption">A treasury organization may control its own funds independently of this app. This build does not accept or execute treasury payout requests; the read-only balance display is not a withdrawal authorization.</p>
+        <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Review read-only owner status</button>
       </section>
 
       <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
@@ -1647,7 +1647,8 @@ export default function WalletVault() {
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
                       <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
-                      <div><small>Server payout readiness</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Ready' : 'Blocked'}</strong></div>
+                      <div><small>Backend preflight flag</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed (informational only)' : 'Not passed'}</strong></div>
+                      <div><small>Application payout execution</small><strong>Disabled in this build</strong></div>
                       <div><small>Configuration completeness</small><strong>{serverTreasuryReadiness.configuration?.configurationComplete === true ? 'Complete' : 'Incomplete'}</strong></div>
                       <div><small>USDT payout switch</small><strong>{serverTreasuryReadiness.configuration?.featureFlagEnabled === true ? 'Enabled' : 'Disabled (safe default)'}</strong></div>
                       <div><small>USDT asset identity</small><strong>{serverTreasuryReadiness.providerAssetIdentityVerified === true ? 'Verified' : 'Unverified'}</strong></div>
@@ -1688,14 +1689,10 @@ export default function WalletVault() {
                   {serverTreasuryReadiness?.withdrawalsEnabled === true && !serverTreasuryHasFunds && (
                     <p className="wallet-vault-risk-note" role="note">The server treasury has no verified positive USDT balance. Fund it with genuine USDT and verify the balance before requesting a payout.</p>
                   )}
-                  <div className="wallet-vault-form-grid">
-                    <label className="wallet-vault-field"><span>Recipient TRON address</span><input value={treasuryPayoutRecipient} onChange={event => setTreasuryPayoutRecipient(event.target.value.trim())} placeholder="T..." autoComplete="off" /></label>
-                    <label className="wallet-vault-field"><span>USDT amount</span><input value={treasuryPayoutAmount} onChange={event => setTreasuryPayoutAmount(event.target.value)} placeholder="0.00" inputMode="decimal" autoComplete="off" /></label>
-                    <label className="wallet-vault-field wallet-vault-review-wide"><span>Type SEND TREASURY USDT to confirm</span><input value={treasuryPayoutConfirm} onChange={event => setTreasuryPayoutConfirm(event.target.value)} placeholder="SEND TREASURY USDT" autoComplete="off" /></label>
+                  <div className="wallet-vault-transfer-warning" role="note">
+                    <strong>No payout request can be submitted from this build</strong>
+                    <p>Recipient and amount entry are intentionally unavailable. This panel is limited to read-only treasury observations and previously saved request-reference lookup; it does not create a payout, reserve funds, sign, or broadcast a transaction.</p>
                   </div>
-                  <button type="button" className="wallet-vault-primary" disabled={true} title="Server-funded payout submission is disabled in this development build">
-                    <ShieldCheck size={16} /> Server payout submission disabled
-                  </button>
                   {treasuryPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryPayoutError}</p>}
                   {treasuryPayoutStatus && (
                     <div className="wallet-vault-review-grid">
