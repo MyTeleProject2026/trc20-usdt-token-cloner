@@ -713,6 +713,7 @@ export function createTreasuryWithdrawalsRouter({
         networkFeeCapCovered: treasuryFeeCapCovered(nativeText, feeCapSun)
           && treasuryFeeCapCovered(providerAvailableTrx, feeCapSun),
         contractMetadataVerified: true, vaultAddressVerified: true,
+        vaultAccountVerified: true, usdtAssetActivated: true, trxAssetActivated: true,
         nativeTrxAssetIdentityVerified: true, nativeTrxVaultAddressVerified: true,
       }
     } catch {
@@ -935,6 +936,9 @@ export function createTreasuryWithdrawalsRouter({
         networkFeeCapCovered: snapshot.networkFeeCapCovered,
         providerAssetIdentityVerified: snapshot.contractMetadataVerified,
         providerVaultAddressVerified: snapshot.vaultAddressVerified,
+        providerVaultAccountVerified: snapshot.vaultAccountVerified,
+        providerUsdtAssetActivated: snapshot.usdtAssetActivated,
+        providerTrxAssetActivated: snapshot.trxAssetActivated,
         nativeTrxAssetIdentityVerified: snapshot.nativeTrxAssetIdentityVerified,
         nativeTrxVaultAddressVerified: snapshot.nativeTrxVaultAddressVerified,
       } : {}),
