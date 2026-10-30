@@ -13,15 +13,6 @@ function normalizedAddress(env, key) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function configuredContractList(env, key) {
-  const value = env[key]
-  if (typeof value !== 'string' || !value.trim()) return false
-  const entries = value.split(',').map((item) => item.trim())
-  // Reject empty entries and malformed/checksum-invalid addresses instead of
-  // reporting a partially valid allowlist as configured.
-  return entries.length > 0 && entries.every(isValidTronAddress)
-}
-
 /**
  * Returns deployment/configuration diagnostics without returning secrets or
  * public sponsor addresses. Environment presence is never transaction authority.
