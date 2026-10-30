@@ -240,7 +240,15 @@ export function createSponsorRequestStore(env = process.env) {
     return { success: true, requests: result.rows.map(toPublicRequest) }
   }
 
-  return { findRequest, createRequest, listRequests }
+  async function close() {
+    if (!pool) return
+    const currentPool = pool
+    pool = null
+    schemaPromise = null
+    await currentPool.end()
+  }
+
+  return { findRequest, createRequest, listRequests, close }
 }
 
 export function createSponsorRequestIntakeRouter({
