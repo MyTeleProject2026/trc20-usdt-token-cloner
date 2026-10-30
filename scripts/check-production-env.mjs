@@ -13,7 +13,7 @@ const FIREBLOCKS_API_BASES = new Set([
 const ASSET_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const OWNER_PASSWORD_HASH_PATTERN = /^scrypt\$[A-Za-z0-9_-]{22,86}\$[A-Za-z0-9_-]{86}$/
 const ADDRESS_VARIABLE_PATTERN = /^SPONSOR_(?:(?:FEE|ASSET)_)?(?:MAINNET|SHASTA|NILE)_ADDRESS$/
-const TOKEN_LIST_VARIABLE_PATTERN = /^SPONSOR_(?:USDT|VTRC)_(?:MAINNET|SHASTA|NILE)_CONTRACTS$/
+const TOKEN_LIST_VARIABLE_PATTERN = /^SPONSOR_USDT_(?:MAINNET|SHASTA|NILE)_CONTRACTS$/
 
 function present(value) {
   return typeof value === 'string' && value.trim().length > 0
