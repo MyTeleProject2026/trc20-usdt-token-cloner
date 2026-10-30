@@ -1025,7 +1025,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       "SELECT id::text AS id, principal_organization_id::text AS principal_organization_id, " +
       "principal_account_id::text AS principal_account_id, fee_organization_id::text AS fee_organization_id, " +
       "fee_account_id::text AS fee_account_id FROM trc20_token_clone.sponsor_organization_payout_intents " +
-      "WHERE status = 'pending_authorization' AND expires_at <= now() " +
+      "WHERE status IN ('pending_authorization','sponsor_authorization_complete') AND expires_at <= now() " +
       "ORDER BY expires_at, id LIMIT $1 FOR UPDATE SKIP LOCKED",
       [limit],
     )
@@ -1394,7 +1394,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           await client.query('ROLLBACK')
           return { success: false, reason: 'payout-intent-not-found' }
         }
-        if (intent.status !== 'pending_authorization') {
+        if (!['pending_authorization', 'sponsor_authorization_complete'].includes(intent.status)) {
           await client.query('COMMIT')
           return { success: true, duplicate: true, status: intent.status, reservationReleased: true }
         }
@@ -1443,9 +1443,424 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
     }
   }
 
+  async function loadPayoutIntentRoleScope(client, intent, role) {
+    const identity = payoutIntentRoleFields(intent, role)
+    if (!identity) return null
+    const result = await client.query(
+      "SELECT l.id::text AS link_id, l.status AS link_status, " +
+      "o.id::text AS organization_id, o.sponsor_reference AS organization_reference, " +
+      "o.status AS organization_status, o.agreement_reference, " +
+      "a.id::text AS account_id, a.sponsor_reference AS account_reference, " +
+      "a.network AS account_network, a.role, a.wallet_address, a.status AS account_status, " +
+      "b.id::text AS budget_id, b.sponsor_reference, b.sponsor_address, b.network AS budget_network, " +
+      "b.purpose, b.asset, b.token_contract, b.status AS budget_status, " +
+      "b.approval_reference, b.review_reference AS budget_review_reference, b.approved_at " +
+      "FROM trc20_token_clone.sponsor_organization_budget_links l " +
+      "JOIN trc20_token_clone.sponsor_organizations o ON o.id = l.organization_id " +
+      "JOIN trc20_token_clone.sponsor_organization_accounts a ON a.id = l.account_id " +
+      "JOIN trc20_token_clone.sponsor_budgets b ON b.id = l.budget_id " +
+      "WHERE l.id = $1::bigint AND o.id = $2::bigint AND a.id = $3::bigint AND b.id = $4::bigint " +
+      "FOR UPDATE OF o, a, l, b",
+      [identity.linkId, identity.organizationId, identity.accountId, identity.budgetId],
+    )
+    const row = result.rows[0]
+    if (!payoutRoleScopeIsCurrent(row, intent, role)) return null
+    return { ...identity, row }
+  }
+
+  async function createPayoutAuthorizationChallenge(intentId, role, {
+    sessionAddress, sessionNetwork, nonce = randomBytes(32).toString('hex'),
+  } = {}) {
+    if (!validId(String(intentId)) || !['asset-principal', 'network-fee'].includes(role)
+      || !isValidTronAddress(sessionAddress) || !NETWORKS.has(sessionNetwork)
+      || typeof nonce !== 'string' || !/^[0-9a-f]{48,128}$/i.test(nonce)) {
+      return { success: false, reason: 'invalid-sponsor-authorization-challenge' }
+    }
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        const selected = await client.query(
+          "SELECT id::text AS id, idempotency_key, intent_digest, network, asset, token_contract, " +
+          "receiver_address, amount_base_units::text AS amount_base_units, fee_cap_sun::text AS fee_cap_sun, " +
+          "principal_link_id::text AS principal_link_id, fee_link_id::text AS fee_link_id, " +
+          "principal_budget_id::text AS principal_budget_id, fee_budget_id::text AS fee_budget_id, " +
+          "principal_organization_id::text AS principal_organization_id, fee_organization_id::text AS fee_organization_id, " +
+          "principal_account_id::text AS principal_account_id, fee_account_id::text AS fee_account_id, " +
+          "principal_sponsor_address, fee_sponsor_address, status, expires_at " +
+          "FROM trc20_token_clone.sponsor_organization_payout_intents WHERE id = $1::bigint FOR UPDATE",
+          [intentId],
+        )
+        const intent = selected.rows[0]
+        if (!intent) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-not-found' }
+        }
+        if (intent.status !== 'pending_authorization' || new Date(intent.expires_at).getTime() <= Date.now()) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-not-awaiting-authorization' }
+        }
+        const identity = await loadPayoutIntentRoleScope(client, intent, role)
+        if (!identity) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-role-scope-no-longer-active' }
+        }
+        if (identity.sponsorAddress !== sessionAddress || intent.network !== sessionNetwork) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'wallet-session-does-not-match-sponsor-role' }
+        }
+        const existing = await client.query(
+          "SELECT id FROM trc20_token_clone.sponsor_organization_payout_authorizations " +
+          "WHERE intent_id = $1::bigint AND role = $2 LIMIT 1",
+          [intentId, role],
+        )
+        if (existing.rows.length) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-role-already-authorized' }
+        }
+        const recent = await client.query(
+          "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges " +
+          "WHERE intent_id = $1::bigint AND role = $2 AND created_at > now() - interval '5 minutes'",
+          [intentId, role],
+        )
+        if (Number(recent.rows[0]?.count || 0) >= 8) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-authorization-challenge-rate-limited' }
+        }
+        const issuedAtMs = Date.now()
+        const expiresAtMs = Math.min(issuedAtMs + 3 * 60 * 1000, new Date(intent.expires_at).getTime())
+        if (!Number.isFinite(expiresAtMs) || expiresAtMs <= issuedAtMs) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-expired' }
+        }
+        const issuedAt = new Date(issuedAtMs).toISOString()
+        const expiresAt = new Date(expiresAtMs).toISOString()
+        const message = buildSponsorPayoutAuthorizationMessage({
+          intentId: String(intent.id),
+          intentDigest: intent.intent_digest.trim(),
+          role,
+          organizationId: identity.organizationId,
+          accountId: identity.accountId,
+          sponsorAddress: identity.sponsorAddress,
+          network: intent.network,
+          asset: intent.asset,
+          tokenContract: intent.token_contract,
+          receiverAddress: intent.receiver_address,
+          amountBaseUnits: intent.amount_base_units,
+          feeCapSun: intent.fee_cap_sun,
+          principalLinkId: intent.principal_link_id,
+          feeLinkId: intent.fee_link_id,
+          nonce,
+          issuedAt,
+          expiresAt,
+        })
+        const nonceHash = createHash('sha256').update(nonce).digest('hex')
+        const messageHash = createHash('sha256').update(message).digest('hex')
+        const inserted = await client.query(
+          "INSERT INTO trc20_token_clone.sponsor_organization_payout_authorization_challenges " +
+          "(intent_id, role, intent_digest, organization_id, account_id, sponsor_address, network, " +
+          "nonce_hash, message_hash, issued_at, expires_at) " +
+          "VALUES ($1::bigint,$2,$3,$4::bigint,$5::bigint,$6,$7,$8,$9,$10::timestamptz,$11::timestamptz) " +
+          "RETURNING id::text AS id",
+          [intentId, role, intent.intent_digest, identity.organizationId, identity.accountId,
+            identity.sponsorAddress, intent.network, nonceHash, messageHash, issuedAt, expiresAt],
+        )
+        await writeAudit(client, identity.organizationId, identity.accountId,
+          'sponsor-payout-authorization-challenge-created', {
+            intentId: String(intentId), role, challengeId: inserted.rows[0].id,
+            messageHash, expiresAt, noTransactionAuthorized: true,
+          })
+        await client.query('COMMIT')
+        return {
+          success: true,
+          challenge: {
+            id: inserted.rows[0].id,
+            intentId: String(intentId),
+            role,
+            sponsorAddress: identity.sponsorAddress,
+            network: intent.network,
+            nonce,
+            message,
+            issuedAt,
+            expiresAt,
+            intentDigest: intent.intent_digest.trim(),
+          },
+          walletMessageSignatureOnly: true,
+          transactionAuthorizationVerified: false,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          transactionSubmitted: false,
+        }
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {})
+        console.error('Sponsor payout authorization challenge creation failed:', error?.code || 'unknown')
+        return { success: false, reason: 'database-unavailable' }
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error('Sponsor payout authorization challenge initialization failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    }
+  }
+
+  async function consumePayoutAuthorizationChallenge(intentId, role, nonce, {
+    sessionAddress, sessionNetwork,
+  } = {}) {
+    if (!validId(String(intentId)) || !['asset-principal', 'network-fee'].includes(role)
+      || typeof nonce !== 'string' || !/^[0-9a-f]{48,128}$/i.test(nonce)
+      || !isValidTronAddress(sessionAddress) || !NETWORKS.has(sessionNetwork)) {
+      return { success: false, reason: 'invalid-sponsor-authorization-challenge' }
+    }
+    const nonceHash = createHash('sha256').update(nonce).digest('hex')
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        const result = await client.query(
+          "SELECT c.id::text AS challenge_id, c.role, c.intent_digest AS challenge_intent_digest, " +
+          "c.organization_id::text AS challenge_organization_id, c.account_id::text AS challenge_account_id, " +
+          "c.sponsor_address AS challenge_sponsor_address, c.network AS challenge_network, " +
+          "c.message_hash, c.issued_at, c.expires_at AS challenge_expires_at, c.consumed_at, " +
+          "i.id::text AS id, i.idempotency_key, i.intent_digest, i.network, i.asset, i.token_contract, " +
+          "i.receiver_address, i.amount_base_units::text AS amount_base_units, i.fee_cap_sun::text AS fee_cap_sun, " +
+          "i.principal_link_id::text AS principal_link_id, i.fee_link_id::text AS fee_link_id, " +
+          "i.principal_budget_id::text AS principal_budget_id, i.fee_budget_id::text AS fee_budget_id, " +
+          "i.principal_organization_id::text AS principal_organization_id, i.fee_organization_id::text AS fee_organization_id, " +
+          "i.principal_account_id::text AS principal_account_id, i.fee_account_id::text AS fee_account_id, " +
+          "i.principal_sponsor_address, i.fee_sponsor_address, i.status, i.expires_at AS intent_expires_at " +
+          "FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges c " +
+          "JOIN trc20_token_clone.sponsor_organization_payout_intents i ON i.id = c.intent_id " +
+          "WHERE c.intent_id = $1::bigint AND c.role = $2 AND c.nonce_hash = $3 AND c.consumed_at IS NULL " +
+          "FOR UPDATE OF c, i",
+          [intentId, role, nonceHash],
+        )
+        const challenge = result.rows[0]
+        if (!challenge) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-authorization-challenge-not-found-or-consumed' }
+        }
+        const nowMs = Date.now()
+        if (challenge.status !== 'pending_authorization'
+          || new Date(challenge.intent_expires_at).getTime() <= nowMs
+          || new Date(challenge.challenge_expires_at).getTime() <= nowMs
+          || challenge.challenge_intent_digest.trim() !== challenge.intent_digest.trim()) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-authorization-challenge-expired-or-mismatched' }
+        }
+        const identity = await loadPayoutIntentRoleScope(client, challenge, role)
+        if (!identity || identity.sponsorAddress !== sessionAddress
+          || challenge.challenge_sponsor_address !== sessionAddress
+          || challenge.challenge_network !== sessionNetwork
+          || challenge.network !== sessionNetwork
+          || challenge.challenge_organization_id !== identity.organizationId
+          || challenge.challenge_account_id !== identity.accountId) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'wallet-session-or-sponsor-scope-mismatch' }
+        }
+        const issuedAt = new Date(challenge.issued_at).toISOString()
+        const expiresAt = new Date(challenge.challenge_expires_at).toISOString()
+        const message = buildSponsorPayoutAuthorizationMessage({
+          intentId: String(challenge.id),
+          intentDigest: challenge.intent_digest.trim(),
+          role,
+          organizationId: identity.organizationId,
+          accountId: identity.accountId,
+          sponsorAddress: identity.sponsorAddress,
+          network: challenge.network,
+          asset: challenge.asset,
+          tokenContract: challenge.token_contract,
+          receiverAddress: challenge.receiver_address,
+          amountBaseUnits: challenge.amount_base_units,
+          feeCapSun: challenge.fee_cap_sun,
+          principalLinkId: challenge.principal_link_id,
+          feeLinkId: challenge.fee_link_id,
+          nonce,
+          issuedAt,
+          expiresAt,
+        })
+        const messageHash = createHash('sha256').update(message).digest('hex')
+        if (messageHash !== challenge.message_hash.trim()) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-authorization-message-integrity-failed' }
+        }
+        const consumed = await client.query(
+          "UPDATE trc20_token_clone.sponsor_organization_payout_authorization_challenges " +
+          "SET consumed_at = now() WHERE id = $1::bigint AND consumed_at IS NULL",
+          [challenge.challenge_id],
+        )
+        if (consumed.rowCount !== 1) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-authorization-challenge-already-consumed' }
+        }
+        await client.query('COMMIT')
+        return {
+          success: true,
+          authorization: {
+            challengeId: challenge.challenge_id,
+            intentId: String(challenge.id),
+            role,
+            intentDigest: challenge.intent_digest.trim(),
+            sponsorAddress: identity.sponsorAddress,
+            network: challenge.network,
+            message,
+            messageHash,
+          },
+        }
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {})
+        console.error('Sponsor payout authorization challenge consumption failed:', error?.code || 'unknown')
+        return { success: false, reason: 'database-unavailable' }
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error('Sponsor payout authorization challenge consumption initialization failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    }
+  }
+
+  async function recordPayoutAuthorization({
+    intentId, role, challengeId, intentDigest, recoveredAddress, signatureHash, messageHash,
+  } = {}) {
+    if (!validId(String(intentId)) || !validId(String(challengeId))
+      || !['asset-principal', 'network-fee'].includes(role)
+      || typeof intentDigest !== 'string' || !/^[0-9a-f]{64}$/.test(intentDigest)
+      || !isValidTronAddress(recoveredAddress)
+      || typeof signatureHash !== 'string' || !/^[0-9a-f]{64}$/.test(signatureHash)
+      || typeof messageHash !== 'string' || !/^[0-9a-f]{64}$/.test(messageHash)) {
+      return { success: false, reason: 'invalid-sponsor-payout-authorization' }
+    }
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        const selected = await client.query(
+          "SELECT id::text AS id, intent_digest, network, asset, token_contract, receiver_address, " +
+          "amount_base_units::text AS amount_base_units, fee_cap_sun::text AS fee_cap_sun, " +
+          "principal_link_id::text AS principal_link_id, fee_link_id::text AS fee_link_id, " +
+          "principal_budget_id::text AS principal_budget_id, fee_budget_id::text AS fee_budget_id, " +
+          "principal_organization_id::text AS principal_organization_id, fee_organization_id::text AS fee_organization_id, " +
+          "principal_account_id::text AS principal_account_id, fee_account_id::text AS fee_account_id, " +
+          "principal_sponsor_address, fee_sponsor_address, status, expires_at " +
+          "FROM trc20_token_clone.sponsor_organization_payout_intents WHERE id = $1::bigint FOR UPDATE",
+          [intentId],
+        )
+        const intent = selected.rows[0]
+        if (!intent) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-not-found' }
+        }
+        if (!['pending_authorization', 'sponsor_authorization_complete'].includes(intent.status)
+          || new Date(intent.expires_at).getTime() <= Date.now()
+          || intent.intent_digest.trim() !== intentDigest) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-not-awaiting-authorization' }
+        }
+        const identity = await loadPayoutIntentRoleScope(client, intent, role)
+        if (!identity || identity.sponsorAddress !== recoveredAddress) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-signature-address-or-scope-mismatch' }
+        }
+        const challengeResult = await client.query(
+          "SELECT id::text AS id, intent_id::text AS intent_id, role, intent_digest, " +
+          "organization_id::text AS organization_id, account_id::text AS account_id, sponsor_address, " +
+          "message_hash, consumed_at, expires_at FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges " +
+          "WHERE id = $1::bigint FOR UPDATE",
+          [challengeId],
+        )
+        const challenge = challengeResult.rows[0]
+        if (!challenge || challenge.intent_id !== String(intentId) || challenge.role !== role
+          || challenge.intent_digest.trim() !== intentDigest
+          || challenge.organization_id !== identity.organizationId
+          || challenge.account_id !== identity.accountId
+          || challenge.sponsor_address !== identity.sponsorAddress
+          || challenge.consumed_at == null
+          || new Date(challenge.expires_at).getTime() <= Date.now()
+          || challenge.message_hash.trim() !== messageHash) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'consumed-authorization-challenge-required' }
+        }
+        const existing = await client.query(
+          "SELECT id::text AS id FROM trc20_token_clone.sponsor_organization_payout_authorizations " +
+          "WHERE intent_id = $1::bigint AND role = $2",
+          [intentId, role],
+        )
+        if (existing.rows.length) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-role-already-authorized' }
+        }
+        await client.query(
+          "INSERT INTO trc20_token_clone.sponsor_organization_payout_authorizations " +
+          "(intent_id, challenge_id, role, intent_digest, organization_id, account_id, sponsor_address, signature_hash, message_hash) " +
+          "VALUES ($1::bigint,$2::bigint,$3,$4,$5::bigint,$6::bigint,$7,$8,$9)",
+          [intentId, challengeId, role, intentDigest, identity.organizationId, identity.accountId,
+            identity.sponsorAddress, signatureHash, messageHash],
+        )
+        const countResult = await client.query(
+          "SELECT role FROM trc20_token_clone.sponsor_organization_payout_authorizations " +
+          "WHERE intent_id = $1::bigint ORDER BY role",
+          [intentId],
+        )
+        const authorizedRoles = countResult.rows.map((row) => row.role)
+        const allAuthorized = authorizedRoles.includes('asset-principal') && authorizedRoles.includes('network-fee')
+        const nextStatus = allAuthorized ? 'sponsor_authorization_complete' : 'pending_authorization'
+        if (intent.status !== nextStatus) {
+          await client.query(
+            "UPDATE trc20_token_clone.sponsor_organization_payout_intents " +
+            "SET status = $1, updated_at = now() WHERE id = $2::bigint",
+            [nextStatus, intentId],
+          )
+        }
+        await writeAudit(client, identity.organizationId, identity.accountId,
+          'sponsor-payout-owner-authorization-verified', {
+            intentId: String(intentId), role, challengeId, intentDigest,
+            signatureHash, messageHash, bothSponsorsAuthorized: allAuthorized,
+            submissionEnabled: false,
+          })
+        await client.query('COMMIT')
+        const missingRoles = ['asset-principal', 'network-fee'].filter((value) => !authorizedRoles.includes(value))
+        return {
+          success: true,
+          duplicate: false,
+          status: nextStatus,
+          intentId: String(intentId),
+          authorizedRoles,
+          missingRoles,
+          bothSponsorsAuthorized: allAuthorized,
+          sponsorAuthorizationVerified: true,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          transactionSubmitted: false,
+          userFundedFallbackAllowed: false,
+        }
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {})
+        if (error?.code === '23505') return { success: false, reason: 'sponsor-role-already-authorized' }
+        console.error('Sponsor payout owner authorization persistence failed:', error?.code || 'unknown')
+        return { success: false, reason: 'database-unavailable' }
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error('Sponsor payout owner authorization initialization failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    }
+  }
+
   return { listOrganizations, createOrganization, createAccount, reviewOrganization, reviewAccount,
     linkBudget, listBudgetLinks, listBudgetsForWallet, revokeBudgetLink,
-    reservePayoutIntent, cancelPayoutIntent, expirePayoutIntents }
+    reservePayoutIntent, cancelPayoutIntent, expirePayoutIntents,
+    createPayoutAuthorizationChallenge, consumePayoutAuthorizationChallenge, recordPayoutAuthorization }
 }
 
 function toBudgetLink(row) {
