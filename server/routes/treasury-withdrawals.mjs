@@ -637,10 +637,14 @@ export function createTreasuryWithdrawalsRouter({
         || typeof tronWeb?.trx?.getBalance !== 'function') {
         return { ok: false, reason: 'tron-read-provider-unavailable' }
       }
+      const usdtAssetId = String(env.FIREBLOCKS_USDT_ASSET_ID || '').trim()
+      const configuredVaultId = String(env.FIREBLOCKS_VAULT_ACCOUNT_ID || '').trim()
       const [
+        vaultAccount,
         assetMetadata, providerAsset, addressResponse,
         trxAssetMetadata, providerTrxAsset, trxAddressResponse,
       ] = await Promise.all([
+        fireblocks.getVaultAccount(),
         fireblocks.getAssetMetadata(),
         fireblocks.getVaultAccountAsset(),
         fireblocks.getAssetAddresses(),
@@ -648,6 +652,18 @@ export function createTreasuryWithdrawalsRouter({
         fireblocks.getVaultAccountAsset(trxAssetId),
         fireblocks.getAssetAddresses(trxAssetId),
       ])
+      if (String(vaultAccount?.id ?? '') !== configuredVaultId) {
+        return { ok: false, reason: 'fireblocks-vault-account-id-mismatch' }
+      }
+      const activeAssetIds = Array.isArray(vaultAccount?.assets)
+        ? new Set(vaultAccount.assets.map((asset) => String(asset?.id || '')).filter(Boolean))
+        : new Set()
+      if (!activeAssetIds.has(usdtAssetId)) {
+        return { ok: false, reason: 'fireblocks-usdt-asset-not-activated-in-vault' }
+      }
+      if (!activeAssetIds.has(trxAssetId)) {
+        return { ok: false, reason: 'fireblocks-trx-asset-not-activated-in-vault' }
+      }
       if (!fireblocksAssetIdentifierMatches(assetMetadata, String(env.FIREBLOCKS_USDT_ASSET_ID || ''))
         || (providerAsset?.id !== undefined && String(providerAsset.id) !== String(env.FIREBLOCKS_USDT_ASSET_ID || ''))
         || !isOfficialFireblocksUsdtAsset(assetMetadata, tronWeb, USDT_MAINNET)) {
@@ -697,6 +713,7 @@ export function createTreasuryWithdrawalsRouter({
         networkFeeCapCovered: treasuryFeeCapCovered(nativeText, feeCapSun)
           && treasuryFeeCapCovered(providerAvailableTrx, feeCapSun),
         contractMetadataVerified: true, vaultAddressVerified: true,
+        vaultAccountVerified: true, usdtAssetActivated: true, trxAssetActivated: true,
         nativeTrxAssetIdentityVerified: true, nativeTrxVaultAddressVerified: true,
       }
     } catch {
@@ -919,6 +936,9 @@ export function createTreasuryWithdrawalsRouter({
         networkFeeCapCovered: snapshot.networkFeeCapCovered,
         providerAssetIdentityVerified: snapshot.contractMetadataVerified,
         providerVaultAddressVerified: snapshot.vaultAddressVerified,
+        providerVaultAccountVerified: snapshot.vaultAccountVerified,
+        providerUsdtAssetActivated: snapshot.usdtAssetActivated,
+        providerTrxAssetActivated: snapshot.trxAssetActivated,
         nativeTrxAssetIdentityVerified: snapshot.nativeTrxAssetIdentityVerified,
         nativeTrxVaultAddressVerified: snapshot.nativeTrxVaultAddressVerified,
       } : {}),

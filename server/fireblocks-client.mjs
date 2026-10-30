@@ -359,6 +359,36 @@ export function createFireblocksClient(env = process.env, {
       missingTrxAsset: config.trxAssetConfigured ? [] : ['FIREBLOCKS_TRX_ASSET_ID'],
       apiBase: config.apiBase,
     }),
+    async getVaultAccount() {
+      // Verify that the configured numeric Vault Account exists in the workspace.
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId))
+    },
+    async getPagedVaultAccounts({
+      limit = 200, assetId, orderBy = 'DESC', before, after,
+      namePrefix, nameSuffix, minAmountThreshold,
+    } = {}) {
+      const validOptionalText = (value) => value === undefined
+        || (typeof value === 'string' && value.trim().length > 0 && value.length <= 128)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500
+        || !['ASC', 'DESC'].includes(orderBy)
+        || (before !== undefined && after !== undefined)
+        || (assetId !== undefined && !IDENTIFIER_PATTERN.test(String(assetId || '')))
+        || (before !== undefined && (typeof before !== 'string' || !before.trim() || before.length > 2048))
+        || (after !== undefined && (typeof after !== 'string' || !after.trim() || after.length > 2048))
+        || !validOptionalText(namePrefix) || !validOptionalText(nameSuffix)
+        || (minAmountThreshold !== undefined
+          && (typeof minAmountThreshold !== 'number' || !Number.isFinite(minAmountThreshold) || minAmountThreshold < 0))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-vault-account-page-request')
+      }
+      const query = new URLSearchParams({ limit: String(limit), orderBy })
+      if (assetId !== undefined) query.set('assetId', String(assetId))
+      if (before !== undefined) query.set('before', before)
+      if (after !== undefined) query.set('after', after)
+      if (namePrefix !== undefined) query.set('namePrefix', namePrefix.trim())
+      if (nameSuffix !== undefined) query.set('nameSuffix', nameSuffix.trim())
+      if (minAmountThreshold !== undefined) query.set('minAmountThreshold', String(minAmountThreshold))
+      return request('GET', '/v1/vault/accounts_paged?' + query.toString())
+    },
     async getVaultAccountAsset(assetId = config.usdtAssetId) {
       if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
       return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))

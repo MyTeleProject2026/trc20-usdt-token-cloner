@@ -414,6 +414,11 @@ test('USDT readiness still probes provider and chain funding while transfer subm
     fireblocksClientFactory: () => ({
       isConfigured: () => true,
       isTrxAssetConfigured: () => true,
+      getVaultAccount: async () => ({
+        id: '123',
+        name: 'Test Treasury',
+        assets: [{ id: usdtAssetId }, { id: trxAssetId }],
+      }),
       getAssetMetadata: async (assetId = usdtAssetId) => {
         metadataReads += 1
         return assetId === trxAssetId
@@ -446,6 +451,9 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.ok(payload.payoutBlockers.includes('usdt-payout-feature-disabled'))
   assert.ok(payload.payoutBlockers.includes('database-not-ready'))
   assert.equal(payload.providerAssetIdentityVerified, true, 'readiness should still verify Fireblocks asset metadata')
+  assert.equal(payload.providerVaultAccountVerified, true, 'readiness should verify the configured Fireblocks vault account ID')
+  assert.equal(payload.providerUsdtAssetActivated, true, 'readiness should verify that USDT is activated in the vault')
+  assert.equal(payload.providerTrxAssetActivated, true, 'readiness should verify that TRX is activated in the vault')
   assert.equal(payload.providerVaultAddressVerified, true, 'readiness should still verify the configured vault address')
   assert.equal(payload.nativeTrxAssetIdentityVerified, true)
   assert.ok(metadataReads >= 2)

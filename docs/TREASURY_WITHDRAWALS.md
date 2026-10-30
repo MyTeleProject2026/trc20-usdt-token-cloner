@@ -12,6 +12,8 @@ The owner’s local Wallet Vault identity wallet does not need to hold the USDT 
 
 The feature branch uses Fireblocks' production REST API. The API-user RSA key is used only to authenticate requests to Fireblocks and is read from a mounted secret file on the backend. The blockchain signing key is not loaded into Tron Token Studio: the provider's custody system signs according to its configured transaction policy.
 
+The read-only Fireblocks client also exposes paginated Vault Account inventory (`GET /v1/vault/accounts_paged`) and a single-account lookup (`GET /v1/vault/accounts/{vaultAccountId}`). The USDT readiness probe uses the single-account lookup to confirm that the configured numeric Vault Account ID is returned by Fireblocks and that the configured USDT and native-TRX asset IDs appear among that account's activated assets. It still separately verifies each asset's metadata, available balance and matching deposit address. A Vault Account can exist with zero balances; account existence or asset activation is not evidence of funding.
+
 Official references:
 - [Fireblocks request authentication](https://developers.fireblocks.com/docs/api-authentication)
 - [Fireblocks create transaction API](https://developers.fireblocks.com/api-reference/transactions/create-a-new-transaction)
