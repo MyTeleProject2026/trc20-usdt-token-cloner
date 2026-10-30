@@ -414,6 +414,11 @@ test('USDT readiness still probes provider and chain funding while transfer subm
     fireblocksClientFactory: () => ({
       isConfigured: () => true,
       isTrxAssetConfigured: () => true,
+      getVaultAccount: async () => ({
+        id: '123',
+        name: 'Test Treasury',
+        assets: [{ id: usdtAssetId }, { id: trxAssetId }],
+      }),
       getAssetMetadata: async (assetId = usdtAssetId) => {
         metadataReads += 1
         return assetId === trxAssetId
