@@ -1,5 +1,6 @@
 import { createSponsorRoleFundingReader } from './sponsor-roles.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
 
 const NETWORKS = new Set(['mainnet', 'nile', 'shasta'])
 const ASSETS = new Set(['TRX', 'USDT'])
@@ -99,7 +100,7 @@ export async function selectSponsorOrganizationPair({
     || !UINT_PATTERN.test(amountBaseUnits || '')
     || !UINT_PATTERN.test(estimatedFeeSun || '')
     || (asset === 'TRX' ? tokenContract !== null : typeof tokenContract !== 'string'
-      || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(tokenContract))) {
+      || !isValidTronAddress(tokenContract))) {
     return fail('invalid-sponsor-selection-request')
   }
 
