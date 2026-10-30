@@ -21,7 +21,7 @@ function integerString(value, optional = false) {
 
 function allowlistedAsset(env, network, contract) {
   if (network === 'mainnet' && contract === OFFICIAL_MAINNET_USDT) return 'USDT'
-  for (const asset of ['USDT', 'VTRC']) {
+  for (const asset of ['USDT']) {
     const configured = String(env[`SPONSOR_${asset}_${network.toUpperCase()}_CONTRACTS`] || '')
       .split(',').map((item) => item.trim()).filter(Boolean)
     if (configured.includes(contract)) return asset
