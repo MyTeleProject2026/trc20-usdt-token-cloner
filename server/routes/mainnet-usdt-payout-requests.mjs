@@ -8,6 +8,7 @@ import {
   OFFICIAL_TRON_MAINNET_USDT,
   isPayoutRequestExpiryValid,
   parseUsdtAmountBaseUnits,
+  buildTreasuryPayoutRequestMessage,
 } from '../../src/treasury-payout-request-auth.mjs'
 
 const { Pool } = pg
@@ -236,6 +237,11 @@ export function createMainnetUsdtPayoutRequestRouter({
       ? { headers: { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim() } }
       : {}),
   }),
+  messageVerifier = async (message, signature, expectedAddress) => {
+    const tronWeb = tronWebFactory()
+    if (typeof tronWeb?.trx?.verifyMessageV2 !== 'function') return false
+    return await tronWeb.trx.verifyMessageV2(message, signature) === expectedAddress
+  },
   now = () => Date.now(),
 } = {}) {
   const router = Router()
@@ -259,16 +265,6 @@ export function createMainnetUsdtPayoutRequestRouter({
       return { ok: true, requesterAddress: expectedOwner, origin }
     } catch {
       return { ok: false, status: 503, error: 'owner-session-verification-unavailable' }
-    }
-  }
-
-  async function verifySignature(message, signature, expectedAddress) {
-    try {
-      const tronWeb = tronWebFactory()
-      if (typeof tronWeb?.trx?.verifyMessageV2 !== 'function') return false
-      return await tronWeb.trx.verifyMessageV2(message, signature) === expectedAddress
-    } catch {
-      return false
     }
   }
 
@@ -306,7 +302,6 @@ export function createMainnetUsdtPayoutRequestRouter({
 
     let message
     try {
-      const { buildTreasuryPayoutRequestMessage } = await import('../../src/treasury-payout-request-auth.mjs')
       message = buildTreasuryPayoutRequestMessage({
         origin: auth.origin,
         requesterAddress: auth.requesterAddress,
@@ -319,7 +314,9 @@ export function createMainnetUsdtPayoutRequestRouter({
       return res.status(400).json({ success: false, error: 'payout-request-message-invalid', transferSubmissionEnabled: false })
     }
 
-    if (!await verifySignature(message, body.ownerRequestSignature, auth.requesterAddress)) {
+    let signatureValid = false
+    try { signatureValid = await messageVerifier(message, body.ownerRequestSignature, auth.requesterAddress) === true } catch { signatureValid = false }
+    if (!signatureValid) {
       return res.status(403).json({ success: false, error: 'owner-request-signature-invalid', transferSubmissionEnabled: false })
     }
 
