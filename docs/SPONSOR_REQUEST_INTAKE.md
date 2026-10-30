@@ -4,7 +4,9 @@
 
 The workflow frontend can now persist a sponsor-review request instead of only copying an unsaved summary. This is an **intake and review handoff**, not a payout processor.
 
-The route is testnet-only (`nile` and `shasta`). It accepts an authenticated wallet session, validates the requester and recipient addresses, checks the exact TRC-20 contract against the server-side testnet sponsor allowlist, validates integer base units/decimals, and stores an idempotent request in PostgreSQL.
+The route is testnet-only (`nile` and `shasta`). It accepts an authenticated wallet session, validates the requester and recipient addresses, checks the exact USDT-labelled testnet TRC-20 contract against the server-side testnet allowlist, validates integer base units/decimals, and stores an idempotent request in PostgreSQL. VTRC is not accepted by this intake route.
+
+**Important asset identity boundary:** a Nile/Shasta contract configured under `SPONSOR_USDT_NILE_CONTRACTS` or `SPONSOR_USDT_SHASTA_CONTRACTS` is a testnet test asset only. It is not Tether-issued Mainnet USDT and has no claim to Tether backing or Mainnet value. Genuine TRON USDT is only the official Mainnet contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` with 6 decimals. Do not label testnet tokens as genuine Tether USDT in the UI or to recipients.
 
 It does not:
 - create or activate a sponsor budget;
