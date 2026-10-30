@@ -33,7 +33,7 @@ function validText(value, min, max) {
 function resultStatus(reason) {
   if (reason === 'database-not-configured' || reason === 'database-unavailable') return 503
   if (reason?.endsWith('-not-found')) return 404
-  if (reason?.includes('already-exists') || reason?.includes('already-registered')) return 409
+  if (reason?.includes('already-exists') || reason?.includes('already-registered') || reason?.includes('already-linked')) return 409
   if (reason?.includes('status-transition') || reason?.includes('not-active')
     || reason === 'organization-verification-required') return 409
   if (reason?.includes('evidence-required') || reason?.includes('agreement-reference-required')
