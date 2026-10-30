@@ -5,6 +5,7 @@ import { validateSponsorBudget, validateSponsorTransferIntent } from '../server/
 const validBudget = {
   sponsorReference: 'sponsor-test',
   network: 'shasta',
+  purpose: 'network-fee',
   asset: 'TRX',
   budgetBaseUnits: '10000000',
   reservedBaseUnits: '2000000',
