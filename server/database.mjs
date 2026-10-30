@@ -1964,7 +1964,7 @@ export async function createSponsorBudgetDraft(input) {
   if (!network
     || typeof sponsorReference !== 'string' || !sponsorReference.trim() || sponsorReference.length > 128
     || !['network-fee', 'asset-grant'].includes(purpose)
-    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || !['TRX', 'USDT'].includes(asset)
     || (purpose === 'network-fee' && asset !== 'TRX')
     || (asset === 'TRX' && tokenContract !== null)
     || (asset !== 'TRX' && (typeof tokenContract !== 'string'
@@ -2040,7 +2040,7 @@ function approvedSponsorAgreementScopes() {
         || !['mainnet', 'shasta', 'nile'].includes(network)
         || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(sponsorAddress)
         || !['network-fee', 'asset-grant'].includes(purpose)
-        || !['TRX', 'USDT', 'VTRC'].includes(asset)
+        || !['TRX', 'USDT'].includes(asset)
         || (purpose === 'network-fee' && asset !== 'TRX')
         || (asset === 'TRX'
           ? tokenContract !== '-'
@@ -2847,7 +2847,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || !isValidTronAddress(input.assetPrincipalAddress)
     || !isValidTronAddress(input.receiverAddress)
     || feeSponsorAddress === input.assetPrincipalAddress
-    || !['TRX', 'USDT', 'VTRC'].includes(asset)
+    || !['TRX', 'USDT'].includes(asset)
     || (asset === 'TRX' && input.tokenContract != null)
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
