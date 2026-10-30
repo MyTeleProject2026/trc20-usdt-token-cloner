@@ -54,12 +54,12 @@ Generate the key pair and CSR in the organization's secured administrative envir
 ```sh
 umask 077
 openssl req -new -newkey rsa:4096 -nodes \
-  -keyout fireblocks_secret.key \
+  -keyout fireblocks_api_private_key.pem \
   -out fireblocks.csr \
   -subj '/O=Your Legal Organization Name'
 ```
 
-- Keep `fireblocks_secret.key` in the organization's restricted secret store. Do not email it, paste it into ChatGPT, or commit it.
+- Keep `fireblocks_api_private_key.pem` in the organization's restricted secret store. Do not email it, paste it into ChatGPT, or commit it.
 - Upload only `fireblocks.csr` to Fireblocks when creating the API user; the CSR contains the public-key request, not the private key.
 - In Fireblocks Console, open **Developer Center → API Users → Add API user**, give it a clear service identity, select the least-privileged role that can perform the exact read, fee-estimate, transfer-initiation, and transaction-status operations used by this app, and upload the CSR.
 - For transaction initiation, Fireblocks documents a Signer role for API users that need transaction-signing capability. Do not grant the app an Owner or broad Admin role merely to make an error disappear. Ask the workspace administrator/Fireblocks support to confirm the minimum role and permissions for the enabled API endpoints.
@@ -76,13 +76,13 @@ Fireblocks references:
 
 The current backend service is the Node web service linked to this repository. Use its Render Dashboard → **Environment** page.
 
-1. Under **Secret Files**, add a file named `fireblocks_secret.key` and paste the contents of the RSA private-key file there. Render makes service secret files available at `/etc/secrets/<filename>`.
+1. Under **Secret Files**, add a file named `fireblocks_api_private_key.pem` and paste the contents of the RSA private-key file there. Render makes service secret files available at `/etc/secrets/<filename>`.
 2. Add the following variables to the backend service (not the frontend/static site and never as `VITE_*` variables):
 
 | Variable | Value to obtain from the approved Fireblocks workspace |
 |---|---|
 | `FIREBLOCKS_API_KEY` | The API user ID shown in Fireblocks |
-| `FIREBLOCKS_SECRET_KEY_PATH` | `/etc/secrets/fireblocks_secret.key` |
+| `FIREBLOCKS_SECRET_KEY_PATH` | `/etc/secrets/fireblocks_api_private_key.pem` |
 | `FIREBLOCKS_API_BASE` | The exact production regional API origin shown/confirmed for the workspace; leave unset for the documented default if appropriate |
 | `FIREBLOCKS_VAULT_ACCOUNT_ID` | Numeric ID of the dedicated TRON treasury Vault Account |
 | `FIREBLOCKS_USDT_ASSET_ID` | Exact asset ID for the official TRON USDT token in that workspace |
@@ -129,4 +129,4 @@ A Fireblocks API key does not itself authorize a payout or override transaction 
 
 This repository cannot obtain Fireblocks customer approval, perform legal-entity verification, accept provider terms, create an organization's custody relationship, issue an API key, create or administer a vault, fund assets, choose approvers, or approve the organization's transaction policy. The linked Render service cannot see or extract the API private key for you. The organization must complete those actions in its own authorized Fireblocks and Render accounts.
 
-Never send `fireblocks_secret.key`, an API key, wallet seed phrase, blockchain private key, password, or authentication token in this chat. If a secret is exposed, revoke/rotate it through the provider immediately.
+Never send `fireblocks_api_private_key.pem`, an API key, wallet seed phrase, blockchain private key, password, or authentication token in this chat. If a secret is exposed, revoke/rotate it through the provider immediately.
