@@ -1,8 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { generateKeyPairSync } from 'node:crypto'
 import { inspectProductionEnvironment } from '../scripts/check-production-env.mjs'
 
 const owner = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const rsa4096Pem = generateKeyPairSync('rsa', { modulusLength: 4096 })
+  .privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
+
+const readValidFireblocksKey = () => rsa4096Pem
 
 function completeSyntacticEnv(overrides = {}) {
   return {
@@ -50,6 +55,7 @@ test('environment preflight reports missing essentials without serializing any v
 test('syntactically valid configuration reports names and statuses only, never values', () => {
   const report = inspectProductionEnvironment(completeSyntacticEnv(), {
     fileExists: (path) => path === '/etc/secrets/fireblocks_api_private_key.pem',
+    readSecretFile: readValidFireblocksKey,
   })
   const serialized = JSON.stringify(report)
 
@@ -77,6 +83,7 @@ test('preflight rejects mismatched owner/treasury owner and malformed sponsor ad
     SPONSOR_FEE_MAINNET_ADDRESS: 'not-a-tron-address',
   }), {
     fileExists: () => true,
+    readSecretFile: readValidFireblocksKey,
   })
   assert.equal(report.checks.TREASURY_OWNER_ADDRESS.status, 'mismatch')
   assert.equal(report.checks.SPONSOR_FEE_MAINNET_ADDRESS.status, 'invalid')
@@ -121,4 +128,29 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
   })
   assert.equal(invalid.checks.TREASURY_MAX_PAYOUT_USDT.status, 'invalid')
   assert.ok(invalid.errors.includes('TREASURY_MAX_PAYOUT_USDT'))
+})
+
+test('preflight rejects a readable but undersized Fireblocks RSA private key without exposing it', () => {
+  const weakPem = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    .privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
+  const report = inspectProductionEnvironment(completeSyntacticEnv(), {
+    fileExists: () => true,
+    readSecretFile: () => weakPem,
+  })
+  const serialized = JSON.stringify(report)
+  assert.equal(report.checks.FIREBLOCKS_SECRET_KEY_PATH.status, 'invalid-key-size')
+  assert.ok(report.errors.includes('FIREBLOCKS_SECRET_KEY_PATH'))
+  assert.equal(report.status, 'configuration-needs-attention')
+  assert.equal(serialized.includes('BEGIN PRIVATE KEY'), false)
+  assert.equal(serialized.includes(weakPem), false)
+})
+
+test('preflight rejects unreadable or malformed Fireblocks PEM material without revealing it', () => {
+  const report = inspectProductionEnvironment(completeSyntacticEnv(), {
+    fileExists: () => true,
+    readSecretFile: () => 'not-a-private-key',
+  })
+  assert.equal(report.checks.FIREBLOCKS_SECRET_KEY_PATH.status, 'invalid-key-file')
+  assert.ok(report.errors.includes('FIREBLOCKS_SECRET_KEY_PATH'))
+  assert.equal(JSON.stringify(report).includes('not-a-private-key'), false)
 })
