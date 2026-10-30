@@ -1233,6 +1233,34 @@ export default function WalletVault() {
     }
   }
 
+  async function copyFireblocksEnvTemplate() {
+    const template = [
+      'TREASURY_SIGNER_MODE=fireblocks',
+      'FIREBLOCKS_API_BASE=<verified-production-region-api-base>',
+      'FIREBLOCKS_API_KEY=<organization-issued-api-user-id>',
+      'FIREBLOCKS_SECRET_KEY_PATH=/etc/secrets/fireblocks_api_private_key.pem',
+      'FIREBLOCKS_VAULT_ACCOUNT_ID=<verified-vault-account-id>',
+      'FIREBLOCKS_USDT_ASSET_ID=<verified-official-tron-usdt-asset-id>',
+      'FIREBLOCKS_TRX_ASSET_ID=<verified-native-trx-asset-id>',
+      'TREASURY_ADDRESS=<verified-tron-vault-address>',
+      'OWNER_WALLET_ADDRESS=<organization-approved-owner-address>',
+      'TREASURY_OWNER_ADDRESS=<same-organization-approved-owner-address>',
+      'TREASURY_MAX_PAYOUT_USDT=<organization-approved-per-payout-limit>',
+      'TREASURY_DAILY_LIMIT_USDT=<organization-approved-daily-limit>',
+      'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
+      'TREASURY_WITHDRAWALS_ENABLED=false',
+      'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
+    ].join('\\n')
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(template)
+      setError('')
+      setNotice('Copied a placeholder-only template. Replace placeholders in the backend Render service only; never enter credentials in this wallet UI.')
+    } catch {
+      setError('Clipboard access is unavailable. Use the documented backend Render setup steps instead; do not paste Fireblocks secrets into this page.')
+    }
+  }
+
   function navigateSendAsset(asset: TransferAsset) {
     setActivePanel('send')
     scrollWorkspaceToTop()
@@ -1455,6 +1483,69 @@ export default function WalletVault() {
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
         <p className="wallet-vault-caption">A treasury organization may control its own funds independently of this app. This build does not accept or execute treasury payout requests; the read-only balance display is not a withdrawal authorization.</p>
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Review read-only owner status</button>
+      </section>
+
+      <section className="wallet-vault-panel wallet-vault-fireblocks-setup" aria-labelledby="fireblocks-setup-heading" hidden={activePanel !== 'treasury'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Landmark size={16} /></span>
+          <div>
+            <h2 id="fireblocks-setup-heading">Fireblocks treasury setup</h2>
+            <p>Organization-admin controlled setup and read-only configuration status. This page does not create or authorize a custody account.</p>
+          </div>
+        </div>
+        <div className="wallet-vault-transfer-warning" role="note">
+          <strong>External organization approval is required</strong>
+          <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
+          <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
+        </div>
+        <div className="wallet-vault-review-grid">
+          <div>
+            <small>Backend configuration fields</small>
+            <strong>{serverTreasuryReadiness?.configuration?.configurationComplete === true ? 'Reported complete — not an authorization proof' : 'Not confirmed / incomplete'}</strong>
+          </div>
+          <div>
+            <small>Fireblocks USDT asset identity</small>
+            <strong>{serverTreasuryReadiness?.providerAssetIdentityVerified === true ? 'Provider metadata check passed' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Fireblocks native TRX identity</small>
+            <strong>{serverTreasuryReadiness?.nativeTrxAssetIdentityVerified === true ? 'Provider metadata check passed' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>USDT and TRX vault address match</small>
+            <strong>{serverTreasuryReadiness?.providerVaultAddressVerified === true && serverTreasuryReadiness?.nativeTrxVaultAddressVerified === true ? 'Both checks passed' : 'Not verified / mismatch'}</strong>
+          </div>
+          <div>
+            <small>Organization approval</small>
+            <strong>Not independently verified by this application</strong>
+          </div>
+          <div>
+            <small>Real-value payout execution</small>
+            <strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Backend reports enabled' : 'Hard-disabled in this build'}</strong>
+          </div>
+        </div>
+        <div className="wallet-vault-transfer-section">
+          <h3>Required steps for the organization’s administrator</h3>
+          <ol>
+            <li>Obtain written treasury-owner approval and complete Fireblocks’ organization onboarding for a production Mainnet workspace.</li>
+            <li>In Fireblocks Console, create the dedicated TRON treasury vault; enable the official TRON USDT asset and native TRX, then verify their asset IDs, network metadata, and matching TRON vault address.</li>
+            <li>Create a dedicated API user through Fireblocks Developer Center with only the permissions approved for the required integration. Complete the organization’s API-user approval quorum.</li>
+            <li>Generate the RSA-4096 API-authentication key and CSR in the organization-controlled environment. Keep the private key there; upload it to Render only as a backend Secret File.</li>
+            <li>Have the organization’s treasury staff fund the vault with genuine USDT and sufficient native TRX, then independently verify provider balances and on-chain balances.</li>
+          </ol>
+          <p className="wallet-vault-caption">Useful provider references:
+            {' '}<a href="https://fireblocks.readme.io/docs/manage-api-keys" target="_blank" rel="noopener noreferrer">API user and key setup ↗</a>
+            {' '}· <a href="https://fireblocks.readme.io/reference/createvaultaccount" target="_blank" rel="noopener noreferrer">Vault-account API reference ↗</a>
+            {' '}· <a href="https://fireblocks.readme.io/docs/object-model" target="_blank" rel="noopener noreferrer">Fireblocks object model ↗</a>
+          </p>
+        </div>
+        <div className="wallet-vault-transfer-section">
+          <h3>Backend Render configuration</h3>
+          <p>Enter organization-issued identifiers and approved limits in the backend Web Service environment only. Upload the RSA private key as a Secret File named <code>fireblocks_api_private_key.pem</code>; the path below points to that file. Never add credentials to frontend <code>VITE_*</code> variables, GitHub, or this browser page.</p>
+          <p className="wallet-vault-caption">Backend service: <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">Open Render backend environment ↗</a></p>
+          <button type="button" className="wallet-vault-secondary" onClick={() => void copyFireblocksEnvTemplate()}><Copy size={15} /> Copy placeholder-only environment template</button>
+          <p className="wallet-vault-caption">The template contains placeholders, not credentials. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
+        </div>
       </section>
 
       <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
