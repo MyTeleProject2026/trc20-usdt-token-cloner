@@ -33,6 +33,24 @@ export function saveTreasuryPayoutReference(ownerAddress, idempotencyKey, storag
   }
 }
 
+/**
+ * Remove a saved reference only when it still belongs to the supplied key.
+ * This is used only after the backend explicitly confirms that no payout was
+ * created (for example, the current-build hard execution lock).
+ */
+export function clearTreasuryPayoutReference(expectedIdempotencyKey, storage = browserStorage()) {
+  if (!storage || typeof storage.getItem !== 'function' || typeof storage.removeItem !== 'function'
+    || !IDEMPOTENCY_KEY_PATTERN.test(expectedIdempotencyKey || '')) return false
+  try {
+    const parsed = JSON.parse(storage.getItem(TREASURY_PAYOUT_REFERENCE_STORAGE_KEY) || 'null')
+    if (!parsed || parsed.version !== 1 || parsed.idempotencyKey !== expectedIdempotencyKey) return false
+    storage.removeItem(TREASURY_PAYOUT_REFERENCE_STORAGE_KEY)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function readTreasuryPayoutReference(storage = browserStorage()) {
   if (!storage || typeof storage.getItem !== 'function') return null
   try {
