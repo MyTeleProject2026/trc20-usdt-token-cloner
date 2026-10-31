@@ -49,7 +49,8 @@ test('receipt resource usage is recorded as pending evidence, never falsely sett
   assert.match(databaseSource, /sponsorResourceBudgetSettled: false/)
   assert.match(databaseSource, /status = \$2, transaction_hash = \$3/)
   assert.match(reconciliationSource, /recordSponsorResourceCostSettlementObservation/)
-  assert.match(reconciliationSource, /solidified-costs-observed-not-settled/)
+  assert.match(reconciliationSource, /solidified-resource-budget-settled/)
+  assert.match(reconciliationSource, /solidified-costs-observed-pending-resource-attribution/)
 })
 
 test('testnet signing and broadcast remain blocked until attribution and settlement are independently complete', () => {
