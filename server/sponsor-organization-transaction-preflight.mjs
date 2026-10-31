@@ -1,4 +1,5 @@
 import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
+import { isSponsorTokenContractAllowed } from './database.mjs'
 import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
 
@@ -143,6 +144,13 @@ export async function preflightSponsorOrganizationPayoutIntent({
   if (intent.network === 'mainnet' && intent.asset === 'USDT'
     && intent.tokenContract !== OFFICIAL_MAINNET_USDT) {
     return fail('official-mainnet-usdt-contract-required')
+  }
+  if (intent.asset === 'USDT') {
+    const configuredContracts = String(env['SPONSOR_USDT_' + intent.network.toUpperCase() + '_CONTRACTS'] || '')
+      .split(',').map((item) => item.trim()).filter(Boolean)
+    if (!isSponsorTokenContractAllowed(intent.network, 'USDT', intent.tokenContract, configuredContracts)) {
+      return fail('payout-intent-token-contract-no-longer-allowlisted')
+    }
   }
 
   const feeCap = BigInt(intent.feeCapSun)
