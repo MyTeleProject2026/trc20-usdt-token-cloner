@@ -146,13 +146,18 @@ function validAttribution(fixture) {
 test('PostgreSQL atomically settles verified delegated resource units once and is idempotent', {
   skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
 }, async () => {
-  const { initializeDatabase, recordSponsorResourceCostSettlementObservation } = await import('../server/database.mjs')
+  const { initializeDatabase, recordSponsorResourceCostSettlementObservation, listSponsorChainCostObservations } = await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   let fixture
   try {
     assert.equal((await initializeDatabase()).ready, true)
     assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
     fixture = await seedFixture(pool)
+    const observations = await listSponsorChainCostObservations({ network: 'nile', limit: 100 })
+    const observation = observations.observations.find(value => value.transactionHash === fixture.transactionHash)
+    assert.equal(observation.energyUsageTotal, '75')
+    assert.equal(observation.energyUsage, '70')
+    assert.equal(observation.originEnergyUsage, '5')
     const first = await recordSponsorResourceCostSettlementObservation({
       idempotencyKey: fixture.idempotencyKey,
       transactionHash: fixture.transactionHash,
