@@ -1639,11 +1639,11 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
     })
   }
 
-  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
   if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'signedTransaction')) {
     return res.status(400).json({ success: false, error: 'signed-transaction-only', canSubmitSponsoredTransfer: false })
   }
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   try {
     const found = await getSponsorTransferForSubmission(idempotencyKey)
     if (found?.success !== true) {
