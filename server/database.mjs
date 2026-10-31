@@ -532,6 +532,7 @@ export async function initializeDatabase() {
           idempotency_key TEXT NOT NULL REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
           budget_id BIGINT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(id) ON DELETE RESTRICT,
           block_number BIGINT NOT NULL CHECK (block_number > 0),
+          block_timestamp_ms BIGINT NOT NULL CHECK (block_timestamp_ms > 0),
           energy_used_units NUMERIC(78,0),
           bandwidth_used_units NUMERIC(78,0),
           reported_fee_sun NUMERIC(78,0),
@@ -545,6 +546,7 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_resource_cost_settlements ADD COLUMN IF NOT EXISTS reported_fee_sun NUMERIC(78,0)`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_cost_settlements ADD COLUMN IF NOT EXISTS block_timestamp_ms BIGINT`)
       await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_evidence JSONB`)
       await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_checked_at TIMESTAMPTZ`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_pair
@@ -3480,7 +3482,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
                 b.energy_reserved_units::text AS budget_energy_reserved, b.bandwidth_reserved_units::text AS budget_bandwidth_reserved,
                 b.energy_spent_units::text AS energy_spent, b.bandwidth_spent_units::text AS bandwidth_spent,
                 t.network, t.asset, t.transaction_hash, t.sponsor_address, t.status AS transfer_status,
-                o.block_number::text AS block_number, o.energy_usage_total::text AS energy_used,
+                o.block_number::text AS block_number, o.block_timestamp_ms::text AS block_timestamp_ms,
+                o.energy_usage_total::text AS energy_used,
                 o.net_usage::text AS bandwidth_used, o.reported_fee_sun::text AS reported_fee_sun,
                 o.energy_fee_sun::text AS energy_fee_sun,
                 o.net_fee_sun::text AS net_fee_sun, o.evidence_source
@@ -3510,7 +3513,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       }
       row.reservation_status = lockedReservation.rows[0].status
       if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review'].includes(row.reservation_status)
-        || !row.block_number || row.bandwidth_used == null
+        || !row.block_number || !row.block_timestamp_ms || row.bandwidth_used == null
         || (row.asset !== 'TRX' && row.energy_used == null)) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'resource-cost-evidence-incomplete', sponsorResourceBudgetSettled: false }
@@ -3550,6 +3553,9 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         && (row.asset === 'TRX' || proof.energyCoverageSource === 'exact-active-fee-sponsor-delegation-only')
         && proof.freeBandwidthUsedAsSponsorCoverage === false
         && Number.isFinite(new Date(proof.checkedAt).getTime())
+        && new Date(proof.checkedAt).getTime() >= Number(row.block_timestamp_ms)
+        && (Number(proof.delegationSnapshot?.bandwidthExpiry) === 0 || Number(proof.delegationSnapshot?.bandwidthExpiry) > Number(row.block_timestamp_ms))
+        && (row.asset === 'TRX' || Number(proof.delegationSnapshot?.energyExpiry) === 0 || Number(proof.delegationSnapshot?.energyExpiry) > Number(row.block_timestamp_ms))
         && snapshotMatches
       const status = feeBurnDetected || !withinReservedUnits || (attributionEvidence != null && !attributionMatches)
         ? 'manual-review'
@@ -3646,10 +3652,10 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       await client.query(
         `INSERT INTO ${schema}.sponsor_resource_cost_settlements
           (network, transaction_hash, idempotency_key, budget_id, block_number,
-           energy_used_units, bandwidth_used_units, reported_fee_sun, energy_fee_sun, net_fee_sun,
+           block_timestamp_ms, energy_used_units, bandwidth_used_units, reported_fee_sun, energy_fee_sun, net_fee_sun,
            evidence_source, status, evidence)
-         VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12,$13::jsonb)`,
-        [row.network, hash, idempotencyKey, row.budget_id, row.block_number,
+         VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::numeric,$12,$13,$14::jsonb)`,
+        [row.network, hash, idempotencyKey, row.budget_id, row.block_number, row.block_timestamp_ms,
           row.energy_used ?? '0', row.bandwidth_used, row.reported_fee_sun, row.energy_fee_sun, row.net_fee_sun,
           row.evidence_source, status, JSON.stringify(settlementEvidence)],
       )
