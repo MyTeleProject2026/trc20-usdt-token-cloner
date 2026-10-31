@@ -44,7 +44,7 @@ function makeFixture({
     isAddress: () => true,
     address: { toHex: (value) => value === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' ? '41' + 'ab'.repeat(20) : '41' + 'cd'.repeat(20) },
     trx: { getBalance: async () => '5500000' },
-    contract: async () => ({
+    contract: () => ({
       at: async () => ({
         symbol: () => ({ call: async () => 'USDT' }),
         decimals: () => ({ call: async () => 6 }),
@@ -102,7 +102,7 @@ test('read-only inventory sync verifies official USDT, native TRX, addresses and
     })
     const payload = await response.json()
     assert.equal(response.status, 200)
-    assert.equal(payload.verificationStatus, 'verified')
+    assert.equal(payload.verificationStatus, 'verified', JSON.stringify(payload))
     assert.equal(payload.snapshotSaved, true)
     assert.equal(payload.snapshotId, '51')
     assert.equal(payload.checks.fireblocksApiAuthenticated, true)
