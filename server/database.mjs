@@ -3560,7 +3560,10 @@ export async function settleSponsorResourceBudgetForTransfer({
           network: row.network,
           transactionHash: String(row.transaction_hash).trim().toLowerCase(),
           sponsorAddress: row.sponsor_address,
+          receiverAddress: row.receiver_address,
+          amountBaseUnits: row.amount_base_units,
           asset: row.asset,
+          tokenContract: row.token_contract,
         },
         costs,
         reservation: {
