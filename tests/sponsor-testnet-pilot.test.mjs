@@ -128,7 +128,10 @@ test('combined pilot preflight checks Nile and Shasta but never enables sponsore
         status: 'solidified-delegation-state-read',
         activeEnergyStakeSun: '1000000',
         activeBandwidthStakeSun: '1000000',
-        transactionAuditVerified: false,
+        transactionAuditVerified: true,
+        transactionAuditStatus: 'verified-energy-and-bandwidth-delegation-transactions',
+        auditedResourceTypes: ['ENERGY', 'BANDWIDTH'],
+        auditedTransactionCount: 2,
       },
     }
   }
@@ -283,7 +286,11 @@ test('combined pilot preflight rejects unsupported network filters', async (t) =
 })
 
 test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USDT allowlisting', () => {
-  const makeRoleResult = ({ energy = '1000000', bandwidth = '1000000' } = {}) => ({
+  const makeRoleResult = ({
+    energy = '1000000',
+    bandwidth = '1000000',
+    transactionAuditVerified = true,
+  } = {}) => ({
     configuredAddressesDistinct: true,
     roles: {
       networkFeeSponsor: {
@@ -307,7 +314,11 @@ test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USD
       success: true,
       activeEnergyStakeSun: energy,
       activeBandwidthStakeSun: bandwidth,
-      transactionAuditVerified: true,
+      transactionAuditVerified,
+      transactionAuditStatus: transactionAuditVerified
+        ? 'verified-energy-and-bandwidth-delegation-transactions'
+        : 'delegation-transaction-audit-missing-resource-types',
+      auditedResourceTypes: transactionAuditVerified ? ['ENERGY', 'BANDWIDTH'] : [],
     },
   })
   const head = {
@@ -343,6 +354,17 @@ test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USD
   assert.equal(bandwidthOnly.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
   assert.equal(bandwidthOnly.feeSponsorResources.delegation.activeDelegationObserved, false)
   assert.ok(bandwidthOnly.blockers.includes('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified'))
+
+  const unauditedDelegation = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult({ transactionAuditVerified: false }),
+    env,
+  })
+  assert.equal(unauditedDelegation.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(unauditedDelegation.feeSponsorResources.delegation.activeDelegationObserved, true)
+  assert.equal(unauditedDelegation.feeSponsorResources.delegation.transactionAuditVerified, false)
+  assert.ok(unauditedDelegation.blockers.includes('fee-to-principal-delegation-transactions-not-independently-audited'))
 
   const zeroUsdtBalance = makeRoleResult()
   zeroUsdtBalance.roles.assetPrincipalSponsor.tokens[0].balanceBaseUnits = '0'
