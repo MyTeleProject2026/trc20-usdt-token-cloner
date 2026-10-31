@@ -439,6 +439,7 @@ export async function initializeDatabase() {
           token_contract TEXT,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           block_number BIGINT NOT NULL CHECK (block_number > 0),
+          block_timestamp_ms BIGINT NOT NULL CHECK (block_timestamp_ms > 0),
           execution_result TEXT NOT NULL CHECK (execution_result = 'SUCCESS'),
           reported_fee_sun NUMERIC(78,0) NOT NULL CHECK (reported_fee_sun >= 0),
           energy_fee_sun NUMERIC(78,0),
@@ -454,6 +455,7 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_chain_cost_observations ADD COLUMN IF NOT EXISTS block_timestamp_ms BIGINT`)
       // Chain-cost evidence is an immutable audit ledger: keep old VTRC observations
       // readable but reject any new observation for an unsupported asset.
       await db.query(`DO $sponsor_observation_supported_asset$ BEGIN
@@ -2990,6 +2992,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || (asset === 'TRX' && input.tokenContract != null)
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
+    || typeof input.blockTimestampMs !== 'number' || !Number.isSafeInteger(input.blockTimestampMs) || input.blockTimestampMs <= 0
     || input.executionResult !== 'SUCCESS'
     || integerValues.amountBaseUnits === '0') {
     return { success: false, reason: 'invalid-chain-cost-observation' };
@@ -3062,7 +3065,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
         `SELECT network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
                 asset_principal_address, receiver_address, asset, token_contract,
                 amount_base_units::text AS amount_base_units, block_number::text AS block_number,
-                execution_result, reported_fee_sun::text AS reported_fee_sun,
+                block_timestamp_ms::text AS block_timestamp_ms, execution_result, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
                 energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
                 net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total
@@ -3076,7 +3079,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
         sponsor_reference: input.sponsorReference, fee_sponsor_address: feeSponsorAddress,
         asset_principal_address: input.assetPrincipalAddress, receiver_address: input.receiverAddress,
         asset, token_contract: tokenContract, amount_base_units: integerValues.amountBaseUnits,
-        block_number: String(blockNumber), execution_result: 'SUCCESS',
+        block_number: String(blockNumber), block_timestamp_ms: String(input.blockTimestampMs), execution_result: 'SUCCESS',
         reported_fee_sun: integerValues.reportedFeeSun,
         energy_fee_sun: integerValues.energyFeeSun, net_fee_sun: integerValues.netFeeSun,
         energy_usage_total: integerValues.energyUsageTotal, energy_usage: integerValues.energyUsage,
@@ -3100,13 +3103,13 @@ export async function recordSponsorChainCostObservation(input = {}) {
         `INSERT INTO ${schema}.sponsor_chain_cost_observations
           (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
            asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
-           block_number, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
+           block_number, block_timestamp_ms, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
            energy_usage_total, energy_usage, net_usage, energy_penalty_total)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13::numeric,
-                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19::numeric)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13,$14,$15::numeric,
+                 $16::numeric,$17::numeric,$18::numeric,$19::numeric,$20::numeric)`,
         [network, transactionHash, idempotencyKey, input.sponsorReference, feeSponsorAddress,
           input.assetPrincipalAddress, input.receiverAddress, asset, tokenContract,
-          integerValues.amountBaseUnits, blockNumber, 'SUCCESS', integerValues.reportedFeeSun,
+          integerValues.amountBaseUnits, blockNumber, input.blockTimestampMs, 'SUCCESS', integerValues.reportedFeeSun,
           integerValues.energyFeeSun, integerValues.netFeeSun, integerValues.energyUsageTotal,
           integerValues.energyUsage, integerValues.netUsage, integerValues.energyPenaltyTotal],
       );
