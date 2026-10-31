@@ -159,8 +159,9 @@ export async function readSolidifiedSponsorChainCosts({
     const energyUsage = safeIntegerString(receipt.energy_usage, { allowNull: true })
     const netUsage = safeIntegerString(receipt.net_usage, { allowNull: true })
     const energyPenaltyTotal = safeIntegerString(receipt.energy_penalty_total, { allowNull: true })
-    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.net_usage, receipt.energy_penalty_total]
-    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, netUsage, energyPenaltyTotal]
+    const originEnergyUsage = safeIntegerString(receipt.origin_energy_usage, { allowNull: true })
+    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.origin_energy_usage, receipt.net_usage, receipt.energy_penalty_total]
+    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, originEnergyUsage, netUsage, energyPenaltyTotal]
     if (optionalRaw.some((value, index) => value !== undefined && value !== null && optionalParsed[index] === null)) {
       return { success: false, reason: 'invalid-solidified-fee-fields' }
     }
@@ -176,6 +177,7 @@ export async function readSolidifiedSponsorChainCosts({
       netFeeSun,
       energyUsageTotal,
       energyUsage,
+      originEnergyUsage,
       netUsage,
       energyPenaltyTotal,
       evidenceSource: 'Tatum TRON SolidityNode transaction body and receipt',
