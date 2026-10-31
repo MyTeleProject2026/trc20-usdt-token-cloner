@@ -97,6 +97,56 @@ export async function initializeDatabase() {
   if (!initPromise) {
     initPromise = (async () => {
       await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+
+      // Append-only, credential-free Fireblocks inventory history for the
+      // manually dispatched read-only workflow. Never store API keys, JWTs,
+      // RSA material, raw provider responses, or blockchain private keys.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.fireblocks_inventory_snapshots (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          workflow_run_id TEXT NOT NULL,
+          workflow_run_attempt INTEGER NOT NULL CHECK (workflow_run_attempt > 0),
+          repository TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          commit_sha CHAR(40) NOT NULL,
+          verification_status TEXT NOT NULL CHECK (verification_status IN ('verified','blocked')),
+          api_base TEXT,
+          vault_account_id TEXT,
+          usdt_asset_id TEXT,
+          trx_asset_id TEXT,
+          treasury_address TEXT,
+          checks JSONB NOT NULL DEFAULT '{}'::jsonb,
+          balances JSONB NOT NULL DEFAULT '{}'::jsonb,
+          configuration JSONB NOT NULL DEFAULT '{}'::jsonb,
+          reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+          checked_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (workflow_run_id, workflow_run_attempt)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS fireblocks_inventory_checked_at_idx
+        ON ${schema}.fireblocks_inventory_snapshots (checked_at DESC)`)
+
+      // Make the inventory history immutable through the application connection.
+      await db.query(`
+        CREATE OR REPLACE FUNCTION ${schema}.reject_fireblocks_inventory_snapshot_mutation()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS 'BEGIN
+          RAISE EXCEPTION ''fireblocks inventory snapshots are immutable'';
+          RETURN NULL;
+        END;';
+      `)
+      await db.query(`
+        DROP TRIGGER IF EXISTS fireblocks_inventory_snapshots_immutable
+          ON ${schema}.fireblocks_inventory_snapshots
+      `)
+      await db.query(`
+        CREATE TRIGGER fireblocks_inventory_snapshots_immutable
+        BEFORE UPDATE OR DELETE ON ${schema}.fireblocks_inventory_snapshots
+        FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_fireblocks_inventory_snapshot_mutation()
+      `)
+
       // Wallet auth stores only the public address, origin, expiry and hashes of
       // one-time challenge/session secrets. Raw bearer tokens and private keys
       // are never persisted. Sessions are shared across Render instances/restarts.
@@ -3089,3 +3139,96 @@ export async function listSponsorChainCostObservations({ network = null, limit =
     return { success: false, reason: 'database-unavailable', observations: [] };
   }
 }
+
+/**
+ * Persist one sanitized Fireblocks inventory run. The allow-list below is
+ * intentional: provider payloads and credential material must never reach
+ * this table. A run/attempt pair is idempotent.
+ */
+export async function persistFireblocksInventorySnapshot(input = {}) {
+  const runId = typeof input.workflowRunId === 'string' ? input.workflowRunId : ''
+  const attempt = input.workflowRunAttempt
+  const repository = typeof input.repository === 'string' ? input.repository : ''
+  const branch = typeof input.branch === 'string' ? input.branch : ''
+  const commitSha = typeof input.commitSha === 'string' ? input.commitSha.toLowerCase() : ''
+  const status = input.verificationStatus
+  const checkedAt = input.checkedAt instanceof Date ? input.checkedAt : new Date(input.checkedAt)
+  const configuration = input.configuration && typeof input.configuration === 'object' && !Array.isArray(input.configuration)
+    ? input.configuration : {}
+  const checks = input.checks && typeof input.checks === 'object' && !Array.isArray(input.checks)
+    ? input.checks : {}
+  const balances = input.balances && typeof input.balances === 'object' && !Array.isArray(input.balances)
+    ? input.balances : {}
+  const reasons = Array.isArray(input.reasons) ? input.reasons : []
+  if (!/^[0-9]{1,24}$/.test(runId)
+    || !Number.isSafeInteger(attempt) || attempt < 1 || attempt > 100
+    || repository !== 'MyTeleProject2026/trc20-usdt-token-cloner'
+    || branch !== 'main'
+    || !/^[0-9a-f]{40}$/.test(commitSha)
+    || !['verified','blocked'].includes(status)
+    || !Number.isFinite(checkedAt.getTime())
+    || reasons.length > 30
+    || reasons.some((reason) => typeof reason !== 'string' || !/^[a-z0-9-]{1,96}$/.test(reason))) {
+    return { persisted: false, reason: 'invalid-fireblocks-inventory-snapshot' }
+  }
+  const textValue = (value, max = 256) => typeof value === 'string' && value.length <= max ? value : null
+  const safeConfiguration = {
+    apiBase: textValue(configuration.apiBase, 128),
+    vaultAccountId: textValue(configuration.vaultAccountId, 32),
+    usdtAssetId: textValue(configuration.usdtAssetId, 128),
+    trxAssetId: textValue(configuration.trxAssetId, 128),
+    treasuryAddress: textValue(configuration.treasuryAddress, 64),
+    secretKeyPath: textValue(configuration.secretKeyPath, 512),
+    signerMode: 'fireblocks',
+    network: 'mainnet',
+    usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    usdtDecimals: 6,
+    trxDecimals: 6,
+    apiKeyConfigured: configuration.apiKeyConfigured === true,
+    rsaKeyConfigured: configuration.rsaKeyConfigured === true,
+  }
+  const checkNames = [
+    'fireblocksApiAuthenticated', 'vaultAccountVerified', 'usdtAssetActivated',
+    'officialUsdtAssetVerified', 'usdtAddressMatches', 'trxAssetActivated',
+    'nativeTrxAssetVerified', 'trxAddressMatches', 'officialUsdtChainVerified',
+    'treasuryTrxChainBalanceRead', 'databaseReady',
+  ]
+  const safeChecks = Object.fromEntries(checkNames.map((key) => [key, checks[key] === true ? true : checks[key] === false ? false : null]))
+  const balanceNames = [
+    'fireblocksUsdtAvailableBaseUnits', 'chainUsdtBalanceBaseUnits',
+    'fireblocksTrxAvailableBaseUnits', 'chainTrxBalanceSun',
+  ]
+  const safeBalances = Object.fromEntries(balanceNames.map((key) => {
+    const value = balances[key]
+    return [key, typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) ? value : null]
+  }))
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  await initializeDatabase()
+  const result = await db.query(
+    `INSERT INTO ${schema}.fireblocks_inventory_snapshots
+       (workflow_run_id, workflow_run_attempt, repository, branch, commit_sha,
+        verification_status, api_base, vault_account_id, usdt_asset_id, trx_asset_id,
+        treasury_address, checks, balances, configuration, reasons, checked_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16)
+     ON CONFLICT (workflow_run_id, workflow_run_attempt) DO NOTHING
+     RETURNING id::text AS id, created_at`,
+    [
+      runId, attempt, repository, branch, commitSha, status,
+      safeConfiguration.apiBase, safeConfiguration.vaultAccountId,
+      safeConfiguration.usdtAssetId, safeConfiguration.trxAssetId,
+      safeConfiguration.treasuryAddress, JSON.stringify(safeChecks),
+      JSON.stringify(safeBalances), JSON.stringify(safeConfiguration),
+      JSON.stringify(reasons), checkedAt.toISOString(),
+    ],
+  )
+  if (result.rows.length) return { persisted: true, duplicate: false, id: result.rows[0].id, createdAt: result.rows[0].created_at }
+  const existing = await db.query(
+    `SELECT id::text AS id, created_at FROM ${schema}.fireblocks_inventory_snapshots
+      WHERE workflow_run_id=$1 AND workflow_run_attempt=$2 LIMIT 1`,
+    [runId, attempt],
+  )
+  if (!existing.rows.length) return { persisted: false, reason: 'database-conflict-unresolved' }
+  return { persisted: true, duplicate: true, id: existing.rows[0].id, createdAt: existing.rows[0].created_at }
+}
+

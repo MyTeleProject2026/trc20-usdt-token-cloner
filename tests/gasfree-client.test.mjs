@@ -280,9 +280,11 @@ test('GasFree trace lookup refuses a provider response for a different trace ID'
   assert.equal(result.reason, 'invalid-provider-response')
 })
 
-test('HTTP response credential guard redacts Tatum, TRONGrid, GasFree and sponsor administration credentials', () => {
+test('HTTP response credential guard redacts provider API and workflow trigger credentials', () => {
   const envKeys = [
     'TATUM_API_KEY',
+    'FIREBLOCKS_API_KEY',
+    'FIREBLOCKS_SYNC_TRIGGER_TOKEN',
     'TRONGRID_API_KEY',
     'GASFREE_MAINNET_API_KEY',
     'GASFREE_MAINNET_API_SECRET',
