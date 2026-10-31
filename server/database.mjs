@@ -3658,8 +3658,11 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       )
       await client.query(
         `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
-         VALUES ('sponsor-resource-cost-observed','sponsor-resource-reservation',$1,$2::jsonb)`,
-        [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, blockNumber: row.block_number, energyUsedUnits: row.energy_used, bandwidthUsedUnits: row.bandwidth_used, status, budgetSettled: false })],
+         VALUES ($1,'sponsor-resource-reservation',$2,$3::jsonb)`,
+        [status === 'settled' ? 'sponsor-resource-budget-settled' : 'sponsor-resource-cost-observed',
+          idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, blockNumber: row.block_number,
+            energyUsedUnits: actualEnergyUnits.toString(), bandwidthUsedUnits: actualBandwidthUnits.toString(),
+            status, budgetSettled: status === 'settled', resourceAttributionVerified: status === 'settled' })],
       )
       await client.query('COMMIT')
       return { success: true, duplicate: false, status, sponsorResourceBudgetSettled: status === 'settled', canSubmitSponsoredTransfer: false }
