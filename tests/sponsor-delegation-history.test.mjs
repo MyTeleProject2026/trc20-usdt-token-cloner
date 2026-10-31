@@ -59,7 +59,7 @@ function block(height, parentHash, timestamp, transactions = []) {
   }
 }
 
-function verifierFor({ blocks, maxBlockSpan = 256 } = {}) {
+function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256 } = {}) {
   const calls = []
   const verifier = createSponsorDelegationHistoryVerifier({
     env: { TATUM_API_KEY: 'test-only-provider-key' },
@@ -75,7 +75,8 @@ function verifierFor({ blocks, maxBlockSpan = 256 } = {}) {
     fetchImpl: async (url, options) => {
       calls.push({ url, body: JSON.parse(options.body) })
       const number = JSON.parse(options.body).num
-      const value = blocks[number]
+      const sourceBlocks = url.includes('nile.trongrid.io') ? secondaryBlocks : blocks
+      const value = sourceBlocks[number]
       return { ok: Boolean(value), status: value ? 200 : 404, json: async () => value || {} }
     },
   })
@@ -114,7 +115,7 @@ test('solidified history replay verifies a complete unchanged interval and the e
   assert.equal(result.blockNumber, 102)
   assert.equal(result.blockTimestampMs, 1_006_000)
   assert.equal(result.scannedBlockCount, 2)
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 6)
 })
 
 test('solidified history replay rejects a delegation change involving the fee sponsor or principal', async () => {
@@ -141,6 +142,31 @@ test('solidified history replay rejects any intervening stake-source mutation by
   assert.equal(result.success, false)
   assert.equal(result.reason, 'historical-delegation-state-changed-during-interval')
   assert.equal(result.contractType, 'FreezeBalanceV2Contract')
+})
+
+test('solidified history replay rejects block and transaction-list disagreement between providers', async () => {
+  const primary = standardBlocks()
+  const secondary = standardBlocks()
+  secondary[101] = {
+    ...secondary[101],
+    blockID: blockId(101, 'f'),
+  }
+  const { verifier } = verifierFor({ blocks: primary, secondaryBlocks: secondary })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-delegation-secondary-provider-disagreement')
+  assert.equal(result.failedBlockNumber, 101)
+})
+
+test('solidified history replay rejects a provider that omits the block transaction list', async () => {
+  const primary = standardBlocks()
+  const secondary = standardBlocks()
+  delete secondary[101].transactions
+  const { verifier } = verifierFor({ blocks: primary, secondaryBlocks: secondary })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-delegation-secondary-provider-disagreement')
+  assert.equal(result.failedBlockNumber, 101)
 })
 
 test('solidified history replay rejects a broken parent-hash chain', async () => {
