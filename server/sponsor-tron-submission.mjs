@@ -674,6 +674,8 @@ export async function verifySponsorFeeResourceCapacity({
       signedTransactionBytesEstimated: true,
       ...(transfer.asset === 'TRX' ? { receiverAccountActivated: true } : {}),
       feeSponsorResourceSourceVerified: true,
+      network: transfer.network,
+      sponsorAddress: transfer.sponsorAddress,
       feeSponsorAddress: feeSponsorAddress.trim(),
       checkedAt: new Date().toISOString(),
       delegationSnapshot: {
