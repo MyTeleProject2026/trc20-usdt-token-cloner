@@ -408,9 +408,9 @@ export async function validateSponsorSignedTransaction({
  * The response must explicitly confirm both acceptance and the expected txid.
  */
 /**
- * Post-solidification source-only proof. It deliberately avoids token balance
- * checks and contract simulation, which may fail after the principal transfer
- * has already consumed the sender's token balance.
+ * Post-solidification current-source snapshot. This reads the latest solidified
+ * account/delegation state, not delegation history at the transfer's block.
+ * It must never be treated as historical attribution proof on its own.
  */
 export async function verifySponsorFeeResourceSource({
   transfer,
@@ -502,6 +502,9 @@ export async function verifySponsorFeeResourceSource({
       feeSponsorAddress: feeSponsorAddress.trim(),
       feeSponsorResourceSourceVerified: true,
       checkedAt: new Date().toISOString(),
+      historicalDelegationStateVerified: false,
+      historicalDelegationProof: null,
+      historicalDelegationProofReason: 'solidified-node-delegation-query-does-not-read-state-at-an-arbitrary-block',
       delegationSnapshot: {
         feeSponsorAddress: feeSponsorAddress.trim(),
         assetPrincipalAddress: transfer.sponsorAddress,
