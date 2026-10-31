@@ -5,6 +5,7 @@ import { getWalletAuthSession } from '../database.mjs'
 import { createSponsorOrganizationStore } from '../sponsor-organizations.mjs'
 import { selectSponsorOrganizationPair } from '../sponsor-organization-selection.mjs'
 import { reserveSponsorOrganizationPayoutIntent } from '../sponsor-organization-payout-intents.mjs'
+import { preflightSponsorOrganizationPayoutIntent } from '../sponsor-organization-transaction-preflight.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 
 function isAdmin(req, env) {
@@ -270,6 +271,46 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
       userFundedFallbackAllowed: false,
       note: 'Both sponsor owners may have approved this exact allocation, but this is not transaction authorization. Transaction-specific fee verification, signed transaction validation, and a separate submission review remain required.',
     })
+  })
+
+  router.post('/sponsorship/payout-intents/:intentId/transaction-preflight', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (!isAdmin(req, env)) {
+      return res.status(401).json({ success: false, error: 'sponsor-admin-authorization-required' })
+    }
+    if (Object.keys(req.body || {}).length !== 0) {
+      return res.status(400).json({ success: false, error: 'transaction-preflight-does-not-accept-transaction-fields' })
+    }
+    try {
+      const preflight = options.preflightIntent ?? preflightSponsorOrganizationPayoutIntent
+      const result = await preflight({
+        store,
+        intentId: req.params.intentId,
+        env,
+        fetchImpl: options.fetchImpl,
+        tronWebFactory: options.tronWebFactory,
+        readDelegation: options.readDelegation,
+        timeoutMs: options.timeoutMs,
+      })
+      if (!result.success) {
+        const status = result.reason === 'payout-intent-not-found' ? 404
+          : result.reason?.includes('expired') ? 410
+            : result.reason?.includes('approvals') || result.reason?.includes('authorization') ? 409
+              : result.reason?.includes('unavailable') ? 503 : 422
+        return res.status(status).json(result)
+      }
+      return res.json(result)
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: 'transaction-specific-preflight-unavailable',
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionSubmitted: false,
+      })
+    }
   })
 
   router.post('/sponsorship/payout-intents/:intentId/cancel', async (req, res) => {
