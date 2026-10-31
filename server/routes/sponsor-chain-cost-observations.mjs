@@ -317,6 +317,7 @@ export function createSponsorChainCostObservationRouter(options = {}) {
           netFeeSun: costs.netFeeSun,
           energyUsageTotal: costs.energyUsageTotal,
           energyUsage: costs.energyUsage,
+          originEnergyUsage: costs.originEnergyUsage,
           netUsage: costs.netUsage,
           energyPenaltyTotal: costs.energyPenaltyTotal,
         },
