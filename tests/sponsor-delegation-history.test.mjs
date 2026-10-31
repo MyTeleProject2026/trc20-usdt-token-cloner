@@ -158,6 +158,25 @@ test('solidified history replay rejects block and transaction-list disagreement 
   assert.equal(result.failedBlockNumber, 101)
 })
 
+test('solidified history replay rejects decoded contract payload disagreement between providers', async () => {
+  const primary = standardBlocks()
+  const secondary = standardBlocks()
+  secondary[101] = {
+    ...secondary[101],
+    transactions: [tx('same-byte-identity', [{
+      type: 'DelegateResourceContract',
+      parameter: { value: {
+        owner_address: feeHex, receiver_address: receiverHex, resource: 'ENERGY', balance: 1,
+      } },
+    }])],
+  }
+  const { verifier } = verifierFor({ blocks: primary, secondaryBlocks: secondary })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-delegation-secondary-provider-disagreement')
+  assert.equal(result.failedBlockNumber, 101)
+})
+
 test('solidified history replay rejects a provider that omits the block transaction list', async () => {
   const primary = standardBlocks()
   const secondary = standardBlocks()
