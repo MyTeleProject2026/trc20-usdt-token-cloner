@@ -4,7 +4,7 @@
 
 The application now has an administrator-protected PostgreSQL registry for independent sponsor organizations and their TRON accounts. Creating a record does not mean that an organization has agreed to sponsor the platform or that its account is funded.
 
-Organizations and accounts are separate. Each account records a network and one role:
+Organizations and accounts are separate. A legal organization may register one or more role-specific wallets. The principal and fee roles can belong to one organization or to two different organizations, but they always remain separate accounts, addresses, budgets, and approvals. Each account records a network and one role:
 
 - `asset-principal`: potential source of a sponsored TRX or allowlisted USDT principal grant.
 - `network-fee`: distinct account for separately approved network-fee/resource coverage.
@@ -190,10 +190,12 @@ Example request for a TRX principal transfer:
 For USDT, set `asset` to `USDT` and provide the exact network-allowlisted `tokenContract`. On Mainnet, only the official Tether TRC20 USDT contract is accepted. For a testnet, the configured network-specific token contract is a test asset and is not Tether-issued Mainnet USDT.
 
 The service re-reads the linked budgets and requires:
-- two different approved sponsor organizations and two different wallet addresses;
+- either two separately approved sponsor organizations, or one approved organization with two separately verified role-specific accounts;
+- two different wallet addresses in all cases; the same wallet cannot serve both roles;
 - a verified `asset-principal` account linked to an active `asset-grant` budget;
 - a verified `network-fee` account linked to a separate active `network-fee` TRX budget;
-- exact matching organization/account/budget references, wallet addresses, networks, roles, purpose, asset, contract, and allowlisted agreement scopes;
+- distinct account IDs, budget IDs, and budget-link IDs, even when both accounts belong to one organization;
+- an approved agreement whose legal scope expressly authorizes that organization to fund each role, with exact matching organization/account/budget references, wallet addresses, networks, roles, purpose, asset, contract, and allowlisted agreement scopes;
 - fresh solidified chain balance snapshots for both exact sponsor wallets, budget reconciliation against their commitments, and a current observed fee-to-principal resource delegation.
 
 Both budget counters are incremented and both reservation rows, the intent row, and audit records are written in one PostgreSQL transaction. The intent digest binds the network, asset, token contract, receiver, exact base-unit principal amount, fee cap, and both budget-link IDs. Repeating the same idempotency key and identical intent returns the prior record; reusing that key with different intent data is rejected.
@@ -245,6 +247,6 @@ The page performs two separate wallet message-signature steps. The server-genera
 1. A normal `/api/auth/tron` wallet-identity challenge creates a short-lived network/origin-scoped wallet session. This proves wallet control only.
 2. The session is used to request a short-lived role-specific payout-intent challenge. The wallet signs the server-generated message that includes the immutable intent digest, both sponsor budget-link IDs, network, receiver, asset/contract, principal amount and fee cap. The backend consumes the nonce once, recovers the signer address with TronWeb, and requires an exact match to the verified sponsor account.
 
-The backend stores the SHA-256 hash of the signature plus the challenge/message digests, not the raw wallet message signature. The raw session token is held only in memory by the page and is not written to browser storage. A wrong wallet, wrong network, inactive sponsor link, expired intent, replayed challenge or already-approved role is rejected. Each organization signs independently by opening the same page/intent ID with its own wallet.
+The backend stores the SHA-256 hash of the signature plus the challenge/message digests, not the raw wallet message signature. The raw session token is held only in memory by the page and is not written to browser storage. A wrong wallet, wrong network, inactive sponsor link, expired intent, replayed challenge or already-approved role is rejected. Each role is approved independently by the wallet that controls that role's exact verified account. One organization may therefore provide both approvals only through its separately verified principal and fee accounts; the same wallet cannot approve both roles.
 
 When both roles have signed, the intent status becomes `sponsor_authorization_complete`. This means only that both role-specific message signatures were validated. It is **not** a transaction signature, exact fee quote, resource sufficiency proof, authorization for the backend to broadcast, or a completed payout. The two internal budget holds still expire and can be cancelled. All submission flags remain false and the existing Mainnet real-value payout hard gate remains disabled.
