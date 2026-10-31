@@ -3853,7 +3853,13 @@ export async function recordSponsorResourcePreflightEvidence({ idempotencyKey, e
       }
       if (row.preflight_evidence) {
         const previous = row.preflight_evidence
-        if (JSON.stringify(previous.delegationSnapshot) !== JSON.stringify(safeEvidence.delegationSnapshot)
+        const snapshotKeys = [
+          'feeSponsorAddress','assetPrincipalAddress','energyStakeSun','bandwidthStakeSun',
+          'energyExpiry','bandwidthExpiry','ownEnergySun','incomingEnergyLegacySun',
+          'incomingEnergyV2Sun','ownBandwidthSun','incomingBandwidthLegacySun','incomingBandwidthV2Sun',
+        ]
+        const snapshotSame = snapshotKeys.every(key => String(previous.delegationSnapshot?.[key]) === String(safeEvidence.delegationSnapshot?.[key]))
+        if (!snapshotSame
           || previous.network !== safeEvidence.network
           || previous.sponsorAddress !== safeEvidence.sponsorAddress
           || previous.feeSponsorAddress !== safeEvidence.feeSponsorAddress
