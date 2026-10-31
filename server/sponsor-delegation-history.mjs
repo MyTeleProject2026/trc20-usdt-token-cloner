@@ -235,7 +235,7 @@ export function createSponsorDelegationHistoryVerifier({
         scannedBlockCount: span,
         scannedTransactionCount,
         source: 'Tatum SolidityNode walletsolidity/getblockbynum',
-        historySourceTrustModel: 'single-provider-solididity-node-response',
+        historySourceTrustModel: 'single-provider-solidity-node-response',
         blockIntegrityCheck: 'height-prefix-and-parent-link; block header hash and witness signature are provider-trusted',
         transactionIntegrityCheck: 'sha256-raw_data_hex-matches-txID; transaction inclusion in txTrieRoot is provider-trusted',
         delegationSnapshot: preflightEvidence.delegationSnapshot,
