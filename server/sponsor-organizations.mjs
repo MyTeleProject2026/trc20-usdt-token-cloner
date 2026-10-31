@@ -445,7 +445,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             provider_status TEXT,
             transaction_hash CHAR(64),
             last_error_code TEXT,
-            submission_attempts INTEGER NOT NULL DEFAULT 0 CHECK (submission_attempts >= 0),
+            provider_observation_count INTEGER NOT NULL DEFAULT 0 CHECK (provider_observation_count >= 0),
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CHECK (transaction_hash IS NULL OR transaction_hash ~ '^[0-9a-fA-F]{64}      })().catch((error) => { schemaPromise = null; throw error })
@@ -2031,7 +2031,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         const prior = await client.query(
           "SELECT id::text AS id, intent_digest, external_tx_id, release_reference, status, " +
           "provider_transaction_id, provider_status, transaction_hash, last_error_code, " +
-          "submission_attempts, created_at, updated_at " +
+          "provider_observation_count, created_at, updated_at " +
           "FROM trc20_token_clone.sponsor_organization_fireblocks_submissions " +
           "WHERE intent_id = $1::bigint FOR UPDATE",
           [intentId],
@@ -2049,11 +2049,11 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         } else {
           const inserted = await client.query(
             "INSERT INTO trc20_token_clone.sponsor_organization_fireblocks_submissions " +
-            "(intent_id, intent_digest, external_tx_id, release_reference, status, submission_attempts) " +
+            "(intent_id, intent_digest, external_tx_id, release_reference, status, provider_observation_count) " +
             "VALUES ($1::bigint,$2,$3,$4,'prepared',0) " +
             "RETURNING id::text AS id, intent_digest, external_tx_id, release_reference, status, " +
             "provider_transaction_id, provider_status, transaction_hash, last_error_code, " +
-            "submission_attempts, created_at, updated_at",
+            "provider_observation_count, created_at, updated_at",
             [intentId, intentDigest.toLowerCase(), externalTxId, releaseReference],
           )
           row = inserted.rows[0]
@@ -2077,7 +2077,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             providerStatus: row.provider_status || null,
             transactionHash: row.transaction_hash?.trim() || null,
             lastErrorCode: row.last_error_code || null,
-            submissionAttempts: Number(row.submission_attempts),
+            submissionAttempts: Number(row.provider_observation_count),
             createdAt: new Date(row.created_at).toISOString(),
             updatedAt: new Date(row.updated_at).toISOString(),
           },
@@ -2158,11 +2158,11 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           "UPDATE trc20_token_clone.sponsor_organization_fireblocks_submissions " +
           "SET status = $1, provider_transaction_id = COALESCE(provider_transaction_id, $2), " +
           "provider_status = COALESCE($3, provider_status), transaction_hash = COALESCE(transaction_hash, $4), " +
-          "last_error_code = $5, submission_attempts = submission_attempts + 1, updated_at = now() " +
+          "last_error_code = $5, provider_observation_count = provider_observation_count + 1, updated_at = now() " +
           "WHERE intent_id = $6::bigint " +
           "RETURNING id::text AS id, intent_digest, external_tx_id, release_reference, status, " +
           "provider_transaction_id, provider_status, transaction_hash, last_error_code, " +
-          "submission_attempts, created_at, updated_at",
+          "provider_observation_count, created_at, updated_at",
           [effectiveStatus, providerTransactionId, providerStatus, transactionHash?.toLowerCase() || null,
             errorCode, intentId],
         )
@@ -2188,7 +2188,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             providerStatus: saved.provider_status || null,
             transactionHash: saved.transaction_hash?.trim() || null,
             lastErrorCode: saved.last_error_code || null,
-            submissionAttempts: Number(saved.submission_attempts),
+            submissionAttempts: Number(saved.provider_observation_count),
             createdAt: new Date(saved.created_at).toISOString(),
             updatedAt: new Date(saved.updated_at).toISOString(),
           },
@@ -2214,7 +2214,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       const result = await db.query(
         "SELECT id::text AS id, intent_id::text AS intent_id, intent_digest, external_tx_id, " +
         "release_reference, status, provider_transaction_id, provider_status, transaction_hash, " +
-        "last_error_code, submission_attempts, created_at, updated_at " +
+        "last_error_code, provider_observation_count, created_at, updated_at " +
         "FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = $1::bigint",
         [intentId],
       )
@@ -2229,7 +2229,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           providerStatus: row.provider_status || null,
           transactionHash: row.transaction_hash?.trim() || null,
           lastErrorCode: row.last_error_code || null,
-          submissionAttempts: Number(row.submission_attempts),
+          submissionAttempts: Number(row.provider_observation_count),
           createdAt: new Date(row.created_at).toISOString(),
           updatedAt: new Date(row.updated_at).toISOString(),
         },
