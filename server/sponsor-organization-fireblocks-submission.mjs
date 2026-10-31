@@ -233,15 +233,26 @@ export async function submitSponsorOrganizationFireblocksPayout({
     // A provider/network timeout may occur after Fireblocks accepted the request.
     // Never release reservations or issue a new external ID; look up the same ID.
     try { transaction = await client.findTransactionByExternalId(externalTxId) } catch {
+      const unknown = await store.recordFireblocksPayoutSubmission({
+        intentId, intentDigest: intent.intentDigest, externalTxId,
+        status: 'provider-unknown', errorCode: 'fireblocks-provider-outcome-unknown',
+      })
       return fail('fireblocks-provider-outcome-unknown', {
-        submission: safeSubmission(prepared.submission),
+        submission: unknown?.success ? safeSubmission(unknown.submission) : safeSubmission(prepared.submission),
         reservationRetained: true,
-        recovery: 'Retry the same endpoint or use the status-refresh endpoint; the deterministic externalTxId is unchanged.',
+        recovery: 'Retry status lookup with the same deterministic externalTxId. Do not create a new payout or release the reservation.',
       })
     }
-    if (!transaction) return fail('fireblocks-provider-outcome-unknown', {
-      submission: safeSubmission(prepared.submission), reservationRetained: true,
-    })
+    if (!transaction) {
+      const unknown = await store.recordFireblocksPayoutSubmission({
+        intentId, intentDigest: intent.intentDigest, externalTxId,
+        status: 'provider-unknown', errorCode: 'fireblocks-provider-outcome-unknown',
+      })
+      return fail('fireblocks-provider-outcome-unknown', {
+        submission: unknown?.success ? safeSubmission(unknown.submission) : safeSubmission(prepared.submission),
+        reservationRetained: true,
+      })
+    }
   }
 
   const saved = await recordProviderResult(store, intent, externalTxId, transaction)
