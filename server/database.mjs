@@ -3546,8 +3546,13 @@ export async function releaseExpiredSponsorResourceReservations({ limit = 100 } 
       )
       let releasedCount = 0
       for (const candidate of candidates.rows) {
-        // Keep lock order budget -> reservation. The live reservation path uses
-        // transfer -> budget -> reservation, so this avoids a budget/reservation deadlock.
+        // Match the live reservation/broadcast lock order: transfer -> budget -> reservation.
+        // This prevents expiry cleanup racing a concurrent claim/broadcast transition.
+        const transfer = await client.query(
+          `SELECT status FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
+          [candidate.idempotency_key],
+        )
+        if (!transfer.rows.length || !['pending-review','authorized'].includes(transfer.rows[0].status)) continue
         const budget = await client.query(
           `SELECT id FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
           [candidate.budget_id],
@@ -3555,16 +3560,14 @@ export async function releaseExpiredSponsorResourceReservations({ limit = 100 } 
         if (!budget.rows.length) throw new Error('resource-budget-missing')
         const reservationResult = await client.query(
           `SELECT r.id, r.idempotency_key, r.energy_reserved_units::text AS energy,
-                  r.bandwidth_reserved_units::text AS bandwidth, t.status AS transfer_status
+                  r.bandwidth_reserved_units::text AS bandwidth
              FROM ${schema}.sponsor_resource_reservations r
-             JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
             WHERE r.id = $1 AND r.status = 'reserved' AND r.expires_at <= now()
-            FOR UPDATE OF r`,
+            FOR UPDATE`,
           [candidate.id],
         )
         if (!reservationResult.rows.length) continue
         const row = reservationResult.rows[0]
-        if (!['pending-review','authorized'].includes(row.transfer_status)) continue
         const budgetUpdate = await client.query(
           `UPDATE ${schema}.sponsor_resource_budgets
               SET energy_reserved_units = energy_reserved_units - $1::numeric,
