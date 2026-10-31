@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import express from 'express'
+import { createSponsorOrganizationSelectionRouter } from '../server/routes/sponsor-organization-selection.mjs'
 import { preflightSponsorOrganizationPayoutIntent } from '../server/sponsor-organization-transaction-preflight.mjs'
 
 const principal = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
@@ -195,4 +198,58 @@ test('preflight refuses expired intents and unsafe provider integer ranges', asy
   assert.equal((await expired.run()).reason, 'payout-intent-scope-or-expiry-invalid')
   const unsafe = harness({ intent: makeIntent({ feeCapSun: '9007199254740992' }) })
   assert.equal((await unsafe.run()).reason, 'fee-cap-exceeds-safe-provider-range')
+})
+
+const ADMIN_TOKEN = 'test-sponsor-admin-token-that-is-long-enough-123456'
+
+async function serveRoute(t, overrides = {}) {
+  const app = express()
+  app.use(express.json())
+  app.use('/api/tron', createSponsorOrganizationSelectionRouter({
+    env: { SPONSOR_ADMIN_API_TOKEN: ADMIN_TOKEN },
+    store: { getPayoutIntentForPreflight: async () => ({
+      success: true, intent: makeIntent({ id: '9001' }), sponsorOwnerApprovalsVerified: true,
+    }) },
+    preflightIntent: async () => ({
+      success: true, status: 'transaction-specific-resource-preflight-blocked',
+      canSubmitSponsoredTransfer: false, submissionEnabled: false, transactionSubmitted: false,
+    }),
+    ...overrides,
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve())))
+  return 'http://127.0.0.1:' + server.address().port + '/api/tron'
+}
+
+test('intent transaction preflight endpoint is administrator protected and accepts no caller transaction fields', async (t) => {
+  const base = await serveRoute(t)
+  const denied = await fetch(base + '/sponsorship/payout-intents/9001/transaction-preflight', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  })
+  assert.equal(denied.status, 401)
+
+  const invalid = await fetch(base + '/sponsorship/payout-intents/9001/transaction-preflight', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ receiverAddress: receiver }),
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal((await invalid.json()).error, 'transaction-preflight-does-not-accept-transaction-fields')
+})
+
+test('intent transaction preflight endpoint returns read-only result with execution flags disabled', async (t) => {
+  const base = await serveRoute(t)
+  const response = await fetch(base + '/sponsorship/payout-intents/9001/transaction-preflight', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.success, true)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(payload.submissionEnabled, false)
+  assert.equal(payload.transactionSubmitted, false)
 })
