@@ -37,6 +37,8 @@ test('resource reservations serialize and bind to the exact principal transfer a
   assert.match(databaseSource, /idx_ttc_sponsor_resource_budgets_one_active_pair/)
   assert.match(databaseSource, /another-resource-mandate-active-or-unsettled/)
   assert.match(databaseSource, /pg_advisory_xact_lock/)
+  assert.match(databaseSource, /pg_advisory_lock\(\$1::bigint\)/)
+  assert.match(databaseSource, /pg_advisory_unlock\(\$1::bigint\)/)
 })
 
 test('receipt resource usage is recorded as pending evidence, never falsely settled', () => {
@@ -60,7 +62,7 @@ test('testnet signing and broadcast remain blocked until attribution and settlem
   assert.match(gateSource, /SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY = false/)
   assert.match(gateSource, /historical-delegation-state-at-transfer-block-not-independently-proven/)
   assert.match(gateSource, /funded-nile-and-shasta-sponsored-transfer-not-verified/)
-  assert.match(gateSource, /resource-settlement-database-integration-tests-not-complete/)
+  assert.match(gateSource, /production-database-migration-and-restore-rehearsal-not-complete/)
   assert.match(submissionSource, /getSponsorResourceReservationForTransfer\(idempotencyKey\)/)
   assert.match(submissionSource, /rejectIfSponsorFeeBudgetSettlementIsIncomplete\(res\)/)
   assert.match(submissionSource, /router\.post\('\/sponsorship\/resource-budgets'/)
