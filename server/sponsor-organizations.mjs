@@ -1937,6 +1937,25 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           await client.query('ROLLBACK')
           return { success: false, reason: 'stored-sponsor-owner-approvals-invalid' }
         }
+        const reservationResult = await client.query(
+          "SELECT budget_id::text AS budget_id, role, amount_base_units::text AS amount_base_units, status " +
+          "FROM trc20_token_clone.sponsor_organization_payout_reservations " +
+          "WHERE intent_id = $1::bigint ORDER BY role FOR SHARE",
+          [intentId],
+        )
+        const reservations = new Map(reservationResult.rows.map((row) => [row.role, row]))
+        const principalReservation = reservations.get('asset-principal')
+        const feeReservation = reservations.get('network-fee')
+        if (reservations.size !== 2
+          || principalReservation?.status !== 'active'
+          || principalReservation.budget_id !== intent.principal_budget_id
+          || principalReservation.amount_base_units !== intent.amount_base_units
+          || feeReservation?.status !== 'active'
+          || feeReservation.budget_id !== intent.fee_budget_id
+          || feeReservation.amount_base_units !== intent.fee_cap_sun) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'dual-budget-reservations-no-longer-active' }
+        }
         await client.query('COMMIT')
         return {
           success: true,
