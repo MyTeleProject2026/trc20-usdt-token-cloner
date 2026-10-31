@@ -3140,7 +3140,7 @@ export async function persistFireblocksInventorySnapshot(input = {}) {
   const balances = input.balances && typeof input.balances === 'object' && !Array.isArray(input.balances)
     ? input.balances : {}
   const reasons = Array.isArray(input.reasons) ? input.reasons : []
-  if (!/^\\d{1,24}$/.test(runId)
+  if (!/^[0-9]{1,24}$/.test(runId)
     || !Number.isSafeInteger(attempt) || attempt < 1 || attempt > 100
     || repository !== 'MyTeleProject2026/trc20-usdt-token-cloner'
     || branch !== 'main'
@@ -3180,7 +3180,7 @@ export async function persistFireblocksInventorySnapshot(input = {}) {
   ]
   const safeBalances = Object.fromEntries(balanceNames.map((key) => {
     const value = balances[key]
-    return [key, typeof value === 'string' && /^(0|[1-9]\\d{0,77})$/.test(value) ? value : null]
+    return [key, typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value) ? value : null]
   }))
   const db = getPool()
   if (!db) return { persisted: false, reason: 'database-not-configured' }
