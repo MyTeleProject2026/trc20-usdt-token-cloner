@@ -142,7 +142,7 @@ test('PostgreSQL atomically settles verified delegated resource units once and i
       transactionHash: fixture.transactionHash,
       attributionEvidence: validAttribution(fixture),
     })
-    assert.equal(first.success, true)
+    assert.equal(first.success, true, `settlement should succeed: ${JSON.stringify(first)}`)
     assert.equal(first.status, 'settled')
     assert.equal(first.sponsorResourceBudgetSettled, true)
     assert.equal(first.canSubmitSponsoredTransfer, false)
