@@ -538,55 +538,6 @@ export async function initializeDatabase() {
           energy_consumed_units NUMERIC(78,0),
           bandwidth_consumed_units NUMERIC(78,0),
           capacity_snapshot JSONB NOT NULL,
-          status TEXT NOT NULL DEFAULT 'reserved'
-            CHECK (status IN ('reserved','settled','manual-review','released')),
-          settlement_reason TEXT,
-          settlement_block_number BIGINT,
-          expires_at TIMESTAMPTZ NOT NULL,
-          settled_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `)
-      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_status
-        ON ${schema}.sponsor_resource_reservations (network, status, updated_at DESC)`)
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_budgets (
-          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          mandate_reference TEXT NOT NULL UNIQUE,
-          sponsor_reference TEXT NOT NULL,
-          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
-          fee_sponsor_address TEXT NOT NULL,
-          asset_principal_address TEXT NOT NULL,
-          energy_budget_units NUMERIC(78,0) NOT NULL CHECK (energy_budget_units >= 0),
-          bandwidth_budget_units NUMERIC(78,0) NOT NULL CHECK (bandwidth_budget_units > 0),
-          per_transfer_energy_units NUMERIC(78,0) NOT NULL CHECK (per_transfer_energy_units >= 0),
-          per_transfer_bandwidth_units NUMERIC(78,0) NOT NULL CHECK (per_transfer_bandwidth_units > 0),
-          energy_reserved_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_reserved_units >= 0),
-          bandwidth_reserved_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_reserved_units >= 0),
-          energy_spent_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_spent_units >= 0),
-          bandwidth_spent_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_spent_units >= 0),
-          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused')),
-          pause_reason TEXT,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (sponsor_reference, network, fee_sponsor_address, asset_principal_address)
-        )
-      `)
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_reservations (
-          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          idempotency_key TEXT NOT NULL UNIQUE REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
-          mandate_reference TEXT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(mandate_reference) ON DELETE RESTRICT,
-          network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
-          transaction_hash CHAR(64),
-          fee_sponsor_address TEXT NOT NULL,
-          asset_principal_address TEXT NOT NULL,
-          energy_reserved_units NUMERIC(78,0) NOT NULL CHECK (energy_reserved_units >= 0),
-          bandwidth_reserved_units NUMERIC(78,0) NOT NULL CHECK (bandwidth_reserved_units > 0),
-          energy_consumed_units NUMERIC(78,0),
-          bandwidth_consumed_units NUMERIC(78,0),
-          capacity_snapshot JSONB NOT NULL,
           status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved','settled','manual-review','released')),
           settlement_reason TEXT,
           settlement_block_number BIGINT,
