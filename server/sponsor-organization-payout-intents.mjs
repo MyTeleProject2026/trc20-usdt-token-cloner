@@ -111,9 +111,8 @@ export async function reserveSponsorOrganizationPayoutIntent({
     || !eligible(fee, 'network-fee', 'network-fee')
     || principal.asset !== asset || (principal.tokenContract || null) !== tokenContract
     || fee.asset !== 'TRX' || fee.tokenContract != null
-    || principal.organizationId === fee.organizationId
     || principal.sponsorAddress === fee.sponsorAddress) {
-    return fail('independent-approved-principal-and-fee-budget-links-required')
+    return fail('approved-role-specific-principal-and-fee-budgets-with-distinct-wallets-required')
   }
 
   let roleFunding
