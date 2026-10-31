@@ -446,6 +446,18 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             transaction_hash CHAR(64),
             last_error_code TEXT,
             provider_observation_count INTEGER NOT NULL DEFAULT 0 CHECK (provider_observation_count >= 0),
+            chain_verification_status TEXT NOT NULL DEFAULT 'pending'
+              CHECK (chain_verification_status IN ('pending','confirmed','failed')),
+            chain_verification_reason TEXT,
+            chain_verification_block_number BIGINT,
+            observed_fee_sun NUMERIC(78,0),
+            observed_energy_usage NUMERIC(78,0),
+            observed_net_usage BIGINT,
+            principal_settlement_status TEXT NOT NULL DEFAULT 'pending'
+              CHECK (principal_settlement_status IN ('pending','settled','released')),
+            fee_settlement_status TEXT NOT NULL DEFAULT 'pending-resource-reconciliation'
+              CHECK (fee_settlement_status IN ('pending-resource-reconciliation','over-cap-manual-review')),
+            chain_verified_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CHECK (transaction_hash IS NULL OR transaction_hash ~ '^[0-9a-fA-F]{64}$')
@@ -454,6 +466,51 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_org_fireblocks_submissions_status_idx
           ON trc20_token_clone.sponsor_organization_fireblocks_submissions (status, updated_at)
+        `)
+        await db.query(`
+          ALTER TABLE trc20_token_clone.sponsor_organization_fireblocks_submissions
+            ADD COLUMN IF NOT EXISTS chain_verification_status TEXT NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS chain_verification_reason TEXT,
+            ADD COLUMN IF NOT EXISTS chain_verification_block_number BIGINT,
+            ADD COLUMN IF NOT EXISTS observed_fee_sun NUMERIC(78,0),
+            ADD COLUMN IF NOT EXISTS observed_energy_usage NUMERIC(78,0),
+            ADD COLUMN IF NOT EXISTS observed_net_usage BIGINT,
+            ADD COLUMN IF NOT EXISTS principal_settlement_status TEXT NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS fee_settlement_status TEXT NOT NULL DEFAULT 'pending-resource-reconciliation',
+            ADD COLUMN IF NOT EXISTS chain_verified_at TIMESTAMPTZ
+        `)
+        await db.query(`
+          DO $sponsor_chain_settlement_constraints$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'trc20_token_clone.sponsor_organization_fireblocks_submissions'::regclass
+                AND conname = 'sponsor_org_fireblocks_chain_status_check'
+            ) THEN
+              ALTER TABLE trc20_token_clone.sponsor_organization_fireblocks_submissions
+                ADD CONSTRAINT sponsor_org_fireblocks_chain_status_check
+                CHECK (chain_verification_status IN ('pending','confirmed','failed'));
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'trc20_token_clone.sponsor_organization_fireblocks_submissions'::regclass
+                AND conname = 'sponsor_org_fireblocks_principal_settlement_check'
+            ) THEN
+              ALTER TABLE trc20_token_clone.sponsor_organization_fireblocks_submissions
+                ADD CONSTRAINT sponsor_org_fireblocks_principal_settlement_check
+                CHECK (principal_settlement_status IN ('pending','settled','released'));
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'trc20_token_clone.sponsor_organization_fireblocks_submissions'::regclass
+                AND conname = 'sponsor_org_fireblocks_fee_settlement_check'
+            ) THEN
+              ALTER TABLE trc20_token_clone.sponsor_organization_fireblocks_submissions
+                ADD CONSTRAINT sponsor_org_fireblocks_fee_settlement_check
+                CHECK (fee_settlement_status IN ('pending-resource-reconciliation','over-cap-manual-review'));
+            END IF;
+          END
+          $sponsor_chain_settlement_constraints$;
         `)
       })().catch((error) => { schemaPromise = null; throw error })
     }
