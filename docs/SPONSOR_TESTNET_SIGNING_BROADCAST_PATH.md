@@ -7,6 +7,7 @@ The sponsor operator console is available from the frontend route #/sponsor-oper
 The resource-delegation panel is Shasta/Nile-only. It checks the active node host and configured fee-sponsor wallet, validates a distinct asset-principal recipient and the current solidified stake-equivalent delegation ceiling, constructs an unlocked Stake-2.0 delegation draft, validates the contract type, owner, recipient, resource, amount, expiry, raw bytes and transaction ID, then requests an explicit wallet signature. It broadcasts no more than once per click and retains the exact transaction ID when the node outcome is unknown. The separate verification request is read-only until the backend independently confirms the resulting delegation in solidified chain state and persists its audit record.
 
 Resource delegation is not an asset transfer, does not supply token principal, and is not proof of zero fees for a later transfer. The separate fee-budget ledger and post-transfer expense settlement remain unfinished.
+The signing-intent and submit-signed endpoints now also have a hard source-code release gate: until transaction-specific fee-budget reservation and settlement are implemented, both return HTTP 503 even when `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=true`. This prevents a stale/accidental environment opt-in from bypassing the missing accounting controls. The gate is not an environment setting and cannot be opened through Render configuration.
 
 Backend routes:
 

@@ -29,6 +29,9 @@ test('reports missing backend configuration without revealing secrets or address
   assert.equal(result.submission.enabled, false)
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
   assert.equal(result.submission.userFundedFallbackAllowed, false)
+  assert.equal(result.submission.feeSponsorBudgetSettlementAdapterReady, false)
+  assert.equal(result.submission.feeSponsorBudgetSettlementBlocker, 'fee-sponsor-budget-settlement-not-integrated')
+  assert.ok(result.submission.blockers.includes('fee-sponsor-budget-settlement-not-integrated'))
 
   const serialized = JSON.stringify(result)
   assert.equal(serialized.includes(secret), false)

@@ -57,6 +57,37 @@ test('testnet signed-broadcast endpoint fails closed with the feature flag unset
   }
 })
 
+test('testnet environment opt-in cannot bypass missing fee-sponsor budget settlement', async () => {
+  const previous = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  try {
+    process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
+
+    const signingResponse = makeResponse()
+    await route('/sponsorship/transfers/:idempotencyKey/signing-intent', 'get')({
+      params: { idempotencyKey: 'reservation-intent-key-00000001' }, query: {}, headers: {},
+    }, signingResponse)
+    assert.equal(signingResponse.statusCode, 503)
+    assert.equal(signingResponse.body.error, 'fee-sponsor-budget-settlement-not-integrated')
+    assert.equal(signingResponse.body.feeSponsorBudgetSettled, false)
+    assert.equal(signingResponse.body.canSubmitSponsoredTransfer, false)
+    assert.equal(signingResponse.body.transactionBroadcast, false)
+
+    const submitResponse = makeResponse()
+    await route('/sponsorship/transfers/:idempotencyKey/submit-signed', 'post')({
+      params: { idempotencyKey: 'reservation-intent-key-00000001' },
+      query: {}, headers: {}, body: { signedTransaction: { txID: 'a'.repeat(64) } },
+    }, submitResponse)
+    assert.equal(submitResponse.statusCode, 503)
+    assert.equal(submitResponse.body.error, 'fee-sponsor-budget-settlement-not-integrated')
+    assert.equal(submitResponse.body.providerSubmissionAttempted, false)
+    assert.equal(submitResponse.body.transactionBroadcast, false)
+    assert.equal(submitResponse.body.unpaidFallbackToUserFunds, false)
+  } finally {
+    if (previous === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+    else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previous
+  }
+})
+
 test('signed-broadcast route rejects private-key fields before database/provider calls', async () => {
   const previous = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
   try {
