@@ -42,6 +42,9 @@ test('resource reservations serialize and bind to the exact principal transfer a
 test('receipt resource usage is recorded as pending evidence, never falsely settled', () => {
   assert.match(databaseSource, /recordSponsorResourceCostSettlementObservation/)
   assert.match(databaseSource, /block_timestamp_ms::text AS block_timestamp_ms/)
+  assert.match(databaseSource, /preflight_checked_at::text AS preflight_checked_at/)
+  assert.match(databaseSource, /reservation_expires_at/)
+  assert.match(databaseSource, /preflight_checked_at\).*<= Number\(row\.block_timestamp_ms\)/)
   assert.match(databaseSource, /resourceAttributionVerified: status === 'settled'/)
   assert.match(databaseSource, /resource-budget-settlement-invariant-failed/)
   assert.match(reconciliationSource, /verifySponsorFeeResourceSource/)
