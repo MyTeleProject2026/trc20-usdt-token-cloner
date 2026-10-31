@@ -226,3 +226,58 @@ test('PostgreSQL keeps fee-burned transactions in manual review without charging
     await pool.end()
   }
 })
+
+test('PostgreSQL serializes concurrent sponsor resource reconciliations and charges the budget once', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
+}, async () => {
+  const { initializeDatabase, recordSponsorResourceCostSettlementObservation } = await import('../server/database.mjs')
+  const pool = new Pool({ connectionString: databaseUrl })
+  let fixture
+  try {
+    assert.equal((await initializeDatabase()).ready, true)
+    assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
+    fixture = await seedFixture(pool)
+
+    const outcomes = await Promise.all([
+      recordSponsorResourceCostSettlementObservation({
+        idempotencyKey: fixture.idempotencyKey,
+        transactionHash: fixture.transactionHash,
+        attributionEvidence: validAttribution(fixture),
+      }),
+      recordSponsorResourceCostSettlementObservation({
+        idempotencyKey: fixture.idempotencyKey,
+        transactionHash: fixture.transactionHash,
+        attributionEvidence: validAttribution(fixture),
+      }),
+    ])
+
+    assert.equal(outcomes.every(result => result.success), true, JSON.stringify(outcomes))
+    assert.equal(outcomes.filter(result => result.status === 'settled').length, 2)
+    assert.equal(outcomes.filter(result => result.duplicate === false).length, 1)
+    assert.equal(outcomes.filter(result => result.duplicate === true).length, 1)
+    assert.equal(outcomes.every(result => result.sponsorResourceBudgetSettled === true), true)
+    assert.equal(outcomes.every(result => result.canSubmitSponsoredTransfer === false), true)
+
+    const budget = await pool.query(
+      `SELECT energy_reserved_units::text AS energy_reserved,
+              bandwidth_reserved_units::text AS bandwidth_reserved,
+              energy_spent_units::text AS energy_spent,
+              bandwidth_spent_units::text AS bandwidth_spent
+         FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
+      [fixture.budgetId],
+    )
+    assert.deepEqual(budget.rows[0], {
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+    })
+
+    const settlementCount = await pool.query(
+      'SELECT COUNT(*)::text AS count FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1',
+      [fixture.idempotencyKey],
+    )
+    assert.equal(settlementCount.rows[0].count, '1')
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture)
+    await pool.end()
+  }
+})
+
