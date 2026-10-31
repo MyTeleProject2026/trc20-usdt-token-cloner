@@ -179,6 +179,16 @@ test('PostgreSQL atomically settles verified delegated resource units once and i
       [fixture.idempotencyKey],
     )
     assert.equal(reservation.rows[0].status, 'settled')
+    const settlementEvidence = await pool.query(
+      `SELECT evidence->>'callerEnergyUsageUnits' AS caller_energy,
+              evidence->>'energyUsageTotalUnits' AS total_energy,
+              evidence->>'originEnergyUsageUnits' AS origin_energy
+         FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1`,
+      [fixture.idempotencyKey],
+    )
+    assert.deepEqual(settlementEvidence.rows[0], {
+      caller_energy: '70', total_energy: '75', origin_energy: '5',
+    })
 
     const duplicate = await recordSponsorResourceCostSettlementObservation({
       idempotencyKey: fixture.idempotencyKey,
