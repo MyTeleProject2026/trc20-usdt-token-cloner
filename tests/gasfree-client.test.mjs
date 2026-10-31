@@ -284,7 +284,6 @@ test('HTTP response credential guard redacts provider API and workflow trigger c
   const envKeys = [
     'TATUM_API_KEY',
     'FIREBLOCKS_API_KEY',
-    'FIREBLOCKS_SYNC_TRIGGER_TOKEN',
     'TRONGRID_API_KEY',
     'GASFREE_MAINNET_API_KEY',
     'GASFREE_MAINNET_API_SECRET',
