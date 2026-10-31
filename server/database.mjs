@@ -3335,9 +3335,9 @@ export async function reserveSponsorResourceBudgetForTransfer({
       const budgetResult = await client.query(
         `SELECT * FROM ${schema}.sponsor_resource_budgets
           WHERE mandate_reference = $1 AND network = $2
-            AND asset_principal_address = $3 AND status = 'active'
+            AND sponsor_reference = $4 AND asset_principal_address = $3 AND status = 'active'
           FOR UPDATE`,
-        [mandateReference, transfer.network, transfer.sponsor_address],
+        [mandateReference, transfer.network, transfer.sponsor_address, transfer.sponsor_reference],
       )
       if (!budgetResult.rows.length) { await client.query('ROLLBACK'); return { reserved: false, reason: 'active-resource-mandate-not-found' } }
       const budget = budgetResult.rows[0]
@@ -3363,6 +3363,10 @@ export async function reserveSponsorResourceBudgetForTransfer({
         const same = String(row.budget_id) === String(budget.id)
           && row.energy === energyUnits && row.bandwidth === bandwidthUnits
         if (!same) { await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-reservation-conflict' } }
+        if (row.status !== 'reserved') {
+          await client.query('ROLLBACK')
+          return { reserved: false, reason: 'resource-reservation-not-active' }
+        }
         await client.query('COMMIT')
         return { reserved: true, duplicate: true, status: row.status, idempotencyKey }
       }
@@ -3637,6 +3641,56 @@ export async function pauseSponsorResourceBudget({ budgetId, reasonCode } = {}) 
     } finally { client.release() }
   } catch (error) {
     console.error('Sponsor resource budget pause initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/** Rechecks that the exact fee-resource reservation is still active before signed submission. */
+export async function getSponsorResourceReservationForTransfer(idempotencyKey) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return { success: false, reason: 'invalid-idempotency-key' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT r.idempotency_key, r.network, r.status AS reservation_status,
+              r.energy_reserved_units::text AS energy_reserved_units,
+              r.bandwidth_reserved_units::text AS bandwidth_reserved_units,
+              r.expires_at, b.mandate_reference, b.fee_sponsor_address,
+              b.asset_principal_address, b.status AS budget_status, b.valid_until,
+              t.sponsor_address, t.sponsor_reference, t.status AS transfer_status
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+         JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+        WHERE r.idempotency_key = $1
+        LIMIT 1`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) return { success: false, reason: 'resource-reservation-not-found' }
+    const row = result.rows[0]
+    const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + row.network.toUpperCase() + '_ADDRESS'] === 'string'
+      ? process.env['SPONSOR_FEE_' + row.network.toUpperCase() + '_ADDRESS'].trim() : ''
+    if (row.reservation_status !== 'reserved' || row.budget_status !== 'active'
+      || !['pending-review','authorized'].includes(row.transfer_status)
+      || new Date(row.expires_at).getTime() <= Date.now()
+      || new Date(row.valid_until).getTime() <= Date.now()
+      || row.asset_principal_address !== row.sponsor_address
+      || row.fee_sponsor_address !== configuredFeeSponsorAddress
+      || row.fee_sponsor_address === row.asset_principal_address) {
+      return { success: false, reason: 'resource-reservation-or-mandate-not-active' }
+    }
+    return {
+      success: true, status: 'reserved', network: row.network,
+      mandateReference: row.mandate_reference, feeSponsorAddress: row.fee_sponsor_address,
+      assetPrincipalAddress: row.asset_principal_address,
+      energyUnits: row.energy_reserved_units, bandwidthUnits: row.bandwidth_reserved_units,
+      expiresAt: row.expires_at,
+    }
+  } catch (error) {
+    console.error('Sponsor resource reservation lookup failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable' }
   }
 }
