@@ -7,6 +7,10 @@ import { selectSponsorOrganizationPair } from '../sponsor-organization-selection
 import { reserveSponsorOrganizationPayoutIntent } from '../sponsor-organization-payout-intents.mjs'
 import { preflightSponsorOrganizationPayoutIntent } from '../sponsor-organization-transaction-preflight.mjs'
 import { preflightSponsorOrganizationFireblocksProvider } from '../sponsor-organization-fireblocks-provider.mjs'
+import {
+  submitSponsorOrganizationFireblocksPayout,
+  refreshSponsorOrganizationFireblocksPayout,
+} from '../sponsor-organization-fireblocks-submission.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 
 function isAdmin(req, env) {
@@ -350,6 +354,88 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
       return res.status(503).json({
         success: false,
         error: 'sponsor-custody-preflight-unavailable',
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionSubmitted: false,
+      })
+    }
+  })
+
+  router.post('/sponsorship/payout-intents/:intentId/fireblocks-submit', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (!isAdmin(req, env)) {
+      return res.status(401).json({ success: false, error: 'sponsor-admin-authorization-required' })
+    }
+    if (Object.keys(req.body || {}).length !== 0) {
+      return res.status(400).json({ success: false, error: 'fireblocks-submit-does-not-accept-caller-transaction-fields' })
+    }
+    try {
+      const submit = options.submitFireblocksPayout ?? submitSponsorOrganizationFireblocksPayout
+      const result = await submit({
+        store,
+        intentId: req.params.intentId,
+        env,
+        custodyPreflight: options.custodyPreflight,
+        fireblocksClientFactory: options.fireblocksClientFactory,
+        fetchImpl: options.fetchImpl,
+        readSecretFile: options.readSecretFile,
+        tronWebFactory: options.tronWebFactory,
+        chainPreflight: options.chainPreflight,
+        timeoutMs: options.timeoutMs,
+      })
+      if (!result.success) {
+        const reason = result.reason || 'fireblocks-payout-submission-unavailable'
+        const status = reason.includes('not-found') ? 404
+          : reason.includes('release-disabled') || reason.includes('approval') || reason.includes('mismatch') ? 409
+            : reason.includes('unavailable') || reason.includes('not-configured') || reason.includes('unknown') ? 503
+              : 422
+        return res.status(status).json(result)
+      }
+      return res.status(200).json(result)
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: 'fireblocks-payout-submission-unavailable',
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionSubmitted: false,
+      })
+    }
+  })
+
+  router.post('/sponsorship/payout-intents/:intentId/fireblocks-refresh', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (!isAdmin(req, env)) {
+      return res.status(401).json({ success: false, error: 'sponsor-admin-authorization-required' })
+    }
+    if (Object.keys(req.body || {}).length !== 0) {
+      return res.status(400).json({ success: false, error: 'fireblocks-refresh-does-not-accept-caller-transaction-fields' })
+    }
+    try {
+      const refresh = options.refreshFireblocksPayout ?? refreshSponsorOrganizationFireblocksPayout
+      const result = await refresh({
+        store,
+        intentId: req.params.intentId,
+        env,
+        fireblocksClientFactory: options.fireblocksClientFactory,
+        fetchImpl: options.fetchImpl,
+        readSecretFile: options.readSecretFile,
+      })
+      if (!result.success) {
+        const reason = result.reason || 'fireblocks-payout-status-unavailable'
+        const status = reason.includes('not-found') ? 404
+          : reason.includes('unavailable') || reason.includes('not-configured') ? 503 : 409
+        return res.status(status).json(result)
+      }
+      return res.json(result)
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: 'fireblocks-payout-status-unavailable',
         canSubmitSponsoredTransfer: false,
         submissionEnabled: false,
         transactionSubmitted: false,
