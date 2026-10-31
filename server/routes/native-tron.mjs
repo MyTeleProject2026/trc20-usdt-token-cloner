@@ -1,5 +1,5 @@
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast, reserveSponsorResourceBudgetForTransfer } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -12,8 +12,24 @@ import { isPositiveUint256 } from '../base-units.mjs'
 import { buildSponsorUnsignedTransaction, validateSponsorSignedTransaction, verifySponsorFeeResourceCapacity, broadcastValidatedSponsorTransaction } from '../sponsor-tron-submission.mjs'
 
 import { Router } from 'express'
+import { getSponsorFeeBudgetSettlementGate } from './sponsor-fee-settlement-gate.mjs'
 
 const router = Router()
+
+function rejectIfSponsorFeeBudgetSettlementIsIncomplete(res) {
+  const gate = getSponsorFeeBudgetSettlementGate()
+  if (gate.ready) return false
+  res.status(503).json({
+    success: false, status: 'fee-sponsor-budget-settlement-unavailable',
+    error: gate.reason, blockers: gate.blockers,
+    feeSponsorBudgetSettled: false, feeCoverageVerified: false,
+    canSubmitSponsoredTransfer: false, submissionEnabled: false,
+    providerSubmissionAttempted: false, transactionBroadcast: false,
+    unpaidFallbackToUserFunds: false,
+    message: 'Transaction-specific fee-resource reservation and settlement are incomplete. No signing intent or broadcast is allowed.',
+  })
+  return true
+}
 const txPattern = /^[0-9a-fA-F]{64}$/
 const networks = {
   shasta: 'https://api.shasta.trongrid.io',
@@ -1367,6 +1383,8 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
       message: 'The testnet signing/broadcast gate is disabled until sponsor resource coverage, settlement, and end-to-end tests are reviewed.',
     })
   }
+
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   try {
     const found = await getSponsorTransferForSubmission(idempotencyKey)
     if (found?.success !== true) {
@@ -1427,6 +1445,26 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
         message: 'Fresh chain resource capacity for the exact sponsor transaction could not be proven. The transaction is persisted but is not authorized for signing or broadcast.',
       })
     }
+    const mandateReference = env['SPONSOR_RESOURCE_MANDATE_' + transfer.network.toUpperCase()]
+    if (typeof mandateReference !== 'string' || !mandateReference.trim()) {
+      return res.status(503).json({
+        success: false, error: 'approved-resource-mandate-not-configured',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+      })
+    }
+    const resourceReservation = await reserveSponsorResourceBudgetForTransfer({
+      idempotencyKey,
+      mandateReference: mandateReference.trim(),
+      energyUnits: feeCapacity.requiredEnergyUnits,
+      bandwidthUnits: feeCapacity.requiredBandwidthUnits,
+    })
+    if (resourceReservation?.reserved !== true) {
+      return res.status(503).json({
+        success: false, error: resourceReservation?.reason || 'resource-budget-reservation-failed',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        feeCoverageVerified: false,
+      })
+    }
     return res.json({
       success: true,
       status: 'unsigned-testnet-transaction-prepared',
@@ -1482,6 +1520,8 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
       providerSubmissionAttempted: false, transactionBroadcast: false,
     })
   }
+
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
   if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'signedTransaction')) {
     return res.status(400).json({ success: false, error: 'signed-transaction-only', canSubmitSponsoredTransfer: false })
