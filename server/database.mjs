@@ -514,6 +514,7 @@ export async function initializeDatabase() {
           bandwidth_reserved_units NUMERIC(78,0) NOT NULL CHECK (bandwidth_reserved_units >= 0),
           status TEXT NOT NULL DEFAULT 'reserved'
             CHECK (status IN ('reserved','pending-evidence','settled','manual-review','released')),
+          expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '15 minutes'),
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           CHECK (energy_reserved_units > 0 OR bandwidth_reserved_units > 0)
@@ -3289,13 +3290,16 @@ export async function activateSponsorResourceBudget({ budgetId, approvalReferenc
  * This reservation is not proof of actual resource consumption or sponsor debit.
  */
 export async function reserveSponsorResourceBudgetForTransfer({
-  idempotencyKey, mandateReference, energyUnits = '0', bandwidthUnits = '0',
+  idempotencyKey, mandateReference, energyUnits = '0', bandwidthUnits = '0', expiresAt,
 } = {}) {
   const integer = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  const expiry = typeof expiresAt === 'string' ? new Date(expiresAt) : null
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
     || typeof mandateReference !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(mandateReference)
     || !integer(energyUnits) || !integer(bandwidthUnits)
-    || (energyUnits === '0' && bandwidthUnits === '0')) {
+    || (energyUnits === '0' && bandwidthUnits === '0')
+    || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()
+    || expiry.getTime() > Date.now() + 15 * 60 * 1000) {
     return { reserved: false, reason: 'invalid-resource-reservation' }
   }
   const db = getPool()
@@ -3365,9 +3369,9 @@ export async function reserveSponsorResourceBudgetForTransfer({
       )
       await client.query(
         `INSERT INTO ${schema}.sponsor_resource_reservations
-          (idempotency_key, budget_id, network, energy_reserved_units, bandwidth_reserved_units)
-         VALUES ($1,$2::bigint,$3,$4::numeric,$5::numeric)`,
-        [idempotencyKey, budget.id, transfer.network, energyUnits, bandwidthUnits],
+          (idempotency_key, budget_id, network, energy_reserved_units, bandwidth_reserved_units, expires_at)
+         VALUES ($1,$2::bigint,$3,$4::numeric,$5::numeric,$6)`,
+        [idempotencyKey, budget.id, transfer.network, energyUnits, bandwidthUnits, expiry.toISOString()],
       )
       await client.query(
         `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
@@ -3492,5 +3496,72 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
   } catch (error) {
     console.error('Sponsor resource cost observation initialization failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable', sponsorResourceBudgetSettled: false }
+  }
+}
+
+
+/**
+ * Releases only expired reservations whose transfer never left the pre-broadcast
+ * state. Submitted/broadcasting transactions are never released by this sweep.
+ */
+export async function releaseExpiredSponsorResourceReservations({ limit = 100 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) return { released: false, reason: 'invalid-limit' }
+  const db = getPool()
+  if (!db) return { released: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const expired = await client.query(
+        `SELECT r.id, r.idempotency_key, r.budget_id, r.energy_reserved_units::text AS energy,
+                r.bandwidth_reserved_units::text AS bandwidth, t.status AS transfer_status
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+          WHERE r.status = 'reserved' AND r.expires_at <= now()
+            AND t.status IN ('pending-review','authorized')
+          ORDER BY r.expires_at ASC
+          LIMIT $1
+          FOR UPDATE OF r SKIP LOCKED`,
+        [limit],
+      )
+      for (const row of expired.rows) {
+        const budget = await client.query(
+          `SELECT id FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
+          [row.budget_id],
+        )
+        if (!budget.rows.length) throw new Error('resource-budget-missing')
+        await client.query(
+          `UPDATE ${schema}.sponsor_resource_budgets
+              SET energy_reserved_units = energy_reserved_units - $1::numeric,
+                  bandwidth_reserved_units = bandwidth_reserved_units - $2::numeric,
+                  updated_at = now()
+            WHERE id = $3::bigint
+              AND energy_reserved_units >= $1::numeric
+              AND bandwidth_reserved_units >= $2::numeric`,
+          [row.energy, row.bandwidth, row.budget_id],
+        )
+        await client.query(
+          `UPDATE ${schema}.sponsor_resource_reservations
+              SET status = 'released', updated_at = now()
+            WHERE id = $1 AND status = 'reserved'`,
+          [row.id],
+        )
+        await client.query(
+          `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+           VALUES ('sponsor-resource-reservation-expired','sponsor-resource-reservation',$1,$2::jsonb)`,
+          [row.idempotency_key, JSON.stringify({ budgetId: String(row.budget_id), energyUnits: row.energy, bandwidthUnits: row.bandwidth })],
+        )
+      }
+      await client.query('COMMIT')
+      return { released: true, count: expired.rows.length }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Expired sponsor resource reservation release failed:', error?.code || 'unknown')
+      return { released: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Expired sponsor resource reservation initialization failed:', error?.code || 'unknown')
+    return { released: false, reason: 'database-unavailable' }
   }
 }
