@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 const databaseSource = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
 const reconciliationSource = await readFile(new URL('../server/routes/sponsor-solidified-reconciliation.mjs', import.meta.url), 'utf8')
 const gateSource = await readFile(new URL('../server/routes/sponsor-fee-settlement-gate.mjs', import.meta.url), 'utf8')
+const submissionSource = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
 
 test('resource budgets are isolated from principal budgets and limited to testnets', () => {
   assert.match(databaseSource, /CREATE TABLE IF NOT EXISTS \$\{schema\}\.sponsor_resource_budgets/)
@@ -21,6 +22,8 @@ test('resource reservations serialize and bind to the exact principal transfer a
   assert.match(databaseSource, /resource-per-transfer-limit-exceeded/)
   assert.match(databaseSource, /insufficient-resource-budget/)
   assert.match(databaseSource, /resource-reservation-conflict/)
+  assert.match(databaseSource, /getSponsorResourceReservationForTransfer/)
+  assert.match(databaseSource, /resource-reservation-or-mandate-not-active/)
   assert.match(databaseSource, /expires_at TIMESTAMPTZ NOT NULL/)
   assert.match(databaseSource, /releaseExpiredSponsorResourceReservations/)
   assert.match(databaseSource, /t.status IN \('pending-review','authorized'\)/)
@@ -42,6 +45,8 @@ test('testnet signing and broadcast remain blocked until attribution and settlem
   assert.match(gateSource, /atomic-fee-resource-budget-reservation-not-integrated/)
   assert.match(gateSource, /transaction-specific-fee-sponsor-resource-cost-attribution-not-verified/)
   assert.match(gateSource, /solidified-fee-resource-budget-settlement-and-release-not-integrated/)
+  assert.match(submissionSource, /getSponsorResourceReservationForTransfer\(idempotencyKey\)/)
+  assert.match(submissionSource, /rejectIfSponsorFeeBudgetSettlementIsIncomplete\(res\)/)
 })
 
 test('invalid resource reservation input fails before database access', async () => {
