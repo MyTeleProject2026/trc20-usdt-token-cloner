@@ -3590,7 +3590,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       if (existing.rows.length) {
         const prior = existing.rows[0]
         const same = prior.block_number === row.block_number
-          && prior.energy_used === row.energy_used && prior.bandwidth_used === row.bandwidth_used
+          && prior.energy_used === String(row.energy_used ?? '0') && prior.bandwidth_used === row.bandwidth_used
           && prior.block_timestamp_ms === row.block_timestamp_ms
           && prior.reported_fee_sun === row.reported_fee_sun
           && prior.energy_fee_sun === row.energy_fee_sun && prior.net_fee_sun === row.net_fee_sun
