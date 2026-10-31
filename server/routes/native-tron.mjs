@@ -1457,6 +1457,7 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
       mandateReference: mandateReference.trim(),
       energyUnits: feeCapacity.requiredEnergyUnits,
       bandwidthUnits: feeCapacity.requiredBandwidthUnits,
+      expiresAt: new Date(signingTransaction.raw_data.expiration).toISOString(),
     })
     if (resourceReservation?.reserved !== true) {
       return res.status(503).json({
