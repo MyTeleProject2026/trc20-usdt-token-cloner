@@ -447,7 +447,7 @@ test('TRC20 sponsor capacity fails closed when live constant-contract simulation
 })
 
 
-test('post-solidification resource source proof matches the exact fee sponsor delegation', async () => {
+test('post-solidification source snapshot is explicitly not historical delegation proof', async () => {
   const principalHex = '41' + '11'.repeat(20)
   const feeHex = '41' + '44'.repeat(20)
   const principalAccount = {
@@ -484,6 +484,10 @@ test('post-solidification resource source proof matches the exact fee sponsor de
   assert.equal(result.bandwidthCoverageSource, 'exact-active-fee-sponsor-delegation-only')
   assert.equal(result.energyCoverageSource, 'exact-active-fee-sponsor-delegation-only')
   assert.equal(result.freeBandwidthUsedAsSponsorCoverage, false)
+  assert.equal(result.historicalDelegationStateVerified, false)
+  assert.equal(result.historicalDelegationProof, null)
+  assert.equal(result.historicalDelegationProofReason,
+    'solidified-node-delegation-query-does-not-read-state-at-an-arbitrary-block')
   assert.equal(result.delegationSnapshot.bandwidthStakeSun, '1000000')
   assert.equal(result.delegationSnapshot.energyStakeSun, '1000000')
 })
