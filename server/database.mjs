@@ -3548,7 +3548,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         && proof.freeBandwidthUsedAsSponsorCoverage === false
         && Number.isFinite(new Date(proof.checkedAt).getTime())
         && snapshotMatches
-      const status = feeBurnDetected || !withinReservedUnits
+      const status = feeBurnDetected || !withinReservedUnits || (attributionEvidence != null && !attributionMatches)
         ? 'manual-review'
         : attributionMatches ? 'settled' : 'pending-evidence'
       const settlementEvidence = {
@@ -3592,9 +3592,54 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
           await client.query('COMMIT')
           return { success: false, reason: 'resource-cost-evidence-conflict', sponsorResourceBudgetSettled: false }
         }
+        if (prior.status === 'settled' || prior.status === 'manual-review' || status === 'pending-evidence') {
+          await client.query('COMMIT')
+          return { success: true, duplicate: true, status: prior.status, sponsorResourceBudgetSettled: prior.status === 'settled', canSubmitSponsoredTransfer: false }
+        }
+        if (status === 'settled') {
+          await settleBudget()
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_cost_settlements
+                SET status = 'settled', evidence = $4::jsonb
+              WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
+                AND status = 'pending-evidence'`,
+            [row.network, hash, row.budget_id, JSON.stringify(settlementEvidence)],
+          )
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_reservations
+                SET status = 'settled', transaction_hash = $2, updated_at = now()
+              WHERE idempotency_key = $1 AND status = 'pending-evidence'`,
+            [idempotencyKey, hash],
+          )
+          await client.query(
+            `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+             VALUES ('sponsor-resource-budget-settled','sponsor-resource-reservation',$1,$2::jsonb)`,
+            [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, energyUsedUnits: actualEnergyUnits.toString(), bandwidthUsedUnits: actualBandwidthUnits.toString(), resourceAttributionVerified: true })],
+          )
+          await client.query('COMMIT')
+          return { success: true, duplicate: false, status: 'settled', sponsorResourceBudgetSettled: true, canSubmitSponsoredTransfer: false }
+        }
+        if (status === 'manual-review' && prior.status === 'pending-evidence') {
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_cost_settlements
+                SET status = 'manual-review', evidence = $4::jsonb
+              WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
+                AND status = 'pending-evidence'`,
+            [row.network, hash, row.budget_id, JSON.stringify(settlementEvidence)],
+          )
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_reservations
+                SET status = 'manual-review', updated_at = now()
+              WHERE idempotency_key = $1 AND status = 'pending-evidence'`,
+            [idempotencyKey],
+          )
+          await client.query('COMMIT')
+          return { success: true, duplicate: false, status: 'manual-review', sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
+        }
         await client.query('COMMIT')
         return { success: true, duplicate: true, status: prior.status, sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
       }
+      if (status === 'settled') await settleBudget()
       await client.query(
         `INSERT INTO ${schema}.sponsor_resource_cost_settlements
           (network, transaction_hash, idempotency_key, budget_id, block_number,
@@ -3603,7 +3648,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
          VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12,$13::jsonb)`,
         [row.network, hash, idempotencyKey, row.budget_id, row.block_number,
           row.energy_used ?? '0', row.bandwidth_used, row.reported_fee_sun, row.energy_fee_sun, row.net_fee_sun,
-          row.evidence_source, status, JSON.stringify({ evidenceType: 'solidified-receipt-observation', resourceAttributionVerified: false })],
+          row.evidence_source, status, JSON.stringify(settlementEvidence)],
       )
       await client.query(
         `UPDATE ${schema}.sponsor_resource_reservations
@@ -3617,7 +3662,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, blockNumber: row.block_number, energyUsedUnits: row.energy_used, bandwidthUsedUnits: row.bandwidth_used, status, budgetSettled: false })],
       )
       await client.query('COMMIT')
-      return { success: true, duplicate: false, status, sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
+      return { success: true, duplicate: false, status, sponsorResourceBudgetSettled: status === 'settled', canSubmitSponsoredTransfer: false }
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {})
       console.error('Sponsor resource cost observation failed:', error?.code || 'unknown')
