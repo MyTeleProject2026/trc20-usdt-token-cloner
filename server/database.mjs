@@ -3700,3 +3700,42 @@ export async function getSponsorResourceReservationForTransfer(idempotencyKey) {
     return { success: false, reason: 'database-unavailable' }
   }
 }
+
+
+/** Privileged read-only view of resource mandate budgets; never reports them as chain balances. */
+export async function listSponsorResourceBudgets({ network = null, limit = 50 } = {}) {
+  if (network !== null && !['nile','shasta'].includes(network)) {
+    return { success: false, reason: 'invalid-network', budgets: [] }
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', budgets: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', budgets: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, mandate_reference, sponsor_reference, network,
+              fee_sponsor_address, asset_principal_address,
+              energy_budget_units::text AS energy_budget_units,
+              bandwidth_budget_units::text AS bandwidth_budget_units,
+              energy_per_transfer_limit::text AS energy_per_transfer_limit,
+              bandwidth_per_transfer_limit::text AS bandwidth_per_transfer_limit,
+              energy_reserved_units::text AS energy_reserved_units,
+              bandwidth_reserved_units::text AS bandwidth_reserved_units,
+              energy_spent_units::text AS energy_spent_units,
+              bandwidth_spent_units::text AS bandwidth_spent_units,
+              valid_until, status, approval_reference, review_reference, approved_at,
+              created_at, updated_at
+         FROM ${schema}.sponsor_resource_budgets
+        WHERE ($1::text IS NULL OR network = $1)
+        ORDER BY created_at DESC, id DESC
+        LIMIT $2`,
+      [network, limit],
+    )
+    return { success: true, budgets: result.rows }
+  } catch (error) {
+    console.error('Sponsor resource budget list failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', budgets: [] }
+  }
+}
