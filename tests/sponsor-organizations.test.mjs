@@ -373,5 +373,8 @@ test('registry database schema provides organization isolation and immutable aud
   assert.match(source, /UNIQUE \(network, wallet_address\)/)
   assert.match(source, /REFERENCES trc20_token_clone\.sponsor_organizations\(id\) ON DELETE RESTRICT/)
   assert.match(source, /sponsor_organization_audit_events/)
+  assert.match(source, /sponsor_org_payout_intent_accounts_distinct/)
+  assert.match(source, /pg_get_constraintdef\(oid\) ILIKE/)
+  assert.doesNotMatch(source, /CHECK \(principal_organization_id <> fee_organization_id\)/)
   assert.match(source, /payoutEligible: false/)
 })
