@@ -418,8 +418,16 @@ export async function verifySponsorFeeResourceSource({
   fetchImpl = tatumProviderFetch,
   tronWebFactory,
 } = {}) {
-  const invalid = transferShape(transfer)
-  if (invalid) return fail(invalid)
+  if (!transfer || !['nile','shasta'].includes(transfer.network)
+    || transfer.purpose !== 'asset-grant' || transfer.status !== 'confirmed'
+    || !['TRX','USDT'].includes(transfer.asset)
+    || !isValidTronAddress(transfer.sponsorAddress)
+    || !isValidTronAddress(transfer.receiverAddress)
+    || !safeBaseUnits(transfer.amountBaseUnits)
+    || (transfer.asset === 'TRX' ? transfer.tokenContract != null && transfer.tokenContract !== ''
+      : !isValidTronAddress(transfer.tokenContract))) {
+    return fail('confirmed-testnet-asset-transfer-required')
+  }
   let host, tronWeb
   try { ({ host, tronWeb } = tronWebFor(transfer.network, tronWebFactory)) }
   catch { return fail('unsupported-testnet') }
