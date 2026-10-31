@@ -234,13 +234,15 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
           const observed = await readCosts(transfer)
           if (observed?.success === true && observed.network === transfer.network
             && observed.transactionHash?.toLowerCase() === transfer.transactionHash.toLowerCase()
-            && observed.executionResult === 'SUCCESS' && observed.blockNumber === evidence.blockNumber) {
+            && observed.executionResult === 'SUCCESS' && observed.blockNumber === evidence.blockNumber
+            && Number.isSafeInteger(observed.blockTimestampMs) && observed.blockTimestampMs > 0) {
             const stored = await persistCosts({
               network: transfer.network, transactionHash: transfer.transactionHash.toLowerCase(),
               idempotencyKey: key, sponsorReference: transfer.sponsorReference, feeSponsorAddress: feeAddress,
               assetPrincipalAddress: transfer.sponsorAddress, receiverAddress: transfer.receiverAddress,
               asset: transfer.asset, tokenContract: transfer.tokenContract ?? null,
               amountBaseUnits: transfer.amountBaseUnits, blockNumber: observed.blockNumber,
+              blockTimestampMs: observed.blockTimestampMs,
               executionResult: 'SUCCESS', reportedFeeSun: observed.reportedFeeSun,
               energyFeeSun: observed.energyFeeSun, netFeeSun: observed.netFeeSun,
               energyUsageTotal: observed.energyUsageTotal, energyUsage: observed.energyUsage,
