@@ -126,8 +126,8 @@ test('combined pilot preflight checks Nile and Shasta but never enables sponsore
       feeSponsorDelegationToPrincipal: {
         success: true,
         status: 'solidified-delegation-state-read',
-        activeEnergyStakeSun: '1',
-        activeBandwidthStakeSun: '1',
+        activeEnergyStakeSun: '1000000',
+        activeBandwidthStakeSun: '1000000',
         transactionAuditVerified: false,
       },
     }
@@ -283,7 +283,7 @@ test('combined pilot preflight rejects unsupported network filters', async (t) =
 })
 
 test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USDT allowlisting', () => {
-  const makeRoleResult = ({ energy = '100', bandwidth = '100' } = {}) => ({
+  const makeRoleResult = ({ energy = '1000000', bandwidth = '1000000' } = {}) => ({
     configuredAddressesDistinct: true,
     roles: {
       networkFeeSponsor: {
@@ -326,7 +326,7 @@ test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USD
   const energyOnly = buildNetworkSummary({
     network: 'nile',
     head,
-    roleResult: makeRoleResult({ energy: '100', bandwidth: '0' }),
+    roleResult: makeRoleResult({ energy: '1000000', bandwidth: '0' }),
     env,
   })
   assert.equal(energyOnly.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
@@ -336,12 +336,22 @@ test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USD
   const bandwidthOnly = buildNetworkSummary({
     network: 'nile',
     head,
-    roleResult: makeRoleResult({ energy: '0', bandwidth: '100' }),
+    roleResult: makeRoleResult({ energy: '0', bandwidth: '1000000' }),
     env,
   })
   assert.equal(bandwidthOnly.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
   assert.equal(bandwidthOnly.feeSponsorResources.delegation.activeDelegationObserved, false)
   assert.ok(bandwidthOnly.blockers.includes('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified'))
+
+  const belowMinimum = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult({ energy: '999999', bandwidth: '1000000' }),
+    env,
+  })
+  assert.equal(belowMinimum.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(belowMinimum.feeSponsorResources.delegation.activeDelegationObserved, false)
+  assert.ok(belowMinimum.blockers.includes('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified'))
 
   const allowlistMissing = buildNetworkSummary({
     network: 'nile',
