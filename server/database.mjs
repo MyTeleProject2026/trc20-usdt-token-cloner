@@ -502,8 +502,8 @@ export async function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_ttc_resource_delegations_created
           ON ${schema}.sponsor_resource_delegations (network, created_at DESC)
       `)
-      await db.query(\`
-        CREATE TABLE IF NOT EXISTS \${schema}.sponsor_resource_budgets (
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_budgets (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           mandate_reference TEXT NOT NULL UNIQUE,
           sponsor_reference TEXT NOT NULL,
@@ -524,12 +524,12 @@ export async function initializeDatabase() {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (sponsor_reference, network, fee_sponsor_address, asset_principal_address)
         )
-      \`)
-      await db.query(\`
-        CREATE TABLE IF NOT EXISTS \${schema}.sponsor_resource_reservations (
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_reservations (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-          idempotency_key TEXT NOT NULL UNIQUE REFERENCES \${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
-          mandate_reference TEXT NOT NULL REFERENCES \${schema}.sponsor_resource_budgets(mandate_reference) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          mandate_reference TEXT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(mandate_reference) ON DELETE RESTRICT,
           network TEXT NOT NULL CHECK (network IN ('nile','shasta')),
           transaction_hash CHAR(64),
           fee_sponsor_address TEXT NOT NULL,
@@ -548,9 +548,9 @@ export async function initializeDatabase() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
-      \`)
-      await db.query(\`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_status
-        ON \${schema}.sponsor_resource_reservations (network, status, updated_at DESC)\`)
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_status
+        ON ${schema}.sponsor_resource_reservations (network, status, updated_at DESC)`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_budgets (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -603,7 +603,7 @@ export async function initializeDatabase() {
         'TRC20 Token Clone project only: operator-allowlisted Energy/Bandwidth allowance caps for an exact fee-sponsor to asset-principal delegation pair. Units are resources, not TRX.'`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_resource_reservations IS
         'TRC20 Token Clone project only: idempotent resource-unit reservations and solidified receipt settlement. A settled resource budget is not a verified TRX debit.'`)
-        'TRC20 Token Clone project only: idempotent resource-unit reservations and solidified receipt settlement. A settled resource budget is not a verified TRX debit.'\`)
+        'TRC20 Token Clone project only: idempotent resource-unit reservations and solidified receipt settlement. A settled resource budget is not a verified TRX debit.'`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_provider_applications (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -3238,10 +3238,10 @@ export async function reserveSponsorResourceBudgetForTransfer({
     try {
       await client.query('BEGIN')
       const result = await client.query(
-        \`SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose,
+        `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose,
                 amount_base_units::text AS amount_base_units, status, transaction_hash
-           FROM \${schema}.sponsor_transfers
-          WHERE idempotency_key = $1 FOR UPDATE\`,
+           FROM ${schema}.sponsor_transfers
+          WHERE idempotency_key = $1 FOR UPDATE`,
         [idempotencyKey],
       )
       if (!result.rows.length) {
@@ -3291,17 +3291,17 @@ export async function reserveSponsorResourceBudgetForTransfer({
       }
 
       await client.query(
-        \`INSERT INTO \${schema}.sponsor_resource_budgets
+        `INSERT INTO ${schema}.sponsor_resource_budgets
           (mandate_reference, sponsor_reference, network, fee_sponsor_address, asset_principal_address,
            energy_budget_units, bandwidth_budget_units, per_transfer_energy_units, per_transfer_bandwidth_units)
          VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9::numeric)
-         ON CONFLICT (mandate_reference) DO NOTHING\`,
+         ON CONFLICT (mandate_reference) DO NOTHING`,
         [mandate.mandateReference, mandate.sponsorReference, mandate.network, mandate.feeSponsorAddress,
           mandate.assetPrincipalAddress, mandate.energyBudgetUnits, mandate.bandwidthBudgetUnits,
           mandate.perTransferEnergyUnits, mandate.perTransferBandwidthUnits],
       )
       const budgetResult = await client.query(
-        \`SELECT id::text AS id, mandate_reference, energy_budget_units::text AS energy_budget_units,
+        `SELECT id::text AS id, mandate_reference, energy_budget_units::text AS energy_budget_units,
                 bandwidth_budget_units::text AS bandwidth_budget_units,
                 per_transfer_energy_units::text AS per_transfer_energy_units,
                 per_transfer_bandwidth_units::text AS per_transfer_bandwidth_units,
@@ -3309,8 +3309,8 @@ export async function reserveSponsorResourceBudgetForTransfer({
                 bandwidth_reserved_units::text AS bandwidth_reserved_units,
                 energy_spent_units::text AS energy_spent_units,
                 bandwidth_spent_units::text AS bandwidth_spent_units, status
-           FROM \${schema}.sponsor_resource_budgets
-          WHERE mandate_reference=$1 FOR UPDATE\`,
+           FROM ${schema}.sponsor_resource_budgets
+          WHERE mandate_reference=$1 FOR UPDATE`,
         [mandate.mandateReference],
       )
       if (!budgetResult.rows.length) {
@@ -3328,10 +3328,10 @@ export async function reserveSponsorResourceBudgetForTransfer({
       }
 
       const oldResult = await client.query(
-        \`SELECT mandate_reference, energy_reserved_units::text AS energy_reserved_units,
+        `SELECT mandate_reference, energy_reserved_units::text AS energy_reserved_units,
                 bandwidth_reserved_units::text AS bandwidth_reserved_units, status, expires_at
-           FROM \${schema}.sponsor_resource_reservations
-          WHERE idempotency_key=$1 FOR UPDATE\`,
+           FROM ${schema}.sponsor_resource_reservations
+          WHERE idempotency_key=$1 FOR UPDATE`,
         [idempotencyKey],
       )
       if (oldResult.rows.length) {
@@ -3346,17 +3346,17 @@ export async function reserveSponsorResourceBudgetForTransfer({
         if (old.status === 'reserved' && new Date(old.expires_at).getTime() <= Date.now()
           && old.mandate_reference === mandate.mandateReference && transfer.status === 'pending-review') {
           await client.query(
-            \`UPDATE \${schema}.sponsor_resource_budgets
+            `UPDATE ${schema}.sponsor_resource_budgets
                 SET energy_reserved_units=energy_reserved_units-$1::numeric,
                     bandwidth_reserved_units=bandwidth_reserved_units-$2::numeric, updated_at=now()
               WHERE mandate_reference=$3 AND energy_reserved_units >= $1::numeric
-                AND bandwidth_reserved_units >= $2::numeric\`,
+                AND bandwidth_reserved_units >= $2::numeric`,
             [old.energy_reserved_units, old.bandwidth_reserved_units, mandate.mandateReference],
           )
           await client.query(
-            \`UPDATE \${schema}.sponsor_resource_reservations
+            `UPDATE ${schema}.sponsor_resource_reservations
                 SET status='released', settlement_reason='unsigned-transaction-expired',
-                    updated_at=now() WHERE idempotency_key=$1 AND status='reserved'\`,
+                    updated_at=now() WHERE idempotency_key=$1 AND status='reserved'`,
             [idempotencyKey],
           )
         } else if (old.status !== 'released') {
@@ -3382,46 +3382,46 @@ export async function reserveSponsorResourceBudgetForTransfer({
         return { reserved: false, reason: 'resource-budget-paused' }
       }
       const energyAvailable = BigInt(refreshedBudget.energy_budget_units) - BigInt(refreshedBudget.energy_reserved_units) - BigInt(refreshedBudget.energy_spent_units)
-      const bandwidthAvailable = BigInt(budget.bandwidth_budget_units) - BigInt(budget.bandwidth_reserved_units) - BigInt(budget.bandwidth_spent_units)
+      const bandwidthAvailable = BigInt(refreshedBudget.bandwidth_budget_units) - BigInt(refreshedBudget.bandwidth_reserved_units) - BigInt(refreshedBudget.bandwidth_spent_units)
       if (BigInt(energyRequired) > energyAvailable || BigInt(bandwidthRequired) > bandwidthAvailable) {
         await client.query('ROLLBACK')
         return { reserved: false, reason: 'insufficient-sponsor-resource-budget' }
       }
       await client.query(
-        \`UPDATE \${schema}.sponsor_resource_budgets
+        `UPDATE ${schema}.sponsor_resource_budgets
             SET energy_reserved_units=energy_reserved_units+$1::numeric,
                 bandwidth_reserved_units=bandwidth_reserved_units+$2::numeric, updated_at=now()
-          WHERE mandate_reference=$3\`,
+          WHERE mandate_reference=$3`,
         [energyRequired, bandwidthRequired, mandate.mandateReference],
       )
       if (oldResult.rows.length) {
         await client.query(
-          \`UPDATE \${schema}.sponsor_resource_reservations
+          `UPDATE ${schema}.sponsor_resource_reservations
               SET mandate_reference=$2, network=$3, transaction_hash=NULL, fee_sponsor_address=$4,
                   asset_principal_address=$5, energy_reserved_units=$6::numeric,
                   bandwidth_reserved_units=$7::numeric, energy_consumed_units=NULL,
                   bandwidth_consumed_units=NULL, capacity_snapshot=$8::jsonb,
                   status='reserved', settlement_reason=NULL, settlement_block_number=NULL,
                   expires_at=to_timestamp($9::double precision / 1000.0), settled_at=NULL, updated_at=now()
-            WHERE idempotency_key=$1\`,
+            WHERE idempotency_key=$1`,
           [idempotencyKey, mandate.mandateReference, mandate.network, mandate.feeSponsorAddress,
             mandate.assetPrincipalAddress, energyRequired, bandwidthRequired,
             JSON.stringify(capacitySnapshot), transactionExpiresAt],
         )
       } else {
         await client.query(
-          \`INSERT INTO \${schema}.sponsor_resource_reservations
+          `INSERT INTO ${schema}.sponsor_resource_reservations
             (idempotency_key, mandate_reference, network, fee_sponsor_address, asset_principal_address,
              energy_reserved_units, bandwidth_reserved_units, capacity_snapshot, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::jsonb,to_timestamp($9::double precision / 1000.0))\`,
+           VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::jsonb,to_timestamp($9::double precision / 1000.0))`,
           [idempotencyKey, mandate.mandateReference, mandate.network, mandate.feeSponsorAddress,
             mandate.assetPrincipalAddress, energyRequired, bandwidthRequired,
             JSON.stringify(capacitySnapshot), transactionExpiresAt],
         )
       }
       await client.query(
-        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
-         VALUES ('sponsor-resource-budget-reserved','sponsor-resource-reservation',$1,$2::jsonb)\`,
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-reserved','sponsor-resource-reservation',$1,$2::jsonb)`,
         [idempotencyKey, JSON.stringify({
           mandateReference: mandate.mandateReference, network: mandate.network,
           feeSponsorAddress: mandate.feeSponsorAddress, assetPrincipalAddress: mandate.assetPrincipalAddress,
@@ -3462,10 +3462,10 @@ export async function settleSponsorResourceBudgetForTransfer({
     try {
       await client.query('BEGIN')
       const transferResult = await client.query(
-        \`SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset,
+        `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, asset,
                 token_contract, receiver_address, amount_base_units::text AS amount_base_units,
                 status, transaction_hash
-           FROM \${schema}.sponsor_transfers WHERE idempotency_key=$1 FOR UPDATE\`,
+           FROM ${schema}.sponsor_transfers WHERE idempotency_key=$1 FOR UPDATE`,
         [idempotencyKey],
       )
       if (!transferResult.rows.length) {
@@ -3482,7 +3482,7 @@ export async function settleSponsorResourceBudgetForTransfer({
       }
 
       const reservationResult = await client.query(
-        \`SELECT r.idempotency_key, r.mandate_reference, r.network, r.transaction_hash,
+        `SELECT r.idempotency_key, r.mandate_reference, r.network, r.transaction_hash,
                 r.fee_sponsor_address, r.asset_principal_address,
                 r.energy_reserved_units::text AS energy_reserved_units,
                 r.bandwidth_reserved_units::text AS bandwidth_reserved_units,
@@ -3492,9 +3492,9 @@ export async function settleSponsorResourceBudgetForTransfer({
                 b.energy_reserved_units::text AS budget_energy_reserved_units,
                 b.bandwidth_reserved_units::text AS budget_bandwidth_reserved_units,
                 b.status AS budget_status
-           FROM \${schema}.sponsor_resource_reservations r
-           JOIN \${schema}.sponsor_resource_budgets b ON b.mandate_reference=r.mandate_reference
-          WHERE r.idempotency_key=$1 FOR UPDATE OF r,b\`,
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_resource_budgets b ON b.mandate_reference=r.mandate_reference
+          WHERE r.idempotency_key=$1 FOR UPDATE OF r,b`,
         [idempotencyKey],
       )
       if (!reservationResult.rows.length) {
@@ -3525,12 +3525,12 @@ export async function settleSponsorResourceBudgetForTransfer({
       }
 
       const observation = await client.query(
-        \`SELECT block_number::text AS block_number, reported_fee_sun::text AS reported_fee_sun,
+        `SELECT block_number::text AS block_number, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
                 energy_usage::text AS energy_usage, net_usage::text AS net_usage
-           FROM \${schema}.sponsor_chain_cost_observations
+           FROM ${schema}.sponsor_chain_cost_observations
           WHERE network=$1 AND transaction_hash=$2 AND idempotency_key=$3
-            AND fee_sponsor_address=$4 AND asset_principal_address=$5 FOR UPDATE\`,
+            AND fee_sponsor_address=$4 AND asset_principal_address=$5 FOR UPDATE`,
         [row.network, String(row.transaction_hash).trim().toLowerCase(), idempotencyKey,
           feeSponsorAddress, row.sponsor_address],
       )
@@ -3572,15 +3572,15 @@ export async function settleSponsorResourceBudgetForTransfer({
       })
       if (!evaluated.settled) {
         await client.query(
-          \`UPDATE \${schema}.sponsor_resource_reservations
+          `UPDATE ${schema}.sponsor_resource_reservations
               SET status='manual-review', settlement_reason=$2, transaction_hash=$3,
                   settlement_block_number=$4, updated_at=now()
-            WHERE idempotency_key=$1 AND status='reserved'\`,
+            WHERE idempotency_key=$1 AND status='reserved'`,
           [idempotencyKey, evaluated.reason, row.transaction_hash, costs.blockNumber],
         )
         await client.query(
-          \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
-           VALUES ('sponsor-resource-settlement-manual-review','sponsor-resource-reservation',$1,$2::jsonb)\`,
+          `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+           VALUES ('sponsor-resource-settlement-manual-review','sponsor-resource-reservation',$1,$2::jsonb)`,
           [idempotencyKey, JSON.stringify({
             reason: evaluated.reason, network: row.network, transactionHash: row.transaction_hash,
             blockNumber: costs.blockNumber, reportedFeeSun: costs.reportedFeeSun,
@@ -3599,28 +3599,28 @@ export async function settleSponsorResourceBudgetForTransfer({
         return { success: false, reason: 'resource-budget-reservation-invariant-failed' }
       }
       await client.query(
-        \`UPDATE \${schema}.sponsor_resource_budgets
+        `UPDATE ${schema}.sponsor_resource_budgets
             SET energy_reserved_units=energy_reserved_units-$1::numeric,
                 bandwidth_reserved_units=bandwidth_reserved_units-$2::numeric,
                 energy_spent_units=energy_spent_units+$3::numeric,
                 bandwidth_spent_units=bandwidth_spent_units+$4::numeric,
                 updated_at=now()
-          WHERE mandate_reference=$5\`,
+          WHERE mandate_reference=$5`,
         [evaluated.energyReservedUnits, evaluated.bandwidthReservedUnits,
           evaluated.energyConsumedUnits, evaluated.bandwidthConsumedUnits, reservation.mandate_reference],
       )
       await client.query(
-        \`UPDATE \${schema}.sponsor_resource_reservations
+        `UPDATE ${schema}.sponsor_resource_reservations
             SET status='settled', transaction_hash=$2, energy_consumed_units=$3::numeric,
                 bandwidth_consumed_units=$4::numeric, settlement_reason=$5,
                 settlement_block_number=$6, settled_at=now(), updated_at=now()
-          WHERE idempotency_key=$1 AND status='reserved'\`,
+          WHERE idempotency_key=$1 AND status='reserved'`,
         [idempotencyKey, row.transaction_hash, evaluated.energyConsumedUnits,
           evaluated.bandwidthConsumedUnits, evaluated.settlementReason, costs.blockNumber],
       )
       await client.query(
-        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
-         VALUES ('sponsor-resource-budget-settled','sponsor-resource-reservation',$1,$2::jsonb)\`,
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-settled','sponsor-resource-reservation',$1,$2::jsonb)`,
         [idempotencyKey, JSON.stringify({
           mandateReference: reservation.mandate_reference, network: row.network,
           feeSponsorAddress, assetPrincipalAddress: row.sponsor_address,
@@ -3669,7 +3669,7 @@ export async function listSponsorResourceBudgetReservations({ network = null, li
   try {
     await initializeDatabase()
     const result = await db.query(
-      \`SELECT r.idempotency_key, r.mandate_reference, r.network, r.transaction_hash,
+      `SELECT r.idempotency_key, r.mandate_reference, r.network, r.transaction_hash,
               r.fee_sponsor_address, r.asset_principal_address,
               r.energy_reserved_units::text AS energy_reserved_units,
               r.bandwidth_reserved_units::text AS bandwidth_reserved_units,
@@ -3684,10 +3684,10 @@ export async function listSponsorResourceBudgetReservations({ network = null, li
               b.energy_spent_units::text AS budget_energy_spent_units,
               b.bandwidth_spent_units::text AS budget_bandwidth_spent_units,
               b.status AS budget_status
-         FROM \${schema}.sponsor_resource_reservations r
-         JOIN \${schema}.sponsor_resource_budgets b ON b.mandate_reference=r.mandate_reference
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.mandate_reference=r.mandate_reference
         WHERE ($1::text IS NULL OR r.network=$1)
-        ORDER BY r.updated_at DESC, r.id DESC LIMIT $2\`,
+        ORDER BY r.updated_at DESC, r.id DESC LIMIT $2`,
       [network, limit],
     )
     return {
@@ -3739,10 +3739,10 @@ export async function pauseSponsorResourceBudget({ mandateReference, reason } = 
     try {
       await client.query('BEGIN')
       const result = await client.query(
-        \`UPDATE \${schema}.sponsor_resource_budgets
+        `UPDATE ${schema}.sponsor_resource_budgets
             SET status='paused', pause_reason=$2, updated_at=now()
           WHERE mandate_reference=$1
-          RETURNING mandate_reference, status\`,
+          RETURNING mandate_reference, status`,
         [mandateReference, reason],
       )
       if (!result.rowCount) {
@@ -3750,8 +3750,8 @@ export async function pauseSponsorResourceBudget({ mandateReference, reason } = 
         return { success: false, reason: 'resource-budget-not-found' }
       }
       await client.query(
-        \`INSERT INTO \${schema}.audit_events (event_type, entity_type, entity_reference, details)
-         VALUES ('sponsor-resource-budget-paused','sponsor-resource-budget',$1,$2::jsonb)\`,
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-paused','sponsor-resource-budget',$1,$2::jsonb)`,
         [mandateReference, JSON.stringify({ reason, status: 'paused' })],
       )
       await client.query('COMMIT')
