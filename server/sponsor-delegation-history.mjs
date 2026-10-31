@@ -218,7 +218,7 @@ export function createSponsorDelegationHistoryVerifier({
       return {
         success: true,
         verified: true,
-        status: 'historical-delegation-state-verified',
+        status: 'verified',
         network: transfer.network,
         transactionHash: hash,
         blockNumber,
