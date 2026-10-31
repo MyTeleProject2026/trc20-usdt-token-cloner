@@ -6,6 +6,7 @@ const databaseSource = await readFile(new URL('../server/database.mjs', import.m
 const reconciliationSource = await readFile(new URL('../server/routes/sponsor-solidified-reconciliation.mjs', import.meta.url), 'utf8')
 const gateSource = await readFile(new URL('../server/routes/sponsor-fee-settlement-gate.mjs', import.meta.url), 'utf8')
 const submissionSource = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
+const envSource = await readFile(new URL('../.env.example', import.meta.url), 'utf8')
 
 test('resource budgets are isolated from principal budgets and limited to testnets', () => {
   assert.match(databaseSource, /CREATE TABLE IF NOT EXISTS \$\{schema\}\.sponsor_resource_budgets/)
@@ -47,6 +48,12 @@ test('testnet signing and broadcast remain blocked until attribution and settlem
   assert.match(gateSource, /solidified-fee-resource-budget-settlement-and-release-not-integrated/)
   assert.match(submissionSource, /getSponsorResourceReservationForTransfer\(idempotencyKey\)/)
   assert.match(submissionSource, /rejectIfSponsorFeeBudgetSettlementIsIncomplete\(res\)/)
+  assert.match(submissionSource, /router\.post\('\/sponsorship\/resource-budgets'/)
+  assert.match(submissionSource, /router\.post\('\/sponsorship\/resource-budgets\/:id\/activate'/)
+  assert.match(submissionSource, /router\.post\('\/sponsorship\/resource-budgets\/:id\/pause'/)
+  assert.match(submissionSource, /router\.get\('\/sponsorship\/resource-budgets'/)
+  assert.match(submissionSource, /SPONSOR_ASSET_.*_ADDRESS/)
+  assert.match(envSource, /SPONSOR_APPROVED_RESOURCE_MANDATES/)
 })
 
 test('invalid resource reservation input fails before database access', async () => {
