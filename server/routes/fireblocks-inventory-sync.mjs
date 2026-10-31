@@ -163,7 +163,7 @@ export function createFireblocksInventorySyncRouter({
       checks.databaseReady = false
       reasons.push(saved.reason || 'database-persistence-failed')
     }
-    const finalStatus = verified && saved.persisted && reasons.length === 0 ? 'verified' : 'blocked'
+    const finalStatus = verified && checks.databaseReady && saved.persisted && reasons.length === 0 ? 'verified' : 'blocked'
     return res.json({
       success: true, verificationStatus: finalStatus, snapshotSaved: saved.persisted,
       snapshotId: saved.persisted ? saved.id : null, duplicateRun: saved.duplicate === true,
