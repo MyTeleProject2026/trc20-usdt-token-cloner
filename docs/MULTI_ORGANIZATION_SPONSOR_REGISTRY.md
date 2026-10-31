@@ -212,7 +212,26 @@ Optional body: `{"limit":100}`.
 
 `feeCapSun` is only the amount held against the network-fee sponsor's budget; it is not an exact transaction fee quote. The current delegation observation is not proof of sufficient Energy/Bandwidth for a specific built transaction. The reservation endpoint itself does not accept sponsor signatures. Each sponsor separately signs a one-time, role-specific message on `#/sponsor-authorization`; after both wallets are verified, the intent becomes `sponsor_authorization_complete`. That status proves both owner-message approvals only. It does not authorize a blockchain transaction, create/sign a transaction, or permit submission/broadcast. Every response keeps `canSubmitSponsoredTransfer`, `submissionEnabled`, and `transactionSubmitted` false; `userFundedFallbackAllowed` also remains false.
 
-The next milestone is transaction-specific resource/fee estimation against the actual built transaction, with sponsor authorization expiry/mandate checks repeated immediately before any possible transaction-signing action. Any later transaction signer must be separately reviewed and controlled by the sponsor, then validated end-to-end on a controlled testnet. A real sponsor must provide genuine written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service. Keep the existing Mainnet payout execution hard gate disabled.
+The next milestone is a separately reviewed sponsor-controlled transaction signer/provider and controlled testnet settlement. A real sponsor must provide genuine written consent, independently verifiable control/funding evidence, and its own authorized signing or payout service. Keep the existing Mainnet payout execution hard gate disabled.
+
+### Read-only transaction-specific preflight for an approved intent
+
+`POST /api/tron/sponsorship/payout-intents/{intentId}/transaction-preflight`
+
+This administrator-only endpoint accepts an empty JSON object. It does not accept caller-supplied receiver, contract, amount, fee, sponsor address, or transaction fields; those values are loaded from the immutable intent. The store revalidates that:
+
+- the intent is still unexpired and has both independently recorded sponsor-owner message approvals;
+- both sponsor organization/account/budget links still match their approved identities and roles;
+- both original principal and fee budget reservations remain active with the exact amounts recorded on the intent;
+- the original token contract remains on the current network-scoped allowlist.
+
+The preflight then builds an unsigned TRX or TRC-20 transaction draft, verifies its sender, receiver, contract, transfer calldata and exact amount, simulates the TRC-20 transfer where applicable, and reads current principal/fee sponsor resource snapshots plus the exact fee-to-principal delegation pair. It estimates the signed transaction byte size using one 65-byte signature, estimates current Energy/Bandwidth shortfall and compares the resulting estimated network fee with the intent's fee cap.
+
+The endpoint is read-only: it does not change the intent, consume a sponsor approval, sign, submit, broadcast, delegate resources, or modify reservations. The fee sponsor's own wallet resources are never added to the principal's available resources; only resources already visible in the principal's own current node snapshot are counted. A passing estimate is still not final fee coverage: the final serialized signature size, dynamic contract energy, resource state and chain parameters can change before execution. All execution flags remain false.
+
+## Remaining real-payout dependencies
+
+The system still lacks an independently reviewed sponsor-controlled transaction signer/provider adapter, an audited resource-delegation funding workflow where required, controlled testnet transfer broadcast and settlement, and a complete receiver-side real exchange-deposit verification workflow. The read-only preflight is not a final execution quote or a payout authorization. Do not change the existing real-value payout hard gate. Mainnet release still requires a controlled end-to-end test, independent security review, operational runbook, and explicit release approval.
 
 ## Remaining real-payout dependencies
 
