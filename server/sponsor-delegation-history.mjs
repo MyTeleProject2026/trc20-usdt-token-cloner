@@ -5,6 +5,10 @@ const NETWORKS = Object.freeze({
   shasta: 'https://tron-shasta.gateway.tatum.io',
   nile: 'https://tron-nile.gateway.tatum.io',
 })
+const SECONDARY_NETWORKS = Object.freeze({
+  shasta: 'https://api.shasta.trongrid.io',
+  nile: 'https://nile.trongrid.io',
+})
 const TX_ID = /^[0-9a-f]{64}$/i
 const HEX_BYTES = /^(?:[0-9a-f]{2})+$/i
 const HASH = /^[0-9a-f]{64}$/i
@@ -147,11 +151,12 @@ export function createSponsorDelegationHistoryVerifier({
         || preflightEvidence.delegationSnapshot?.assetPrincipalAddress !== transfer.sponsorAddress) {
         return fail('historical-delegation-sponsor-pair-invalid')
       }
-      const requestBlock = async (number) => {
-        const response = await fetchImpl(host + '/walletsolidity/getblockbynum', {
+      const secondaryHost = SECONDARY_NETWORKS[transfer.network]
+      const requestBlock = async (number, providerHost, providerHeaders) => {
+        const response = await fetchImpl(providerHost + '/walletsolidity/getblockbynum', {
           method: 'POST',
           redirect: 'error',
-          headers,
+          headers: providerHeaders,
           body: JSON.stringify({ num: number, visible: false }),
           signal: AbortSignal.timeout(timeoutMs),
         })
@@ -162,9 +167,34 @@ export function createSponsorDelegationHistoryVerifier({
         }
         return payload
       }
+      const secondaryHeaders = {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        ...(typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()
+          ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim() } : {}),
+      }
+      const compareProviderBlocks = (primary, secondary, height) => {
+        const primaryIdentity = blockIdentity(primary, height)
+        const secondaryIdentity = blockIdentity(secondary, height)
+        if (!primaryIdentity || !secondaryIdentity
+          || primaryIdentity.blockId !== secondaryIdentity.blockId
+          || primaryIdentity.parentHash !== secondaryIdentity.parentHash
+          || primaryIdentity.timestamp !== secondaryIdentity.timestamp) return null
+        if (!Array.isArray(primary.transactions) || !Array.isArray(secondary.transactions)) return null
+        const primaryIds = primary.transactions.map(transactionIdentity)
+        const secondaryIds = secondary.transactions.map(transactionIdentity)
+        if (primaryIds.some((id) => !id) || secondaryIds.some((id) => !id)
+          || primaryIds.length !== secondaryIds.length
+          || primaryIds.some((id, index) => id !== secondaryIds[index])) return null
+        return { identity: primaryIdentity, transactionIds: primaryIds }
+      }
 
-      const anchorBlock = await requestBlock(anchor.blockNumber)
-      const anchorIdentity = blockIdentity(anchorBlock, anchor.blockNumber)
+      const [anchorBlock, secondaryAnchorBlock] = await Promise.all([
+        requestBlock(anchor.blockNumber, host, headers),
+        requestBlock(anchor.blockNumber, secondaryHost, secondaryHeaders),
+      ])
+      const anchorComparison = compareProviderBlocks(anchorBlock, secondaryAnchorBlock, anchor.blockNumber)
+      const anchorIdentity = anchorComparison?.identity
       if (!anchorIdentity || anchorIdentity.blockId !== anchor.blockId.toLowerCase()
         || anchorIdentity.timestamp !== anchor.blockTimestampMs) {
         return fail('historical-delegation-anchor-block-mismatch')
@@ -174,15 +204,19 @@ export function createSponsorDelegationHistoryVerifier({
       let targetTransactionCount = 0
       let scannedTransactionCount = 0
       for (let height = anchor.blockNumber + 1; height <= blockNumber; height += 1) {
-        const block = await requestBlock(height)
-        const identity = blockIdentity(block, height)
-        if (!identity || identity.parentHash !== previous.blockId || identity.timestamp <= previous.timestamp) {
+        const [block, secondaryBlock] = await Promise.all([
+          requestBlock(height, host, headers),
+          requestBlock(height, secondaryHost, secondaryHeaders),
+        ])
+        const comparison = compareProviderBlocks(block, secondaryBlock, height)
+        const identity = comparison?.identity
+        if (!identity) {
+          return fail('historical-delegation-secondary-provider-disagreement', { failedBlockNumber: height })
+        }
+        if (identity.parentHash !== previous.blockId || identity.timestamp <= previous.timestamp) {
           return fail('historical-delegation-block-chain-incomplete', { failedBlockNumber: height })
         }
-        const transactions = block.transactions === undefined ? [] : block.transactions
-        if (!Array.isArray(transactions)) {
-          return fail('historical-delegation-block-transactions-incomplete', { failedBlockNumber: height })
-        }
+        const transactions = block.transactions
         for (const transaction of transactions) {
           const id = transactionIdentity(transaction)
           if (!id) return fail('historical-delegation-transaction-id-invalid', { blockNumber: height })
@@ -234,10 +268,12 @@ export function createSponsorDelegationHistoryVerifier({
         checkedAt: new Date().toISOString(),
         scannedBlockCount: span,
         scannedTransactionCount,
-        source: 'Tatum SolidityNode walletsolidity/getblockbynum',
-        historySourceTrustModel: 'single-provider-solidity-node-response',
-        blockIntegrityCheck: 'height-prefix-and-parent-link; block header hash and witness signature are provider-trusted',
-        transactionIntegrityCheck: 'sha256-raw_data_hex-matches-txID; transaction inclusion in txTrieRoot is provider-trusted',
+        source: 'Tatum and TRONGrid SolidityNode walletsolidity/getblockbynum cross-check',
+        historySourceTrustModel: 'two-provider-solidified-block-and-transaction-list-match',
+        primaryProvider: 'Tatum SolidityNode',
+        secondaryProvider: 'TRONGrid SolidityNode',
+        blockIntegrityCheck: 'two-provider height/blockID/parentHash/timestamp match; witness signature and protobuf header hash remain provider-trusted',
+        transactionIntegrityCheck: 'two-provider ordered txID list match and sha256(raw_data_hex) matches txID; txTrieRoot Merkle inclusion remains provider-trusted',
         delegationSnapshot: preflightEvidence.delegationSnapshot,
       }
     } catch (error) {
