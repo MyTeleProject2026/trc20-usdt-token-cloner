@@ -5,7 +5,7 @@ import { TronWeb } from 'tronweb'
 import {
   finalizeSponsorTransferBroadcast, getSponsorTransferForSubmission,
   recordNativeTransferVerification, recordSponsorChainCostObservation,
-  recordTransferVerification, transitionSponsorTransfer,
+  recordSponsorResourceCostSettlementObservation, recordTransferVerification, transitionSponsorTransfer,
 } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
@@ -245,9 +245,23 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               energyUsageTotal: observed.energyUsageTotal, energyUsage: observed.energyUsage,
               netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
-            costs = stored?.success === true
-              ? { status: 'solidified-costs-observed-not-settled', duplicate: stored.duplicate === true, reportedFeeSun: observed.reportedFeeSun, sponsorFeeBudgetSettled: false }
-              : { status: 'cost-observation-persistence-failed', reason: stored?.reason || 'persistence-failed', sponsorFeeBudgetSettled: false }
+            if (stored?.success === true) {
+              const resourceObservation = await recordSponsorResourceCostSettlementObservation({
+                idempotencyKey: key,
+                transactionHash: transfer.transactionHash.toLowerCase(),
+              })
+              costs = {
+                status: 'solidified-costs-observed-not-settled',
+                duplicate: stored.duplicate === true,
+                reportedFeeSun: observed.reportedFeeSun,
+                resourceCostObservation: resourceObservation?.success === true
+                  ? { status: resourceObservation.status, duplicate: resourceObservation.duplicate === true, sponsorResourceBudgetSettled: false }
+                  : { status: 'not-recorded', reason: resourceObservation?.reason || 'resource-observation-unavailable' },
+                sponsorFeeBudgetSettled: false,
+              }
+            } else {
+              costs = { status: 'cost-observation-persistence-failed', reason: stored?.reason || 'persistence-failed', sponsorFeeBudgetSettled: false }
+            }
           } else costs = { status: 'solidified-cost-observation-unavailable', reason: observed?.reason || 'cost-evidence-mismatch', sponsorFeeBudgetSettled: false }
         } catch { costs = { status: 'solidified-cost-observation-unavailable', reason: 'observation-unavailable', sponsorFeeBudgetSettled: false } }
       }
