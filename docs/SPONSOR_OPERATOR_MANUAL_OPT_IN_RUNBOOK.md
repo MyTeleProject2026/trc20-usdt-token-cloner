@@ -4,20 +4,19 @@ This is a hands-on operator checklist for `MyTeleProject2026/trc20-usdt-token-cl
 It is not a declaration that sponsorship is production-ready. Follow it in order. Do not skip
 readiness checks because an environment variable or wallet connection appears successful.
 
-## Current Render testnet opt-in (2026-10-27)
+## Historical Render testnet opt-in record (2026-10-27; live state unverified)
 
-At the operator's request, the Render backend environment flag
-`SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` has been set to `true` for the existing
-experimental Shasta/Nile signer-and-broadcast route. Render accepted the environment update and deploy dep-dbftfsm7bikc73b5a3u0 reached live. Its startup logs reported the project database ready and the API listening. This confirms the configuration rollout, not a live sponsored transfer or end-to-end settlement. This is a route opt-in only: it does not create a transfer, approve a budget,
-prove sponsor consent/funding, or mark any transaction settled. The route still requires the exact
-approved testnet reservation, distinct configured sponsor roles, the fee-resource/delegation checks,
-the sponsor wallet's signature over the stored intent, and transaction identity validation. If any
-gate fails, no new broadcast is authorized. Mainnet broadcast remains unavailable in this route.
-Set the flag back to `false` to close the experimental testnet signing/broadcast route.
+An earlier operator runbook entry recorded that `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED`
+was set to `true` for an experimental Shasta/Nile route and that a Render deploy became live.
+That is a historical configuration record only. The current Render environment value has not
+been independently inspected in this change, and a live deploy is not proof of a sponsored transfer.
 
-The checklist below describes the secure baseline for initial onboarding. Do not interpret the
-testnet flag change as a production go-live approval: separate fee/resource cost settlement and a
-supported live end-to-end sponsor pilot are still required.
+The source code in this change adds a separate hard gate for the missing fee-sponsor resource
+budget reservation and transaction-specific settlement adapter. Once this change is merged and
+deployed, setting the environment opt-in to `true` will not bypass that code-level gate: the signing
+intent and signed-submit endpoints return HTTP 503 until the resource budget can be reserved and
+settled from independently verified evidence. Do not use the historical opt-in as an instruction
+to re-enable broadcasting. Keep the flag `false`; Mainnet submission remains unavailable.
 
 ## 0. Safe baseline for initial onboarding
 
@@ -30,7 +29,7 @@ For a new deployment before a controlled test, use this safe baseline:
     SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=false
     SPONSOR_TESTNET_MAX_FEE_LIMIT_SUN=50000000
 
-Current Render state: the testnet-only signing/broadcast feature flag is explicitly enabled for the controlled Shasta/Nile pilot. Set it to false to close that route and redeploy. The flag does not activate Mainnet, approve a reservation, bypass wallet signing, or prove that any transfer was sent. Budget activation is a separate ledger control; Mainnet transaction submission is not available through this experimental route.
+The last recorded Render setting is historical; the current live value is unverified. Keep the flag `false`. Once the code-level fee-settlement gate in this change is deployed, setting the environment flag to `true` will still not enable signing or broadcast. The flag does not activate Mainnet, approve a reservation, bypass wallet signing, or prove that any transfer was sent.
 
 ## 1. Get the actual sponsor authorization outside the application
 
