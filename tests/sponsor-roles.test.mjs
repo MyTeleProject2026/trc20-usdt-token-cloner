@@ -198,3 +198,100 @@ test('invalid networks are rejected without querying any provider', async () => 
   assert.equal(result.status, 'invalid-network')
   assert.equal(providerCalls, 0)
 })
+
+test('role reader marks both resources transaction-audited only for the exact configured sponsor pair', async () => {
+  const calls = []
+  const env = {
+    TATUM_API_KEY: 'server-only-test-key',
+    SPONSOR_FEE_NILE_ADDRESS: feeAddress,
+    SPONSOR_ASSET_NILE_ADDRESS: assetAddress,
+  }
+  const readRoles = createSponsorRoleFundingReader({
+    env,
+    tronWebFactory: async (host) => fakeTronWeb(host),
+    readDelegationAudit: async ({ network, limit }) => {
+      assert.equal(network, 'nile')
+      assert.equal(limit, 100)
+      return {
+        success: true,
+        delegations: [
+          {
+            network: 'nile',
+            transactionId: 'a'.repeat(64),
+            sponsorAddress: feeAddress,
+            receiverAddress: assetAddress,
+            resourceType: 'ENERGY',
+            stakeEquivalentSun: '9000000',
+            blockNumber: 100,
+            status: 'verified-on-chain',
+          },
+          {
+            network: 'nile',
+            transactionId: 'b'.repeat(64),
+            sponsorAddress: feeAddress,
+            receiverAddress: assetAddress,
+            resourceType: 'BANDWIDTH',
+            stakeEquivalentSun: '3000000',
+            blockNumber: 101,
+            status: 'verified-on-chain',
+          },
+          {
+            network: 'nile',
+            transactionId: 'c'.repeat(64),
+            sponsorAddress: tokenAddress,
+            receiverAddress: assetAddress,
+            resourceType: 'ENERGY',
+            stakeEquivalentSun: '9999999',
+            blockNumber: 102,
+            status: 'verified-on-chain',
+          },
+        ],
+      }
+    },
+    fetchImpl: async (url, options) => {
+      calls.push(url)
+      const body = JSON.parse(options.body || '{}')
+      if (url.endsWith('/walletsolidity/getaccount')) {
+        return { ok: true, json: async () => ({ address: body.address, balance: '2000000' }) }
+      }
+      if (url.endsWith('/wallet/getaccountresource')) {
+        return { ok: true, json: async () => ({
+          EnergyLimit: '1000', EnergyUsed: '100', NetLimit: '500', NetUsed: '50',
+          freeNetLimit: '100', freeNetUsed: '10',
+        }) }
+      }
+      if (url.endsWith('/wallet/getcandelegatedmaxsize')) {
+        return { ok: true, json: async () => ({ max_size: '5000000' }) }
+      }
+      if (url.endsWith('/walletsolidity/getdelegatedresourcev2')) {
+        return { ok: true, json: async () => ({
+          delegatedResource: [{
+            from: '41' + 'a'.repeat(40),
+            to: '41' + 'c'.repeat(40),
+            frozen_balance_for_energy: '9000000',
+            frozen_balance_for_bandwidth: '3000000',
+            expire_time_for_energy: 0,
+            expire_time_for_bandwidth: 0,
+          }],
+        }) }
+      }
+      throw new Error('unexpected provider endpoint')
+    },
+  })
+
+  const result = await readRoles('nile')
+  assert.equal(result.feeSponsorDelegationToPrincipal.transactionAuditVerified, true)
+  assert.equal(
+    result.feeSponsorDelegationToPrincipal.transactionAuditStatus,
+    'verified-energy-and-bandwidth-delegation-transactions',
+  )
+  assert.deepEqual(
+    result.feeSponsorDelegationToPrincipal.auditedResourceTypes,
+    ['ENERGY', 'BANDWIDTH'],
+  )
+  assert.equal(result.feeSponsorDelegationToPrincipal.auditedTransactionCount, 2)
+  assert.equal(result.canSubmitSponsoredTransfer, false)
+  assert.equal(result.submissionEnabled, false)
+  assert.ok(calls.includes('https://tron-nile.gateway.tatum.io/walletsolidity/getdelegatedresourcev2'))
+})
+
