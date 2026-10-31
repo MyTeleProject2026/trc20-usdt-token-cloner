@@ -120,7 +120,9 @@ A resource budget can move from reserved to settled only when all of these hold:
 - The historical proof has a verified starting-state anchor, complete delegation-change history through the transfer block, no intervening change that breaks the exact resource delegation, and the same resource-specific source snapshot captured at preflight.
 - The exact delegation expiry was valid at the transfer block timestamp.
 - No reported TRX fee, Energy fee, or Bandwidth fee was burned by the transaction owner.
-- Receipt Energy/Bandwidth usage does not exceed the exact per-transfer reservation.
+- For TRC-20 calls, the receipt's caller-paid `energy_usage` and contract-creator-paid `origin_energy_usage` are both retained separately, and their sum must exactly equal `energy_usage_total`. Only caller-paid Energy is charged to the asset-principal sponsor's delegated-resource budget; contract-origin Energy is never attributed to the fee sponsor.
+- The historical block scan finds no other transaction initiated by the asset-principal account between the preflight anchor and the payout block, avoiding ambiguous concurrent consumption of the same resource pool.
+- Receipt caller-side Energy and Bandwidth usage do not exceed the exact per-transfer reservation.
 - A single database transaction atomically releases the full reservation, charges only observed resource units to the approved resource budget, records the settlement evidence, and marks the reservation settled.
 
 If any receipt fee burn is present, the resource use exceeds the reservation, the source snapshot differs, the block interval is incomplete, a relevant stake/delegation mutation is found, or the historical proof conflicts with the transfer receipt, the record remains pending or enters manual review. The scanner is bounded to 256 blocks and relies on the configured SolidityNode's reported block bodies and transaction lists; it does not cryptographically validate witness signatures or txTrieRoot inclusion. Therefore it is a testnet engineering milestone, not independent Mainnet release evidence. No user-funded fallback is introduced.
