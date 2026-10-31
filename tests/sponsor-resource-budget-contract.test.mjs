@@ -21,6 +21,11 @@ test('resource reservations serialize and bind to the exact principal transfer a
   assert.match(databaseSource, /resource-per-transfer-limit-exceeded/)
   assert.match(databaseSource, /insufficient-resource-budget/)
   assert.match(databaseSource, /resource-reservation-conflict/)
+  assert.match(databaseSource, /expires_at TIMESTAMPTZ NOT NULL/)
+  assert.match(databaseSource, /releaseExpiredSponsorResourceReservations/)
+  assert.match(databaseSource, /t.status IN \('pending-review','authorized'\)/)
+  assert.match(databaseSource, /configured-fee-sponsor-mismatch/)
+  assert.match(databaseSource, /pauseSponsorResourceBudget/)
 })
 
 test('receipt resource usage is recorded as pending evidence, never falsely settled', () => {
