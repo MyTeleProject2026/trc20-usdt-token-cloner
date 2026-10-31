@@ -97,3 +97,6 @@ The draft branch exposes the resource mandate ledger through the existing server
 - `POST /api/sponsorship/resource-budgets/:id/pause` — pauses future reservations.
 
 Activation scopes bind the mandate reference, network, both sponsor addresses, total Energy/Bandwidth allowances, per-transfer ceilings and exact expiry timestamp. These endpoints manage ledger policy only; they do not prove sponsor funding or on-chain delegation and cannot open the signing/broadcast gate.
+
+
+The broadcast-claim database transaction now locks the exact resource reservation and mandate after locking the transfer row. This serializes a new broadcast claim against concurrent mandate pause and reservation-expiry cleanup. The signed-submit route also performs a read-only active-reservation check before asking the database to claim the transfer.
