@@ -20,10 +20,12 @@ function fakeTronWeb(host) {
 
 test('independent sponsor roles fail closed when their separate addresses are not configured', async () => {
   let providerCalls = 0
+  let auditCalls = 0
   const readRoles = createSponsorRoleFundingReader({
     env: {},
     fetchImpl: async () => { providerCalls += 1; throw new Error('must not call provider without a sponsor address') },
     tronWebFactory: async () => fakeTronWeb('https://tron-nile.gateway.tatum.io'),
+    readDelegationAudit: async () => { auditCalls += 1; throw new Error('must not query audit without sponsor roles') },
   })
   const result = await readRoles('nile')
   assert.equal(result.success, true)
@@ -38,6 +40,7 @@ test('independent sponsor roles fail closed when their separate addresses are no
   assert.equal(result.canSubmitSponsoredTransfer, false)
   assert.equal(result.submissionEnabled, false)
   assert.equal(providerCalls, 0)
+  assert.equal(auditCalls, 0)
 })
 
 test('fee sponsor resources and asset sponsor balances are read independently without authorizing transfers', async () => {
@@ -180,14 +183,20 @@ test('role snapshot drops unexpected resource provider categories', async () => 
 })
 
 test('the endpoint marks identical fee and asset addresses as not distinct', async () => {
+  let auditCalls = 0
   const env = { SPONSOR_FEE_SHASTA_ADDRESS: feeAddress, SPONSOR_ASSET_SHASTA_ADDRESS: feeAddress }
-  const readRoles = createSponsorRoleFundingReader({ env, fetchImpl: async () => { throw new Error('must not call without Tatum API key') } })
+  const readRoles = createSponsorRoleFundingReader({
+    env,
+    fetchImpl: async () => { throw new Error('must not call without Tatum API key') },
+    readDelegationAudit: async () => { auditCalls += 1; throw new Error('must not query audit for identical sponsor roles') },
+  })
   const result = await readRoles('shasta')
   assert.equal(result.accountsConfigured, true)
   assert.equal(result.configuredAddressesDistinct, false)
   assert.equal(result.roles.networkFeeSponsor.onChainBalanceRead, false)
   assert.equal(result.roles.assetPrincipalSponsor.onChainBalanceRead, false)
   assert.equal(result.submissionEnabled, false)
+  assert.equal(auditCalls, 0)
 })
 
 test('invalid networks are rejected without querying any provider', async () => {
