@@ -92,7 +92,6 @@ jobs:
             snapshotId: response.snapshotId ?? null,
             configuration: config,
             checks: response.checks ?? {},
-            balancesBaseUnits: response.balances ?? {},
             reasons: Array.isArray(response.reasons) ? response.reasons : [],
             safety: {
               apiKeyIncluded: false,
