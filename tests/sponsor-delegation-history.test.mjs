@@ -194,6 +194,19 @@ test('solidified history replay rejects a provider that omits the block transact
   assert.equal(result.failedBlockNumber, 101)
 })
 
+test('solidified history replay rejects another principal transaction that can consume delegated resources', async () => {
+  const otherPrincipalTx = tx('principal-spends-resource-between-anchor-and-payout', [{
+    type: 'TransferContract',
+    parameter: { value: { owner_address: principalHex, to_address: receiverHex, amount: 1 } },
+  }])
+  const { verifier } = verifierFor({ blocks: standardBlocks({ middleTransactions: [otherPrincipalTx] }) })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-principal-resource-usage-intervened')
+  assert.equal(result.transactionId, otherPrincipalTx.txID)
+  assert.equal(result.blockNumber, 101)
+})
+
 test('solidified history replay rejects a broken parent-hash chain', async () => {
   const { verifier } = verifierFor({ blocks: standardBlocks({ breakParent: true }) })
   const result = await run(verifier)
