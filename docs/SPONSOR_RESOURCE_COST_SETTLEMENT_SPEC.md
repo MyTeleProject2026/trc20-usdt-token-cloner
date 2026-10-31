@@ -82,6 +82,9 @@ The branch now includes:
 - Reservation expiry tied to the prepared transaction expiry. Only never-broadcast pending-review/authorized reservations are released by the expiry sweep.
 - Solidified receipt resource observations are recorded as `pending-evidence` or `manual-review`; they do not decrement the budget's spent counters.
 - An operator pause operation for a resource mandate.
+- PostgreSQL schema initialization now holds a session-level advisory lock for the full migration sequence, serializing startup migrations across app instances and parallel integration-test workers.
+- Isolated PostgreSQL CI tests cover settled/duplicate reconciliation, delayed attribution proof, fee-burn and over-reservation manual review, conflicting cost evidence, and concurrent reconciliation without double charging.
+- Pilot readiness requires both Energy and Bandwidth delegation above the verifier's 1,000,000 SUN-equivalent minimum, a valid network-specific USDT test-token allowlist, and a verified positive balance of that exact contract at the asset-principal sponsor.
 - A source-code gate on both signing-intent and signed-submit remains hard-coded closed.
 
 This is not the final settlement adapter. The current TRON account receipt exposes transaction-level Energy/Bandwidth usage, but the application must still independently prove that the observed consumption came from the exact fee sponsor's delegated resource allocation (including concurrent usage and resource-source attribution) before it may convert reserved units to spent units or release any remaining reservation. The gate must remain closed until that proof and its database transaction are implemented and tested.
@@ -117,4 +120,4 @@ A resource budget can move from reserved to settled only when all of these hold:
 
 If any receipt fee burn is present, the resource use exceeds the reservation, the source snapshot differs, or the proof is missing, the record remains pending or enters manual review. No user-funded fallback is introduced.
 
-**Release limitation:** this code is still behind the hard source-code signing/broadcast gate. It has not been proven against a funded Nile/Shasta sponsor account or a real sponsored transfer. The branch still requires integration/security review of the block-time delegation attribution assumptions, database migration against a dedicated PostgreSQL test instance, and a controlled on-chain pilot before anyone changes the gate constant.
+**Release limitation:** isolated PostgreSQL integration and concurrency tests pass in CI, including the migration-initialization race test path. This does not replace a production database backup, migration and restore rehearsal. The code is still behind the hard source-code signing/broadcast gate and has not been proven against funded Nile/Shasta sponsor accounts or a real sponsored transfer. The branch still requires independent review of the block-time delegation attribution assumptions, a production database migration/restore rehearsal, a controlled on-chain pilot, and explicit sponsor/security approval before anyone changes the gate constant.
