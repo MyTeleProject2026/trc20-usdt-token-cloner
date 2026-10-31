@@ -135,6 +135,7 @@ export async function initializeDatabase() {
         AS $
         BEGIN
           RAISE EXCEPTION 'fireblocks inventory snapshots are immutable';
+          RETURN NULL;
         END;
         $;
       `)
