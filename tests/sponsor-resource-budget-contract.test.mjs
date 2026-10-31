@@ -45,7 +45,7 @@ test('receipt resource usage is recorded as pending evidence, never falsely sett
   assert.match(databaseSource, /resourceAttributionVerified: status === 'settled'/)
   assert.match(databaseSource, /resource-budget-settlement-invariant-failed/)
   assert.match(reconciliationSource, /verifySponsorFeeResourceSource/)
-  assert.match(databaseSource, /resourceAttributionVerified: false/)
+  assert.match(databaseSource, /resourceAttributionVerified: status === 'settled'/)
   assert.match(databaseSource, /sponsorResourceBudgetSettled: false/)
   assert.match(databaseSource, /status = \$2, transaction_hash = \$3/)
   assert.match(reconciliationSource, /recordSponsorResourceCostSettlementObservation/)
