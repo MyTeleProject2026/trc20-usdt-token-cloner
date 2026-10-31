@@ -45,7 +45,7 @@ function createServerForTest(t, options = {}) {
       success: true, network: value.network, transactionHash: value.transactionHash,
       blockNumber: 12, blockTimestampMs: 1700000000000, executionResult: 'SUCCESS', reportedFeeSun: '4200',
       energyFeeSun: '2000', netFeeSun: '2200', energyUsageTotal: '0',
-      energyUsage: null, netUsage: '220', energyPenaltyTotal: null,
+      energyUsage: null, originEnergyUsage: null, netUsage: '220', energyPenaltyTotal: null,
     }),
     persistObservation: async (value) => ({ success: true, duplicate: false, observation: value }),
     listObservations: async ({ network, limit }) => ({ success: true, observations: [{ network, limit }] }),
@@ -92,6 +92,8 @@ test('cost observation uses stored confirmed transfer identity and persists only
   assert.equal(persisted.feeSponsorAddress, feeSponsor)
   assert.equal(persisted.assetPrincipalAddress, principal)
   assert.equal(persisted.transactionHash, txid)
+  assert.equal(persisted.originEnergyUsage, null)
+  assert.equal(payload.observedCosts.originEnergyUsage, null)
 })
 
 test('cost observation rejects a non-confirmed transfer without reading costs', async (t) => {
@@ -167,6 +169,7 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   assert.equal(result.reportedFeeSun, '4200')
   assert.equal(result.blockNumber, 77)
   assert.equal(result.blockTimestampMs, 1700000000000)
+  assert.equal(result.originEnergyUsage, null)
   assert.equal(calls.length, 2)
   assert.ok(calls.every((call) => call.url.startsWith('https://tron-nile.gateway.tatum.io/')))
   assert.ok(calls.every((call) => call.options.headers['x-api-key'] === secret))
