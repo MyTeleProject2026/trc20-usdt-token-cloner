@@ -3306,6 +3306,8 @@ export async function reserveSponsorResourceBudgetForTransfer({
   if (!db) return { reserved: false, reason: 'database-not-configured' }
   try {
     await initializeDatabase()
+    const expirySweep = await releaseExpiredSponsorResourceReservations({ limit: 100 })
+    if (expirySweep?.released !== true) return { reserved: false, reason: 'resource-reservation-expiry-sweep-unavailable' }
     const client = await db.connect()
     try {
       await client.query('BEGIN')
