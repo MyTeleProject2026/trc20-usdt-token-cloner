@@ -1,5 +1,5 @@
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast, reserveSponsorResourceBudgetForTransfer, getSponsorResourceReservationForTransfer, createSponsorResourceBudgetDraft, activateSponsorResourceBudget, pauseSponsorResourceBudget, listSponsorResourceBudgets } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast, reserveSponsorResourceBudgetForTransfer, getSponsorResourceReservationForTransfer, recordSponsorResourcePreflightEvidence, createSponsorResourceBudgetDraft, activateSponsorResourceBudget, pauseSponsorResourceBudget, listSponsorResourceBudgets } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -1575,6 +1575,14 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
         feeCoverageVerified: false,
       })
     }
+    const preflightEvidence = await recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence: feeCapacity })
+    if (preflightEvidence?.success !== true) {
+      return res.status(503).json({
+        success: false, error: preflightEvidence?.reason || 'resource-preflight-evidence-persistence-failed',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        feeCoverageVerified: false,
+      })
+    }
     return res.json({
       success: true,
       status: 'unsigned-testnet-transaction-prepared',
@@ -1686,6 +1694,13 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
         feeCoverageVerified: false, canSubmitSponsoredTransfer: false,
         providerSubmissionAttempted: false, transactionBroadcast: false,
         message: 'Fresh sponsor bandwidth/energy capacity no longer covers this exact signed transaction. No broadcast was attempted; review the reservation and prepare a fresh signing intent if still pending.',
+      })
+    }
+    const preflightEvidence = await recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence: feeCapacity })
+    if (preflightEvidence?.success !== true) {
+      return res.status(503).json({
+        success: false, error: preflightEvidence?.reason || 'resource-preflight-evidence-persistence-failed',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
       })
     }
     if (transfer.status === 'submitted' && transfer.transactionHash?.toLowerCase() === signature.txID.toLowerCase()) {
