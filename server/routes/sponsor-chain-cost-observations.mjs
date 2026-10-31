@@ -270,6 +270,7 @@ export function createSponsorChainCostObservationRouter(options = {}) {
         tokenContract: transfer.tokenContract ?? null,
         amountBaseUnits: transfer.amountBaseUnits,
         blockNumber: costs.blockNumber,
+        blockTimestampMs: costs.blockTimestampMs,
         executionResult: costs.executionResult,
         reportedFeeSun: costs.reportedFeeSun,
         energyFeeSun: costs.energyFeeSun,
