@@ -95,8 +95,8 @@ async function seedFixture(pool, { feeBurn = '0' } = {}) {
       (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
        asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
        block_number, block_timestamp_ms, execution_result, reported_fee_sun, energy_fee_sun,
-       net_fee_sun, energy_usage_total, energy_usage, net_usage, energy_penalty_total)
-     VALUES ('nile',$1,$2,$3,$4,$5,$6,'USDT',$7,2500000,123456,$8,'SUCCESS',$9,0,0,75,70,25,5)`,
+       net_fee_sun, energy_usage_total, energy_usage, origin_energy_usage, net_usage, energy_penalty_total)
+     VALUES ('nile',$1,$2,$3,$4,$5,$6,'USDT',$7,2500000,123456,$8,'SUCCESS',$9,0,0,75,70,5,25,5)`,
     [transactionHash, idempotencyKey, sponsorReference, feeSponsor, principal, receiver, tokenContract,
       blockTimestampMs, feeBurn],
   )
@@ -172,7 +172,7 @@ test('PostgreSQL atomically settles verified delegated resource units once and i
       [fixture.budgetId],
     )
     assert.deepEqual(budget.rows[0], {
-      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '70', bandwidth_spent: '25',
     })
     const reservation = await pool.query(
       'SELECT status FROM trc20_token_clone.sponsor_resource_reservations WHERE idempotency_key = $1',
@@ -195,7 +195,7 @@ test('PostgreSQL atomically settles verified delegated resource units once and i
          FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
       [fixture.budgetId],
     )
-    assert.deepEqual(afterDuplicate.rows[0], { energy_spent: '75', bandwidth_spent: '25' })
+    assert.deepEqual(afterDuplicate.rows[0], { energy_spent: '70', bandwidth_spent: '25' })
   } finally {
     if (fixture) await cleanupFixture(pool, fixture)
     await pool.end()
@@ -283,7 +283,7 @@ test('PostgreSQL serializes concurrent sponsor resource reconciliations and char
       [fixture.budgetId],
     )
     assert.deepEqual(budget.rows[0], {
-      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '70', bandwidth_spent: '25',
     })
 
     const settlementCount = await pool.query(
@@ -349,7 +349,7 @@ test('PostgreSQL settles a pending resource observation only after delayed attri
       [fixture.budgetId],
     )
     assert.deepEqual(afterProof.rows[0], {
-      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '70', bandwidth_spent: '25',
     })
     const settlement = await pool.query(
       'SELECT status FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1',
@@ -492,7 +492,7 @@ test('PostgreSQL rejects conflicting cost evidence without erasing a prior settl
     assert.equal(first.status, 'settled')
 
     await pool.query(
-      'UPDATE trc20_token_clone.sponsor_chain_cost_observations SET energy_usage_total = 76 WHERE idempotency_key = $1',
+      'UPDATE trc20_token_clone.sponsor_chain_cost_observations SET energy_usage_total = 76, energy_usage = 71 WHERE idempotency_key = $1',
       [fixture.idempotencyKey],
     )
     const conflict = await recordSponsorResourceCostSettlementObservation({
@@ -516,14 +516,14 @@ test('PostgreSQL rejects conflicting cost evidence without erasing a prior settl
       [fixture.budgetId],
     )
     assert.deepEqual(budget.rows[0], {
-      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '70', bandwidth_spent: '25',
     })
     const settlement = await pool.query(
       `SELECT status, energy_used_units::text AS energy_used
          FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1`,
       [fixture.idempotencyKey],
     )
-    assert.deepEqual(settlement.rows[0], { status: 'settled', energy_used: '75' })
+    assert.deepEqual(settlement.rows[0], { status: 'settled', energy_used: '70' })
     const conflictAudit = await pool.query(
       `SELECT details FROM trc20_token_clone.audit_events
         WHERE entity_reference = $1 AND event_type = 'sponsor-resource-cost-evidence-conflict'`,
@@ -549,7 +549,7 @@ test('PostgreSQL sends resource use above the reservation to manual review witho
     assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
     fixture = await seedFixture(pool)
     await pool.query(
-      'UPDATE trc20_token_clone.sponsor_chain_cost_observations SET energy_usage_total = 101 WHERE idempotency_key = $1',
+      'UPDATE trc20_token_clone.sponsor_chain_cost_observations SET energy_usage_total = 106, energy_usage = 101 WHERE idempotency_key = $1',
       [fixture.idempotencyKey],
     )
 
