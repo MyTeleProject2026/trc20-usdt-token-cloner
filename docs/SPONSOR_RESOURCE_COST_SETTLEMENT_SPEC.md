@@ -1,0 +1,73 @@
+# Sponsor resource-cost settlement — implementation specification
+
+**Status: design/acceptance contract only. No transfer or fee budget is enabled by this document.**
+
+## Why this work is required
+
+The existing Shasta/Nile sponsor path separates the asset-principal wallet from the fee/resource sponsor, validates a sponsor-owned wallet signature, checks delegated resource capacity before broadcast, and verifies the eventual transfer from solidified chain state.
+
+The remaining gap is accounting: `observe-chain-costs` records the finalized receipt's `reportedFeeSun`, `energyFeeSun`, `netFeeSun`, `energyUsageTotal`, `energyUsage`, `netUsage`, and `energyPenaltyTotal`, but deliberately returns `sponsorFeeBudgetSettled: false`. A receipt fee observation is not proof that the fee sponsor was debited. When delegated Energy/Bandwidth pays for execution, the transaction's resource consumption is attributable to the delegated resource pool, not necessarily a TRX debit from the delegator.
+
+Do not relabel the current observation as a settled TRX fee.
+
+## Required accounting model
+
+The fee sponsor provides two distinct things that must not be conflated:
+
+1. **TRX fee funding:** TRX actually burned by the transaction owner when resources are insufficient. This is not acceptable under the current external-sponsor-only policy if it causes the asset-principal wallet (or end user) to pay.
+2. **Delegated resource capacity:** Energy and Bandwidth made available to the asset-principal account by the fee sponsor's active delegation. A transaction can consume these resources without a corresponding TRX debit from the fee sponsor.
+
+For the current delegated-resource architecture, settle the fee sponsor's ledger in resource units (Energy and Bandwidth) against a separately approved resource allowance. Do not deduct `reportedFeeSun` from a TRX budget and call it sponsor-paid unless independent evidence proves that exact TRX debit was made by the fee sponsor.
+
+## Preconditions before settlement can be implemented
+
+- Persist a versioned fee-sponsor mandate that specifies network, fee sponsor address, asset-principal address, resource types, maximum Energy units, maximum Bandwidth units, validity window, per-transfer ceiling, aggregate ceiling, and stop authority.
+- Require the mandate to match the exact active delegation pair and the approved transfer's network and reservation.
+- Keep the current no-user-funded-fallback policy. For the selected transfer, require receipt evidence to show no unexpected TRX fee burn from the asset-principal account. If `energy_fee` or `net_fee` is non-zero, do not mark the delegated-resource budget as fully sponsor-covered; classify the outcome for manual review and preserve the principal reservation.
+- Use only the stored transaction ID and independently fetched SolidityNode transaction body/receipt. Never accept caller-supplied fee or resource values.
+- Validate the exact solidified sender, receiver, asset, token contract, amount, block, execution result, and receipt before any settlement write.
+- Reconcile the transaction's receipt-level Energy/Bandwidth consumption against the exact approved delegation scope. The settlement record must retain the raw resource units and the source block/transaction identity.
+- Make settlement idempotent on (network, transaction ID, sponsor role, resource type). Conflicting evidence for the same key must fail closed and create an audit event.
+- Do not infer the fee sponsor's remaining delegated capacity solely from the recipient's aggregate account-resource counters. Re-read the exact solidified delegation pair and account resources after the transaction; account for concurrent use and recovery windows. If the protocol/provider cannot attribute a reliable post-transaction balance to the exact delegation, record the receipt observation only and leave settlement pending.
+- A failed, reverted, expired, ambiguous, or not-yet-solidified transaction must not settle the resource budget or release a reservation based on UI state.
+
+## Proposed persistence contract
+
+Add an append-only `sponsor_resource_cost_settlements` ledger with:
+
+- network, transaction ID, idempotency key, and solidified block number;
+- fee sponsor and asset-principal addresses;
+- resource type (`ENERGY` or `BANDWIDTH`) and receipt units consumed;
+- approved mandate/reference and budget ID;
+- evidence source and observation timestamp;
+- settlement state (`settled`, `pending-evidence`, `manual-review`, or `conflict`);
+- immutable audit metadata.
+
+Use a database transaction and row/advisory locks to ensure the transfer reservation and resource budget cannot be settled twice or exceed their approved ceilings. Never silently overwrite an existing settlement. Preserve raw receipt observations separately from the derived settlement decision.
+
+Do not store a private key, seed phrase, TronLink session secret, provider credential, or admin bearer token in this ledger.
+
+## Acceptance tests required
+
+1. Exact solidified TRX transfer with matching receipt and zero unexpected fee burn settles only the approved delegated resource budget.
+2. Exact solidified TRC-20 transfer with matching Transfer event, successful receipt, and zero unexpected fee burn settles only the approved delegated resource budget.
+3. Non-zero `energy_fee` or `net_fee` is not reported as fully sponsor-funded; it enters manual review and cannot charge the user or receiver.
+4. Missing receipt fields, non-solidified transaction, mismatched block/txid, wrong sender/receiver/token/amount, or unsupported network does not settle.
+5. Duplicate reconciliation is idempotent and cannot debit twice.
+6. Conflicting receipt evidence for the same transaction is rejected and audited.
+7. Concurrent settlements cannot exceed per-transfer or aggregate Energy/Bandwidth ceilings.
+8. A pause/revocation of the sponsor mandate blocks new reservations and signing; it does not rewrite historical settlements.
+9. Resource recovery/undelegation and concurrent recipient transactions do not cause the system to overstate remaining sponsor capacity.
+10. Mainnet and user-funded fallback remain disabled in every test.
+
+## Release gate
+
+This work must remain separate from Mainnet. The existing testnet signing/broadcast flag must not be enabled merely because this ledger exists. A real Nile/Shasta pilot still requires sponsor ownership and written mandate review, two distinct funded sponsor roles, an independently verified delegation, an authorized wallet signature, a real broadcast, solidified transaction/receipt/event evidence, receiver balance re-read, and independently reviewed resource settlement.
+
+## Protocol references
+
+- TRON account resource query and delegated-resource APIs: https://developers.tron.network/reference/account-resources
+- GetAccountResource fields and remaining-resource calculation: https://developers.tron.network/reference/getaccountresource
+- Stake 2.0 delegation constraints and resource ownership: https://developers.tron.network/docs/delegation
+- Bandwidth/Energy metering and resource payment order: https://developers.tron.network/docs/bandwidth-and-energy
+- Sign/broadcast and solidified receipt verification: https://developers.tron.network/docs/api-signature-and-broadcast-flow
