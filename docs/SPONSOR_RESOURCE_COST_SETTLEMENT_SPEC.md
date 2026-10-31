@@ -1,6 +1,6 @@
 # Sponsor resource-cost settlement — implementation specification
 
-**Status: design/acceptance contract only. No transfer or fee budget is enabled by this document.**
+**Status: runtime groundwork implemented on the draft PR; sponsored submission remains hard-disabled. No transfer or fee budget is enabled by this document.**
 
 ## Why this work is required
 
@@ -71,3 +71,17 @@ This work must remain separate from Mainnet. The existing testnet signing/broadc
 - Stake 2.0 delegation constraints and resource ownership: https://developers.tron.network/docs/delegation
 - Bandwidth/Energy metering and resource payment order: https://developers.tron.network/docs/bandwidth-and-energy
 - Sign/broadcast and solidified receipt verification: https://developers.tron.network/docs/api-signature-and-broadcast-flow
+
+
+## Runtime groundwork now present on the draft branch
+
+The branch now includes:
+- Separate PostgreSQL resource-mandate budgets, Energy/Bandwidth reservation rows, and append-only receipt resource observations.
+- Pending-review mandate creation and activation only when the exact mandate, network, fee sponsor, principal sponsor, resource ceilings, per-transfer limits and expiry are allowlisted in `SPONSOR_APPROVED_RESOURCE_MANDATES`.
+- Row-locked reservation against the exact pending Shasta/Nile asset-principal transfer and configured `SPONSOR_FEE_<NETWORK>_ADDRESS`.
+- Reservation expiry tied to the prepared transaction expiry. Only never-broadcast pending-review/authorized reservations are released by the expiry sweep.
+- Solidified receipt resource observations are recorded as `pending-evidence` or `manual-review`; they do not decrement the budget's spent counters.
+- An operator pause operation for a resource mandate.
+- A source-code gate on both signing-intent and signed-submit remains hard-coded closed.
+
+This is not the final settlement adapter. The current TRON account receipt exposes transaction-level Energy/Bandwidth usage, but the application must still independently prove that the observed consumption came from the exact fee sponsor's delegated resource allocation (including concurrent usage and resource-source attribution) before it may convert reserved units to spent units or release any remaining reservation. The gate must remain closed until that proof and its database transaction are implemented and tested.
