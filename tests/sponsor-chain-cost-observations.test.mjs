@@ -43,7 +43,7 @@ function createServerForTest(t, options = {}) {
     lookupTransfer: async () => transfer(),
     readChainCosts: async (value) => ({
       success: true, network: value.network, transactionHash: value.transactionHash,
-      blockNumber: 12, executionResult: 'SUCCESS', reportedFeeSun: '4200',
+      blockNumber: 12, blockTimestampMs: 1700000000000, executionResult: 'SUCCESS', reportedFeeSun: '4200',
       energyFeeSun: '2000', netFeeSun: '2200', energyUsageTotal: '0',
       energyUsage: null, netUsage: '220', energyPenaltyTotal: null,
     }),
@@ -151,7 +151,7 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
     }] },
   }
   const info = {
-    id: txid, blockNumber: 77, fee: 4200, result: 'SUCCESS',
+    id: txid, blockNumber: 77, blockTimeStamp: 1700000000000, fee: 4200, result: 'SUCCESS',
     receipt: { net_fee: 2200, energy_fee: 2000, energy_usage_total: 0, net_usage: 220 },
   }
   const result = await readSolidifiedSponsorChainCosts({
@@ -166,6 +166,7 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   assert.equal(result.success, true)
   assert.equal(result.reportedFeeSun, '4200')
   assert.equal(result.blockNumber, 77)
+  assert.equal(result.blockTimestampMs, 1700000000000)
   assert.equal(calls.length, 2)
   assert.ok(calls.every((call) => call.url.startsWith('https://tron-nile.gateway.tatum.io/')))
   assert.ok(calls.every((call) => call.options.headers['x-api-key'] === secret))
