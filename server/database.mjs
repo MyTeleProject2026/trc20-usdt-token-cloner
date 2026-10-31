@@ -521,7 +521,7 @@ export async function initializeDatabase() {
           status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused')),
           pause_reason TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
       `)
       await db.query(`
