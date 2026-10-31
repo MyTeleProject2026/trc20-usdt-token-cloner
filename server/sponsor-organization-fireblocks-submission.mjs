@@ -279,12 +279,18 @@ export async function refreshSponsorOrganizationFireblocksPayout({
   if (!store || typeof store.getFireblocksPayoutSubmission !== 'function'
     || typeof store.getPayoutIntentForPreflight !== 'function'
     || typeof store.recordFireblocksPayoutSubmission !== 'function') return fail('fireblocks-submission-store-unavailable')
+  if (typeof intentId !== 'string' || !/^[1-9][0-9]{0,17}$/.test(intentId)) return fail('invalid-fireblocks-submission-id')
   const current = await store.getFireblocksPayoutSubmission(intentId)
   if (!current?.success) return fail(current?.reason || 'fireblocks-submission-not-found')
-  const loaded = await store.getPayoutIntentForPreflight(intentId)
-  if (!loaded?.success || !loaded.intent || loaded.intent.intentDigest !== current.submission.intentDigest) {
+  if (current.submission.intentId !== intentId
+    || typeof current.submission.intentDigest !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(current.submission.intentDigest)
+    || current.submission.externalTxId !== 'tssponsor-' + intentId + '-' + current.submission.intentDigest.toLowerCase()) {
     return fail('payout-intent-no-longer-matches-provider-submission')
   }
+  // Status refresh remains available after the original 10-minute intent expiry.
+  // A provider submission keeps its budget reservations active for recovery.
+  const intent = { id: intentId, intentDigest: current.submission.intentDigest }
   const externalTxId = current.submission.externalTxId
   const provider = await createPrincipalClient(env, { fireblocksClientFactory, fetchImpl, readSecretFile })
   if (!provider.success) return fail(provider.reason)
@@ -303,7 +309,7 @@ export async function refreshSponsorOrganizationFireblocksPayout({
     return fail('fireblocks-provider-status-unavailable')
   }
   if (!transaction || typeof transaction !== 'object') return fail('invalid-fireblocks-transaction-response')
-  const saved = await recordProviderResult(store, loaded.intent, externalTxId, transaction)
+  const saved = await recordProviderResult(store, intent, externalTxId, transaction)
   if (!saved.success) return fail(saved.reason)
   return responseFor(saved)
 }
