@@ -448,7 +448,14 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             provider_observation_count INTEGER NOT NULL DEFAULT 0 CHECK (provider_observation_count >= 0),
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            CHECK (transaction_hash IS NULL OR transaction_hash ~ '^[0-9a-fA-F]{64}      })().catch((error) => { schemaPromise = null; throw error })
+            CHECK (transaction_hash IS NULL OR transaction_hash ~ '^[0-9a-fA-F]{64}$')
+          )
+        `)
+        await db.query(`
+          CREATE INDEX IF NOT EXISTS sponsor_org_fireblocks_submissions_status_idx
+          ON trc20_token_clone.sponsor_organization_fireblocks_submissions (status, updated_at)
+        `)
+      })().catch((error) => { schemaPromise = null; throw error })
     }
     await schemaPromise
   }
