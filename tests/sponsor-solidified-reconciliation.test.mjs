@@ -46,6 +46,7 @@ async function testServer(t, opts = {}) {
     confirmTransfer: async () => ({ updated: true, duplicate: false, status: 'confirmed' }),
     finalizeBroadcast: async () => ({ updated: true, status: 'submitted' }),
     readCosts: async () => ({ success: false, reason: 'test-cost-observation-omitted' }),
+    settleResourceCosts: async () => ({ success: false, reason: 'resource-reservation-not-found' }),
     ...opts,
   }))
   const server = createServer(app)
@@ -153,6 +154,33 @@ test('reconciliation stores token log index and does not confirm when evidence p
   assert.equal(response.status, 503)
   assert.equal(payload.error, 'database-not-configured')
   assert.deepEqual(order, ['persist'])
+})
+
+test('reconciliation reports resource budget settled only when the injected settlement adapter proves it', async (t) => {
+  const feeSponsor = 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH'
+  const base = await testServer(t, {
+    env: { ...env, SPONSOR_FEE_NILE_ADDRESS: feeSponsor },
+    readCosts: async () => ({
+      success: true, network: 'nile', transactionHash: txid, blockNumber: 100, executionResult: 'SUCCESS',
+      reportedFeeSun: '0', energyFeeSun: '0', netFeeSun: '0', energyUsageTotal: '100',
+      energyUsage: '90', originEnergyUsage: '10', netUsage: '4', energyPenaltyTotal: '0',
+    }),
+    persistCosts: async (item) => ({ success: true, duplicate: false, observation: item }),
+    settleResourceCosts: async (item) => {
+      assert.equal(item.idempotencyKey, key)
+      assert.equal(item.feeSponsorAddress, feeSponsor)
+      assert.equal(item.costs.feeSponsorAddress, feeSponsor)
+      return { success: true, settled: true, status: 'settled', directFeeSponsorTrxDebitVerified: false }
+    },
+  })
+  const response = await reconcile(base)
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.feeSponsorResourceBudgetSettled, true)
+  assert.equal(payload.resourceCostAllocationVerified, true)
+  assert.equal(payload.feeSponsorBudgetSettled, false)
+  assert.equal(payload.sponsorFeeBudgetSettled, false)
+  assert.equal(payload.feeSponsorDebitVerified, false)
 })
 
 test('reconciliation observes exact receipt costs but never marks separate fee sponsor budget settled', async (t) => {
