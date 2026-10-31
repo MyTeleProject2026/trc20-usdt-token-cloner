@@ -18,9 +18,9 @@ The resulting proof is combined with the post-transfer current source snapshot a
 
 ## Important evidence limitation
 
-This is a **provider-backed historical scan, not a trustless proof**. It uses one authenticated Tatum SolidityNode response stream. The scanner checks block heights, parent links, and transaction raw-data hashes, but it does not independently reconstruct the block-header protobuf hash, verify the witness signature, or prove the returned transaction list against the block's `txTrieRoot` Merkle commitment. These fields remain trusted to the configured node/provider.
+This is a **two-provider historical cross-check, not a trustless proof**. Every scanned block is fetched from both Tatum and TRONGrid SolidityNode endpoints. The scanner requires matching block IDs, parent hashes, timestamps, and ordered transaction-ID lists; it also verifies each transaction's raw-data hash against its txID. It still does not independently reconstruct the block-header protobuf hash, verify witness signatures, or prove transaction inclusion against the block's `txTrieRoot` Merkle commitment. Matching API responses from two providers reduce single-provider risk but do not replace cryptographic verification or independent node operation.
 
-For that reason, the code records the trust model explicitly and this adapter is not sufficient by itself for Mainnet release. Before any real-value sponsor settlement gate is opened, add an independently operated second-node comparison or full cryptographic block/transaction inclusion verification, review the supported stake-changing contract set against the active java-tron protocol, and perform a funded testnet pilot under independent review.
+For that reason, the code records the trust model explicitly and this adapter is not sufficient by itself for Mainnet release. Before any real-value sponsor settlement gate is opened, add full cryptographic block-header and transaction-inclusion verification (or independently operate and control both node sources), review the supported stake-changing contract set against the active java-tron protocol, and perform a funded testnet pilot under independent review.
 
 ## Protocol and API behavior
 
@@ -35,7 +35,7 @@ Official references:
 
 ## Remaining work and release boundary
 
-- Add a second independent solidified-node source or implement cryptographic header and transaction-Merkle inclusion verification.
+- Implement cryptographic header and transaction-Merkle inclusion verification, or operate and control the independent block providers rather than relying only on two managed API services.
 - Review and extend resource-change scanning for any newly introduced stake/delegation contract types before upgrades.
 - Add a production database migration, backup and restore rehearsal.
 - Run independently supervised Nile/Shasta sponsored transfers with externally funded fee and asset-principal roles, then reconcile the receiver and resource use.
