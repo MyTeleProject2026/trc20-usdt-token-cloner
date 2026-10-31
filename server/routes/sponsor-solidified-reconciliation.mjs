@@ -10,6 +10,7 @@ import {
 import { isValidTronAddress } from '../tron-address.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 import { readSolidifiedSponsorChainCosts } from './sponsor-chain-cost-observations.mjs'
+import { verifySponsorFeeResourceCapacity } from '../sponsor-tron-submission.mjs'
 
 const HOSTS = Object.freeze({
   nile: 'https://tron-nile.gateway.tatum.io',
@@ -246,9 +247,17 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
             if (stored?.success === true) {
+              const attributionEvidence = transfer.preparedTransaction
+                ? await verifySponsorFeeResourceCapacity({
+                    transfer,
+                    transaction: transfer.preparedTransaction,
+                    env,
+                  })
+                : null
               const resourceObservation = await recordSponsorResourceCostSettlementObservation({
                 idempotencyKey: key,
                 transactionHash: transfer.transactionHash.toLowerCase(),
+                attributionEvidence,
               })
               costs = {
                 status: 'solidified-costs-observed-not-settled',
