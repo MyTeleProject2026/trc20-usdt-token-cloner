@@ -14,9 +14,8 @@ On the Render backend, keep the following values server-side:
 - `FIREBLOCKS_VAULT_ACCOUNT_ID`, `FIREBLOCKS_USDT_ASSET_ID`, `FIREBLOCKS_TRX_ASSET_ID`: exact identifiers from the authorized workspace.
 - `TREASURY_ADDRESS`: the public TRON address assigned to the two assets.
 - `DATABASE_URL`: existing PostgreSQL connection string.
-- `FIREBLOCKS_SYNC_TRIGGER_TOKEN`: a randomly generated bearer token of at least 32 characters, used only to authorize this read-only workflow trigger.
 
-Create a GitHub Actions Environment named `fireblocks-readonly-sync` and add an environment secret with the same name, `FIREBLOCKS_SYNC_TRIGGER_TOKEN`, using the exact same value as Render. Do not put the Fireblocks API key or RSA key in GitHub Actions secrets for this workflow. The workflow runner only calls the backend and never receives Fireblocks credentials.
+Create a GitHub Actions Environment named `fireblocks-readonly-sync`. Configure required reviewer approval on this Environment when repository settings permit it. No long-lived workflow trigger secret is needed: the job requests a short-lived GitHub Actions OIDC token and the backend validates its signature, issuer, custom audience, repository and owner IDs, `main` ref, exact workflow file, `workflow_dispatch` event, Environment name, run ID, attempt, and commit SHA. The backend does not need an additional OIDC secret or new environment variable. Do not put the Fireblocks API key or RSA key in GitHub Actions secrets; the runner never receives Fireblocks credentials.
 
 The API user should have only the read permissions needed for vault account, asset metadata, balances, and asset-address reads. It does not need transaction creation, signing, or approval permissions.
 
@@ -38,6 +37,6 @@ The workflow uploads the `fireblocks-inventory-config` artifact, containing `fir
 
 ## Secret handling and limitations
 
-The artifact intentionally excludes `FIREBLOCKS_API_KEY`, the RSA private key, database credentials, JWTs, and wallet private keys. Those values must remain in Render's secret store. A portable EXE containing those credentials would be extractable and unsafe; a sanitized ZIP plus non-secret environment file is the correct export format. The `.env` file is not a replacement for the backend's secret-file mount or database connection.
+The artifact intentionally excludes `FIREBLOCKS_API_KEY`, the RSA private key, database credentials, GitHub OIDC tokens, Fireblocks JWTs, and wallet private keys. Those values must remain in Render's secret store. A portable EXE containing those credentials would be extractable and unsafe; a sanitized ZIP plus non-secret environment file is the correct export format. The `.env` file is not a replacement for the backend's secret-file mount or database connection.
 
 This is inventory verification only. It does not create or approve vaults, change Fireblocks policies, fund assets, enable payouts, sign transactions, or submit transfers. The existing hard-coded real-value payout execution lock remains unchanged, and both payout feature flags are exported as `false`.
