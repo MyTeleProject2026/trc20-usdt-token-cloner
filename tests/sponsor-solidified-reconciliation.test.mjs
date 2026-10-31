@@ -160,7 +160,7 @@ test('reconciliation observes exact receipt costs but never marks separate fee s
   const base = await testServer(t, {
     env: { ...env, SPONSOR_FEE_NILE_ADDRESS: feeSponsor },
     readCosts: async () => ({
-      success: true, network: 'nile', transactionHash: txid, blockNumber: 100, executionResult: 'SUCCESS',
+      success: true, network: 'nile', transactionHash: txid, blockNumber: 100, blockTimestampMs: 1700000000000, executionResult: 'SUCCESS',
       reportedFeeSun: '15', energyFeeSun: '10', netFeeSun: '5', energyUsageTotal: '100',
       energyUsage: '90', netUsage: '4', energyPenaltyTotal: '10',
     }),
