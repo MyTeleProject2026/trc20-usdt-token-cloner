@@ -42,6 +42,14 @@ function blockIdentity(block, expectedNumber) {
   return { number, timestamp, blockId, parentHash }
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]))
+  }
+  return value
+}
+
 function transactionIdentity(transaction) {
   const txId = typeof transaction?.txID === 'string' ? transaction.txID.toLowerCase() : ''
   const rawDataHex = typeof transaction?.raw_data_hex === 'string' ? transaction.raw_data_hex : ''
@@ -186,6 +194,14 @@ export function createSponsorDelegationHistoryVerifier({
         if (primaryIds.some((id) => !id) || secondaryIds.some((id) => !id)
           || primaryIds.length !== secondaryIds.length
           || primaryIds.some((id, index) => id !== secondaryIds[index])) return null
+        const transactionPayloadsMatch = primary.transactions.every((transaction, index) => {
+          const secondaryTransaction = secondary.transactions[index]
+          return typeof transaction.raw_data_hex === 'string'
+            && typeof secondaryTransaction.raw_data_hex === 'string'
+            && transaction.raw_data_hex.toLowerCase() === secondaryTransaction.raw_data_hex.toLowerCase()
+            && JSON.stringify(canonicalJson(transaction.raw_data)) === JSON.stringify(canonicalJson(secondaryTransaction.raw_data))
+        })
+        if (!transactionPayloadsMatch) return null
         return { identity: primaryIdentity, transactionIds: primaryIds }
       }
 
