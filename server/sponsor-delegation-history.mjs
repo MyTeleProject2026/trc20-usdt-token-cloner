@@ -227,6 +227,10 @@ export function createSponsorDelegationHistoryVerifier({
         const comparison = compareProviderBlocks(block, secondaryBlock, height)
         const identity = comparison?.identity
         if (!identity) {
+          if (Array.isArray(block?.transactions)
+            && block.transactions.some((transaction) => !transactionIdentity(transaction))) {
+            return fail('historical-delegation-transaction-id-invalid', { blockNumber: height })
+          }
           return fail('historical-delegation-secondary-provider-disagreement', { failedBlockNumber: height })
         }
         if (identity.parentHash !== previous.blockId || identity.timestamp <= previous.timestamp) {
