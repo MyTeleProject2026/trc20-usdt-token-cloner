@@ -155,12 +155,15 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   const delegation = roleResult?.feeSponsorDelegationToPrincipal
   const activeEnergy = delegation?.activeEnergyStakeSun
   const activeBandwidth = delegation?.activeBandwidthStakeSun
+  // The supported USDT pilot needs both delegated Energy and Bandwidth.
+  // A positive reading for only one resource must never be treated as a complete delegation.
   const delegationObserved = delegation?.success === true
-    && (positiveInteger(activeEnergy) || positiveInteger(activeBandwidth))
+    && positiveInteger(activeEnergy) && positiveInteger(activeBandwidth)
 
   const allowlists = Object.fromEntries(Object.entries(TOKEN_ALLOWLIST_ENV[network]).map(([asset, key]) => [
     asset, tokenAllowlistConfigured(env, key),
   ]))
+  const usdtAllowlistConfigured = allowlists.USDT === true
   const blockers = []
   if (head?.success !== true) blockers.push(`testnet-node-${head?.status || 'unavailable'}`)
   if (!feeConfigured) blockers.push('fee-sponsor-address-not-configured')
@@ -169,7 +172,8 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   if (!feeChainRead) blockers.push('fee-sponsor-on-chain-balance-not-verified')
   if (!assetChainRead) blockers.push('asset-principal-on-chain-balance-not-verified')
   if (!resourceRead) blockers.push('fee-sponsor-resource-capacity-not-verified')
-  if (!delegationObserved) blockers.push('active-fee-to-principal-resource-delegation-not-verified')
+  if (!delegationObserved) blockers.push('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified')
+  if (!usdtAllowlistConfigured) blockers.push('usdt-token-contract-allowlist-not-configured')
   if (!env.DATABASE_URL?.trim()) blockers.push('project-database-not-configured')
   if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
     blockers.push('sponsor-admin-token-not-configured')
@@ -183,7 +187,8 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   return {
     network,
     preflightStatus: head?.success === true && feeConfigured && assetConfigured
-      && rolesDistinct && feeChainRead && assetChainRead && resourceRead && delegationObserved
+      && rolesDistinct && feeChainRead && assetChainRead && resourceRead
+      && delegationObserved && usdtAllowlistConfigured
       ? 'live-chain-preflight-passed-review-required'
       : 'blocked-by-live-or-configuration-prerequisites',
     networkNode: head?.success === true
