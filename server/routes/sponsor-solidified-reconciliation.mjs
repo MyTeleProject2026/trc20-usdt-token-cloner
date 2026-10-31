@@ -257,7 +257,7 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               executionResult: 'SUCCESS', reportedFeeSun: observed.reportedFeeSun,
               energyFeeSun: observed.energyFeeSun, netFeeSun: observed.netFeeSun,
               energyUsageTotal: observed.energyUsageTotal, energyUsage: observed.energyUsage,
-              netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
+              originEnergyUsage: observed.originEnergyUsage, netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
             if (stored?.success === true) {
               const currentSourceEvidence = await verifyCurrentSource(transfer)
