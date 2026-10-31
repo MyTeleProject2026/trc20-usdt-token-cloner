@@ -76,6 +76,13 @@ export function findApprovedSponsorResourceMandate({
 export function evaluateSponsorResourceCostSettlement({ transfer, costs, reservation } = {}) {
   const manual = (reason) => ({ settled: false, status: 'manual-review', reason })
   if (!transfer || !costs || !reservation) return manual('settlement-input-missing')
+  if (!['TRX', 'USDT'].includes(transfer.asset)
+    || !ADDRESS.test(String(transfer.receiverAddress || ''))
+    || !/^[1-9][0-9]{0,77}$/.test(String(transfer.amountBaseUnits || ''))
+    || (transfer.asset === 'TRX' && transfer.tokenContract != null)
+    || (transfer.asset === 'USDT' && !ADDRESS.test(String(transfer.tokenContract || '')))) {
+    return manual('unsupported-or-incomplete-transfer-asset-identity')
+  }
   if (!NETWORKS.has(transfer.network)
     || costs.network !== transfer.network
     || String(costs.transactionHash || '').toLowerCase() !== String(transfer.transactionHash || '').toLowerCase()
