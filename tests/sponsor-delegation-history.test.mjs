@@ -161,14 +161,20 @@ test('solidified history replay rejects block and transaction-list disagreement 
 test('solidified history replay rejects decoded contract payload disagreement between providers', async () => {
   const primary = standardBlocks()
   const secondary = standardBlocks()
+  primary[101] = { ...primary[101], transactions: [transferTx] }
   secondary[101] = {
     ...secondary[101],
-    transactions: [tx('same-byte-identity', [{
-      type: 'DelegateResourceContract',
-      parameter: { value: {
-        owner_address: feeHex, receiver_address: receiverHex, resource: 'ENERGY', balance: 1,
-      } },
-    }])],
+    transactions: [{
+      ...transferTx,
+      raw_data: {
+        contract: [{
+          type: 'DelegateResourceContract',
+          parameter: { value: {
+            owner_address: feeHex, receiver_address: receiverHex, resource: 'ENERGY', balance: 1,
+          } },
+        }],
+      },
+    }],
   }
   const { verifier } = verifierFor({ blocks: primary, secondaryBlocks: secondary })
   const result = await run(verifier)
