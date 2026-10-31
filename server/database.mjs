@@ -515,6 +515,8 @@ export async function initializeDatabase() {
           status TEXT NOT NULL DEFAULT 'reserved'
             CHECK (status IN ('reserved','pending-evidence','settled','manual-review','released')),
           expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '15 minutes'),
+          preflight_evidence JSONB,
+          preflight_checked_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           CHECK (energy_reserved_units > 0 OR bandwidth_reserved_units > 0)
@@ -541,6 +543,8 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.sponsor_resource_cost_settlements ADD COLUMN IF NOT EXISTS reported_fee_sun NUMERIC(78,0)`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_evidence JSONB`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_checked_at TIMESTAMPTZ`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_pair
         ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address, status)`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_budget
@@ -3776,5 +3780,109 @@ export async function listSponsorResourceBudgets({ network = null, limit = 50 } 
   } catch (error) {
     console.error('Sponsor resource budget list failed:', error?.code || 'unknown')
     return { success: false, reason: 'database-unavailable', budgets: [] }
+  }
+}
+
+
+/**
+ * Persists the exact server-derived delegation/source snapshot used for sponsor
+ * fee coverage. A later preflight may refresh it only if the delegation identity
+ * and source profile are unchanged.
+ */
+export async function recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence } = {}) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+    || evidence.success !== true || evidence.feeSponsorResourceSourceVerified !== true
+    || !['nile','shasta'].includes(evidence.network)
+    || !isValidTronAddress(evidence.sponsorAddress) || !isValidTronAddress(evidence.feeSponsorAddress)
+    || typeof evidence.checkedAt !== 'string' || !Number.isFinite(new Date(evidence.checkedAt).getTime())
+    || !evidence.delegationSnapshot || typeof evidence.delegationSnapshot !== 'object') {
+    return { success: false, reason: 'invalid-resource-preflight-evidence' }
+  }
+  const snapshot = evidence.delegationSnapshot
+  const uint = value => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (snapshot.feeSponsorAddress !== evidence.feeSponsorAddress
+    || snapshot.assetPrincipalAddress !== evidence.sponsorAddress
+    || !uint(snapshot.energyStakeSun) || !uint(snapshot.bandwidthStakeSun)
+    || !uint(snapshot.ownEnergySun) || !uint(snapshot.incomingEnergyLegacySun)
+    || !uint(snapshot.incomingEnergyV2Sun) || !uint(snapshot.ownBandwidthSun)
+    || !uint(snapshot.incomingBandwidthLegacySun) || !uint(snapshot.incomingBandwidthV2Sun)
+    || !Number.isSafeInteger(snapshot.energyExpiry) || snapshot.energyExpiry < 0
+    || !Number.isSafeInteger(snapshot.bandwidthExpiry) || snapshot.bandwidthExpiry < 0
+    || evidence.bandwidthCoverageSource !== 'exact-active-fee-sponsor-delegation-only'
+    || (evidence.energyCoverageSource !== undefined && evidence.energyCoverageSource !== 'exact-active-fee-sponsor-delegation-only')
+    || evidence.freeBandwidthUsedAsSponsorCoverage !== false) {
+    return { success: false, reason: 'resource-preflight-source-profile-invalid' }
+  }
+  const safeEvidence = {
+    network: evidence.network,
+    sponsorAddress: evidence.sponsorAddress,
+    feeSponsorAddress: evidence.feeSponsorAddress,
+    feeSponsorResourceSourceVerified: true,
+    bandwidthCoverageSource: evidence.bandwidthCoverageSource,
+    energyCoverageSource: evidence.energyCoverageSource || null,
+    freeBandwidthUsedAsSponsorCoverage: false,
+    delegationSnapshot: snapshot,
+    checkedAt: new Date(evidence.checkedAt).toISOString(),
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT r.status AS reservation_status, r.preflight_evidence,
+                b.status AS budget_status, b.network, b.fee_sponsor_address,
+                b.asset_principal_address, t.sponsor_address
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+           JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+          WHERE r.idempotency_key = $1
+          FOR UPDATE OF r, b`,
+        [idempotencyKey],
+      )
+      if (!found.rows.length) { await client.query('ROLLBACK'); return { success: false, reason: 'resource-reservation-not-found' } }
+      const row = found.rows[0]
+      if (row.reservation_status !== 'reserved' || row.budget_status !== 'active'
+        || row.network !== evidence.network || row.fee_sponsor_address !== evidence.feeSponsorAddress
+        || row.asset_principal_address !== evidence.sponsorAddress || row.sponsor_address !== evidence.sponsorAddress) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-preflight-mandate-mismatch' }
+      }
+      if (row.preflight_evidence) {
+        const previous = row.preflight_evidence
+        if (JSON.stringify(previous.delegationSnapshot) !== JSON.stringify(safeEvidence.delegationSnapshot)
+          || previous.network !== safeEvidence.network
+          || previous.sponsorAddress !== safeEvidence.sponsorAddress
+          || previous.feeSponsorAddress !== safeEvidence.feeSponsorAddress
+          || previous.bandwidthCoverageSource !== safeEvidence.bandwidthCoverageSource
+          || previous.energyCoverageSource !== safeEvidence.energyCoverageSource) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'resource-delegation-changed-since-reservation' }
+        }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_reservations
+            SET preflight_evidence = $2::jsonb, preflight_checked_at = now(), updated_at = now()
+          WHERE idempotency_key = $1 AND status = 'reserved'`,
+        [idempotencyKey, JSON.stringify(safeEvidence)],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-preflight-evidence-recorded','sponsor-resource-reservation',$1,$2::jsonb)`,
+        [idempotencyKey, JSON.stringify({ network: safeEvidence.network, feeSponsorAddress: safeEvidence.feeSponsorAddress, sponsorAddress: safeEvidence.sponsorAddress, checkedAt: safeEvidence.checkedAt })],
+      )
+      await client.query('COMMIT')
+      return { success: true, status: 'resource-preflight-evidence-recorded', checkedAt: safeEvidence.checkedAt }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource preflight evidence persistence failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource preflight evidence initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
   }
 }
