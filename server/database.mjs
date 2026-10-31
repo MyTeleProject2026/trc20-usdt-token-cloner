@@ -3515,7 +3515,9 @@ export async function settleSponsorResourceBudgetForTransfer({
       }
 
       const observation = await client.query(
-        `SELECT block_number::text AS block_number, reported_fee_sun::text AS reported_fee_sun,
+        `SELECT sponsor_reference, receiver_address, asset, token_contract,
+                amount_base_units::text AS amount_base_units,
+                block_number::text AS block_number, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
                 energy_usage_total::text AS energy_usage_total,
                 energy_usage::text AS energy_usage, origin_energy_usage::text AS origin_energy_usage,
@@ -3534,7 +3536,12 @@ export async function settleSponsorResourceBudgetForTransfer({
       const sameOptionalInteger = (stored, supplied) => stored === null || stored === undefined
         ? supplied === null || supplied === undefined
         : String(stored) === String(supplied)
-      const observationMatches = sameOptionalInteger(storedCosts.reported_fee_sun, costs.reportedFeeSun)
+      const observationMatches = storedCosts.sponsor_reference === row.sponsor_reference
+        && storedCosts.receiver_address === row.receiver_address
+        && storedCosts.asset === row.asset
+        && (storedCosts.token_contract ?? null) === (row.token_contract ?? null)
+        && storedCosts.amount_base_units === String(row.amount_base_units)
+        && sameOptionalInteger(storedCosts.reported_fee_sun, costs.reportedFeeSun)
         && sameOptionalInteger(storedCosts.energy_fee_sun, costs.energyFeeSun)
         && sameOptionalInteger(storedCosts.net_fee_sun, costs.netFeeSun)
         && sameOptionalInteger(storedCosts.energy_usage_total, costs.energyUsageTotal)
