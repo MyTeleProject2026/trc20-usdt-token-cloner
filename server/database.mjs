@@ -132,12 +132,10 @@ export async function initializeDatabase() {
         CREATE OR REPLACE FUNCTION ${schema}.reject_fireblocks_inventory_snapshot_mutation()
         RETURNS trigger
         LANGUAGE plpgsql
-        AS $
-        BEGIN
-          RAISE EXCEPTION 'fireblocks inventory snapshots are immutable';
+        AS 'BEGIN
+          RAISE EXCEPTION ''fireblocks inventory snapshots are immutable'';
           RETURN NULL;
-        END;
-        $;
+        END;';
       `)
       await db.query(`
         DROP TRIGGER IF EXISTS fireblocks_inventory_snapshots_immutable
