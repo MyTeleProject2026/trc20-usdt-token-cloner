@@ -262,3 +262,14 @@ test('inventory result cannot be verified without database configuration', async
 function envSecretMarker() {
   return 'test-api-key-not-real'
 }
+
+test('manual inventory workflow uses OIDC and carries no shared trigger secret', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const workflow = await readFile(new URL('../.github/workflows/fireblocks-inventory-sync.yml', import.meta.url), 'utf8')
+  assert.match(workflow, /id-token: write/)
+  assert.match(workflow, /environment: fireblocks-readonly-sync/)
+  assert.match(workflow, /audience=tron-token-studio-fireblocks-inventory/)
+  assert.doesNotMatch(workflow, /FIREBLOCKS_SYNC_TRIGGER_TOKEN/)
+  assert.doesNotMatch(workflow, /secrets\.FIREBLOCKS_SYNC/)
+})
+
