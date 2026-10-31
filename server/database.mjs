@@ -603,7 +603,6 @@ export async function initializeDatabase() {
         'TRC20 Token Clone project only: operator-allowlisted Energy/Bandwidth allowance caps for an exact fee-sponsor to asset-principal delegation pair. Units are resources, not TRX.'`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_resource_reservations IS
         'TRC20 Token Clone project only: idempotent resource-unit reservations and solidified receipt settlement. A settled resource budget is not a verified TRX debit.'`)
-        'TRC20 Token Clone project only: idempotent resource-unit reservations and solidified receipt settlement. A settled resource budget is not a verified TRX debit.'`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_provider_applications (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -3540,9 +3539,12 @@ export async function settleSponsorResourceBudgetForTransfer({
         return { success: false, reason: 'resource-reservation-not-found' }
       }
       const reservation = reservationResult.rows[0]
+      const transferTxId = String(row.transaction_hash || '').trim().toLowerCase()
+      const resourceTxId = String(reservation.transaction_hash || '').trim().toLowerCase()
       if (reservation.fee_sponsor_address !== feeSponsorAddress
         || reservation.asset_principal_address !== row.sponsor_address
         || reservation.network !== row.network
+        || !transferTxId || resourceTxId !== transferTxId
         || String(costs.blockNumber) === '' || !Number.isSafeInteger(costs.blockNumber)) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'resource-reservation-identity-mismatch' }
@@ -3599,7 +3601,7 @@ export async function settleSponsorResourceBudgetForTransfer({
         reservation: {
           idempotencyKey,
           network: reservation.network,
-          transactionHash: String(row.transaction_hash).trim().toLowerCase(),
+          transactionHash: resourceTxId,
           feeSponsorAddress: reservation.fee_sponsor_address,
           assetPrincipalAddress: reservation.asset_principal_address,
           energyReservedUnits: reservation.energy_reserved_units,
