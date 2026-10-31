@@ -3719,7 +3719,7 @@ export async function getSponsorResourceReservationForTransfer(idempotencyKey) {
     const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + row.network.toUpperCase() + '_ADDRESS'] === 'string'
       ? process.env['SPONSOR_FEE_' + row.network.toUpperCase() + '_ADDRESS'].trim() : ''
     if (row.reservation_status !== 'reserved' || row.budget_status !== 'active'
-      || !['pending-review','authorized'].includes(row.transfer_status)
+      || !['pending-review','authorized','broadcasting'].includes(row.transfer_status)
       || new Date(row.expires_at).getTime() <= Date.now()
       || new Date(row.valid_until).getTime() <= Date.now()
       || row.asset_principal_address !== row.sponsor_address
