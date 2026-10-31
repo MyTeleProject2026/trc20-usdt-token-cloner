@@ -407,6 +407,117 @@ export async function validateSponsorSignedTransaction({
  * Broadcast an already-validated signed transaction to the fixed network node.
  * The response must explicitly confirm both acceptance and the expected txid.
  */
+/**
+ * Post-solidification source-only proof. It deliberately avoids token balance
+ * checks and contract simulation, which may fail after the principal transfer
+ * has already consumed the sender's token balance.
+ */
+export async function verifySponsorFeeResourceSource({
+  transfer,
+  env = process.env,
+  fetchImpl = tatumProviderFetch,
+  tronWebFactory,
+} = {}) {
+  const invalid = transferShape(transfer)
+  if (invalid) return fail(invalid)
+  let host, tronWeb
+  try { ({ host, tronWeb } = tronWebFor(transfer.network, tronWebFactory)) }
+  catch { return fail('unsupported-testnet') }
+  let senderHex
+  try { senderHex = addressHex(tronWeb, transfer.sponsorAddress) }
+  catch { return fail('invalid-sponsor-address') }
+  const feeSponsorAddress = env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS']
+  if (typeof feeSponsorAddress !== 'string' || !isValidTronAddress(feeSponsorAddress.trim())
+    || feeSponsorAddress.trim() === transfer.sponsorAddress) return fail('fee-sponsor-address-not-configured-or-mismatched')
+  const feeSponsorHex = addressHex(tronWeb, feeSponsorAddress.trim())
+  const postJson = async (path, body) => {
+    const response = await fetchImpl(`${host}${path}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}),
+      },
+      body: JSON.stringify(body),
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) throw Object.assign(new Error('resource-provider-http-error'), { providerStatus: response.status })
+    const payload = await response.json()
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) throw new Error('invalid-resource-provider-response')
+    return payload
+  }
+  try {
+    const principalAccount = await postJson('/walletsolidity/getaccount', { address: senderHex, visible: false })
+    if (canonicalAddressHex(tronWeb, principalAccount.address) !== senderHex) return fail('principal-sponsor-account-read-unverifiable')
+    const sourceProfile = sponsorResourceSourceProfile(principalAccount)
+    if (!sourceProfile) return fail('principal-sponsor-resource-sources-unverifiable')
+    const delegationResponse = await postJson('/walletsolidity/getdelegatedresourcev2', {
+      fromAddress: feeSponsorHex, toAddress: senderHex, visible: false,
+    })
+    const delegationRows = Array.isArray(delegationResponse.delegatedResource)
+      ? delegationResponse.delegatedResource
+      : (delegationResponse.from && delegationResponse.to ? [delegationResponse] : [])
+    const matches = delegationRows.filter(item =>
+      canonicalAddressHex(tronWeb, item?.from) === feeSponsorHex
+      && canonicalAddressHex(tronWeb, item?.to) === senderHex)
+    if (matches.length !== 1) return fail('fee-sponsor-resource-delegation-unverifiable')
+    const delegation = matches[0]
+    const bandwidthStakeSun = nonNegativeUint(delegation.frozen_balance_for_bandwidth)
+    const energyStakeSun = nonNegativeUint(delegation.frozen_balance_for_energy)
+    const bandwidthExpiry = Number(delegation.expire_time_for_bandwidth)
+    const energyExpiry = Number(delegation.expire_time_for_energy)
+    const now = Date.now()
+    if (bandwidthStakeSun === null || energyStakeSun === null
+      || !Number.isSafeInteger(bandwidthExpiry) || bandwidthExpiry < 0
+      || !Number.isSafeInteger(energyExpiry) || energyExpiry < 0
+      || bandwidthStakeSun < 1_000_000n
+      || (transfer.asset !== 'TRX' && energyStakeSun < 1_000_000n)
+      || (bandwidthExpiry !== 0 && bandwidthExpiry <= now)
+      || (transfer.asset !== 'TRX' && energyExpiry !== 0 && energyExpiry <= now)) {
+      return fail('fee-sponsor-resource-delegation-insufficient-or-expiring')
+    }
+    if (sourceProfile.ownBandwidthSun !== 0n
+      || sourceProfile.incomingBandwidthLegacySun !== 0n
+      || sourceProfile.incomingBandwidthV2Sun !== bandwidthStakeSun) {
+      return fail('fee-sponsor-only-bandwidth-source-required')
+    }
+    if (transfer.asset !== 'TRX' && (sourceProfile.ownEnergySun !== 0n
+      || sourceProfile.incomingEnergyLegacySun !== 0n
+      || sourceProfile.incomingEnergyV2Sun !== energyStakeSun)) {
+      return fail('fee-sponsor-only-energy-source-required')
+    }
+    return {
+      success: true,
+      network: transfer.network,
+      sponsorAddress: transfer.sponsorAddress,
+      feeSponsorAddress: feeSponsorAddress.trim(),
+      feeSponsorResourceSourceVerified: true,
+      checkedAt: new Date().toISOString(),
+      delegationSnapshot: {
+        feeSponsorAddress: feeSponsorAddress.trim(),
+        assetPrincipalAddress: transfer.sponsorAddress,
+        energyStakeSun: energyStakeSun.toString(),
+        bandwidthStakeSun: bandwidthStakeSun.toString(),
+        energyExpiry,
+        bandwidthExpiry,
+        ownEnergySun: sourceProfile.ownEnergySun.toString(),
+        incomingEnergyLegacySun: sourceProfile.incomingEnergyLegacySun.toString(),
+        incomingEnergyV2Sun: sourceProfile.incomingEnergyV2Sun.toString(),
+        ownBandwidthSun: sourceProfile.ownBandwidthSun.toString(),
+        incomingBandwidthLegacySun: sourceProfile.incomingBandwidthLegacySun.toString(),
+        incomingBandwidthV2Sun: sourceProfile.incomingBandwidthV2Sun.toString(),
+      },
+      bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      ...(transfer.asset !== 'TRX' ? { energyCoverageSource: 'exact-active-fee-sponsor-delegation-only' } : {}),
+      freeBandwidthUsedAsSponsorCoverage: false,
+    }
+  } catch (error) {
+    return fail(error?.message === 'resource-provider-http-error'
+      ? 'resource-provider-unavailable' : 'resource-source-verification-unavailable')
+  }
+}
+
 export async function broadcastValidatedSponsorTransaction({
   network,
   signedTransaction,
@@ -665,8 +776,6 @@ export async function verifySponsorFeeResourceCapacity({
     return {
       success: true,
       status: 'sponsor-resource-capacity-verified',
-      network: transfer.network,
-      sponsorAddress: transfer.sponsorAddress,
       availableEnergyUnits: availableEnergy.toString(),
       requiredEnergyUnits: requiredEnergy.toString(),
       availableBandwidthUnits: delegatedBandwidthAvailable.toString(),
