@@ -2321,6 +2321,290 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
     }
   }
 
+
+  async function getFireblocksPayoutSettlementContext(intentId) {
+    if (!validId(String(intentId))) return { success: false, reason: 'invalid-payout-intent-id' }
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        "SELECT i.id::text AS intent_id, i.intent_digest, i.network, i.asset, i.token_contract, " +
+        "i.receiver_address, i.amount_base_units::text AS amount_base_units, i.fee_cap_sun::text AS fee_cap_sun, " +
+        "i.principal_budget_id::text AS principal_budget_id, i.fee_budget_id::text AS fee_budget_id, " +
+        "i.principal_organization_id::text AS principal_organization_id, i.fee_organization_id::text AS fee_organization_id, " +
+        "i.principal_account_id::text AS principal_account_id, i.fee_account_id::text AS fee_account_id, " +
+        "i.principal_link_id::text AS principal_link_id, i.fee_link_id::text AS fee_link_id, " +
+        "i.principal_sponsor_address, i.fee_sponsor_address, i.status AS intent_status, " +
+        "s.status AS submission_status, s.external_tx_id, s.provider_transaction_id, " +
+        "s.provider_status, s.transaction_hash, s.chain_verification_status, " +
+        "s.chain_verification_reason, s.chain_verification_block_number::text AS chain_verification_block_number, " +
+        "s.observed_fee_sun::text AS observed_fee_sun, s.observed_energy_usage::text AS observed_energy_usage, " +
+        "s.observed_net_usage::text AS observed_net_usage, s.principal_settlement_status, " +
+        "s.fee_settlement_status, s.chain_verified_at " +
+        "FROM trc20_token_clone.sponsor_organization_fireblocks_submissions s " +
+        "JOIN trc20_token_clone.sponsor_organization_payout_intents i ON i.id = s.intent_id " +
+        "WHERE s.intent_id = $1::bigint",
+        [intentId],
+      )
+      const row = result.rows[0]
+      if (!row) return { success: false, reason: 'fireblocks-submission-not-found' }
+      const digest = row.intent_digest.trim().toLowerCase()
+      if (row.external_tx_id !== 'tssponsor-' + row.intent_id + '-' + digest
+        || !/^[0-9a-f]{64}$/.test(digest)) {
+        return { success: false, reason: 'fireblocks-settlement-intent-binding-invalid' }
+      }
+      return {
+        success: true,
+        context: {
+          intentId: row.intent_id,
+          intentDigest: digest,
+          network: row.network,
+          asset: row.asset,
+          tokenContract: row.token_contract,
+          receiverAddress: row.receiver_address,
+          amountBaseUnits: row.amount_base_units,
+          feeCapSun: row.fee_cap_sun,
+          principalBudgetId: row.principal_budget_id,
+          feeBudgetId: row.fee_budget_id,
+          principalOrganizationId: row.principal_organization_id,
+          feeOrganizationId: row.fee_organization_id,
+          principalAccountId: row.principal_account_id,
+          feeAccountId: row.fee_account_id,
+          principalLinkId: row.principal_link_id,
+          feeLinkId: row.fee_link_id,
+          principalSponsorAddress: row.principal_sponsor_address,
+          feeSponsorAddress: row.fee_sponsor_address,
+          intentStatus: row.intent_status,
+          submissionStatus: row.submission_status,
+          externalTxId: row.external_tx_id,
+          providerTransactionId: row.provider_transaction_id || null,
+          providerStatus: row.provider_status || null,
+          transactionHash: row.transaction_hash?.trim().toLowerCase() || null,
+          chainVerificationStatus: row.chain_verification_status,
+          chainVerificationReason: row.chain_verification_reason || null,
+          chainVerificationBlockNumber: row.chain_verification_block_number || null,
+          observedFeeSun: row.observed_fee_sun || null,
+          observedEnergyUsage: row.observed_energy_usage || null,
+          observedNetUsage: row.observed_net_usage || null,
+          principalSettlementStatus: row.principal_settlement_status,
+          feeSettlementStatus: row.fee_settlement_status,
+          chainVerifiedAt: row.chain_verified_at ? new Date(row.chain_verified_at).toISOString() : null,
+        },
+      }
+    } catch (error) {
+      console.error('Fireblocks payout settlement context read failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    }
+  }
+
+  /**
+   * Records a verifier-produced solidified receipt and settles only the asset
+   * principal. The network-fee/resource reservation intentionally remains held:
+   * delegated Energy/Bandwidth consumption needs separate provider-specific cost
+   * reconciliation and must not be inferred solely from transactionInfo.fee.
+   */
+  async function recordFireblocksPayoutChainVerification({
+    intentId, intentDigest, externalTxId, transactionHash, verificationStatus,
+    verificationReason, blockNumber, feeSun = null, energyUsage = null, netUsage = null,
+  } = {}) {
+    const validOptionalUnits = (value) => value === null
+      || (typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value))
+    if (!validId(String(intentId))
+      || typeof intentDigest !== 'string' || !/^[0-9a-f]{64}$/i.test(intentDigest)
+      || typeof externalTxId !== 'string' || !/^tssponsor-[1-9][0-9]{0,17}-[0-9a-f]{64}$/.test(externalTxId)
+      || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+      || !['confirmed', 'failed'].includes(verificationStatus)
+      || typeof verificationReason !== 'string' || !/^confirmed-solidified-[a-z0-9-]{8,120}$/.test(verificationReason)
+      || !Number.isSafeInteger(blockNumber) || blockNumber < 1
+      || !validOptionalUnits(feeSun) || !validOptionalUnits(energyUsage) || !validOptionalUnits(netUsage)) {
+      return { success: false, reason: 'invalid-fireblocks-chain-verification-result' }
+    }
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        const selected = await client.query(
+          "SELECT s.id::text AS submission_id, s.intent_digest, s.external_tx_id, s.status AS submission_status, " +
+          "s.transaction_hash, s.chain_verification_status, s.principal_settlement_status, s.fee_settlement_status, " +
+          "i.id::text AS intent_id, i.network, i.asset, i.token_contract, i.receiver_address, " +
+          "i.amount_base_units::text AS amount_base_units, i.fee_cap_sun::text AS fee_cap_sun, " +
+          "i.principal_budget_id::text AS principal_budget_id, i.fee_budget_id::text AS fee_budget_id, " +
+          "i.principal_organization_id::text AS principal_organization_id, i.fee_organization_id::text AS fee_organization_id, " +
+          "i.principal_account_id::text AS principal_account_id, i.fee_account_id::text AS fee_account_id, " +
+          "i.principal_link_id::text AS principal_link_id, i.fee_link_id::text AS fee_link_id, " +
+          "i.principal_sponsor_address, i.fee_sponsor_address " +
+          "FROM trc20_token_clone.sponsor_organization_fireblocks_submissions s " +
+          "JOIN trc20_token_clone.sponsor_organization_payout_intents i ON i.id = s.intent_id " +
+          "WHERE s.intent_id = $1::bigint FOR UPDATE OF s, i",
+          [intentId],
+        )
+        const intent = selected.rows[0]
+        if (!intent) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-submission-not-found' }
+        }
+        if (intent.intent_digest.trim().toLowerCase() !== intentDigest.toLowerCase()
+          || intent.external_tx_id !== externalTxId
+          || intent.external_tx_id !== 'tssponsor-' + intentId + '-' + intentDigest.toLowerCase()
+          || !intent.transaction_hash
+          || intent.transaction_hash.trim().toLowerCase() !== transactionHash.toLowerCase()) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-chain-evidence-binding-mismatch' }
+        }
+        if (intent.submission_status !== 'broadcast-accepted') {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-provider-transaction-hash-not-recorded' }
+        }
+        if (intent.chain_verification_status !== 'pending') {
+          if (intent.chain_verification_status === verificationStatus
+            && intent.principal_settlement_status === (verificationStatus === 'confirmed' ? 'settled' : 'released')) {
+            await client.query('COMMIT')
+            return {
+              success: true, duplicate: true, verificationStatus,
+              principalSettlementStatus: intent.principal_settlement_status,
+              feeSettlementStatus: intent.fee_settlement_status,
+              feeReservationRetained: true,
+            }
+          }
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-chain-settlement-already-recorded-or-conflicted' }
+        }
+
+        const links = await client.query(
+          "SELECT l.id::text AS link_id, l.budget_id::text AS budget_id, l.account_id::text AS account_id, " +
+          "l.organization_id::text AS organization_id, a.sponsor_reference AS account_reference, " +
+          "a.wallet_address, a.network AS account_network, a.role, " +
+          "b.sponsor_reference, b.sponsor_address, b.network AS budget_network, b.purpose, b.asset, b.token_contract, " +
+          "b.budget_base_units::text AS budget_base_units, b.reserved_base_units::text AS reserved_base_units, " +
+          "b.spent_base_units::text AS spent_base_units " +
+          "FROM trc20_token_clone.sponsor_organization_budget_links l " +
+          "JOIN trc20_token_clone.sponsor_organization_accounts a ON a.id = l.account_id " +
+          "JOIN trc20_token_clone.sponsor_budgets b ON b.id = l.budget_id " +
+          "WHERE (l.id = $1::bigint AND l.organization_id = $2::bigint AND l.account_id = $3::bigint AND l.budget_id = $4::bigint) " +
+          "OR (l.id = $5::bigint AND l.organization_id = $6::bigint AND l.account_id = $7::bigint AND l.budget_id = $8::bigint) " +
+          "ORDER BY b.id FOR UPDATE OF l, a, b",
+          [intent.principal_link_id, intent.principal_organization_id, intent.principal_account_id, intent.principal_budget_id,
+            intent.fee_link_id, intent.fee_organization_id, intent.fee_account_id, intent.fee_budget_id],
+        )
+        const byBudget = new Map(links.rows.map((row) => [row.budget_id, row]))
+        const principal = byBudget.get(intent.principal_budget_id)
+        const fee = byBudget.get(intent.fee_budget_id)
+        const roleMatches = (row, role, organizationId, accountId, linkId, budgetId, address, expectedPurpose, expectedAsset, expectedContract) =>
+          Boolean(row)
+          && row.organization_id === organizationId
+          && row.account_id === accountId
+          && row.link_id === linkId
+          && row.budget_id === budgetId
+          && row.account_reference === row.sponsor_reference
+          && row.wallet_address === address
+          && row.sponsor_address === address
+          && row.account_network === intent.network
+          && row.budget_network === intent.network
+          && row.role === role
+          && row.purpose === expectedPurpose
+          && row.asset === expectedAsset
+          && (row.token_contract || null) === (expectedContract || null)
+        if (!roleMatches(principal, 'asset-principal', intent.principal_organization_id, intent.principal_account_id,
+          intent.principal_link_id, intent.principal_budget_id, intent.principal_sponsor_address,
+          'asset-grant', intent.asset, intent.token_contract)
+          || !roleMatches(fee, 'network-fee', intent.fee_organization_id, intent.fee_account_id,
+            intent.fee_link_id, intent.fee_budget_id, intent.fee_sponsor_address,
+            'network-fee', 'TRX', null)) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-settlement-budget-scope-mismatch' }
+        }
+
+        const reservationRows = await client.query(
+          "SELECT role, budget_id::text AS budget_id, amount_base_units::text AS amount_base_units, status " +
+          "FROM trc20_token_clone.sponsor_organization_payout_reservations " +
+          "WHERE intent_id = $1::bigint ORDER BY role FOR UPDATE",
+          [intentId],
+        )
+        const reservations = new Map(reservationRows.rows.map((row) => [row.role, row]))
+        const principalReservation = reservations.get('asset-principal')
+        const feeReservation = reservations.get('network-fee')
+        if (reservations.size !== 2
+          || principalReservation?.status !== 'active'
+          || principalReservation.budget_id !== intent.principal_budget_id
+          || principalReservation.amount_base_units !== intent.amount_base_units
+          || feeReservation?.status !== 'active'
+          || feeReservation.budget_id !== intent.fee_budget_id
+          || feeReservation.amount_base_units !== intent.fee_cap_sun) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-settlement-dual-reservation-invariant-failed' }
+        }
+
+        const principalReserved = BigInt(principal.reserved_base_units)
+        const principalAmount = BigInt(intent.amount_base_units)
+        const principalSpent = BigInt(principal.spent_base_units)
+        const principalBudget = BigInt(principal.budget_base_units)
+        if (principalReserved < principalAmount
+          || (verificationStatus === 'confirmed' && principalSpent + principalAmount > principalBudget)) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-principal-budget-settlement-invariant-failed' }
+        }
+        const principalUpdate = await client.query(
+          "UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units - $1::numeric, " +
+          "spent_base_units = spent_base_units + $2::numeric, updated_at = now() " +
+          "WHERE id = $3::bigint AND reserved_base_units >= $1::numeric",
+          [intent.amount_base_units, verificationStatus === 'confirmed' ? intent.amount_base_units : '0', intent.principal_budget_id],
+        )
+        if (principalUpdate.rowCount !== 1) throw new Error('Principal sponsor budget settlement update failed')
+        const principalReservationUpdate = await client.query(
+          "UPDATE trc20_token_clone.sponsor_organization_payout_reservations " +
+          "SET status = 'released', updated_at = now() WHERE intent_id = $1::bigint AND role = 'asset-principal' AND status = 'active'",
+          [intentId],
+        )
+        if (principalReservationUpdate.rowCount !== 1) throw new Error('Principal reservation release failed')
+
+        const feeSettlementStatus = feeSun !== null && BigInt(feeSun) > BigInt(intent.fee_cap_sun)
+          ? 'over-cap-manual-review' : 'pending-resource-reconciliation'
+        await client.query(
+          "UPDATE trc20_token_clone.sponsor_organization_fireblocks_submissions " +
+          "SET chain_verification_status = $1, chain_verification_reason = $2, " +
+          "chain_verification_block_number = $3, observed_fee_sun = $4::numeric, " +
+          "observed_energy_usage = $5::numeric, observed_net_usage = $6::bigint, " +
+          "principal_settlement_status = $7, fee_settlement_status = $8, chain_verified_at = now(), updated_at = now() " +
+          "WHERE intent_id = $9::bigint",
+          [verificationStatus, verificationReason, blockNumber, feeSun, energyUsage, netUsage,
+            verificationStatus === 'confirmed' ? 'settled' : 'released', feeSettlementStatus, intentId],
+        )
+        await writeAudit(client, intent.principal_organization_id, intent.principal_account_id,
+          verificationStatus === 'confirmed' ? 'sponsor-fireblocks-principal-budget-settled' : 'sponsor-fireblocks-principal-budget-released', {
+            intentId, externalTxId, transactionHash: transactionHash.toLowerCase(),
+            verificationReason, blockNumber, amountBaseUnits: intent.amount_base_units,
+          })
+        await writeAudit(client, intent.fee_organization_id, intent.fee_account_id,
+          'sponsor-fireblocks-fee-resource-reconciliation-required', {
+            intentId, externalTxId, transactionHash: transactionHash.toLowerCase(),
+            verificationReason, blockNumber, feeCapSun: intent.fee_cap_sun,
+            observedFeeSun: feeSun, energyUsage, netUsage, feeSettlementStatus,
+          })
+        await client.query('COMMIT')
+        return {
+          success: true, duplicate: false, verificationStatus, verificationReason, blockNumber,
+          transactionHash: transactionHash.toLowerCase(),
+          principalSettlementStatus: verificationStatus === 'confirmed' ? 'settled' : 'released',
+          feeSettlementStatus, feeReservationRetained: true,
+          observedFeeSun: feeSun, energyUsage, netUsage,
+        }
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {})
+        console.error('Fireblocks chain verification settlement failed:', error?.code || 'unknown')
+        return { success: false, reason: 'database-unavailable' }
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error('Fireblocks chain verification settlement initialization failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    }
+  }
+
   async function getPayoutIntentForPreflight(intentId) {
     if (!validId(String(intentId))) return { success: false, reason: 'invalid-payout-intent-id' }
     const db = getPool()
@@ -2460,7 +2744,8 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
     linkBudget, listBudgetLinks, listBudgetsForWallet, revokeBudgetLink,
     reservePayoutIntent, cancelPayoutIntent, expirePayoutIntents,
     createPayoutAuthorizationChallenge, consumePayoutAuthorizationChallenge, recordPayoutAuthorization, getPayoutIntentForPreflight,
-    prepareFireblocksPayoutSubmission, recordFireblocksPayoutSubmission, getFireblocksPayoutSubmission }
+    prepareFireblocksPayoutSubmission, recordFireblocksPayoutSubmission, getFireblocksPayoutSubmission,
+    getFireblocksPayoutSettlementContext, recordFireblocksPayoutChainVerification }
 }
 
 function toBudgetLink(row) {
