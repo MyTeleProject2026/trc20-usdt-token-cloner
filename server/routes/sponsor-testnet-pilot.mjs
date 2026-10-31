@@ -164,8 +164,10 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   const activeBandwidth = delegation?.activeBandwidthStakeSun
   // The supported USDT pilot needs both delegated Energy and Bandwidth.
   // A positive reading for only one resource must never be treated as a complete delegation.
-  const delegationObserved = delegation?.success === true
+  const liveDelegationCapacityVerified = delegation?.success === true
     && minimumDelegationStakeMet(activeEnergy) && minimumDelegationStakeMet(activeBandwidth)
+  const delegationTransactionAuditVerified = delegation?.transactionAuditVerified === true
+  const delegationObserved = liveDelegationCapacityVerified && delegationTransactionAuditVerified
 
   const allowlists = Object.fromEntries(Object.entries(TOKEN_ALLOWLIST_ENV[network]).map(([asset, key]) => [
     asset, tokenAllowlistConfigured(env, key),
@@ -192,7 +194,10 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   if (!feeChainRead) blockers.push('fee-sponsor-on-chain-balance-not-verified')
   if (!assetChainRead) blockers.push('asset-principal-on-chain-balance-not-verified')
   if (!resourceRead) blockers.push('fee-sponsor-resource-capacity-not-verified')
-  if (!delegationObserved) blockers.push('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified')
+  if (!liveDelegationCapacityVerified) blockers.push('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified')
+  if (liveDelegationCapacityVerified && !delegationTransactionAuditVerified) {
+    blockers.push('fee-to-principal-delegation-transactions-not-independently-audited')
+  }
   if (!usdtAllowlistConfigured) blockers.push('usdt-token-contract-allowlist-not-configured')
   if (usdtAllowlistConfigured && !assetPrincipalUsdtFundingVerified) {
     blockers.push('asset-principal-usdt-funding-not-verified-positive')
@@ -258,8 +263,13 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
         status: typeof delegation?.status === 'string' ? delegation.status : 'delegation-read-unavailable',
         activeEnergyStakeSun: typeof activeEnergy === 'string' ? activeEnergy : null,
         activeBandwidthStakeSun: typeof activeBandwidth === 'string' ? activeBandwidth : null,
-        activeDelegationObserved: delegationObserved,
-        transactionAuditVerified: delegation?.transactionAuditVerified === true,
+        activeDelegationObserved: liveDelegationCapacityVerified,
+        transactionAuditVerified: delegationTransactionAuditVerified,
+        transactionAuditStatus: typeof delegation?.transactionAuditStatus === 'string'
+          ? delegation.transactionAuditStatus : 'delegation-transaction-audit-unavailable',
+        auditedResourceTypes: Array.isArray(delegation?.auditedResourceTypes)
+          ? delegation.auditedResourceTypes.filter(type => type === 'ENERGY' || type === 'BANDWIDTH')
+          : [],
       },
     },
     tokenContractAllowlistConfigured: allowlists,
