@@ -1723,6 +1723,28 @@ test('PostgreSQL reserves both payout roles for one organization using distinct 
     assert.equal(recoveredSubmission.success, true, JSON.stringify(recoveredSubmission))
     assert.equal(recoveredSubmission.submission.externalTxId, externalTxId)
     assert.equal(recoveredSubmission.submission.status, 'provider-pending')
+
+    const cancellationBlocked = await store.cancelPayoutIntent(
+      reserved.intentId, 'pg-fireblocks-cancel-review-' + suffix,
+    )
+    assert.equal(cancellationBlocked.success, false)
+    assert.equal(cancellationBlocked.reason, 'fireblocks-provider-submission-exists-manual-reconciliation-required')
+
+    await pool.query(
+      "UPDATE trc20_token_clone.sponsor_organization_payout_intents " +
+      "SET expires_at = now() - interval '1 second' WHERE id = $1",
+      [reserved.intentId],
+    )
+    const expiryRun = await store.expirePayoutIntents({ limit: 10 })
+    assert.equal(expiryRun.success, true, JSON.stringify(expiryRun))
+    assert.equal(expiryRun.expiredCount, 0)
+    const activeReservations = await pool.query(
+      "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_payout_reservations " +
+      "WHERE intent_id = $1 AND status = 'active'",
+      [reserved.intentId],
+    )
+    assert.equal(activeReservations.rows[0].count, 2)
+
     const providerRows = await pool.query(
       "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = $1",
       [reserved.intentId],
