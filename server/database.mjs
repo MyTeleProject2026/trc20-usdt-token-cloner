@@ -551,6 +551,8 @@ export async function initializeDatabase() {
       await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_checked_at TIMESTAMPTZ`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_pair
         ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address, status)`)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_one_active_pair
+        ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address) WHERE status = 'active'`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_budget
         ON ${schema}.sponsor_resource_reservations (budget_id, status, created_at DESC)`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_resource_cost_settlements IS
@@ -3300,6 +3302,21 @@ export async function activateSponsorResourceBudget({ budgetId, approvalReferenc
       if (budget.status !== 'pending-review') {
         await client.query('ROLLBACK')
         return { success: false, reason: 'resource-budget-not-reviewable' }
+      }
+      const pairLockKey = [budget.network, budget.fee_sponsor_address, budget.asset_principal_address].join('|')
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [pairLockKey])
+      const competing = await client.query(
+        `SELECT id::text AS id, status
+           FROM ${schema}.sponsor_resource_budgets
+          WHERE network = $1 AND fee_sponsor_address = $2 AND asset_principal_address = $3
+            AND id <> $4::bigint
+            AND (status = 'active' OR energy_reserved_units > 0 OR bandwidth_reserved_units > 0)
+          FOR UPDATE`,
+        [budget.network, budget.fee_sponsor_address, budget.asset_principal_address, String(budgetId)],
+      )
+      if (competing.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'another-resource-mandate-active-or-unsettled', conflictingBudgetId: competing.rows[0].id }
       }
       await client.query(
         `UPDATE ${schema}.sponsor_resource_budgets
