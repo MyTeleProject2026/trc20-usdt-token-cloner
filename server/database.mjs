@@ -3189,6 +3189,7 @@ export async function listSponsorChainCostObservations({ network = null, limit =
               execution_result, reported_fee_sun::text AS reported_fee_sun,
               energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
               energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+               origin_energy_usage::text AS origin_energy_usage,
               net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total,
               evidence_source, observed_at
          FROM ${schema}.sponsor_chain_cost_observations
@@ -3215,6 +3216,7 @@ export async function listSponsorChainCostObservations({ network = null, limit =
       netFeeSun: row.net_fee_sun,
       energyUsageTotal: row.energy_usage_total,
       energyUsage: row.energy_usage,
+       originEnergyUsage: row.origin_energy_usage,
       netUsage: row.net_usage,
       energyPenaltyTotal: row.energy_penalty_total,
       evidenceSource: row.evidence_source,
