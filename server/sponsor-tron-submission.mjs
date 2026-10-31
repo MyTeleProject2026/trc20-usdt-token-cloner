@@ -637,6 +637,20 @@ export async function verifySponsorFeeResourceCapacity({
     if (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)) return BigInt(value)
     return null
   }
+  const readSolidifiedAnchor = async () => {
+    const payload = await postJson('/walletsolidity/getnowblock', {})
+    const raw = payload?.block_header?.raw_data
+    const blockNumber = raw?.number
+    const blockTimestampMs = raw?.timestamp
+    const blockId = typeof payload?.blockID === 'string' ? payload.blockID.toLowerCase() : ''
+    if (!Number.isSafeInteger(blockNumber) || blockNumber < 1
+      || !Number.isSafeInteger(blockTimestampMs) || blockTimestampMs < 1
+      || !/^[0-9a-f]{64}$/.test(blockId)
+      || BigInt('0x' + blockId.slice(0, 16)) !== BigInt(blockNumber)) {
+      throw new Error('invalid-solidified-preflight-anchor')
+    }
+    return { blockNumber, blockId, blockTimestampMs, checkedAt: new Date().toISOString() }
+  }
 
   try {
     // A native transfer to an unactivated recipient can incur an additional
@@ -663,6 +677,9 @@ export async function verifySponsorFeeResourceCapacity({
       return fail('fee-sponsor-address-not-configured-or-mismatched')
     }
     const feeSponsorHex = addressHex(tronWeb, feeSponsorAddress.trim())
+    // Pin the source snapshot to one solidified head. If the head changes while
+    // account/delegation state is read, there is no trustworthy historical anchor.
+    const preflightAnchorBefore = await readSolidifiedAnchor()
     const principalAccount = await postJson('/walletsolidity/getaccount', {
       address: senderHex,
       visible: false,
@@ -723,6 +740,13 @@ export async function verifySponsorFeeResourceCapacity({
       || sourceProfile.incomingEnergyV2Sun !== energyStakeSun)) {
       return fail('fee-sponsor-only-energy-source-required')
     }
+    const preflightAnchorAfter = await readSolidifiedAnchor()
+    if (preflightAnchorBefore.blockNumber !== preflightAnchorAfter.blockNumber
+      || preflightAnchorBefore.blockId !== preflightAnchorAfter.blockId
+      || preflightAnchorBefore.blockTimestampMs !== preflightAnchorAfter.blockTimestampMs) {
+      return fail('solidified-preflight-anchor-changed-retry')
+    }
+    const solidifiedAnchor = preflightAnchorAfter
 
     const resources = await postJson('/wallet/getaccountresource', {
       address: senderHex,
@@ -815,7 +839,8 @@ export async function verifySponsorFeeResourceCapacity({
       bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
       ...(transfer.asset !== 'TRX' ? { energyCoverageSource: 'exact-active-fee-sponsor-delegation-only' } : {}),
       freeBandwidthUsedAsSponsorCoverage: false,
-      resourceSource: 'selected testnet solidified account/delegation reads + wallet/getaccountresource + token constant-contract simulation',
+      solidifiedAnchor,
+      resourceSource: 'selected testnet solidified source snapshot pinned to a stable SolidityNode head + wallet/getaccountresource + token constant-contract simulation',
       canSubmitSponsoredTransfer: false,
       submissionEnabled: false,
       note: 'This is a point-in-time capacity preflight, not final fee evidence. Recheck after sponsor signing and reconcile actual resource/fee consumption after confirmation.',
