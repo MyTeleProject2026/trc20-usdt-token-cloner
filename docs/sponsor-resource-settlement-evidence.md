@@ -12,7 +12,10 @@ After the transfer is solidified, reconciliation loads that stored preflight evi
 4. Re-hashes every returned transaction's `raw_data_hex` and requires it to match the claimed transaction ID.
 5. Requires the exact payout transaction ID to appear once, in the exact observed transfer block, with the block timestamp matching the transaction receipt.
 6. Fails closed if any relevant Delegate/UnDelegate or freeze/unfreeze transaction changes the fee-sponsor or principal account's resource state during the interval.
-7. Rejects intervals larger than 256 blocks; missing blocks, malformed transactions, unexpected contract data, provider errors and incomplete history cannot produce a verified result.
+7. Rejects any other transaction initiated by the asset-principal account between the preflight anchor and payout block, because it could consume the same delegated/free resource pool and make the payout's exact source attribution ambiguous.
+8. Rejects intervals larger than 256 blocks; missing blocks, malformed transactions, unexpected contract data, provider errors and incomplete history cannot produce a verified result.
+
+The receipt parser separately preserves `energy_usage` (caller-paid Energy), `origin_energy_usage` (contract-creator-paid Energy), and `energy_usage_total`. For USDT calls, the total must equal caller plus origin Energy. Only caller-paid Energy is eligible to debit the fee-sponsor resource budget; the contract creator's share is retained as evidence and excluded from that budget.
 
 The resulting proof is combined with the post-transfer current source snapshot and checked against the exact preflight snapshot before the database settlement routine may charge resource units. PostgreSQL still enforces reservation ceilings, fee-burn checks, duplicate handling and transactional budget settlement. The default signing/submission gates remain closed.
 
