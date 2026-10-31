@@ -411,3 +411,59 @@ test('PostgreSQL rejects conflicting cost evidence without erasing a prior settl
   }
 })
 
+test('PostgreSQL sends resource use above the reservation to manual review without charging the budget', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
+}, async () => {
+  const { initializeDatabase, recordSponsorResourceCostSettlementObservation } = await import('../server/database.mjs')
+  const pool = new Pool({ connectionString: databaseUrl })
+  let fixture
+  try {
+    assert.equal((await initializeDatabase()).ready, true)
+    assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
+    fixture = await seedFixture(pool)
+    await pool.query(
+      'UPDATE trc20_token_clone.sponsor_chain_cost_observations SET energy_usage_total = 101 WHERE idempotency_key = $1',
+      [fixture.idempotencyKey],
+    )
+
+    const result = await recordSponsorResourceCostSettlementObservation({
+      idempotencyKey: fixture.idempotencyKey,
+      transactionHash: fixture.transactionHash,
+      attributionEvidence: validAttribution(fixture),
+    })
+    assert.equal(result.success, true, JSON.stringify(result))
+    assert.equal(result.status, 'manual-review')
+    assert.equal(result.sponsorResourceBudgetSettled, false)
+    assert.equal(result.canSubmitSponsoredTransfer, false)
+
+    const budget = await pool.query(
+      `SELECT energy_reserved_units::text AS energy_reserved,
+              bandwidth_reserved_units::text AS bandwidth_reserved,
+              energy_spent_units::text AS energy_spent,
+              bandwidth_spent_units::text AS bandwidth_spent
+         FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
+      [fixture.budgetId],
+    )
+    assert.deepEqual(budget.rows[0], {
+      energy_reserved: '100', bandwidth_reserved: '50', energy_spent: '0', bandwidth_spent: '0',
+    })
+    const reservation = await pool.query(
+      'SELECT status FROM trc20_token_clone.sponsor_resource_reservations WHERE idempotency_key = $1',
+      [fixture.idempotencyKey],
+    )
+    assert.equal(reservation.rows[0].status, 'manual-review')
+    const settlement = await pool.query(
+      `SELECT status, evidence->>'reason' AS reason
+         FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1`,
+      [fixture.idempotencyKey],
+    )
+    assert.deepEqual(settlement.rows[0], {
+      status: 'manual-review',
+      reason: 'resource-use-exceeded-reservation',
+    })
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture)
+    await pool.end()
+  }
+})
+
