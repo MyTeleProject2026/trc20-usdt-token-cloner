@@ -64,7 +64,7 @@ function createOidcToken(overrides = {}, { corruptSignature = false } = {}) {
 
 async function oidcFetch(url) {
   if (String(url) === OIDC_DISCOVERY) {
-    return { ok: true, json: async () => ({ jwks_uri: OIDC_JWKS }) }
+    return { ok: true, json: async () => ({ issuer: OIDC_ISSUER, jwks_uri: OIDC_JWKS }) }
   }
   if (String(url) === OIDC_JWKS) {
     return { ok: true, json: async () => ({ keys: [publicJwk] }) }
