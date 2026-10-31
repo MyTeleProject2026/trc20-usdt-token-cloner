@@ -953,7 +953,7 @@ export default function SponsorSignerConsole() {
       <div className="sponsor-console-shell">
         <header className="sponsor-console-header">
           <div className="sponsor-console-brand"><ShieldCheck size={21} aria-hidden="true" /><span>TRON TOKEN STUDIO <small>SPONSOR OPERATOR</small></span></div>
-          <a href="#" className="sponsor-console-back"><ArrowLeft size={15} aria-hidden="true" /> Back to transfer workflow</a>
+          <div className="sponsor-console-header-links"><a href="#/sponsor-authorization" className="sponsor-console-back">Open sponsor intent approval page</a><a href="#/workspace" className="sponsor-console-back"><ArrowLeft size={15} aria-hidden="true" /> Back to transfer workflow</a></div>
         </header>
         <main className="sponsor-console-main">
           <p className="sponsor-console-eyebrow">EXTERNAL SPONSOR • TESTNET ONLY</p>

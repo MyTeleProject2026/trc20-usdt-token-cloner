@@ -1054,3 +1054,765 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
     await pool.end()
   }
 })
+
+
+test('PostgreSQL binds independent verified sponsor accounts to exact approved principal and fee budgets', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool } = await setup()
+  const {
+    createSponsorOrganizationStore,
+  } = await import('../server/sponsor-organizations.mjs')
+  const store = createSponsorOrganizationStore({ databasePool: pool })
+  const suffix = randomUUID()
+  const organizationReference = `pg-multi-org-${suffix}`
+  const principalReference = `pg-principal-${suffix}`
+  const feeReference = `pg-fee-${suffix}`
+  const agreementReference = `pg-org-agreement-${suffix}`
+  const principalReview = `pg-principal-review-${suffix}`
+  const feeReview = `pg-fee-review-${suffix}`
+  const principalLinkReview = `pg-principal-link-${suffix}`
+  const feeLinkReview = `pg-fee-link-${suffix}`
+  const previousApprovals = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+  let organizationId = null
+  const accountIds = []
+  const budgetIds = []
+  try {
+    const scopes = [
+      [agreementReference, principalReference, network, sponsorAddress, 'asset-grant', 'TRX', '-'].join('|'),
+      [agreementReference, feeReference, network, receiverAddress, 'network-fee', 'TRX', '-'].join('|'),
+    ]
+    const existingScopes = String(previousApprovals || '').split(';').map((value) => value.trim()).filter(Boolean)
+    process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [...new Set([...existingScopes, ...scopes])].join(';')
+
+    const created = await store.createOrganization({
+      sponsorReference: organizationReference,
+      legalName: 'PostgreSQL Sponsor Registry Integration Ltd',
+      displayName: 'PostgreSQL Sponsor Integration',
+      jurisdictionCountryCode: 'SG',
+    })
+    assert.equal(created.success, true)
+    organizationId = created.organization.id
+
+    const underReview = await store.reviewOrganization(organizationId, {
+      decision: 'under_review',
+      reviewReference: `org-review-under-${suffix}`,
+    })
+    assert.equal(underReview.success, true)
+    const verified = await store.reviewOrganization(organizationId, {
+      decision: 'verified',
+      reviewReference: `org-review-verified-${suffix}`,
+      evidenceReference: `org-evidence-${suffix}`,
+      verificationMethod: 'manual-independent-review',
+    })
+    assert.equal(verified.success, true)
+
+    const principalAccount = await store.createAccount(organizationId, {
+      sponsorReference: principalReference,
+      network,
+      role: 'asset-principal',
+      address: sponsorAddress,
+    })
+    assert.equal(principalAccount.success, true)
+    accountIds.push(principalAccount.account.id)
+    const feeAccount = await store.createAccount(organizationId, {
+      sponsorReference: feeReference,
+      network,
+      role: 'network-fee',
+      address: receiverAddress,
+    })
+    assert.equal(feeAccount.success, true)
+    accountIds.push(feeAccount.account.id)
+
+    for (const [accountId, label] of [
+      [principalAccount.account.id, 'principal'],
+      [feeAccount.account.id, 'fee'],
+    ]) {
+      const verifiedAccount = await store.reviewAccount(organizationId, accountId, {
+        decision: 'verified',
+        reviewReference: `account-review-${label}-${suffix}`,
+        evidenceReference: `account-evidence-${label}-${suffix}`,
+        verificationMethod: 'manual-independent-review',
+      })
+      assert.equal(verifiedAccount.success, true)
+    }
+
+    const approved = await store.reviewOrganization(organizationId, {
+      decision: 'approved',
+      reviewReference: `org-review-approved-${suffix}`,
+      agreementReference,
+    })
+    assert.equal(approved.success, true)
+
+    const insertedBudgets = await pool.query(`
+      INSERT INTO trc20_token_clone.sponsor_budgets
+        (sponsor_reference, sponsor_address, network, purpose, asset, token_contract,
+         budget_base_units, reserved_base_units, spent_base_units, status,
+         approval_reference, review_reference, approved_at)
+      VALUES
+        ($1,$2,$3,'asset-grant','TRX',NULL,1000000,0,0,'active',$4,$5,now()),
+        ($6,$7,$3,'network-fee','TRX',NULL,2000000,0,0,'active',$4,$8,now())
+      RETURNING id::text AS id, sponsor_reference
+    `, [principalReference, sponsorAddress, network, agreementReference,
+      principalReview, feeReference, receiverAddress, feeReview])
+    assert.equal(insertedBudgets.rows.length, 2)
+    const principalBudgetId = insertedBudgets.rows.find(row => row.sponsor_reference === principalReference).id
+    const feeBudgetId = insertedBudgets.rows.find(row => row.sponsor_reference === feeReference).id
+    budgetIds.push(principalBudgetId, feeBudgetId)
+
+    const principalLink = await store.linkBudget(
+      organizationId, principalAccount.account.id, principalBudgetId, principalLinkReview,
+    )
+    const feeLink = await store.linkBudget(
+      organizationId, feeAccount.account.id, feeBudgetId, feeLinkReview,
+    )
+    assert.equal(principalLink.success, true)
+    assert.equal(feeLink.success, true)
+    assert.equal(principalLink.link.status, 'active')
+    assert.equal(feeLink.link.status, 'active')
+
+    const duplicate = await store.linkBudget(
+      organizationId, principalAccount.account.id, principalBudgetId, principalLinkReview,
+    )
+    assert.equal(duplicate.success, true)
+    assert.equal(duplicate.duplicate, true)
+
+    const wrongRole = await store.linkBudget(
+      organizationId, feeAccount.account.id, principalBudgetId, `wrong-role-link-${suffix}`,
+    )
+    assert.deepEqual(wrongRole, { success: false, reason: 'budget-account-scope-mismatch' })
+
+    const listed = await store.listBudgetLinks({ organizationId, network, limit: 10 })
+    assert.equal(listed.success, true)
+    assert.equal(listed.links.length, 2)
+    assert.ok(listed.links.every(link => link.linkCurrentlyActive === true))
+    assert.ok(listed.links.every(link => link.agreementScopeVerified === true))
+
+    const accountSuspended = await store.reviewAccount(organizationId, feeAccount.account.id, {
+      decision: 'suspended',
+      reviewReference: `suspend-fee-account-${suffix}`,
+    })
+    assert.equal(accountSuspended.success, true)
+    const afterAccountSuspend = await store.listBudgetLinks({ organizationId, network, limit: 10 })
+    const suspendedFeeLink = afterAccountSuspend.links.find(link => link.budgetId === feeBudgetId)
+    assert.equal(suspendedFeeLink.linkStatus, 'suspended')
+    assert.equal(suspendedFeeLink.linkCurrentlyActive, false)
+
+    const revoked = await store.revokeBudgetLink(principalLink.link.id, `revoke-link-${suffix}`)
+    assert.equal(revoked.success, true)
+    assert.equal(revoked.link.status, 'revoked')
+    const afterRevoke = await store.listBudgetLinks({ organizationId, network, limit: 10 })
+    assert.equal(afterRevoke.success, true)
+    assert.equal(afterRevoke.links.find(link => link.budgetId === principalBudgetId).linkCurrentlyActive, false)
+  } finally {
+    if (organizationId) {
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_audit_events WHERE organization_id = $1',
+        [organizationId],
+      )
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_budget_links WHERE organization_id = $1',
+        [organizationId],
+      )
+      if (accountIds.length) {
+        await pool.query(
+          'DELETE FROM trc20_token_clone.sponsor_organization_accounts WHERE organization_id = $1 AND id = ANY($2::bigint[])',
+          [organizationId, accountIds],
+        )
+      }
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organizations WHERE id = $1',
+        [organizationId],
+      )
+    }
+    if (budgetIds.length) {
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[])', [budgetIds])
+    }
+    if (previousApprovals === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previousApprovals
+    await pool.end()
+  }
+})
+
+
+test('PostgreSQL atomically reserves and releases independent principal and fee sponsor budgets', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool } = await setup()
+  const { createSponsorOrganizationStore } = await import('../server/sponsor-organizations.mjs')
+  const store = createSponsorOrganizationStore({ databasePool: pool })
+  const suffix = randomUUID()
+  const principalOrgRef = 'pg-intent-principal-org-' + suffix
+  const feeOrgRef = 'pg-intent-fee-org-' + suffix
+  const principalRef = 'pg-intent-principal-' + suffix
+  const feeRef = 'pg-intent-fee-' + suffix
+  const principalAgreement = 'pg-intent-principal-agreement-' + suffix
+  const feeAgreement = 'pg-intent-fee-agreement-' + suffix
+  const principalReview = 'pg-intent-principal-budget-review-' + suffix
+  const feeReview = 'pg-intent-fee-budget-review-' + suffix
+  const principalLinkReview = 'pg-intent-principal-link-' + suffix
+  const feeLinkReview = 'pg-intent-fee-link-' + suffix
+  const primaryKey = 'pg-dual-intent:' + suffix
+  const expiryKey = 'pg-dual-expiry:' + suffix
+  const organizationIds = []
+  const budgetIds = []
+  const intentIds = []
+  const previousScopes = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+  try {
+    const scopes = [
+      [principalAgreement, principalRef, network, sponsorAddress, 'asset-grant', 'TRX', '-'].join('|'),
+      [feeAgreement, feeRef, network, receiverAddress, 'network-fee', 'TRX', '-'].join('|'),
+    ]
+    const priorScopes = String(previousScopes || '').split(';').map((value) => value.trim()).filter(Boolean)
+    process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [...new Set([...priorScopes, ...scopes])].join(';')
+
+    async function registerSponsor({ organizationReference, accountReference, agreementReference, address, role, legalName }) {
+      const created = await store.createOrganization({ sponsorReference: organizationReference, legalName })
+      assert.equal(created.success, true)
+      organizationIds.push(created.organization.id)
+      const underReview = await store.reviewOrganization(created.organization.id, {
+        decision: 'under_review', reviewReference: 'under-review-' + suffix + '-' + role,
+      })
+      assert.equal(underReview.success, true)
+      const verified = await store.reviewOrganization(created.organization.id, {
+        decision: 'verified', reviewReference: 'verified-review-' + suffix + '-' + role,
+        evidenceReference: 'evidence-' + suffix + '-' + role, verificationMethod: 'manual-independent-review',
+      })
+      assert.equal(verified.success, true)
+      const account = await store.createAccount(created.organization.id, {
+        sponsorReference: accountReference, network, role, address,
+      })
+      assert.equal(account.success, true)
+      const accountVerified = await store.reviewAccount(created.organization.id, account.account.id, {
+        decision: 'verified', reviewReference: 'account-review-' + suffix + '-' + role,
+        evidenceReference: 'account-evidence-' + suffix + '-' + role,
+        verificationMethod: 'manual-independent-review',
+      })
+      assert.equal(accountVerified.success, true)
+      const approved = await store.reviewOrganization(created.organization.id, {
+        decision: 'approved', reviewReference: 'approved-review-' + suffix + '-' + role, agreementReference,
+      })
+      assert.equal(approved.success, true)
+      return { organizationId: created.organization.id, accountId: account.account.id }
+    }
+
+    const principalSponsor = await registerSponsor({
+      organizationReference: principalOrgRef, accountReference: principalRef,
+      agreementReference: principalAgreement, address: sponsorAddress,
+      role: 'asset-principal', legalName: 'Independent Principal Sponsor Integration Ltd',
+    })
+    const feeSponsor = await registerSponsor({
+      organizationReference: feeOrgRef, accountReference: feeRef,
+      agreementReference: feeAgreement, address: receiverAddress,
+      role: 'network-fee', legalName: 'Independent Network Fee Sponsor Integration Ltd',
+    })
+
+    const inserted = await pool.query(
+      "INSERT INTO trc20_token_clone.sponsor_budgets " +
+      "(sponsor_reference, sponsor_address, network, purpose, asset, token_contract, budget_base_units, " +
+      "reserved_base_units, spent_base_units, status, approval_reference, review_reference, approved_at) " +
+      "VALUES ($1,$2,$3,'asset-grant','TRX',NULL,1000000,0,0,'active',$4,$5,now()), " +
+      "($6,$7,$3,'network-fee','TRX',NULL,2000000,0,0,'active',$8,$9,now()) " +
+      "RETURNING id::text AS id, sponsor_reference",
+      [principalRef, sponsorAddress, network, principalAgreement, principalReview,
+        feeRef, receiverAddress, feeAgreement, feeReview],
+    )
+    assert.equal(inserted.rows.length, 2)
+    const principalBudgetId = inserted.rows.find(row => row.sponsor_reference === principalRef).id
+    const feeBudgetId = inserted.rows.find(row => row.sponsor_reference === feeRef).id
+    budgetIds.push(principalBudgetId, feeBudgetId)
+
+    const principalLink = await store.linkBudget(
+      principalSponsor.organizationId, principalSponsor.accountId, principalBudgetId, principalLinkReview,
+    )
+    const feeLink = await store.linkBudget(
+      feeSponsor.organizationId, feeSponsor.accountId, feeBudgetId, feeLinkReview,
+    )
+    assert.equal(principalLink.success, true)
+    assert.equal(feeLink.success, true)
+
+    const makeSnapshot = (address) => ({
+      status: 'solidified-sponsor-balances-read',
+      onChainBalanceRead: true,
+      network,
+      sponsorAddress: address,
+      source: 'Tatum TRON SolidityNode account and constant-contract queries',
+      checkedAt: new Date().toISOString(),
+      cache: { status: 'fresh', ageMs: 0 },
+      native: { status: 'verified', asset: 'TRX', balanceSun: '999999999999999999999999999999999999' },
+      tokens: [],
+    })
+    const fundingSnapshots = {
+      networkFeeSponsor: makeSnapshot(receiverAddress),
+      assetPrincipalSponsor: makeSnapshot(sponsorAddress),
+    }
+    const baseIntent = {
+      idempotencyKey: primaryKey, network, asset: 'TRX', tokenContract: null,
+      receiverAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE',
+      amountBaseUnits: '250000', feeCapSun: '125000',
+      principalLinkId: principalLink.link.id, feeLinkId: feeLink.link.id, fundingSnapshots,
+    }
+
+    const reserved = await store.reservePayoutIntent(baseIntent)
+    assert.equal(reserved.success, true, JSON.stringify(reserved))
+    assert.equal(reserved.status, 'pending_authorization')
+    assert.equal(reserved.canSubmitSponsoredTransfer, false)
+    intentIds.push(reserved.intentId)
+
+    async function authorizeRole(intentId, role, address, suffixRole) {
+      const challenge = await store.createPayoutAuthorizationChallenge(intentId, role, {
+        sessionAddress: address,
+        sessionNetwork: network,
+      })
+      assert.equal(challenge.success, true, JSON.stringify(challenge))
+      assert.equal(challenge.challenge.role, role)
+      assert.match(challenge.challenge.message, /Intent digest \(SHA-256\):/)
+      assert.match(challenge.challenge.message, /This message is not a blockchain transaction/)
+      assert.match(challenge.challenge.message, new RegExp(role === 'asset-principal' ? 'Independent Principal Sponsor Integration Ltd' : 'Independent Network Fee Sponsor Integration Ltd'))
+      const consumedChallenge = await store.consumePayoutAuthorizationChallenge(
+        intentId, role, challenge.challenge.nonce,
+        { sessionAddress: address, sessionNetwork: network },
+      )
+      assert.equal(consumedChallenge.success, true, JSON.stringify(consumedChallenge))
+      assert.equal(consumedChallenge.authorization.sponsorAddress, address)
+      const recorded = await store.recordPayoutAuthorization({
+        intentId,
+        role,
+        challengeId: consumedChallenge.authorization.challengeId,
+        intentDigest: consumedChallenge.authorization.intentDigest,
+        recoveredAddress: address,
+        signatureHash: (suffixRole === 'principal' ? 'a' : 'b').repeat(64),
+        messageHash: consumedChallenge.authorization.messageHash,
+      })
+      assert.equal(recorded.success, true, JSON.stringify(recorded))
+      return recorded
+    }
+
+    const principalApproval = await authorizeRole(
+      reserved.intentId, 'asset-principal', sponsorAddress, 'principal',
+    )
+    assert.equal(principalApproval.status, 'pending_authorization')
+    assert.deepEqual(principalApproval.missingRoles, ['network-fee'])
+    assert.equal(principalApproval.canSubmitSponsoredTransfer, false)
+
+    const feeApproval = await authorizeRole(
+      reserved.intentId, 'network-fee', receiverAddress, 'fee',
+    )
+    assert.equal(feeApproval.status, 'sponsor_authorization_complete')
+    assert.equal(feeApproval.bothSponsorsAuthorized, true)
+    assert.deepEqual(feeApproval.authorizedRoles, ['asset-principal', 'network-fee'])
+    assert.equal(feeApproval.canSubmitSponsoredTransfer, false)
+    assert.equal(feeApproval.submissionEnabled, false)
+
+    const preflightIntent = await store.getPayoutIntentForPreflight(reserved.intentId)
+    assert.equal(preflightIntent.success, true, JSON.stringify(preflightIntent))
+    assert.equal(preflightIntent.sponsorOwnerApprovalsVerified, true)
+    assert.equal(preflightIntent.intent.status, 'sponsor_authorization_complete')
+    assert.equal(preflightIntent.intent.principalSponsorAddress, sponsorAddress)
+    assert.equal(preflightIntent.intent.feeSponsorAddress, receiverAddress)
+    assert.equal(preflightIntent.canSubmitSponsoredTransfer, false)
+    assert.equal(preflightIntent.submissionEnabled, false)
+
+    const authorizationRows = await pool.query(
+      "SELECT role, sponsor_address, signature_hash FROM trc20_token_clone.sponsor_organization_payout_authorizations " +
+      "WHERE intent_id = $1 ORDER BY role",
+      [reserved.intentId],
+    )
+    assert.equal(authorizationRows.rows.length, 2)
+    assert.equal(authorizationRows.rows[0].signature_hash.length, 64)
+    assert.equal(authorizationRows.rows[1].signature_hash.length, 64)
+    const challengeRows = await pool.query(
+      "SELECT nonce_hash, consumed_at FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges " +
+      "WHERE intent_id = $1 ORDER BY id",
+      [reserved.intentId],
+    )
+    assert.equal(challengeRows.rows.length, 2)
+    assert.ok(challengeRows.rows.every(row => row.consumed_at != null && row.nonce_hash.length === 64))
+
+    const duplicate = await store.reservePayoutIntent(baseIntent)
+    assert.equal(duplicate.success, true)
+    assert.equal(duplicate.duplicate, true)
+    assert.equal(duplicate.intentId, reserved.intentId)
+
+    const conflict = await store.reservePayoutIntent({ ...baseIntent, amountBaseUnits: '250001' })
+    assert.deepEqual(conflict, { success: false, reason: 'idempotency-key-conflict' })
+
+    const budgetAfterReserve = await pool.query(
+      "SELECT id::text AS id, reserved_base_units::text AS reserved " +
+      "FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[]) ORDER BY id",
+      [budgetIds],
+    )
+    assert.deepEqual(budgetAfterReserve.rows.map(row => row.reserved), ['250000', '125000'])
+
+    const cancelled = await store.cancelPayoutIntent(reserved.intentId, 'operator-cancel-' + suffix)
+    assert.equal(cancelled.success, true)
+    assert.equal(cancelled.status, 'cancelled')
+    assert.equal(cancelled.reservationReleased, true)
+    const budgetAfterCancel = await pool.query(
+      "SELECT id::text AS id, reserved_base_units::text AS reserved " +
+      "FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[]) ORDER BY id",
+      [budgetIds],
+    )
+    assert.deepEqual(budgetAfterCancel.rows.map(row => row.reserved), ['0', '0'])
+
+    const expiring = await store.reservePayoutIntent({ ...baseIntent, idempotencyKey: expiryKey })
+    assert.equal(expiring.success, true, JSON.stringify(expiring))
+    intentIds.push(expiring.intentId)
+    const expiryPrincipalApproval = await authorizeRole(
+      expiring.intentId, 'asset-principal', sponsorAddress, 'principal',
+    )
+    assert.equal(expiryPrincipalApproval.status, 'pending_authorization')
+    const expiryFeeApproval = await authorizeRole(
+      expiring.intentId, 'network-fee', receiverAddress, 'fee',
+    )
+    assert.equal(expiryFeeApproval.status, 'sponsor_authorization_complete')
+    await pool.query(
+      "UPDATE trc20_token_clone.sponsor_organization_payout_intents " +
+      "SET expires_at = now() - interval '1 second' WHERE id = $1",
+      [expiring.intentId],
+    )
+    const expired = await store.expirePayoutIntents({ limit: 10 })
+    assert.equal(expired.success, true)
+    assert.equal(expired.expiredCount, 1)
+    const expiredBudgetState = await pool.query(
+      "SELECT id::text AS id, reserved_base_units::text AS reserved " +
+      "FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[]) ORDER BY id",
+      [budgetIds],
+    )
+    assert.deepEqual(expiredBudgetState.rows.map(row => row.reserved), ['0', '0'])
+    const expiredIntent = await pool.query(
+      "SELECT status FROM trc20_token_clone.sponsor_organization_payout_intents WHERE id = $1",
+      [expiring.intentId],
+    )
+    assert.equal(expiredIntent.rows[0].status, 'expired')
+  } finally {
+    if (previousScopes === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previousScopes
+    if (intentIds.length) {
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_payout_authorizations WHERE intent_id = ANY($1::bigint[])',
+        [intentIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges WHERE intent_id = ANY($1::bigint[])',
+        [intentIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_payout_reservations WHERE intent_id = ANY($1::bigint[])',
+        [intentIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_payout_intents WHERE id = ANY($1::bigint[])',
+        [intentIds],
+      ).catch(() => {})
+    }
+    if (organizationIds.length) {
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_audit_events WHERE organization_id = ANY($1::bigint[])',
+        [organizationIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_budget_links WHERE organization_id = ANY($1::bigint[])',
+        [organizationIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organization_accounts WHERE organization_id = ANY($1::bigint[])',
+        [organizationIds],
+      ).catch(() => {})
+      await pool.query(
+        'DELETE FROM trc20_token_clone.sponsor_organizations WHERE id = ANY($1::bigint[])',
+        [organizationIds],
+      ).catch(() => {})
+    }
+    if (budgetIds.length) {
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[])', [budgetIds]).catch(() => {})
+    }
+    await pool.end()
+  }
+})
+
+test('PostgreSQL reserves both payout roles for one organization using distinct verified accounts and budgets', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool } = await setup()
+  const { createSponsorOrganizationStore } = await import('../server/sponsor-organizations.mjs')
+  const store = createSponsorOrganizationStore({ databasePool: pool })
+  const suffix = randomUUID()
+  const organizationReference = 'pg-single-provider-org-' + suffix
+  const principalReference = 'pg-single-provider-principal-' + suffix
+  const feeReference = 'pg-single-provider-fee-' + suffix
+  const agreementReference = 'pg-single-provider-agreement-' + suffix
+  const principalReview = 'pg-single-provider-principal-review-' + suffix
+  const feeReview = 'pg-single-provider-fee-review-' + suffix
+  const principalLinkReview = 'pg-single-provider-principal-link-' + suffix
+  const feeLinkReview = 'pg-single-provider-fee-link-' + suffix
+  const idempotencyKey = 'pg-single-provider-intent:' + suffix
+  const organizationIds = []
+  const accountIds = []
+  const budgetIds = []
+  const intentIds = []
+  const previousScopes = process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+  try {
+    const scopes = [
+      [agreementReference, principalReference, network, sponsorAddress, 'asset-grant', 'TRX', '-'].join('|'),
+      [agreementReference, feeReference, network, receiverAddress, 'network-fee', 'TRX', '-'].join('|'),
+    ]
+    const priorScopes = String(previousScopes || '').split(';').map((value) => value.trim()).filter(Boolean)
+    process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = [...new Set([...priorScopes, ...scopes])].join(';')
+
+    const created = await store.createOrganization({
+      sponsorReference: organizationReference,
+      legalName: 'Single Provider Dual Role Integration Ltd',
+    })
+    assert.equal(created.success, true)
+    const organizationId = created.organization.id
+    organizationIds.push(organizationId)
+    assert.equal((await store.reviewOrganization(organizationId, {
+      decision: 'under_review', reviewReference: 'org-under-review-' + suffix,
+    })).success, true)
+    assert.equal((await store.reviewOrganization(organizationId, {
+      decision: 'verified', reviewReference: 'org-verified-' + suffix,
+      evidenceReference: 'org-evidence-' + suffix, verificationMethod: 'manual-independent-review',
+    })).success, true)
+
+    const principalAccount = await store.createAccount(organizationId, {
+      sponsorReference: principalReference, network, role: 'asset-principal', address: sponsorAddress,
+    })
+    const feeAccount = await store.createAccount(organizationId, {
+      sponsorReference: feeReference, network, role: 'network-fee', address: receiverAddress,
+    })
+    assert.equal(principalAccount.success, true)
+    assert.equal(feeAccount.success, true)
+    accountIds.push(principalAccount.account.id, feeAccount.account.id)
+
+    for (const [accountId, role] of [
+      [principalAccount.account.id, 'principal'],
+      [feeAccount.account.id, 'fee'],
+    ]) {
+      const verified = await store.reviewAccount(organizationId, accountId, {
+        decision: 'verified', reviewReference: 'account-review-' + role + '-' + suffix,
+        evidenceReference: 'account-evidence-' + role + '-' + suffix,
+        verificationMethod: 'manual-independent-review',
+      })
+      assert.equal(verified.success, true)
+    }
+
+    const approved = await store.reviewOrganization(organizationId, {
+      decision: 'approved', reviewReference: 'org-approved-' + suffix, agreementReference,
+    })
+    assert.equal(approved.success, true)
+
+    const inserted = await pool.query(
+      "INSERT INTO trc20_token_clone.sponsor_budgets " +
+      "(sponsor_reference, sponsor_address, network, purpose, asset, token_contract, budget_base_units, " +
+      "reserved_base_units, spent_base_units, status, approval_reference, review_reference, approved_at) " +
+      "VALUES ($1,$2,$3,'asset-grant','TRX',NULL,1000000,0,0,'active',$4,$5,now()), " +
+      "($6,$7,$3,'network-fee','TRX',NULL,2000000,0,0,'active',$8,$9,now()) " +
+      "RETURNING id::text AS id, sponsor_reference",
+      [principalReference, sponsorAddress, network, agreementReference, principalReview,
+        feeReference, receiverAddress, agreementReference, feeReview],
+    )
+    assert.equal(inserted.rows.length, 2)
+    const principalBudgetId = inserted.rows.find(row => row.sponsor_reference === principalReference).id
+    const feeBudgetId = inserted.rows.find(row => row.sponsor_reference === feeReference).id
+    budgetIds.push(principalBudgetId, feeBudgetId)
+
+    const principalLink = await store.linkBudget(
+      organizationId, principalAccount.account.id, principalBudgetId, principalLinkReview,
+    )
+    const feeLink = await store.linkBudget(
+      organizationId, feeAccount.account.id, feeBudgetId, feeLinkReview,
+    )
+    assert.equal(principalLink.success, true, JSON.stringify(principalLink))
+    assert.equal(feeLink.success, true, JSON.stringify(feeLink))
+
+    const makeSnapshot = (address) => ({
+      status: 'solidified-sponsor-balances-read',
+      onChainBalanceRead: true,
+      network,
+      sponsorAddress: address,
+      source: 'Tatum TRON SolidityNode account and constant-contract queries',
+      checkedAt: new Date().toISOString(),
+      cache: { status: 'fresh', ageMs: 0 },
+      native: { status: 'verified', asset: 'TRX', balanceSun: '999999999999999999999999999999999999' },
+      tokens: [],
+    })
+    const fundingSnapshots = {
+      networkFeeSponsor: makeSnapshot(receiverAddress),
+      assetPrincipalSponsor: makeSnapshot(sponsorAddress),
+    }
+    const reserved = await store.reservePayoutIntent({
+      idempotencyKey, network, asset: 'TRX', tokenContract: null,
+      receiverAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE',
+      amountBaseUnits: '250000', feeCapSun: '125000',
+      principalLinkId: principalLink.link.id, feeLinkId: feeLink.link.id, fundingSnapshots,
+    })
+    assert.equal(reserved.success, true, JSON.stringify(reserved))
+    assert.equal(reserved.status, 'pending_authorization')
+    assert.equal(reserved.canSubmitSponsoredTransfer, false)
+    intentIds.push(reserved.intentId)
+
+    const roleApprovals = []
+    for (const [role, address, marker] of [
+      ['asset-principal', sponsorAddress, 'a'],
+      ['network-fee', receiverAddress, 'b'],
+    ]) {
+      const challenge = await store.createPayoutAuthorizationChallenge(reserved.intentId, role, {
+        sessionAddress: address, sessionNetwork: network,
+      })
+      assert.equal(challenge.success, true, JSON.stringify(challenge))
+      assert.match(challenge.challenge.message, /Single Provider Dual Role Integration Ltd/)
+      const consumed = await store.consumePayoutAuthorizationChallenge(
+        reserved.intentId, role, challenge.challenge.nonce,
+        { sessionAddress: address, sessionNetwork: network },
+      )
+      assert.equal(consumed.success, true, JSON.stringify(consumed))
+      roleApprovals.push(await store.recordPayoutAuthorization({
+        intentId: reserved.intentId, role,
+        challengeId: consumed.authorization.challengeId,
+        intentDigest: consumed.authorization.intentDigest,
+        recoveredAddress: address,
+        signatureHash: marker.repeat(64),
+        messageHash: consumed.authorization.messageHash,
+      }))
+    }
+    assert.equal(roleApprovals[0].status, 'pending_authorization')
+    assert.equal(roleApprovals[1].status, 'sponsor_authorization_complete')
+    const ready = await store.getPayoutIntentForPreflight(reserved.intentId)
+    assert.equal(ready.success, true, JSON.stringify(ready))
+    assert.equal(ready.sponsorOwnerApprovalsVerified, true)
+    assert.equal(ready.intent.principalSponsorAddress, sponsorAddress)
+    assert.equal(ready.intent.feeSponsorAddress, receiverAddress)
+    assert.equal(ready.canSubmitSponsoredTransfer, false)
+
+    const externalTxId = 'tssponsor-' + reserved.intentId + '-' + ready.intent.intentDigest
+    const releaseReference = 'pg-fireblocks-release-' + suffix
+    const preparedSubmission = await store.prepareFireblocksPayoutSubmission({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      releaseReference,
+    })
+    assert.equal(preparedSubmission.success, true, JSON.stringify(preparedSubmission))
+    assert.equal(preparedSubmission.duplicate, false)
+    assert.equal(preparedSubmission.submission.status, 'prepared')
+    const duplicateSubmission = await store.prepareFireblocksPayoutSubmission({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      releaseReference,
+    })
+    assert.equal(duplicateSubmission.success, true, JSON.stringify(duplicateSubmission))
+    assert.equal(duplicateSubmission.duplicate, true)
+    assert.equal(duplicateSubmission.submission.externalTxId, externalTxId)
+
+    const providerRecorded = await store.recordFireblocksPayoutSubmission({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      providerTransactionId: 'fireblocks-pg-' + suffix,
+      providerStatus: 'COMPLETED',
+      transactionHash: 'c'.repeat(64),
+      status: 'broadcast-accepted',
+    })
+    assert.equal(providerRecorded.success, true, JSON.stringify(providerRecorded))
+    assert.equal(providerRecorded.submission.status, 'broadcast-accepted')
+    assert.equal(providerRecorded.submission.providerTransactionId, 'fireblocks-pg-' + suffix)
+    assert.equal(providerRecorded.submission.transactionHash, 'c'.repeat(64))
+
+    const recoveredSubmission = await store.getFireblocksPayoutSubmission(reserved.intentId)
+    assert.equal(recoveredSubmission.success, true, JSON.stringify(recoveredSubmission))
+    assert.equal(recoveredSubmission.submission.externalTxId, externalTxId)
+    assert.equal(recoveredSubmission.submission.status, 'broadcast-accepted')
+
+    const settlementContext = await store.getFireblocksPayoutSettlementContext(reserved.intentId)
+    assert.equal(settlementContext.success, true, JSON.stringify(settlementContext))
+    assert.equal(settlementContext.context.transactionHash, 'c'.repeat(64))
+    const chainSettlement = await store.recordFireblocksPayoutChainVerification({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      transactionHash: 'c'.repeat(64),
+      verificationStatus: 'confirmed',
+      verificationReason: 'confirmed-solidified-successful-receipt-and-transfer-event',
+      blockNumber: 54321,
+      feeSun: '50000',
+      energyUsage: '9000',
+      netUsage: '220',
+    })
+    assert.equal(chainSettlement.success, true, JSON.stringify(chainSettlement))
+    assert.equal(chainSettlement.principalSettlementStatus, 'settled')
+    assert.equal(chainSettlement.feeSettlementStatus, 'pending-resource-reconciliation')
+    assert.equal(chainSettlement.feeReservationRetained, true)
+
+    const duplicateSettlement = await store.recordFireblocksPayoutChainVerification({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      transactionHash: 'c'.repeat(64),
+      verificationStatus: 'confirmed',
+      verificationReason: 'confirmed-solidified-successful-receipt-and-transfer-event',
+      blockNumber: 54321,
+      feeSun: '50000',
+      energyUsage: '9000',
+      netUsage: '220',
+    })
+    assert.equal(duplicateSettlement.success, true, JSON.stringify(duplicateSettlement))
+    assert.equal(duplicateSettlement.duplicate, true)
+
+    const cancellationBlocked = await store.cancelPayoutIntent(
+      reserved.intentId, 'pg-fireblocks-cancel-review-' + suffix,
+    )
+    assert.equal(cancellationBlocked.success, false)
+    assert.equal(cancellationBlocked.reason, 'fireblocks-provider-submission-exists-manual-reconciliation-required')
+
+    await pool.query(
+      "UPDATE trc20_token_clone.sponsor_organization_payout_intents " +
+      "SET expires_at = now() - interval '1 second' WHERE id = $1",
+      [reserved.intentId],
+    )
+    const expiryRun = await store.expirePayoutIntents({ limit: 10 })
+    assert.equal(expiryRun.success, true, JSON.stringify(expiryRun))
+    assert.equal(expiryRun.expiredCount, 0)
+    const activeReservations = await pool.query(
+      "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_payout_reservations " +
+      "WHERE intent_id = $1 AND status = 'active'",
+      [reserved.intentId],
+    )
+    assert.equal(activeReservations.rows[0].count, 1, 'only the network-fee reservation remains active')
+
+    const settledBudgets = await pool.query(
+      "SELECT id::text AS id, reserved_base_units::text AS reserved, spent_base_units::text AS spent " +
+      "FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[])",
+      [budgetIds],
+    )
+    const principalBudget = settledBudgets.rows.find(row => row.id === principalBudgetId)
+    const feeBudget = settledBudgets.rows.find(row => row.id === feeBudgetId)
+    assert.deepEqual(principalBudget, { id: principalBudgetId, reserved: '0', spent: '250000' })
+    assert.deepEqual(feeBudget, { id: feeBudgetId, reserved: '125000', spent: '0' })
+
+    const providerRows = await pool.query(
+      "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = $1",
+      [reserved.intentId],
+    )
+    assert.equal(providerRows.rows[0].count, 1)
+  } finally {
+    if (previousScopes === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
+    else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previousScopes
+    if (intentIds.length) {
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_authorizations WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_reservations WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_intents WHERE id = ANY($1::bigint[])', [intentIds]).catch(() => {})
+    }
+    if (organizationIds.length) {
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_audit_events WHERE organization_id = ANY($1::bigint[])', [organizationIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_budget_links WHERE organization_id = ANY($1::bigint[])', [organizationIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_accounts WHERE organization_id = ANY($1::bigint[])', [organizationIds]).catch(() => {})
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organizations WHERE id = ANY($1::bigint[])', [organizationIds]).catch(() => {})
+    }
+    if (budgetIds.length) await pool.query('DELETE FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[])', [budgetIds]).catch(() => {})
+    await pool.end()
+  }
+})

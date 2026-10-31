@@ -21,6 +21,8 @@ import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
 import sponsorRequestIntakeRoutes from './routes/sponsor-request-intake.mjs'
+import sponsorOrganizationRoutes from './routes/sponsor-organizations.mjs'
+import sponsorOrganizationSelectionRoutes from './routes/sponsor-organization-selection.mjs'
 import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
@@ -147,6 +149,8 @@ app.use('/api/auth/owner', createOwnerAuthRouter())
 app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/tron', sponsorRequestIntakeRoutes)
+app.use('/api/tron', sponsorOrganizationRoutes)
+app.use('/api/tron', sponsorOrganizationSelectionRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
