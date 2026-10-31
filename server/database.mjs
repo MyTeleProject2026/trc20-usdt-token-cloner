@@ -3356,21 +3356,25 @@ export async function reserveSponsorResourceBudgetForTransfer({
         await client.query('ROLLBACK'); return { reserved: false, reason: 'configured-fee-sponsor-mismatch' }
       }
       const existing = await client.query(
-        `SELECT budget_id, energy_reserved_units::text AS energy, bandwidth_reserved_units::text AS bandwidth, status
+        `SELECT id, budget_id, energy_reserved_units::text AS energy, bandwidth_reserved_units::text AS bandwidth, status
            FROM ${schema}.sponsor_resource_reservations WHERE idempotency_key = $1 FOR UPDATE`,
         [idempotencyKey],
       )
+      let reopenExisting = false
       if (existing.rows.length) {
         const row = existing.rows[0]
         const same = String(row.budget_id) === String(budget.id)
           && row.energy === energyUnits && row.bandwidth === bandwidthUnits
         if (!same) { await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-reservation-conflict' } }
-        if (row.status !== 'reserved') {
+        if (row.status === 'reserved') {
+          await client.query('COMMIT')
+          return { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+        }
+        if (row.status !== 'released') {
           await client.query('ROLLBACK')
           return { reserved: false, reason: 'resource-reservation-not-active' }
         }
-        await client.query('COMMIT')
-        return { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+        reopenExisting = true
       }
       const energyAvailable = BigInt(budget.energy_budget_units) - BigInt(budget.energy_reserved_units) - BigInt(budget.energy_spent_units)
       const bandwidthAvailable = BigInt(budget.bandwidth_budget_units) - BigInt(budget.bandwidth_reserved_units) - BigInt(budget.bandwidth_spent_units)
@@ -3384,16 +3388,26 @@ export async function reserveSponsorResourceBudgetForTransfer({
           WHERE id = $3::bigint`,
         [energyUnits, bandwidthUnits, budget.id],
       )
-      await client.query(
-        `INSERT INTO ${schema}.sponsor_resource_reservations
-          (idempotency_key, budget_id, network, energy_reserved_units, bandwidth_reserved_units, expires_at)
-         VALUES ($1,$2::bigint,$3,$4::numeric,$5::numeric,$6)`,
-        [idempotencyKey, budget.id, transfer.network, energyUnits, bandwidthUnits, expiry.toISOString()],
-      )
+      if (reopenExisting) {
+        const reopened = await client.query(
+          `UPDATE ${schema}.sponsor_resource_reservations
+              SET status = 'reserved', transaction_hash = NULL, expires_at = $2, updated_at = now()
+            WHERE idempotency_key = $1 AND status = 'released'`,
+          [idempotencyKey, expiry.toISOString()],
+        )
+        if (reopened.rowCount !== 1) throw new Error('resource-reservation-reopen-conflict')
+      } else {
+        await client.query(
+          `INSERT INTO ${schema}.sponsor_resource_reservations
+            (idempotency_key, budget_id, network, energy_reserved_units, bandwidth_reserved_units, expires_at)
+           VALUES ($1,$2::bigint,$3,$4::numeric,$5::numeric,$6)`,
+          [idempotencyKey, budget.id, transfer.network, energyUnits, bandwidthUnits, expiry.toISOString()],
+        )
+      }
       await client.query(
         `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
          VALUES ('sponsor-resource-budget-reserved','sponsor-resource-reservation',$1,$2::jsonb)`,
-        [idempotencyKey, JSON.stringify({ mandateReference, network: transfer.network, energyUnits, bandwidthUnits, budgetId: String(budget.id) })],
+        [idempotencyKey, JSON.stringify({ mandateReference, network: transfer.network, energyUnits, bandwidthUnits, budgetId: String(budget.id), reopened: reopenExisting })],
       )
       await client.query('COMMIT')
       return { reserved: true, duplicate: false, status: 'reserved', idempotencyKey, canSubmitSponsoredTransfer: false }
