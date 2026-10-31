@@ -76,3 +76,24 @@ This is a **read-only provider custody preflight**, not a payout execution endpo
 The response must continue to report transactionCreated=false, transactionSigned=false, transactionSubmitted=false, canSubmitSponsoredTransfer=false, and submissionEnabled=false. A passing result means only that the configured provider workspace and both mapped vault roles pass this read-only check at that time.
 
 The next implementation stage is a separate idempotent provider submission/settlement workflow that rechecks the mandate, policy, reserved budgets, live chain balances/resources, exact recipient and amount, and provider approvals. It must preserve Fireblocks' transaction approval policy, reconcile the provider transaction ID with the solidified TRON transaction and exact USDT Transfer event, and safely handle timeouts/unknown provider outcomes without duplicate payouts. That execution stage must remain disabled until the real organization authorizes it and controlled end-to-end evidence exists.
+## Gated provider submission and status recovery
+
+The follow-on implementation adds two administrator-only endpoints:
+
+- POST /api/tron/sponsorship/payout-intents/{intentId}/fireblocks-submit with an empty JSON body creates or recovers the provider transaction request.
+- POST /api/tron/sponsorship/payout-intents/{intentId}/fireblocks-refresh with an empty JSON body reads the existing Fireblocks transaction status. It never creates a new request.
+
+The submission endpoint is an actual provider-side side effect when all release gates pass. It requires all of the following backend variables:
+
+- SPONSOR_ORG_FIREBLOCKS_SUBMISSION_ENABLED=true
+- SPONSOR_ORG_FIREBLOCKS_PRODUCTION_RELEASE_APPROVED=true
+- SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=true
+- SPONSOR_ORG_FIREBLOCKS_RELEASE_REFERENCE=<approved release/review reference>
+
+All four are deliberately unset or false in the environment template. Do not enable them until the real treasury organization, its legal mandate, both role wallets and budgets, Fireblocks vault policies/approvers, real provider balances, fee-resource delegation, and controlled testnet evidence have been independently reviewed. Enabling these gates can create a real Fireblocks transaction request; the provider's own policy may sign and broadcast automatically if its rules allow it. The application does not bypass that policy.
+
+Before a new provider request, the backend revalidates the exact approved intent, reservations and registry account mappings, re-runs both TRON resource and Fireblocks custody preflights, and writes an immutable local submission record. The external transaction ID is deterministically derived from the intent ID and digest. Fireblocks documents that it permanently rejects future transaction requests using a duplicate externalTxId; retries therefore look up and reuse the same identifier rather than generating a new payment ID.
+
+Provider timeouts and ambiguous outcomes keep both sponsor reservations active. The application looks up the same externalTxId and records a provider-unknown state when it cannot prove whether Fireblocks accepted the request. It must not release the reservation, mint a replacement request ID, or fall back to user funds.
+
+A Fireblocks request ID or provider status is not a confirmed blockchain payment. A provider-returned transaction hash is still only a candidate for independent Mainnet verification. The new submission records do not yet settle sponsor budgets; principal spend and the fee sponsor's actual TRX spend remain reserved pending a separate exact solidified-receipt/event verification and budget settlement stage. The current response flags remain non-submittable at the application/chain settlement layer.
