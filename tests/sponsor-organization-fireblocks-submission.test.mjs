@@ -209,7 +209,10 @@ test('provider custody preflight failure prevents database preparation and Fireb
 
 test('provider refresh reads existing transaction status only and never creates a transfer', async () => {
   const existing = { id: 'fireblocks-request-recovered', status: 'COMPLETED', txHash: 'b'.repeat(64) }
-  const harness = createHarness({ findResults: [existing] })
+  const harness = createHarness({
+    intentOverrides: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+    findResults: [existing],
+  })
   const result = await harness.refresh()
   assert.equal(result.success, true)
   assert.equal(result.status, 'broadcast-accepted')
