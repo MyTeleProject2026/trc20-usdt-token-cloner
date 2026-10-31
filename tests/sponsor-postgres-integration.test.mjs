@@ -1207,9 +1207,9 @@ test('PostgreSQL reserves delegated resources separately and settles only matchi
     assert.equal(counters.rows[0].bandwidth_reserved_units, '0')
     assert.equal(counters.rows[0].energy_spent_units, '0')
     assert.equal(counters.rows[0].bandwidth_spent_units, '100')
-    await cleanup(pool, [sponsorReference], [idempotencyKey])
   } finally {
-    if (priorMandates === undefined) delete process.env.SPONSOR_APPROVED_RESOURCE_MANDATES
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    if (priorMandates === undefined delete process.env.SPONSOR_APPROVED_RESOURCE_MANDATES
     else process.env.SPONSOR_APPROVED_RESOURCE_MANDATES = priorMandates
     if (priorResourceFlag === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
     else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = priorResourceFlag
