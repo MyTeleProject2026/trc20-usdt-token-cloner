@@ -366,6 +366,18 @@ test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USD
   assert.equal(unauditedDelegation.feeSponsorResources.delegation.transactionAuditVerified, false)
   assert.ok(unauditedDelegation.blockers.includes('fee-to-principal-delegation-transactions-not-independently-audited'))
 
+  const incompleteAuditTypes = makeRoleResult()
+  incompleteAuditTypes.feeSponsorDelegationToPrincipal.auditedResourceTypes = ['ENERGY']
+  const missingBandwidthAudit = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: incompleteAuditTypes,
+    env,
+  })
+  assert.equal(missingBandwidthAudit.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(missingBandwidthAudit.feeSponsorResources.delegation.transactionAuditVerified, false)
+  assert.ok(missingBandwidthAudit.blockers.includes('fee-to-principal-delegation-transactions-not-independently-audited'))
+
   const zeroUsdtBalance = makeRoleResult()
   zeroUsdtBalance.roles.assetPrincipalSponsor.tokens[0].balanceBaseUnits = '0'
   const unfundedPrincipal = buildNetworkSummary({
