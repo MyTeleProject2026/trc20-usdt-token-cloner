@@ -173,6 +173,88 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   assert.equal(JSON.stringify(result).includes(secret), false)
 })
 
+test('USDT receipt exposes caller Energy separately from contract-origin Energy', async () => {
+  const contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const contractHex = '41' + '33'.repeat(20)
+  const fromTopic = '0x' + '11'.repeat(20).padStart(64, '0')
+  const toTopic = '0x' + '22'.repeat(20).padStart(64, '0')
+  const info = {
+    id: txid, blockNumber: 78, blockTimeStamp: 1700000001000, fee: 0, result: 'SUCCESS',
+    receipt: {
+      result: 'SUCCESS', net_fee: 0, energy_fee: 0,
+      energy_usage_total: 75, energy_usage: 70, origin_energy_usage: 5, net_usage: 220,
+    },
+    log: [{
+      address: contractHex,
+      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
+      data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
+    }],
+  }
+  const transferValue = { ...transfer().transfer, asset: 'USDT', tokenContract: contract }
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver, contract].includes(value) },
+    address: { toHex(value) {
+      return value === principal ? '41' + '11'.repeat(20)
+        : value === receiver ? '41' + '22'.repeat(20) : contractHex
+    } },
+  }
+  const result = await readSolidifiedSponsorChainCosts({
+    transfer: transferValue,
+    env: { TATUM_API_KEY: 'test-only-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('gettransactionbyid')
+        ? { txID: txid, ret: [{ contractRet: 'SUCCESS' }], raw_data: { contract: [] } }
+        : info,
+    }),
+  })
+  assert.equal(result.success, true, JSON.stringify(result))
+  assert.equal(result.energyUsageTotal, '75')
+  assert.equal(result.energyUsage, '70')
+  assert.equal(result.originEnergyUsage, '5')
+})
+
+test('USDT receipt energy total must equal caller plus contract-origin consumption', async () => {
+  const contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const contractHex = '41' + '33'.repeat(20)
+  const fromTopic = '0x' + '11'.repeat(20).padStart(64, '0')
+  const toTopic = '0x' + '22'.repeat(20).padStart(64, '0')
+  const info = {
+    id: txid, blockNumber: 79, blockTimeStamp: 1700000002000, fee: 0, result: 'SUCCESS',
+    receipt: {
+      result: 'SUCCESS', net_fee: 0, energy_fee: 0,
+      energy_usage_total: 76, energy_usage: 70, origin_energy_usage: 5, net_usage: 220,
+    },
+    log: [{
+      address: contractHex,
+      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
+      data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
+    }],
+  }
+  const transferValue = { ...transfer().transfer, asset: 'USDT', tokenContract: contract }
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver, contract].includes(value) },
+    address: { toHex(value) {
+      return value === principal ? '41' + '11'.repeat(20)
+        : value === receiver ? '41' + '22'.repeat(20) : contractHex
+    } },
+  }
+  const result = await readSolidifiedSponsorChainCosts({
+    transfer: transferValue,
+    env: { TATUM_API_KEY: 'test-only-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('gettransactionbyid')
+        ? { txID: txid, ret: [{ contractRet: 'SUCCESS' }], raw_data: { contract: [] } }
+        : info,
+    }),
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'caller-and-origin-energy-breakdown-unverifiable')
+})
+
 test('chain-cost observation history is admin-gated and bounded', async (t) => {
   const base = await createServerForTest(t)
   const denied = await fetch(base + '/sponsorship/chain-cost-observations')
