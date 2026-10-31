@@ -21,19 +21,23 @@ function route(path, method) {
 
 test('testnet signing intent fails closed with the feature flag unset', async () => {
   const previous = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  const previousPilot = process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
   try {
     delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+    delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
     const response = makeResponse()
     await route('/sponsorship/transfers/:idempotencyKey/signing-intent', 'get')({
       params: { idempotencyKey: 'reservation-intent-key-00000001' }, query: {}, headers: {},
     }, response)
     assert.equal(response.statusCode, 503)
-    assert.equal(response.body.status, 'testnet-signed-broadcast-disabled')
+    assert.equal(response.body.status, 'sponsor-fee-resource-settlement-gate-closed')
     assert.equal(response.body.canSubmitSponsoredTransfer, false)
     assert.equal(response.body.submissionEnabled, false)
   } finally {
     if (previous === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
     else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previous
+    if (previousPilot === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = previousPilot
   }
 })
 
@@ -54,13 +58,17 @@ test('testnet signed-broadcast endpoint fails closed with the feature flag unset
   } finally {
     if (previous === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
     else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previous
+    if (previousPilot === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = previousPilot
   }
 })
 
 test('signed-broadcast route rejects private-key fields before database/provider calls', async () => {
   const previous = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  const previousPilot = process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
   try {
     process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
+    process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = 'true'
     const response = makeResponse()
     await route('/sponsorship/transfers/:idempotencyKey/submit-signed', 'post')({
       params: { idempotencyKey: 'reservation-intent-key-00000001' },
@@ -73,5 +81,31 @@ test('signed-broadcast route rejects private-key fields before database/provider
   } finally {
     if (previous === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
     else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previous
+    if (previousPilot === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = previousPilot
+  }
+})
+
+
+test('historical testnet opt-in cannot bypass the separate pilot-release approval gate', async () => {
+  const previous = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  const previousPilot = process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+  try {
+    process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
+    delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    const response = makeResponse()
+    await route('/sponsorship/transfers/:idempotencyKey/signing-intent', 'get')({
+      params: { idempotencyKey: 'reservation-intent-key-00000001' }, query: {}, headers: {},
+    }, response)
+    assert.equal(response.statusCode, 503)
+    assert.equal(response.body.status, 'sponsor-fee-resource-settlement-gate-closed')
+    assert.ok(response.body.blockers.includes('independent-testnet-pilot-release-approval-required'))
+    assert.equal(response.body.providerSubmissionAttempted, false)
+    assert.equal(response.body.transactionBroadcast, false)
+  } finally {
+    if (previous === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+    else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previous
+    if (previousPilot === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = previousPilot
   }
 })
