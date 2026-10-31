@@ -3521,9 +3521,62 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
           FOR UPDATE`,
         [row.network, hash, row.budget_id],
       )
-      const status = (BigInt(row.reported_fee_sun || '0') > 0n
-        || BigInt(row.energy_fee_sun || '0') > 0n || BigInt(row.net_fee_sun || '0') > 0n)
-        ? 'manual-review' : 'pending-evidence'
+      const feeBurnDetected = BigInt(row.reported_fee_sun || '0') > 0n
+        || BigInt(row.energy_fee_sun || '0') > 0n || BigInt(row.net_fee_sun || '0') > 0n
+      const actualEnergyUnits = BigInt(row.energy_used ?? '0')
+      const actualBandwidthUnits = BigInt(row.bandwidth_used)
+      const reservedEnergyUnits = BigInt(row.energy_reserved)
+      const reservedBandwidthUnits = BigInt(row.bandwidth_reserved)
+      const withinReservedUnits = actualEnergyUnits <= reservedEnergyUnits
+        && actualBandwidthUnits <= reservedBandwidthUnits
+      const proof = attributionEvidence
+      const storedPreflight = row.preflight_evidence
+      const snapshotKeys = [
+        'feeSponsorAddress','assetPrincipalAddress','energyStakeSun','bandwidthStakeSun',
+        'energyExpiry','bandwidthExpiry','ownEnergySun','incomingEnergyLegacySun',
+        'incomingEnergyV2Sun','ownBandwidthSun','incomingBandwidthLegacySun','incomingBandwidthV2Sun',
+      ]
+      const snapshotMatches = Boolean(storedPreflight?.delegationSnapshot && proof?.delegationSnapshot)
+        && snapshotKeys.every(key => String(storedPreflight.delegationSnapshot[key]) === String(proof.delegationSnapshot[key]))
+      const attributionMatches = proof?.success === true
+        && proof.feeSponsorResourceSourceVerified === true
+        && proof.network === row.network && proof.sponsorAddress === row.sponsor_address
+        && proof.feeSponsorAddress === row.fee_sponsor_address
+        && row.asset_principal_address === row.sponsor_address
+        && proof.bandwidthCoverageSource === 'exact-active-fee-sponsor-delegation-only'
+        && (row.asset === 'TRX' || proof.energyCoverageSource === 'exact-active-fee-sponsor-delegation-only')
+        && proof.freeBandwidthUsedAsSponsorCoverage === false
+        && Number.isFinite(new Date(proof.checkedAt).getTime())
+        && snapshotMatches
+      const status = feeBurnDetected || !withinReservedUnits
+        ? 'manual-review'
+        : attributionMatches ? 'settled' : 'pending-evidence'
+      const settlementEvidence = {
+        evidenceType: 'solidified-receipt-with-delegation-source-recheck',
+        resourceAttributionVerified: status === 'settled',
+        preflightEvidence: storedPreflight || null,
+        attributionEvidence: attributionMatches ? proof : null,
+        reason: feeBurnDetected ? 'transaction-fee-burn-observed'
+          : !withinReservedUnits ? 'resource-use-exceeded-reservation'
+            : attributionMatches ? null : 'exact-delegation-source-attribution-not-proven',
+      }
+      const settleBudget = async () => {
+        const updated = await client.query(
+          `UPDATE ${schema}.sponsor_resource_budgets
+              SET energy_reserved_units = energy_reserved_units - $1::numeric,
+                  bandwidth_reserved_units = bandwidth_reserved_units - $2::numeric,
+                  energy_spent_units = energy_spent_units + $3::numeric,
+                  bandwidth_spent_units = bandwidth_spent_units + $4::numeric,
+                  updated_at = now()
+            WHERE id = $5::bigint
+              AND energy_reserved_units >= $1::numeric
+              AND bandwidth_reserved_units >= $2::numeric
+              AND energy_spent_units + $3::numeric <= energy_budget_units
+              AND bandwidth_spent_units + $4::numeric <= bandwidth_budget_units`,
+          [row.energy_reserved, row.bandwidth_reserved, actualEnergyUnits.toString(), actualBandwidthUnits.toString(), row.budget_id],
+        )
+        if (updated.rowCount !== 1) throw new Error('resource-budget-settlement-invariant-failed')
+      }
       if (existing.rows.length) {
         const prior = existing.rows[0]
         const same = prior.block_number === row.block_number
