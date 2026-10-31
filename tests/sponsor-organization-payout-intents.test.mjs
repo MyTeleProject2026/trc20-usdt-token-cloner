@@ -162,17 +162,28 @@ test('dual sponsor intent reserves two independently owned budget links and rema
   assert.equal(store.state.reserved[0].fundingSnapshots.assetPrincipalSponsor.sponsorAddress, PRINCIPAL_ADDRESS)
 })
 
-test('dual sponsor intent rejects shared organizations or shared wallet addresses', async () => {
-  for (const options of [{ sameOrganization: true }, { sameWallet: true }]) {
-    const store = createStore(options)
-    const result = await reserveSponsorOrganizationPayoutIntent({
-      store, env: {}, input: baseInput,
-      readRoleFunding: async (...args) => roleFunding(...args),
-    })
-    assert.equal(result.success, false)
-    assert.equal(result.reason, 'independent-approved-principal-and-fee-budget-links-required')
-    assert.equal(store.state.reserved.length, 0)
-  }
+test('one approved organization may supply both roles through separate verified wallets and budget links', async () => {
+  const store = createStore({ sameOrganization: true })
+  const result = await reserveSponsorOrganizationPayoutIntent({
+    store, env: {}, input: baseInput,
+    readRoleFunding: async (...args) => roleFunding(...args),
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.status, 'pending_authorization')
+  assert.equal(store.state.reserved.length, 1)
+  assert.equal(store.state.reserved[0].principalLinkId, baseInput.principalLinkId)
+  assert.equal(store.state.reserved[0].feeLinkId, baseInput.feeLinkId)
+})
+
+test('dual-role intent still rejects a shared wallet address even when roles are otherwise eligible', async () => {
+  const store = createStore({ sameOrganization: true, sameWallet: true })
+  const result = await reserveSponsorOrganizationPayoutIntent({
+    store, env: {}, input: baseInput,
+    readRoleFunding: async (...args) => roleFunding(...args),
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'approved-role-specific-principal-and-fee-budgets-with-distinct-wallets-required')
+  assert.equal(store.state.reserved.length, 0)
 })
 
 test('dual sponsor intent fails closed when current fee delegation is not observed', async () => {
