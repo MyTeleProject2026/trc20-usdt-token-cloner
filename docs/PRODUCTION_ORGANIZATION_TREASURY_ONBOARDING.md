@@ -99,3 +99,10 @@ After the organization has an approved production workspace, complete these step
 - Explicit change approval, controlled Mainnet test evidence, and receiver/exchange deposit policy checks.
 
 Until then, keep all production submission/broadcast flags false. The application must never claim that an internal reservation, displayed balance, API preflight, or unconfirmed transaction is a completed payment.
+
+
+## Sponsor Fireblocks custody preflight (read-only milestone)
+
+The organization-linked payout flow now has a separate read-only custody preflight for the initial single-organization model. It binds the exact registry organization ID and its separate principal/fee registry account IDs to two distinct pre-existing Fireblocks vault account IDs in the same provider workspace. It verifies the exact Fireblocks wallet addresses against the registered TRON addresses, verifies official Mainnet USDT contract metadata and native TRX metadata, checks provider-available balances, checks Fireblocks' high network-fee estimate against the reserved fee cap, and requires the separate transaction-specific TRON resource preflight to pass.
+
+See [SPONSOR_FIREBLOCKS_CUSTODY_PREFLIGHT.md](SPONSOR_FIREBLOCKS_CUSTODY_PREFLIGHT.md) for configuration and the protected endpoint. This does not verify legal identity by itself and does not create or submit a transaction. Keep real-value payout execution disabled. The organization must still confirm its mandate, provider policy/approvers, production controls and actual funding. A separate idempotent transaction submission, provider status handling, chain settlement and budget-release/settlement workflow remains to be designed, reviewed, tested on testnet and explicitly approved before any Mainnet execution.
