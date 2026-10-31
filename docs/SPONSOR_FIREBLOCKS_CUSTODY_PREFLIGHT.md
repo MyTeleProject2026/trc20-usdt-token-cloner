@@ -97,3 +97,18 @@ Before a new provider request, the backend revalidates the exact approved intent
 Provider timeouts and ambiguous outcomes keep both sponsor reservations active. The application looks up the same externalTxId and records a provider-unknown state when it cannot prove whether Fireblocks accepted the request. It must not release the reservation, mint a replacement request ID, or fall back to user funds.
 
 A Fireblocks request ID or provider status is not a confirmed blockchain payment. A provider-returned transaction hash is still only a candidate for independent Mainnet verification. The new submission records do not yet settle sponsor budgets; principal spend and the fee sponsor's actual TRX spend remain reserved pending a separate exact solidified-receipt/event verification and budget settlement stage. The current response flags remain non-submittable at the application/chain settlement layer.
+## Solidified-chain verification and principal settlement
+
+A third protected endpoint completes the first chain-verification stage:
+
+- POST /api/tron/sponsorship/payout-intents/{intentId}/fireblocks-settle with an empty JSON body.
+
+The backend first refreshes the existing Fireblocks request, then reads the returned transaction hash from TRON's confirmed node and transaction-info endpoint. It uses the shared treasury receipt verifier to require the same transaction ID in both responses, exactly one TRC-20 TriggerSmartContract operation from the registered principal address, the official Mainnet Tether contract, exact transfer calldata for the intent recipient and base-unit amount, a successful solidified receipt, and exactly one matching official USDT Transfer event. A transaction hash or provider status alone cannot settle the principal.
+
+Once the verifier returns confirmed success, the PostgreSQL transaction rechecks the immutable intent, provider hash, two exact registry budget links/accounts, both original reservations, and the associated sponsor budget rows. It then moves only the principal amount from the principal budget's reserved amount to spent and marks the principal reservation released. For a verified solidified revert, it releases the principal reservation without adding principal spend.
+
+**The network-fee/resource reservation remains active in both cases.** The observed transactionInfo.fee, Energy and Bandwidth values are stored for the later reconciliation step, but they are not treated as the full economic cost of delegated Energy/Bandwidth. If the observed direct TRX fee already exceeds the approved cap, the record is marked over-cap-manual-review. Otherwise it stays pending-resource-reconciliation. Do not release or spend the fee budget until the resource-delegation provider can evidence the actual resource contribution and its accounting valuation.
+
+Pending receipts, mismatched hashes, wrong senders, incorrect amounts, wrong token contracts, missing events, and provider requests without a chain hash leave both sponsor reservations untouched. Settlement is idempotent: a repeated verification of the same intent/hash does not charge principal twice. The submission remains recorded so expiry and cancellation cannot release the remaining fee reservation.
+
+This milestone does not claim exchange-account credit. The receiving exchange still controls its own deposit confirmation process. It also does not automatically reconcile the fee sponsor's delegation cost; that is the remaining budget-settlement stage.
