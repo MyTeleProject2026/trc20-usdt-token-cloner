@@ -2041,7 +2041,8 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         if (prior.rows.length) {
           row = prior.rows[0]
           if (row.intent_digest.trim().toLowerCase() !== intentDigest.toLowerCase()
-            || row.external_tx_id !== externalTxId) {
+            || row.external_tx_id !== externalTxId
+            || row.release_reference !== releaseReference) {
             await client.query('ROLLBACK')
             return { success: false, reason: 'fireblocks-submission-idempotency-conflict' }
           }
@@ -2077,7 +2078,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             providerStatus: row.provider_status || null,
             transactionHash: row.transaction_hash?.trim() || null,
             lastErrorCode: row.last_error_code || null,
-            submissionAttempts: Number(row.provider_observation_count),
+            providerObservationCount: Number(row.provider_observation_count),
             createdAt: new Date(row.created_at).toISOString(),
             updatedAt: new Date(row.updated_at).toISOString(),
           },
@@ -2152,8 +2153,12 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           await client.query('ROLLBACK')
           return { success: false, reason: 'fireblocks-chain-transaction-hash-conflict' }
         }
-        const effectiveStatus = row.status === 'broadcast-accepted' && status === 'provider-pending'
-          ? row.status : status
+        const effectiveStatus = row.status === 'broadcast-accepted' && status !== 'broadcast-accepted'
+          ? row.status
+          : row.status === 'provider-failed' && status !== 'broadcast-accepted'
+            ? row.status
+            : row.status === 'provider-pending' && status === 'provider-unknown'
+              ? row.status : status
         const updated = await client.query(
           "UPDATE trc20_token_clone.sponsor_organization_fireblocks_submissions " +
           "SET status = $1, provider_transaction_id = COALESCE(provider_transaction_id, $2), " +
@@ -2188,7 +2193,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             providerStatus: saved.provider_status || null,
             transactionHash: saved.transaction_hash?.trim() || null,
             lastErrorCode: saved.last_error_code || null,
-            submissionAttempts: Number(saved.provider_observation_count),
+            providerObservationCount: Number(saved.provider_observation_count),
             createdAt: new Date(saved.created_at).toISOString(),
             updatedAt: new Date(saved.updated_at).toISOString(),
           },
