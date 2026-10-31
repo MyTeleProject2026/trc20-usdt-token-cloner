@@ -665,6 +665,7 @@ export async function verifySponsorFeeResourceCapacity({
     return {
       success: true,
       status: 'sponsor-resource-capacity-verified',
+      resourceCapacityPreflightPassed: true,
       network: transfer.network,
       sponsorAddress: transfer.sponsorAddress,
       availableEnergyUnits: availableEnergy.toString(),

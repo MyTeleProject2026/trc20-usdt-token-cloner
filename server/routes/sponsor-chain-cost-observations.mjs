@@ -6,6 +6,8 @@ import {
   getSponsorTransferForSubmission,
   listSponsorChainCostObservations,
   recordSponsorChainCostObservation,
+  listSponsorResourceBudgetReservations,
+  pauseSponsorResourceBudget,
 } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
@@ -159,8 +161,9 @@ export async function readSolidifiedSponsorChainCosts({
     const energyUsage = safeIntegerString(receipt.energy_usage, { allowNull: true })
     const netUsage = safeIntegerString(receipt.net_usage, { allowNull: true })
     const energyPenaltyTotal = safeIntegerString(receipt.energy_penalty_total, { allowNull: true })
-    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.net_usage, receipt.energy_penalty_total]
-    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, netUsage, energyPenaltyTotal]
+    const originEnergyUsage = safeIntegerString(receipt.origin_energy_usage, { allowNull: true })
+    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.origin_energy_usage, receipt.net_usage, receipt.energy_penalty_total]
+    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, originEnergyUsage, netUsage, energyPenaltyTotal]
     if (optionalRaw.some((value, index) => value !== undefined && value !== null && optionalParsed[index] === null)) {
       return { success: false, reason: 'invalid-solidified-fee-fields' }
     }
@@ -176,6 +179,7 @@ export async function readSolidifiedSponsorChainCosts({
       netFeeSun,
       energyUsageTotal,
       energyUsage,
+      originEnergyUsage,
       netUsage,
       energyPenaltyTotal,
       evidenceSource: 'Tatum TRON SolidityNode transaction body and receipt',
@@ -273,6 +277,7 @@ export function createSponsorChainCostObservationRouter(options = {}) {
         netFeeSun: costs.netFeeSun,
         energyUsageTotal: costs.energyUsageTotal,
         energyUsage: costs.energyUsage,
+        originEnergyUsage: costs.originEnergyUsage ?? null,
         netUsage: costs.netUsage,
         energyPenaltyTotal: costs.energyPenaltyTotal,
       })
@@ -347,6 +352,48 @@ export function createSponsorChainCostObservationRouter(options = {}) {
       sponsorFeeBudgetSettled: false,
       canSubmitSponsoredTransfer: false,
     })
+  })
+
+  router.get('/sponsorship/resource-budget-reservations', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+      return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured', reservations: [] })
+    }
+    if (!adminAuthorized(req, env)) return res.status(401).json({ success: false, error: 'unauthorized', reservations: [] })
+    const network = req.query?.network === undefined ? null : req.query.network
+    const limit = req.query?.limit === undefined ? 50 : Number(req.query.limit)
+    const result = await listSponsorResourceBudgetReservations({ network, limit })
+    if (result?.success !== true) {
+      const status = result?.reason === 'invalid-network' || result?.reason === 'invalid-limit' ? 400 : 503
+      return res.status(status).json({ success: false, error: result?.reason || 'resource-reservations-unavailable', reservations: [] })
+    }
+    return res.json({ success: true, status: 'sponsor-resource-budget-reservations-read', count: result.reservations.length, reservations: result.reservations })
+  })
+
+  router.post('/sponsorship/resource-budgets/:mandateReference/pause', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+      return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+    }
+    if (!adminAuthorized(req, env)) return res.status(401).json({ success: false, error: 'unauthorized' })
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || !['operator-request','funding-mismatch','provider-incident','emergency-stop'].includes(body.reason)) {
+      return res.status(400).json({ success: false, error: 'invalid-pause-request' })
+    }
+    const result = await pauseSponsorResourceBudget({
+      mandateReference: req.params?.mandateReference,
+      reason: body.reason,
+    })
+    if (result?.success !== true) {
+      const status = result?.reason === 'resource-budget-not-found' ? 404
+        : result?.reason === 'invalid-pause-request' ? 400 : 503
+      return res.status(status).json({ success: false, error: result?.reason || 'resource-budget-pause-unavailable' })
+    }
+    return res.json(result)
   })
 
   return router
