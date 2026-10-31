@@ -53,6 +53,13 @@ function tokenAllowlistConfigured(env, key) {
   return contracts.length > 0 && contracts.every(isValidTronAddress)
 }
 
+function minimumDelegationStakeMet(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return false
+  const text = String(value)
+  if (!/^(0|[1-9][0-9]*)$/.test(text)) return false
+  return BigInt(text) >= 1_000_000n
+}
+
 /**
  * Read only the selected testnet's latest solidified block from a fixed Tatum
  * origin. The caller cannot supply a host, path, headers, or credentials.
@@ -158,7 +165,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   // The supported USDT pilot needs both delegated Energy and Bandwidth.
   // A positive reading for only one resource must never be treated as a complete delegation.
   const delegationObserved = delegation?.success === true
-    && positiveInteger(activeEnergy) && positiveInteger(activeBandwidth)
+    && minimumDelegationStakeMet(activeEnergy) && minimumDelegationStakeMet(activeBandwidth)
 
   const allowlists = Object.fromEntries(Object.entries(TOKEN_ALLOWLIST_ENV[network]).map(([asset, key]) => [
     asset, tokenAllowlistConfigured(env, key),
