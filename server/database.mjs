@@ -3234,7 +3234,11 @@ export async function activateSponsorResourceBudget({ budgetId, approvalReferenc
       await client.query('BEGIN')
       const found = await client.query(
         `SELECT id::text AS id, mandate_reference, network, fee_sponsor_address,
-                asset_principal_address, status, valid_until
+                asset_principal_address, energy_budget_units::text AS energy_budget_units,
+                bandwidth_budget_units::text AS bandwidth_budget_units,
+                energy_per_transfer_limit::text AS energy_per_transfer_limit,
+                bandwidth_per_transfer_limit::text AS bandwidth_per_transfer_limit,
+                status, valid_until
            FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
         [String(budgetId)],
       )
@@ -3242,7 +3246,12 @@ export async function activateSponsorResourceBudget({ budgetId, approvalReferenc
       const budget = found.rows[0]
       const scopes = String(process.env.SPONSOR_APPROVED_RESOURCE_MANDATES || '')
         .split(';').map((value) => value.trim()).filter(Boolean)
-      const exactScope = [budget.mandate_reference, budget.network, budget.fee_sponsor_address, budget.asset_principal_address].join('|')
+      const exactScope = [
+        budget.mandate_reference, budget.network, budget.fee_sponsor_address, budget.asset_principal_address,
+        budget.energy_budget_units, budget.bandwidth_budget_units,
+        budget.energy_per_transfer_limit, budget.bandwidth_per_transfer_limit,
+        new Date(budget.valid_until).toISOString(),
+      ].join('|')
       if (!scopes.includes(exactScope)) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'resource-mandate-scope-not-approved' }
@@ -3515,25 +3524,38 @@ export async function releaseExpiredSponsorResourceReservations({ limit = 100 } 
     const client = await db.connect()
     try {
       await client.query('BEGIN')
-      const expired = await client.query(
-        `SELECT r.id, r.idempotency_key, r.budget_id, r.energy_reserved_units::text AS energy,
-                r.bandwidth_reserved_units::text AS bandwidth, t.status AS transfer_status
+      const candidates = await client.query(
+        `SELECT r.id, r.idempotency_key, r.budget_id
            FROM ${schema}.sponsor_resource_reservations r
            JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
           WHERE r.status = 'reserved' AND r.expires_at <= now()
             AND t.status IN ('pending-review','authorized')
           ORDER BY r.expires_at ASC
-          LIMIT $1
-          FOR UPDATE OF r SKIP LOCKED`,
+          LIMIT $1`,
         [limit],
       )
-      for (const row of expired.rows) {
+      let releasedCount = 0
+      for (const candidate of candidates.rows) {
+        // Keep lock order budget -> reservation. The live reservation path uses
+        // transfer -> budget -> reservation, so this avoids a budget/reservation deadlock.
         const budget = await client.query(
           `SELECT id FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
-          [row.budget_id],
+          [candidate.budget_id],
         )
         if (!budget.rows.length) throw new Error('resource-budget-missing')
-        await client.query(
+        const reservationResult = await client.query(
+          `SELECT r.id, r.idempotency_key, r.energy_reserved_units::text AS energy,
+                  r.bandwidth_reserved_units::text AS bandwidth, t.status AS transfer_status
+             FROM ${schema}.sponsor_resource_reservations r
+             JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+            WHERE r.id = $1 AND r.status = 'reserved' AND r.expires_at <= now()
+            FOR UPDATE OF r`,
+          [candidate.id],
+        )
+        if (!reservationResult.rows.length) continue
+        const row = reservationResult.rows[0]
+        if (!['pending-review','authorized'].includes(row.transfer_status)) continue
+        const budgetUpdate = await client.query(
           `UPDATE ${schema}.sponsor_resource_budgets
               SET energy_reserved_units = energy_reserved_units - $1::numeric,
                   bandwidth_reserved_units = bandwidth_reserved_units - $2::numeric,
@@ -3541,8 +3563,9 @@ export async function releaseExpiredSponsorResourceReservations({ limit = 100 } 
             WHERE id = $3::bigint
               AND energy_reserved_units >= $1::numeric
               AND bandwidth_reserved_units >= $2::numeric`,
-          [row.energy, row.bandwidth, row.budget_id],
+          [row.energy, row.bandwidth, candidate.budget_id],
         )
+        if (budgetUpdate.rowCount !== 1) throw new Error('resource-budget-reservation-drift')
         await client.query(
           `UPDATE ${schema}.sponsor_resource_reservations
               SET status = 'released', updated_at = now()
@@ -3552,11 +3575,12 @@ export async function releaseExpiredSponsorResourceReservations({ limit = 100 } 
         await client.query(
           `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
            VALUES ('sponsor-resource-reservation-expired','sponsor-resource-reservation',$1,$2::jsonb)`,
-          [row.idempotency_key, JSON.stringify({ budgetId: String(row.budget_id), energyUnits: row.energy, bandwidthUnits: row.bandwidth })],
+          [row.idempotency_key, JSON.stringify({ budgetId: String(candidate.budget_id), energyUnits: row.energy, bandwidthUnits: row.bandwidth })],
         )
+        releasedCount += 1
       }
       await client.query('COMMIT')
-      return { released: true, count: expired.rows.length }
+      return { released: true, count: releasedCount }
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {})
       console.error('Expired sponsor resource reservation release failed:', error?.code || 'unknown')
@@ -3565,5 +3589,54 @@ export async function releaseExpiredSponsorResourceReservations({ limit = 100 } 
   } catch (error) {
     console.error('Expired sponsor resource reservation initialization failed:', error?.code || 'unknown')
     return { released: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Operator pause for a delegated-resource mandate; historical rows remain immutable. */
+export async function pauseSponsorResourceBudget({ budgetId, reasonCode } = {}) {
+  if (!/^[1-9][0-9]{0,17}$/.test(String(budgetId || ''))
+    || typeof reasonCode !== 'string' || !/^[a-z0-9][a-z0-9-]{2,63}$/.test(reasonCode)) {
+    return { success: false, reason: 'invalid-resource-budget-pause' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT status FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
+        [String(budgetId)],
+      )
+      if (!found.rows.length) { await client.query('ROLLBACK'); return { success: false, reason: 'resource-budget-not-found' } }
+      const previousStatus = found.rows[0].status
+      if (previousStatus === 'paused') {
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, status: 'paused', budgetId: String(budgetId) }
+      }
+      if (previousStatus !== 'active' && previousStatus !== 'pending-review') {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-budget-not-pausable' }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_budgets SET status = 'paused', updated_at = now() WHERE id = $1::bigint`,
+        [String(budgetId)],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-paused','sponsor-resource-budget',$1,$2::jsonb)`,
+        [String(budgetId), JSON.stringify({ reasonCode, previousStatus })],
+      )
+      await client.query('COMMIT')
+      return { success: true, duplicate: false, status: 'paused', budgetId: String(budgetId), previousStatus }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource budget pause failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource budget pause initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
   }
 }
