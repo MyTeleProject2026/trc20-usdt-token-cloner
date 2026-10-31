@@ -1863,10 +1863,122 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
     }
   }
 
+  async function getPayoutIntentForPreflight(intentId) {
+    if (!validId(String(intentId))) return { success: false, reason: 'invalid-payout-intent-id' }
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        const selected = await client.query(
+          "SELECT id::text AS id, idempotency_key, intent_digest, network, asset, token_contract, " +
+          "receiver_address, amount_base_units::text AS amount_base_units, fee_cap_sun::text AS fee_cap_sun, " +
+          "principal_link_id::text AS principal_link_id, fee_link_id::text AS fee_link_id, " +
+          "principal_budget_id::text AS principal_budget_id, fee_budget_id::text AS fee_budget_id, " +
+          "principal_organization_id::text AS principal_organization_id, fee_organization_id::text AS fee_organization_id, " +
+          "principal_account_id::text AS principal_account_id, fee_account_id::text AS fee_account_id, " +
+          "principal_sponsor_address, fee_sponsor_address, status, expires_at " +
+          "FROM trc20_token_clone.sponsor_organization_payout_intents WHERE id = $1::bigint FOR SHARE",
+          [intentId],
+        )
+        const intent = selected.rows[0]
+        if (!intent) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-not-found' }
+        }
+        if (intent.status !== 'sponsor_authorization_complete') {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'both-sponsor-owner-approvals-required' }
+        }
+        if (new Date(intent.expires_at).getTime() <= Date.now()) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'payout-intent-expired' }
+        }
+        const principal = await loadPayoutIntentRoleScope(client, intent, 'asset-principal')
+        const fee = await loadPayoutIntentRoleScope(client, intent, 'network-fee')
+        if (!principal || !fee) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'sponsor-role-scope-no-longer-active' }
+        }
+        const authorizationResult = await client.query(
+          "SELECT a.role, a.intent_digest, a.organization_id::text AS organization_id, " +
+          "a.account_id::text AS account_id, a.sponsor_address, a.signature_hash, a.message_hash, " +
+          "c.intent_digest AS challenge_intent_digest, c.organization_id::text AS challenge_organization_id, " +
+          "c.account_id::text AS challenge_account_id, c.sponsor_address AS challenge_sponsor_address, " +
+          "c.role AS challenge_role, c.message_hash AS challenge_message_hash, c.consumed_at " +
+          "FROM trc20_token_clone.sponsor_organization_payout_authorizations a " +
+          "JOIN trc20_token_clone.sponsor_organization_payout_authorization_challenges c ON c.id = a.challenge_id " +
+          "WHERE a.intent_id = $1::bigint ORDER BY a.role FOR SHARE OF a, c",
+          [intentId],
+        )
+        const authorizations = new Map(authorizationResult.rows.map((row) => [row.role, row]))
+        const authorizationMatches = (role, identity) => {
+          const row = authorizations.get(role)
+          return Boolean(row)
+            && row.intent_digest.trim() === intent.intent_digest.trim()
+            && row.challenge_intent_digest.trim() === intent.intent_digest.trim()
+            && row.organization_id === identity.organizationId
+            && row.challenge_organization_id === identity.organizationId
+            && row.account_id === identity.accountId
+            && row.challenge_account_id === identity.accountId
+            && row.sponsor_address === identity.sponsorAddress
+            && row.challenge_sponsor_address === identity.sponsorAddress
+            && row.challenge_role === role
+            && row.consumed_at != null
+            && row.message_hash.trim() === row.challenge_message_hash.trim()
+            && /^[0-9a-f]{64}$/i.test(row.signature_hash)
+            && /^[0-9a-f]{64}$/i.test(row.message_hash)
+        }
+        if (authorizations.size !== 2
+          || !authorizationMatches('asset-principal', principal)
+          || !authorizationMatches('network-fee', fee)) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'stored-sponsor-owner-approvals-invalid' }
+        }
+        await client.query('COMMIT')
+        return {
+          success: true,
+          intent: {
+            id: intent.id,
+            idempotencyKey: intent.idempotency_key,
+            intentDigest: intent.intent_digest.trim(),
+            network: intent.network,
+            asset: intent.asset,
+            tokenContract: intent.token_contract,
+            receiverAddress: intent.receiver_address,
+            amountBaseUnits: intent.amount_base_units,
+            feeCapSun: intent.fee_cap_sun,
+            principalBudgetLinkId: intent.principal_link_id,
+            feeBudgetLinkId: intent.fee_link_id,
+            principalSponsorAddress: principal.sponsorAddress,
+            feeSponsorAddress: fee.sponsorAddress,
+            expiresAt: new Date(intent.expires_at).toISOString(),
+            status: intent.status,
+          },
+          sponsorOwnerApprovalsVerified: true,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          transactionSubmitted: false,
+        }
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {})
+        console.error('Sponsor payout preflight intent read failed:', error?.code || 'unknown')
+        return { success: false, reason: 'database-unavailable' }
+      } finally {
+        client.release()
+      }
+    } catch (error) {
+      console.error('Sponsor payout preflight intent initialization failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    }
+  }
+
   return { listOrganizations, createOrganization, createAccount, reviewOrganization, reviewAccount,
     linkBudget, listBudgetLinks, listBudgetsForWallet, revokeBudgetLink,
     reservePayoutIntent, cancelPayoutIntent, expirePayoutIntents,
-    createPayoutAuthorizationChallenge, consumePayoutAuthorizationChallenge, recordPayoutAuthorization }
+    createPayoutAuthorizationChallenge, consumePayoutAuthorizationChallenge, recordPayoutAuthorization, getPayoutIntentForPreflight }
 }
 
 function toBudgetLink(row) {
