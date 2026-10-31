@@ -85,3 +85,15 @@ The branch now includes:
 - A source-code gate on both signing-intent and signed-submit remains hard-coded closed.
 
 This is not the final settlement adapter. The current TRON account receipt exposes transaction-level Energy/Bandwidth usage, but the application must still independently prove that the observed consumption came from the exact fee sponsor's delegated resource allocation (including concurrent usage and resource-source attribution) before it may convert reserved units to spent units or release any remaining reservation. The gate must remain closed until that proof and its database transaction are implemented and tested.
+
+
+## Protected operator endpoints
+
+The draft branch exposes the resource mandate ledger through the existing server-only `SPONSOR_ADMIN_API_TOKEN` protection:
+
+- `GET /api/sponsorship/resource-budgets?network=nile|shasta`
+- `POST /api/sponsorship/resource-budgets` — creates a pending-review draft using server-configured fee and asset sponsor addresses; caller-supplied addresses are rejected.
+- `POST /api/sponsorship/resource-budgets/:id/activate` — requires approval and review references plus the exact allowlisted mandate scope.
+- `POST /api/sponsorship/resource-budgets/:id/pause` — pauses future reservations.
+
+Activation scopes bind the mandate reference, network, both sponsor addresses, total Energy/Bandwidth allowances, per-transfer ceilings and exact expiry timestamp. These endpoints manage ledger policy only; they do not prove sponsor funding or on-chain delegation and cannot open the signing/broadcast gate.
