@@ -96,6 +96,15 @@ test('truncated delegation history is inconclusive rather than accepted', () => 
   assert.equal(result.status, 'delegation-transaction-audit-history-truncated')
 })
 
+test('a persisted delegation amount above the current live allocation fails closed', () => {
+  const input = baseInput()
+  input.liveSnapshot.activeEnergyStakeSun = '8000000'
+  input.auditResult.delegations[0].stakeEquivalentSun = '9000000'
+  const result = verifySponsorDelegationTransactionAudit(input)
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'audited-delegation-stake-exceeds-current-allocation')
+})
+
 test('duplicate transaction identifiers cannot satisfy two resource proofs', () => {
   const input = baseInput()
   input.auditResult.delegations[1].transactionId = energyTx
