@@ -181,7 +181,9 @@ test('preflight requires both current owner approvals before contacting the chai
 })
 
 test('preflight rechecks the network-scoped token allowlist', async () => {
-  const testHarness = harness()
+  const testHarness = harness({
+    intent: makeIntent({ network: 'nile', tokenContract: principal }),
+  })
   const result = await testHarness.run({ env: {} })
   assert.equal(result.success, false)
   assert.equal(result.reason, 'payout-intent-token-contract-no-longer-allowlisted')
