@@ -11,6 +11,7 @@ import {
   submitSponsorOrganizationFireblocksPayout,
   refreshSponsorOrganizationFireblocksPayout,
 } from '../sponsor-organization-fireblocks-submission.mjs'
+import { verifyAndSettleSponsorOrganizationFireblocksPayout } from '../sponsor-organization-fireblocks-settlement.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 
 function isAdmin(req, env) {
@@ -436,6 +437,53 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
       return res.status(503).json({
         success: false,
         error: 'fireblocks-payout-status-unavailable',
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionSubmitted: false,
+      })
+    }
+  })
+
+  router.post('/sponsorship/payout-intents/:intentId/fireblocks-settle', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (!isAdmin(req, env)) {
+      return res.status(401).json({ success: false, error: 'sponsor-admin-authorization-required' })
+    }
+    if (Object.keys(req.body || {}).length !== 0) {
+      return res.status(400).json({ success: false, error: 'fireblocks-settle-does-not-accept-caller-evidence-or-transaction-fields' })
+    }
+    try {
+      const settle = options.settleFireblocksPayout ?? verifyAndSettleSponsorOrganizationFireblocksPayout
+      const refreshProviderStatus = options.refreshFireblocksPayout
+        ? (args) => options.refreshFireblocksPayout({
+          ...args,
+          fireblocksClientFactory: options.fireblocksClientFactory,
+          fetchImpl: options.fetchImpl,
+          readSecretFile: options.readSecretFile,
+        })
+        : undefined
+      const result = await settle({
+        store,
+        intentId: req.params.intentId,
+        env,
+        refreshProviderStatus,
+        tronWebFactory: options.tronWebFactory,
+        verifyTransferEvidence: options.verifyTransferEvidence,
+      })
+      if (!result.success) {
+        const reason = result.reason || 'fireblocks-chain-settlement-unavailable'
+        const status = reason.includes('not-found') ? 404
+          : reason.includes('awaiting') || reason.includes('not-available') ? 202
+            : reason.includes('unavailable') ? 503 : 409
+        return res.status(status).json(result)
+      }
+      return res.json(result)
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: 'fireblocks-chain-settlement-unavailable',
         canSubmitSponsoredTransfer: false,
         submissionEnabled: false,
         transactionSubmitted: false,
