@@ -253,3 +253,49 @@ test('intent transaction preflight endpoint returns read-only result with execut
   assert.equal(payload.submissionEnabled, false)
   assert.equal(payload.transactionSubmitted, false)
 })
+
+
+test('Fireblocks custody preflight endpoint requires admin authorization and accepts no caller-supplied provider fields', async (t) => {
+  let invoked = 0
+  const base = await serveRoute(t, {
+    custodyPreflight: async () => {
+      invoked += 1
+      return {
+        success: true,
+        status: 'fireblocks-custody-preflight-passed-review-required',
+        transactionCreated: false,
+        transactionSigned: false,
+        transactionSubmitted: false,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+      }
+    },
+  })
+  const denied = await fetch(base + '/sponsorship/payout-intents/9001/custody-preflight', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  })
+  assert.equal(denied.status, 401)
+
+  const invalid = await fetch(base + '/sponsorship/payout-intents/9001/custody-preflight', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ vaultAccountId: '999' }),
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal(invoked, 0)
+
+  const valid = await fetch(base + '/sponsorship/payout-intents/9001/custody-preflight', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  const payload = await valid.json()
+  assert.equal(valid.status, 200)
+  assert.equal(payload.status, 'fireblocks-custody-preflight-passed-review-required')
+  assert.equal(payload.transactionCreated, false)
+  assert.equal(payload.transactionSigned, false)
+  assert.equal(payload.transactionSubmitted, false)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(payload.submissionEnabled, false)
+  assert.equal(invoked, 1)
+})
