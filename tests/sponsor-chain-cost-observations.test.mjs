@@ -186,12 +186,12 @@ test('USDT receipt exposes caller Energy separately from contract-origin Energy'
     receipt: {
       result: 'SUCCESS', net_fee: 0, energy_fee: 0,
       energy_usage_total: 75, energy_usage: 70, origin_energy_usage: 5, net_usage: 220,
+      log: [{
+        address: contractHex,
+        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
+        data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
+      }],
     },
-    log: [{
-      address: contractHex,
-      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
-      data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
-    }],
   }
   const transferValue = { ...transfer().transfer, asset: 'USDT', tokenContract: contract }
   const fakeTronWeb = {
@@ -228,12 +228,12 @@ test('USDT receipt energy total must equal caller plus contract-origin consumpti
     receipt: {
       result: 'SUCCESS', net_fee: 0, energy_fee: 0,
       energy_usage_total: 76, energy_usage: 70, origin_energy_usage: 5, net_usage: 220,
+      log: [{
+        address: contractHex,
+        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
+        data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
+      }],
     },
-    log: [{
-      address: contractHex,
-      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
-      data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
-    }],
   }
   const transferValue = { ...transfer().transfer, asset: 'USDT', tokenContract: contract }
   const fakeTronWeb = {
