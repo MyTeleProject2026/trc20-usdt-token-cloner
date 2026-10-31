@@ -1711,18 +1711,54 @@ test('PostgreSQL reserves both payout roles for one organization using distinct 
       intentDigest: ready.intent.intentDigest,
       externalTxId,
       providerTransactionId: 'fireblocks-pg-' + suffix,
-      providerStatus: 'SUBMITTED',
-      status: 'provider-pending',
+      providerStatus: 'COMPLETED',
+      transactionHash: 'c'.repeat(64),
+      status: 'broadcast-accepted',
     })
     assert.equal(providerRecorded.success, true, JSON.stringify(providerRecorded))
-    assert.equal(providerRecorded.submission.status, 'provider-pending')
+    assert.equal(providerRecorded.submission.status, 'broadcast-accepted')
     assert.equal(providerRecorded.submission.providerTransactionId, 'fireblocks-pg-' + suffix)
-    assert.equal(providerRecorded.submission.transactionHash, null)
+    assert.equal(providerRecorded.submission.transactionHash, 'c'.repeat(64))
 
     const recoveredSubmission = await store.getFireblocksPayoutSubmission(reserved.intentId)
     assert.equal(recoveredSubmission.success, true, JSON.stringify(recoveredSubmission))
     assert.equal(recoveredSubmission.submission.externalTxId, externalTxId)
-    assert.equal(recoveredSubmission.submission.status, 'provider-pending')
+    assert.equal(recoveredSubmission.submission.status, 'broadcast-accepted')
+
+    const settlementContext = await store.getFireblocksPayoutSettlementContext(reserved.intentId)
+    assert.equal(settlementContext.success, true, JSON.stringify(settlementContext))
+    assert.equal(settlementContext.context.transactionHash, 'c'.repeat(64))
+    const chainSettlement = await store.recordFireblocksPayoutChainVerification({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      transactionHash: 'c'.repeat(64),
+      verificationStatus: 'confirmed',
+      verificationReason: 'confirmed-solidified-successful-receipt-and-transfer-event',
+      blockNumber: 54321,
+      feeSun: '50000',
+      energyUsage: '9000',
+      netUsage: '220',
+    })
+    assert.equal(chainSettlement.success, true, JSON.stringify(chainSettlement))
+    assert.equal(chainSettlement.principalSettlementStatus, 'settled')
+    assert.equal(chainSettlement.feeSettlementStatus, 'pending-resource-reconciliation')
+    assert.equal(chainSettlement.feeReservationRetained, true)
+
+    const duplicateSettlement = await store.recordFireblocksPayoutChainVerification({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      transactionHash: 'c'.repeat(64),
+      verificationStatus: 'confirmed',
+      verificationReason: 'confirmed-solidified-successful-receipt-and-transfer-event',
+      blockNumber: 54321,
+      feeSun: '50000',
+      energyUsage: '9000',
+      netUsage: '220',
+    })
+    assert.equal(duplicateSettlement.success, true, JSON.stringify(duplicateSettlement))
+    assert.equal(duplicateSettlement.duplicate, true)
 
     const cancellationBlocked = await store.cancelPayoutIntent(
       reserved.intentId, 'pg-fireblocks-cancel-review-' + suffix,
@@ -1743,7 +1779,17 @@ test('PostgreSQL reserves both payout roles for one organization using distinct 
       "WHERE intent_id = $1 AND status = 'active'",
       [reserved.intentId],
     )
-    assert.equal(activeReservations.rows[0].count, 2)
+    assert.equal(activeReservations.rows[0].count, 1, 'only the network-fee reservation remains active')
+
+    const settledBudgets = await pool.query(
+      "SELECT id::text AS id, reserved_base_units::text AS reserved, spent_base_units::text AS spent " +
+      "FROM trc20_token_clone.sponsor_budgets WHERE id = ANY($1::bigint[])",
+      [budgetIds],
+    )
+    const principalBudget = settledBudgets.rows.find(row => row.id === principalBudgetId)
+    const feeBudget = settledBudgets.rows.find(row => row.id === feeBudgetId)
+    assert.deepEqual(principalBudget, { id: principalBudgetId, reserved: '0', spent: '250000' })
+    assert.deepEqual(feeBudget, { id: feeBudgetId, reserved: '125000', spent: '0' })
 
     const providerRows = await pool.query(
       "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = $1",
