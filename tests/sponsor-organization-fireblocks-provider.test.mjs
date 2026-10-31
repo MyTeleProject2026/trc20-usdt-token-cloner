@@ -235,3 +235,12 @@ test('provider preflight rejects testnet and non-USDT intent types', async () =>
   const trx = createHarness({ intent: makeIntent({ asset: 'TRX', tokenContract: null }) })
   assert.equal((await trx.run()).reason, 'fireblocks-adapter-requires-official-mainnet-usdt')
 })
+
+test('provider preflight blocks when the fee-role vault cannot cover the approved TRX fee cap', async () => {
+  const harness = createHarness({ feeAvailable: '0.100000' })
+  const result = await harness.run()
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'fireblocks-fee-provider-balance-insufficient')
+  assert.equal(result.providerFeeWalletTrxAvailableSun, '100000')
+  assert.equal(result.approvedFeeCapSun, '300000')
+})
