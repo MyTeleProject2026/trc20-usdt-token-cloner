@@ -1922,6 +1922,28 @@ export async function claimSponsorTransferBroadcast({
       await client.query('ROLLBACK')
       return { claimed: false, reason: 'sponsor-intent-identity-mismatch' }
     }
+    const resourceResult = await client.query(
+      `SELECT r.status AS reservation_status, r.expires_at, b.status AS budget_status,
+              b.valid_until, b.fee_sponsor_address, b.asset_principal_address
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+        WHERE r.idempotency_key = $1
+        FOR UPDATE OF r, b`,
+      [idempotencyKey],
+    )
+    const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'] === 'string'
+      ? process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'].trim() : ''
+    if (!resourceResult.rows.length
+      || resourceResult.rows[0].reservation_status !== 'reserved'
+      || resourceResult.rows[0].budget_status !== 'active'
+      || new Date(resourceResult.rows[0].expires_at).getTime() <= Date.now()
+      || new Date(resourceResult.rows[0].valid_until).getTime() <= Date.now()
+      || resourceResult.rows[0].asset_principal_address !== transfer.sponsor_address
+      || resourceResult.rows[0].fee_sponsor_address !== configuredFeeSponsorAddress
+      || resourceResult.rows[0].fee_sponsor_address === resourceResult.rows[0].asset_principal_address) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'active-fee-resource-reservation-required' }
+    }
     const txId = transactionHash.toLowerCase()
     if (transfer.status === 'submitted' && transfer.transaction_hash?.trim().toLowerCase() === txId) {
       await client.query('COMMIT')
