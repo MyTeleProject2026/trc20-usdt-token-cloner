@@ -159,12 +159,23 @@ export async function readSolidifiedSponsorChainCosts({
     const netFeeSun = safeIntegerString(receipt.net_fee, { allowNull: true })
     const energyUsageTotal = safeIntegerString(receipt.energy_usage_total, { allowNull: true })
     const energyUsage = safeIntegerString(receipt.energy_usage, { allowNull: true })
+    const originEnergyUsage = safeIntegerString(receipt.origin_energy_usage, { allowNull: true })
     const netUsage = safeIntegerString(receipt.net_usage, { allowNull: true })
     const energyPenaltyTotal = safeIntegerString(receipt.energy_penalty_total, { allowNull: true })
-    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.net_usage, receipt.energy_penalty_total]
-    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, netUsage, energyPenaltyTotal]
+    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.origin_energy_usage, receipt.net_usage, receipt.energy_penalty_total]
+    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, originEnergyUsage, netUsage, energyPenaltyTotal]
     if (optionalRaw.some((value, index) => value !== undefined && value !== null && optionalParsed[index] === null)) {
       return { success: false, reason: 'invalid-solidified-fee-fields' }
+    }
+    if (transfer.asset === 'USDT') {
+      // ResourceReceipt defines energy_usage as caller-paid and
+      // origin_energy_usage as contract-creator-paid. Only caller Energy can
+      // be attributed to this asset-principal account's delegated resource.
+      const callerEnergy = BigInt(energyUsage ?? '0')
+      const originEnergy = BigInt(originEnergyUsage ?? '0')
+      if (energyUsageTotal === null || BigInt(energyUsageTotal) !== callerEnergy + originEnergy) {
+        return { success: false, reason: 'caller-and-origin-energy-breakdown-unverifiable' }
+      }
     }
     return {
       success: true,
@@ -179,6 +190,7 @@ export async function readSolidifiedSponsorChainCosts({
       netFeeSun,
       energyUsageTotal,
       energyUsage,
+      originEnergyUsage,
       netUsage,
       energyPenaltyTotal,
       evidenceSource: 'Tatum TRON SolidityNode transaction body and receipt',
