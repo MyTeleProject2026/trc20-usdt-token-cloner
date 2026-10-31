@@ -5,7 +5,7 @@ import { TronWeb } from 'tronweb'
 import {
   finalizeSponsorTransferBroadcast, getSponsorTransferForSubmission,
   recordNativeTransferVerification, recordSponsorChainCostObservation,
-  recordTransferVerification, transitionSponsorTransfer,
+  recordTransferVerification, transitionSponsorTransfer, settleSponsorResourceBudgetForTransfer,
 } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
@@ -243,11 +243,29 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               executionResult: 'SUCCESS', reportedFeeSun: observed.reportedFeeSun,
               energyFeeSun: observed.energyFeeSun, netFeeSun: observed.netFeeSun,
               energyUsageTotal: observed.energyUsageTotal, energyUsage: observed.energyUsage,
+              originEnergyUsage: observed.originEnergyUsage ?? null,
               netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
-            costs = stored?.success === true
-              ? { status: 'solidified-costs-observed-not-settled', duplicate: stored.duplicate === true, reportedFeeSun: observed.reportedFeeSun, sponsorFeeBudgetSettled: false }
-              : { status: 'cost-observation-persistence-failed', reason: stored?.reason || 'persistence-failed', sponsorFeeBudgetSettled: false }
+            if (stored?.success === true) {
+              const resourceSettlement = await settleSponsorResourceBudgetForTransfer({
+                idempotencyKey: key,
+                feeSponsorAddress: feeAddress,
+                costs: { ...observed, feeSponsorAddress: feeAddress },
+              })
+              costs = {
+                status: resourceSettlement?.settled === true ? 'sponsor-resource-budget-settled'
+                  : resourceSettlement?.status === 'manual-review' ? 'sponsor-resource-budget-manual-review'
+                    : 'solidified-costs-observed-not-settled',
+                duplicate: stored.duplicate === true,
+                reportedFeeSun: observed.reportedFeeSun,
+                sponsorFeeBudgetSettled: false,
+                feeSponsorResourceBudgetSettled: resourceSettlement?.settled === true,
+                resourceSettlementReason: resourceSettlement?.reason || null,
+                resourceSettlement,
+              }
+            } else {
+              costs = { status: 'cost-observation-persistence-failed', reason: stored?.reason || 'persistence-failed', sponsorFeeBudgetSettled: false }
+            }
           } else costs = { status: 'solidified-cost-observation-unavailable', reason: observed?.reason || 'cost-evidence-mismatch', sponsorFeeBudgetSettled: false }
         } catch { costs = { status: 'solidified-cost-observation-unavailable', reason: 'observation-unavailable', sponsorFeeBudgetSettled: false } }
       }
@@ -257,7 +275,9 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
         transactionHash: transfer.transactionHash.toLowerCase(), blockNumber: evidence.blockNumber, executionResult: 'SUCCESS',
         evidencePersistence: { persisted: true },
         principalLedger: { status: 'confirmed', principalSpendRecorded: settled.duplicate !== true, reservationReleased: settled.duplicate !== true },
-        chainCostObservation: costs, feeSponsorBudgetSettled: false, sponsorFeeBudgetSettled: false,
+        chainCostObservation: costs, feeSponsorResourceBudgetSettled: costs.feeSponsorResourceBudgetSettled === true,
+        resourceCostAllocationVerified: costs.feeSponsorResourceBudgetSettled === true,
+        feeSponsorBudgetSettled: false, sponsorFeeBudgetSettled: false,
         feeSponsorDebitVerified: false, canSubmitSponsoredTransfer: false, submissionEnabled: false,
         userFundedFallbackAllowed: false,
         note: 'The saved transfer is independently verified from solidified chain state and principal ledger confirmation is evidence-gated. Receipt cost observations do not prove the separate fee sponsor was debited or settle its resource budget; no exchange deposit credit is inferred.',
