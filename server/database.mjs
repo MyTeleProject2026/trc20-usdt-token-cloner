@@ -3455,7 +3455,7 @@ export async function reserveSponsorResourceBudgetForTransfer({
  * not attribute consumption to one delegator when multiple resource sources or
  * concurrent activity may exist.
  */
-export async function recordSponsorResourceCostSettlementObservation({ idempotencyKey, transactionHash } = {}) {
+export async function recordSponsorResourceCostSettlementObservation({ idempotencyKey, transactionHash, attributionEvidence = null } = {}) {
   const hash = typeof transactionHash === 'string' ? transactionHash.toLowerCase() : ''
   if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
     || !/^[0-9a-f]{64}$/.test(hash)) {
@@ -3471,18 +3471,22 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       const found = await client.query(
         `SELECT r.id::text AS reservation_id, r.budget_id::text AS budget_id,
                 r.status AS reservation_status, r.energy_reserved_units::text AS energy_reserved,
-                r.bandwidth_reserved_units::text AS bandwidth_reserved,
-                t.network, t.asset, t.transaction_hash, t.status AS transfer_status,
+                r.bandwidth_reserved_units::text AS bandwidth_reserved, r.preflight_evidence,
+                b.energy_budget_units::text AS energy_budget_units, b.bandwidth_budget_units::text AS bandwidth_budget_units,
+                b.energy_reserved_units::text AS budget_energy_reserved, b.bandwidth_reserved_units::text AS budget_bandwidth_reserved,
+                b.energy_spent_units::text AS energy_spent, b.bandwidth_spent_units::text AS bandwidth_spent,
+                t.network, t.asset, t.transaction_hash, t.sponsor_address, t.status AS transfer_status,
                 o.block_number::text AS block_number, o.energy_usage_total::text AS energy_used,
                 o.net_usage::text AS bandwidth_used, o.reported_fee_sun::text AS reported_fee_sun,
                 o.energy_fee_sun::text AS energy_fee_sun,
                 o.net_fee_sun::text AS net_fee_sun, o.evidence_source
            FROM ${schema}.sponsor_resource_reservations r
            JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+           JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
            JOIN ${schema}.sponsor_chain_cost_observations o ON o.idempotency_key = r.idempotency_key
           WHERE r.idempotency_key = $1 AND lower(t.transaction_hash) = $2
             AND lower(o.transaction_hash) = $2
-          FOR UPDATE OF r, t`,
+          FOR UPDATE OF t`,
         [idempotencyKey, hash],
       )
       if (!found.rows.length) {
@@ -3490,6 +3494,17 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         return { success: false, reason: 'matching-resource-reservation-and-solidified-cost-observation-required', sponsorResourceBudgetSettled: false }
       }
       const row = found.rows[0]
+      // Lock order matches broadcast/expiry paths: transfer -> resource budget -> reservation.
+      await client.query(`SELECT id FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`, [row.budget_id])
+      const lockedReservation = await client.query(
+        `SELECT status FROM ${schema}.sponsor_resource_reservations WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey],
+      )
+      if (!lockedReservation.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-reservation-not-found', sponsorResourceBudgetSettled: false }
+      }
+      row.reservation_status = lockedReservation.rows[0].status
       if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review'].includes(row.reservation_status)
         || !row.block_number || row.bandwidth_used == null
         || (row.asset !== 'TRX' && row.energy_used == null)) {
