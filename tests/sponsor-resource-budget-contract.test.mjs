@@ -61,6 +61,7 @@ test('receipt resource usage is recorded as pending evidence, never falsely sett
 test('testnet signing and broadcast remain blocked until attribution and settlement are independently complete', () => {
   assert.match(gateSource, /SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY = false/)
   assert.match(gateSource, /historical-delegation-state-at-transfer-block-not-independently-proven/)
+  assert.match(gateSource, /fee-to-principal-resource-delegation-transactions-not-independently-audited/)
   assert.match(gateSource, /funded-nile-and-shasta-sponsored-transfer-not-verified/)
   assert.match(gateSource, /production-database-migration-and-restore-rehearsal-not-complete/)
   assert.match(submissionSource, /getSponsorResourceReservationForTransfer\(idempotencyKey\)/)
