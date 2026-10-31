@@ -176,6 +176,10 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
     [sponsorReferences],
   )
   await pool.query(
+    'DELETE FROM trc20_token_clone.sponsor_chain_cost_observations WHERE idempotency_key = ANY($1::text[])',
+    [idempotencyKeys],
+  )
+  await pool.query(
     'DELETE FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = ANY($1::text[])',
     [idempotencyKeys],
   )
