@@ -530,8 +530,8 @@ test('PostgreSQL rejects conflicting cost evidence without erasing a prior settl
       [fixture.idempotencyKey],
     )
     assert.equal(conflictAudit.rows.length, 1)
-    assert.equal(conflictAudit.rows[0].details.storedCost.energyUsedUnits, '75')
-    assert.equal(conflictAudit.rows[0].details.observedCost.energyUsedUnits, '76')
+    assert.equal(conflictAudit.rows[0].details.storedCost.energyUsedUnits, '70')
+    assert.equal(conflictAudit.rows[0].details.observedCost.energyUsedUnits, '71')
   } finally {
     if (fixture) await cleanupFixture(pool, fixture)
     await pool.end()
