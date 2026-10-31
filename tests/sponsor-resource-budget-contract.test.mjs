@@ -27,6 +27,8 @@ test('resource reservations serialize and bind to the exact principal transfer a
   assert.match(databaseSource, /resource-reservation-or-mandate-not-active/)
   assert.match(databaseSource, /expires_at TIMESTAMPTZ NOT NULL/)
   assert.match(databaseSource, /releaseExpiredSponsorResourceReservations/)
+  assert.match(databaseSource, /let reopenExisting = false/)
+  assert.match(databaseSource, /resource-reservation-reopen-conflict/)
   assert.match(databaseSource, /t.status IN \('pending-review','authorized'\)/)
   assert.match(databaseSource, /configured-fee-sponsor-mismatch/)
   assert.match(databaseSource, /pauseSponsorResourceBudget/)
