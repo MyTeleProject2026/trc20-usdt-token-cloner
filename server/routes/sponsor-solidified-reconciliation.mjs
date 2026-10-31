@@ -147,6 +147,10 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
   }))
   const persistCosts = options.persistCosts ?? recordSponsorChainCostObservation
   const readPreflightEvidence = options.readPreflightEvidence ?? getSponsorResourcePreflightEvidence
+  const verifyCurrentSource = options.verifyCurrentSource
+    ?? ((transfer) => verifySponsorFeeResourceSource({ transfer, env }))
+  const persistResourceCosts = options.persistResourceCosts
+    ?? recordSponsorResourceCostSettlementObservation
   const verifyHistory = options.verifyHistory ?? createSponsorDelegationHistoryVerifier({
     env,
     fetchImpl: options.fetchImpl,
@@ -256,7 +260,7 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
             if (stored?.success === true) {
-              const currentSourceEvidence = await verifySponsorFeeResourceSource({ transfer, env })
+              const currentSourceEvidence = await verifyCurrentSource(transfer)
               const preflight = await readPreflightEvidence(key)
               const historicalProof = preflight?.success === true
                 ? await verifyHistory({
@@ -276,7 +280,7 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
                       ? null : historicalProof?.reason || 'historical-delegation-proof-unavailable',
                   }
                 : currentSourceEvidence
-              const resourceObservation = await recordSponsorResourceCostSettlementObservation({
+              const resourceObservation = await persistResourceCosts({
                 idempotencyKey: key,
                 transactionHash: transfer.transactionHash.toLowerCase(),
                 attributionEvidence,
