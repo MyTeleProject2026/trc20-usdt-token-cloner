@@ -114,9 +114,11 @@ export async function readSolidifiedSponsorChainCosts({
     const transaction = transactionResult.payload
     const info = infoResult.payload
     const blockNumber = Number(info.blockNumber)
+    const blockTimestampMs = Number(info.blockTimeStamp)
     if (String(transaction.txID || '').toLowerCase() !== hash
       || String(info.id || '').toLowerCase() !== hash
-      || !Number.isSafeInteger(blockNumber) || blockNumber <= 0) {
+      || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
+      || !Number.isSafeInteger(blockTimestampMs) || blockTimestampMs <= 0) {
       return { success: false, reason: 'solidified-transaction-or-receipt-missing' }
     }
     if (isExecutionFailed(transaction, info)) {
@@ -170,6 +172,7 @@ export async function readSolidifiedSponsorChainCosts({
       network,
       transactionHash: hash,
       blockNumber,
+      blockTimestampMs,
       executionResult: 'SUCCESS',
       reportedFeeSun,
       energyFeeSun,
