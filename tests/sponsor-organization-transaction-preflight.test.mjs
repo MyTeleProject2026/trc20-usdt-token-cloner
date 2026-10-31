@@ -378,3 +378,49 @@ test('Fireblocks status refresh endpoint is admin protected, accepts no transact
   assert.equal(payload.transactionSubmitted, false)
   assert.equal(invoked, 1)
 })
+
+
+test('Fireblocks chain settlement endpoint is admin protected and accepts no caller evidence', async (t) => {
+  let invoked = 0
+  const base = await serveRoute(t, {
+    settleFireblocksPayout: async () => {
+      invoked += 1
+      return {
+        success: true, status: 'confirmed',
+        principalSettlementStatus: 'settled',
+        feeSettlementStatus: 'pending-resource-reconciliation',
+        feeReservationRetained: true,
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionSubmitted: false,
+      }
+    },
+  })
+  const denied = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-settle', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  })
+  assert.equal(denied.status, 401)
+
+  const invalid = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-settle', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ transactionHash: 'a'.repeat(64), verified: true }),
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal(invoked, 0)
+
+  const valid = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-settle', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  const payload = await valid.json()
+  assert.equal(valid.status, 200)
+  assert.equal(payload.status, 'confirmed')
+  assert.equal(payload.principalSettlementStatus, 'settled')
+  assert.equal(payload.feeReservationRetained, true)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(payload.submissionEnabled, false)
+  assert.equal(payload.transactionSubmitted, false)
+  assert.equal(invoked, 1)
+})
