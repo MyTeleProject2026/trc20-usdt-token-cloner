@@ -530,6 +530,7 @@ export async function initializeDatabase() {
           block_number BIGINT NOT NULL CHECK (block_number > 0),
           energy_used_units NUMERIC(78,0),
           bandwidth_used_units NUMERIC(78,0),
+          reported_fee_sun NUMERIC(78,0),
           energy_fee_sun NUMERIC(78,0),
           net_fee_sun NUMERIC(78,0),
           evidence_source TEXT NOT NULL,
@@ -3432,7 +3433,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
                 r.bandwidth_reserved_units::text AS bandwidth_reserved,
                 t.network, t.transaction_hash, t.status AS transfer_status,
                 o.block_number::text AS block_number, o.energy_usage_total::text AS energy_used,
-                o.net_usage::text AS bandwidth_used, o.energy_fee_sun::text AS energy_fee_sun,
+                o.net_usage::text AS bandwidth_used, o.reported_fee_sun::text AS reported_fee_sun,
+                o.energy_fee_sun::text AS energy_fee_sun,
                 o.net_fee_sun::text AS net_fee_sun, o.evidence_source
            FROM ${schema}.sponsor_resource_reservations r
            JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
@@ -3461,7 +3463,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
           FOR UPDATE`,
         [row.network, hash, row.budget_id],
       )
-      const status = (BigInt(row.energy_fee_sun || '0') > 0n || BigInt(row.net_fee_sun || '0') > 0n)
+      const status = (BigInt(row.reported_fee_sun || '0') > 0n
+        || BigInt(row.energy_fee_sun || '0') > 0n || BigInt(row.net_fee_sun || '0') > 0n)
         ? 'manual-review' : 'pending-evidence'
       if (existing.rows.length) {
         const prior = existing.rows[0]
@@ -3483,11 +3486,11 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       await client.query(
         `INSERT INTO ${schema}.sponsor_resource_cost_settlements
           (network, transaction_hash, idempotency_key, budget_id, block_number,
-           energy_used_units, bandwidth_used_units, energy_fee_sun, net_fee_sun,
+           energy_used_units, bandwidth_used_units, reported_fee_sun, energy_fee_sun, net_fee_sun,
            evidence_source, status, evidence)
-         VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10,$11,$12::jsonb)`,
+         VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12,$13::jsonb)`,
         [row.network, hash, idempotencyKey, row.budget_id, row.block_number,
-          row.energy_used, row.bandwidth_used, row.energy_fee_sun, row.net_fee_sun,
+          row.energy_used, row.bandwidth_used, row.reported_fee_sun, row.energy_fee_sun, row.net_fee_sun,
           row.evidence_source, status, JSON.stringify({ evidenceType: 'solidified-receipt-observation', resourceAttributionVerified: false })],
       )
       await client.query(
