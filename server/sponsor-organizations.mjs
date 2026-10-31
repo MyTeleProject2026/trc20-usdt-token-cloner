@@ -1080,6 +1080,9 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       "principal_account_id::text AS principal_account_id, fee_organization_id::text AS fee_organization_id, " +
       "fee_account_id::text AS fee_account_id FROM trc20_token_clone.sponsor_organization_payout_intents " +
       "WHERE status IN ('pending_authorization','sponsor_authorization_complete') AND expires_at <= now() " +
+      "AND NOT EXISTS (SELECT 1 FROM trc20_token_clone.sponsor_organization_fireblocks_submissions s " +
+      "WHERE s.intent_id = trc20_token_clone.sponsor_organization_payout_intents.id " +
+      "AND s.status IN ('prepared','provider-pending','broadcast-accepted','provider-unknown','provider-failed')) " +
       "ORDER BY expires_at, id LIMIT $1 FOR UPDATE SKIP LOCKED",
       [limit],
     )
@@ -1453,6 +1456,15 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         if (!['pending_authorization', 'sponsor_authorization_complete'].includes(intent.status)) {
           await client.query('COMMIT')
           return { success: true, duplicate: true, status: intent.status, reservationReleased: true }
+        }
+        const providerSubmission = await client.query(
+          "SELECT status, external_tx_id FROM trc20_token_clone.sponsor_organization_fireblocks_submissions " +
+          "WHERE intent_id = $1::bigint FOR SHARE",
+          [intentId],
+        )
+        if (providerSubmission.rows.length) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'fireblocks-provider-submission-exists-manual-reconciliation-required' }
         }
         const reservations = await client.query(
           "SELECT id::text AS id, budget_id::text AS budget_id, amount_base_units::text AS amount_base_units " +
