@@ -37,6 +37,7 @@
   },
   "overrides": {
     "axios": "^1.19.1",
+    "follow-redirects": "1.16.2",
     "tmp": "^0.2.6",
     "ws": "^8.20.2",
     "ethers": "^6.16.1",
