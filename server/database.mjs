@@ -3520,7 +3520,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       }
       const existing = await client.query(
         `SELECT block_number::text AS block_number, energy_used_units::text AS energy_used,
-                bandwidth_used_units::text AS bandwidth_used, reported_fee_sun::text AS reported_fee_sun,
+                bandwidth_used_units::text AS bandwidth_used, block_timestamp_ms::text AS block_timestamp_ms,
+                reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun, status
            FROM ${schema}.sponsor_resource_cost_settlements
           WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
@@ -3590,6 +3591,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         const prior = existing.rows[0]
         const same = prior.block_number === row.block_number
           && prior.energy_used === row.energy_used && prior.bandwidth_used === row.bandwidth_used
+          && prior.block_timestamp_ms === row.block_timestamp_ms
           && prior.reported_fee_sun === row.reported_fee_sun
           && prior.energy_fee_sun === row.energy_fee_sun && prior.net_fee_sun === row.net_fee_sun
         if (!same) {
