@@ -38,6 +38,7 @@ async function loadGitHubJwks(fetchImpl, now, forceRefresh = false) {
   })
   if (!discoveryResponse?.ok) throw new Error('OIDC discovery unavailable')
   const discovery = await discoveryResponse.json()
+  if (discovery?.issuer !== OIDC_ISSUER) throw new Error('Unexpected OIDC issuer')
   const jwksUrl = new URL(String(discovery?.jwks_uri || ''))
   if (jwksUrl.protocol !== 'https:' || jwksUrl.hostname !== 'token.actions.githubusercontent.com') {
     throw new Error('Unexpected OIDC key endpoint')
