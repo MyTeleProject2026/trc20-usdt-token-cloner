@@ -2133,7 +2133,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       || (transactionHash !== null && (typeof transactionHash !== 'string'
         || !/^[0-9a-f]{64}$/i.test(transactionHash)))
       || (errorCode !== null && (typeof errorCode !== 'string'
-        || !/^[a-z0-9][a-z0-9._:-]{0,100}$/.test(errorCode))) {
+        || !/^[a-z0-9][a-z0-9._:-]{0,100}$/.test(errorCode)))) {
       return { success: false, reason: 'invalid-fireblocks-submission-result' }
     }
     const db = getPool()
