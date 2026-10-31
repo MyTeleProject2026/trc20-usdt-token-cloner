@@ -109,7 +109,7 @@ export function evaluateSponsorResourceCostSettlement({ transfer, costs, reserva
     return manual('unexpected-trx-fee-burn-observed')
   }
 
-  const energyUsed = uint(costs.energyUsage)
+  const energyUsed = transfer.asset === 'TRX' && costs.energyUsage == null ? 0n : uint(costs.energyUsage)
   const bandwidthUsed = uint(costs.netUsage, { allowZero: false })
   const energyReserved = uint(reservation.energyReservedUnits)
   const bandwidthReserved = uint(reservation.bandwidthReservedUnits, { allowZero: false })
