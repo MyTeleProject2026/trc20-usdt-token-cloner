@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
 import {
-  finalizeSponsorTransferBroadcast, getSponsorTransferForSubmission,
+  finalizeSponsorTransferBroadcast, getSponsorTransferForSubmission, getSponsorResourcePreflightEvidence,
   recordNativeTransferVerification, recordSponsorChainCostObservation,
   recordSponsorResourceCostSettlementObservation, recordTransferVerification, transitionSponsorTransfer,
 } from '../database.mjs'
@@ -11,6 +11,7 @@ import { isValidTronAddress } from '../tron-address.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 import { readSolidifiedSponsorChainCosts } from './sponsor-chain-cost-observations.mjs'
 import { verifySponsorFeeResourceSource } from '../sponsor-tron-submission.mjs'
+import { createSponsorDelegationHistoryVerifier } from '../sponsor-delegation-history.mjs'
 
 const HOSTS = Object.freeze({
   nile: 'https://tron-nile.gateway.tatum.io',
@@ -145,6 +146,12 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
     transfer, env, fetchImpl: options.fetchImpl, tronWebFactory: options.tronWebFactory,
   }))
   const persistCosts = options.persistCosts ?? recordSponsorChainCostObservation
+  const readPreflightEvidence = options.readPreflightEvidence ?? getSponsorResourcePreflightEvidence
+  const verifyHistory = options.verifyHistory ?? createSponsorDelegationHistoryVerifier({
+    env,
+    fetchImpl: options.fetchImpl,
+    tronWebFactory: options.tronWebFactory,
+  })
   const router = Router()
   router.post('/sponsorship/transfers/:idempotencyKey/reconcile-solidified', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -249,7 +256,26 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
             if (stored?.success === true) {
-              const attributionEvidence = await verifySponsorFeeResourceSource({ transfer, env })
+              const currentSourceEvidence = await verifySponsorFeeResourceSource({ transfer, env })
+              const preflight = await readPreflightEvidence(key)
+              const historicalProof = preflight?.success === true
+                ? await verifyHistory({
+                    transfer,
+                    preflightEvidence: preflight.preflightEvidence,
+                    transactionHash: transfer.transactionHash.toLowerCase(),
+                    blockNumber: observed.blockNumber,
+                    blockTimestampMs: observed.blockTimestampMs,
+                  })
+                : { success: false, reason: preflight?.reason || 'resource-preflight-evidence-unavailable' }
+              const attributionEvidence = currentSourceEvidence?.success === true
+                ? {
+                    ...currentSourceEvidence,
+                    historicalDelegationStateVerified: historicalProof?.success === true,
+                    historicalDelegationProof: historicalProof?.success === true ? historicalProof : null,
+                    historicalDelegationProofReason: historicalProof?.success === true
+                      ? null : historicalProof?.reason || 'historical-delegation-proof-unavailable',
+                  }
+                : currentSourceEvidence
               const resourceObservation = await recordSponsorResourceCostSettlementObservation({
                 idempotencyKey: key,
                 transactionHash: transfer.transactionHash.toLowerCase(),
