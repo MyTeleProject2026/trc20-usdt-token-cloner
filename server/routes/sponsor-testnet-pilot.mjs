@@ -171,6 +171,18 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
     asset, tokenAllowlistConfigured(env, key),
   ]))
   const usdtAllowlistConfigured = allowlists.USDT === true
+  const usdtAllowlistKey = TOKEN_ALLOWLIST_ENV[network]?.USDT
+  const allowlistedUsdtContracts = typeof usdtAllowlistKey === 'string'
+    ? String(env[usdtAllowlistKey] || '').split(',').map(value => value.trim()).filter(Boolean)
+    : []
+  const assetPrincipalUsdtFundingVerified = assetRole?.tokenBalancesComplete === true
+    && Array.isArray(assetRole.tokens)
+    && assetRole.tokens.some(token =>
+      ['USDT', 'USDT (testnet)'].includes(token?.asset)
+      && token.status === 'verified'
+      && allowlistedUsdtContracts.includes(token.tokenContract)
+      && positiveInteger(token.balanceBaseUnits))
+
   const blockers = []
   if (head?.success !== true) blockers.push(`testnet-node-${head?.status || 'unavailable'}`)
   if (!feeConfigured) blockers.push('fee-sponsor-address-not-configured')
@@ -181,6 +193,9 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   if (!resourceRead) blockers.push('fee-sponsor-resource-capacity-not-verified')
   if (!delegationObserved) blockers.push('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified')
   if (!usdtAllowlistConfigured) blockers.push('usdt-token-contract-allowlist-not-configured')
+  if (usdtAllowlistConfigured && !assetPrincipalUsdtFundingVerified) {
+    blockers.push('asset-principal-usdt-funding-not-verified-positive')
+  }
   if (!env.DATABASE_URL?.trim()) blockers.push('project-database-not-configured')
   if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
     blockers.push('sponsor-admin-token-not-configured')
@@ -195,7 +210,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
     network,
     preflightStatus: head?.success === true && feeConfigured && assetConfigured
       && rolesDistinct && feeChainRead && assetChainRead && resourceRead
-      && delegationObserved && usdtAllowlistConfigured
+      && delegationObserved && usdtAllowlistConfigured && assetPrincipalUsdtFundingVerified
       ? 'live-chain-preflight-passed-review-required'
       : 'blocked-by-live-or-configuration-prerequisites',
     networkNode: head?.success === true
@@ -217,6 +232,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
       rolesDistinct,
       feeSponsorOnChainBalanceRead: feeChainRead,
       assetPrincipalSponsorOnChainBalanceRead: assetChainRead,
+      assetPrincipalUsdtFundingVerified,
     },
     sponsors: {
       networkFeeSponsor: summarizeRole(feeRole),
