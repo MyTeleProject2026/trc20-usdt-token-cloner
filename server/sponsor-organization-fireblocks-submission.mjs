@@ -110,7 +110,16 @@ async function recordProviderResult(store, intent, externalTxId, providerResult,
     errorCode,
   })
   if (!saved?.success) return { success: false, reason: saved?.reason || 'fireblocks-submission-state-persistence-failed' }
-  return { success: true, submission: saved.submission, provider: status }
+  let currentSubmission = saved.submission
+  if (typeof store.getFireblocksPayoutSubmission === 'function') {
+    try {
+      const current = await store.getFireblocksPayoutSubmission(intent.id)
+      if (current?.success && current.submission) currentSubmission = current.submission
+    } catch {
+      // The provider observation was durably recorded; retain the update result.
+    }
+  }
+  return { success: true, submission: currentSubmission, provider: status }
 }
 
 function responseFor(saved, extra = {}) {
