@@ -247,6 +247,7 @@ export function createSponsorChainCostObservationRouter(options = {}) {
       const costs = await readChainCosts(transfer)
       if (costs?.success !== true || costs.executionResult !== 'SUCCESS'
         || !Number.isSafeInteger(costs.blockNumber) || costs.blockNumber <= 0
+        || !Number.isSafeInteger(costs.blockTimestampMs) || costs.blockTimestampMs <= 0
         || costs.transactionHash?.toLowerCase() !== transfer.transactionHash.toLowerCase()
         || costs.network !== transfer.network) {
         const reason = costs?.reason || 'solidified-chain-cost-read-failed'
