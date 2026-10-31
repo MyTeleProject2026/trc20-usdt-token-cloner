@@ -144,6 +144,7 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
     transfer, env, fetchImpl: options.fetchImpl, tronWebFactory: options.tronWebFactory,
   }))
   const persistCosts = options.persistCosts ?? recordSponsorChainCostObservation
+  const settleResourceCosts = options.settleResourceCosts ?? settleSponsorResourceBudgetForTransfer
   const router = Router()
   router.post('/sponsorship/transfers/:idempotencyKey/reconcile-solidified', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -247,7 +248,7 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
               netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
             if (stored?.success === true) {
-              const resourceSettlement = await settleSponsorResourceBudgetForTransfer({
+              const resourceSettlement = await settleResourceCosts({
                 idempotencyKey: key,
                 feeSponsorAddress: feeAddress,
                 costs: { ...observed, feeSponsorAddress: feeAddress },
