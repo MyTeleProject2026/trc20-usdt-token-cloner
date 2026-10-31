@@ -1220,3 +1220,105 @@ test('PostgreSQL reserves delegated resources separately and settles only matchi
     await pool.end()
   }
 })
+
+
+test('PostgreSQL serializes concurrent resource reservations and pause blocks further reservations', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer } = await setup()
+  const {
+    reserveSponsorResourceBudgetForTransfer,
+    getSponsorResourceBudgetReservation,
+    pauseSponsorResourceBudget,
+  } = await import('../server/database.mjs')
+  const suffix = randomUUID()
+  const sponsorReference = 'pg-resource-race-' + suffix
+  const mandateReference = 'pg-resource-race-mandate-' + suffix
+  const idempotencyKeys = [
+    'pg-resource-race-a-' + suffix,
+    'pg-resource-race-b-' + suffix,
+  ]
+  const feeSponsorAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+  const resourceScope = [
+    mandateReference, sponsorReference, network, feeSponsorAddress, sponsorAddress,
+    '0', '1000', '0', '700',
+  ].join('|')
+  const priorMandates = process.env.SPONSOR_APPROVED_RESOURCE_MANDATES
+  process.env.SPONSOR_APPROVED_RESOURCE_MANDATES = [priorMandates, resourceScope].filter(Boolean).join(';')
+  try {
+    await insertBudget(pool, sponsorReference, '1000000')
+    for (const idempotencyKey of idempotencyKeys) {
+      const principalReservation = await reserveSponsorTransfer({
+        idempotencyKey,
+        network,
+        sponsorReference,
+        purpose: 'asset-grant',
+        asset: 'TRX',
+        tokenContract: null,
+        receiverAddress,
+        amountBaseUnits: '1000',
+      })
+      assert.equal(principalReservation.reserved, true)
+    }
+
+    const feeCapacity = {
+      success: true,
+      status: 'sponsor-resource-capacity-verified',
+      resourceCapacityPreflightPassed: true,
+      network,
+      feeSponsorAddress,
+      feeSponsorResourceSourceVerified: true,
+      availableEnergyUnits: '0',
+      requiredEnergyUnits: '0',
+      availableBandwidthUnits: '5000',
+      requiredBandwidthUnits: '700',
+      bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      resourceSource: 'isolated-postgres-concurrency-test-fixture',
+    }
+    const attempts = await Promise.all(idempotencyKeys.map((idempotencyKey) =>
+      reserveSponsorResourceBudgetForTransfer({
+        idempotencyKey,
+        feeCapacity,
+        transactionExpiresAt: Date.now() + 60_000,
+      })))
+    assert.equal(attempts.filter((result) => result.reserved === true).length, 1)
+    assert.equal(attempts.filter((result) => result.reason === 'insufficient-sponsor-resource-budget').length, 1)
+
+    const budget = await pool.query(
+      `SELECT energy_reserved_units::text, bandwidth_reserved_units::text,
+              energy_spent_units::text, bandwidth_spent_units::text
+         FROM trc20_token_clone.sponsor_resource_budgets
+        WHERE mandate_reference=$1`,
+      [mandateReference],
+    )
+    assert.equal(budget.rows[0].energy_reserved_units, '0')
+    assert.equal(budget.rows[0].bandwidth_reserved_units, '700')
+    assert.equal(budget.rows[0].bandwidth_spent_units, '0')
+
+    const heldKey = attempts[0].reserved === true ? idempotencyKeys[0] : idempotencyKeys[1]
+    const held = await getSponsorResourceBudgetReservation(heldKey)
+    assert.equal(held.success, true)
+    assert.equal(held.reservation.status, 'reserved')
+
+    const paused = await pauseSponsorResourceBudget({
+      mandateReference,
+      reason: 'operator-request',
+    })
+    assert.equal(paused.success, true)
+    const blocked = await reserveSponsorResourceBudgetForTransfer({
+      idempotencyKey: idempotencyKeys.find((key) => key !== heldKey),
+      feeCapacity,
+      transactionExpiresAt: Date.now() + 60_000,
+    })
+    assert.equal(blocked.reserved, false)
+    assert.equal(blocked.reason, 'resource-budget-paused')
+    const stillHeld = await getSponsorResourceBudgetReservation(heldKey)
+    assert.equal(stillHeld.success, true)
+    assert.equal(stillHeld.reservation.status, 'reserved')
+  } finally {
+    await cleanup(pool, [sponsorReference], idempotencyKeys)
+    if (priorMandates === undefined) delete process.env.SPONSOR_APPROVED_RESOURCE_MANDATES
+    else process.env.SPONSOR_APPROVED_RESOURCE_MANDATES = priorMandates
+    await pool.end()
+  }
+})
