@@ -7,6 +7,9 @@ import { isValidTronAddress } from './tron-address.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
+// A session-level PostgreSQL advisory lock serializes schema migrations across
+// server instances and test workers sharing the same database.
+const DATABASE_INITIALIZATION_LOCK_KEY = '7143928156321190'
 const readSponsorFundingStatusForReservation = createSponsorFundingReader()
 const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
 const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
@@ -96,7 +99,15 @@ export async function initializeDatabase() {
   if (!db) return { configured: false, ready: false }
   if (!initPromise) {
     initPromise = (async () => {
-      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      const migrationLockClient = await db.connect()
+      let migrationLockAcquired = false
+      try {
+        await migrationLockClient.query(
+          'SELECT pg_advisory_lock($1::bigint)',
+          [DATABASE_INITIALIZATION_LOCK_KEY],
+        )
+        migrationLockAcquired = true
+        await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
       // Wallet auth stores only the public address, origin, expiry and hashes of
       // one-time challenge/session secrets. Raw bearer tokens and private keys
       // are never persisted. Sessions are shared across Render instances/restarts.
@@ -619,7 +630,16 @@ export async function initializeDatabase() {
         const literal = "'" + comment.replace(/'/g, "''") + "'"
         await db.query(`COMMENT ON TABLE ${schema}.${table} IS ${literal}`)
       }
-      return { configured: true, ready: true, schema }
+        return { configured: true, ready: true, schema }
+      } finally {
+        if (migrationLockAcquired) {
+          await migrationLockClient.query(
+            'SELECT pg_advisory_unlock($1::bigint)',
+            [DATABASE_INITIALIZATION_LOCK_KEY],
+          ).catch(() => {})
+        }
+        migrationLockClient.release()
+      }
     })().catch((error) => {
       initPromise = undefined
       // Avoid logging connection URL or SQL parameter values.
