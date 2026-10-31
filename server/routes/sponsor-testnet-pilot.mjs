@@ -181,6 +181,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
       ['USDT', 'USDT (testnet)'].includes(token?.asset)
       && token.status === 'verified'
       && allowlistedUsdtContracts.includes(token.tokenContract)
+      && token.decimals === 6
       && positiveInteger(token.balanceBaseUnits))
 
   const blockers = []
