@@ -3583,6 +3583,29 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       ]
       const snapshotMatches = Boolean(storedPreflight?.delegationSnapshot && proof?.delegationSnapshot)
         && snapshotKeys.every(key => String(storedPreflight.delegationSnapshot[key]) === String(proof.delegationSnapshot[key]))
+      // A current Solidity-node snapshot is not historical proof. The only
+      // acceptable settlement evidence is a server-side history replay bound
+      // to this exact solidified transaction and block, with a verified anchor
+      // and a complete sequence of delegation changes through the transfer.
+      const historicalProof = proof?.historicalDelegationProof
+      const historicalProofCheckedAt = Date.parse(historicalProof?.checkedAt || '')
+      const historicalProofSnapshotMatches = Boolean(historicalProof?.delegationSnapshot && proof?.delegationSnapshot)
+        && snapshotKeys.every(key => String(historicalProof.delegationSnapshot[key]) === String(proof.delegationSnapshot[key]))
+      const historicalDelegationProofMatches = proof?.historicalDelegationStateVerified === true
+        && historicalProof?.status === 'verified'
+        && historicalProof?.verificationMethod === 'solidified-delegation-history-replay'
+        && historicalProof?.network === row.network
+        && String(historicalProof?.transactionHash || '').toLowerCase() === hash
+        && String(historicalProof?.blockNumber || '') === String(row.block_number)
+        && String(historicalProof?.blockTimestampMs || '') === String(row.block_timestamp_ms)
+        && historicalProof?.feeSponsorAddress === row.fee_sponsor_address
+        && historicalProof?.assetPrincipalAddress === row.asset_principal_address
+        && historicalProof?.historyComplete === true
+        && historicalProof?.anchorStateVerified === true
+        && historicalProof?.noInterveningDelegationChanges === true
+        && Number.isFinite(historicalProofCheckedAt)
+        && historicalProofCheckedAt >= Number(row.block_timestamp_ms)
+        && historicalProofSnapshotMatches
       const attributionMatches = proof?.success === true
         && proof.feeSponsorResourceSourceVerified === true
         && proof.network === row.network && proof.sponsorAddress === row.sponsor_address
@@ -3599,17 +3622,21 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         && (Number(proof.delegationSnapshot?.bandwidthExpiry) === 0 || Number(proof.delegationSnapshot?.bandwidthExpiry) > Number(row.block_timestamp_ms))
         && (row.asset === 'TRX' || Number(proof.delegationSnapshot?.energyExpiry) === 0 || Number(proof.delegationSnapshot?.energyExpiry) > Number(row.block_timestamp_ms))
         && snapshotMatches
+        && historicalDelegationProofMatches
       const status = feeBurnDetected || !withinReservedUnits || (attributionEvidence != null && !attributionMatches)
         ? 'manual-review'
         : attributionMatches ? 'settled' : 'pending-evidence'
       const settlementEvidence = {
-        evidenceType: 'solidified-receipt-with-delegation-source-recheck',
+        evidenceType: 'solidified-receipt-with-historical-delegation-proof',
         resourceAttributionVerified: status === 'settled',
+        historicalDelegationStateVerified: historicalDelegationProofMatches,
         preflightEvidence: storedPreflight || null,
         attributionEvidence: attributionMatches ? proof : null,
         reason: feeBurnDetected ? 'transaction-fee-burn-observed'
           : !withinReservedUnits ? 'resource-use-exceeded-reservation'
-            : attributionMatches ? null : 'exact-delegation-source-attribution-not-proven',
+            : !snapshotMatches ? 'exact-delegation-source-attribution-not-proven'
+              : !historicalDelegationProofMatches ? 'historical-delegation-state-proof-required'
+                : attributionMatches ? null : 'exact-delegation-source-attribution-not-proven',
       }
       const settleBudget = async () => {
         const updated = await client.query(
