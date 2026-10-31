@@ -127,6 +127,27 @@ export async function initializeDatabase() {
       await db.query(`CREATE INDEX IF NOT EXISTS fireblocks_inventory_checked_at_idx
         ON ${schema}.fireblocks_inventory_snapshots (checked_at DESC)`)
 
+      // Make the inventory history immutable through the application connection.
+      await db.query(`
+        CREATE OR REPLACE FUNCTION ${schema}.reject_fireblocks_inventory_snapshot_mutation()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $
+        BEGIN
+          RAISE EXCEPTION 'fireblocks inventory snapshots are immutable';
+        END;
+        $;
+      `)
+      await db.query(`
+        DROP TRIGGER IF EXISTS fireblocks_inventory_snapshots_immutable
+          ON ${schema}.fireblocks_inventory_snapshots
+      `)
+      await db.query(`
+        CREATE TRIGGER fireblocks_inventory_snapshots_immutable
+        BEFORE UPDATE OR DELETE ON ${schema}.fireblocks_inventory_snapshots
+        FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_fireblocks_inventory_snapshot_mutation()
+      `)
+
       // Wallet auth stores only the public address, origin, expiry and hashes of
       // one-time challenge/session secrets. Raw bearer tokens and private keys
       // are never persisted. Sessions are shared across Render instances/restarts.
