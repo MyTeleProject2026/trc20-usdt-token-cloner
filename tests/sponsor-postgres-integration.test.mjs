@@ -168,6 +168,14 @@ async function cleanup(pool, sponsorReferences, idempotencyKeys) {
     [sponsorReferences, idempotencyKeys],
   )
   await pool.query(
+    'DELETE FROM trc20_token_clone.sponsor_resource_reservations WHERE idempotency_key = ANY($1::text[])',
+    [idempotencyKeys],
+  )
+  await pool.query(
+    'DELETE FROM trc20_token_clone.sponsor_resource_budgets WHERE sponsor_reference = ANY($1::text[])',
+    [sponsorReferences],
+  )
+  await pool.query(
     'DELETE FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = ANY($1::text[])',
     [idempotencyKeys],
   )
@@ -1051,6 +1059,160 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
       'DELETE FROM trc20_token_clone.transfer_verifications WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',
       [network, cases.map(item => item.hash)],
     )
+    await pool.end()
+  }
+})
+
+
+test('PostgreSQL reserves delegated resources separately and settles only matching zero-burn solidified receipt units', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer } = await setup()
+  const {
+    reserveSponsorResourceBudgetForTransfer,
+    getSponsorResourceBudgetReservation,
+    settleSponsorResourceBudgetForTransfer,
+  } = await import('../server/database.mjs')
+  const {
+    recordSponsorChainCostObservation,
+  } = await import('../server/database.mjs')
+  const suffix = randomUUID()
+  const sponsorReference = 'pg-resource-' + suffix
+  const idempotencyKey = 'pg-resource-reservation-' + suffix
+  const transactionHash = 'b'.repeat(64)
+  const feeSponsorAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+  const mandateReference = 'pg-resource-mandate-' + suffix
+  const resourceScope = [
+    mandateReference, sponsorReference, network, feeSponsorAddress, sponsorAddress,
+    '0', '100000', '0', '2000',
+  ].join('|')
+  const priorMandates = process.env.SPONSOR_APPROVED_RESOURCE_MANDATES
+  process.env.SPONSOR_APPROVED_RESOURCE_MANDATES = [priorMandates, resourceScope].filter(Boolean).join(';')
+  const priorResourceFlag = process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+  try {
+    await insertBudget(pool, sponsorReference, '1000000')
+    const reservedPrincipal = await reserveSponsorTransfer({
+      idempotencyKey,
+      network,
+      sponsorReference,
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      tokenContract: null,
+      receiverAddress,
+      amountBaseUnits: '1000',
+    })
+    assert.equal(reservedPrincipal.reserved, true)
+
+    const feeCapacity = {
+      success: true,
+      status: 'sponsor-resource-capacity-verified',
+      resourceCapacityPreflightPassed: true,
+      network,
+      feeSponsorAddress,
+      feeSponsorResourceSourceVerified: true,
+      availableEnergyUnits: '0',
+      requiredEnergyUnits: '0',
+      availableBandwidthUnits: '5000',
+      requiredBandwidthUnits: '100',
+      bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      resourceSource: 'isolated-postgres-test-fixture',
+    }
+    const resourceReservation = await reserveSponsorResourceBudgetForTransfer({
+      idempotencyKey,
+      feeCapacity,
+      transactionExpiresAt: Date.now() + 60_000,
+    })
+    assert.equal(resourceReservation.reserved, true)
+
+    const duplicate = await reserveSponsorResourceBudgetForTransfer({
+      idempotencyKey,
+      feeCapacity,
+      transactionExpiresAt: Date.now() + 60_000,
+    })
+    assert.equal(duplicate.reserved, true)
+    assert.equal(duplicate.duplicate, true)
+
+    // Test fixture only: model a transaction with independently verified, solidified
+    // identity and resource reservation already bound to its exact transaction ID.
+    await pool.query(
+      `UPDATE trc20_token_clone.sponsor_transfers
+          SET status='confirmed', transaction_hash=$2, updated_at=now()
+        WHERE idempotency_key=$1`,
+      [idempotencyKey, transactionHash],
+    )
+    await pool.query(
+      `UPDATE trc20_token_clone.sponsor_resource_reservations
+          SET transaction_hash=$2, updated_at=now()
+        WHERE idempotency_key=$1 AND status='reserved'`,
+      [idempotencyKey, transactionHash],
+    )
+    await pool.query(
+      `INSERT INTO trc20_token_clone.native_transfer_verifications
+        (network, transaction_hash, from_address, to_address, amount_sun, block_number, verification_status)
+       VALUES ($1,$2,$3,$4,$5,123,'verified-on-chain')
+       ON CONFLICT (network, transaction_hash) DO NOTHING`,
+      [network, transactionHash, sponsorAddress, receiverAddress, '1000'],
+    )
+    const observation = await recordSponsorChainCostObservation({
+      network,
+      transactionHash,
+      idempotencyKey,
+      sponsorReference,
+      feeSponsorAddress,
+      assetPrincipalAddress: sponsorAddress,
+      receiverAddress,
+      asset: 'TRX',
+      tokenContract: null,
+      amountBaseUnits: '1000',
+      blockNumber: 123,
+      executionResult: 'SUCCESS',
+      reportedFeeSun: '0',
+      energyFeeSun: '0',
+      netFeeSun: '0',
+      energyUsageTotal: '0',
+      energyUsage: null,
+      originEnergyUsage: null,
+      netUsage: '100',
+      energyPenaltyTotal: null,
+    })
+    assert.equal(observation.success, true)
+
+    const settlement = await settleSponsorResourceBudgetForTransfer({
+      idempotencyKey,
+      feeSponsorAddress,
+      costs: {
+        network, transactionHash, feeSponsorAddress, blockNumber: 123, executionResult: 'SUCCESS',
+        reportedFeeSun: '0', energyFeeSun: '0', netFeeSun: '0',
+        energyUsageTotal: '0', energyUsage: null, originEnergyUsage: null,
+        netUsage: '100', energyPenaltyTotal: null,
+      },
+    })
+    assert.equal(settlement.success, true)
+    assert.equal(settlement.settled, true)
+    assert.equal(settlement.directFeeSponsorTrxDebitVerified, false)
+
+    const stored = await getSponsorResourceBudgetReservation(idempotencyKey)
+    assert.equal(stored.success, true)
+    assert.equal(stored.reservation.status, 'settled')
+    assert.equal(stored.reservation.transactionHash, transactionHash)
+
+    const counters = await pool.query(
+      `SELECT energy_reserved_units::text, bandwidth_reserved_units::text,
+              energy_spent_units::text, bandwidth_spent_units::text
+         FROM trc20_token_clone.sponsor_resource_budgets
+        WHERE mandate_reference=$1`,
+      [mandateReference],
+    )
+    assert.equal(counters.rows[0].energy_reserved_units, '0')
+    assert.equal(counters.rows[0].bandwidth_reserved_units, '0')
+    assert.equal(counters.rows[0].energy_spent_units, '0')
+    assert.equal(counters.rows[0].bandwidth_spent_units, '100')
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+  } finally {
+    if (priorMandates === undefined) delete process.env.SPONSOR_APPROVED_RESOURCE_MANDATES
+    else process.env.SPONSOR_APPROVED_RESOURCE_MANDATES = priorMandates
+    if (priorResourceFlag === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = priorResourceFlag
     await pool.end()
   }
 })
