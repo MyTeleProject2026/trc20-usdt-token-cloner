@@ -21,6 +21,13 @@ function response(status, value) {
   return { ok: status >= 200 && status < 300, status, async json() { return value } }
 }
 
+function solidifiedHead() {
+  return response(200, {
+    blockID: '0000000000000064' + 'ab'.repeat(24),
+    block_header: { raw_data: { number: 100, timestamp: now - 1000, parentHash: '00'.repeat(32) } },
+  })
+}
+
 function fakeTronWeb(host) {
   return {
     fullNode: { host },
@@ -297,6 +304,7 @@ test('native sponsor capacity requires active fee-sponsor delegation and does no
     env: baseEnv,
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -320,6 +328,7 @@ test('native sponsor capacity requires active fee-sponsor delegation and does no
     env: baseEnv,
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -358,6 +367,7 @@ test('sponsor capacity refuses to attribute principal self-stake to the separate
     transfer: transfer(), transaction, env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -430,6 +440,7 @@ test('TRC20 sponsor capacity fails closed when live constant-contract simulation
     env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
