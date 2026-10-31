@@ -281,3 +281,133 @@ test('PostgreSQL serializes concurrent sponsor resource reconciliations and char
   }
 })
 
+test('PostgreSQL settles a pending resource observation only after delayed attribution proof arrives', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
+}, async () => {
+  const { initializeDatabase, recordSponsorResourceCostSettlementObservation } = await import('../server/database.mjs')
+  const pool = new Pool({ connectionString: databaseUrl })
+  let fixture
+  try {
+    assert.equal((await initializeDatabase()).ready, true)
+    assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
+    fixture = await seedFixture(pool)
+
+    const pending = await recordSponsorResourceCostSettlementObservation({
+      idempotencyKey: fixture.idempotencyKey,
+      transactionHash: fixture.transactionHash,
+      attributionEvidence: null,
+    })
+    assert.equal(pending.success, true, JSON.stringify(pending))
+    assert.equal(pending.status, 'pending-evidence')
+    assert.equal(pending.sponsorResourceBudgetSettled, false)
+    assert.equal(pending.canSubmitSponsoredTransfer, false)
+
+    const beforeProof = await pool.query(
+      `SELECT energy_reserved_units::text AS energy_reserved,
+              bandwidth_reserved_units::text AS bandwidth_reserved,
+              energy_spent_units::text AS energy_spent,
+              bandwidth_spent_units::text AS bandwidth_spent
+         FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
+      [fixture.budgetId],
+    )
+    assert.deepEqual(beforeProof.rows[0], {
+      energy_reserved: '100', bandwidth_reserved: '50', energy_spent: '0', bandwidth_spent: '0',
+    })
+
+    const settled = await recordSponsorResourceCostSettlementObservation({
+      idempotencyKey: fixture.idempotencyKey,
+      transactionHash: fixture.transactionHash,
+      attributionEvidence: validAttribution(fixture),
+    })
+    assert.equal(settled.success, true, JSON.stringify(settled))
+    assert.equal(settled.status, 'settled')
+    assert.equal(settled.sponsorResourceBudgetSettled, true)
+    assert.equal(settled.canSubmitSponsoredTransfer, false)
+
+    const afterProof = await pool.query(
+      `SELECT energy_reserved_units::text AS energy_reserved,
+              bandwidth_reserved_units::text AS bandwidth_reserved,
+              energy_spent_units::text AS energy_spent,
+              bandwidth_spent_units::text AS bandwidth_spent
+         FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
+      [fixture.budgetId],
+    )
+    assert.deepEqual(afterProof.rows[0], {
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+    })
+    const settlement = await pool.query(
+      'SELECT status FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1',
+      [fixture.idempotencyKey],
+    )
+    assert.equal(settlement.rows[0].status, 'settled')
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture)
+    await pool.end()
+  }
+})
+
+test('PostgreSQL rejects conflicting cost evidence without erasing a prior settlement', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
+}, async () => {
+  const { initializeDatabase, recordSponsorResourceCostSettlementObservation } = await import('../server/database.mjs')
+  const pool = new Pool({ connectionString: databaseUrl })
+  let fixture
+  try {
+    assert.equal((await initializeDatabase()).ready, true)
+    assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
+    fixture = await seedFixture(pool)
+    const first = await recordSponsorResourceCostSettlementObservation({
+      idempotencyKey: fixture.idempotencyKey,
+      transactionHash: fixture.transactionHash,
+      attributionEvidence: validAttribution(fixture),
+    })
+    assert.equal(first.success, true, JSON.stringify(first))
+    assert.equal(first.status, 'settled')
+
+    await pool.query(
+      'UPDATE trc20_token_clone.sponsor_chain_cost_observations SET energy_usage_total = 76 WHERE idempotency_key = $1',
+      [fixture.idempotencyKey],
+    )
+    const conflict = await recordSponsorResourceCostSettlementObservation({
+      idempotencyKey: fixture.idempotencyKey,
+      transactionHash: fixture.transactionHash,
+      attributionEvidence: validAttribution(fixture),
+    })
+    assert.equal(conflict.success, false)
+    assert.equal(conflict.reason, 'resource-cost-evidence-conflict')
+    assert.equal(conflict.status, 'settled')
+    assert.equal(conflict.conflict, true)
+    assert.equal(conflict.sponsorResourceBudgetSettled, true)
+    assert.equal(conflict.canSubmitSponsoredTransfer, false)
+
+    const budget = await pool.query(
+      `SELECT energy_reserved_units::text AS energy_reserved,
+              bandwidth_reserved_units::text AS bandwidth_reserved,
+              energy_spent_units::text AS energy_spent,
+              bandwidth_spent_units::text AS bandwidth_spent
+         FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
+      [fixture.budgetId],
+    )
+    assert.deepEqual(budget.rows[0], {
+      energy_reserved: '0', bandwidth_reserved: '0', energy_spent: '75', bandwidth_spent: '25',
+    })
+    const settlement = await pool.query(
+      `SELECT status, energy_used_units::text AS energy_used
+         FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1`,
+      [fixture.idempotencyKey],
+    )
+    assert.deepEqual(settlement.rows[0], { status: 'settled', energy_used: '75' })
+    const conflictAudit = await pool.query(
+      `SELECT details FROM trc20_token_clone.audit_events
+        WHERE entity_reference = $1 AND event_type = 'sponsor-resource-cost-evidence-conflict'`,
+      [fixture.idempotencyKey],
+    )
+    assert.equal(conflictAudit.rows.length, 1)
+    assert.equal(conflictAudit.rows[0].details.storedCost.energyUsedUnits, '75')
+    assert.equal(conflictAudit.rows[0].details.observedCost.energyUsedUnits, '76')
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture)
+    await pool.end()
+  }
+})
+
