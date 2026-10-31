@@ -93,7 +93,7 @@ function createStore(options = {}) {
         id: String(state.challenges.length + 1), intentId, role,
         sponsorAddress: expectedAddress, network: 'nile',
         nonce: (state.challenges.length + 1).toString(16).padStart(64, '0'),
-        message: 'Exact sponsor intent message for ' + role,
+        message: 'Exact sponsor intent message for ' + role + '\nIntent digest: ' + 'a'.repeat(64) + '\nThis message does not sign, submit, broadcast, transfer, or debit funds.',
         intentDigest: 'a'.repeat(64),
         expiresAt: new Date(Date.now() + 120000).toISOString(),
       }
