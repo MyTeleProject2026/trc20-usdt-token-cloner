@@ -3,6 +3,8 @@ import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { createSponsorResourceReader } from './sponsor-resources.mjs'
 import { readSponsorDelegationSnapshot } from './sponsor-delegation-snapshot.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
+import { listSponsorResourceDelegations } from './database.mjs'
+import { verifySponsorDelegationTransactionAudit } from './sponsor-delegation-audit.mjs'
 
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
 const SAFE_PROVIDER_RESPONSE_FIELDS = new Set([
@@ -118,6 +120,7 @@ export function createSponsorRoleFundingReader({
   fetchImpl = tatumProviderFetch,
   tronWebFactory,
   timeoutMs = 8000,
+  readDelegationAudit = listSponsorResourceDelegations,
 } = {}) {
   const feeEnv = makeRoleEnvironment(env, 'FEE')
   const assetEnv = makeRoleEnvironment(env, 'ASSET')
@@ -135,7 +138,7 @@ export function createSponsorRoleFundingReader({
     const assetAddress = typeof env[`SPONSOR_ASSET_${networkKey}_ADDRESS`] === 'string'
       ? env[`SPONSOR_ASSET_${networkKey}_ADDRESS`].trim() : ''
 
-    const [feeFunding, assetFunding, feeResources, feeSponsorDelegationToPrincipal] = await Promise.all([
+    const [feeFunding, assetFunding, feeResources, liveDelegationSnapshot, delegationAuditResult] = await Promise.all([
       readFeeFunding(network, { refresh }),
       readAssetFunding(network, { refresh }),
       readFeeResources(network, { refresh }),
@@ -148,7 +151,24 @@ export function createSponsorRoleFundingReader({
         feeSponsorAddress: feeAddress,
         principalSponsorAddress: assetAddress,
       }),
+      Promise.resolve(readDelegationAudit({ network, limit: 100 }))
+        .catch(() => ({ success: false, reason: 'database-unavailable', delegations: [] })),
     ])
+    const delegationAudit = verifySponsorDelegationTransactionAudit({
+      network,
+      feeSponsorAddress: feeAddress,
+      principalSponsorAddress: assetAddress,
+      liveSnapshot: liveDelegationSnapshot,
+      auditResult: delegationAuditResult,
+      limit: 100,
+    })
+    const feeSponsorDelegationToPrincipal = {
+      ...liveDelegationSnapshot,
+      transactionAuditVerified: delegationAudit.verified,
+      transactionAuditStatus: delegationAudit.status,
+      auditedResourceTypes: delegationAudit.resourceTypes,
+      auditedTransactionCount: delegationAudit.transactionCount,
+    }
     const configuredAddressesDistinct = Boolean(feeAddress && assetAddress && feeAddress !== assetAddress)
     const networkFeeSponsor = buildRoleSnapshot('FEE', network, feeAddress, feeFunding, feeResources)
     const assetPrincipalSponsor = buildRoleSnapshot('ASSET', network, assetAddress, assetFunding)
