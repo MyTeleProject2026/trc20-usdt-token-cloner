@@ -3494,6 +3494,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         `SELECT r.id::text AS reservation_id, r.budget_id::text AS budget_id,
                 r.status AS reservation_status, r.energy_reserved_units::text AS energy_reserved,
                 r.bandwidth_reserved_units::text AS bandwidth_reserved, r.preflight_evidence,
+                r.preflight_checked_at::text AS preflight_checked_at, r.expires_at::text AS reservation_expires_at,
                 b.fee_sponsor_address, b.asset_principal_address,
                 b.energy_budget_units::text AS energy_budget_units, b.bandwidth_budget_units::text AS bandwidth_budget_units,
                 b.energy_reserved_units::text AS budget_energy_reserved, b.bandwidth_reserved_units::text AS budget_bandwidth_reserved,
@@ -3572,6 +3573,9 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         && proof.freeBandwidthUsedAsSponsorCoverage === false
         && Number.isFinite(new Date(proof.checkedAt).getTime())
         && new Date(proof.checkedAt).getTime() >= Number(row.block_timestamp_ms)
+        && Number.isFinite(new Date(row.preflight_checked_at).getTime())
+        && new Date(row.preflight_checked_at).getTime() <= Number(row.block_timestamp_ms)
+        && new Date(row.reservation_expires_at).getTime() > Number(row.block_timestamp_ms)
         && (Number(proof.delegationSnapshot?.bandwidthExpiry) === 0 || Number(proof.delegationSnapshot?.bandwidthExpiry) > Number(row.block_timestamp_ms))
         && (row.asset === 'TRX' || Number(proof.delegationSnapshot?.energyExpiry) === 0 || Number(proof.delegationSnapshot?.energyExpiry) > Number(row.block_timestamp_ms))
         && snapshotMatches
