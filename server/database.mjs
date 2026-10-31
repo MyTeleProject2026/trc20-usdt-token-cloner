@@ -3472,6 +3472,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         `SELECT r.id::text AS reservation_id, r.budget_id::text AS budget_id,
                 r.status AS reservation_status, r.energy_reserved_units::text AS energy_reserved,
                 r.bandwidth_reserved_units::text AS bandwidth_reserved, r.preflight_evidence,
+                b.fee_sponsor_address, b.asset_principal_address,
                 b.energy_budget_units::text AS energy_budget_units, b.bandwidth_budget_units::text AS bandwidth_budget_units,
                 b.energy_reserved_units::text AS budget_energy_reserved, b.bandwidth_reserved_units::text AS budget_bandwidth_reserved,
                 b.energy_spent_units::text AS energy_spent, b.bandwidth_spent_units::text AS bandwidth_spent,
