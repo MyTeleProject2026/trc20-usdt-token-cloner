@@ -242,8 +242,8 @@ test('PostgreSQL keeps legacy VTRC history readable but rejects new VTRC ledger 
       pool.query(`INSERT INTO trc20_token_clone.sponsor_chain_cost_observations
         (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
          asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
-         block_number, execution_result, reported_fee_sun)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,'SUCCESS',0)`,
+         block_number, block_timestamp_ms, execution_result, reported_fee_sun)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,1700000000000,'SUCCESS',0)`,
         [network, 'a'.repeat(64), transferKey, sponsorReference, sponsorAddress, receiverAddress, receiverAddress, contractAddress]),
       (error) => error?.code === '23514' && error?.constraint === 'sponsor_chain_cost_observations_supported_asset_only',
     )
