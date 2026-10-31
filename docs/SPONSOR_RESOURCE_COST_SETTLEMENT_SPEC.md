@@ -100,3 +100,21 @@ Activation scopes bind the mandate reference, network, both sponsor addresses, t
 
 
 The broadcast-claim database transaction now locks the exact resource reservation and mandate after locking the transfer row. This serializes a new broadcast claim against concurrent mandate pause and reservation-expiry cleanup. The signed-submit route also performs a read-only active-reservation check before asking the database to claim the transfer.
+
+
+## Settlement adapter behavior on the draft branch
+
+The reconciliation path now has a source-only verifier that runs after the exact transfer is solidified. It reads the principal account's resource-source profile and the exact fee-sponsor-to-principal Stake 2.0 delegation from the SolidityNode, without depending on the principal's post-transfer USDT balance or re-simulating the already-executed contract call.
+
+A resource budget can move from reserved to settled only when all of these hold:
+- The transfer and receipt identities match the stored sponsor transfer and the same solidified block.
+- The solidified receipt includes a verified block timestamp.
+- The post-transfer delegation/source snapshot exactly matches the snapshot captured at signing and signed-submit preflight.
+- The exact delegation expiry was valid at the transfer block timestamp.
+- No reported TRX fee, Energy fee, or Bandwidth fee was burned by the transaction owner.
+- Receipt Energy/Bandwidth usage does not exceed the exact per-transfer reservation.
+- A single database transaction atomically releases the full reservation, charges only observed resource units to the approved resource budget, records the settlement evidence, and marks the reservation settled.
+
+If any receipt fee burn is present, the resource use exceeds the reservation, the source snapshot differs, or the proof is missing, the record remains pending or enters manual review. No user-funded fallback is introduced.
+
+**Release limitation:** this code is still behind the hard source-code signing/broadcast gate. It has not been proven against a funded Nile/Shasta sponsor account or a real sponsored transfer. The branch still requires integration/security review of the block-time delegation attribution assumptions, database migration against a dedicated PostgreSQL test instance, and a controlled on-chain pilot before anyone changes the gate constant.
