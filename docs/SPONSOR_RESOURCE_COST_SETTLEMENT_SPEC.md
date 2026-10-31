@@ -84,7 +84,7 @@ The branch now includes:
 - An operator pause operation for a resource mandate.
 - PostgreSQL schema initialization now holds a session-level advisory lock for the full migration sequence, serializing startup migrations across app instances and parallel integration-test workers.
 - Isolated PostgreSQL CI tests cover settled/duplicate reconciliation, delayed attribution proof, fee-burn and over-reservation manual review, conflicting cost evidence, and concurrent reconciliation without double charging.
-- Pilot readiness requires both Energy and Bandwidth delegation above the verifier's 1,000,000 SUN-equivalent minimum, a valid network-specific USDT test-token allowlist, and a verified positive balance of that exact contract at the asset-principal sponsor.
+- Pilot readiness requires both Energy and Bandwidth delegation above the verifier's 1,000,000 SUN-equivalent minimum, a valid network-specific USDT test-token allowlist, and a verified positive six-decimal balance of that exact contract at the asset-principal sponsor.
 - A source-code gate on both signing-intent and signed-submit remains hard-coded closed.
 
 This is not the final settlement adapter. The current TRON account receipt exposes transaction-level Energy/Bandwidth usage, but the application must still independently prove that the observed consumption came from the exact fee sponsor's delegated resource allocation (including concurrent usage and resource-source attribution) before it may convert reserved units to spent units or release any remaining reservation. The gate must remain closed until that proof and its database transaction are implemented and tested.
