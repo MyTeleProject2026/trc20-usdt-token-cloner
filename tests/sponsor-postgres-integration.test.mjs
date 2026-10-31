@@ -1404,6 +1404,15 @@ test('PostgreSQL atomically reserves and releases independent principal and fee 
     assert.equal(feeApproval.canSubmitSponsoredTransfer, false)
     assert.equal(feeApproval.submissionEnabled, false)
 
+    const preflightIntent = await store.getPayoutIntentForPreflight(reserved.intentId)
+    assert.equal(preflightIntent.success, true, JSON.stringify(preflightIntent))
+    assert.equal(preflightIntent.sponsorOwnerApprovalsVerified, true)
+    assert.equal(preflightIntent.intent.status, 'sponsor_authorization_complete')
+    assert.equal(preflightIntent.intent.principalSponsorAddress, sponsorAddress)
+    assert.equal(preflightIntent.intent.feeSponsorAddress, receiverAddress)
+    assert.equal(preflightIntent.canSubmitSponsoredTransfer, false)
+    assert.equal(preflightIntent.submissionEnabled, false)
+
     const authorizationRows = await pool.query(
       "SELECT role, sponsor_address, signature_hash FROM trc20_token_clone.sponsor_organization_payout_authorizations " +
       "WHERE intent_id = $1 ORDER BY role",
