@@ -3530,7 +3530,9 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
                 b.energy_spent_units::text AS energy_spent, b.bandwidth_spent_units::text AS bandwidth_spent,
                 t.network, t.asset, t.transaction_hash, t.sponsor_address, t.status AS transfer_status,
                 o.block_number::text AS block_number, o.block_timestamp_ms::text AS block_timestamp_ms,
-                o.energy_usage_total::text AS energy_used,
+                o.energy_usage::text AS energy_used,
+                o.energy_usage_total::text AS energy_usage_total,
+                o.origin_energy_usage::text AS origin_energy_used,
                 o.net_usage::text AS bandwidth_used, o.reported_fee_sun::text AS reported_fee_sun,
                 o.energy_fee_sun::text AS energy_fee_sun,
                 o.net_fee_sun::text AS net_fee_sun, o.evidence_source
@@ -3561,7 +3563,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       row.reservation_status = lockedReservation.rows[0].status
       if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review','settled'].includes(row.reservation_status)
         || !row.block_number || !row.block_timestamp_ms || row.bandwidth_used == null
-        || (row.asset !== 'TRX' && row.energy_used == null)) {
+        || (row.asset !== 'TRX' && (row.energy_used == null || row.energy_usage_total == null
+          || BigInt(row.energy_used ?? '0') + BigInt(row.origin_energy_used ?? '0') !== BigInt(row.energy_usage_total)))) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'resource-cost-evidence-incomplete', sponsorResourceBudgetSettled: false }
       }
@@ -3569,7 +3572,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         `SELECT block_number::text AS block_number, energy_used_units::text AS energy_used,
                 bandwidth_used_units::text AS bandwidth_used, block_timestamp_ms::text AS block_timestamp_ms,
                 reported_fee_sun::text AS reported_fee_sun,
-                energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun, status
+                energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun, status, evidence
            FROM ${schema}.sponsor_resource_cost_settlements
           WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
           FOR UPDATE`,
@@ -3639,6 +3642,9 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         evidenceType: 'solidified-receipt-with-historical-delegation-proof',
         resourceAttributionVerified: status === 'settled',
         historicalDelegationStateVerified: historicalDelegationProofMatches,
+        callerEnergyUsageUnits: actualEnergyUnits.toString(),
+        energyUsageTotalUnits: String(row.energy_usage_total ?? '0'),
+        originEnergyUsageUnits: BigInt(row.origin_energy_used ?? '0').toString(),
         preflightEvidence: storedPreflight || null,
         attributionEvidence: attributionMatches ? proof : null,
         reason: feeBurnDetected ? 'transaction-fee-burn-observed'
@@ -3671,6 +3677,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
           && prior.block_timestamp_ms === row.block_timestamp_ms
           && prior.reported_fee_sun === row.reported_fee_sun
           && prior.energy_fee_sun === row.energy_fee_sun && prior.net_fee_sun === row.net_fee_sun
+          && String(prior.evidence?.energyUsageTotalUnits ?? '') === String(row.energy_usage_total ?? '')
+          && String(prior.evidence?.originEnergyUsageUnits ?? '0') === String(row.origin_energy_used ?? '0')
         if (!same) {
           await client.query(
             `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
