@@ -356,6 +356,17 @@ test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USD
   assert.equal(unfundedPrincipal.roleConfiguration.assetPrincipalUsdtFundingVerified, false)
   assert.ok(unfundedPrincipal.blockers.includes('asset-principal-usdt-funding-not-verified-positive'))
 
+  const wrongDecimals = makeRoleResult()
+  wrongDecimals.roles.assetPrincipalSponsor.tokens[0].decimals = 18
+  const decimalsMismatch = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: wrongDecimals,
+    env,
+  })
+  assert.equal(decimalsMismatch.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.ok(decimalsMismatch.blockers.includes('asset-principal-usdt-funding-not-verified-positive'))
+
   const wrongContract = makeRoleResult()
   wrongContract.roles.assetPrincipalSponsor.tokens[0].tokenContract = assetAddress
   const mismatchedToken = buildNetworkSummary({
