@@ -2295,7 +2295,10 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
       const result = await db.query(
         "SELECT id::text AS id, intent_id::text AS intent_id, intent_digest, external_tx_id, " +
         "release_reference, status, provider_transaction_id, provider_status, transaction_hash, " +
-        "last_error_code, provider_observation_count, created_at, updated_at " +
+        "last_error_code, provider_observation_count, chain_verification_status, chain_verification_reason, " +
+        "chain_verification_block_number::text AS chain_verification_block_number, observed_fee_sun::text AS observed_fee_sun, " +
+        "observed_energy_usage::text AS observed_energy_usage, observed_net_usage::text AS observed_net_usage, " +
+        "principal_settlement_status, fee_settlement_status, chain_verified_at, created_at, updated_at " +
         "FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = $1::bigint",
         [intentId],
       )
@@ -2310,7 +2313,16 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           providerStatus: row.provider_status || null,
           transactionHash: row.transaction_hash?.trim() || null,
           lastErrorCode: row.last_error_code || null,
-          submissionAttempts: Number(row.provider_observation_count),
+          providerObservationCount: Number(row.provider_observation_count),
+          chainVerificationStatus: row.chain_verification_status,
+          chainVerificationReason: row.chain_verification_reason || null,
+          chainVerificationBlockNumber: row.chain_verification_block_number || null,
+          observedFeeSun: row.observed_fee_sun || null,
+          observedEnergyUsage: row.observed_energy_usage || null,
+          observedNetUsage: row.observed_net_usage || null,
+          principalSettlementStatus: row.principal_settlement_status,
+          feeSettlementStatus: row.fee_settlement_status,
+          chainVerifiedAt: row.chain_verified_at ? new Date(row.chain_verified_at).toISOString() : null,
           createdAt: new Date(row.created_at).toISOString(),
           updatedAt: new Date(row.updated_at).toISOString(),
         },
@@ -2542,7 +2554,9 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         const principalAmount = BigInt(intent.amount_base_units)
         const principalSpent = BigInt(principal.spent_base_units)
         const principalBudget = BigInt(principal.budget_base_units)
-        if (principalReserved < principalAmount
+        const feeReserved = BigInt(fee.reserved_base_units)
+        const approvedFeeCap = BigInt(intent.fee_cap_sun)
+        if (principalReserved < principalAmount || feeReserved < approvedFeeCap
           || (verificationStatus === 'confirmed' && principalSpent + principalAmount > principalBudget)) {
           await client.query('ROLLBACK')
           return { success: false, reason: 'fireblocks-principal-budget-settlement-invariant-failed' }
