@@ -151,7 +151,8 @@ export function createSponsorRoleFundingReader({
         feeSponsorAddress: feeAddress,
         principalSponsorAddress: assetAddress,
       }),
-      Promise.resolve(readDelegationAudit({ network, limit: 100 }))
+      Promise.resolve()
+        .then(() => readDelegationAudit({ network, limit: 100 }))
         .catch(() => ({ success: false, reason: 'database-unavailable', delegations: [] })),
     ])
     const delegationAudit = verifySponsorDelegationTransactionAudit({
