@@ -140,10 +140,9 @@ export function createSponsorDelegationHistoryVerifier({
       if (!tronWeb?.isAddress?.(transfer.sponsorAddress) || !tronWeb?.isAddress?.(transfer.receiverAddress)) {
         return fail('historical-delegation-address-invalid')
       }
-      const sponsor = normalizeAddress(tronWeb, transfer.sponsorAddress)
       const principal = normalizeAddress(tronWeb, transfer.sponsorAddress)
       const feeSponsor = normalizeAddress(tronWeb, preflightEvidence.feeSponsorAddress)
-      if (!sponsor || !principal || !feeSponsor || sponsor !== principal || feeSponsor === principal
+      if (!principal || !feeSponsor || feeSponsor === principal
         || preflightEvidence.delegationSnapshot?.feeSponsorAddress !== preflightEvidence.feeSponsorAddress
         || preflightEvidence.delegationSnapshot?.assetPrincipalAddress !== transfer.sponsorAddress) {
         return fail('historical-delegation-sponsor-pair-invalid')
@@ -236,6 +235,9 @@ export function createSponsorDelegationHistoryVerifier({
         scannedBlockCount: span,
         scannedTransactionCount,
         source: 'Tatum SolidityNode walletsolidity/getblockbynum',
+        historySourceTrustModel: 'single-provider-solididity-node-response',
+        blockIntegrityCheck: 'height-prefix-and-parent-link; block header hash and witness signature are provider-trusted',
+        transactionIntegrityCheck: 'sha256-raw_data_hex-matches-txID; transaction inclusion in txTrieRoot is provider-trusted',
         delegationSnapshot: preflightEvidence.delegationSnapshot,
       }
     } catch (error) {
