@@ -42,7 +42,7 @@ function makeFixture({
   })
   const tronFactory = () => ({
     isAddress: () => true,
-    address: { toHex: () => '41' + 'ab'.repeat(20) },
+    address: { toHex: (value) => value === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' ? '41' + 'ab'.repeat(20) : '41' + 'cd'.repeat(20) },
     trx: { getBalance: async () => '5500000' },
     contract: async () => ({
       at: async () => ({
