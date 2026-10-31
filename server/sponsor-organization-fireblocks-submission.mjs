@@ -52,6 +52,15 @@ function safeSubmission(submission, provider = {}) {
     transactionHash: submission.transactionHash || provider.transactionHash || null,
     lastErrorCode: submission.lastErrorCode || null,
     providerObservationCount: submission.providerObservationCount ?? submission.submissionAttempts ?? 0,
+    chainVerificationStatus: submission.chainVerificationStatus || 'pending',
+    chainVerificationReason: submission.chainVerificationReason || null,
+    chainVerificationBlockNumber: submission.chainVerificationBlockNumber || null,
+    observedFeeSun: submission.observedFeeSun || null,
+    observedEnergyUsage: submission.observedEnergyUsage || null,
+    observedNetUsage: submission.observedNetUsage || null,
+    principalSettlementStatus: submission.principalSettlementStatus || 'pending',
+    feeSettlementStatus: submission.feeSettlementStatus || 'pending-resource-reconciliation',
+    chainVerifiedAt: submission.chainVerifiedAt || null,
     createdAt: submission.createdAt,
     updatedAt: submission.updatedAt,
   }
@@ -110,8 +119,16 @@ function responseFor(saved, extra = {}) {
     status: saved.submission.status,
     submission: safeSubmission(saved.submission, saved.provider),
     providerRequestCreated: Boolean(saved.provider?.providerTransactionId),
-    chainSettlement: saved.submission.transactionHash || saved.provider?.transactionHash
-      ? 'solidified-chain-verification-required' : 'awaiting-provider-transaction-hash',
+    chainSettlement: saved.submission.chainVerificationStatus === 'confirmed'
+      ? 'solidified-transfer-verified'
+      : saved.submission.chainVerificationStatus === 'failed'
+        ? 'solidified-failed-receipt-verified'
+        : saved.submission.transactionHash || saved.provider?.transactionHash
+          ? 'solidified-chain-verification-required' : 'awaiting-provider-transaction-hash',
+    principalSettlementStatus: saved.submission.principalSettlementStatus || 'pending',
+    feeSettlementStatus: saved.submission.feeSettlementStatus || 'pending-resource-reconciliation',
+    feeReservationRetained: (saved.submission.feeSettlementStatus || 'pending-resource-reconciliation')
+      !== 'settled',
     reservationRetained: true,
     canSubmitSponsoredTransfer: false,
     submissionEnabled: false,
