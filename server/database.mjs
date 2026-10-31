@@ -3579,11 +3579,14 @@ export async function settleSponsorResourceBudgetForTransfer({
         return { success: false, reason: 'matching-solidified-cost-observation-required' }
       }
       const storedCosts = observation.rows[0]
-      const observationMatches = storedCosts.reported_fee_sun === String(costs.reportedFeeSun)
-        && storedCosts.energy_fee_sun === String(costs.energyFeeSun)
-        && storedCosts.net_fee_sun === String(costs.netFeeSun)
-        && storedCosts.energy_usage === String(costs.energyUsage)
-        && storedCosts.net_usage === String(costs.netUsage)
+      const sameOptionalInteger = (stored, supplied) => stored === null || stored === undefined
+        ? supplied === null || supplied === undefined
+        : String(stored) === String(supplied)
+      const observationMatches = sameOptionalInteger(storedCosts.reported_fee_sun, costs.reportedFeeSun)
+        && sameOptionalInteger(storedCosts.energy_fee_sun, costs.energyFeeSun)
+        && sameOptionalInteger(storedCosts.net_fee_sun, costs.netFeeSun)
+        && sameOptionalInteger(storedCosts.energy_usage, costs.energyUsage)
+        && sameOptionalInteger(storedCosts.net_usage, costs.netUsage)
       if (!observationMatches) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'cost-observation-conflict' }
