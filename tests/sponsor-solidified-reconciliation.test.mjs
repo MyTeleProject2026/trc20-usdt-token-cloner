@@ -174,6 +174,126 @@ test('reconciliation observes exact receipt costs but never marks separate fee s
   assert.equal(payload.chainCostObservation.sponsorFeeBudgetSettled, false)
 })
 
+test('resource settlement receives only a block-bound delegation-history proof', async (t) => {
+  const feeSponsor = 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH'
+  const blockTimestampMs = 1700000000000
+  const delegationSnapshot = {
+    feeSponsorAddress: feeSponsor,
+    assetPrincipalAddress: sponsor,
+    energyStakeSun: '10000000',
+    bandwidthStakeSun: '20000000',
+    energyExpiry: 0,
+    bandwidthExpiry: 0,
+    ownEnergySun: '0',
+    incomingEnergyLegacySun: '0',
+    incomingEnergyV2Sun: '10000000',
+    ownBandwidthSun: '0',
+    incomingBandwidthLegacySun: '0',
+    incomingBandwidthV2Sun: '20000000',
+  }
+  const preflightEvidence = {
+    network: 'nile',
+    sponsorAddress: sponsor,
+    feeSponsorAddress: feeSponsor,
+    delegationSnapshot,
+    solidifiedAnchor: { blockNumber: 90, blockId: '000000000000005a' + 'ab'.repeat(24), blockTimestampMs: blockTimestampMs - 30000 },
+  }
+  let historyInput
+  let persistedAttribution
+  const base = await testServer(t, {
+    env: { ...env, SPONSOR_FEE_NILE_ADDRESS: feeSponsor },
+    readCosts: async () => ({
+      success: true, network: 'nile', transactionHash: txid, blockNumber: 100,
+      blockTimestampMs, executionResult: 'SUCCESS', reportedFeeSun: '0',
+      energyFeeSun: '0', netFeeSun: '0', energyUsageTotal: '100',
+      energyUsage: '90', netUsage: '4', energyPenaltyTotal: '10',
+    }),
+    persistCosts: async () => ({ success: true, duplicate: false }),
+    readPreflightEvidence: async () => ({ success: true, preflightEvidence }),
+    verifyCurrentSource: async () => ({
+      success: true, network: 'nile', sponsorAddress: sponsor,
+      feeSponsorAddress: feeSponsor, feeSponsorResourceSourceVerified: true,
+      bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      energyCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      freeBandwidthUsedAsSponsorCoverage: false,
+      checkedAt: new Date().toISOString(), delegationSnapshot,
+    }),
+    verifyHistory: async (input) => {
+      historyInput = input
+      return {
+        success: true, verified: true, status: 'verified',
+        verificationMethod: 'solidified-delegation-history-replay',
+        network: 'nile', transactionHash: txid, blockNumber: 100, blockTimestampMs,
+        feeSponsorAddress: feeSponsor, assetPrincipalAddress: sponsor,
+        historyComplete: true, anchorStateVerified: true, noInterveningDelegationChanges: true,
+        checkedAt: new Date().toISOString(), delegationSnapshot,
+      }
+    },
+    persistResourceCosts: async (input) => {
+      persistedAttribution = input.attributionEvidence
+      return { success: true, status: 'settled', duplicate: false, sponsorResourceBudgetSettled: true }
+    },
+  })
+  const response = await reconcile(base)
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.deepEqual({
+    transactionHash: historyInput.transactionHash,
+    blockNumber: historyInput.blockNumber,
+    blockTimestampMs: historyInput.blockTimestampMs,
+  }, { transactionHash: txid, blockNumber: 100, blockTimestampMs })
+  assert.equal(historyInput.preflightEvidence, preflightEvidence)
+  assert.equal(persistedAttribution.historicalDelegationStateVerified, true)
+  assert.equal(persistedAttribution.historicalDelegationProof.verificationMethod,
+    'solidified-delegation-history-replay')
+  assert.equal(payload.chainCostObservation.sponsorResourceBudgetSettled, true)
+})
+
+test('missing historical delegation history is passed to settlement as unverified', async (t) => {
+  const feeSponsor = 'TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH'
+  let persistedAttribution
+  const base = await testServer(t, {
+    env: { ...env, SPONSOR_FEE_NILE_ADDRESS: feeSponsor },
+    readCosts: async () => ({
+      success: true, network: 'nile', transactionHash: txid, blockNumber: 100,
+      blockTimestampMs: 1700000000000, executionResult: 'SUCCESS',
+      reportedFeeSun: '0', energyFeeSun: '0', netFeeSun: '0',
+      energyUsageTotal: '100', energyUsage: '90', netUsage: '4', energyPenaltyTotal: '10',
+    }),
+    persistCosts: async () => ({ success: true, duplicate: false }),
+    readPreflightEvidence: async () => ({
+      success: true,
+      preflightEvidence: {
+        network: 'nile', sponsorAddress: sponsor, feeSponsorAddress: feeSponsor,
+        delegationSnapshot: {},
+        solidifiedAnchor: { blockNumber: 90, blockId: '000000000000005a' + 'ab'.repeat(24), blockTimestampMs: 1699999970000 },
+      },
+    }),
+    verifyCurrentSource: async () => ({
+      success: true, network: 'nile', sponsorAddress: sponsor,
+      feeSponsorAddress: feeSponsor, feeSponsorResourceSourceVerified: true,
+      bandwidthCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      energyCoverageSource: 'exact-active-fee-sponsor-delegation-only',
+      freeBandwidthUsedAsSponsorCoverage: false,
+      checkedAt: new Date().toISOString(), delegationSnapshot: {},
+    }),
+    verifyHistory: async () => ({ success: false, reason: 'historical-delegation-state-changed-during-interval' }),
+    persistResourceCosts: async (input) => {
+      persistedAttribution = input.attributionEvidence
+      return { success: true, status: 'manual-review', sponsorResourceBudgetSettled: false }
+    },
+  })
+  const response = await reconcile(base)
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(persistedAttribution.historicalDelegationStateVerified, false)
+  assert.equal(persistedAttribution.historicalDelegationProof, null)
+  assert.equal(persistedAttribution.historicalDelegationProofReason,
+    'historical-delegation-state-changed-during-interval')
+  assert.equal(payload.chainCostObservation.sponsorResourceBudgetSettled, false)
+  assert.equal(payload.feeSponsorBudgetSettled, false)
+})
+
 test('solidified transfer reader is restricted to fixed Nile host and verifies exact native transfer', async () => {
   const secret = 'provider-secret-must-not-leak-from-reconciliation'
   const fakeTronWeb = {
