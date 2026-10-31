@@ -3333,10 +3333,10 @@ export async function reserveSponsorResourceBudgetForTransfer({
         || BigInt(bandwidthUnits) > BigInt(budget.bandwidth_per_transfer_limit)) {
         await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-per-transfer-limit-exceeded' }
       }
-      const energyAvailable = BigInt(budget.energy_budget_units) - BigInt(budget.energy_reserved_units) - BigInt(budget.energy_spent_units)
-      const bandwidthAvailable = BigInt(budget.bandwidth_budget_units) - BigInt(budget.bandwidth_reserved_units) - BigInt(budget.bandwidth_spent_units)
-      if (BigInt(energyUnits) > energyAvailable || BigInt(bandwidthUnits) > bandwidthAvailable) {
-        await client.query('ROLLBACK'); return { reserved: false, reason: 'insufficient-resource-budget' }
+      const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'] === 'string'
+        ? process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'].trim() : ''
+      if (!configuredFeeSponsorAddress || configuredFeeSponsorAddress !== budget.fee_sponsor_address) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'configured-fee-sponsor-mismatch' }
       }
       const existing = await client.query(
         `SELECT budget_id, energy_reserved_units::text AS energy, bandwidth_reserved_units::text AS bandwidth, status
@@ -3350,6 +3350,11 @@ export async function reserveSponsorResourceBudgetForTransfer({
         if (!same) { await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-reservation-conflict' } }
         await client.query('COMMIT')
         return { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+      }
+      const energyAvailable = BigInt(budget.energy_budget_units) - BigInt(budget.energy_reserved_units) - BigInt(budget.energy_spent_units)
+      const bandwidthAvailable = BigInt(budget.bandwidth_budget_units) - BigInt(budget.bandwidth_reserved_units) - BigInt(budget.bandwidth_spent_units)
+      if (BigInt(energyUnits) > energyAvailable || BigInt(bandwidthUnits) > bandwidthAvailable) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'insufficient-resource-budget' }
       }
       await client.query(
         `UPDATE ${schema}.sponsor_resource_budgets
@@ -3379,5 +3384,113 @@ export async function reserveSponsorResourceBudgetForTransfer({
   } catch (error) {
     console.error('Sponsor resource budget reservation initialization failed:', error?.code || 'unknown')
     return { reserved: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/**
+ * Persists receipt-level resource usage as pending evidence only. It deliberately
+ * does not convert reserved units into spent units: TRON receipt totals alone do
+ * not attribute consumption to one delegator when multiple resource sources or
+ * concurrent activity may exist.
+ */
+export async function recordSponsorResourceCostSettlementObservation({ idempotencyKey, transactionHash } = {}) {
+  const hash = typeof transactionHash === 'string' ? transactionHash.toLowerCase() : ''
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || !/^[0-9a-f]{64}$/.test(hash)) {
+    return { success: false, reason: 'invalid-resource-cost-observation-identity', sponsorResourceBudgetSettled: false }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', sponsorResourceBudgetSettled: false }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT r.id::text AS reservation_id, r.budget_id::text AS budget_id,
+                r.status AS reservation_status, r.energy_reserved_units::text AS energy_reserved,
+                r.bandwidth_reserved_units::text AS bandwidth_reserved,
+                t.network, t.transaction_hash, t.status AS transfer_status,
+                o.block_number::text AS block_number, o.energy_usage_total::text AS energy_used,
+                o.net_usage::text AS bandwidth_used, o.energy_fee_sun::text AS energy_fee_sun,
+                o.net_fee_sun::text AS net_fee_sun, o.evidence_source
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+           JOIN ${schema}.sponsor_chain_cost_observations o ON o.idempotency_key = r.idempotency_key
+          WHERE r.idempotency_key = $1 AND lower(t.transaction_hash) = $2
+            AND lower(o.transaction_hash) = $2
+          FOR UPDATE OF r, t`,
+        [idempotencyKey, hash],
+      )
+      if (!found.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'matching-resource-reservation-and-solidified-cost-observation-required', sponsorResourceBudgetSettled: false }
+      }
+      const row = found.rows[0]
+      if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review'].includes(row.reservation_status)
+        || !row.block_number || row.energy_used == null || row.bandwidth_used == null) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-cost-evidence-incomplete', sponsorResourceBudgetSettled: false }
+      }
+      const existing = await client.query(
+        `SELECT block_number::text AS block_number, energy_used_units::text AS energy_used,
+                bandwidth_used_units::text AS bandwidth_used, energy_fee_sun::text AS energy_fee_sun,
+                net_fee_sun::text AS net_fee_sun, status
+           FROM ${schema}.sponsor_resource_cost_settlements
+          WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
+          FOR UPDATE`,
+        [row.network, hash, row.budget_id],
+      )
+      const status = (BigInt(row.energy_fee_sun || '0') > 0n || BigInt(row.net_fee_sun || '0') > 0n)
+        ? 'manual-review' : 'pending-evidence'
+      if (existing.rows.length) {
+        const prior = existing.rows[0]
+        const same = prior.block_number === row.block_number
+          && prior.energy_used === row.energy_used && prior.bandwidth_used === row.bandwidth_used
+          && prior.energy_fee_sun === row.energy_fee_sun && prior.net_fee_sun === row.net_fee_sun
+        if (!same) {
+          await client.query(
+            `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+             VALUES ('sponsor-resource-cost-evidence-conflict','sponsor-resource-reservation',$1,$2::jsonb)`,
+            [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, budgetId: row.budget_id })],
+          )
+          await client.query('COMMIT')
+          return { success: false, reason: 'resource-cost-evidence-conflict', sponsorResourceBudgetSettled: false }
+        }
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, status: prior.status, sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
+      }
+      await client.query(
+        `INSERT INTO ${schema}.sponsor_resource_cost_settlements
+          (network, transaction_hash, idempotency_key, budget_id, block_number,
+           energy_used_units, bandwidth_used_units, energy_fee_sun, net_fee_sun,
+           evidence_source, status, evidence)
+         VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10,$11,$12::jsonb)`,
+        [row.network, hash, idempotencyKey, row.budget_id, row.block_number,
+          row.energy_used, row.bandwidth_used, row.energy_fee_sun, row.net_fee_sun,
+          row.evidence_source, status, JSON.stringify({ evidenceType: 'solidified-receipt-observation', resourceAttributionVerified: false })],
+      )
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_reservations
+            SET status = $2, transaction_hash = $3, updated_at = now()
+          WHERE idempotency_key = $1`,
+        [idempotencyKey, status, hash],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-cost-observed','sponsor-resource-reservation',$1,$2::jsonb)`,
+        [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, blockNumber: row.block_number, energyUsedUnits: row.energy_used, bandwidthUsedUnits: row.bandwidth_used, status, budgetSettled: false })],
+      )
+      await client.query('COMMIT')
+      return { success: true, duplicate: false, status, sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource cost observation failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable', sponsorResourceBudgetSettled: false }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource cost observation initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', sponsorResourceBudgetSettled: false }
   }
 }
