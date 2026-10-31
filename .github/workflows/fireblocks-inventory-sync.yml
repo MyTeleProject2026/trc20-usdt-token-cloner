@@ -20,6 +20,9 @@ concurrency:
 jobs:
   sync-and-export:
     name: Verify Fireblocks vault and export safe configuration
+    permissions:
+      contents: read
+      id-token: write
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -35,20 +38,9 @@ jobs:
             exit 1
           fi
 
-      - name: Check that the backend trigger secret is configured
-        shell: bash
-        env:
-          SYNC_TOKEN: ${{ secrets.FIREBLOCKS_SYNC_TRIGGER_TOKEN }}
-        run: |
-          if [[ -z "$SYNC_TOKEN" || "${#SYNC_TOKEN}" -lt 32 ]]; then
-            echo "::error::Configure FIREBLOCKS_SYNC_TRIGGER_TOKEN in the fireblocks-readonly-sync GitHub Environment and the same value in Render."
-            exit 1
-          fi
-
       - name: Request backend read-only verification
         shell: bash
         env:
-          SYNC_TOKEN: ${{ secrets.FIREBLOCKS_SYNC_TRIGGER_TOKEN }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           REPOSITORY: ${{ github.repository }}
@@ -63,9 +55,18 @@ jobs:
             branch: process.env.REF_NAME,
             commitSha: process.env.COMMIT_SHA
           }))')"
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "::error::GitHub Actions did not provide an OIDC token request context."
+            exit 1
+          fi
+          oidc_response="$(curl --silent --show-error --fail --get \
+            --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            --data-urlencode "audience=tron-token-studio-fireblocks-inventory" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL")"
+          oidc_token="$(OIDC_RESPONSE="$oidc_response" node -e 'const r=JSON.parse(process.env.OIDC_RESPONSE); if(typeof r.value!=="string" || r.value.length<100) process.exit(1); process.stdout.write(r.value);')"
           status="$(curl --silent --show-error --output sync-response.json --write-out '%{http_code}' \
             --request POST \
-            --header "Authorization: Bearer $SYNC_TOKEN" \
+            --header "Authorization: Bearer $oidc_token" \
             --header "Content-Type: application/json" \
             --data "$body" \
             https://trc20-usdt-token-cloner-api.onrender.com/api/treasury/fireblocks/inventory-sync)"
