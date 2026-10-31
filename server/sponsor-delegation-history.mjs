@@ -256,6 +256,18 @@ export function createSponsorDelegationHistoryVerifier({
               })
             }
           }
+          // Any other transaction initiated by the principal can consume its
+          // delegated/free resource pool after the pinned preflight snapshot.
+          // Without a transaction-specific resource-source receipt, it makes
+          // the target transaction's exact Bandwidth/Energy attribution unclear.
+          const principalInitiated = contracts.some((contract) =>
+            normalizeAddress(tronWeb, contract?.parameter?.value?.owner_address) === principal)
+          if (principalInitiated && id !== hash) {
+            return fail('historical-principal-resource-usage-intervened', {
+              blockNumber: height,
+              transactionId: id,
+            })
+          }
         }
         previous = identity
       }
