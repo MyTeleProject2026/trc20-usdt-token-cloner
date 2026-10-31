@@ -169,7 +169,8 @@ test('PostgreSQL atomically settles verified delegated resource units once and i
       transactionHash: fixture.transactionHash,
       attributionEvidence: validAttribution(fixture),
     })
-    assert.equal(duplicate.success, true)
+    assert.equal(duplicate.success, true, `duplicate settlement should be idempotent: ${JSON.stringify(duplicate)}`)
+    assert.equal(duplicate.status, 'settled')
     assert.equal(duplicate.duplicate, true)
     assert.equal(duplicate.sponsorResourceBudgetSettled, true)
     const afterDuplicate = await pool.query(
