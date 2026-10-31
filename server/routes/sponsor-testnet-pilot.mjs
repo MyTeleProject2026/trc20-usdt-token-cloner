@@ -166,7 +166,10 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   // A positive reading for only one resource must never be treated as a complete delegation.
   const liveDelegationCapacityVerified = delegation?.success === true
     && minimumDelegationStakeMet(activeEnergy) && minimumDelegationStakeMet(activeBandwidth)
+  const auditedResourceTypes = new Set(Array.isArray(delegation?.auditedResourceTypes)
+    ? delegation.auditedResourceTypes : [])
   const delegationTransactionAuditVerified = delegation?.transactionAuditVerified === true
+    && auditedResourceTypes.has('ENERGY') && auditedResourceTypes.has('BANDWIDTH')
   const delegationObserved = liveDelegationCapacityVerified && delegationTransactionAuditVerified
 
   const allowlists = Object.fromEntries(Object.entries(TOKEN_ALLOWLIST_ENV[network]).map(([asset, key]) => [
@@ -267,9 +270,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
         transactionAuditVerified: delegationTransactionAuditVerified,
         transactionAuditStatus: typeof delegation?.transactionAuditStatus === 'string'
           ? delegation.transactionAuditStatus : 'delegation-transaction-audit-unavailable',
-        auditedResourceTypes: Array.isArray(delegation?.auditedResourceTypes)
-          ? delegation.auditedResourceTypes.filter(type => type === 'ENERGY' || type === 'BANDWIDTH')
-          : [],
+        auditedResourceTypes: ['ENERGY', 'BANDWIDTH'].filter(type => auditedResourceTypes.has(type)),
       },
     },
     tokenContractAllowlistConfigured: allowlists,
