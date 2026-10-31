@@ -1,10 +1,10 @@
 /**
  * Hard release gate for testnet sponsor signing and broadcast.
  *
- * Resource budgets and receipt observations are now persisted, but the code
- * still cannot independently attribute actual Energy/Bandwidth consumption
- * to the exact fee sponsor and settle/release the approved budget from that
- * proof. Keep this hard gate closed until that adapter and E2E tests exist.
+ * Resource mandates, reservations and conditional receipt settlement are now
+ * implemented. The gate remains closed because historical delegation state at
+ * the transfer block, dedicated DB integration coverage, funded testnet E2E and
+ * independent sponsor/security approvals are not yet verified.
  */
 const SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY = false
 
@@ -13,13 +13,15 @@ export function getSponsorFeeBudgetSettlementGate() {
     ready: SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY,
     reason: SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY
       ? null
-      : 'fee-sponsor-budget-settlement-not-integrated',
+      : 'sponsor-release-evidence-and-acceptance-gates-incomplete',
     blockers: SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY
       ? []
       : [
-          'atomic-fee-resource-budget-reservation-not-integrated',
-          'transaction-specific-fee-sponsor-resource-cost-attribution-not-verified',
-          'solidified-fee-resource-budget-settlement-and-release-not-integrated',
+          'historical-delegation-state-at-transfer-block-not-independently-proven',
+          'resource-settlement-database-integration-tests-not-complete',
+          'funded-nile-and-shasta-sponsored-transfer-not-verified',
+          'independent-sponsor-security-review-required',
+          'sponsor-authorization-and-provider-configuration-not-independently-verified',
         ],
   }
 }
