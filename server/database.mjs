@@ -471,6 +471,79 @@ export async function initializeDatabase() {
         ON ${schema}.sponsor_chain_cost_observations (network, observed_at DESC)`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_chain_cost_observations IS
         'TRC20 Token Clone project only: immutable solidified transaction cost observations. Not, by itself, proof of fee-sponsor debit or a settled fee budget.'`)
+      // Delegated Energy/Bandwidth sponsor budgets are separate from TRX principal budgets.
+      // They reserve resource units only; receipt observations alone never settle these budgets.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          mandate_reference TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          fee_sponsor_address TEXT NOT NULL,
+          asset_principal_address TEXT NOT NULL,
+          energy_budget_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_budget_units >= 0),
+          bandwidth_budget_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_budget_units >= 0),
+          energy_per_transfer_limit NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_per_transfer_limit >= 0),
+          bandwidth_per_transfer_limit NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_per_transfer_limit >= 0),
+          energy_reserved_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_reserved_units >= 0),
+          bandwidth_reserved_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_reserved_units >= 0),
+          energy_spent_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_spent_units >= 0),
+          bandwidth_spent_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_spent_units >= 0),
+          valid_until TIMESTAMPTZ NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','active','paused','expired','depleted')),
+          approval_reference TEXT,
+          review_reference TEXT,
+          approved_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (fee_sponsor_address <> asset_principal_address),
+          CHECK (energy_reserved_units + energy_spent_units <= energy_budget_units),
+          CHECK (bandwidth_reserved_units + bandwidth_spent_units <= bandwidth_budget_units)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_reservations (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE
+            REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          budget_id BIGINT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(id) ON DELETE RESTRICT,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          transaction_hash CHAR(64),
+          energy_reserved_units NUMERIC(78,0) NOT NULL CHECK (energy_reserved_units >= 0),
+          bandwidth_reserved_units NUMERIC(78,0) NOT NULL CHECK (bandwidth_reserved_units >= 0),
+          status TEXT NOT NULL DEFAULT 'reserved'
+            CHECK (status IN ('reserved','pending-evidence','settled','manual-review','released')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (energy_reserved_units > 0 OR bandwidth_reserved_units > 0)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_cost_settlements (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          idempotency_key TEXT NOT NULL REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          budget_id BIGINT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(id) ON DELETE RESTRICT,
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          energy_used_units NUMERIC(78,0),
+          bandwidth_used_units NUMERIC(78,0),
+          energy_fee_sun NUMERIC(78,0),
+          net_fee_sun NUMERIC(78,0),
+          evidence_source TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending-evidence','manual-review','settled','conflict')),
+          evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+          observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, budget_id)
+        )
+      `)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_pair
+        ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address, status)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_budget
+        ON ${schema}.sponsor_resource_reservations (budget_id, status, created_at DESC)`)
+      await db.query(`COMMENT ON TABLE ${schema}.sponsor_resource_cost_settlements IS
+        'Append-only receipt resource observations. Pending/manual-review records are not sponsor-budget settlement and never enable submission.'`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.audit_events (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -3087,5 +3160,224 @@ export async function listSponsorChainCostObservations({ network = null, limit =
   } catch (error) {
     console.error('Sponsor chain cost observation list failed:', error?.code || 'unknown');
     return { success: false, reason: 'database-unavailable', observations: [] };
+  }
+}
+
+
+/**
+ * Creates a pending delegated-resource mandate budget. Activation is a separate
+ * operator action and requires an exact server-side allowlisted mandate scope.
+ * This function never enables transaction submission.
+ */
+export async function createSponsorResourceBudgetDraft(input = {}) {
+  const {
+    mandateReference, sponsorReference, network, feeSponsorAddress, assetPrincipalAddress,
+    energyBudgetUnits = '0', bandwidthBudgetUnits = '0',
+    energyPerTransferLimit = '0', bandwidthPerTransferLimit = '0', validUntil,
+  } = input
+  const integer = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  const expiry = typeof validUntil === 'string' ? new Date(validUntil) : null
+  if (typeof mandateReference !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(mandateReference)
+    || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference)
+    || !['nile','shasta'].includes(network)
+    || !isValidTronAddress(feeSponsorAddress) || !isValidTronAddress(assetPrincipalAddress)
+    || feeSponsorAddress === assetPrincipalAddress
+    || !integer(energyBudgetUnits) || !integer(bandwidthBudgetUnits)
+    || !integer(energyPerTransferLimit) || !integer(bandwidthPerTransferLimit)
+    || (energyBudgetUnits === '0' && bandwidthBudgetUnits === '0')
+    || BigInt(energyPerTransferLimit) > BigInt(energyBudgetUnits)
+    || BigInt(bandwidthPerTransferLimit) > BigInt(bandwidthBudgetUnits)
+    || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+    return { success: false, reason: 'invalid-resource-budget-draft' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `INSERT INTO ${schema}.sponsor_resource_budgets
+        (mandate_reference, sponsor_reference, network, fee_sponsor_address, asset_principal_address,
+         energy_budget_units, bandwidth_budget_units, energy_per_transfer_limit,
+         bandwidth_per_transfer_limit, valid_until, status)
+       VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10,'pending-review')
+       ON CONFLICT (mandate_reference) DO NOTHING
+       RETURNING id::text AS id, mandate_reference, network, status`,
+      [mandateReference, sponsorReference, network, feeSponsorAddress, assetPrincipalAddress,
+        energyBudgetUnits, bandwidthBudgetUnits, energyPerTransferLimit, bandwidthPerTransferLimit, expiry.toISOString()],
+    )
+    if (!result.rows.length) return { success: false, reason: 'resource-mandate-already-exists' }
+    return { success: true, duplicate: false, budget: result.rows[0], canSubmitSponsoredTransfer: false }
+  } catch (error) {
+    console.error('Sponsor resource budget draft failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Activates a resource mandate only when the exact scope is explicitly allowlisted
+ * in SPONSOR_APPROVED_RESOURCE_MANDATES and an approval + independent review ref
+ * are supplied. It remains accounting-only; submission is gated elsewhere.
+ */
+export async function activateSponsorResourceBudget({ budgetId, approvalReference, reviewReference } = {}) {
+  if (!/^[1-9][0-9]{0,17}$/.test(String(budgetId || ''))
+    || typeof approvalReference !== 'string' || approvalReference.length < 8 || approvalReference.length > 160
+    || typeof reviewReference !== 'string' || reviewReference.length < 8 || reviewReference.length > 160) {
+    return { success: false, reason: 'invalid-resource-budget-approval' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT id::text AS id, mandate_reference, network, fee_sponsor_address,
+                asset_principal_address, status, valid_until
+           FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
+        [String(budgetId)],
+      )
+      if (!found.rows.length) { await client.query('ROLLBACK'); return { success: false, reason: 'resource-budget-not-found' } }
+      const budget = found.rows[0]
+      const scopes = String(process.env.SPONSOR_APPROVED_RESOURCE_MANDATES || '')
+        .split(';').map((value) => value.trim()).filter(Boolean)
+      const exactScope = [budget.mandate_reference, budget.network, budget.fee_sponsor_address, budget.asset_principal_address].join('|')
+      if (!scopes.includes(exactScope)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-mandate-scope-not-approved' }
+      }
+      if (new Date(budget.valid_until).getTime() <= Date.now()) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-mandate-expired' }
+      }
+      if (budget.status === 'active') {
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, status: 'active', budgetId: String(budgetId) }
+      }
+      if (budget.status !== 'pending-review') {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-budget-not-reviewable' }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_budgets
+            SET status = 'active', approval_reference = $2, review_reference = $3,
+                approved_at = now(), updated_at = now()
+          WHERE id = $1::bigint`,
+        [String(budgetId), approvalReference, reviewReference],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-activated','sponsor-resource-budget',$1,$2::jsonb)`,
+        [String(budgetId), JSON.stringify({ mandateReference: budget.mandate_reference, network: budget.network, approvalReference, reviewReference })],
+      )
+      await client.query('COMMIT')
+      return { success: true, duplicate: false, status: 'active', budgetId: String(budgetId), canSubmitSponsoredTransfer: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource budget activation failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource budget activation initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Atomically reserves Energy/Bandwidth allowance against the exact asset-principal
+ * transfer. The caller must pass server-derived estimates, never browser values.
+ * This reservation is not proof of actual resource consumption or sponsor debit.
+ */
+export async function reserveSponsorResourceBudgetForTransfer({
+  idempotencyKey, mandateReference, energyUnits = '0', bandwidthUnits = '0',
+} = {}) {
+  const integer = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || typeof mandateReference !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(mandateReference)
+    || !integer(energyUnits) || !integer(bandwidthUnits)
+    || (energyUnits === '0' && bandwidthUnits === '0')) {
+    return { reserved: false, reason: 'invalid-resource-reservation' }
+  }
+  const db = getPool()
+  if (!db) return { reserved: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const transferResult = await client.query(
+        `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, status
+           FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey],
+      )
+      if (!transferResult.rows.length) { await client.query('ROLLBACK'); return { reserved: false, reason: 'transfer-not-found' } }
+      const transfer = transferResult.rows[0]
+      if (transfer.purpose !== 'asset-grant' || !['nile','shasta'].includes(transfer.network)
+        || !['pending-review','authorized'].includes(transfer.status)) {
+        await client.query('ROLLBACK')
+        return { reserved: false, reason: 'transfer-not-reservable' }
+      }
+      const budgetResult = await client.query(
+        `SELECT * FROM ${schema}.sponsor_resource_budgets
+          WHERE mandate_reference = $1 AND network = $2
+            AND asset_principal_address = $3 AND status = 'active'
+          FOR UPDATE`,
+        [mandateReference, transfer.network, transfer.sponsor_address],
+      )
+      if (!budgetResult.rows.length) { await client.query('ROLLBACK'); return { reserved: false, reason: 'active-resource-mandate-not-found' } }
+      const budget = budgetResult.rows[0]
+      if (new Date(budget.valid_until).getTime() <= Date.now()) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-mandate-expired' }
+      }
+      if (BigInt(energyUnits) > BigInt(budget.energy_per_transfer_limit)
+        || BigInt(bandwidthUnits) > BigInt(budget.bandwidth_per_transfer_limit)) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-per-transfer-limit-exceeded' }
+      }
+      const energyAvailable = BigInt(budget.energy_budget_units) - BigInt(budget.energy_reserved_units) - BigInt(budget.energy_spent_units)
+      const bandwidthAvailable = BigInt(budget.bandwidth_budget_units) - BigInt(budget.bandwidth_reserved_units) - BigInt(budget.bandwidth_spent_units)
+      if (BigInt(energyUnits) > energyAvailable || BigInt(bandwidthUnits) > bandwidthAvailable) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'insufficient-resource-budget' }
+      }
+      const existing = await client.query(
+        `SELECT budget_id, energy_reserved_units::text AS energy, bandwidth_reserved_units::text AS bandwidth, status
+           FROM ${schema}.sponsor_resource_reservations WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey],
+      )
+      if (existing.rows.length) {
+        const row = existing.rows[0]
+        const same = String(row.budget_id) === String(budget.id)
+          && row.energy === energyUnits && row.bandwidth === bandwidthUnits
+        if (!same) { await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-reservation-conflict' } }
+        await client.query('COMMIT')
+        return { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_budgets
+            SET energy_reserved_units = energy_reserved_units + $1::numeric,
+                bandwidth_reserved_units = bandwidth_reserved_units + $2::numeric, updated_at = now()
+          WHERE id = $3::bigint`,
+        [energyUnits, bandwidthUnits, budget.id],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.sponsor_resource_reservations
+          (idempotency_key, budget_id, network, energy_reserved_units, bandwidth_reserved_units)
+         VALUES ($1,$2::bigint,$3,$4::numeric,$5::numeric)`,
+        [idempotencyKey, budget.id, transfer.network, energyUnits, bandwidthUnits],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-reserved','sponsor-resource-reservation',$1,$2::jsonb)`,
+        [idempotencyKey, JSON.stringify({ mandateReference, network: transfer.network, energyUnits, bandwidthUnits, budgetId: String(budget.id) })],
+      )
+      await client.query('COMMIT')
+      return { reserved: true, duplicate: false, status: 'reserved', idempotencyKey, canSubmitSponsoredTransfer: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource budget reservation failed:', error?.code || 'unknown')
+      return { reserved: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource budget reservation initialization failed:', error?.code || 'unknown')
+    return { reserved: false, reason: 'database-unavailable' }
   }
 }
