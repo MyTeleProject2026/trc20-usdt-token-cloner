@@ -1,5 +1,5 @@
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast, reserveSponsorResourceBudgetForTransfer } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast, reserveSponsorResourceBudgetForTransfer, getSponsorResourceReservationForTransfer } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -1584,6 +1584,14 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
         success: true, status: 'submitted', duplicate: true, network: transfer.network,
         transactionHash: signature.txID, transactionBroadcast: true, chainFinalityVerified: false,
         canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    const resourceReservation = await getSponsorResourceReservationForTransfer(idempotencyKey)
+    if (resourceReservation?.success !== true) {
+      return res.status(409).json({
+        success: false, error: resourceReservation?.reason || 'active-fee-resource-reservation-required',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
+        userFundedFallbackAllowed: false,
       })
     }
     const claim = await claimSponsorTransferBroadcast({
