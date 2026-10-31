@@ -1684,10 +1684,55 @@ test('PostgreSQL reserves both payout roles for one organization using distinct 
     assert.equal(ready.intent.principalSponsorAddress, sponsorAddress)
     assert.equal(ready.intent.feeSponsorAddress, receiverAddress)
     assert.equal(ready.canSubmitSponsoredTransfer, false)
+
+    const externalTxId = 'tssponsor-' + reserved.intentId + '-' + ready.intent.intentDigest
+    const releaseReference = 'pg-fireblocks-release-' + suffix
+    const preparedSubmission = await store.prepareFireblocksPayoutSubmission({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      releaseReference,
+    })
+    assert.equal(preparedSubmission.success, true, JSON.stringify(preparedSubmission))
+    assert.equal(preparedSubmission.duplicate, false)
+    assert.equal(preparedSubmission.submission.status, 'prepared')
+    const duplicateSubmission = await store.prepareFireblocksPayoutSubmission({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      releaseReference,
+    })
+    assert.equal(duplicateSubmission.success, true, JSON.stringify(duplicateSubmission))
+    assert.equal(duplicateSubmission.duplicate, true)
+    assert.equal(duplicateSubmission.submission.externalTxId, externalTxId)
+
+    const providerRecorded = await store.recordFireblocksPayoutSubmission({
+      intentId: reserved.intentId,
+      intentDigest: ready.intent.intentDigest,
+      externalTxId,
+      providerTransactionId: 'fireblocks-pg-' + suffix,
+      providerStatus: 'SUBMITTED',
+      status: 'provider-pending',
+    })
+    assert.equal(providerRecorded.success, true, JSON.stringify(providerRecorded))
+    assert.equal(providerRecorded.submission.status, 'provider-pending')
+    assert.equal(providerRecorded.submission.providerTransactionId, 'fireblocks-pg-' + suffix)
+    assert.equal(providerRecorded.submission.transactionHash, null)
+
+    const recoveredSubmission = await store.getFireblocksPayoutSubmission(reserved.intentId)
+    assert.equal(recoveredSubmission.success, true, JSON.stringify(recoveredSubmission))
+    assert.equal(recoveredSubmission.submission.externalTxId, externalTxId)
+    assert.equal(recoveredSubmission.submission.status, 'provider-pending')
+    const providerRows = await pool.query(
+      "SELECT count(*)::int AS count FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = $1",
+      [reserved.intentId],
+    )
+    assert.equal(providerRows.rows[0].count, 1)
   } finally {
     if (previousScopes === undefined) delete process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES
     else process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES = previousScopes
     if (intentIds.length) {
+      await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_fireblocks_submissions WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
       await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_authorizations WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
       await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_authorization_challenges WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
       await pool.query('DELETE FROM trc20_token_clone.sponsor_organization_payout_reservations WHERE intent_id = ANY($1::bigint[])', [intentIds]).catch(() => {})
