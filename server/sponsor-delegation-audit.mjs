@@ -65,6 +65,11 @@ export function verifySponsorDelegationTransactionAudit({
     const transactionId = row.transactionId.toLowerCase()
     if (transactionIds.has(transactionId)) return fail('delegation-transaction-audit-duplicate')
     transactionIds.add(transactionId)
+    const auditedStake = BigInt(row.stakeEquivalentSun)
+    const liveStake = BigInt(row.resourceType === 'ENERGY'
+      ? liveSnapshot.activeEnergyStakeSun
+      : liveSnapshot.activeBandwidthStakeSun)
+    if (auditedStake > liveStake) return fail('audited-delegation-stake-exceeds-current-allocation')
     verifiedTypes.add(row.resourceType)
   }
 
