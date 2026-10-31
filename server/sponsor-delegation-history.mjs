@@ -70,7 +70,9 @@ function isStakeMutationForSponsorPair(contract, tronWeb, sponsor, principal) {
     'FreezeBalanceV2Contract', 'UnfreezeBalanceV2Contract',
     'WithdrawExpireUnfreezeContract', 'CancelAllUnfreezeV2Contract',
   ].includes(type)) {
-    return relevantAddresses.has(owner)
+    const legacyDelegationReceiverChanged = ['FreezeBalanceContract', 'UnfreezeBalanceContract'].includes(type)
+      && relevantAddresses.has(receiver)
+    return relevantAddresses.has(owner) || legacyDelegationReceiverChanged
       ? { changed: true, reason: 'intervening-stake-balance-change', contractType: type }
       : null
   }
