@@ -1696,18 +1696,18 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
         message: 'Fresh sponsor bandwidth/energy capacity no longer covers this exact signed transaction. No broadcast was attempted; review the reservation and prepare a fresh signing intent if still pending.',
       })
     }
-    const preflightEvidence = await recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence: feeCapacity })
-    if (preflightEvidence?.success !== true) {
-      return res.status(503).json({
-        success: false, error: preflightEvidence?.reason || 'resource-preflight-evidence-persistence-failed',
-        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
-      })
-    }
     if (transfer.status === 'submitted' && transfer.transactionHash?.toLowerCase() === signature.txID.toLowerCase()) {
       return res.json({
         success: true, status: 'submitted', duplicate: true, network: transfer.network,
         transactionHash: signature.txID, transactionBroadcast: true, chainFinalityVerified: false,
         canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    const preflightEvidence = await recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence: feeCapacity })
+    if (preflightEvidence?.success !== true) {
+      return res.status(503).json({
+        success: false, error: preflightEvidence?.reason || 'resource-preflight-evidence-persistence-failed',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
       })
     }
     const resourceReservation = await getSponsorResourceReservationForTransfer(idempotencyKey)
