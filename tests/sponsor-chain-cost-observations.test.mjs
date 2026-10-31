@@ -179,19 +179,19 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
 test('USDT receipt exposes caller Energy separately from contract-origin Energy', async () => {
   const contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
   const contractHex = '41' + '33'.repeat(20)
-  const fromTopic = '0x' + '11'.repeat(20).padStart(64, '0')
-  const toTopic = '0x' + '22'.repeat(20).padStart(64, '0')
+  const fromTopic = '11'.repeat(20).padStart(64, '0')
+  const toTopic = '22'.repeat(20).padStart(64, '0')
   const info = {
     id: txid, blockNumber: 78, blockTimeStamp: 1700000001000, fee: 0, result: 'SUCCESS',
     receipt: {
       result: 'SUCCESS', net_fee: 0, energy_fee: 0,
       energy_usage_total: 75, energy_usage: 70, origin_energy_usage: 5, net_usage: 220,
-      log: [{
-        address: contractHex,
-        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
-        data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
-      }],
     },
+    log: [{
+      address: contractHex,
+      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
+      data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
+    }],
   }
   const transferValue = { ...transfer().transfer, asset: 'USDT', tokenContract: contract }
   const fakeTronWeb = {
@@ -221,19 +221,19 @@ test('USDT receipt exposes caller Energy separately from contract-origin Energy'
 test('USDT receipt energy total must equal caller plus contract-origin consumption', async () => {
   const contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
   const contractHex = '41' + '33'.repeat(20)
-  const fromTopic = '0x' + '11'.repeat(20).padStart(64, '0')
-  const toTopic = '0x' + '22'.repeat(20).padStart(64, '0')
+  const fromTopic = '11'.repeat(20).padStart(64, '0')
+  const toTopic = '22'.repeat(20).padStart(64, '0')
   const info = {
     id: txid, blockNumber: 79, blockTimeStamp: 1700000002000, fee: 0, result: 'SUCCESS',
     receipt: {
       result: 'SUCCESS', net_fee: 0, energy_fee: 0,
       energy_usage_total: 76, energy_usage: 70, origin_energy_usage: 5, net_usage: 220,
-      log: [{
-        address: contractHex,
-        topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
-        data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
-      }],
     },
+    log: [{
+      address: contractHex,
+      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', fromTopic, toTopic],
+      data: '0x' + BigInt(2500000).toString(16).padStart(64, '0'),
+    }],
   }
   const transferValue = { ...transfer().transfer, asset: 'USDT', tokenContract: contract }
   const fakeTronWeb = {
