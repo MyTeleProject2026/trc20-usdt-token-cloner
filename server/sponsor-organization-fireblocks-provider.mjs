@@ -232,6 +232,12 @@ export async function preflightSponsorOrganizationFireblocksProvider({
         requestedAmountBaseUnits: intent.amountBaseUnits,
       })
     }
+    if (BigInt(providerTrxAvailable) < BigInt(intent.feeCapSun)) {
+      return fail('fireblocks-fee-provider-balance-insufficient', {
+        providerFeeWalletTrxAvailableSun: providerTrxAvailable,
+        approvedFeeCapSun: intent.feeCapSun,
+      })
+    }
 
     const estimate = await principalClient.estimateUsdtTransferFee({
       recipientAddress: intent.receiverAddress,
