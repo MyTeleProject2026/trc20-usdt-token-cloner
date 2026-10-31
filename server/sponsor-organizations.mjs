@@ -327,7 +327,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
         // remain a separately verified account, wallet, budget and authorization.
         // Remove the historical organization-distinct check on already-migrated databases.
         await db.query(`
-          DO $
+          DO $sponsor_migration$
           DECLARE constraint_row RECORD;
           BEGIN
             FOR constraint_row IN
@@ -353,7 +353,7 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
                 CHECK (principal_account_id <> fee_account_id);
             END IF;
           END
-          $;
+          $sponsor_migration$;
         `)
         await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_reservations (
