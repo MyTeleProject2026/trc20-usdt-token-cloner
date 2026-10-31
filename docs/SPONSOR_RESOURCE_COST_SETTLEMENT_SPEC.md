@@ -88,7 +88,7 @@ The branch now includes:
 - The branch must not convert a current delegation snapshot alone into transaction audit proof; the audit verifier requires persisted independently verified ENERGY and BANDWIDTH delegation transactions for the exact configured sponsor pair. Each recorded transaction amount must also be no greater than the corresponding currently active delegated allocation; missing, mismatched, invalid, duplicate, truncated, or stale audit evidence blocks readiness.
 - A source-code gate on both signing-intent and signed-submit remains hard-coded closed.
 
-This is not the final settlement adapter. The current TRON account receipt exposes transaction-level Energy/Bandwidth usage, but the application must still independently prove that the observed consumption came from the exact fee sponsor's delegated resource allocation (including concurrent usage and resource-source attribution) before it may convert reserved units to spent units or release any remaining reservation. The gate must remain closed until that proof and its database transaction are implemented and tested.
+This is not the final settlement adapter. The current TRON account receipt exposes transaction-level Energy/Bandwidth usage, but the application still has no complete historical delegation replay proving that the observed consumption came from the exact fee sponsor's allocation at the transaction block. Current account/delegation state is not a historical record. A trusted history adapter must anchor and replay every relevant delegate/undelegate change to the exact solidified transfer block, handle concurrent usage and resource-source attribution, and fail closed on incomplete history before any reserved units may be converted to spent units or released. The gate must remain closed until that adapter and its database transaction are implemented and tested.
 
 
 ## Protected operator endpoints
@@ -108,17 +108,19 @@ The broadcast-claim database transaction now locks the exact resource reservatio
 
 ## Settlement adapter behavior on the draft branch
 
-The reconciliation path now has a source-only verifier that runs after the exact transfer is solidified. It reads the principal account's resource-source profile and the exact fee-sponsor-to-principal Stake 2.0 delegation from the SolidityNode, without depending on the principal's post-transfer USDT balance or re-simulating the already-executed contract call.
+The reconciliation path runs a source-only verifier after the exact transfer is solidified. It reads the principal account's resource-source profile and the exact fee-sponsor-to-principal Stake 2.0 delegation from the SolidityNode, without depending on the principal's post-transfer USDT balance or re-simulating the already-executed contract call. This is a **latest solidified-state snapshot**, not a historical read at the transfer's block. The verifier now marks historical delegation proof as unavailable; a matching current snapshot can detect a changed relationship, but cannot establish that the delegation remained continuously valid during the transfer.
 
 A resource budget can move from reserved to settled only when all of these hold:
 - The transfer and receipt identities match the stored sponsor transfer and the same solidified block.
 - The solidified receipt includes a verified block timestamp.
 - The post-transfer delegation/source snapshot exactly matches the snapshot captured at signing and signed-submit preflight.
+- A separate server-side historical-delegation proof is verified and bound to the exact network, transaction hash, block number, block timestamp, fee sponsor, and asset-principal address.
+- The historical proof has a verified starting-state anchor, complete delegation-change history through the transfer block, no intervening change that breaks the exact resource delegation, and the same resource-specific source snapshot captured at preflight.
 - The exact delegation expiry was valid at the transfer block timestamp.
 - No reported TRX fee, Energy fee, or Bandwidth fee was burned by the transaction owner.
 - Receipt Energy/Bandwidth usage does not exceed the exact per-transfer reservation.
 - A single database transaction atomically releases the full reservation, charges only observed resource units to the approved resource budget, records the settlement evidence, and marks the reservation settled.
 
-If any receipt fee burn is present, the resource use exceeds the reservation, the source snapshot differs, or the proof is missing, the record remains pending or enters manual review. No user-funded fallback is introduced.
+If any receipt fee burn is present, the resource use exceeds the reservation, the source snapshot differs, or the historical proof is missing or conflicts with the receipt, the record remains pending or enters manual review. The current SolidityNode query does not provide arbitrary-block delegation state, so the current verifier cannot satisfy the historical-proof requirement and cannot settle the resource budget. No user-funded fallback is introduced.
 
 **Release limitation:** isolated PostgreSQL integration and concurrency tests pass in CI, including the migration-initialization race test path. This does not replace a production database backup, migration and restore rehearsal. The code is still behind the hard source-code signing/broadcast gate and has not been proven against funded Nile/Shasta sponsor accounts or a real sponsored transfer. The branch still requires independent review of the block-time delegation attribution assumptions, a production database migration/restore rehearsal, a controlled on-chain pilot, and explicit sponsor/security approval before anyone changes the gate constant.
