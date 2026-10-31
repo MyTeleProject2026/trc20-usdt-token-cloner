@@ -316,11 +316,44 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CHECK (principal_link_id <> fee_link_id),
             CHECK (principal_budget_id <> fee_budget_id),
-            CHECK (principal_organization_id <> fee_organization_id),
+            CONSTRAINT sponsor_org_payout_intent_accounts_distinct
+              CHECK (principal_account_id <> fee_account_id),
             CHECK (principal_sponsor_address <> fee_sponsor_address),
             CHECK ((asset = 'TRX' AND token_contract IS NULL)
               OR (asset = 'USDT' AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0))
           )
+        `)
+        // A single legal organization may provide both roles, but each role must
+        // remain a separately verified account, wallet, budget and authorization.
+        // Remove the historical organization-distinct check on already-migrated databases.
+        await db.query(`
+          DO $
+          DECLARE constraint_row RECORD;
+          BEGIN
+            FOR constraint_row IN
+              SELECT conname
+              FROM pg_constraint
+              WHERE conrelid = 'trc20_token_clone.sponsor_organization_payout_intents'::regclass
+                AND contype = 'c'
+                AND pg_get_constraintdef(oid) ILIKE '%principal_organization_id%fee_organization_id%'
+            LOOP
+              EXECUTE format(
+                'ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents DROP CONSTRAINT IF EXISTS %I',
+                constraint_row.conname
+              );
+            END LOOP;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'trc20_token_clone.sponsor_organization_payout_intents'::regclass
+                AND conname = 'sponsor_org_payout_intent_accounts_distinct'
+            ) THEN
+              ALTER TABLE trc20_token_clone.sponsor_organization_payout_intents
+                ADD CONSTRAINT sponsor_org_payout_intent_accounts_distinct
+                CHECK (principal_account_id <> fee_account_id);
+            END IF;
+          END
+          $;
         `)
         await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_payout_reservations (
@@ -1235,12 +1268,14 @@ export function createSponsorOrganizationStore({ env = process.env, databasePool
           await client.query('ROLLBACK')
           return { success: false, reason: 'sponsor-budget-link-not-found' }
         }
+        // A provider may own both role accounts. Role separation is enforced by
+        // distinct accounts, wallets, budgets, linked scopes and authorizations—not
+        // by requiring two different legal organizations.
         const roleMatches = principal.role === 'asset-principal' && principal.purpose === 'asset-grant'
           && fee.role === 'network-fee' && fee.purpose === 'network-fee'
         const scopesApproved = [principal, fee].every((row) =>
           row.link_status === 'active' && row.organization_status === 'approved'
           && row.account_status === 'verified' && row.budget_status === 'active'
-          && row.organization_id !== (row === principal ? fee.organization_id : principal.organization_id)
           && row.account_reference === row.sponsor_reference
           && row.wallet_address === row.sponsor_address
           && row.account_network === network && row.budget_network === network
