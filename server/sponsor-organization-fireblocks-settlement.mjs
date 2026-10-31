@@ -13,10 +13,16 @@ function readNonNegativeUnits(value) {
   return null
 }
 
+function readPostgresBigint(value) {
+  const units = readNonNegativeUnits(value)
+  return units !== null && BigInt(units) <= 9_223_372_036_854_775_807n ? units : null
+}
+
 function verifiedSettlementResponse(context, extra = {}) {
   return {
     success: true,
     status: context.chainVerificationStatus,
+    payoutOutcome: context.chainVerificationStatus,
     intentId: context.intentId,
     transactionHash: context.transactionHash,
     chainVerification: {
@@ -143,7 +149,7 @@ export async function verifyAndSettleSponsorOrganizationFireblocksPayout({
   const blockNumber = Number(evidence.blockNumber)
   const feeSun = readNonNegativeUnits(transactionInfo?.fee)
   const energyUsage = readNonNegativeUnits(transactionInfo?.receipt?.energy_usage_total ?? transactionInfo?.receipt?.energy_usage)
-  const netUsage = readNonNegativeUnits(transactionInfo?.receipt?.net_usage ?? transactionInfo?.net_usage)
+  const netUsage = readPostgresBigint(transactionInfo?.receipt?.net_usage ?? transactionInfo?.net_usage)
   const saved = await store.recordFireblocksPayoutChainVerification({
     intentId,
     intentDigest: context.intentDigest,
