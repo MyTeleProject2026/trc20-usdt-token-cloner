@@ -123,6 +123,22 @@ function validAttribution(fixture) {
     energyCoverageSource: 'exact-active-fee-sponsor-delegation-only',
     freeBandwidthUsedAsSponsorCoverage: false,
     checkedAt: new Date().toISOString(),
+    historicalDelegationStateVerified: true,
+    historicalDelegationProof: {
+      status: 'verified',
+      verificationMethod: 'solidified-delegation-history-replay',
+      network: 'nile',
+      transactionHash: fixture.transactionHash,
+      blockNumber: '123456',
+      blockTimestampMs: String(fixture.blockTimestampMs),
+      feeSponsorAddress: feeSponsor,
+      assetPrincipalAddress: principal,
+      historyComplete: true,
+      anchorStateVerified: true,
+      noInterveningDelegationChanges: true,
+      checkedAt: new Date().toISOString(),
+      delegationSnapshot: snapshot(),
+    },
     delegationSnapshot: snapshot(),
   }
 }
@@ -399,6 +415,58 @@ test('PostgreSQL refuses resource settlement when post-transfer delegation snaps
       [fixture.idempotencyKey],
     )
     assert.equal(reservation.rows[0].status, 'manual-review')
+  } finally {
+    if (fixture) await cleanupFixture(pool, fixture)
+    await pool.end()
+  }
+})
+
+test('PostgreSQL refuses settlement when only a matching current delegation snapshot is available', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
+}, async () => {
+  const { initializeDatabase, recordSponsorResourceCostSettlementObservation } = await import('../server/database.mjs')
+  const pool = new Pool({ connectionString: databaseUrl })
+  let fixture
+  try {
+    assert.equal((await initializeDatabase()).ready, true)
+    assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name, 'sponsor_test')
+    fixture = await seedFixture(pool)
+    const currentOnlyEvidence = validAttribution(fixture)
+    currentOnlyEvidence.historicalDelegationStateVerified = false
+    currentOnlyEvidence.historicalDelegationProof = null
+    currentOnlyEvidence.historicalDelegationProofReason =
+      'solidified-node-delegation-query-does-not-read-state-at-an-arbitrary-block'
+
+    const result = await recordSponsorResourceCostSettlementObservation({
+      idempotencyKey: fixture.idempotencyKey,
+      transactionHash: fixture.transactionHash,
+      attributionEvidence: currentOnlyEvidence,
+    })
+    assert.equal(result.success, true, JSON.stringify(result))
+    assert.equal(result.status, 'manual-review')
+    assert.equal(result.sponsorResourceBudgetSettled, false)
+    assert.equal(result.canSubmitSponsoredTransfer, false)
+
+    const budget = await pool.query(
+      `SELECT energy_reserved_units::text AS energy_reserved,
+              bandwidth_reserved_units::text AS bandwidth_reserved,
+              energy_spent_units::text AS energy_spent,
+              bandwidth_spent_units::text AS bandwidth_spent
+         FROM trc20_token_clone.sponsor_resource_budgets WHERE id = $1::bigint`,
+      [fixture.budgetId],
+    )
+    assert.deepEqual(budget.rows[0], {
+      energy_reserved: '100', bandwidth_reserved: '50', energy_spent: '0', bandwidth_spent: '0',
+    })
+    const settlement = await pool.query(
+      `SELECT status, evidence->>'reason' AS reason
+         FROM trc20_token_clone.sponsor_resource_cost_settlements WHERE idempotency_key = $1`,
+      [fixture.idempotencyKey],
+    )
+    assert.deepEqual(settlement.rows[0], {
+      status: 'manual-review',
+      reason: 'historical-delegation-state-proof-required',
+    })
   } finally {
     if (fixture) await cleanupFixture(pool, fixture)
     await pool.end()
