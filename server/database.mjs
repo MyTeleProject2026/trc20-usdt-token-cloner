@@ -3530,7 +3530,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         return { success: false, reason: 'resource-reservation-not-found', sponsorResourceBudgetSettled: false }
       }
       row.reservation_status = lockedReservation.rows[0].status
-      if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review'].includes(row.reservation_status)
+      if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review','settled'].includes(row.reservation_status)
         || !row.block_number || !row.block_timestamp_ms || row.bandwidth_used == null
         || (row.asset !== 'TRX' && row.energy_used == null)) {
         await client.query('ROLLBACK')
