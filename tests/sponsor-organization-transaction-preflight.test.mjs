@@ -299,3 +299,82 @@ test('Fireblocks custody preflight endpoint requires admin authorization and acc
   assert.equal(payload.submissionEnabled, false)
   assert.equal(invoked, 1)
 })
+
+
+test('Fireblocks submission endpoint is admin protected, accepts no caller transaction fields, and preserves disabled flags', async (t) => {
+  let invoked = 0
+  const base = await serveRoute(t, {
+    submitFireblocksPayout: async () => {
+      invoked += 1
+      return {
+        success: true, status: 'provider-pending', providerRequestCreated: true,
+        reservationRetained: true, canSubmitSponsoredTransfer: false,
+        submissionEnabled: false, transactionSubmitted: false,
+      }
+    },
+  })
+  const denied = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-submit', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  })
+  assert.equal(denied.status, 401)
+
+  const invalid = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-submit', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ receiverAddress: receiver, amountBaseUnits: amountBaseUnits }),
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal(invoked, 0)
+
+  const valid = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-submit', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  const payload = await valid.json()
+  assert.equal(valid.status, 200)
+  assert.equal(payload.status, 'provider-pending')
+  assert.equal(payload.reservationRetained, true)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(payload.submissionEnabled, false)
+  assert.equal(payload.transactionSubmitted, false)
+  assert.equal(invoked, 1)
+})
+
+test('Fireblocks status refresh endpoint is admin protected, accepts no transaction fields and never enables submission', async (t) => {
+  let invoked = 0
+  const base = await serveRoute(t, {
+    refreshFireblocksPayout: async () => {
+      invoked += 1
+      return {
+        success: true, status: 'broadcast-accepted', chainSettlement: 'solidified-chain-verification-required',
+        canSubmitSponsoredTransfer: false, submissionEnabled: false, transactionSubmitted: false,
+      }
+    },
+  })
+  const denied = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-refresh', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  })
+  assert.equal(denied.status, 401)
+
+  const invalid = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-refresh', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ transactionHash: 'a'.repeat(64) }),
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal(invoked, 0)
+
+  const valid = await fetch(base + '/sponsorship/payout-intents/9001/fireblocks-refresh', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + ADMIN_TOKEN, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  const payload = await valid.json()
+  assert.equal(valid.status, 200)
+  assert.equal(payload.status, 'broadcast-accepted')
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(payload.submissionEnabled, false)
+  assert.equal(payload.transactionSubmitted, false)
+  assert.equal(invoked, 1)
+})
