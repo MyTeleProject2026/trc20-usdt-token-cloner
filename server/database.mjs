@@ -3971,6 +3971,46 @@ export async function getSponsorResourceReservationForTransfer(idempotencyKey) {
 }
 
 
+/**
+ * Loads immutable preflight evidence for the server-side solidified reconciliation
+ * path. It is read-only and does not authorize a reservation, signature or send.
+ */
+export async function getSponsorResourcePreflightEvidence(idempotencyKey) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return { success: false, reason: 'invalid-idempotency-key', preflightEvidence: null }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', preflightEvidence: null }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT r.preflight_evidence, r.preflight_checked_at,
+              r.network, b.fee_sponsor_address, b.asset_principal_address,
+              t.sponsor_address
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+         JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+        WHERE r.idempotency_key = $1
+        LIMIT 1`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) return { success: false, reason: 'resource-reservation-not-found', preflightEvidence: null }
+    const row = result.rows[0]
+    const evidence = row.preflight_evidence
+    if (!evidence || evidence.network !== row.network
+      || evidence.feeSponsorAddress !== row.fee_sponsor_address
+      || evidence.sponsorAddress !== row.asset_principal_address
+      || evidence.sponsorAddress !== row.sponsor_address
+      || !evidence.solidifiedAnchor || !evidence.delegationSnapshot) {
+      return { success: false, reason: 'resource-preflight-evidence-not-found-or-mismatched', preflightEvidence: null }
+    }
+    return { success: true, preflightEvidence: evidence, preflightCheckedAt: row.preflight_checked_at }
+  } catch (error) {
+    console.error('Sponsor resource preflight evidence read failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', preflightEvidence: null }
+  }
+}
+
 /** Privileged read-only view of resource mandate budgets; never reports them as chain balances. */
 export async function listSponsorResourceBudgets({ network = null, limit = 50 } = {}) {
   if (network !== null && !['nile','shasta'].includes(network)) {
@@ -4022,6 +4062,13 @@ export async function recordSponsorResourcePreflightEvidence({ idempotencyKey, e
     || !['nile','shasta'].includes(evidence.network)
     || !isValidTronAddress(evidence.sponsorAddress) || !isValidTronAddress(evidence.feeSponsorAddress)
     || typeof evidence.checkedAt !== 'string' || !Number.isFinite(new Date(evidence.checkedAt).getTime())
+    || !evidence.solidifiedAnchor || !Number.isSafeInteger(evidence.solidifiedAnchor.blockNumber)
+    || evidence.solidifiedAnchor.blockNumber < 1
+    || typeof evidence.solidifiedAnchor.blockId !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(evidence.solidifiedAnchor.blockId)
+    || BigInt('0x' + evidence.solidifiedAnchor.blockId.slice(0, 16)) !== BigInt(evidence.solidifiedAnchor.blockNumber)
+    || !Number.isSafeInteger(evidence.solidifiedAnchor.blockTimestampMs)
+    || evidence.solidifiedAnchor.blockTimestampMs < 1
     || !evidence.delegationSnapshot || typeof evidence.delegationSnapshot !== 'object') {
     return { success: false, reason: 'invalid-resource-preflight-evidence' }
   }
@@ -4050,6 +4097,15 @@ export async function recordSponsorResourcePreflightEvidence({ idempotencyKey, e
     freeBandwidthUsedAsSponsorCoverage: false,
     delegationSnapshot: snapshot,
     checkedAt: new Date(evidence.checkedAt).toISOString(),
+    solidifiedAnchor: {
+      blockNumber: evidence.solidifiedAnchor.blockNumber,
+      blockId: evidence.solidifiedAnchor.blockId.toLowerCase(),
+      blockTimestampMs: evidence.solidifiedAnchor.blockTimestampMs,
+      checkedAt: typeof evidence.solidifiedAnchor.checkedAt === 'string'
+        && Number.isFinite(new Date(evidence.solidifiedAnchor.checkedAt).getTime())
+        ? new Date(evidence.solidifiedAnchor.checkedAt).toISOString()
+        : new Date(evidence.checkedAt).toISOString(),
+    },
   }
   const db = getPool()
   if (!db) return { success: false, reason: 'database-not-configured' }
