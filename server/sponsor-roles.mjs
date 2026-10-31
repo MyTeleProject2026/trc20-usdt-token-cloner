@@ -151,9 +151,11 @@ export function createSponsorRoleFundingReader({
         feeSponsorAddress: feeAddress,
         principalSponsorAddress: assetAddress,
       }),
-      Promise.resolve()
-        .then(() => readDelegationAudit({ network, limit: 100 }))
-        .catch(() => ({ success: false, reason: 'database-unavailable', delegations: [] })),
+      feeAddress && assetAddress && feeAddress !== assetAddress
+        ? Promise.resolve()
+          .then(() => readDelegationAudit({ network, limit: 100 }))
+          .catch(() => ({ success: false, reason: 'database-unavailable', delegations: [] }))
+        : Promise.resolve({ success: false, reason: 'sponsor-role-addresses-not-distinct', delegations: [] }),
     ])
     const delegationAudit = verifySponsorDelegationTransactionAudit({
       network,
