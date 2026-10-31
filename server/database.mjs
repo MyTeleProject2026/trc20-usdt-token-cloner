@@ -540,6 +540,7 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash, budget_id)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_cost_settlements ADD COLUMN IF NOT EXISTS reported_fee_sun NUMERIC(78,0)`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_pair
         ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address, status)`)
       await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_budget
@@ -3431,7 +3432,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
         `SELECT r.id::text AS reservation_id, r.budget_id::text AS budget_id,
                 r.status AS reservation_status, r.energy_reserved_units::text AS energy_reserved,
                 r.bandwidth_reserved_units::text AS bandwidth_reserved,
-                t.network, t.transaction_hash, t.status AS transfer_status,
+                t.network, t.asset, t.transaction_hash, t.status AS transfer_status,
                 o.block_number::text AS block_number, o.energy_usage_total::text AS energy_used,
                 o.net_usage::text AS bandwidth_used, o.reported_fee_sun::text AS reported_fee_sun,
                 o.energy_fee_sun::text AS energy_fee_sun,
@@ -3450,7 +3451,8 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
       }
       const row = found.rows[0]
       if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review'].includes(row.reservation_status)
-        || !row.block_number || row.energy_used == null || row.bandwidth_used == null) {
+        || !row.block_number || row.bandwidth_used == null
+        || (row.asset !== 'TRX' && row.energy_used == null)) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'resource-cost-evidence-incomplete', sponsorResourceBudgetSettled: false }
       }
@@ -3491,7 +3493,7 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
            evidence_source, status, evidence)
          VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11,$12,$13::jsonb)`,
         [row.network, hash, idempotencyKey, row.budget_id, row.block_number,
-          row.energy_used, row.bandwidth_used, row.reported_fee_sun, row.energy_fee_sun, row.net_fee_sun,
+          row.energy_used ?? '0', row.bandwidth_used, row.reported_fee_sun, row.energy_fee_sun, row.net_fee_sun,
           row.evidence_source, status, JSON.stringify({ evidenceType: 'solidified-receipt-observation', resourceAttributionVerified: false })],
       )
       await client.query(
