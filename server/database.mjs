@@ -3694,6 +3694,9 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
                 blockNumber: prior.block_number,
                 blockTimestampMs: prior.block_timestamp_ms,
                 energyUsedUnits: prior.energy_used,
+                callerEnergyUsageUnits: prior.energy_used,
+                energyUsageTotalUnits: prior.evidence?.energyUsageTotalUnits ?? null,
+                originEnergyUsageUnits: prior.evidence?.originEnergyUsageUnits ?? null,
                 bandwidthUsedUnits: prior.bandwidth_used,
                 reportedFeeSun: prior.reported_fee_sun,
                 energyFeeSun: prior.energy_fee_sun,
@@ -3703,6 +3706,9 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
                 blockNumber: row.block_number,
                 blockTimestampMs: row.block_timestamp_ms,
                 energyUsedUnits: String(row.energy_used ?? '0'),
+                callerEnergyUsageUnits: String(row.energy_used ?? '0'),
+                energyUsageTotalUnits: String(row.energy_usage_total ?? '0'),
+                originEnergyUsageUnits: String(row.origin_energy_used ?? '0'),
                 bandwidthUsedUnits: row.bandwidth_used,
                 reportedFeeSun: row.reported_fee_sun,
                 energyFeeSun: row.energy_fee_sun,
@@ -3742,7 +3748,16 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
           await client.query(
             `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
              VALUES ('sponsor-resource-budget-settled','sponsor-resource-reservation',$1,$2::jsonb)`,
-            [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, energyUsedUnits: actualEnergyUnits.toString(), bandwidthUsedUnits: actualBandwidthUnits.toString(), resourceAttributionVerified: true })],
+            [idempotencyKey, JSON.stringify({
+              network: row.network,
+              transactionHash: hash,
+              energyUsedUnits: actualEnergyUnits.toString(),
+              callerEnergyUsageUnits: actualEnergyUnits.toString(),
+              energyUsageTotalUnits: String(row.energy_usage_total ?? '0'),
+              originEnergyUsageUnits: BigInt(row.origin_energy_used ?? '0').toString(),
+              bandwidthUsedUnits: actualBandwidthUnits.toString(),
+              resourceAttributionVerified: true,
+            })],
           )
           await client.query('COMMIT')
           return { success: true, duplicate: false, status: 'settled', sponsorResourceBudgetSettled: true, canSubmitSponsoredTransfer: false }
