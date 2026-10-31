@@ -256,12 +256,21 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
                 attributionEvidence,
               })
               costs = {
-                status: 'solidified-costs-observed-not-settled',
+                status: resourceObservation?.sponsorResourceBudgetSettled === true
+                  ? 'solidified-resource-budget-settled'
+                  : resourceObservation?.status === 'manual-review'
+                    ? 'solidified-resource-cost-manual-review'
+                    : 'solidified-costs-observed-pending-resource-attribution',
                 duplicate: stored.duplicate === true,
                 reportedFeeSun: observed.reportedFeeSun,
                 resourceCostObservation: resourceObservation?.success === true
-                  ? { status: resourceObservation.status, duplicate: resourceObservation.duplicate === true, sponsorResourceBudgetSettled: false }
+                  ? {
+                      status: resourceObservation.status,
+                      duplicate: resourceObservation.duplicate === true,
+                      sponsorResourceBudgetSettled: resourceObservation.sponsorResourceBudgetSettled === true,
+                    }
                   : { status: 'not-recorded', reason: resourceObservation?.reason || 'resource-observation-unavailable' },
+                sponsorResourceBudgetSettled: resourceObservation?.sponsorResourceBudgetSettled === true,
                 sponsorFeeBudgetSettled: false,
               }
             } else {
