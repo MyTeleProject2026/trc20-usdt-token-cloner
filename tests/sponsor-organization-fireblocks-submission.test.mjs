@@ -176,7 +176,8 @@ test('an existing Fireblocks request is recovered by externalTxId without creati
 test('an ambiguous provider submission recovers the same permanent externalTxId and never invents a chain hash', async () => {
   const ambiguous = new Error('timeout after request may have reached provider')
   const existing = { id: 'fireblocks-request-recovered', status: 'SUBMITTED' }
-  const harness = createHarness({ createError: ambiguous, findResults: [null, existing] })
+  const notFound = Object.assign(new Error('not found'), { status: 404 })
+  const harness = createHarness({ createError: ambiguous, findResults: [notFound, notFound, existing] })
   const result = await harness.submit()
   assert.equal(result.success, true)
   assert.equal(result.status, 'provider-pending')
@@ -187,7 +188,8 @@ test('an ambiguous provider submission recovers the same permanent externalTxId 
 
 test('a provider outcome that remains unknown is persisted and keeps the sponsor reservation', async () => {
   const ambiguous = new Error('timeout')
-  const harness = createHarness({ createError: ambiguous, findResults: [null, Object.assign(new Error('lookup unavailable'), { status: 503 })] })
+  const notFound = Object.assign(new Error('not found'), { status: 404 })
+  const harness = createHarness({ createError: ambiguous, findResults: [notFound, notFound, Object.assign(new Error('lookup unavailable'), { status: 503 })] })
   const result = await harness.submit()
   assert.equal(result.success, false)
   assert.equal(result.reason, 'fireblocks-provider-outcome-unknown')
@@ -206,7 +208,8 @@ test('provider custody preflight failure prevents database preparation and Fireb
 })
 
 test('provider refresh reads existing transaction status only and never creates a transfer', async () => {
-  const harness = createHarness()
+  const existing = { id: 'fireblocks-request-recovered', status: 'COMPLETED', txHash: 'b'.repeat(64) }
+  const harness = createHarness({ findResults: [existing] })
   const result = await harness.refresh()
   assert.equal(result.success, true)
   assert.equal(result.status, 'broadcast-accepted')
