@@ -3619,10 +3619,40 @@ export async function recordSponsorResourceCostSettlementObservation({ idempoten
           await client.query(
             `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
              VALUES ('sponsor-resource-cost-evidence-conflict','sponsor-resource-reservation',$1,$2::jsonb)`,
-            [idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, budgetId: row.budget_id })],
+            [idempotencyKey, JSON.stringify({
+              network: row.network,
+              transactionHash: hash,
+              budgetId: row.budget_id,
+              priorSettlementStatus: prior.status,
+              storedCost: {
+                blockNumber: prior.block_number,
+                blockTimestampMs: prior.block_timestamp_ms,
+                energyUsedUnits: prior.energy_used,
+                bandwidthUsedUnits: prior.bandwidth_used,
+                reportedFeeSun: prior.reported_fee_sun,
+                energyFeeSun: prior.energy_fee_sun,
+                netFeeSun: prior.net_fee_sun,
+              },
+              observedCost: {
+                blockNumber: row.block_number,
+                blockTimestampMs: row.block_timestamp_ms,
+                energyUsedUnits: String(row.energy_used ?? '0'),
+                bandwidthUsedUnits: row.bandwidth_used,
+                reportedFeeSun: row.reported_fee_sun,
+                energyFeeSun: row.energy_fee_sun,
+                netFeeSun: row.net_fee_sun,
+              },
+            })],
           )
           await client.query('COMMIT')
-          return { success: false, reason: 'resource-cost-evidence-conflict', sponsorResourceBudgetSettled: false }
+          return {
+            success: false,
+            reason: 'resource-cost-evidence-conflict',
+            status: prior.status,
+            conflict: true,
+            sponsorResourceBudgetSettled: prior.status === 'settled',
+            canSubmitSponsoredTransfer: false,
+          }
         }
         if (prior.status === 'settled' || prior.status === 'manual-review' || status === 'pending-evidence') {
           await client.query('COMMIT')
