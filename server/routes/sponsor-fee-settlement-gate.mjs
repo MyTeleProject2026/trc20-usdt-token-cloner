@@ -19,6 +19,7 @@ export function getSponsorFeeBudgetSettlementGate() {
       ? []
       : [
           'historical-delegation-state-at-transfer-block-not-independently-proven',
+          'fee-to-principal-resource-delegation-transactions-not-independently-audited',
           'production-database-migration-and-restore-rehearsal-not-complete',
           'funded-nile-and-shasta-sponsored-transfer-not-verified',
           'independent-sponsor-security-review-required',
