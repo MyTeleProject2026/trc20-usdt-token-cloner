@@ -6,6 +6,7 @@ import { createSponsorOrganizationStore } from '../sponsor-organizations.mjs'
 import { selectSponsorOrganizationPair } from '../sponsor-organization-selection.mjs'
 import { reserveSponsorOrganizationPayoutIntent } from '../sponsor-organization-payout-intents.mjs'
 import { preflightSponsorOrganizationPayoutIntent } from '../sponsor-organization-transaction-preflight.mjs'
+import { preflightSponsorOrganizationFireblocksProvider } from '../sponsor-organization-fireblocks-provider.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 
 function isAdmin(req, env) {
@@ -306,6 +307,49 @@ export function createSponsorOrganizationSelectionRouter(options = {}) {
       return res.status(503).json({
         success: false,
         error: 'transaction-specific-preflight-unavailable',
+        canSubmitSponsoredTransfer: false,
+        submissionEnabled: false,
+        transactionSubmitted: false,
+      })
+    }
+  })
+
+  router.post('/sponsorship/payout-intents/:intentId/custody-preflight', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (!isAdmin(req, env)) {
+      return res.status(401).json({ success: false, error: 'sponsor-admin-authorization-required' })
+    }
+    if (Object.keys(req.body || {}).length !== 0) {
+      return res.status(400).json({ success: false, error: 'custody-preflight-does-not-accept-provider-or-transaction-fields' })
+    }
+    try {
+      const custodyPreflight = options.custodyPreflight ?? preflightSponsorOrganizationFireblocksProvider
+      const result = await custodyPreflight({
+        store,
+        intentId: req.params.intentId,
+        env,
+        fireblocksClientFactory: options.fireblocksClientFactory,
+        chainPreflight: options.chainPreflight,
+        fetchImpl: options.fetchImpl,
+        readSecretFile: options.readSecretFile,
+        tronWebFactory: options.tronWebFactory,
+        timeoutMs: options.timeoutMs,
+      })
+      if (!result.success) {
+        const reason = result.reason || 'sponsor-custody-preflight-unavailable'
+        const status = reason.includes('not-found') ? 404
+          : reason.includes('expired') ? 410
+            : reason.includes('unavailable') || reason.includes('not-configured') ? 503
+              : 422
+        return res.status(status).json(result)
+      }
+      return res.json(result)
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-custody-preflight-unavailable',
         canSubmitSponsoredTransfer: false,
         submissionEnabled: false,
         transactionSubmitted: false,
