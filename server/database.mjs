@@ -522,7 +522,6 @@ export async function initializeDatabase() {
           pause_reason TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (sponsor_reference, network, fee_sponsor_address, asset_principal_address)
         )
       `)
       await db.query(`
@@ -3567,7 +3566,9 @@ export async function settleSponsorResourceBudgetForTransfer({
       const observation = await client.query(
         `SELECT block_number::text AS block_number, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
-                energy_usage::text AS energy_usage, net_usage::text AS net_usage
+                energy_usage_total::text AS energy_usage_total,
+                energy_usage::text AS energy_usage, origin_energy_usage::text AS origin_energy_usage,
+                net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total
            FROM ${schema}.sponsor_chain_cost_observations
           WHERE network=$1 AND transaction_hash=$2 AND idempotency_key=$3
             AND fee_sponsor_address=$4 AND asset_principal_address=$5 FOR UPDATE`,
@@ -3585,8 +3586,11 @@ export async function settleSponsorResourceBudgetForTransfer({
       const observationMatches = sameOptionalInteger(storedCosts.reported_fee_sun, costs.reportedFeeSun)
         && sameOptionalInteger(storedCosts.energy_fee_sun, costs.energyFeeSun)
         && sameOptionalInteger(storedCosts.net_fee_sun, costs.netFeeSun)
+        && sameOptionalInteger(storedCosts.energy_usage_total, costs.energyUsageTotal)
         && sameOptionalInteger(storedCosts.energy_usage, costs.energyUsage)
+        && sameOptionalInteger(storedCosts.origin_energy_usage, costs.originEnergyUsage)
         && sameOptionalInteger(storedCosts.net_usage, costs.netUsage)
+        && sameOptionalInteger(storedCosts.energy_penalty_total, costs.energyPenaltyTotal)
       if (!observationMatches) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'cost-observation-conflict' }
