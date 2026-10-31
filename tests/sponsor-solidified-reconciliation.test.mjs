@@ -169,7 +169,7 @@ test('reconciliation observes exact receipt costs but never marks separate fee s
   const response = await reconcile(base)
   const payload = await response.json()
   assert.equal(response.status, 200)
-  assert.equal(payload.chainCostObservation.status, 'solidified-costs-observed-not-settled')
+  assert.equal(payload.chainCostObservation.status, 'solidified-costs-observed-pending-resource-attribution')
   assert.equal(payload.feeSponsorBudgetSettled, false)
   assert.equal(payload.chainCostObservation.sponsorFeeBudgetSettled, false)
 })
