@@ -71,7 +71,7 @@ test('sponsor database readiness passes when every required object exists and st
   assert.equal(report.missingIndexes.length, 0)
   assert.equal(report.missingConstraints.length, 0)
   assert.equal(client.calls.length, 2)
-  assert.match(client.calls[1].sql, /^SELECT version FROM trc20_token_studio\.schema_migrations/)
+  assert.match(client.calls[1].sql, /^SELECT version FROM trc20_token_clone\.schema_migrations/)
   assert.deepEqual(client.calls[1].values, [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION])
   assert.doesNotMatch(client.calls[1].sql, /\b(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|TRUNCATE)\b/i)
   const [tables, columns, indexes, constraints, schema] = client.calls[0].values
