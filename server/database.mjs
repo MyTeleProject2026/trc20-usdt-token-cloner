@@ -139,6 +139,9 @@ export async function initializeDatabase() {
           agreement_document_sha256 CHAR(64),
           agreement_reviewed_by TEXT NOT NULL,
           agreement_reviewed_at TIMESTAMPTZ NOT NULL,
+          withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false,
+          withdrawal_disbursement_reviewed_by TEXT,
+          withdrawal_disbursement_reviewed_at TIMESTAMPTZ,
           signature TEXT NOT NULL,
           signature_hash CHAR(64) NOT NULL UNIQUE,
           message_hash CHAR(64) NOT NULL,
@@ -152,6 +155,12 @@ export async function initializeDatabase() {
             CHECK (
               agreement_document_sha256 IS NULL
               OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+            ),
+          CONSTRAINT third_party_funding_disbursement_review_check
+            CHECK (
+              NOT withdrawal_disbursement_acknowledged
+              OR (withdrawal_disbursement_reviewed_by IS NOT NULL
+                AND withdrawal_disbursement_reviewed_at IS NOT NULL)
             ),
           CHECK (sponsor_address <> vault_address),
           CHECK (expires_at > issued_at)
@@ -185,6 +194,9 @@ export async function initializeDatabase() {
       `)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64)`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_reviewed_by TEXT`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_reviewed_at TIMESTAMPTZ`)
       await db.query(`
         DO $migration$
         BEGIN
@@ -206,6 +218,28 @@ export async function initializeDatabase() {
       `)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
         VALIDATE CONSTRAINT third_party_funding_agreement_sha256_format_check`)
+      await db.query(`
+        DO $migration$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM pg_constraint
+             WHERE conrelid = '${schema}.third_party_funding_authorizations'::regclass
+               AND conname = 'third_party_funding_disbursement_review_check'
+          ) THEN
+            ALTER TABLE ${schema}.third_party_funding_authorizations
+              ADD CONSTRAINT third_party_funding_disbursement_review_check
+              CHECK (
+                NOT withdrawal_disbursement_acknowledged
+                OR (withdrawal_disbursement_reviewed_by IS NOT NULL
+                  AND withdrawal_disbursement_reviewed_at IS NOT NULL)
+              ) NOT VALID;
+          END IF;
+        END;
+        $migration$;
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
+        VALIDATE CONSTRAINT third_party_funding_disbursement_review_check`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
       await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
         ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
@@ -3393,13 +3427,15 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
   const {
     authorizationId, sponsorAddress, vaultAddress, usdtContract,
     maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
-    agreementReviewedBy, agreementReviewedAt, signature, signatureHash, messageHash,
-    issuedAt, expiresAt,
+    agreementReviewedBy, agreementReviewedAt,
+    withdrawalDisbursementAcknowledged, withdrawalDisbursementReviewedBy, withdrawalDisbursementReviewedAt,
+    signature, signatureHash, messageHash, issuedAt, expiresAt,
   } = input
   const parseDate = (value) => value instanceof Date ? value : new Date(value)
   const issued = parseDate(issuedAt)
   const expires = parseDate(expiresAt)
   const reviewed = parseDate(agreementReviewedAt)
+  const disbursementReviewed = parseDate(withdrawalDisbursementReviewedAt)
   if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
     || !isValidTronAddress(sponsorAddress) || !isValidTronAddress(vaultAddress)
     || sponsorAddress === vaultAddress
@@ -3408,6 +3444,9 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
     || typeof agreementReference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(agreementReference)
     || typeof agreementDocumentSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(agreementDocumentSha256)
     || !isValidTronAddress(agreementReviewedBy)
+    || withdrawalDisbursementAcknowledged !== true
+    || !isValidTronAddress(withdrawalDisbursementReviewedBy)
+    || !Number.isFinite(disbursementReviewed.getTime())
     || !Number.isFinite(reviewed.getTime()) || !Number.isFinite(issued.getTime()) || !Number.isFinite(expires.getTime())
     || expires <= issued || expires <= new Date()
     || typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)
@@ -3427,13 +3466,16 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
       `INSERT INTO ${schema}.third_party_funding_authorizations
         (authorization_id, network, sponsor_address, vault_address, usdt_contract,
          max_usdt_base_units, max_trx_sun, agreement_reference, agreement_document_sha256,
-         agreement_reviewed_by, agreement_reviewed_at, signature, signature_hash,
+         agreement_reviewed_by, agreement_reviewed_at,
+         withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
+         withdrawal_disbursement_reviewed_at, signature, signature_hash,
          message_hash, issued_at, expires_at)
-       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT DO NOTHING
        RETURNING authorization_id`,
       [authorizationId, sponsorAddress, vaultAddress, usdtContract, maxUsdtBaseUnits, maxTrxSun,
        agreementReference, agreementDocumentSha256, agreementReviewedBy, reviewed,
+       withdrawalDisbursementReviewedBy, disbursementReviewed,
        signature, signatureHash, messageHash, issued, expires],
     )
     if (!result.rows.length) {
@@ -3441,8 +3483,9 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
         `SELECT authorization_id, sponsor_address, vault_address, usdt_contract,
                 max_usdt_base_units::text AS max_usdt_base_units,
                 max_trx_sun::text AS max_trx_sun, agreement_reference,
-                agreement_document_sha256, signature, signature_hash, message_hash,
-                issued_at, expires_at, status
+                agreement_document_sha256, withdrawal_disbursement_acknowledged,
+                withdrawal_disbursement_reviewed_by, withdrawal_disbursement_reviewed_at,
+                signature, signature_hash, message_hash, issued_at, expires_at, status
            FROM ${schema}.third_party_funding_authorizations
           WHERE authorization_id = $1 OR signature_hash = $2
           FOR UPDATE`,
@@ -3455,6 +3498,9 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
         && row.max_usdt_base_units === maxUsdtBaseUnits && row.max_trx_sun === maxTrxSun
         && row.agreement_reference === agreementReference
         && (row.agreement_document_sha256 || '').trim() === agreementDocumentSha256
+        && row.withdrawal_disbursement_acknowledged === true
+        && row.withdrawal_disbursement_reviewed_by === withdrawalDisbursementReviewedBy
+        && new Date(row.withdrawal_disbursement_reviewed_at).getTime() === disbursementReviewed.getTime()
         && row.signature === signature && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
         && new Date(row.issued_at).getTime() === issued.getTime()
         && new Date(row.expires_at).getTime() === expires.getTime()
@@ -3472,6 +3518,9 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
         network: 'mainnet', sponsorAddress, vaultAddress, usdtContract,
         maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
         agreementReviewAcknowledgedBy: agreementReviewedBy,
+        withdrawalDisbursementAcknowledged: true,
+        withdrawalDisbursementReviewedBy,
+        withdrawalDisbursementReviewedAt: disbursementReviewed.toISOString(),
         signatureHash, messageHash, issuedAt: issued.toISOString(), expiresAt: expires.toISOString(),
         legalAuthorityIndependentlyVerified: false,
       })],
@@ -3501,7 +3550,8 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
               max_usdt_base_units::text AS max_usdt_base_units,
               max_trx_sun::text AS max_trx_sun, agreement_reference,
               agreement_document_sha256, agreement_reviewed_by, agreement_reviewed_at,
-              issued_at, expires_at,
+              withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
+              withdrawal_disbursement_reviewed_at, issued_at, expires_at,
               status, created_at, updated_at
          FROM ${schema}.third_party_funding_authorizations
         WHERE authorization_id = $1 LIMIT 1`,
@@ -3528,6 +3578,9 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
         agreementDocumentSha256: row.agreement_document_sha256?.trim() || null,
         agreementReviewedBy: row.agreement_reviewed_by,
         agreementReviewedAt: row.agreement_reviewed_at,
+        withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
+        withdrawalDisbursementReviewedBy: row.withdrawal_disbursement_reviewed_by,
+        withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
         issuedAt: row.issued_at, expiresAt: row.expires_at,
         status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
       },
@@ -3560,6 +3613,7 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
     await initializeDatabase()
     const result = await db.query(
       `SELECT authorization_id, sponsor_address, vault_address, agreement_reference,
+              withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_at,
               issued_at, expires_at, status, created_at
          FROM ${schema}.third_party_funding_authorizations
         ORDER BY created_at DESC LIMIT $1`,
@@ -3570,6 +3624,8 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
       authorizations: result.rows.map((row) => ({
         authorizationId: row.authorization_id, sponsorAddress: row.sponsor_address,
         vaultAddress: row.vault_address, agreementReference: row.agreement_reference,
+        withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
+        withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
         issuedAt: row.issued_at, expiresAt: row.expires_at,
         status: row.status, createdAt: row.created_at,
       })),
@@ -3584,6 +3640,57 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
  * Persist one exact solidified Mainnet deposit per asset for an authorization.
  * The caller must verify the transaction on the SolidityNode before this call.
  */
+/** Return verified third-party USDT principal with an explicitly reviewed disbursement mandate. */
+export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
+  if (!isValidTronAddress(vaultAddress)) {
+    return { success: false, reason: 'invalid-treasury-address', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', verifiedDepositCount: '0',
+    reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT COUNT(*)::text AS verified_deposit_count,
+              COUNT(DISTINCT a.authorization_id)::text AS reviewed_authorization_count,
+              COALESCE(SUM(d.amount_base_units), 0)::text AS verified_usdt_principal_base_units
+         FROM ${schema}.third_party_funding_authorizations AS a
+         JOIN ${schema}.third_party_funding_deposits AS d
+           ON d.authorization_id = a.authorization_id
+        WHERE a.network = 'mainnet'
+          AND a.vault_address = $1
+          AND a.status = 'deposit-evidence-recorded'
+          AND a.withdrawal_disbursement_acknowledged = true
+          AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+          AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+          AND a.agreement_document_sha256 IS NOT NULL
+          AND d.network = 'mainnet'
+          AND d.asset = 'USDT'
+          AND d.token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'
+          AND d.recipient_address = $1
+          AND d.receipt_result = 'SUCCESS'
+          AND d.fireblocks_verified_at IS NOT NULL
+          AND d.fireblocks_snapshot_id IS NOT NULL
+          AND d.fireblocks_vault_account_id IS NOT NULL
+          AND d.fireblocks_checked_at IS NOT NULL
+          AND d.fireblocks_checked_at >= d.chain_verified_at`,
+      [vaultAddress],
+    )
+    const row = result.rows[0] || {}
+    return {
+      success: true,
+      verifiedDepositCount: String(row.verified_deposit_count || '0'),
+      reviewedAuthorizationCount: String(row.reviewed_authorization_count || '0'),
+      verifiedUsdtPrincipalBaseUnits: String(row.verified_usdt_principal_base_units || '0'),
+    }
+  } catch (error) {
+    console.error('Third-party funding USDT pool lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  }
+}
+
 export async function persistThirdPartyFundingDeposit(input = {}) {
   const {
     authorizationId, transactionHash, asset, tokenContract = null,
