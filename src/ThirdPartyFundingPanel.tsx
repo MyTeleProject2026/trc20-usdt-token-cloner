@@ -19,6 +19,7 @@ type FundingAuthorization = {
   sponsorAddress: string
   vaultAddress: string
   agreementReference: string
+  agreementDocumentSha256?: string | null
   maxUsdtBaseUnits?: string
   maxTrxSun?: string
   issuedAt: string
@@ -285,7 +286,8 @@ export default function ThirdPartyFundingPanel({
 
         <div className="wallet-vault-form">
           <h4>Register a source owner's signed consent</h4>
-          <p className="wallet-vault-caption">Paste the complete signed JSON manifest produced using the CLI instructions. Register only after the actual source owner has signed the exact message and the written organization agreement has been reviewed.</p>
+          <p className="wallet-vault-caption">First hash the final executed agreement locally with <code>npm run funding:agreement:hash -- ./executed-agreement.pdf</code>. Put its 64-character SHA-256 digest in the v2 manifest before the source owner signs. The agreement file itself is never uploaded; the signed digest identifies the exact file bytes but does not prove legal validity.</p>
+          <p className="wallet-vault-caption">Paste the complete signed JSON manifest. Register only after the actual source owner has signed the exact message and the written organization agreement and signatory authority have been independently reviewed.</p>
           <label htmlFor="third-party-funding-manifest">Signed authorization manifest (JSON)</label>
           <textarea
             id="third-party-funding-manifest"
@@ -294,7 +296,7 @@ export default function ThirdPartyFundingPanel({
             autoComplete="off"
             value={manifestText}
             onChange={event => setManifestText(event.target.value)}
-            placeholder='{"format":"tron-token-studio/third-party-funding-authorization/v1", ...}'
+            placeholder='{"format":"tron-token-studio/third-party-funding-authorization/v2", "agreementDocumentSha256":"64-character-lowercase-sha256", ...}'
           />
           <label className="wallet-vault-check-row" htmlFor="third-party-funding-agreement">
             <input
@@ -350,6 +352,7 @@ export default function ThirdPartyFundingPanel({
             <div className="wallet-vault-review-wide"><small>Authorized source address</small><strong>{selected.sponsorAddress}</strong></div>
             <div className="wallet-vault-review-wide"><small>Fireblocks vault recipient</small><strong>{selected.vaultAddress}</strong></div>
             <div><small>Agreement reference</small><strong>{selected.agreementReference}</strong></div>
+            <div className="wallet-vault-review-wide"><small>Executed agreement SHA-256</small><strong>{selected.agreementDocumentSha256 || 'Legacy record — no document digest recorded'}</strong></div>
             <div><small>Maximum USDT principal</small><strong>{selected.maxUsdtBaseUnits ? prettyUnits(selected.maxUsdtBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
             <div><small>Maximum TRX</small><strong>{selected.maxTrxSun ? prettyUnits(selected.maxTrxSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
             <div><small>Status</small><strong>{selected.status}</strong></div>
