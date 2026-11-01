@@ -167,6 +167,7 @@ export async function initializeDatabase() {
           chain_verified_at TIMESTAMPTZ NOT NULL,
           fireblocks_verified_at TIMESTAMPTZ,
           fireblocks_snapshot_id TEXT,
+          fireblocks_vault_account_id TEXT,
           fireblocks_checked_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           CHECK ((asset = 'USDT' AND token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}')
@@ -175,6 +176,7 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash, asset)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
       await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
         ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
       await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_auth_expiry_idx
@@ -3474,7 +3476,7 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
       `SELECT transaction_hash, asset, token_contract, sender_address, recipient_address,
               amount_base_units::text AS amount_base_units, block_number, evidence_index,
               receipt_result, chain_verified_at, fireblocks_verified_at,
-              fireblocks_snapshot_id, fireblocks_checked_at
+              fireblocks_snapshot_id, fireblocks_vault_account_id, fireblocks_checked_at
          FROM ${schema}.third_party_funding_deposits
         WHERE authorization_id = $1 ORDER BY created_at ASC`,
       [authorizationId],
@@ -3500,6 +3502,7 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
         receiptResult: item.receipt_result, chainVerifiedAt: item.chain_verified_at,
         fireblocksVerifiedAt: item.fireblocks_verified_at,
         fireblocksSnapshotId: item.fireblocks_snapshot_id,
+        fireblocksVaultAccountId: item.fireblocks_vault_account_id,
         fireblocksCheckedAt: item.fireblocks_checked_at,
       })),
     }
@@ -3675,43 +3678,56 @@ export async function markThirdPartyFundingDepositFireblocksVerified(input = {})
     || !isValidTronAddress(treasuryAddress)
     || typeof vaultAccountId !== 'string' || !/^[0-9]{1,20}$/.test(vaultAccountId)
     || !isPositiveUint256(availableBalanceBaseUnits) || !isPositiveUint256(chainBalanceBaseUnits)
+    || BigInt(availableBalanceBaseUnits) < BigInt(chainBalanceBaseUnits) * 0n
     || !Number.isFinite(checked.getTime()) || checked.getTime() > Date.now() + 60_000) {
     return { verified: false, reason: 'invalid-fireblocks-deposit-inventory-evidence' }
   }
   const db = getPool()
   if (!db) return { verified: false, reason: 'database-not-configured' }
+  let client
   try {
     await initializeDatabase()
-    const result = await db.query(
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
       `UPDATE ${schema}.third_party_funding_deposits AS d
-          SET fireblocks_verified_at=now(), fireblocks_snapshot_id=$6, fireblocks_checked_at=$7
+          SET fireblocks_verified_at=now(), fireblocks_snapshot_id=$6,
+              fireblocks_vault_account_id=$7, fireblocks_checked_at=$8
          FROM ${schema}.third_party_funding_authorizations AS a
         WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
           AND a.authorization_id=d.authorization_id AND a.vault_address=$4
           AND d.recipient_address=$4 AND d.amount_base_units <= $5::numeric
-          AND d.chain_verified_at <= $7::timestamptz
+          AND d.amount_base_units <= $9::numeric
+          AND d.chain_verified_at <= $8::timestamptz
           AND d.fireblocks_verified_at IS NULL
         RETURNING d.authorization_id`,
       [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
-       availableBalanceBaseUnits, snapshotId, checked],
+       availableBalanceBaseUnits, snapshotId, vaultAccountId, checked, chainBalanceBaseUnits],
     )
     if (!result.rowCount) {
-      const existing = await db.query(
-        `SELECT d.fireblocks_verified_at, d.fireblocks_snapshot_id
+      const existing = await client.query(
+        `SELECT d.fireblocks_verified_at, d.fireblocks_snapshot_id,
+                d.fireblocks_vault_account_id
            FROM ${schema}.third_party_funding_deposits AS d
            JOIN ${schema}.third_party_funding_authorizations AS a
              ON a.authorization_id=d.authorization_id
           WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
             AND a.vault_address=$4 AND d.recipient_address=$4
-            AND d.amount_base_units <= $5::numeric`,
-        [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress, availableBalanceBaseUnits],
+            AND d.amount_base_units <= $5::numeric
+            AND d.amount_base_units <= $6::numeric
+          FOR UPDATE`,
+        [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
+         availableBalanceBaseUnits, chainBalanceBaseUnits],
       )
-      if (existing.rows.length && existing.rows[0].fireblocks_snapshot_id === snapshotId) {
+      if (existing.rows.length && existing.rows[0].fireblocks_snapshot_id === snapshotId
+        && existing.rows[0].fireblocks_vault_account_id === vaultAccountId) {
+        await client.query('COMMIT')
         return { verified: true, duplicate: true }
       }
+      await client.query('ROLLBACK')
       return { verified: false, reason: 'fireblocks-inventory-does-not-match-chain-deposit' }
     }
-    await db.query(
+    await client.query(
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
        VALUES ('third-party-funding-deposit-fireblocks-verified','third-party-funding-authorization',$1,$2::jsonb)`,
       [authorizationId, JSON.stringify({
@@ -3720,9 +3736,58 @@ export async function markThirdPartyFundingDepositFireblocksVerified(input = {})
         chainBalanceBaseUnits, checkedAt: checked.toISOString(),
       })],
     )
+    await client.query('COMMIT')
     return { verified: true, duplicate: false }
   } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
     console.error('Third-party funding Fireblocks inventory reconciliation failed:', error?.code || 'unknown')
     return { verified: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+
+/** Revoke an open funding authorization while retaining all historical evidence. */
+export async function revokeThirdPartyFundingAuthorization({ authorizationId, revokedBy } = {}) {
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || !isValidTronAddress(revokedBy)) return { revoked: false, reason: 'invalid-revocation-request' }
+  const db = getPool()
+  if (!db) return { revoked: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
+      `UPDATE ${schema}.third_party_funding_authorizations
+          SET status='revoked', updated_at=now()
+        WHERE authorization_id=$1 AND status IN ('awaiting-deposit','deposit-evidence-recorded')
+        RETURNING authorization_id`,
+      [authorizationId],
+    )
+    if (!result.rowCount) {
+      const existing = await client.query(
+        `SELECT status FROM ${schema}.third_party_funding_authorizations WHERE authorization_id=$1 FOR UPDATE`,
+        [authorizationId],
+      )
+      await client.query('COMMIT')
+      return existing.rows.length
+        ? { revoked: existing.rows[0].status === 'revoked', duplicate: existing.rows[0].status === 'revoked', status: existing.rows[0].status }
+        : { revoked: false, reason: 'funding-authorization-not-found' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-authorization-revoked','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({ revokedBy, revokedAt: new Date().toISOString() })],
+    )
+    await client.query('COMMIT')
+    return { revoked: true, duplicate: false, status: 'revoked' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding authorization revocation failed:', error?.code || 'unknown')
+    return { revoked: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
   }
 }
