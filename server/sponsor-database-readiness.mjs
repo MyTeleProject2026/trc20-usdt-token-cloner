@@ -1,3 +1,5 @@
+import { SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION } from './sponsor-database-version.mjs'
+
 const SPONSOR_SCHEMA = 'trc20_token_clone'
 
 export const SPONSOR_DATABASE_REQUIRED_COLUMNS = Object.freeze({
@@ -46,6 +48,7 @@ export const SPONSOR_DATABASE_REQUIRED_COLUMNS = Object.freeze({
   audit_events: [
     'event_type', 'entity_type', 'entity_reference', 'details', 'created_at',
   ],
+  schema_migrations: ['version', 'description', 'applied_at'],
 })
 
 export const SPONSOR_DATABASE_REQUIRED_INDEXES = Object.freeze([
@@ -68,6 +71,8 @@ export const SPONSOR_DATABASE_REQUIRED_CONSTRAINTS = Object.freeze([
   { tableName: 'sponsor_transfers', constraintName: 'sponsor_transfers_supported_asset_only' },
   { tableName: 'sponsor_chain_cost_observations', constraintName: 'sponsor_chain_cost_observations_supported_asset_only' },
 ])
+
+const MIGRATION_RECORD_QUERY = `SELECT version FROM ${SPONSOR_SCHEMA}.schema_migrations WHERE version = $1 LIMIT 1`
 
 const READINESS_QUERY = `
 WITH required_tables AS (
@@ -181,11 +186,30 @@ export async function inspectSponsorDatabaseReadiness(queryable) {
   const missingIndexes = missingEntries(row.indexes, (entry) => entry.tableName + '.' + entry.indexName)
   const missingConstraints = missingEntries(row.constraints, (entry) => entry.tableName + '.' + entry.constraintName)
   const schemaPresent = row.schema_present === true
+  const migrationTablePresent = schemaPresent
+    && Array.isArray(row.tables)
+    && row.tables.some((entry) => entry?.tableName === 'schema_migrations' && entry.present === true)
+  const migrationVersionColumnPresent = migrationTablePresent
+    && Array.isArray(row.columns)
+    && row.columns.some((entry) => entry?.tableName === 'schema_migrations'
+      && entry?.columnName === 'version' && entry.present === true)
+  let migrationRecorded = false
+  if (migrationVersionColumnPresent) {
+    const migrationResult = await queryable.query(
+      MIGRATION_RECORD_QUERY,
+      [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION],
+    )
+    migrationRecorded = migrationResult?.rows?.some(
+      (entry) => entry?.version === SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION,
+    ) === true
+  }
+  const missingMigrations = migrationRecorded ? [] : [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION]
   const ready = schemaPresent
     && missingTables.length === 0
     && missingColumns.length === 0
     && missingIndexes.length === 0
     && missingConstraints.length === 0
+    && missingMigrations.length === 0
 
   return {
     status: ready ? 'ready' : 'needs-migration-or-repair',
@@ -200,9 +224,12 @@ export async function inspectSponsorDatabaseReadiness(queryable) {
     requiredColumnCount: requiredColumns.length,
     requiredIndexCount: SPONSOR_DATABASE_REQUIRED_INDEXES.length,
     requiredConstraintCount: SPONSOR_DATABASE_REQUIRED_CONSTRAINTS.length,
+    requiredMigrationVersion: SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION,
+    migrationRecorded,
     missingTables,
     missingColumns,
     missingIndexes,
     missingConstraints,
+    missingMigrations,
   }
 }

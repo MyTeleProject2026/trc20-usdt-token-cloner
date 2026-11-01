@@ -345,8 +345,11 @@ Neither a successful sign-in, a connected wallet, nor a visible sponsor balance 
 
 The sponsor schema is currently created and advanced by the idempotent DDL in
 `server/database.mjs` during `initializeDatabase()`. A session-level advisory lock serializes
-that initialization across backend instances. There is not yet a separately versioned migration
-ledger. Do not describe a passing application startup or a GitHub PostgreSQL test as a production
+that initialization across backend instances. After all initializer DDL and index/comment steps
+succeed, the initializer records `sponsor-resource-ledger-v1` in
+`trc20_token_clone.schema_migrations`. This is an explicit sponsor-schema bootstrap completion
+marker; it is not yet a separate SQL-file migration framework for every historical schema change.
+Do not describe a passing application startup or a GitHub PostgreSQL test as a production
 backup/restore rehearsal.
 
 ### Read-only schema readiness check
@@ -358,8 +361,9 @@ without issuing DDL or data changes:
 DATABASE_URL="$RESTORE_DATABASE_URL" npm run check:sponsor-db
 ```
 
-The command reports whether the sponsor tables, required columns, operational indexes, and named
-fee/asset constraints are present. Exit code `0` means the inspected schema is structurally ready;
+The command reports whether the sponsor tables, required columns, operational indexes, named
+fee/asset constraints, and `sponsor-resource-ledger-v1` completion marker are present. Exit code
+`0` means the inspected schema and required bootstrap marker are ready;
 exit code `1` means one or more objects are missing; exit code `2` means the database check could
 not connect or query. It reports the database name but never prints the connection URL or secrets.
 

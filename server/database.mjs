@@ -4,6 +4,10 @@ import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 import { isPositiveUint256 } from './base-units.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
+import {
+  SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION,
+  SPONSOR_RESOURCE_LEDGER_SCHEMA_DESCRIPTION,
+} from './sponsor-database-version.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
@@ -108,6 +112,16 @@ export async function initializeDatabase() {
         )
         migrationLockAcquired = true
         await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+
+        // The sponsor marker is written only after every initializer DDL statement succeeds.
+        // It records bootstrap completion; it does not replace independent restore rehearsal.
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS ${schema}.schema_migrations (
+            version TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          )
+        `)
 
       // Append-only, credential-free Fireblocks inventory history for the
       // manually dispatched read-only workflow. Never store API keys, JWTs,
@@ -687,6 +701,12 @@ export async function initializeDatabase() {
         const literal = "'" + comment.replace(/'/g, "''") + "'"
         await db.query(`COMMENT ON TABLE ${schema}.${table} IS ${literal}`)
       }
+      await db.query(
+        `INSERT INTO ${schema}.schema_migrations (version, description)
+         VALUES ($1, $2)
+         ON CONFLICT (version) DO NOTHING`,
+        [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION, SPONSOR_RESOURCE_LEDGER_SCHEMA_DESCRIPTION],
+      )
         return { configured: true, ready: true, schema }
       } finally {
         if (migrationLockAcquired) {

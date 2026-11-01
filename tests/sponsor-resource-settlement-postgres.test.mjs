@@ -609,3 +609,27 @@ test('PostgreSQL sends resource use above the reservation to manual review witho
   }
 })
 
+
+
+test('PostgreSQL records the sponsor resource ledger schema marker after initialization', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test DATABASE_URL',
+}, async () => {
+  const { initializeDatabase } = await import('../server/database.mjs')
+  const { SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION } = await import('../server/sponsor-database-version.mjs')
+  const pool = new Pool({ connectionString: databaseUrl })
+  try {
+    assert.equal((await initializeDatabase()).ready, true)
+    const result = await pool.query(
+      `SELECT version, description, applied_at IS NOT NULL AS applied
+         FROM trc20_token_clone.schema_migrations
+        WHERE version = $1`,
+      [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION],
+    )
+    assert.equal(result.rows.length, 1)
+    assert.equal(result.rows[0].version, SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION)
+    assert.equal(typeof result.rows[0].description, 'string')
+    assert.equal(result.rows[0].applied, true)
+  } finally {
+    await pool.end()
+  }
+})

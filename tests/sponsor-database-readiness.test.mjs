@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION } from '../server/sponsor-database-version.mjs'
 import {
   inspectSponsorDatabaseReadiness,
   SPONSOR_DATABASE_REQUIRED_COLUMNS,
@@ -38,12 +39,15 @@ function metadataFixture({
   }
 }
 
-function queryableWith(metadata) {
+function queryableWith(metadata, { migrationApplied = true } = {}) {
   const calls = []
   return {
     calls,
     async query(sql, values) {
       calls.push({ sql, values })
+      if (sql.startsWith('SELECT version FROM trc20_token_clone.schema_migrations')) {
+        return { rows: migrationApplied ? [{ version: SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION }] : [] }
+      }
       return { rows: [metadata] }
     },
   }
@@ -56,6 +60,9 @@ test('sponsor database readiness passes when every required object exists and st
   assert.equal(report.status, 'ready')
   assert.equal(report.ready, true)
   assert.equal(report.readOnly, true)
+  assert.equal(report.migrationRecorded, true)
+  assert.equal(report.requiredMigrationVersion, SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION)
+  assert.deepEqual(report.missingMigrations, [])
   assert.equal(report.releaseAuthorized, false)
   assert.equal(report.submissionEnabled, false)
   assert.equal(report.databaseName, 'sponsor_test')
@@ -63,7 +70,10 @@ test('sponsor database readiness passes when every required object exists and st
   assert.equal(report.missingColumns.length, 0)
   assert.equal(report.missingIndexes.length, 0)
   assert.equal(report.missingConstraints.length, 0)
-  assert.equal(client.calls.length, 1)
+  assert.equal(client.calls.length, 2)
+  assert.match(client.calls[1].sql, /^SELECT version FROM trc20_token_studio\.schema_migrations/)
+  assert.deepEqual(client.calls[1].values, [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION])
+  assert.doesNotMatch(client.calls[1].sql, /\b(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|TRUNCATE)\b/i)
   const [tables, columns, indexes, constraints, schema] = client.calls[0].values
   assert.equal(schema, 'trc20_token_clone')
   assert.ok(JSON.parse(tables).every((entry) => typeof entry.table_name === 'string'))
@@ -100,8 +110,18 @@ test('sponsor database readiness reports missing tables, constraints and schema'
 
   assert.equal(report.ready, false)
   assert.equal(report.schemaPresent, false)
+  assert.equal(client.calls.length, 1)
   assert.ok(report.missingTables.includes('sponsor_resource_cost_settlements'))
   assert.ok(report.missingConstraints.includes('sponsor_transfers.sponsor_transfers_network_fee_requires_trx'))
+})
+
+test('sponsor database readiness blocks when the required sponsor schema marker is absent', async () => {
+  const client = queryableWith(metadataFixture(), { migrationApplied: false })
+  const report = await inspectSponsorDatabaseReadiness(client)
+
+  assert.equal(report.ready, false)
+  assert.equal(report.migrationRecorded, false)
+  assert.deepEqual(report.missingMigrations, [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION])
 })
 
 test('sponsor database readiness rejects invalid clients and empty query results', async () => {
