@@ -1128,6 +1128,7 @@ export function createTreasuryWithdrawalsRouter({
            WHERE a.network='mainnet'
              AND a.vault_address=$1
              AND a.status='deposit-evidence-recorded'
+             AND a.expires_at > now()
              AND a.withdrawal_disbursement_acknowledged=true
              AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
              AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
