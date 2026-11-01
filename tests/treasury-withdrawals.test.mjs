@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, remainingThirdPartyFundingPrincipal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -316,6 +316,15 @@ test('cross-asset fee reserve requires both on-chain and provider-available TRX 
   assert.equal(treasuryFeeReserveCovered('100000000', '100000000', '150000000'), false)
   assert.equal(treasuryFeeReserveCovered('invalid', '100000000', '100000000'), false)
   assert.equal(treasuryFeeReserveCovered('100000000', 'invalid', '100000000'), false)
+})
+
+test('third-party principal is limited to verified deposits minus every committed withdrawal', () => {
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '0'), '25000000')
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '10000000'), '15000000')
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '25000000'), '0')
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '26000000'), '0')
+  assert.equal(remainingThirdPartyFundingPrincipal('bad', '0'), null)
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', 'bad'), null)
 })
 
 test('treasury available-balance calculation reserves ambiguous or pending payouts conservatively', () => {
