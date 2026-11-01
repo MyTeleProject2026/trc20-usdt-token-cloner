@@ -50,7 +50,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   const messageHash = createHash('sha256').update('message-' + suffix).digest('hex')
   const issuedAt = new Date(Date.now() - 60_000)
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-  const registered = await persistThirdPartyFundingAuthorization({
+  const authorizationInput = {
     authorizationId,
     sponsorAddress,
     vaultAddress,
@@ -66,29 +66,22 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     messageHash,
     issuedAt,
     expiresAt,
-  })
+  }
+  const registered = await persistThirdPartyFundingAuthorization(authorizationInput)
   assert.equal(registered.persisted, true)
   assert.equal(registered.duplicate, false)
   assert.equal(registered.status, 'awaiting-deposit')
 
-  const duplicateRegistration = await persistThirdPartyFundingAuthorization({
-    authorizationId,
-    sponsorAddress,
-    vaultAddress,
-    usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
-    maxUsdtBaseUnits: '25000000',
-    maxTrxSun: '8000000',
-    agreementReference: 'PG-AGREEMENT-' + suffix,
-    agreementReviewedBy: makeTronAddress('33'),
-    agreementReviewedAt: new Date(),
-    signature,
-    signatureHash,
-    messageHash,
-    issuedAt,
-    expiresAt,
-  })
+  const duplicateRegistration = await persistThirdPartyFundingAuthorization(authorizationInput)
   assert.equal(duplicateRegistration.persisted, true)
   assert.equal(duplicateRegistration.duplicate, true)
+
+  const conflictingAgreementDigest = await persistThirdPartyFundingAuthorization({
+    ...authorizationInput,
+    agreementDocumentSha256: 'c'.repeat(64),
+  })
+  assert.equal(conflictingAgreementDigest.persisted, false)
+  assert.equal(conflictingAgreementDigest.reason, 'authorization-id-or-signature-conflict')
 
   const usdtTx = createHash('sha256').update('usdt-' + suffix).digest('hex')
   const trxTx = createHash('sha256').update('trx-' + suffix).digest('hex')
