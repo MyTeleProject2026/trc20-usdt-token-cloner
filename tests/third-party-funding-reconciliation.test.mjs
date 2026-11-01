@@ -174,6 +174,7 @@ function manifest(overrides = {}) {
     maxUsdtBaseUnits: AMOUNT_USDT,
     maxTrxSun: AMOUNT_TRX,
     agreementReference: 'TEST-AGREEMENT-001',
+    agreementDocumentSha256: 'b'.repeat(64),
     issuedAt,
     expiresAt,
     signature: SIGNATURE,
@@ -417,6 +418,7 @@ test('owner can register verified scoped consent only after inventory and writte
     assert.equal(saved.agreementReviewedBy, OWNER)
     assert.match(saved.signatureHash, /^[0-9a-f]{64}$/)
     assert.match(saved.messageHash, /^[0-9a-f]{64}$/)
+    assert.equal(saved.agreementDocumentSha256, 'b'.repeat(64))
   })
 })
 
