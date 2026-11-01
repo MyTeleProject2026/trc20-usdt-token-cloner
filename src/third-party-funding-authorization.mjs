@@ -1,7 +1,8 @@
 import { Trx } from 'tronweb'
 import { isValidTronAddress } from '../server/tron-address.mjs'
 
-export const THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v1'
+const LEGACY_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v1'
+export const THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v2'
 export const OFFICIAL_TRON_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -25,16 +26,23 @@ function validIsoTimestamp(value) {
 function validateFields(manifest, { expectedVaultAddress, nowMs = Date.now() } = {}) {
   if (!isRecord(manifest)) return { valid: false, reason: 'manifest-must-be-json-object' }
 
+  const isLegacyV1 = manifest.format === LEGACY_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+  const isV2 = manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
   const allowed = new Set([
     'format', 'authorizationId', 'network', 'sponsorAddress', 'vaultAddress',
     'usdtContract', 'maxUsdtBaseUnits', 'maxTrxSun', 'agreementReference',
+    ...(isV2 ? ['agreementDocumentSha256'] : []),
     'issuedAt', 'expiresAt', 'signature',
   ])
   if (Object.keys(manifest).some((key) => !allowed.has(key))) {
     return { valid: false, reason: 'manifest-contains-unsupported-fields' }
   }
-  if (manifest.format !== THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT) {
+  if (!isLegacyV1 && !isV2) {
     return { valid: false, reason: 'unsupported-authorization-format' }
+  }
+  if (isV2 && (typeof manifest.agreementDocumentSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/.test(manifest.agreementDocumentSha256))) {
+    return { valid: false, reason: 'agreement-document-sha256-required' }
   }
   if (manifest.network !== 'mainnet') return { valid: false, reason: 'authorization-network-must-be-mainnet' }
   if (typeof manifest.authorizationId !== 'string' || !IDENTIFIER_PATTERN.test(manifest.authorizationId)) {
@@ -108,6 +116,7 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
     manifest.maxUsdtBaseUnits,
     manifest.maxTrxSun,
     manifest.agreementReference,
+    ...(manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? [manifest.agreementDocumentSha256] : []),
     manifest.issuedAt,
     manifest.expiresAt,
   ]
@@ -117,7 +126,7 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
 
   return [
     'TRON Token Studio third-party treasury funding consent',
-    'Version: 1',
+    manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? 'Version: 2' : 'Version: 1',
     'Purpose: authorize one manually initiated incoming deposit to the named Fireblocks vault only.',
     'Network: TRON Mainnet',
     `Authorization ID: ${manifest.authorizationId}`,
@@ -127,6 +136,9 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
     `Maximum USDT principal in base units (6 decimals): ${manifest.maxUsdtBaseUnits}`,
     `Maximum native TRX in SUN (6 decimals): ${manifest.maxTrxSun}`,
     `Separate written agreement reference: ${manifest.agreementReference}`,
+    ...(manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+      ? [`SHA-256 of exact executed agreement file: ${manifest.agreementDocumentSha256}`]
+      : []),
     `Issued at: ${manifest.issuedAt}`,
     `Expires at: ${manifest.expiresAt}`,
     'This consent is limited to the incoming deposit stated above and its caps.',
@@ -168,6 +180,8 @@ export async function verifyThirdPartyFundingAuthorization(manifest, {
       maxUsdtBaseUnits: manifest.maxUsdtBaseUnits,
       maxTrxSun: manifest.maxTrxSun,
       agreementReference: manifest.agreementReference,
+      agreementDocumentSha256: manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+        ? manifest.agreementDocumentSha256 : null,
       issuedAt: manifest.issuedAt,
       expiresAt: manifest.expiresAt,
       scope: 'one-manually-initiated-incoming-deposit',
