@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
 import { verifyTronSolidifiedBlock } from './tron-solidified-block-proof.mjs'
+import { verifyTronDposSolidification } from './tron-dpos-finality.mjs'
 
 const NETWORKS = Object.freeze({
   shasta: 'https://tron-shasta.gateway.tatum.io',
@@ -273,6 +274,28 @@ export function createSponsorDelegationHistoryVerifier({
         ...(typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()
           ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim() } : {}),
       }
+      const requestWitnessList = async (providerHost, providerHeaders) => {
+        const remainingMs = deadlineAt - Date.now()
+        if (remainingMs <= 0) {
+          throw Object.assign(new Error('historical-delegation-scan-deadline-exceeded'), {
+            code: 'historical-delegation-scan-deadline-exceeded',
+          })
+        }
+        const response = await fetchImpl(providerHost + '/walletsolidity/listwitnesses?visible=false', {
+          method: 'GET',
+          redirect: 'error',
+          headers: providerHeaders,
+          signal: AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
+        })
+        if (!response.ok) {
+          throw Object.assign(new Error('provider-http-error'), { providerStatus: response.status })
+        }
+        const payload = await response.json()
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload) || payload.Error) {
+          throw new Error('invalid-solidified-witness-list-response')
+        }
+        return payload
+      }
       const compareProviderBlocks = (primary, secondary, height) => {
         const primaryProof = blockProofVerifier(primary, height)
         if (primaryProof?.verified !== true) {
@@ -423,6 +446,27 @@ export function createSponsorDelegationHistoryVerifier({
           targetBlockTimestampMs: previous.timestamp,
         })
       }
+
+      const [primaryWitnessList, secondaryWitnessList] = await Promise.all([
+        requestWitnessList(host, headers),
+        requestWitnessList(secondaryHost, secondaryHeaders),
+      ])
+      const finality = verifyTronDposSolidification({
+        primaryWitnessList,
+        secondaryWitnessList,
+        expectedBlockNumber: blockNumber,
+      })
+      if (!finality.verified) {
+        return fail('historical-delegation-dpos-finality-not-verified', {
+          finalityReason: finality.reason,
+          expectedBlockNumber: blockNumber,
+          ...(finality.failedProvider ? { failedProvider: finality.failedProvider } : {}),
+          ...(finality.solidifiedHeight === undefined ? {} : { solidifiedHeight: finality.solidifiedHeight }),
+          ...(finality.activeWitnessCount === undefined ? {} : { activeWitnessCount: finality.activeWitnessCount }),
+          ...(finality.requiredSupportingWitnessCount === undefined ? {} : { requiredSupportingWitnessCount: finality.requiredSupportingWitnessCount }),
+          ...(finality.supportingWitnessCount === undefined ? {} : { supportingWitnessCount: finality.supportingWitnessCount }),
+        })
+      }
       return {
         success: true,
         verified: true,
@@ -441,8 +485,9 @@ export function createSponsorDelegationHistoryVerifier({
         checkedAt: new Date().toISOString(),
         scannedBlockCount: span,
         scannedTransactionCount,
-        source: 'Tatum and TRONGrid SolidityNode walletsolidity/getblockbynum cross-check',
-        historySourceTrustModel: 'two-provider-solidified-blocks-with-local-block-id-witness-signature-and-transaction-merkle-verification; DPoS finality still depends on SolidityNode provider responses',
+        finalityEvidence: finality,
+        source: 'Tatum and TRONGrid SolidityNode block, transaction, and witness-state cross-check',
+        historySourceTrustModel: 'two-provider SolidityNode blocks plus local block-ID, witness-signature, transaction-Merkle and conservative active-witness DPoS threshold recomputation; witness-state snapshots remain provider-reported and are not state-trie proofs',
         primaryProvider: 'Tatum SolidityNode',
         secondaryProvider: 'TRONGrid SolidityNode',
         blockIntegrityCheck: 'protobuf BlockHeader.raw_data SHA-256 recomputation matches the composite blockID; recovered witness ECDSA signer matches witness_address',

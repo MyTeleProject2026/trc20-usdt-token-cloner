@@ -59,8 +59,21 @@ function block(height, parentHash, timestamp, transactions = []) {
   }
 }
 
-function verifierFor({ blocks, secondaryBlocks = blocks, decodedTransactions = {}, maxBlockSpan = 256, totalTimeoutMs = 90_000, fetchDelayMs = 0 } = {}) {
+function verifierFor({
+  blocks, secondaryBlocks = blocks, decodedTransactions = {},
+  primaryWitnessList = null, secondaryWitnessList = primaryWitnessList,
+  maxBlockSpan = 256, totalTimeoutMs = 90_000, fetchDelayMs = 0,
+} = {}) {
   const calls = []
+  const defaultWitnessList = {
+    witnesses: Array.from({ length: 27 }, (_, index) => ({
+      address: '41' + (index + 1).toString(16).padStart(40, '0'),
+      latestBlockNum: 200,
+      isJobs: true,
+    })),
+  }
+  primaryWitnessList ||= defaultWitnessList
+  secondaryWitnessList ||= primaryWitnessList
   const verifier = createSponsorDelegationHistoryVerifier({
     env: { TATUM_API_KEY: 'test-only-provider-key' },
     maxBlockSpan,
@@ -105,10 +118,16 @@ function verifierFor({ blocks, secondaryBlocks = blocks, decodedTransactions = {
     },
     fetchImpl: async (url, options) => {
       if (fetchDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, fetchDelayMs))
-      calls.push({ url, body: JSON.parse(options.body) })
-      const number = JSON.parse(options.body).num
-      const sourceBlocks = url.includes('nile.trongrid.io') ? secondaryBlocks : blocks
-      const value = sourceBlocks[number]
+      const isSecondary = url.includes('nile.trongrid.io')
+      if (url.includes('/walletsolidity/listwitnesses')) {
+        const value = isSecondary ? secondaryWitnessList : primaryWitnessList
+        calls.push({ url, method: options.method })
+        return { ok: Boolean(value), status: value ? 200 : 404, json: async () => value || {} }
+      }
+      const body = options.body ? JSON.parse(options.body) : {}
+      calls.push({ url, body })
+      const sourceBlocks = isSecondary ? secondaryBlocks : blocks
+      const value = sourceBlocks[body.num]
       return { ok: Boolean(value), status: value ? 200 : 404, json: async () => value || {} }
     },
   })
@@ -147,7 +166,7 @@ test('solidified history replay verifies a complete unchanged interval and the e
   assert.equal(result.blockNumber, 102)
   assert.equal(result.blockTimestampMs, 1_006_000)
   assert.equal(result.scannedBlockCount, 2)
-  assert.equal(calls.length, 6)
+  assert.equal(calls.length, 8)
 })
 
 test('solidified history replay rejects a delegation change involving the fee sponsor or principal', async () => {
@@ -308,6 +327,46 @@ test('solidified history replay rejects an interval above its bounded scan maxim
   assert.equal(result.reason, 'historical-delegation-block-span-exceeds-limit')
 })
 
+
+test('solidified history replay also requires a locally recomputed active-SR DPoS quorum', async () => {
+  const witnesses = {
+    witnesses: Array.from({ length: 27 }, (_, index) => ({
+      address: '41' + (index + 1).toString(16).padStart(40, '0'),
+      latestBlockNum: index < 8 ? 100 : 200,
+      isJobs: true,
+    })),
+  }
+  const { verifier } = verifierFor({
+    blocks: standardBlocks(),
+    primaryWitnessList: witnesses,
+    secondaryWitnessList: structuredClone(witnesses),
+  })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-delegation-dpos-finality-not-verified')
+  assert.equal(result.finalityReason, 'target-block-not-solidified-by-active-witness-threshold')
+})
+
+test('solidified history replay rejects differing active witness snapshots across providers', async () => {
+  const primary = {
+    witnesses: Array.from({ length: 27 }, (_, index) => ({
+      address: '41' + (index + 1).toString(16).padStart(40, '0'),
+      latestBlockNum: 200,
+      isJobs: true,
+    })),
+  }
+  const secondary = structuredClone(primary)
+  secondary.witnesses[0].address = '41' + 'ff'.repeat(20)
+  const { verifier } = verifierFor({
+    blocks: standardBlocks(),
+    primaryWitnessList: primary,
+    secondaryWitnessList: secondary,
+  })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-delegation-dpos-finality-not-verified')
+  assert.equal(result.finalityReason, 'solidified-active-witness-set-disagreement')
+})
 
 test('solidified history replay enforces a total scan deadline across multiple blocks', async () => {
   const { verifier } = verifierFor({
