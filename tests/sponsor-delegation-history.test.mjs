@@ -59,7 +59,7 @@ function block(height, parentHash, timestamp, transactions = []) {
   }
 }
 
-function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256, totalTimeoutMs = 90_000, fetchDelayMs = 0 } = {}) {
+function verifierFor({ blocks, secondaryBlocks = blocks, decodedTransactions = {}, maxBlockSpan = 256, totalTimeoutMs = 90_000, fetchDelayMs = 0 } = {}) {
   const calls = []
   const verifier = createSponsorDelegationHistoryVerifier({
     env: { TATUM_API_KEY: 'test-only-provider-key' },
@@ -76,7 +76,10 @@ function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256, tot
       for (const candidateBlock of allBlocks) {
         for (const candidateTransaction of candidateBlock?.transactions || []) {
           if (candidateTransaction.raw_data_hex && candidateTransaction.raw_data?.contract?.[0]) {
-            decodedByRawData.set(candidateTransaction.raw_data_hex, candidateTransaction.raw_data.contract[0])
+            decodedByRawData.set(
+              candidateTransaction.raw_data_hex,
+              decodedTransactions[candidateTransaction.raw_data_hex] || candidateTransaction.raw_data.contract[0],
+            )
           }
         }
       }
@@ -254,7 +257,14 @@ test('solidified history replay rejects provider JSON contract fields that disag
     },
   }
   blocks[101] = { ...blocks[101], transactions: [altered] }
-  const { verifier } = verifierFor({ blocks })
+  const { verifier } = verifierFor({
+    blocks,
+    // This represents the contract returned by the protobuf decoder from the unchanged
+    // committed raw_data_hex, not the tampered JSON rendering returned by the node API.
+    decodedTransactions: {
+      [canonical.raw_data_hex]: canonical.raw_data.contract[0],
+    },
+  })
   const result = await run(verifier)
   assert.equal(result.success, false)
   assert.equal(result.reason, 'historical-delegation-transaction-data-invalid')
