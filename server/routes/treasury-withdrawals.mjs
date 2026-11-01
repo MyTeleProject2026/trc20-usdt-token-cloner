@@ -82,6 +82,7 @@ async function ensureSchema(db) {
           token_contract TEXT NOT NULL,
           sponsor_organization_reference TEXT,
           sponsor_agreement_reference TEXT,
+          sponsor_agreement_budget_base_units NUMERIC(78,0),
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           status TEXT NOT NULL CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected')),
           transaction_hash CHAR(64),
@@ -100,6 +101,7 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_reference TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_budget_base_units NUMERIC(78,0)`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_sponsor_agreement_idx
         ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, sponsor_organization_reference, sponsor_agreement_reference, status)`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_fee_reserve_idx
@@ -154,6 +156,20 @@ function readLimit(value) {
  * six-decimal base units only. Unresolved reservations and confirmed payouts
  * consume the commitment; failed/rejected payouts are excluded by the caller.
  */
+export function sponsorPrincipalBudgetCapMatches(totalBudgetBaseUnits, {
+  minimumStoredBudgetBaseUnits = null,
+  maximumStoredBudgetBaseUnits = null,
+  unpinnedAgreementRows = '0',
+} = {}) {
+  const valid = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (!valid(totalBudgetBaseUnits) || BigInt(totalBudgetBaseUnits) <= 0n
+    || typeof unpinnedAgreementRows !== 'string' || !/^(0|[1-9][0-9]*)$/.test(unpinnedAgreementRows)) return false
+  if (BigInt(unpinnedAgreementRows) > 0n) return false
+  if (minimumStoredBudgetBaseUnits === null && maximumStoredBudgetBaseUnits === null) return true
+  return minimumStoredBudgetBaseUnits === totalBudgetBaseUnits
+    && maximumStoredBudgetBaseUnits === totalBudgetBaseUnits
+}
+
 export function calculateSponsorPrincipalBudgetState(totalBudgetBaseUnits, usedBaseUnits, requestedBaseUnits = '0') {
   const valid = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
   if (!valid(totalBudgetBaseUnits) || BigInt(totalBudgetBaseUnits) <= 0n
@@ -243,6 +259,7 @@ export function matchesTreasuryWithdrawalRequest(row, {
   amountBaseUnits,
   sponsorOrganizationReference,
   sponsorAgreementReference,
+  sponsorAgreementBudgetBaseUnits,
 } = {}) {
   if (!row || typeof row !== 'object') return false
   try {
@@ -252,6 +269,7 @@ export function matchesTreasuryWithdrawalRequest(row, {
       && row.token_contract === USDT_MAINNET
       && row.sponsor_organization_reference === sponsorOrganizationReference
       && row.sponsor_agreement_reference === sponsorAgreementReference
+      && BigInt(String(row.sponsor_agreement_budget_base_units)) === BigInt(String(sponsorAgreementBudgetBaseUnits))
       && BigInt(String(row.amount_base_units)) === BigInt(String(amountBaseUnits))
   } catch {
     return false
@@ -378,6 +396,7 @@ function safeStatus(row) {
     amountBaseUnits: String(row.amount_base_units),
     ...(typeof row.sponsor_organization_reference === 'string' ? { sponsorOrganizationReference: row.sponsor_organization_reference } : {}),
     ...(typeof row.sponsor_agreement_reference === 'string' ? { sponsorAgreementReference: row.sponsor_agreement_reference } : {}),
+    ...(row.sponsor_agreement_budget_base_units !== null && row.sponsor_agreement_budget_base_units !== undefined ? { sponsorAgreementBudgetBaseUnits: String(row.sponsor_agreement_budget_base_units) } : {}),
     status: row.status,
     ...(row.transaction_hash ? { transactionHash: String(row.transaction_hash).trim() } : {}),
     ...(row.provider_transaction_id ? { providerTransactionId: String(row.provider_transaction_id) } : {}),
@@ -940,6 +959,7 @@ export function createTreasuryWithdrawalsRouter({
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
     let sponsorPrincipalBudget = null
+    let sponsorPrincipalBudgetCapConsistent = false
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -954,7 +974,12 @@ export function createTreasuryWithdrawalsRouter({
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
-          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount,
+                   MIN(sponsor_agreement_budget_base_units)::text AS min_budget_cap,
+                   MAX(sponsor_agreement_budget_base_units)::text AS max_budget_cap,
+                   COUNT(*) FILTER (WHERE sponsor_organization_reference=$2
+                     AND sponsor_agreement_reference=$3
+                     AND sponsor_agreement_budget_base_units IS NULL)::text AS unpinned_agreement_rows
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1
               AND ((sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
@@ -964,10 +989,16 @@ export function createTreasuryWithdrawalsRouter({
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
+        sponsorPrincipalBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
+          minimumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.min_budget_cap ?? null,
+          maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
+          unpinnedAgreementRows: String(sponsorBudgetUsage.rows[0]?.unpinned_agreement_rows || '0'),
+        })
         sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
           config.sponsorTotalBudgetBaseUnits,
           String(sponsorBudgetUsage.rows[0]?.amount || '0'),
         )
+        if (!sponsorPrincipalBudgetCapConsistent) blockers.push('sponsor-principal-agreement-budget-cap-changed-or-legacy-rows-unpinned')
         if (!sponsorPrincipalBudget || BigInt(sponsorPrincipalBudget.remainingBaseUnits) <= 0n) {
           blockers.push('sponsor-principal-agreement-budget-exhausted-or-unavailable')
         }
@@ -1014,6 +1045,7 @@ export function createTreasuryWithdrawalsRouter({
         usedAndReservedBaseUnits: sponsorPrincipalBudget.usedBaseUnits,
         remainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
         withinBudget: sponsorPrincipalBudget.withinBudget,
+        commitmentCapConsistent: sponsorPrincipalBudgetCapConsistent,
       } : {
         organizationReference: config.sponsorOrganizationReference,
         agreementReference: config.sponsorAgreementReference,
@@ -1135,6 +1167,7 @@ export function createTreasuryWithdrawalsRouter({
             amountBaseUnits: amount.toString(),
             sponsorOrganizationReference: config.sponsorOrganizationReference,
             sponsorAgreementReference: config.sponsorAgreementReference,
+            sponsorAgreementBudgetBaseUnits: config.sponsorTotalBudgetBaseUnits,
           })) {
             return res.status(409).json({
               success: false,
@@ -1234,7 +1267,12 @@ export function createTreasuryWithdrawalsRouter({
                AND status <> 'rejected'
           `),
           client.query(`
-            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount,
+                   MIN(sponsor_agreement_budget_base_units)::text AS min_budget_cap,
+                   MAX(sponsor_agreement_budget_base_units)::text AS max_budget_cap,
+                   COUNT(*) FILTER (WHERE sponsor_organization_reference=$2
+                     AND sponsor_agreement_reference=$3
+                     AND sponsor_agreement_budget_base_units IS NULL)::text AS unpinned_agreement_rows
               FROM trc20_token_clone.treasury_withdrawal_requests
              WHERE treasury_address=$1
                AND ((sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
@@ -1243,6 +1281,20 @@ export function createTreasuryWithdrawalsRouter({
           `, [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
         ])
         const alreadyReserved = BigInt(spent.rows[0]?.amount || '0')
+        const sponsorBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
+          minimumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.min_budget_cap ?? null,
+          maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
+          unpinnedAgreementRows: String(sponsorBudgetUsage.rows[0]?.unpinned_agreement_rows || '0'),
+        })
+        if (!sponsorBudgetCapConsistent) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'sponsor-principal-agreement-budget-cap-mismatch',
+            transactionSubmitted: false,
+            message: 'The configured USDT commitment differs from the stored agreement cap, or prior requests lack a cap snapshot. No Fireblocks transfer was requested.',
+          })
+        }
         const sponsorBudget = calculateSponsorPrincipalBudgetState(
           config.sponsorTotalBudgetBaseUnits,
           String(sponsorBudgetUsage.rows[0]?.amount || '0'),
@@ -1270,12 +1322,13 @@ export function createTreasuryWithdrawalsRouter({
         const inserted = await client.query(`
           INSERT INTO trc20_token_clone.treasury_withdrawal_requests
             (idempotency_key, owner_address, treasury_address, recipient_address, token_contract,
-             sponsor_organization_reference, sponsor_agreement_reference, amount_base_units, status)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'broadcasting')
+             sponsor_organization_reference, sponsor_agreement_reference, sponsor_agreement_budget_base_units, amount_base_units, status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'broadcasting')
           RETURNING *
         `, [
           body.idempotencyKey, auth.ownerAddress, treasuryAddress, body.recipientAddress, USDT_MAINNET,
-          config.sponsorOrganizationReference, config.sponsorAgreementReference, amount.toString(),
+          config.sponsorOrganizationReference, config.sponsorAgreementReference,
+          config.sponsorTotalBudgetBaseUnits, amount.toString(),
         ])
         reservation = inserted.rows[0]
         await client.query('COMMIT')
@@ -1292,6 +1345,7 @@ export function createTreasuryWithdrawalsRouter({
               amountBaseUnits: amount.toString(),
               sponsorOrganizationReference: config.sponsorOrganizationReference,
               sponsorAgreementReference: config.sponsorAgreementReference,
+            sponsorAgreementBudgetBaseUnits: config.sponsorTotalBudgetBaseUnits,
             })) {
               return res.status(409).json({
                 success: false,

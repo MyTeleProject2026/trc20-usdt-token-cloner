@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -102,6 +102,21 @@ test('USDT decimal parser converts exact six-decimal amounts to base units', () 
   assert.equal(parsePositiveDecimal('1'), 1_000_000n)
   assert.equal(parsePositiveDecimal('0.000001'), 1n)
   assert.equal(parsePositiveDecimal('12.340500'), 12_340_500n)
+})
+
+test('sponsor agreement principal cap cannot silently change after the first reservation', () => {
+  assert.equal(sponsorPrincipalBudgetCapMatches('1000000000'), true)
+  assert.equal(sponsorPrincipalBudgetCapMatches('1000000000', {
+    minimumStoredBudgetBaseUnits: '1000000000', maximumStoredBudgetBaseUnits: '1000000000',
+  }), true)
+  assert.equal(sponsorPrincipalBudgetCapMatches('2000000000', {
+    minimumStoredBudgetBaseUnits: '1000000000', maximumStoredBudgetBaseUnits: '1000000000',
+  }), false)
+  assert.equal(sponsorPrincipalBudgetCapMatches('1000000000', {
+    minimumStoredBudgetBaseUnits: '900000000', maximumStoredBudgetBaseUnits: '1000000000',
+  }), false)
+  assert.equal(sponsorPrincipalBudgetCapMatches('1000000000', { unpinnedAgreementRows: '1' }), false)
+  assert.equal(sponsorPrincipalBudgetCapMatches('0'), false)
 })
 
 test('third-party USDT principal budget uses exact base units and includes unresolved reservations', () => {
@@ -393,6 +408,7 @@ test('withdrawal idempotency binds an existing key to the exact owner, treasury,
     token_contract: usdtContract,
     sponsor_organization_reference: 'authorized-sponsor-org-001',
     sponsor_agreement_reference: 'sponsor-agreement-2026-001',
+    sponsor_agreement_budget_base_units: '1000000000',
     amount_base_units: amountBaseUnits,
   }
   const request = {
@@ -402,6 +418,7 @@ test('withdrawal idempotency binds an existing key to the exact owner, treasury,
     amountBaseUnits,
     sponsorOrganizationReference: 'authorized-sponsor-org-001',
     sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    sponsorAgreementBudgetBaseUnits: '1000000000',
   }
   assert.equal(matchesTreasuryWithdrawalRequest(row, request), true)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, recipientAddress: treasuryAddress }), false)
@@ -409,6 +426,7 @@ test('withdrawal idempotency binds an existing key to the exact owner, treasury,
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, ownerAddress: recipientAddress }), false)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, sponsorAgreementReference: 'different-agreement' }), false)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, sponsorOrganizationReference: 'different-org' }), false)
+  assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, sponsorAgreementBudgetBaseUnits: '2000000000' }), false)
 })
 
 test('USDT readiness still probes provider and chain funding while transfer submission remains disabled', async (t) => {

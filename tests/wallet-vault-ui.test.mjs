@@ -123,6 +123,8 @@ test('owner treasury panel is read-only and server payout execution is disabled 
   assert.match(vault, /Sponsor agreement reference/)
   assert.match(vault, /Exact Mainnet USDT sponsor agreement scope/)
   assert.match(vault, /sponsorAgreementScopeApproved === true/)
+  assert.match(vault, /Stored principal commitment cap/)
+  assert.match(vault, /commitmentCapConsistent === true/)
   assert.match(vault, /Remaining USDT principal commitment/)
   assert.match(vault, /TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>/)
   assert.match(vault, /matching official Transfer event were verified on TRON/)

@@ -1648,6 +1648,10 @@ export default function WalletVault() {
             <strong>{serverTreasuryReadiness?.configuration?.sponsorAgreementScopeApproved === true ? 'Exact allowlist match passed' : 'Missing or mismatched — payouts blocked'}</strong>
           </div>
           <div>
+            <small>Stored principal commitment cap</small>
+            <strong>{serverTreasuryReadiness?.sponsorPrincipalBudget?.commitmentCapConsistent === true ? 'Matches the original agreement cap' : 'Missing or changed — payouts blocked'}</strong>
+          </div>
+          <div>
             <small>Remaining USDT principal commitment</small>
             <strong>{typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits) && typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.totalBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.totalBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits, 6) + ' / ' + formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.totalBaseUnits, 6) + ' USDT remaining' : 'Not verified'}</strong>
           </div>
