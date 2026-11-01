@@ -1001,6 +1001,7 @@ export function createTreasuryWithdrawalsRouter({
         enabled: config.enabled,
         configurationComplete: config.configurationComplete,
         featureFlagEnabled: config.featureFlagEnabled,
+        sponsorAgreementScopeApproved: config.sponsorAgreementScopeApproved,
         missing: config.missing,
         signerMode: config.signerMode,
         providerConfigured: config.providerConfigured,
