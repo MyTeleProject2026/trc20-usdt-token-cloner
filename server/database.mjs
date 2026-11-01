@@ -3565,9 +3565,10 @@ export async function persistThirdPartyFundingDeposit(input = {}) {
   }
   const db = getPool()
   if (!db) return { persisted: false, reason: 'database-not-configured' }
-  const client = await db.connect()
+  let client
   try {
     await initializeDatabase()
+    client = await db.connect()
     await client.query('BEGIN')
     const authResult = await client.query(
       `SELECT authorization_id, sponsor_address, vault_address,
@@ -3657,12 +3658,12 @@ export async function persistThirdPartyFundingDeposit(input = {}) {
     await client.query('COMMIT')
     return { persisted: true, duplicate: false, status: 'deposit-evidence-recorded' }
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {})
+    await client?.query('ROLLBACK').catch(() => {})
     if (error?.code === '23505') return { persisted: false, reason: 'deposit-transaction-already-used' }
     console.error('Third-party funding deposit persistence failed:', error?.code || 'unknown')
     return { persisted: false, reason: 'database-unavailable' }
   } finally {
-    client.release()
+    client?.release()
   }
 }
 
