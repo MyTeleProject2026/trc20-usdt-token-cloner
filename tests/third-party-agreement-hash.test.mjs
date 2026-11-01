@@ -36,7 +36,7 @@ test('agreement hashing rejects empty files', async () => {
 test('agreement hashing rejects non-file paths', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'funding-agreement-directory-'))
   try {
-    await assert.rejects(() => hashThirdPartyFundingAgreement(directory), /regular file/)
+    await assert.rejects(() => hashThirdPartyFundingAgreement(directory), /regular, non-symlink file/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
