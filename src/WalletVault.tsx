@@ -318,9 +318,15 @@ export default function WalletVault() {
   const serverTreasuryAddressMatchesSnapshot = typeof serverTreasuryReadiness?.treasuryAddress === 'string'
     && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
     && serverTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot.treasuryAddress
+  const sponsorPrincipalBudgetRemaining = serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits
   const canSubmitServerTreasuryPayout = Boolean(ownerSessionToken
     && ownerTreasurySnapshot?.ownerAccessVerified === true
     && serverTreasuryReadiness?.withdrawalsEnabled === true
+    && serverTreasuryReadiness?.executionEnabled === true
+    && serverTreasuryReadiness?.sponsorPrincipalBudget?.withinBudget === true
+    && typeof sponsorPrincipalBudgetRemaining === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(sponsorPrincipalBudgetRemaining)
+    && BigInt(sponsorPrincipalBudgetRemaining) > 0n
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
@@ -1289,6 +1295,9 @@ export default function WalletVault() {
       'TREASURY_OWNER_ADDRESS=<same-organization-approved-owner-address>',
       'TREASURY_MAX_PAYOUT_USDT=<organization-approved-per-payout-limit>',
       'TREASURY_DAILY_LIMIT_USDT=<organization-approved-daily-limit>',
+      'TREASURY_SPONSOR_ORGANIZATION_REFERENCE=<executed-sponsor-organization-reference>',
+      'TREASURY_SPONSOR_AGREEMENT_REFERENCE=<executed-sponsor-agreement-reference>',
+      'TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>',
       'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
       'TREASURY_WITHDRAWALS_ENABLED=false',
       'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
@@ -1627,12 +1636,28 @@ export default function WalletVault() {
             <strong>{serverTreasuryReadiness?.providerVaultAddressVerified === true && serverTreasuryReadiness?.nativeTrxVaultAddressVerified === true ? 'Both checks passed' : 'Not verified / mismatch'}</strong>
           </div>
           <div>
+            <small>Sponsor organization reference</small>
+            <strong>{serverTreasuryReadiness?.sponsorPrincipalBudget?.organizationReference || 'Not configured'}</strong>
+          </div>
+          <div>
+            <small>Sponsor agreement reference</small>
+            <strong>{serverTreasuryReadiness?.sponsorPrincipalBudget?.agreementReference || 'Not configured'}</strong>
+          </div>
+          <div>
+            <small>Remaining USDT principal commitment</small>
+            <strong>{typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits) && typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.totalBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.totalBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits, 6) + ' / ' + formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.totalBaseUnits, 6) + ' USDT remaining' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Confirmed and reserved USDT principal</small>
+            <strong>{typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.usedAndReservedBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.usedAndReservedBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.usedAndReservedBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
             <small>Organization approval</small>
             <strong>Not independently verified by this application</strong>
           </div>
           <div>
             <small>Real-value payout execution</small>
-            <strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Backend reports enabled' : 'Hard-disabled in this build'}</strong>
+            <strong>{canSubmitServerTreasuryPayout ? 'Backend reports enabled and all owner/funding/budget gates passed' : 'Hard-disabled or readiness evidence incomplete'}</strong>
           </div>
         </div>
         <div className="wallet-vault-transfer-section">
@@ -1655,7 +1680,7 @@ export default function WalletVault() {
           <p>Enter organization-issued identifiers and approved limits in the backend Web Service environment only. Upload the RSA private key as a Secret File named <code>fireblocks_api_private_key.pem</code>; the path below points to that file. Never add credentials to frontend <code>VITE_*</code> variables, GitHub, or this browser page.</p>
           <p className="wallet-vault-caption">Backend service: <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">Open Render backend environment ↗</a></p>
           <button type="button" className="wallet-vault-secondary" onClick={() => void copyFireblocksEnvTemplate()}><Copy size={15} /> Copy placeholder-only environment template</button>
-          <p className="wallet-vault-caption">The template contains placeholders, not credentials. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
+          <p className="wallet-vault-caption">The template contains placeholders, not credentials. The sponsor organization and agreement references plus total USDT commitment must come from the sponsor’s executed agreement; they are not proof of funding. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
         </div>
       </section>
 
