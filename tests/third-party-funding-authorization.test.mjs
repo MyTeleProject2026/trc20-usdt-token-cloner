@@ -48,8 +48,8 @@ function manifest(overrides = {}) {
 
 test('canonical funding consent binds source, actual vault, asset, caps and written agreement reference', () => {
   const message = buildThirdPartyFundingAuthorizationMessage(manifest())
-  assert.match(message, /Source wallet: TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp/)
-  assert.match(message, /Destination Fireblocks vault: TJRabPrwbZy45sbavfcjinPJC18kjpRTv8/)
+  assert.ok(message.includes('Source wallet: ' + SPONSOR))
+  assert.ok(message.includes('Destination Fireblocks vault: ' + VAULT))
   assert.match(message, /Maximum USDT principal in base units \(6 decimals\): 25000000/)
   assert.match(message, /Maximum native TRX in SUN \(6 decimals\): 8000000/)
   assert.match(message, /Separate written agreement reference: ORG-AGREEMENT-2026-001/)
