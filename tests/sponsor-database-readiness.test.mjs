@@ -64,6 +64,12 @@ test('sponsor database readiness passes when every required object exists and st
   assert.equal(report.missingIndexes.length, 0)
   assert.equal(report.missingConstraints.length, 0)
   assert.equal(client.calls.length, 1)
+  const [tables, columns, indexes, constraints, schema] = client.calls[0].values
+  assert.equal(schema, 'trc20_token_clone')
+  assert.ok(JSON.parse(tables).every((entry) => typeof entry.table_name === 'string'))
+  assert.ok(JSON.parse(columns).every((entry) => typeof entry.table_name === 'string' && typeof entry.column_name === 'string'))
+  assert.ok(JSON.parse(indexes).every((entry) => typeof entry.table_name === 'string' && typeof entry.index_name === 'string'))
+  assert.ok(JSON.parse(constraints).every((entry) => typeof entry.table_name === 'string' && typeof entry.constraint_name === 'string'))
   assert.match(client.calls[0].sql, /^\s*WITH/)
   assert.doesNotMatch(client.calls[0].sql, /\b(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|TRUNCATE)\b/i)
 })

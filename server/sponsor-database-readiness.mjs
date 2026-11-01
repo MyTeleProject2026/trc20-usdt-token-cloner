@@ -167,10 +167,10 @@ export async function inspectSponsorDatabaseReadiness(queryable) {
     .flatMap(([tableName, columns]) => columns.map((columnName) => ({ tableName, columnName })))
 
   const result = await queryable.query(READINESS_QUERY, [
-    JSON.stringify(requiredTables),
-    JSON.stringify(requiredColumns),
-    JSON.stringify(SPONSOR_DATABASE_REQUIRED_INDEXES),
-    JSON.stringify(SPONSOR_DATABASE_REQUIRED_CONSTRAINTS),
+    JSON.stringify(requiredTables.map(({ tableName }) => ({ table_name: tableName }))),
+    JSON.stringify(requiredColumns.map(({ tableName, columnName }) => ({ table_name: tableName, column_name: columnName }))),
+    JSON.stringify(SPONSOR_DATABASE_REQUIRED_INDEXES.map(({ tableName, indexName }) => ({ table_name: tableName, index_name: indexName }))),
+    JSON.stringify(SPONSOR_DATABASE_REQUIRED_CONSTRAINTS.map(({ tableName, constraintName }) => ({ table_name: tableName, constraint_name: constraintName }))),
     SPONSOR_SCHEMA,
   ])
   const row = result?.rows?.[0]
