@@ -462,17 +462,15 @@ export default function WalletVault() {
     }
   }, [unlocked?.record.address])
 
-  // Load read-only Mainnet treasury status from the private owner-console login.
-  // Outgoing payouts still require a separate, request-specific signature from
-  // the owner wallet held inside this app; the console password does not mint assets.
+  // Refresh treasury and Fireblocks diagnostics only through the short-lived
+  // wallet-auth session created by the signed Mainnet owner challenge below.
+  // The separate password-login session is not accepted by these treasury APIs.
   useEffect(() => {
-    let token = ''
-    try {
-      token = window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
-    } catch {
-      token = ''
+    if (!ownerSessionToken || !/^[A-Za-z0-9_-]{43}$/.test(ownerSessionToken)) {
+      setFireblocksInventorySnapshot(null)
+      setFireblocksInventoryError('')
+      return
     }
-    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
 
     let cancelled = false
     let requestInFlight = false
@@ -481,23 +479,8 @@ export default function WalletVault() {
       requestInFlight = true
       setOwnerTreasuryLoading(true)
       setOwnerTreasuryError('')
+      const headers = { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken }
       try {
-        const sessionResponse = await fetch(API_BASE + '/api/auth/owner/session', {
-          headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
-          credentials: 'omit',
-          cache: 'no-store',
-          redirect: 'error',
-        })
-        const sessionPayload = await sessionResponse.json().catch(() => null)
-        if (!sessionResponse.ok || sessionPayload?.success !== true
-          || sessionPayload?.authenticated !== true || sessionPayload.network !== 'mainnet'
-          || !ADDRESS_PATTERN.test(String(sessionPayload.address || ''))
-          || !Number.isFinite(sessionPayload.expiresAt) || sessionPayload.expiresAt <= Date.now()) {
-          throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
-        }
-
-        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
-        const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
         const [fundingResponse, readinessResponse, inventoryResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
@@ -517,8 +500,10 @@ export default function WalletVault() {
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
           setOwnerTreasurySnapshot(funding as OwnerTreasurySnapshot)
+          setOwnerTreasuryError('')
         } else {
           setOwnerTreasurySnapshot(null)
+          setOwnerTreasuryError('The Mainnet wallet-auth session is valid, but an owner treasury funding snapshot is unavailable.')
         }
         setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
         if (inventoryResponse.ok && inventory?.success === true) {
@@ -527,36 +512,27 @@ export default function WalletVault() {
           setFireblocksInventoryError('')
         } else {
           setFireblocksInventorySnapshot(null)
-          setFireblocksInventoryError('The latest Fireblocks inventory snapshot could not be loaded. Check the owner session and backend database status.')
+          setFireblocksInventoryError('The latest Fireblocks inventory snapshot could not be loaded. Check the backend database and read-only inventory workflow.')
         }
-        if (!fundingResponse.ok || funding?.success !== true) {
-          setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
-        }
-      } catch (caught) {
+      } catch {
         if (cancelled) return
-        setOwnerSessionAddress('')
         setOwnerTreasurySnapshot(null)
         setServerTreasuryReadiness(null)
         setFireblocksInventorySnapshot(null)
         setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
-        setOwnerTreasuryError(caught instanceof Error
-          ? caught.message
-          : 'Could not automatically load the Mainnet treasury status from the owner session.')
+        setOwnerTreasuryError('Could not refresh treasury status with the current wallet-auth session. Sign the owner treasury check again.')
       } finally {
         requestInFlight = false
         if (!cancelled) setOwnerTreasuryLoading(false)
       }
     }
     void loadOwnerTreasuryDashboard()
-    // Keep the owner-only treasury monitor fresh without creating overlapping
-    // provider requests. The backend still verifies every response on-chain.
     const refreshInterval = window.setInterval(() => { void loadOwnerTreasuryDashboard() }, 60_000)
     return () => {
       cancelled = true
       window.clearInterval(refreshInterval)
     }
-  }, [unlocked?.record.address, network])
-
+  }, [ownerSessionToken])
 
   useEffect(() => {
     if (!unlocked) return
