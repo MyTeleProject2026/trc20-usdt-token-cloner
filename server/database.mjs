@@ -650,6 +650,11 @@ export async function initializeDatabase() {
           ON ${schema}.sponsor_resource_delegations (network, created_at DESC)
       `)
       await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_ttc_resource_delegations_pair_block
+          ON ${schema}.sponsor_resource_delegations
+            (network, sponsor_address, receiver_address, block_number DESC, id DESC)
+      `)
+      await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_provider_applications (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           reference UUID NOT NULL UNIQUE,
@@ -1224,8 +1229,8 @@ export async function listSponsorResourceDelegations({
               verification_status, created_at
          FROM ${schema}.sponsor_resource_delegations
         WHERE network = $1
-          AND ($2::text IS NULL OR lower(sponsor_address) = lower($2))
-          AND ($3::text IS NULL OR lower(receiver_address) = lower($3))
+          AND ($2::text IS NULL OR sponsor_address = $2)
+          AND ($3::text IS NULL OR receiver_address = $3)
         ORDER BY block_number DESC, id DESC
         LIMIT $4`,
       [normalizedNetwork, feeSponsorAddress, principalSponsorAddress, limit],
