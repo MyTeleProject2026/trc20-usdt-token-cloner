@@ -39,6 +39,7 @@ function manifest(overrides = {}) {
     maxUsdtBaseUnits: '25000000',
     maxTrxSun: '8000000',
     agreementReference: 'ORG-AGREEMENT-2026-001',
+    agreementDocumentSha256: 'b'.repeat(64),
     issuedAt: '2026-11-01T00:00:00.000Z',
     expiresAt: '2026-11-04T00:00:00.000Z',
     signature: SIGNATURE,
@@ -53,6 +54,8 @@ test('canonical funding consent binds source, actual vault, asset, caps and writ
   assert.match(message, /Maximum USDT principal in base units \(6 decimals\): 25000000/)
   assert.match(message, /Maximum native TRX in SUN \(6 decimals\): 8000000/)
   assert.match(message, /Separate written agreement reference: ORG-AGREEMENT-2026-001/)
+  assert.match(message, /SHA-256 of exact executed agreement file: b{64}/)
+  assert.match(message, /Version: 2/)
   assert.match(message, /does not by itself authorize subsequent withdrawals/)
 })
 
@@ -71,6 +74,7 @@ test('a valid signature from the exact sponsor wallet verifies as incoming-depos
   assert.equal(result.authorization.scope, 'one-manually-initiated-incoming-deposit')
   assert.equal(result.authorization.subsequentPayoutsAuthorized, false)
   assert.match(verifiedMessage, /TRON Mainnet/)
+  assert.match(verifiedMessage, /SHA-256 of exact executed agreement file: b{64}/)
 })
 
 test('a signature recovered to a different address is rejected', async () => {
@@ -115,6 +119,8 @@ test('the manifest rejects non-official USDT, malformed amounts and unsupported 
     [manifest({ usdtContract: 'fake-usdt-contract' }), 'official-mainnet-usdt-contract-mismatch'],
     [manifest({ maxUsdtBaseUnits: '1.25' }), 'maximum-usdt-base-units-invalid'],
     [manifest({ maxTrxSun: '0' }), 'maximum-trx-sun-invalid'],
+    [manifest({ agreementDocumentSha256: 'not-a-sha256' }), 'agreement-document-sha256-required'],
+    [manifest({ agreementDocumentSha256: undefined }), 'agreement-document-sha256-required'],
     [manifest({ privateKey: 'must-not-be-accepted' }), 'manifest-contains-unsupported-fields'],
   ]
   for (const [input, reason] of cases) {
@@ -153,4 +159,23 @@ test('invalid signature format is rejected without invoking signature recovery',
   })
   assert.equal(result.verified, false)
   assert.equal(result.reason, 'authorization-signature-invalid-format')
+})
+
+
+test('legacy v1 consent remains verifiable for historical evidence but carries no agreement digest', async () => {
+  const legacy = manifest({
+    format: 'tron-token-studio/third-party-funding-authorization/v1',
+  })
+  delete legacy.agreementDocumentSha256
+  const result = await verifyThirdPartyFundingAuthorization(legacy, {
+    expectedVaultAddress: VAULT,
+    now: () => NOW,
+    verifyMessage: async (message) => {
+      assert.match(message, /Version: 1/)
+      assert.doesNotMatch(message, /SHA-256 of exact executed agreement file/)
+      return SPONSOR
+    },
+  })
+  assert.equal(result.verified, true)
+  assert.equal(result.authorization.agreementDocumentSha256, null)
 })
