@@ -2,7 +2,7 @@
  * Hard release gate for testnet sponsor signing and broadcast.
  *
  * Resource mandates, reservations, conditional receipt settlement and a
- * single-provider solidified block-history scan are implemented. The gate remains
+ * two-provider solidified block-history cross-check are implemented. The gate remains
  * closed because cryptographic/independent block and transaction-inclusion proof,
  * protocol-wide stake-change review, production database migration/restore,
  * funded testnet E2E, and sponsor/security approvals remain outstanding.
