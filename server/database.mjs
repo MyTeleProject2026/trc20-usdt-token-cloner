@@ -136,7 +136,7 @@ export async function initializeDatabase() {
           max_usdt_base_units NUMERIC(78,0) NOT NULL CHECK (max_usdt_base_units > 0),
           max_trx_sun NUMERIC(78,0) NOT NULL CHECK (max_trx_sun > 0),
           agreement_reference TEXT NOT NULL,
-          agreement_document_sha256 CHAR(64) CHECK (agreement_document_sha256 IS NULL OR LENGTH(agreement_document_sha256) = 64),
+          agreement_document_sha256 CHAR(64),
           agreement_reviewed_by TEXT NOT NULL,
           agreement_reviewed_at TIMESTAMPTZ NOT NULL,
           signature TEXT NOT NULL,
@@ -148,6 +148,11 @@ export async function initializeDatabase() {
             CHECK (status IN ('awaiting-deposit','deposit-evidence-recorded','revoked','expired','cap-reached')),
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT third_party_funding_agreement_sha256_format_check
+            CHECK (
+              agreement_document_sha256 IS NULL
+              OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+            ),
           CHECK (sponsor_address <> vault_address),
           CHECK (expires_at > issued_at)
         )
@@ -179,7 +184,28 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
-      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64) CHECK (agreement_document_sha256 IS NULL OR LENGTH(agreement_document_sha256) = 64)`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64)`)
+      await db.query(`
+        DO $migration$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM pg_constraint
+             WHERE conrelid = '${schema}.third_party_funding_authorizations'::regclass
+               AND conname = 'third_party_funding_agreement_sha256_format_check'
+          ) THEN
+            ALTER TABLE ${schema}.third_party_funding_authorizations
+              ADD CONSTRAINT third_party_funding_agreement_sha256_format_check
+              CHECK (
+                agreement_document_sha256 IS NULL
+                OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+              ) NOT VALID;
+          END IF;
+        END;
+        $migration$;
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
+        VALIDATE CONSTRAINT third_party_funding_agreement_sha256_format_check`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
       await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
         ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
