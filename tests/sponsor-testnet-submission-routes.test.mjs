@@ -75,3 +75,55 @@ test('signed-broadcast route rejects private-key fields before database/provider
     else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previous
   }
 })
+
+
+test('testnet signing intent remains blocked when environment opt-ins are true but fee settlement is not integrated', async () => {
+  const previousFlag = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  const previousPilot = process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+  try {
+    process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
+    process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = 'true'
+    const response = makeResponse()
+    await route('/sponsorship/transfers/:idempotencyKey/signing-intent', 'get')({
+      params: { idempotencyKey: 'reservation-intent-key-00000001' }, query: {}, headers: {},
+    }, response)
+    assert.equal(response.statusCode, 503)
+    assert.equal(response.body.status, 'sponsor-fee-resource-settlement-gate-closed')
+    assert.equal(response.body.feeSponsorResourceSettlementAdapterImplemented, false)
+    assert.equal(response.body.canSubmitSponsoredTransfer, false)
+    assert.equal(response.body.providerSubmissionAttempted, false)
+    assert.equal(response.body.transactionBroadcast, false)
+    assert.equal(response.body.unpaidFallbackToUserFunds, false)
+  } finally {
+    if (previousFlag === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+    else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previousFlag
+    if (previousPilot === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = previousPilot
+  }
+})
+
+test('testnet signed submission remains blocked before body processing or provider calls when fee settlement is not integrated', async () => {
+  const previousFlag = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  const previousPilot = process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+  try {
+    process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
+    process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = 'true'
+    const response = makeResponse()
+    await route('/sponsorship/transfers/:idempotencyKey/submit-signed', 'post')({
+      params: { idempotencyKey: 'reservation-intent-key-00000001' },
+      query: {}, headers: {}, body: { signedTransaction: { txID: 'a'.repeat(64) } },
+    }, response)
+    assert.equal(response.statusCode, 503)
+    assert.equal(response.body.status, 'sponsor-fee-resource-settlement-gate-closed')
+    assert.equal(response.body.feeSponsorResourceSettlementAdapterImplemented, false)
+    assert.equal(response.body.canSubmitSponsoredTransfer, false)
+    assert.equal(response.body.providerSubmissionAttempted, false)
+    assert.equal(response.body.transactionBroadcast, false)
+    assert.equal(response.body.unpaidFallbackToUserFunds, false)
+  } finally {
+    if (previousFlag === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+    else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = previousFlag
+    if (previousPilot === undefined) delete process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED
+    else process.env.SPONSOR_TESTNET_PILOT_RELEASE_APPROVED = previousPilot
+  }
+})

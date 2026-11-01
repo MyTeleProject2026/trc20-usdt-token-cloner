@@ -4,16 +4,11 @@ This is a hands-on operator checklist for `MyTeleProject2026/trc20-usdt-token-cl
 It is not a declaration that sponsorship is production-ready. Follow it in order. Do not skip
 readiness checks because an environment variable or wallet connection appears successful.
 
-## Current Render testnet opt-in (2026-10-27)
+## Historical Render testnet flag record (2026-10-27; live state unverified)
 
-At the operator's request, the Render backend environment flag
-`SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` has been set to `true` for the existing
-experimental Shasta/Nile signer-and-broadcast route. Render accepted the environment update and deploy dep-dbftfsm7bikc73b5a3u0 reached live. Its startup logs reported the project database ready and the API listening. This confirms the configuration rollout, not a live sponsored transfer or end-to-end settlement. This is a route opt-in only: it does not create a transfer, approve a budget,
-prove sponsor consent/funding, or mark any transaction settled. The route still requires the exact
-approved testnet reservation, distinct configured sponsor roles, the fee-resource/delegation checks,
-the sponsor wallet's signature over the stored intent, and transaction identity validation. If any
-gate fails, no new broadcast is authorized. Mainnet broadcast remains unavailable in this route.
-Set the flag back to `false` to close the experimental testnet signing/broadcast route.
+An older operator record says `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` was set to `true` and a Render deploy became live. That is a historical configuration record only; the current Render value has not been independently inspected and it is not evidence of an actual sponsored transfer.
+
+The current source-controlled fee-resource settlement gate blocks both testnet signing-intent and signed-submit until the resource-budget adapter is integrated and an independent controlled testnet pilot is approved. An environment flag, even if it remains `true`, cannot bypass this gate. Keep `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false` and `SPONSOR_TESTNET_PILOT_RELEASE_APPROVED` unset/false. Do not dispatch a signing or transfer test as a workaround.
 
 The checklist below describes the secure baseline for initial onboarding. Do not interpret the
 testnet flag change as a production go-live approval: separate fee/resource cost settlement and a

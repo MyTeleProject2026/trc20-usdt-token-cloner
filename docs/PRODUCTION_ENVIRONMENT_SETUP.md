@@ -83,6 +83,7 @@ Do not set `TREASURY_PRIVATE_KEY` and do not create a private-key fallback. The 
 
 - Keep `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=false`.
 - Keep `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false` until explicit testnet authorization, supported signing, funding/resource checks, idempotency and end-to-end reconciliation pass.
+- Keep `SPONSOR_TESTNET_PILOT_RELEASE_APPROVED=false`. It is a separate acknowledgement for a reviewed, controlled testnet pilot; it does not bypass the source-code fee-resource settlement gate and must not be enabled before that gate's implementation, evidence, and independent review are complete.
 - `SPONSOR_TESTNET_MAX_FEE_LIMIT_SUN=50000000` is only a testnet transaction fee-cap setting, not proof that sufficient TRX is funded.
 - Leave `SPONSOR_APPROVED_AGREEMENT_REFERENCES` blank until a real sponsor agreement/mandate has been signed and its exact scopes reviewed.
 - `GASFREE_MAINNET_API_KEY` and `GASFREE_MAINNET_API_SECRET` must come from approved GasFree Mainnet access.

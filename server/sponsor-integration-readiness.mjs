@@ -1,5 +1,6 @@
 import { createGasFreeClient } from './gasfree-client.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
+import { getSponsorFeeResourceSettlementGate } from './sponsor-fee-resource-settlement-gate.mjs'
 
 const NETWORKS = ['mainnet', 'shasta', 'nile']
 
@@ -67,6 +68,8 @@ export function getSponsorIntegrationReadiness({
     }]
   }))
 
+  const feeResourceSettlementGate = getSponsorFeeResourceSettlementGate(env)
+
   const blockers = [
     'external-sponsor-agreement-and-funded-accounts-not-independently-verified',
     'provider-not-verified-to-provide-asset-principal-and-all-fees',
@@ -81,6 +84,8 @@ export function getSponsorIntegrationReadiness({
     'independent-security-review-not-recorded',
     'mainnet-operator-release-approval-not-recorded',
   ]
+
+  if (!feeResourceSettlementGate.ready) blockers.push(feeResourceSettlementGate.reason)
 
   return {
     success: true,
@@ -99,6 +104,10 @@ export function getSponsorIntegrationReadiness({
       enabled: false,
       canSubmitSponsoredTransfer: false,
       testnetSignedBroadcastFlagConfigured: env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED === 'true',
+      feeSponsorResourceSettlementGateReady: feeResourceSettlementGate.ready,
+      feeSponsorResourceSettlementAdapterImplemented: feeResourceSettlementGate.resourceSettlementAdapterImplemented,
+      testnetPilotReleaseApproved: feeResourceSettlementGate.testnetPilotReleaseApproved,
+      feeSponsorResourceSettlementGateBlockers: feeResourceSettlementGate.blockers,
       userFundedFallbackAllowed: false,
       blockerCount: blockers.length,
       blockers,
