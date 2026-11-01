@@ -33,7 +33,7 @@ function makeTronAddress(fill) {
 const OWNER = makeTronAddress('01')
 const SPONSOR = makeTronAddress('02')
 const VAULT = makeTronAddress('03')
-const TOKEN_HEX = '41a614f803b6fd780986a42c78ec9c7f77e6ded13'
+const TOKEN_HEX = '41a614f803b6fd780986a42c78ec9c7f77e6ded13c'
 const SIGNATURE = '0x' + 'a'.repeat(130)
 const TOKEN_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 const TXID = 'a'.repeat(64)
