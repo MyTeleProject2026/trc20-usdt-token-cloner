@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
 import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
@@ -102,6 +103,12 @@ test('USDT decimal parser converts exact six-decimal amounts to base units', () 
   assert.equal(parsePositiveDecimal('1'), 1_000_000n)
   assert.equal(parsePositiveDecimal('0.000001'), 1n)
   assert.equal(parsePositiveDecimal('12.340500'), 12_340_500n)
+})
+
+test('principal budget SQL counts legacy and partially unpinned sponsor rows as blockers in both preflight and reservation', async () => {
+  const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.equal((source.match(/sponsor_organization_reference IS NULL\\s+OR sponsor_agreement_reference IS NULL\\s+OR sponsor_agreement_budget_base_units IS NULL/g) || []).length, 2)
+  assert.equal((source.match(/OR sponsor_organization_reference IS NULL\\s+OR sponsor_agreement_reference IS NULL/g) || []).length, 2)
 })
 
 test('sponsor agreement principal cap cannot silently change after the first reservation', () => {

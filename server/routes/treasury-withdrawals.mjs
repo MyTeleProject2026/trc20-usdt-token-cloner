@@ -977,13 +977,18 @@ export function createTreasuryWithdrawalsRouter({
           db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount,
                    MIN(sponsor_agreement_budget_base_units)::text AS min_budget_cap,
                    MAX(sponsor_agreement_budget_base_units)::text AS max_budget_cap,
-                   COUNT(*) FILTER (WHERE sponsor_organization_reference=$2
-                     AND sponsor_agreement_reference=$3
-                     AND sponsor_agreement_budget_base_units IS NULL)::text AS unpinned_agreement_rows
+                   COUNT(*) FILTER (
+                     WHERE sponsor_organization_reference IS NULL
+                        OR sponsor_agreement_reference IS NULL
+                        OR sponsor_agreement_budget_base_units IS NULL
+                   )::text AS unpinned_agreement_rows
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1
-              AND ((sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
-                OR (sponsor_organization_reference IS NULL AND sponsor_agreement_reference IS NULL))
+              AND (
+                (sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
+                OR sponsor_organization_reference IS NULL
+                OR sponsor_agreement_reference IS NULL
+              )
               AND status NOT IN ('rejected','failed')`,
           [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
         ])
@@ -1270,13 +1275,18 @@ export function createTreasuryWithdrawalsRouter({
             SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount,
                    MIN(sponsor_agreement_budget_base_units)::text AS min_budget_cap,
                    MAX(sponsor_agreement_budget_base_units)::text AS max_budget_cap,
-                   COUNT(*) FILTER (WHERE sponsor_organization_reference=$2
-                     AND sponsor_agreement_reference=$3
-                     AND sponsor_agreement_budget_base_units IS NULL)::text AS unpinned_agreement_rows
+                   COUNT(*) FILTER (
+                     WHERE sponsor_organization_reference IS NULL
+                        OR sponsor_agreement_reference IS NULL
+                        OR sponsor_agreement_budget_base_units IS NULL
+                   )::text AS unpinned_agreement_rows
               FROM trc20_token_clone.treasury_withdrawal_requests
              WHERE treasury_address=$1
-               AND ((sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
-                 OR (sponsor_organization_reference IS NULL AND sponsor_agreement_reference IS NULL))
+               AND (
+                 (sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
+                 OR sponsor_organization_reference IS NULL
+                 OR sponsor_agreement_reference IS NULL
+               )
                AND status NOT IN ('rejected','failed')
           `, [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
         ])
