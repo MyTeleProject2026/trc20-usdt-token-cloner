@@ -83,14 +83,14 @@ export default function ThirdPartyFundingPanel({
     return payload
   }, [apiBase, sessionToken])
 
-  const loadAuthorizations = useCallback(async () => {
+  const loadAuthorizations = useCallback(async (preferredId = '') => {
     setBusy('load')
     setError('')
     try {
       const payload = await request('/authorizations')
       const list = Array.isArray(payload.authorizations) ? payload.authorizations as FundingAuthorization[] : []
-      const nextId = list.some(item => item.authorizationId === selectedId)
-        ? selectedId : list[0]?.authorizationId || ''
+      const nextId = list.some(item => item.authorizationId === preferredId)
+        ? preferredId : list[0]?.authorizationId || ''
       let enriched = list
       if (nextId) {
         try {
@@ -119,10 +119,14 @@ export default function ThirdPartyFundingPanel({
       setNotice('')
       return
     }
-    void loadAuthorizations()
+    void loadAuthorizations(selectedId)
   }, [sessionToken, loadAuthorizations])
 
   const selected = authorizations.find(item => item.authorizationId === selectedId) || null
+  const inventoryCheckedMs = inventoryCheckedAt ? Date.parse(inventoryCheckedAt) : Number.NaN
+  const inventoryFresh = inventoryVerified && Number.isFinite(inventoryCheckedMs)
+    && inventoryCheckedMs <= Date.now() + 60_000
+    && Date.now() - inventoryCheckedMs <= 6 * 60 * 60 * 1000
 
   async function registerAuthorization() {
     setBusy('register')
@@ -143,7 +147,7 @@ export default function ThirdPartyFundingPanel({
       setManifestText('')
       setAgreementAcknowledged(false)
       setNotice('Signed incoming-deposit consent recorded. It does not authorize a withdrawal or prove that funds were deposited.')
-      await loadAuthorizations()
+      await loadAuthorizations(String(payload.authorizationId || ''))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not register the funding authorization.')
     } finally {
@@ -169,7 +173,7 @@ export default function ThirdPartyFundingPanel({
         ? 'The transaction is not solidified yet. No deposit was recorded.'
         : 'Solidified chain evidence recorded. Run the manual Fireblocks read-only inventory workflow again, then reconcile the new snapshot below.')
       if (payload.success === true) setTransactionHash('')
-      await loadAuthorizations()
+      await loadAuthorizations(selectedId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Chain deposit verification failed.')
     } finally {
@@ -197,7 +201,7 @@ export default function ThirdPartyFundingPanel({
       })
       setNotice('Deposit reconciled against verified Fireblocks and TRON inventory. This is not payout authorization.')
       setTransactionHash('')
-      await loadAuthorizations()
+      await loadAuthorizations(selectedId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Fireblocks inventory reconciliation failed.')
     } finally {
@@ -215,7 +219,7 @@ export default function ThirdPartyFundingPanel({
     try {
       await request('/authorizations/' + encodeURIComponent(selectedId) + '/revoke', 'POST', {})
       setNotice('Funding authorization revoked and recorded in the audit ledger.')
-      await loadAuthorizations()
+      await loadAuthorizations(selectedId)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Authorization revocation failed.')
     } finally {
@@ -244,7 +248,7 @@ export default function ThirdPartyFundingPanel({
         <div className="wallet-vault-review-grid">
           <div>
             <small>Current Fireblocks inventory</small>
-            <strong>{inventoryVerified ? 'Verified read-only snapshot' : 'No verified snapshot available'}</strong>
+            <strong>{inventoryFresh ? 'Fresh verified read-only snapshot' : inventoryVerified ? 'Verified but stale / timestamp invalid' : 'No verified snapshot available'}</strong>
           </div>
           <div>
             <small>Inventory checked</small>
@@ -285,18 +289,18 @@ export default function ThirdPartyFundingPanel({
           <button
             type="button"
             className="wallet-vault-primary"
-            disabled={busy !== '' || !manifestText.trim() || !agreementAcknowledged || !inventoryVerified}
+            disabled={busy !== '' || !manifestText.trim() || !agreementAcknowledged || !inventoryFresh}
             onClick={() => void registerAuthorization()}
           >
             <FileCheck2 size={16} /> {busy === 'register' ? 'Verifying and registering…' : 'Verify signed consent & register'}
           </button>
-          {!inventoryVerified && <p className="wallet-vault-risk-note">Registration is blocked until the backend has a recent verified Fireblocks inventory snapshot for the configured vault.</p>}
+          {!inventoryFresh && <p className="wallet-vault-risk-note">Registration is blocked until the backend has a fresh (six-hour maximum) verified Fireblocks inventory snapshot for the configured vault.</p>}
         </div>
 
         <div className="wallet-vault-form">
           <div className="wallet-vault-section-title">
             <div><h4>Registered authorizations</h4><p>Only records saved in the backend ledger appear here.</p></div>
-            <button type="button" className="wallet-vault-secondary" disabled={busy !== ''} onClick={() => void loadAuthorizations()}>
+            <button type="button" className="wallet-vault-secondary" disabled={busy !== ''} onClick={() => void loadAuthorizations(selectedId)}>
               <RefreshCw size={15} /> {busy === 'load' ? 'Loading…' : 'Refresh'}
             </button>
           </div>
@@ -368,7 +372,7 @@ export default function ThirdPartyFundingPanel({
             <button type="button" className="wallet-vault-primary" disabled={busy !== '' || !transactionHash.trim() || selected.status === 'revoked'} onClick={() => void recordChainDeposit()}>
               {busy === 'chain' ? 'Checking solidified chain evidence…' : 'Verify incoming chain deposit'}
             </button>
-            <button type="button" className="wallet-vault-secondary" disabled={busy !== '' || !transactionHash.trim() || !inventoryVerified || selected.status === 'revoked'} onClick={() => void reconcileFireblocks()}>
+            <button type="button" className="wallet-vault-secondary" disabled={busy !== '' || (!transactionHash.trim() && !selected.deposits?.some(item => item.asset === asset && !item.fireblocksVerifiedAt)) || !inventoryFresh || selected.status === 'revoked'} onClick={() => void reconcileFireblocks()}>
               {busy === 'fireblocks' ? 'Checking Fireblocks inventory…' : 'Reconcile latest Fireblocks inventory'}
             </button>
           </div>
