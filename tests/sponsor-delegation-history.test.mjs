@@ -59,11 +59,12 @@ function block(height, parentHash, timestamp, transactions = []) {
   }
 }
 
-function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256 } = {}) {
+function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256, totalTimeoutMs = 90_000, fetchDelayMs = 0 } = {}) {
   const calls = []
   const verifier = createSponsorDelegationHistoryVerifier({
     env: { TATUM_API_KEY: 'test-only-provider-key' },
     maxBlockSpan,
+    totalTimeoutMs,
     tronWebFactory: async () => ({
       isAddress: (value) => [feeSponsor, principal, receiver].includes(value),
       address: { toHex: (value) => ({
@@ -73,6 +74,7 @@ function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256 } = 
       })[value] || '' },
     }),
     fetchImpl: async (url, options) => {
+      if (fetchDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, fetchDelayMs))
       calls.push({ url, body: JSON.parse(options.body) })
       const number = JSON.parse(options.body).num
       const sourceBlocks = url.includes('nile.trongrid.io') ? secondaryBlocks : blocks
@@ -235,4 +237,18 @@ test('solidified history replay rejects an interval above its bounded scan maxim
   const result = await run(verifier)
   assert.equal(result.success, false)
   assert.equal(result.reason, 'historical-delegation-block-span-exceeds-limit')
+})
+
+
+test('solidified history replay enforces a total scan deadline across multiple blocks', async () => {
+  const { verifier } = verifierFor({
+    blocks: standardBlocks(),
+    totalTimeoutMs: 1,
+    fetchDelayMs: 5,
+  })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.verified, false)
+  assert.equal(result.reason, 'historical-delegation-scan-deadline-exceeded')
+  assert.equal(result.totalTimeoutMs, 1)
 })
