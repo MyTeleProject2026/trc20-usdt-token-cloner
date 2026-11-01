@@ -76,10 +76,12 @@ function verifierFor({ blocks, secondaryBlocks = blocks, decodedTransactions = {
       for (const candidateBlock of allBlocks) {
         for (const candidateTransaction of candidateBlock?.transactions || []) {
           if (candidateTransaction.raw_data_hex && candidateTransaction.raw_data?.contract?.[0]) {
-            decodedByRawData.set(
-              candidateTransaction.raw_data_hex,
-              decodedTransactions[candidateTransaction.raw_data_hex] || candidateTransaction.raw_data.contract[0],
-            )
+            if (!decodedByRawData.has(candidateTransaction.raw_data_hex)) {
+              decodedByRawData.set(
+                candidateTransaction.raw_data_hex,
+                decodedTransactions[candidateTransaction.raw_data_hex] || candidateTransaction.raw_data.contract[0],
+              )
+            }
           }
         }
       }
@@ -209,7 +211,8 @@ test('solidified history replay rejects decoded contract payload disagreement be
   const { verifier } = verifierFor({ blocks: primary, secondaryBlocks: secondary })
   const result = await run(verifier)
   assert.equal(result.success, false)
-  assert.equal(result.reason, 'historical-delegation-secondary-provider-disagreement')
+  assert.equal(result.reason, 'historical-delegation-transaction-data-invalid')
+  assert.equal(result.proofReason, 'transaction-json-does-not-match-raw-data-protobuf')
   assert.equal(result.failedBlockNumber, 101)
 })
 
