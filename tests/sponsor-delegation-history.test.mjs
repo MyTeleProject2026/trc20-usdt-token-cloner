@@ -332,7 +332,7 @@ test('solidified history replay also requires a locally recomputed active-SR DPo
   const witnesses = {
     witnesses: Array.from({ length: 27 }, (_, index) => ({
       address: '41' + (index + 1).toString(16).padStart(40, '0'),
-      latestBlockNum: index < 8 ? 100 : 200,
+      latestBlockNum: index < 9 ? 100 : 200,
       isJobs: true,
     })),
   }

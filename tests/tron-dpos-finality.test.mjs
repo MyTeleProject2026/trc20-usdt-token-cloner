@@ -46,7 +46,7 @@ test('uses the lower latestBlockNum from both providers for each active SR', () 
 })
 
 test('rejects a target above the recomputed 19-of-27 witness solidified height', () => {
-  const heights = Array.from({ length: 27 }, (_, index) => index < 8 ? 100 : 200)
+  const heights = Array.from({ length: 27 }, (_, index) => index < 9 ? 100 : 200)
   const list = witnessList({ heights })
   const result = verifyTronDposSolidification({
     primaryWitnessList: list,
