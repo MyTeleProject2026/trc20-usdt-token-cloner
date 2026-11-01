@@ -14,6 +14,7 @@ import {
 import {
   buildThirdPartyFundingAuthorizationMessage,
   verifyThirdPartyFundingAuthorization,
+  THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT,
   OFFICIAL_TRON_MAINNET_USDT,
 } from '../../src/third-party-funding-authorization.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
@@ -316,6 +317,11 @@ export function createThirdPartyFundingRouter({
       || !body.manifest || typeof body.manifest !== 'object' || Array.isArray(body.manifest)) {
       return res.status(400).json({ success: false, error: 'written-agreement-review-acknowledgement-required' })
     }
+    if (body.manifest.format !== THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+      || typeof body.manifest.agreementDocumentSha256 !== 'string'
+      || !/^[0-9a-f]{64}$/.test(body.manifest.agreementDocumentSha256)) {
+      return res.status(400).json({ success: false, error: 'agreement-document-hash-v2-required' })
+    }
     const vaultAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
     if (!isValidTronAddress(vaultAddress) || env.TREASURY_SIGNER_MODE !== 'fireblocks') {
       return res.status(503).json({ success: false, error: 'configured-fireblocks-treasury-not-ready' })
@@ -345,6 +351,7 @@ export function createThirdPartyFundingRouter({
       maxUsdtBaseUnits: manifest.maxUsdtBaseUnits,
       maxTrxSun: manifest.maxTrxSun,
       agreementReference: manifest.agreementReference,
+      agreementDocumentSha256: manifest.agreementDocumentSha256,
       agreementReviewedBy: auth.ownerAddress,
       agreementReviewedAt: new Date(now()),
       signature: manifest.signature,
@@ -364,6 +371,7 @@ export function createThirdPartyFundingRouter({
       signerAddress: manifest.sponsorAddress,
       treasuryAddress: vaultAddress,
       agreementReference: manifest.agreementReference,
+      agreementDocumentSha256: manifest.agreementDocumentSha256,
       authorizationScope: 'incoming-deposit-only',
       legalAuthorityIndependentlyVerified: false,
       payoutExecutionAuthorized: false,
