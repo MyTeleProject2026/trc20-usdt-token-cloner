@@ -3247,7 +3247,7 @@ export async function getLatestFireblocksInventorySnapshot() {
               repository, branch, lower(commit_sha) AS commit_sha,
               verification_status, checks, balances, configuration, reasons,
               checked_at
-         FROM \${schema}.fireblocks_inventory_snapshots
+         FROM ${schema}.fireblocks_inventory_snapshots
         WHERE repository = $1 AND branch = 'main'
         ORDER BY checked_at DESC, id DESC
         LIMIT 1`,
