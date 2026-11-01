@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -37,6 +37,7 @@ test('USDT payout configuration fails closed without a separately identified nat
     TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
     TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
     TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    TREASURY_ALLOWED_RECIPIENT_ADDRESSES: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp,TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
     SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     TREASURY_FEE_LIMIT_SUN: '50000000',
     TREASURY_WITHDRAWALS_ENABLED: 'true',
@@ -107,8 +108,8 @@ test('USDT decimal parser converts exact six-decimal amounts to base units', () 
 
 test('principal budget SQL counts legacy and partially unpinned sponsor rows as blockers in both preflight and reservation', async () => {
   const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
-  assert.equal((source.match(/sponsor_organization_reference IS NULL\\s+OR sponsor_agreement_reference IS NULL\\s+OR sponsor_agreement_budget_base_units IS NULL/g) || []).length, 2)
-  assert.equal((source.match(/OR sponsor_organization_reference IS NULL\\s+OR sponsor_agreement_reference IS NULL/g) || []).length, 2)
+  assert.equal(source.split('sponsor_agreement_budget_base_units IS NULL').length - 1, 2)
+  assert.equal(source.split('OR sponsor_agreement_reference IS NULL').length - 1, 2)
 })
 
 test('sponsor agreement principal cap cannot silently change after the first reservation', () => {
@@ -154,6 +155,7 @@ test('USDT sponsor configuration requires a traceable organization, agreement an
     TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
     TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
     TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    TREASURY_ALLOWED_RECIPIENT_ADDRESSES: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp,TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
     SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     TREASURY_FEE_LIMIT_SUN: '50000000',
     TREASURY_SIGNER_MODE: 'fireblocks',
@@ -179,6 +181,55 @@ test('USDT sponsor configuration requires a traceable organization, agreement an
   assert.equal(treasuryUsdtConfiguration({
     ...base, TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '5',
   }).configurationComplete, false, 'aggregate sponsor cap must cover both the per-payout and daily caps')
+})
+
+test('USDT principal-sponsor destination allowlist validates Base58Check addresses and rejects unapproved recipients', () => {
+  const first = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const second = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+  const parsed = parseTreasuryRecipientAllowlist(first + ', ' + second)
+  assert.equal(parsed.valid, true)
+  assert.deepEqual(parsed.addresses, [first, second])
+  assert.equal(isTreasuryRecipientAllowed(first, parsed.addresses), true)
+  assert.equal(isTreasuryRecipientAllowed(first.toLowerCase(), parsed.addresses), false)
+  assert.equal(isTreasuryRecipientAllowed('TJRabPrwbZy45sbavfcjinPJC18kjpRTv8', parsed.addresses), false)
+  assert.equal(parseTreasuryRecipientAllowlist('').valid, false)
+  assert.equal(parseTreasuryRecipientAllowlist(first + ',' + first).valid, false)
+  assert.equal(parseTreasuryRecipientAllowlist(first + ',invalid').valid, false)
+  assert.equal(parseTreasuryRecipientAllowlist(first.slice(0, -1) + '3').valid, false)
+  assert.equal(parseTreasuryRecipientAllowlist(Array(101).fill(first).join(',')).valid, false)
+  assert.equal(parseTreasuryRecipientAllowlist('x'.repeat(8193)).valid, false)
+})
+
+test('USDT configuration blocks missing or malformed sponsor-approved recipient destinations', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  const base = {
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
+    TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
+    TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/etc/secrets/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: 'TRON_USDT',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+  }
+  assert.equal(treasuryUsdtConfiguration({
+    ...base, TREASURY_ALLOWED_RECIPIENT_ADDRESSES: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+  }).configurationComplete, true)
+  assert.equal(treasuryUsdtConfiguration({
+    ...base, TREASURY_ALLOWED_RECIPIENT_ADDRESSES: '',
+  }).configurationComplete, false)
+  assert.equal(treasuryUsdtConfiguration({
+    ...base, TREASURY_ALLOWED_RECIPIENT_ADDRESSES: 'TAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  }).configurationComplete, false)
 })
 
 test('USDT decimal parser rejects zero, excess precision, exponent notation and malformed input', () => {

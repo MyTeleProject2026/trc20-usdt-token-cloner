@@ -66,6 +66,7 @@ The managed USDT route expects:
 - Fireblocks' own transaction policy configured to require appropriate authorization/approval, with separate destination and spending controls.
 - A written, separately signed third-party treasury sponsorship agreement, identified by TREASURY_SPONSOR_ORGANIZATION_REFERENCE and TREASURY_SPONSOR_AGREEMENT_REFERENCE, and an exact `SPONSOR_APPROVED_AGREEMENT_REFERENCES` entry matching the organization reference, `mainnet`, the verified Fireblocks vault address, `asset-grant`, `USDT`, and the official Tether contract.
 - TREASURY_SPONSOR_TOTAL_BUDGET_USDT records the agreement's total USDT principal commitment. It is enforced against confirmed payouts plus unresolved reservations, independently of the per-payout and daily caps.
+- `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` is a comma-separated list of 1–100 unique, checksum-valid TRON Base58Check addresses. The application rejects any withdrawal to an address outside this list before it reserves principal or calls Fireblocks. The sponsor organization must approve destinations through its own policy; the application list is an additional guard, not a substitute for Fireblocks destination policy.
 
 The code uses a provider transaction ID and `externalTxId` to reconcile ambiguous submissions. It does not treat provider acceptance as chain confirmation. No Mainnet payout is considered confirmed until the independent verifier validates the real transaction, sender, recipient, amount, official USDT contract, successful solidified receipt, and Transfer event.
 

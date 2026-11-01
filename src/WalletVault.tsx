@@ -1299,6 +1299,7 @@ export default function WalletVault() {
       'TREASURY_SPONSOR_ORGANIZATION_REFERENCE=<executed-sponsor-organization-reference>',
       'TREASURY_SPONSOR_AGREEMENT_REFERENCE=<executed-sponsor-agreement-reference>',
       'TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>',
+      'TREASURY_ALLOWED_RECIPIENT_ADDRESSES=<comma-separated-sponsor-approved-tron-destinations>',
       'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
       'TREASURY_WITHDRAWALS_ENABLED=false',
       'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
@@ -1647,6 +1648,10 @@ export default function WalletVault() {
           <div>
             <small>Exact Mainnet USDT sponsor agreement scope</small>
             <strong>{serverTreasuryReadiness?.configuration?.sponsorAgreementScopeApproved === true ? 'Exact allowlist match passed' : 'Missing or mismatched — payouts blocked'}</strong>
+          </div>
+          <div>
+            <small>Principal sponsor destination allowlist</small>
+            <strong>{serverTreasuryReadiness?.configuration?.recipientAllowlistValid === true ? (serverTreasuryReadiness?.configuration?.recipientAllowlistCount || 0) + ' approved destinations' : 'Missing or invalid — payouts blocked'}</strong>
           </div>
           <div>
             <small>Stored principal commitment cap</small>

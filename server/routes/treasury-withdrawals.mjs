@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { Router } from 'express'
 import pg from 'pg'
 import { TronWeb } from 'tronweb'
+import { isValidTronAddress } from '../tron-address.mjs'
 import {
   createFireblocksClient,
   fireblocksConfiguration,
@@ -37,6 +38,28 @@ const UINT256_MAX = (1n << 256n) - 1n
  * Require the console's only permitted owner and the payout authorizer to be
  * the exact same TRON address. This prevents an accidental split-owner setup.
  */
+export function parseTreasuryRecipientAllowlist(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 8192) {
+    return { valid: false, addresses: [], reason: 'recipient-allowlist-not-configured' }
+  }
+  const entries = value.split(',').map((entry) => entry.trim())
+  if (entries.length < 1 || entries.length > 100
+    || entries.some((entry) => !entry || !isValidTronAddress(entry))) {
+    return { valid: false, addresses: [], reason: 'recipient-allowlist-invalid' }
+  }
+  const addresses = [...new Set(entries)]
+  if (addresses.length !== entries.length) {
+    return { valid: false, addresses: [], reason: 'recipient-allowlist-contains-duplicates' }
+  }
+  return { valid: true, addresses, reason: null }
+}
+
+export function isTreasuryRecipientAllowed(recipientAddress, allowlist) {
+  return typeof recipientAddress === 'string'
+    && Array.isArray(allowlist)
+    && allowlist.includes(recipientAddress)
+}
+
 export function isUnifiedTreasuryOwnerConfiguration(env = process.env) {
   const consoleOwner = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
   const treasuryOwner = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
@@ -496,6 +519,7 @@ export function treasuryUsdtConfiguration(env = process.env) {
     'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
     'TREASURY_SPONSOR_ORGANIZATION_REFERENCE', 'TREASURY_SPONSOR_AGREEMENT_REFERENCE',
     'TREASURY_SPONSOR_TOTAL_BUDGET_USDT',
+    'TREASURY_ALLOWED_RECIPIENT_ADDRESSES',
     'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
   ]
   const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
@@ -504,6 +528,8 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
   const sponsorTotalBudget = readLimit(env.TREASURY_SPONSOR_TOTAL_BUDGET_USDT)
+  const recipientAllowlist = parseTreasuryRecipientAllowlist(env.TREASURY_ALLOWED_RECIPIENT_ADDRESSES)
+  if (!recipientAllowlist.valid) missing.push('TREASURY_ALLOWED_RECIPIENT_ADDRESSES (1-100 unique TRON Base58Check addresses required)')
   const sponsorOrganizationReference = typeof env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE === 'string'
     ? env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE.trim() : ''
   const sponsorAgreementReference = typeof env.TREASURY_SPONSOR_AGREEMENT_REFERENCE === 'string'
@@ -551,6 +577,9 @@ export function treasuryUsdtConfiguration(env = process.env) {
     sponsorOrganizationReference: sponsorOrganizationPattern.test(sponsorOrganizationReference) ? sponsorOrganizationReference : null,
     sponsorAgreementReference: sponsorAgreementPattern.test(sponsorAgreementReference) && sponsorAgreementScopeApproved ? sponsorAgreementReference : null,
     sponsorAgreementScopeApproved,
+    recipientAllowlistValid: recipientAllowlist.valid,
+    recipientAllowlistCount: recipientAllowlist.addresses.length,
+    allowedRecipientAddresses: recipientAllowlist.addresses,
     sponsorTotalBudgetBaseUnits: sponsorTotalBudget === null ? null : sponsorTotalBudget.toString(),
     signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
     providerConfigured: provider.configured,
@@ -1038,6 +1067,8 @@ export function createTreasuryWithdrawalsRouter({
         configurationComplete: config.configurationComplete,
         featureFlagEnabled: config.featureFlagEnabled,
         sponsorAgreementScopeApproved: config.sponsorAgreementScopeApproved,
+        recipientAllowlistValid: config.recipientAllowlistValid,
+        recipientAllowlistCount: config.recipientAllowlistCount,
         missing: config.missing,
         signerMode: config.signerMode,
         providerConfigured: config.providerConfigured,
@@ -1109,6 +1140,13 @@ export function createTreasuryWithdrawalsRouter({
       || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.ownerAuthorizationSignature)
       || !Number.isSafeInteger(body.authorizationExpiresAt)) {
       return res.status(400).json({ success: false, error: 'invalid-withdrawal-request' })
+    }
+    if (!isTreasuryRecipientAllowed(body.recipientAddress, config.allowedRecipientAddresses)) {
+      return res.status(403).json({
+        success: false,
+        error: 'treasury-recipient-not-allowlisted',
+        message: 'The principal sponsor has not approved this destination in the configured treasury allowlist. No withdrawal reservation or Fireblocks transfer was created.',
+      })
     }
     const clockValue = now()
     const currentTimeMs = clockValue instanceof Date ? clockValue.getTime() : Number(clockValue)
