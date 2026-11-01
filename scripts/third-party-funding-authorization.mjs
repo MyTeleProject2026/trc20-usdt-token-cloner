@@ -20,21 +20,22 @@ export async function runThirdPartyFundingAuthorizationCli(args = process.argv.s
     throw new TypeError('Usage: node scripts/third-party-funding-authorization.mjs <message|verify> <manifest.json>')
   }
   const manifest = await loadManifest(manifestPath)
+  const expectedVaultAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+  if (!expectedVaultAddress || manifest?.vaultAddress !== expectedVaultAddress) {
+    process.stdout.write(JSON.stringify({
+      success: false,
+      verified: false,
+      reason: !expectedVaultAddress
+        ? 'TREASURY_ADDRESS-must-be-set-to-the-real-Fireblocks-vault-address'
+        : 'manifest-vault-does-not-match-configured-TREASURY_ADDRESS',
+      payoutExecutionAuthorized: false,
+    }, null, 2) + '\n')
+    return { success: false, verified: false }
+  }
 
   if (command === 'message') {
     process.stdout.write(buildThirdPartyFundingAuthorizationMessage(manifest) + '\n')
     return { success: true, command: 'message' }
-  }
-
-  const expectedVaultAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
-  if (!expectedVaultAddress) {
-    process.stdout.write(JSON.stringify({
-      success: false,
-      verified: false,
-      reason: 'TREASURY_ADDRESS-must-be-set-to-the-real-Fireblocks-vault-address',
-      payoutExecutionAuthorized: false,
-    }, null, 2) + '\n')
-    return { success: false, verified: false }
   }
 
   const result = await verifyThirdPartyFundingAuthorization(manifest, { expectedVaultAddress })
