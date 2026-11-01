@@ -20,6 +20,8 @@ type FundingAuthorization = {
   vaultAddress: string
   agreementReference: string
   agreementDocumentSha256?: string | null
+  withdrawalDisbursementAcknowledged?: boolean
+  withdrawalDisbursementReviewedAt?: string | null
   maxUsdtBaseUnits?: string
   maxTrxSun?: string
   issuedAt: string
@@ -54,6 +56,7 @@ export default function ThirdPartyFundingPanel({
   const [selectedId, setSelectedId] = useState('')
   const [manifestText, setManifestText] = useState('')
   const [agreementAcknowledged, setAgreementAcknowledged] = useState(false)
+  const [withdrawalDisbursementAcknowledged, setWithdrawalDisbursementAcknowledged] = useState(false)
   const [asset, setAsset] = useState<'USDT' | 'TRX'>('USDT')
   const [transactionHash, setTransactionHash] = useState('')
   const [busy, setBusy] = useState('')
@@ -162,11 +165,13 @@ export default function ThirdPartyFundingPanel({
       const payload = await request('/authorizations', 'POST', {
         manifest,
         agreementReviewAcknowledged: agreementAcknowledged,
+        withdrawalDisbursementAcknowledged,
       })
       setSelectedId(String(payload.authorizationId || ''))
       setManifestText('')
       setAgreementAcknowledged(false)
-      setNotice('Signed incoming-deposit consent recorded. It does not authorize a withdrawal or prove that funds were deposited.')
+      setWithdrawalDisbursementAcknowledged(false)
+      setNotice('Signed consent and the owner-reviewed outgoing-use mandate were recorded. This does not independently prove legal authority, deposited funds, or payout authorization.')
       await loadAuthorizations(String(payload.authorizationId || ''))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not register the funding authorization.')
@@ -305,12 +310,21 @@ export default function ThirdPartyFundingPanel({
               checked={agreementAcknowledged}
               onChange={event => setAgreementAcknowledged(event.target.checked)}
             />
-            I have reviewed this exact agreement version and separately verified the source signatory's authority outside this application.
+            I have reviewed this exact executed agreement version and separately verified the source signatory's authority outside this application.
+          </label>
+          <label className="wallet-vault-check-row" htmlFor="third-party-funding-disbursement">
+            <input
+              id="third-party-funding-disbursement"
+              type="checkbox"
+              checked={withdrawalDisbursementAcknowledged}
+              onChange={event => setWithdrawalDisbursementAcknowledged(event.target.checked)}
+            />
+            I confirm this executed agreement expressly permits the Fireblocks-held third-party USDT to fund external recipient withdrawals, including its principal, limits, fee responsibilities, duration and approval conditions.
           </label>
           <button
             type="button"
             className="wallet-vault-primary"
-            disabled={busy !== '' || !manifestText.trim() || !agreementAcknowledged || !inventoryFresh}
+            disabled={busy !== '' || !manifestText.trim() || !agreementAcknowledged || !withdrawalDisbursementAcknowledged || !inventoryFresh}
             onClick={() => void registerAuthorization()}
           >
             <FileCheck2 size={16} /> {busy === 'register' ? 'Verifying and registering…' : 'Verify signed consent & register'}
@@ -356,6 +370,7 @@ export default function ThirdPartyFundingPanel({
             <div><small>Maximum USDT principal</small><strong>{selected.maxUsdtBaseUnits ? prettyUnits(selected.maxUsdtBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
             <div><small>Maximum TRX</small><strong>{selected.maxTrxSun ? prettyUnits(selected.maxTrxSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
             <div><small>Status</small><strong>{selected.status}</strong></div>
+            <div><small>Outgoing use review</small><strong>{selected.withdrawalDisbursementAcknowledged ? 'Owner review recorded' : 'Not approved for withdrawals'}</strong></div>
             <div><small>Expires</small><strong>{new Date(selected.expiresAt).toLocaleString()}</strong></div>
           </div>
           <h4>Recorded deposit evidence</h4>
