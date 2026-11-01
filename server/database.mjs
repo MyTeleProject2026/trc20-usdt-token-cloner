@@ -3693,13 +3693,36 @@ export async function markThirdPartyFundingDepositFireblocksVerified(input = {})
       `UPDATE ${schema}.third_party_funding_deposits AS d
           SET fireblocks_verified_at=now(), fireblocks_snapshot_id=$6,
               fireblocks_vault_account_id=$7, fireblocks_checked_at=$8
-         FROM ${schema}.third_party_funding_authorizations AS a
+         FROM ${schema}.third_party_funding_authorizations AS a,
+              ${schema}.fireblocks_inventory_snapshots AS s
         WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
           AND a.authorization_id=d.authorization_id AND a.vault_address=$4
           AND d.recipient_address=$4 AND d.amount_base_units <= $5::numeric
           AND d.amount_base_units <= $9::numeric
           AND d.chain_verified_at <= $8::timestamptz
           AND d.fireblocks_verified_at IS NULL
+          AND s.id=$6::bigint
+          AND s.repository='MyTeleProject2026/trc20-usdt-token-cloner'
+          AND s.branch='main' AND s.verification_status='verified'
+          AND s.treasury_address=$4 AND s.vault_account_id=$7
+          AND s.checked_at=$8::timestamptz
+          AND s.checked_at <= now() + interval '1 minute'
+          AND s.checked_at > now() - interval '6 hours'
+          AND s.checks @> '{
+            "fireblocksApiAuthenticated": true,
+            "vaultAccountVerified": true,
+            "usdtAssetActivated": true,
+            "officialUsdtAssetVerified": true,
+            "usdtAddressMatches": true,
+            "trxAssetActivated": true,
+            "nativeTrxAssetVerified": true,
+            "trxAddressMatches": true,
+            "officialUsdtChainVerified": true,
+            "treasuryTrxChainBalanceRead": true,
+            "databaseReady": true
+          }'::jsonb
+          AND s.balances->>(CASE WHEN $2='USDT' THEN 'fireblocksUsdtAvailableBaseUnits' ELSE 'fireblocksTrxAvailableBaseUnits' END)=$5::text
+          AND s.balances->>(CASE WHEN $2='USDT' THEN 'chainUsdtBalanceBaseUnits' ELSE 'chainTrxBalanceSun' END)=$9::text
         RETURNING d.authorization_id`,
       [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
        availableBalanceBaseUnits, snapshotId, vaultAccountId, checked, chainBalanceBaseUnits],
