@@ -282,6 +282,7 @@ export function createSponsorDelegationHistoryVerifier({
         if (secondaryProof?.verified !== true) {
           return { proofFailure: 'secondary', proofReason: secondaryProof?.reason || 'block-proof-unavailable' }
         }
+        if (!Array.isArray(primary?.transactions) || !Array.isArray(secondary?.transactions)) return null
         let primaryDecodedContracts
         let secondaryDecodedContracts
         try {

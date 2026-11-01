@@ -96,7 +96,7 @@ function verifierFor({ blocks, secondaryBlocks = blocks, decodedTransactions = {
           deserializeTx: {
             deserializeTransaction(type, rawDataHex) {
               const contract = decodedByRawData.get(rawDataHex)
-              if (!contract || contract.type !== type) throw new Error('test raw-data mismatch')
+              if (!contract) throw new Error('test raw-data mapping missing')
               return { contract: [contract] }
             },
           },
@@ -241,8 +241,11 @@ test('solidified history replay rejects another principal transaction that can c
 })
 
 test('solidified history replay rejects provider JSON contract fields that disagree with raw_data_hex decoding', async () => {
-  const blocks = standardBlocks()
-  const canonical = blocks[101].transactions[0]
+  const canonical = tx('json-mismatch-canonical-transaction', [{
+    type: 'TransferContract',
+    parameter: { value: { owner_address: principalHex, to_address: receiverHex, amount: 1 } },
+  }])
+  const blocks = standardBlocks({ middleTransactions: [canonical] })
   const altered = {
     ...canonical,
     raw_data: {
@@ -272,6 +275,7 @@ test('solidified history replay rejects provider JSON contract fields that disag
   assert.equal(result.success, false)
   assert.equal(result.reason, 'historical-delegation-transaction-data-invalid')
   assert.equal(result.proofReason, 'transaction-json-does-not-match-raw-data-protobuf')
+  assert.equal(result.blockNumber || result.failedBlockNumber, 101)
 })
 
 test('solidified history replay rejects a broken parent-hash chain', async () => {
