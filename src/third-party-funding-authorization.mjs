@@ -171,7 +171,7 @@ export async function verifyThirdPartyFundingAuthorization(manifest, {
   return {
     verified: true,
     authorization: {
-      format: THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT,
+      format: manifest.format,
       authorizationId: manifest.authorizationId,
       network: 'mainnet',
       sponsorAddress: manifest.sponsorAddress,
