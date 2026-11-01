@@ -112,12 +112,17 @@ export function createSponsorResourceDelegationVerifier({
       const value = contract?.parameter?.value
       const amount = numericText(value?.balance)
       const returnedResource = normalizeResource(value?.resource)
-      const receiptFailed = String(info.result || '').toUpperCase() === 'FAILED'
-        || String(info.receipt?.result || '').toUpperCase() === 'FAILED'
+      const topLevelResult = typeof info.result === 'string' ? info.result.toUpperCase() : null
+      const receiptResult = typeof info.receipt?.result === 'string' ? info.receipt.result.toUpperCase() : null
+      const receiptFailed = topLevelResult === 'FAILED' || receiptResult === 'FAILED'
+      const topLevelResultAcceptable = topLevelResult === null
+        || ['SUCCESS', 'SUCESS'].includes(topLevelResult)
+      const receiptResultAcceptable = receiptResult === null || receiptResult === 'SUCCESS'
       const executionSucceeded = Array.isArray(transaction.ret)
         && transaction.ret.length === 1
         && transaction.ret[0]?.contractRet === 'SUCCESS'
-        && String(info.result || '').toUpperCase() === 'SUCCESS'
+        && topLevelResultAcceptable
+        && receiptResultAcceptable
       const exactTransaction = normalizeAddress(tronWeb, value?.owner_address) === expectedOwner
         && normalizeAddress(tronWeb, value?.receiver_address) === expectedReceiver
         && amount === stakeEquivalentSun
@@ -145,7 +150,10 @@ export function createSponsorResourceDelegationVerifier({
           || normalizeAddress(tronWeb, row?.to) !== expectedReceiver) continue
         matchingDelegationRows += 1
         const amountText = numericText(row?.[balanceKey])
-        const expiry = row?.[expiryKey]
+        const expiryValue = row?.[expiryKey]
+        const expiry = typeof expiryValue === 'number' ? expiryValue
+          : typeof expiryValue === 'string' && INTEGER_PATTERN.test(expiryValue)
+            ? Number(expiryValue) : Number.NaN
         if (amountText === null || !Number.isSafeInteger(expiry) || expiry < 0) {
           return fail('delegation-state-unavailable', 'delegation-resource-or-expiry-invalid', {
             transactionId: transactionId.toLowerCase(),
