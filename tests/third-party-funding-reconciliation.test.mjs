@@ -446,7 +446,11 @@ test('new registrations reject legacy v1 consent before checking treasury invent
     const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
       method: 'POST',
       headers: { ...ownerHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ manifest: legacy, agreementReviewAcknowledged: true }),
+      body: JSON.stringify({
+        manifest: legacy,
+        agreementReviewAcknowledged: true,
+        withdrawalDisbursementAcknowledged: true,
+      }),
     })
     assert.equal(response.status, 400)
     assert.equal((await response.json()).error, 'agreement-document-hash-v2-required')
