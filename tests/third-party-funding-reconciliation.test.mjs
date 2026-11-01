@@ -278,7 +278,11 @@ test('authorization registration rejects a stale inventory snapshot even when it
     const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
       method: 'POST',
       headers: { ...ownerHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ manifest: manifest(), agreementReviewAcknowledged: true }),
+      body: JSON.stringify({
+        manifest: manifest(),
+        agreementReviewAcknowledged: true,
+        withdrawalDisbursementAcknowledged: true,
+      }),
     })
     assert.equal(response.status, 503)
     assert.equal((await response.json()).error, 'fireblocks-inventory-snapshot-stale-or-invalid')
@@ -354,7 +358,11 @@ test('third-party authorization cannot be persisted without a fresh verified Fir
     const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
       method: 'POST',
       headers: { ...ownerHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ manifest: manifest(), agreementReviewAcknowledged: true }),
+      body: JSON.stringify({
+        manifest: manifest(),
+        agreementReviewAcknowledged: true,
+        withdrawalDisbursementAcknowledged: true,
+      }),
     })
     const payload = await response.json()
     assert.equal(response.status, 503)
@@ -384,6 +392,35 @@ test('authorization registration requires explicit owner acknowledgement of a re
     })
     assert.equal(response.status, 400)
     assert.equal((await response.json()).error, 'written-agreement-review-acknowledgement-required')
+    assert.equal(writes, 0)
+  })
+})
+
+test('authorization registration separately requires reviewed permission for outgoing withdrawals', async () => {
+  let writes = 0
+  await withServer({
+    readLatestSnapshot: async () => ({ success: true, snapshot: inventorySnapshot() }),
+    verifyAuthorization: async () => ({ verified: true }),
+    store: {
+      persistAuthorization: async () => { writes += 1; return { persisted: true } },
+      getAuthorization: async () => ({ success: true, authorization: null }),
+      listAuthorizations: async () => ({ success: true, authorizations: [] }),
+      persistDeposit: async () => ({ persisted: true }),
+      markDepositFireblocksVerified: async () => ({ verified: true }),
+      revokeAuthorization: async () => ({ revoked: true }),
+    },
+  }, async (baseUrl) => {
+    const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
+      method: 'POST',
+      headers: { ...ownerHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({
+        manifest: manifest(),
+        agreementReviewAcknowledged: true,
+        withdrawalDisbursementAcknowledged: false,
+      }),
+    })
+    assert.equal(response.status, 400)
+    assert.equal((await response.json()).error, 'withdrawal-disbursement-review-acknowledgement-required')
     assert.equal(writes, 0)
   })
 })
@@ -438,14 +475,23 @@ test('owner can register verified scoped consent only after inventory and writte
     const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
       method: 'POST',
       headers: { ...ownerHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ manifest: manifest(), agreementReviewAcknowledged: true }),
+      body: JSON.stringify({
+        manifest: manifest(),
+        agreementReviewAcknowledged: true,
+        withdrawalDisbursementAcknowledged: true,
+      }),
     })
     const payload = await response.json()
     assert.equal(response.status, 201)
     assert.equal(payload.success, true)
     assert.equal(payload.legalAuthorityIndependentlyVerified, false)
+    assert.equal(payload.withdrawalDisbursementReviewRecorded, true)
+    assert.equal(payload.authorizationScope, 'incoming-deposit-plus-explicitly-reviewed-disbursement-mandate')
     assert.equal(payload.payoutExecutionAuthorized, false)
     assert.equal(saved.agreementReviewedBy, OWNER)
+    assert.equal(saved.withdrawalDisbursementAcknowledged, true)
+    assert.equal(saved.withdrawalDisbursementReviewedBy, OWNER)
+    assert.ok(saved.withdrawalDisbursementReviewedAt instanceof Date)
     assert.match(saved.signatureHash, /^[0-9a-f]{64}$/)
     assert.match(saved.messageHash, /^[0-9a-f]{64}$/)
     assert.equal(saved.agreementDocumentSha256, 'b'.repeat(64))
