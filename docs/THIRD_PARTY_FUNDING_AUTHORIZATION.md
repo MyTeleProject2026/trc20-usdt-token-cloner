@@ -103,19 +103,84 @@ The verifier checks:
 
 It prints only a sanitized verification result. A successful result proves that the signer controls the source address and signed the exact, scoped consent text. It does **not** prove the signed individual is a duly authorized representative of a legal entity; that is covered by the separate agreement and organizational due diligence.
 
-The verifier reports `payoutExecutionAuthorized: false`. It does not save the authorization in the application database, change a Render environment variable, create a Fireblocks transfer, or submit any transaction.
+The local CLI verifier reports `payoutExecutionAuthorized: false`. It does not write to the application database or create a Fireblocks transfer.
+
+## Stage 4B — register verified consent in the owner console
+
+The backend provides owner-session-protected endpoints under `/api/treasury/third-party-funding`. Before registration, the service requires a recent (maximum six-hour-old) **verified** Fireblocks inventory snapshot for the exact configured vault, with all required vault, official-USDT, native-TRX, address, chain-balance and database checks passing.
+
+After the written agreement has actually been reviewed by the operator, register the signed manifest from the authenticated owner session:
+
+```http
+POST /api/treasury/third-party-funding/authorizations
+Authorization: Bearer <owner-session>
+Origin: <configured-frontend-origin>
+Content-Type: application/json
+
+{
+  "manifest": { "...": "the signed manifest from Stage 3" },
+  "agreementReviewAcknowledged": true
+}
+```
+
+The owner acknowledgement is stored with the owner address and timestamp. It is an auditable operator assertion only. The application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
+
+The persistent record stores the authorization fields and SHA-256 hashes of the signature/message, not the wallet signature itself. The same authorization ID or signature hash cannot be registered with conflicting terms. The owner can inspect the record at:
+
+```http
+GET /api/treasury/third-party-funding/authorizations
+GET /api/treasury/third-party-funding/authorizations/<authorizationId>
+```
+
+The owner can revoke an open authorization before any further deposit is recorded:
+
+```http
+POST /api/treasury/third-party-funding/authorizations/<authorizationId>/revoke
+Authorization: Bearer <owner-session>
+Origin: <configured-frontend-origin>
+Content-Length: 0
+```
+
+A revocation is durable and retained in the audit log. Previously recorded chain evidence is not deleted.
 
 ## Stage 5 — manually fund and independently reconcile
 
-Only after the organization has approved the agreement and verified the consent:
+Only after the organization has approved the agreement and the signed consent has been registered:
 
-1. The authorized source-wallet owner independently reviews the vault address in Fireblocks.
-2. That owner manually sends the approved amount of genuine USDT and sufficient TRX to the Fireblocks vault. The source wallet owner pays the source-side network fee.
-3. Verify the actual incoming TRON transactions and exact token contract/event on-chain.
-4. Independently refresh Fireblocks inventory and verify available balances and the vault address.
-5. Reconcile the transfer against the agreement and the organization's books.
+1. The authorized source-wallet owner independently reviews the exact vault address in Fireblocks.
+2. That owner manually sends the approved genuine USDT and/or TRX to the Fireblocks vault. The source wallet owner pays the source-side network fee.
+3. For each asset, the owner operator submits the transaction hash to the chain-verification route:
 
-The signed consent is not a deposit and the verifier does not make a balance available. A pending or failed transfer is not funding evidence.
+```http
+POST /api/treasury/third-party-funding/authorizations/<authorizationId>/deposits
+Authorization: Bearer <owner-session>
+Origin: <configured-frontend-origin>
+Content-Type: application/json
+
+{ "asset": "USDT", "transactionHash": "<64-hex-transaction-id>" }
+```
+
+Use `TRX` for the native TRX funding leg. The service fetches the confirmed transaction body and SolidityNode receipt itself. For USDT it verifies the TRC-20 call data and the exact official Tether `Transfer` event; for TRX it verifies the native `TransferContract`. Sender, recipient, asset, amount, success receipt and solidified block must all match the stored authorization. An unconfirmed transaction remains `awaiting-solidification` and is not persisted as a verified deposit.
+
+Only one USDT and one TRX transaction can be recorded per authorization. Each must be within its signed cap. An unrelated or reused transaction, an unexpected source/vault, a wrong asset, a failed receipt, or an over-cap deposit is rejected.
+
+4. After the transfer is solidified, manually run the existing **Fireblocks read-only inventory sync and config export** workflow again from the repository's Actions tab. The inventory snapshot must be newer than the deposit and must independently confirm the same Fireblocks vault, both active assets, official USDT identity, provider balances and chain balances.
+5. Then reconcile the chain evidence against that newer inventory:
+
+```http
+POST /api/treasury/third-party-funding/authorizations/<authorizationId>/deposits/fireblocks-reconcile
+Authorization: Bearer <owner-session>
+Origin: <configured-frontend-origin>
+Content-Type: application/json
+
+{ "asset": "USDT", "transactionHash": "<same-64-hex-transaction-id>" }
+```
+
+The backend checks that the verified provider-available balance and chain balance of that asset at the same configured vault each cover the recorded deposit, and records the inventory snapshot ID and Vault Account ID. This is an asset-inventory reconciliation, not permission to spend those funds.
+
+The authorization detail endpoint then shows the on-chain record and whether its Fireblocks inventory evidence has been recorded. A chain-confirmed deposit without a later matching Fireblocks snapshot is still awaiting inventory reconciliation. A successful inventory reconciliation does not authorize later withdrawals.
+
+The signed consent is not a deposit and does not make funds available. A pending or failed transfer is not funding evidence.
 
 ## What this verifier does not authorize
 
