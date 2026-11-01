@@ -72,6 +72,30 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(registered.duplicate, false)
   assert.equal(registered.status, 'awaiting-deposit')
 
+  // Verify the PostgreSQL CHECK independently of the application validator.
+  const { Pool } = await import('pg')
+  const verificationPool = new Pool({ connectionString: process.env.DATABASE_URL })
+  const verificationClient = await verificationPool.connect()
+  let digestConstraintError = null
+  try {
+    await verificationClient.query('BEGIN')
+    try {
+      await verificationClient.query(
+        `UPDATE trc20_token_clone.third_party_funding_authorizations
+            SET agreement_document_sha256 = $1
+          WHERE authorization_id = $2`,
+        ['z'.repeat(64), authorizationId],
+      )
+    } catch (error) {
+      digestConstraintError = error
+    }
+    await verificationClient.query('ROLLBACK')
+  } finally {
+    verificationClient.release()
+    await verificationPool.end()
+  }
+  assert.equal(digestConstraintError?.code, '23514')
+
   const duplicateRegistration = await persistThirdPartyFundingAuthorization(authorizationInput)
   assert.equal(duplicateRegistration.persisted, true)
   assert.equal(duplicateRegistration.duplicate, true)
