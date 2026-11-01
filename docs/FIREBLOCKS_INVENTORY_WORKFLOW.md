@@ -45,6 +45,16 @@ The backend checks:
 
 The workflow uploads the `fireblocks-inventory-config` artifact, containing `fireblocks-verified-config.json`, `fireblocks.nonsecret.env`, and a README. It is available in the workflow run's Artifacts section for 14 days. A blocked verification still generates a diagnostic bundle, but the workflow ends with a failed status so that a blocked run is not confused with a verified one.
 
+## Network and runtime timeouts
+
+The inventory path is bounded so a slow provider cannot occupy the manual GitHub runner indefinitely:
+
+- Each Fireblocks HTTP request has a 15-second timeout. All Fireblocks reads in one inventory operation also share a 90-second cancellation deadline, including paginated address reads.
+- TRONGrid full-node and solidity-node HTTP requests use an explicit 12-second timeout.
+- The GitHub runner allows 10 seconds to establish the backend connection and 150 seconds for the complete backend request. The workflow job still has its own 10-minute outer limit.
+
+A timeout is a failed/blocked inventory attempt, not a positive verification. Dispatch a new run after the underlying provider or network issue is resolved; do not disable the timeouts to force a green result.
+
 ## Secret handling and limitations
 
 The artifact intentionally excludes `FIREBLOCKS_API_KEY`, the RSA private key, database credentials, GitHub OIDC tokens, Fireblocks JWTs, and wallet private keys. Those values must remain in Render's secret store. A portable EXE containing those credentials would be extractable and unsafe; a sanitized ZIP plus non-secret environment file is the correct export format. The `.env` file is not a replacement for the backend's secret-file mount or database connection.
