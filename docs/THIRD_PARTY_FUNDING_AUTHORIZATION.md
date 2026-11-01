@@ -23,7 +23,7 @@ Before requesting a wallet signature, the parties must execute a separate writte
 2. The source of funds and the source wallet controlled by the funding organization.
 3. The named Fireblocks organization and the exact production vault receiving the deposit.
 4. Whether the contribution is a grant, loan, advance, service arrangement or another legally reviewed category.
-5. Whether and how the Fireblocks-held funds may be used for later customer/recipient withdrawals.
+5. Whether and how the Fireblocks-held funds may be used for later customer/recipient withdrawals. Any such mandate must expressly permit external exchange/wallet payouts and specify the permitted purpose, principal, recipients or destination policy, fees, term and approval authority.
 6. Maximum principal, maximum fee funding, permitted network and token contract, time period, recipient policy and approval authority.
 7. Reconciliation, reporting, fees, disputes, sanctions/compliance responsibilities, revocation and return-of-funds terms.
 
@@ -129,13 +129,16 @@ Content-Type: application/json
 
 {
   "manifest": { "...": "the signed manifest from Stage 3" },
-  "agreementReviewAcknowledged": true
+  "agreementReviewAcknowledged": true,
+  "withdrawalDisbursementAcknowledged": true
 }
 ```
 
-The owner acknowledgement is stored with the owner address and timestamp. It is an auditable operator assertion only. The application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
+Both acknowledgements are stored separately with the owner address and timestamp. The second acknowledgement states that the exact executed agreement expressly permits the Fireblocks-held third-party funds to be used for external recipient withdrawals. The source wallet's v2 signature binds the same agreement digest. These are auditable source-consent and operator-review evidence only; the application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
 
-The persistent record retains the exact 65-byte message signature as public consent evidence, its SHA-256 digest, the canonical-message hash, and the executed-agreement document digest alongside the authorization fields. Legacy v1 records may be displayed for historical evidence but cannot be newly registered by the v2 route. A TRON message signature is not a private key, seed phrase, or transaction-signing key. The API does not return the raw signature in ordinary list/detail responses. The same authorization ID or signature hash cannot be registered with conflicting terms. The owner can inspect the sanitized record at:
+The persistent record retains the exact 65-byte message signature as public consent evidence, its SHA-256 digest, the canonical-message hash, and the executed-agreement document digest alongside the authorization fields. Legacy v1 records may be displayed for historical evidence but cannot be newly registered by the v2 route. A TRON message signature is not a private key, seed phrase, or transaction-signing key. The API does not return the raw signature in ordinary list/detail responses. The same authorization ID or signature hash cannot be registered with conflicting terms. The authorization detail also displays whether the disbursement-use review was recorded. Older records default to no disbursement acknowledgement and are excluded from the withdrawal funding pool until a new valid authorization is registered with the explicit review.
+
+The owner can inspect the sanitized record at:
 
 ```http
 GET /api/treasury/third-party-funding/authorizations
@@ -188,7 +191,9 @@ Content-Type: application/json
 
 The backend checks that the verified provider-available balance and chain balance of that asset at the same configured vault each cover the recorded deposit, and records the inventory snapshot ID and Vault Account ID. This is an asset-inventory reconciliation, not permission to spend those funds.
 
-The authorization detail endpoint then shows the on-chain record and whether its Fireblocks inventory evidence has been recorded. A chain-confirmed deposit without a later matching Fireblocks snapshot is still awaiting inventory reconciliation. A successful inventory reconciliation does not authorize later withdrawals.
+The authorization detail endpoint then shows the on-chain record, the disbursement review marker and whether its Fireblocks inventory evidence has been recorded. A chain-confirmed deposit without a later matching Fireblocks snapshot is still awaiting inventory reconciliation.
+
+The owner-only `GET /api/treasury/withdrawals/readiness` endpoint reports a sponsor-funded USDT principal pool. It counts only official USDT deposits that are chain-confirmed, reconciled to the configured vault in Fireblocks, attached to a non-revoked authorization with the explicit disbursement review marker, and backed by an executed-agreement hash. It subtracts every non-rejected USDT withdrawal request against that vault, including confirmed, failed and ambiguous records, so uncertain outflows are not automatically reused. The resulting `thirdPartyFunding.availablePrincipalBaseUnits` is a conservative funding ceiling for readiness; it is not a reservation, a legal determination or payout authorization. The withdrawal route repeats the calculation inside its database transaction and locks eligible authorization/deposit rows before accepting a reservation.
 
 The signed consent is not a deposit and does not make funds available. A pending or failed transfer is not funding evidence.
 
@@ -201,4 +206,4 @@ The signed consent is not a deposit and does not make funds available. A pending
 - It does not turn a third-party external/watch-only address into a Fireblocks source vault.
 - It does not activate a payout feature flag or override the hard-coded real-value execution lock.
 
-Subsequent use of Fireblocks-held funds must be supported by the written agreement and the organization's Fireblocks policy and approvals. A successful signature check is only one evidence item in that larger process.
+Subsequent use of Fireblocks-held funds must be supported by the written agreement and the organization's Fireblocks policy and approvals. The owner checkbox records an operator assertion about the agreement; it is not an independent legal or corporate authority check. A successful signature check and inventory reconciliation are only evidence inputs. The hard-coded real-value payout lock remains enabled in this build, and all external approvals and production prerequisites remain outstanding until independently verified.
