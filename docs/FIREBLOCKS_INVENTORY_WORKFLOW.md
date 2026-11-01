@@ -19,6 +19,16 @@ Create a GitHub Actions Environment named `fireblocks-readonly-sync`. Configure 
 
 The API user should have only the read permissions needed for vault account, asset metadata, balances, and asset-address reads. It does not need transaction creation, signing, or approval permissions.
 
+## Owner-console status display
+
+After the manual workflow completes, the private owner console reads the latest saved snapshot from `GET /api/treasury/fireblocks/inventory/latest`. This endpoint requires the existing Mainnet owner session, matching request origin, and the same `OWNER_WALLET_ADDRESS` / `TREASURY_OWNER_ADDRESS` identity. It returns only allow-listed public configuration identifiers, sanitized check results, balances, timestamps, and workflow run metadata. The secret-file path and all credentials are excluded.
+
+Open **Wallet Vault → Fireblocks treasury setup → One-click Fireblocks inventory verification** to see the latest saved run. The panel links to the matching GitHub Actions run and distinguishes a passed inventory check from a blocked run. It displays the provider and chain observations side by side so mismatches are visible.
+
+A missing snapshot means no run has been successfully persisted yet. A blocked snapshot contains diagnostic reason codes; fix the actual provider/database configuration and dispatch a new run. Do not edit the database row or treat an artifact with a blocked status as verified.
+
+This endpoint and panel are read-only. Even a `verified` inventory snapshot does not authorize a payout, prove organizational approval, enable signing, or confirm an exchange deposit. The backend hard lock and both payout feature flags remain disabled.
+
 ## Running it
 
 Open **GitHub → Actions → Fireblocks read-only inventory sync and config export → Run workflow**, select `main`, choose `RUN_READ_ONLY_SYNC`, and dispatch the workflow.
