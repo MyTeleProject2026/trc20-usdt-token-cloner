@@ -1,5 +1,6 @@
+import { isValidTronAddress } from './tron-address.mjs'
+
 const NETWORKS = new Set(['mainnet', 'shasta', 'nile'])
-const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-f]{64}$/i
 const UINT_PATTERN = /^(0|[1-9][0-9]{0,77})$/
 
@@ -25,8 +26,8 @@ export function verifySponsorDelegationTransactionAudit({
   })
 
   if (!NETWORKS.has(network)
-    || typeof feeSponsorAddress !== 'string' || !ADDRESS_PATTERN.test(feeSponsorAddress)
-    || typeof principalSponsorAddress !== 'string' || !ADDRESS_PATTERN.test(principalSponsorAddress)
+    || !isValidTronAddress(feeSponsorAddress)
+    || !isValidTronAddress(principalSponsorAddress)
     || feeSponsorAddress === principalSponsorAddress
     || !Number.isInteger(limit) || limit < 1 || limit > 100) {
     return fail('invalid-delegation-audit-identity')
