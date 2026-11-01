@@ -251,6 +251,19 @@ test('solidified history replay rejects a provider that omits the block transact
   assert.equal(result.failedBlockNumber, 101)
 })
 
+test('solidified history replay rejects any fee-sponsor-originated transaction until stake mutation coverage is independently reviewed', async () => {
+  const futureContract = tx('fee-sponsor-unknown-future-contract', [{
+    type: 'FutureProtocolActionContract',
+    parameter: { value: { owner_address: feeHex, opaque_payload: 'unknown' } },
+  }])
+  const { verifier } = verifierFor({ blocks: standardBlocks({ middleTransactions: [futureContract] }) })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-fee-sponsor-activity-intervened')
+  assert.equal(result.transactionId, futureContract.txID)
+  assert.equal(result.blockNumber, 101)
+})
+
 test('solidified history replay rejects another principal transaction that can consume delegated resources', async () => {
   const otherPrincipalTx = tx('principal-spends-resource-between-anchor-and-payout', [{
     type: 'TransferContract',

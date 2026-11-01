@@ -428,6 +428,18 @@ export function createSponsorDelegationHistoryVerifier({
           // delegated/free resource pool after the pinned preflight snapshot.
           // Contract owner fields are taken from raw_data_hex protobuf decoding,
           // not the provider's independently rendered JSON object.
+          const feeSponsorInitiated = contracts.some((contract) =>
+            normalizeAddress(tronWeb, contract?.parameter?.value?.owner_address) === feeSponsor)
+          if (feeSponsorInitiated) {
+            // Until every protocol contract capable of changing stake/resource state
+            // is independently reviewed, any fee-sponsor-originated transaction in
+            // the interval is conservatively treated as potentially state-changing.
+            // This prevents a future/unknown contract type from bypassing the allowlist.
+            return fail('historical-fee-sponsor-activity-intervened', {
+              blockNumber: height,
+              transactionId: id,
+            })
+          }
           const principalInitiated = contracts.some((contract) =>
             normalizeAddress(tronWeb, contract?.parameter?.value?.owner_address) === principal)
           if (principalInitiated && id !== hash) {
