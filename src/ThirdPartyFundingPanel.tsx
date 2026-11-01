@@ -305,7 +305,7 @@ export default function ThirdPartyFundingPanel({
               checked={agreementAcknowledged}
               onChange={event => setAgreementAcknowledged(event.target.checked)}
             />
-            I have independently reviewed the separate written agreement and confirmed the source organization's authority.
+            I have reviewed this exact agreement version and separately verified the source signatory's authority outside this application.
           </label>
           <button
             type="button"
