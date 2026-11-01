@@ -108,7 +108,7 @@ test('USDT decimal parser converts exact six-decimal amounts to base units', () 
 
 test('schema migration keeps unverified provider terminal results reserved for both USDT and TRX', async () => {
   const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
-  assert.equal(source.split("SET status='broadcast-unknown'").length - 1, 2)
+  assert.equal(source.split("failure_code='fireblocks-terminal-unverified-' || COALESCE(NULLIF(provider_status, ''), 'unknown')").length - 1, 2)
   assert.equal(source.split("COALESCE(failure_code, '') LIKE 'fireblocks-terminal-%'").length - 1, 2)
 })
 
