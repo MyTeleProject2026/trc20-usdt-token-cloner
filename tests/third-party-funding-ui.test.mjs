@@ -41,5 +41,5 @@ test('funding UI distinguishes an unverified source from a registered consent an
   assert.match(panel, /A public address or watch-only balance is not permission to use funds/)
   assert.match(panel, /const inventoryFresh = inventoryVerified/)
   assert.match(panel, /six-hour maximum/)
-  assert.match(panel, /A successful.*does not authorize/i)
+  assert.match(panel, /This is not payout authorization/i)
 })
