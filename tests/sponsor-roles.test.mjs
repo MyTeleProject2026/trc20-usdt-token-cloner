@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createSponsorRoleFundingReader } from '../server/sponsor-roles.mjs'
+import { isValidTronAddress } from '../server/tron-address.mjs'
 
-const feeAddress = 'T' + 'A'.repeat(33)
-const assetAddress = 'T' + 'C'.repeat(33)
-const tokenAddress = 'T' + 'B'.repeat(33)
+const feeAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const assetAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+const tokenAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const markerFor = (value) => value === feeAddress ? 'a'.repeat(40)
   : value === assetAddress ? 'c'.repeat(40)
     : value === tokenAddress ? 'b'.repeat(40)
@@ -13,7 +14,7 @@ const markerFor = (value) => value === feeAddress ? 'a'.repeat(40)
 function fakeTronWeb(host) {
   assert.match(host, /^https:\/\/tron-(mainnet|shasta|nile)\.gateway\.tatum\.io$/)
   return {
-    isAddress(value) { return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value) },
+    isAddress(value) { return isValidTronAddress(value) },
     address: { toHex(value) { return '41' + markerFor(value) } },
   }
 }
