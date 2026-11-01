@@ -312,10 +312,15 @@ export function createThirdPartyFundingRouter({
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['manifest', 'agreementReviewAcknowledged'].includes(key))
-      || body.agreementReviewAcknowledged !== true
+    if (Object.keys(body).some((key) => !['manifest', 'agreementReviewAcknowledged', 'withdrawalDisbursementAcknowledged'].includes(key))
       || !body.manifest || typeof body.manifest !== 'object' || Array.isArray(body.manifest)) {
+      return res.status(400).json({ success: false, error: 'invalid-funding-authorization-request' })
+    }
+    if (body.agreementReviewAcknowledged !== true) {
       return res.status(400).json({ success: false, error: 'written-agreement-review-acknowledgement-required' })
+    }
+    if (body.withdrawalDisbursementAcknowledged !== true) {
+      return res.status(400).json({ success: false, error: 'withdrawal-disbursement-review-acknowledgement-required' })
     }
     if (body.manifest.format !== THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
       || typeof body.manifest.agreementDocumentSha256 !== 'string'
@@ -354,6 +359,9 @@ export function createThirdPartyFundingRouter({
       agreementDocumentSha256: manifest.agreementDocumentSha256,
       agreementReviewedBy: auth.ownerAddress,
       agreementReviewedAt: new Date(now()),
+      withdrawalDisbursementAcknowledged: true,
+      withdrawalDisbursementReviewedBy: auth.ownerAddress,
+      withdrawalDisbursementReviewedAt: new Date(now()),
       signature: manifest.signature,
       signatureHash,
       messageHash,
@@ -372,10 +380,11 @@ export function createThirdPartyFundingRouter({
       treasuryAddress: vaultAddress,
       agreementReference: manifest.agreementReference,
       agreementDocumentSha256: manifest.agreementDocumentSha256,
-      authorizationScope: 'incoming-deposit-only',
+      authorizationScope: 'incoming-deposit-plus-explicitly-reviewed-disbursement-mandate',
+      withdrawalDisbursementReviewRecorded: true,
       legalAuthorityIndependentlyVerified: false,
       payoutExecutionAuthorized: false,
-      note: 'The source wallet signature and owner agreement-review acknowledgement were recorded. Corporate authority, source-of-funds due diligence and the actual legal agreement remain independently verified external requirements.',
+      note: 'The source-wallet signature binds the exact executed agreement digest, and the owner has separately attested that the agreement expressly permits outgoing withdrawal use. These records do not independently prove corporate authority, legal validity or source of funds; payout execution remains hard-disabled.',
     })
   })
 
