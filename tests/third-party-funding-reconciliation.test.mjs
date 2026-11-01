@@ -388,6 +388,36 @@ test('authorization registration requires explicit owner acknowledgement of a re
   })
 })
 
+test('new registrations reject legacy v1 consent before checking treasury inventory', async () => {
+  let inventoryReads = 0
+  let writes = 0
+  await withServer({
+    readLatestSnapshot: async () => { inventoryReads += 1; return { success: true, snapshot: inventorySnapshot() } },
+    verifyAuthorization: async () => { throw new Error('legacy consent must be rejected before signature verification') },
+    store: {
+      persistAuthorization: async () => { writes += 1; return { persisted: true } },
+      getAuthorization: async () => ({ success: true, authorization: null }),
+      listAuthorizations: async () => ({ success: true, authorizations: [] }),
+      persistDeposit: async () => ({ persisted: true }),
+      markDepositFireblocksVerified: async () => ({ verified: true }),
+      revokeAuthorization: async () => ({ revoked: true }),
+    },
+  }, async (baseUrl) => {
+    const legacy = manifest()
+    legacy.format = 'tron-token-studio/third-party-funding-authorization/v1'
+    delete legacy.agreementDocumentSha256
+    const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
+      method: 'POST',
+      headers: { ...ownerHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest: legacy, agreementReviewAcknowledged: true }),
+    })
+    assert.equal(response.status, 400)
+    assert.equal((await response.json()).error, 'agreement-document-hash-v2-required')
+    assert.equal(inventoryReads, 0)
+    assert.equal(writes, 0)
+  })
+})
+
 test('owner can register verified scoped consent only after inventory and written-agreement review', async () => {
   let saved = null
   await withServer({
