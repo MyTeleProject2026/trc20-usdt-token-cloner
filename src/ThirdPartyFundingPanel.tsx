@@ -19,6 +19,8 @@ type FundingAuthorization = {
   sponsorAddress: string
   vaultAddress: string
   agreementReference: string
+  maxUsdtBaseUnits?: string
+  maxTrxSun?: string
   issuedAt: string
   expiresAt: string
   status: string
@@ -240,7 +242,7 @@ export default function ThirdPartyFundingPanel({
       <div className="wallet-vault-transfer-warning" role="note">
         <strong><AlertTriangle size={15} /> External authorization is still required</strong>
         <p>A public address or watch-only balance is not permission to use funds. Only the source wallet's legitimate owner can sign the exact manifest. The organization must also have a separate written funding agreement and authority review.</p>
-        <p>This panel never asks for private keys, recovery phrases, wallet passwords, or Fireblocks credentials. It does not create a transaction from the source wallet and never enables withdrawals.</p>
+        <p>This panel never asks for private keys, recovery phrases, wallet passwords, or Fireblocks credentials. It does not create a transaction from the source wallet and never enables withdrawals. Read the <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/blob/main/docs/THIRD_PARTY_FUNDING_AUTHORIZATION.md" target="_blank" rel="noopener noreferrer">funding authorization runbook ↗</a> before proceeding.</p>
       </div>
 
       {!sessionToken && <p className="wallet-vault-risk-note" role="status">Sign the owner treasury check above to open the owner-only authorization ledger.</p>}
@@ -330,6 +332,8 @@ export default function ThirdPartyFundingPanel({
             <div className="wallet-vault-review-wide"><small>Authorized source address</small><strong>{selected.sponsorAddress}</strong></div>
             <div className="wallet-vault-review-wide"><small>Fireblocks vault recipient</small><strong>{selected.vaultAddress}</strong></div>
             <div><small>Agreement reference</small><strong>{selected.agreementReference}</strong></div>
+            <div><small>Maximum USDT principal</small><strong>{selected.maxUsdtBaseUnits ? prettyUnits(selected.maxUsdtBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
+            <div><small>Maximum TRX</small><strong>{selected.maxTrxSun ? prettyUnits(selected.maxTrxSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
             <div><small>Status</small><strong>{selected.status}</strong></div>
             <div><small>Expires</small><strong>{new Date(selected.expiresAt).toLocaleString()}</strong></div>
           </div>
