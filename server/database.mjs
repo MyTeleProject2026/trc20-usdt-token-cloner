@@ -136,6 +136,7 @@ export async function initializeDatabase() {
           max_usdt_base_units NUMERIC(78,0) NOT NULL CHECK (max_usdt_base_units > 0),
           max_trx_sun NUMERIC(78,0) NOT NULL CHECK (max_trx_sun > 0),
           agreement_reference TEXT NOT NULL,
+          agreement_document_sha256 CHAR(64),
           agreement_reviewed_by TEXT NOT NULL,
           agreement_reviewed_at TIMESTAMPTZ NOT NULL,
           signature TEXT NOT NULL,
@@ -178,6 +179,7 @@ export async function initializeDatabase() {
         )
       `)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64)`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
       await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
         ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
@@ -3367,7 +3369,7 @@ export async function getLatestFireblocksInventorySnapshot() {
 export async function persistThirdPartyFundingAuthorization(input = {}) {
   const {
     authorizationId, sponsorAddress, vaultAddress, usdtContract,
-    maxUsdtBaseUnits, maxTrxSun, agreementReference,
+    maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
     agreementReviewedBy, agreementReviewedAt, signature, signatureHash, messageHash,
     issuedAt, expiresAt,
   } = input
@@ -3381,6 +3383,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
     || usdtContract !== OFFICIAL_MAINNET_USDT_CONTRACT
     || !isPositiveUint256(maxUsdtBaseUnits) || !isPositiveUint256(maxTrxSun)
     || typeof agreementReference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(agreementReference)
+    || typeof agreementDocumentSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(agreementDocumentSha256)
     || !isValidTronAddress(agreementReviewedBy)
     || !Number.isFinite(reviewed.getTime()) || !Number.isFinite(issued.getTime()) || !Number.isFinite(expires.getTime())
     || expires <= issued || expires <= new Date()
@@ -3400,20 +3403,23 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
     const result = await client.query(
       `INSERT INTO ${schema}.third_party_funding_authorizations
         (authorization_id, network, sponsor_address, vault_address, usdt_contract,
-         max_usdt_base_units, max_trx_sun, agreement_reference, agreement_reviewed_by,
-         agreement_reviewed_at, signature, signature_hash, message_hash, issued_at, expires_at)
-       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         max_usdt_base_units, max_trx_sun, agreement_reference, agreement_document_sha256,
+         agreement_reviewed_by, agreement_reviewed_at, signature, signature_hash,
+         message_hash, issued_at, expires_at)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT DO NOTHING
        RETURNING authorization_id`,
       [authorizationId, sponsorAddress, vaultAddress, usdtContract, maxUsdtBaseUnits, maxTrxSun,
-       agreementReference, agreementReviewedBy, reviewed, signature, signatureHash, messageHash, issued, expires],
+       agreementReference, agreementDocumentSha256, agreementReviewedBy, reviewed,
+       signature, signatureHash, messageHash, issued, expires],
     )
     if (!result.rows.length) {
       const existing = await client.query(
         `SELECT authorization_id, sponsor_address, vault_address, usdt_contract,
                 max_usdt_base_units::text AS max_usdt_base_units,
                 max_trx_sun::text AS max_trx_sun, agreement_reference,
-                signature, signature_hash, message_hash, issued_at, expires_at, status
+                agreement_document_sha256, signature, signature_hash, message_hash,
+                issued_at, expires_at, status
            FROM ${schema}.third_party_funding_authorizations
           WHERE authorization_id = $1 OR signature_hash = $2
           FOR UPDATE`,
@@ -3425,6 +3431,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
         && row.usdt_contract === usdtContract
         && row.max_usdt_base_units === maxUsdtBaseUnits && row.max_trx_sun === maxTrxSun
         && row.agreement_reference === agreementReference
+        && (row.agreement_document_sha256 || '').trim() === agreementDocumentSha256
         && row.signature === signature && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
         && new Date(row.issued_at).getTime() === issued.getTime()
         && new Date(row.expires_at).getTime() === expires.getTime()
@@ -3440,7 +3447,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
        VALUES ('third-party-funding-consent-verified','third-party-funding-authorization',$1,$2::jsonb)`,
       [authorizationId, JSON.stringify({
         network: 'mainnet', sponsorAddress, vaultAddress, usdtContract,
-        maxUsdtBaseUnits, maxTrxSun, agreementReference,
+        maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
         agreementReviewAcknowledgedBy: agreementReviewedBy,
         signatureHash, messageHash, issuedAt: issued.toISOString(), expiresAt: expires.toISOString(),
         legalAuthorityIndependentlyVerified: false,
@@ -3470,7 +3477,8 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
       `SELECT authorization_id, network, sponsor_address, vault_address, usdt_contract,
               max_usdt_base_units::text AS max_usdt_base_units,
               max_trx_sun::text AS max_trx_sun, agreement_reference,
-              agreement_reviewed_by, agreement_reviewed_at, issued_at, expires_at,
+              agreement_document_sha256, agreement_reviewed_by, agreement_reviewed_at,
+              issued_at, expires_at,
               status, created_at, updated_at
          FROM ${schema}.third_party_funding_authorizations
         WHERE authorization_id = $1 LIMIT 1`,
@@ -3494,6 +3502,7 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
         sponsorAddress: row.sponsor_address, vaultAddress: row.vault_address,
         usdtContract: row.usdt_contract, maxUsdtBaseUnits: row.max_usdt_base_units,
         maxTrxSun: row.max_trx_sun, agreementReference: row.agreement_reference,
+        agreementDocumentSha256: row.agreement_document_sha256?.trim() || null,
         agreementReviewedBy: row.agreement_reviewed_by,
         agreementReviewedAt: row.agreement_reviewed_at,
         issuedAt: row.issued_at, expiresAt: row.expires_at,
