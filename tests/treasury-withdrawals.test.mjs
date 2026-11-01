@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -106,10 +106,40 @@ test('USDT decimal parser converts exact six-decimal amounts to base units', () 
   assert.equal(parsePositiveDecimal('12.340500'), 12_340_500n)
 })
 
+test('schema migration keeps unverified provider terminal results reserved for both USDT and TRX', async () => {
+  const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.equal(source.split("SET status='broadcast-unknown'").length - 1, 2)
+  assert.equal(source.split("COALESCE(failure_code, '') LIKE 'fireblocks-terminal-%'").length - 1, 2)
+})
+
+test('provider terminal failures without a chain hash remain unresolved and do not release principal budget', () => {
+  assert.deepEqual(fireblocksPayoutLedgerState({
+    localStatus: 'failed',
+    terminalFailure: true,
+    providerStatus: 'FAILED',
+    transactionHash: null,
+  }), {
+    status: 'broadcast-unknown',
+    failureCode: 'fireblocks-terminal-unverified-failed',
+  })
+  assert.deepEqual(fireblocksPayoutLedgerState({
+    localStatus: 'broadcast-accepted',
+    terminalFailure: true,
+    providerStatus: 'FAILED',
+    transactionHash: 'a'.repeat(64),
+  }), { status: 'broadcast-accepted', failureCode: null })
+  assert.deepEqual(fireblocksPayoutLedgerState({
+    localStatus: 'provider-pending',
+    terminalFailure: false,
+    providerStatus: 'PENDING_SIGNATURE',
+    transactionHash: null,
+  }), { status: 'provider-pending', failureCode: null })
+})
+
 test('principal budget SQL counts legacy and partially unpinned sponsor rows as blockers in both preflight and reservation', async () => {
   const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
   assert.equal(source.split('sponsor_agreement_budget_base_units IS NULL').length - 1, 2)
-  assert.equal(source.split('OR sponsor_agreement_reference IS NULL').length - 1, 2)
+  assert.equal(source.split('OR sponsor_agreement_reference IS NULL').length - 1, 4)
 })
 
 test('sponsor agreement principal cap cannot silently change after the first reservation', () => {
@@ -661,15 +691,7 @@ test('Fireblocks terminal failure is not misreported as a verified on-chain fail
     status: 'failed',
     failure_code: 'fireblocks-terminal-failed',
   })
-  assert.deepEqual(result, {
-    terminal: true,
-    success: false,
-    verification: {
-      verified: false,
-      status: 'provider-failed',
-      reason: 'provider-terminal-failure-not-chain-verified',
-    },
-  })
+  assert.deepEqual(result, { terminal: false }, 'a provider terminal status alone is not independent chain evidence')
 })
 
 test('previously verified solidified USDT success can be returned as verified', () => {

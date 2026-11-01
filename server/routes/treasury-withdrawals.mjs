@@ -125,6 +125,11 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_reference TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_budget_base_units NUMERIC(78,0)`)
+      await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        SET status='broadcast-unknown',
+            failure_code='fireblocks-terminal-unverified-' || COALESCE(NULLIF(provider_status, ''), 'unknown'),
+            updated_at=now()
+        WHERE status='failed' AND COALESCE(failure_code, '') LIKE 'fireblocks-terminal-%'`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_sponsor_agreement_idx
         ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, sponsor_organization_reference, sponsor_agreement_reference, status)`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_fee_reserve_idx
@@ -152,6 +157,11 @@ async function ensureSchema(db) {
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
+      await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+        SET status='broadcast-unknown',
+            failure_code='fireblocks-terminal-unverified-' || COALESCE(NULLIF(provider_status, ''), 'unknown'),
+            updated_at=now()
+        WHERE status='failed' AND COALESCE(failure_code, '') LIKE 'fireblocks-terminal-%'`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_trx_withdrawal_fee_reserve_idx
         ON trc20_token_clone.treasury_trx_withdrawal_requests (treasury_address, status)`)
     })().catch((error) => { schemaPromise = null; throw error })
@@ -434,6 +444,23 @@ function safeStatus(row) {
  * A Fireblocks terminal state is not independent chain evidence. Only a state
  * written after the TRON solidified-receipt verifier may be reported as verified.
  */
+export function fireblocksPayoutLedgerState(state = {}) {
+  const transactionHash = typeof state.transactionHash === 'string' ? state.transactionHash.trim() : ''
+  if (state.localStatus === 'broadcast-accepted' && TXID_PATTERN.test(transactionHash)) {
+    return { status: 'broadcast-accepted', failureCode: null }
+  }
+  if (state.localStatus === 'failed' || state.terminalFailure === true) {
+    const providerStatus = typeof state.providerStatus === 'string'
+      ? state.providerStatus.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 48) || 'unknown'
+      : 'unknown'
+    return {
+      status: 'broadcast-unknown',
+      failureCode: 'fireblocks-terminal-unverified-' + providerStatus,
+    }
+  }
+  return { status: 'provider-pending', failureCode: null }
+}
+
 export function terminalTreasuryWithdrawalVerification(row) {
   if (!row || typeof row !== 'object') return { terminal: false }
 
@@ -464,15 +491,8 @@ export function terminalTreasuryWithdrawalVerification(row) {
     }
   }
 
-  return {
-    terminal: true,
-    success: false,
-    verification: {
-      verified: false,
-      status: 'provider-failed',
-      reason: 'provider-terminal-failure-not-chain-verified',
-    },
-  }
+  // Provider terminal state is not chain proof; keep the request unresolved.
+  return { terminal: false }
 }
 
 export function matchesTreasuryTrxWithdrawalRequest(row, {
@@ -913,8 +933,8 @@ export function createTreasuryWithdrawalsRouter({
           : String(row.provider_transaction_id || '')
       if (!providerId) return row
       const state = classifyFireblocksTransaction(providerTx)
-      const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(state)
+      const nextStatus = ledgerState.status
       const updated = await db.query(
         `UPDATE trc20_token_clone.treasury_withdrawal_requests
             SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
@@ -922,7 +942,7 @@ export function createTreasuryWithdrawalsRouter({
                 failure_code=$6, updated_at=now()
           WHERE id=$1 RETURNING *`,
         [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
-          nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
+          ledgerState.failureCode],
       )
       return updated.rows[0] || row
     } catch {
@@ -948,8 +968,8 @@ export function createTreasuryWithdrawalsRouter({
           : String(row.provider_transaction_id || '')
       if (!providerId) return row
       const state = classifyFireblocksTransaction(providerTx)
-      const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(state)
+      const nextStatus = ledgerState.status
       const updated = await db.query(
         `UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
             SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
@@ -957,7 +977,7 @@ export function createTreasuryWithdrawalsRouter({
                 failure_code=$6, updated_at=now()
           WHERE id=$1 RETURNING *`,
         [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
-          nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
+          ledgerState.failureCode],
       )
       return updated.rows[0] || row
     } catch {
@@ -1465,20 +1485,20 @@ export function createTreasuryWithdrawalsRouter({
           providerState = classifyFireblocksTransaction(providerTransaction)
         } catch {}
       }
-      const nextStatus = providerState.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : providerState.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(providerState)
+      const nextStatus = ledgerState.status
       const saved = await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET status=$2, transaction_hash=$3, provider_transaction_id=$4, provider_status=$5,
             failure_code=$6, updated_at=now()
         WHERE id=$1 RETURNING *`,
       [reservation.id, nextStatus, providerState.transactionHash, providerTransactionId,
-        providerState.providerStatus, nextStatus === 'failed' ? 'fireblocks-terminal-' + providerState.providerStatus.toLowerCase() : null])
+        providerState.providerStatus, ledgerState.failureCode])
       return res.status(202).json({
-        success: nextStatus !== 'failed', status: nextStatus, withdrawal: safeStatus(saved.rows[0]),
+        success: nextStatus !== 'broadcast-unknown', status: nextStatus, withdrawal: safeStatus(saved.rows[0]),
         note: nextStatus === 'broadcast-accepted'
           ? 'Provider returned a chain transaction ID. This is not confirmation; verify the solidified TRON receipt and official-USDT Transfer event.'
-          : nextStatus === 'failed'
-            ? 'Provider reported a terminal failure. No on-chain success is claimed.'
+          : nextStatus === 'broadcast-unknown'
+            ? 'Fireblocks reported a terminal state without a verified solidified TRON outcome. The USDT principal remains reserved; reconcile the same idempotency key and do not retry as a new payout.'
             : 'Provider created a request but no chain transaction ID is available yet. Funds remain reserved; poll this same idempotency key.',
       })
     } catch {
@@ -1939,22 +1959,22 @@ export function createTreasuryWithdrawalsRouter({
           providerState = classifyFireblocksTransaction(providerTransaction)
         } catch {}
       }
-      const nextStatus = providerState.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : providerState.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(providerState)
+      const nextStatus = ledgerState.status
       const saved = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
         SET status=$2, transaction_hash=$3, provider_transaction_id=$4, provider_status=$5,
             failure_code=$6, updated_at=now()
         WHERE id=$1 RETURNING *`,
       [reservation.id, nextStatus, providerState.transactionHash, providerTransactionId,
-        providerState.providerStatus, nextStatus === 'failed' ? 'fireblocks-terminal-' + providerState.providerStatus.toLowerCase() : null])
+        providerState.providerStatus, ledgerState.failureCode])
       return res.status(202).json({
-        success: nextStatus !== 'failed',
+        success: nextStatus !== 'broadcast-unknown',
         status: nextStatus,
         withdrawal: safeTrxStatus(saved.rows[0]),
         note: nextStatus === 'broadcast-accepted'
           ? 'Fireblocks returned a TRON chain transaction ID. Verify the solidified transaction before treating the transfer as complete.'
-          : nextStatus === 'failed'
-            ? 'Fireblocks reported a terminal failure. No successful on-chain transfer is claimed.'
+          : nextStatus === 'broadcast-unknown'
+            ? 'Fireblocks reported a terminal state without a verified solidified TRON outcome. The TRX amount remains reserved; reconcile the same idempotency key and do not retry as a new payout.'
             : 'Fireblocks created a request but no chain hash is available yet. Funds remain reserved; look up this same idempotency key.',
       })
     } catch {
