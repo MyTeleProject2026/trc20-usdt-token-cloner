@@ -147,3 +147,20 @@ test('production readiness lists unresolved sponsor-funding, authorization and s
   assert.equal(result.submission.canSubmitSponsoredTransfer, false)
   assert.equal(result.submission.userFundedFallbackAllowed, false)
 })
+
+
+test('fee-resource settlement source gate stays closed even when both runtime opt-ins are true', () => {
+  const result = getSponsorIntegrationReadiness({
+    env: {
+      SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED: 'true',
+      SPONSOR_TESTNET_PILOT_RELEASE_APPROVED: 'true',
+    },
+  })
+  assert.equal(result.submission.feeSponsorResourceSettlementGateReady, false)
+  assert.equal(result.submission.feeSponsorResourceSettlementAdapterImplemented, false)
+  assert.equal(result.submission.testnetPilotReleaseApproved, true)
+  assert.ok(result.submission.feeSponsorResourceSettlementGateBlockers.includes('fee-sponsor-resource-settlement-adapter-not-integrated'))
+  assert.equal(result.submission.enabled, false)
+  assert.equal(result.submission.canSubmitSponsoredTransfer, false)
+  assert.equal(result.submission.userFundedFallbackAllowed, false)
+})
