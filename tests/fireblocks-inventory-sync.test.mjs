@@ -5,6 +5,7 @@ import express from 'express'
 import { createServer } from 'node:http'
 import {
   createFireblocksInventorySyncRouter,
+  createFireblocksInventoryTronReader,
   verifyGitHubActionsInventoryOidcToken,
 } from '../server/routes/fireblocks-inventory-sync.mjs'
 
@@ -151,6 +152,17 @@ async function postInventory(url, token = createOidcToken(), body = requestBody)
   })
 }
 
+test('Fireblocks inventory TRON reader bounds full-node and solidity-node HTTP requests', () => {
+  const reader = createFireblocksInventoryTronReader({
+    apiKey: '  test-trongrid-key  ',
+    timeoutMs: 2345,
+  })
+  assert.equal(reader.fullNode.timeout, 2345)
+  assert.equal(reader.solidityNode.timeout, 2345)
+  assert.equal(reader.fullNode.headers['TRON-PRO-API-KEY'], 'test-trongrid-key')
+  assert.equal(reader.solidityNode.headers['TRON-PRO-API-KEY'], 'test-trongrid-key')
+})
+
 test('GitHub OIDC verification accepts only the signed, exact manual workflow identity', async () => {
   const result = await verifyGitHubActionsInventoryOidcToken(createOidcToken(), {
     workflowRunId: requestBody.workflowRunId,
@@ -269,6 +281,8 @@ test('manual inventory workflow uses OIDC and carries no shared trigger secret',
   assert.match(workflow, /id-token: write/)
   assert.match(workflow, /environment: fireblocks-readonly-sync/)
   assert.match(workflow, /audience=tron-token-studio-fireblocks-inventory/)
+  assert.match(workflow, /--connect-timeout 10/)
+  assert.match(workflow, /--max-time 150/)
   assert.doesNotMatch(workflow, /FIREBLOCKS_SYNC_TRIGGER_TOKEN/)
   assert.doesNotMatch(workflow, /secrets\.FIREBLOCKS_SYNC/)
 })
