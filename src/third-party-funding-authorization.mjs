@@ -37,10 +37,10 @@ function validateFields(manifest, { expectedVaultAddress, nowMs = Date.now() } =
     return { valid: false, reason: 'unsupported-authorization-format' }
   }
   if (manifest.network !== 'mainnet') return { valid: false, reason: 'authorization-network-must-be-mainnet' }
-  if (!IDENTIFIER_PATTERN.test(String(manifest.authorizationId || ''))) {
+  if (typeof manifest.authorizationId !== 'string' || !IDENTIFIER_PATTERN.test(manifest.authorizationId)) {
     return { valid: false, reason: 'authorization-id-invalid' }
   }
-  if (!IDENTIFIER_PATTERN.test(String(manifest.agreementReference || ''))) {
+  if (typeof manifest.agreementReference !== 'string' || !IDENTIFIER_PATTERN.test(manifest.agreementReference)) {
     return { valid: false, reason: 'agreement-reference-required' }
   }
   if (!ADDRESS_PATTERN.test(String(manifest.sponsorAddress || ''))
@@ -95,7 +95,11 @@ function validateFields(manifest, { expectedVaultAddress, nowMs = Date.now() } =
  * withdrawal instruction, a transfer signature, or a delegation of key control.
  */
 export function buildThirdPartyFundingAuthorizationMessage(manifest) {
-  if (!isRecord(manifest)) throw new TypeError('Authorization manifest must be an object')
+  const validation = validateFields(manifest, {
+    expectedVaultAddress: manifest?.vaultAddress,
+    nowMs: Date.now(),
+  })
+  if (!validation.valid) throw new TypeError(validation.reason)
   const fields = [
     manifest.authorizationId,
     manifest.sponsorAddress,
