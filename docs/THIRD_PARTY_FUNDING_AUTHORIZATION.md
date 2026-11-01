@@ -27,7 +27,7 @@ Before requesting a wallet signature, the parties must execute a separate writte
 6. Maximum principal, maximum fee funding, permitted network and token contract, time period, recipient policy and approval authority.
 7. Reconciliation, reporting, fees, disputes, sanctions/compliance responsibilities, revocation and return-of-funds terms.
 
-The manifest's `agreementReference` is only an identifier that points to the separately retained agreement. The verifier cannot inspect or certify the legal document, identity of a corporate signatory, source of funds or legal enforceability. Those require independent organizational and legal review.
+The manifest's `agreementReference` identifies the separately retained agreement. New v2 authorizations also include `agreementDocumentSha256`, the SHA-256 fingerprint of the exact final executed file bytes. This lets the source wallet signature bind to one exact agreement version without uploading the confidential document. The hash does not establish authenticity, signatory authority, source of funds or legal enforceability; those still require independent organizational and legal review.
 
 ## Stage 2 — create and verify the real Fireblocks destination
 
@@ -42,13 +42,21 @@ The authorized organization's Fireblocks administrator must independently:
 
 The organization must set `TREASURY_ADDRESS` to the actual Fireblocks vault address. Never set it to the third-party source address just because that address displays a balance.
 
-## Stage 3 — create the signed consent manifest
+## Stage 3 — fingerprint the executed agreement and create the signed consent manifest
 
-Create a local JSON file, kept outside Git, with these fields:
+Keep the executed agreement in the organization's controlled document storage. Do not commit or upload it to GitHub or ChatGPT. From the project root, calculate the fingerprint locally:
+
+```bash
+npm run funding:agreement:hash -- ./executed-agreement.pdf
+```
+
+The command reads a regular local file of up to 50 MiB and prints its lowercase SHA-256 digest and byte count. It does not transmit or store the document. If the agreement is amended or replaced, calculate a new digest and obtain a new source-wallet signature.
+
+Create a local JSON manifest, kept outside Git, using the v2 format:
 
 ```json
 {
-  "format": "tron-token-studio/third-party-funding-authorization/v1",
+  "format": "tron-token-studio/third-party-funding-authorization/v2",
   "authorizationId": "funding-consent-2026-001",
   "network": "mainnet",
   "sponsorAddress": "SOURCE_WALLET_CONTROLLED_BY_AUTHORIZED_ORG",
@@ -57,6 +65,7 @@ Create a local JSON file, kept outside Git, with these fields:
   "maxUsdtBaseUnits": "25000000",
   "maxTrxSun": "8000000",
   "agreementReference": "ORG-AGREEMENT-2026-001",
+  "agreementDocumentSha256": "64_CHARACTER_LOWERCASE_SHA256_FROM_LOCAL_HASH_COMMAND",
   "issuedAt": "2026-11-01T00:00:00.000Z",
   "expiresAt": "2026-11-04T00:00:00.000Z",
   "signature": "ADD_SIGNATURE_AFTER_THE_SOURCE_WALLET_OWNER_SIGNS"
@@ -65,7 +74,7 @@ Create a local JSON file, kept outside Git, with these fields:
 
 The example limits mean at most 25 USDT (25,000,000 base units at six decimals) and 8 TRX (8,000,000 SUN at six decimals). They are examples only. The real organization must choose the limits that match its separately approved agreement.
 
-The signed text is reconstructed from the manifest fields in a fixed order. To print the exact text to present to the source wallet owner:
+The signed text includes the agreement's SHA-256 fingerprint. To print the exact text to present to the source wallet owner:
 
 ```bash
 TREASURY_ADDRESS=ACTUAL_FIREBLOCKS_VAULT_ADDRESS npm run funding:authorization:message -- ./third-party-funding-authorization.json
@@ -79,7 +88,7 @@ const signature = await window.tron.tronWeb.trx.signMessageV2(message)
 
 This is an off-chain message signature, not an on-chain transfer. It should not require network fees. The signer must never send a seed phrase, private key, wallet password or signing secret to the application or ChatGPT. A watch-only wallet cannot create this signature.
 
-Put the returned `0x`-prefixed 65-byte signature into the manifest's `signature` field. The signature binds the source address, destination vault, official token contract, amount caps, agreement reference and expiry.
+Put the returned `0x`-prefixed 65-byte signature into the manifest's `signature` field. The signature binds the source address, destination vault, official token contract, amount caps, agreement reference, exact agreement-file fingerprint and expiry.
 
 The manifest's validity is limited to seven days from issue time. Generate a fresh consent if it expires or any bound field changes.
 
@@ -93,7 +102,8 @@ TREASURY_ADDRESS=ACTUAL_FIREBLOCKS_VAULT_ADDRESS npm run funding:authorization:v
 
 The verifier checks:
 
-- Canonical manifest format and supported fields only.
+- Canonical v2 manifest format and supported fields only.
+- A required lowercase 64-character SHA-256 fingerprint of the exact executed agreement file bytes.
 - Mainnet network and exact official USDT contract.
 - Valid TRON Base58Check source and vault addresses.
 - Source and destination are different.
@@ -125,7 +135,7 @@ Content-Type: application/json
 
 The owner acknowledgement is stored with the owner address and timestamp. It is an auditable operator assertion only. The application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
 
-The persistent record retains the exact 65-byte message signature as public consent evidence, its SHA-256 digest, and the canonical-message hash alongside the authorization fields. A TRON message signature is not a private key, seed phrase, or transaction-signing key. The API does not return the raw signature in ordinary list/detail responses. The same authorization ID or signature hash cannot be registered with conflicting terms. The owner can inspect the sanitized record at:
+The persistent record retains the exact 65-byte message signature as public consent evidence, its SHA-256 digest, the canonical-message hash, and the executed-agreement document digest alongside the authorization fields. Legacy v1 records may be displayed for historical evidence but cannot be newly registered by the v2 route. A TRON message signature is not a private key, seed phrase, or transaction-signing key. The API does not return the raw signature in ordinary list/detail responses. The same authorization ID or signature hash cannot be registered with conflicting terms. The owner can inspect the sanitized record at:
 
 ```http
 GET /api/treasury/third-party-funding/authorizations
