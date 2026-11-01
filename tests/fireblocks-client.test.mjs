@@ -187,6 +187,31 @@ test('native Fireblocks TRX asset metadata must identify the configured six-deci
   assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, id: 'OTHER', legacyId: 'OTHER' }, 'TRX'), false)
 })
 
+test('Fireblocks read requests inherit a caller abort signal in addition to the per-request timeout', async () => {
+  const { privateKey } = keyPair()
+  const controller = new AbortController()
+  let providerSignal = null
+  const client = createFireblocksClient(configuredEnv, {
+    signal: controller.signal,
+    fetchImpl: async (_url, init) => {
+      providerSignal = init.signal
+      return new Response(JSON.stringify({ id: '0', assets: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'nonce-abort-signal',
+  })
+
+  await client.getVaultAccount()
+  assert.ok(providerSignal instanceof AbortSignal)
+  assert.equal(providerSignal.aborted, false)
+  controller.abort()
+  assert.equal(providerSignal.aborted, true)
+})
+
 test('native TRX transfer uses its separate Fireblocks asset ID and works without a configured USDT asset ID', async () => {
   const { privateKey } = keyPair()
   const env = { ...configuredEnv, FIREBLOCKS_USDT_ASSET_ID: '' }
