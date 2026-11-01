@@ -13,7 +13,13 @@ import {
   isNativeFireblocksTrxAsset,
   maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
-import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
+import {
+  getWalletAuthSession,
+  getThirdPartyFundingUsdtPoolSnapshot,
+  normalizeDatabaseConnectionString,
+  databaseSslConfig,
+  initializeDatabase,
+} from '../database.mjs'
 import {
   buildTreasuryWithdrawalAuthorizationMessage,
   buildTreasuryTrxWithdrawalAuthorizationMessage,
@@ -434,6 +440,16 @@ function safeTrxStatus(row) {
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   }
+}
+
+/** Calculate sponsor-funded principal remaining after all non-rejected treasury outflows. */
+export function remainingThirdPartyFundingPrincipal(verifiedPrincipalBaseUnits, committedWithdrawalBaseUnits) {
+  const verified = typeof verifiedPrincipalBaseUnits === 'string' ? verifiedPrincipalBaseUnits : ''
+  const committed = typeof committedWithdrawalBaseUnits === 'string' ? committedWithdrawalBaseUnits : ''
+  if (!/^(0|[1-9][0-9]{0,77})$/.test(verified)
+    || !/^(0|[1-9][0-9]{0,77})$/.test(committed)) return null
+  const remaining = BigInt(verified) - BigInt(committed)
+  return (remaining > 0n ? remaining : 0n).toString()
 }
 
 export function treasuryUsdtConfiguration(env = process.env) {
@@ -869,6 +885,14 @@ export function createTreasuryWithdrawalsRouter({
     let pendingTrxCount = '0'
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
+    let thirdPartyFunding = {
+      ledgerReady: false,
+      verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0',
+      verifiedUsdtPrincipalBaseUnits: '0',
+      committedWithdrawalBaseUnits: '0',
+      availablePrincipalBaseUnits: '0',
+    }
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -876,16 +900,38 @@ export function createTreasuryWithdrawalsRouter({
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
     if (databaseReady && treasuryAddress) {
       try {
-        const [pendingUsdt, pendingTrx] = await Promise.all([
+        const [pendingUsdt, pendingTrx, committedWithdrawals, sponsorPool] = await Promise.all([
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1 AND status <> 'rejected'`, [treasuryAddress]),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
+        const committedWithdrawalBaseUnits = String(committedWithdrawals.rows[0]?.amount || '0')
+        const sponsorFundingAvailable = sponsorPool?.success === true
+          ? remainingThirdPartyFundingPrincipal(sponsorPool.verifiedUsdtPrincipalBaseUnits, committedWithdrawalBaseUnits)
+          : null
+        thirdPartyFunding = {
+          ledgerReady: sponsorPool?.success === true && sponsorFundingAvailable !== null,
+          verifiedDepositCount: String(sponsorPool?.verifiedDepositCount || '0'),
+          reviewedAuthorizationCount: String(sponsorPool?.reviewedAuthorizationCount || '0'),
+          verifiedUsdtPrincipalBaseUnits: String(sponsorPool?.verifiedUsdtPrincipalBaseUnits || '0'),
+          committedWithdrawalBaseUnits,
+          availablePrincipalBaseUnits: sponsorFundingAvailable || '0',
+        }
+        if (!thirdPartyFunding.ledgerReady) blockers.push('third-party-funding-ledger-unavailable')
+        else if (BigInt(thirdPartyFunding.verifiedUsdtPrincipalBaseUnits) <= 0n) {
+          blockers.push('third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required')
+        } else if (BigInt(thirdPartyFunding.availablePrincipalBaseUnits) <= 0n) {
+          blockers.push('third-party-usdt-principal-fully-committed')
+        }
         requiredFeeReserveSun = requiredTreasuryFeeReserveSun(env.TREASURY_FEE_LIMIT_SUN, pendingUsdtCount, pendingTrxCount)
         feeReserveCovered = snapshot.ok && requiredFeeReserveSun !== null
           && treasuryFeeReserveCovered(snapshot.treasuryTrxBalanceSun, snapshot.providerAvailableTrxBaseUnits, requiredFeeReserveSun)
@@ -921,6 +967,12 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: config.providerConfigured,
       },
       databaseReady, treasuryAddress,
+      thirdPartyFunding: {
+        ...thirdPartyFunding,
+        sponsorFundedOnly: true,
+        outgoingUseRequiresReviewedExecutedAgreement: true,
+        thisStatusIsNotPayoutAuthorization: true,
+      },
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
         providerAvailableUsdtBaseUnits: snapshot.providerAvailableBaseUnits,
@@ -946,6 +998,9 @@ export function createTreasuryWithdrawalsRouter({
       limitations: [
         'Transfers are initiated through the configured managed Fireblocks vault; blockchain signing keys are not loaded by the API.',
         'Provider transaction acceptance is not proof of on-chain confirmation; verify the successful solidified receipt and exact official-USDT Transfer event.',
+        'USDT principal is limited to solidified official-token deposits reconciled to a verified Fireblocks vault snapshot and a separately acknowledged executed agreement that expressly permits outgoing withdrawal use.',
+        'All non-rejected treasury USDT withdrawals are conservatively committed against the third-party-funded principal pool; failed or ambiguous records require manual reconciliation before principal can be reused.',
+        'A reviewer checkbox records an operator attestation; it does not independently establish corporate authority, legal validity, or source of funds.',
         'The treasury must have genuine USDT and sufficient TRX for the configured fee cap unless a separately verified fee sponsor is integrated.',
         'An exchange deposit may require additional confirmations and is controlled by the receiving exchange.',
       ],
@@ -1019,6 +1074,7 @@ export function createTreasuryWithdrawalsRouter({
       const initialSnapshot = await readManagedTreasurySnapshot(treasuryAddress)
       if (!initialSnapshot.ok) return res.status(503).json({ success: false, error: 'treasury-provider-funding-not-verified', reason: initialSnapshot.reason, submissionEnabled: false })
       if (!initialSnapshot.networkFeeCapCovered) return res.status(409).json({ success: false, error: 'treasury-trx-insufficient-for-fee-cap', treasuryTrxBalanceSun: initialSnapshot.treasuryTrxBalanceSun, requiredFeeLimitSun: String(configuredFeeLimit), submissionEnabled: false })
+      await initializeDatabase()
       const chainContract = await tronWeb.contract(ABI).at(USDT_MAINNET)
 
       const client = await db.connect()
@@ -1064,6 +1120,56 @@ export function createTreasuryWithdrawalsRouter({
         // treasury requests, then subtract all unresolved prior reservations.
         // This conservatively avoids accepting simultaneous payouts against the
         // same on-chain balance. Unknown broadcasts remain reserved until reconciled.
+        const eligibleSponsorDeposits = await client.query(`
+          SELECT a.authorization_id, d.amount_base_units::text AS amount_base_units
+            FROM trc20_token_clone.third_party_funding_authorizations AS a
+            JOIN trc20_token_clone.third_party_funding_deposits AS d
+              ON d.authorization_id = a.authorization_id
+           WHERE a.network='mainnet'
+             AND a.vault_address=$1
+             AND a.status='deposit-evidence-recorded'
+             AND a.withdrawal_disbursement_acknowledged=true
+             AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+             AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+             AND a.agreement_document_sha256 IS NOT NULL
+             AND d.network='mainnet'
+             AND d.asset='USDT'
+             AND d.token_contract=$2
+             AND d.recipient_address=$1
+             AND d.receipt_result='SUCCESS'
+             AND d.amount_base_units <= a.max_usdt_base_units
+             AND d.fireblocks_verified_at IS NOT NULL
+             AND d.fireblocks_snapshot_id IS NOT NULL
+             AND d.fireblocks_vault_account_id IS NOT NULL
+             AND d.fireblocks_checked_at IS NOT NULL
+             AND d.fireblocks_checked_at >= d.chain_verified_at
+           ORDER BY d.created_at ASC, a.authorization_id ASC
+           FOR SHARE OF a,d
+        `, [treasuryAddress, USDT_MAINNET])
+        const verifiedSponsorPrincipal = eligibleSponsorDeposits.rows.reduce(
+          (total, row) => total + BigInt(String(row.amount_base_units)), 0n,
+        )
+        const committedSponsorWithdrawals = await client.query(`
+          SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+           WHERE treasury_address=$1 AND status <> 'rejected'
+        `, [treasuryAddress])
+        const committedSponsorPrincipal = BigInt(committedSponsorWithdrawals.rows[0]?.amount || '0')
+        const remainingSponsorPrincipal = verifiedSponsorPrincipal > committedSponsorPrincipal
+          ? verifiedSponsorPrincipal - committedSponsorPrincipal : 0n
+        if (remainingSponsorPrincipal < amount) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-authorized-usdt-principal-insufficient-after-reservations',
+            verifiedThirdPartyPrincipalBaseUnits: verifiedSponsorPrincipal.toString(),
+            committedThirdPartyPrincipalBaseUnits: committedSponsorPrincipal.toString(),
+            availableThirdPartyPrincipalBaseUnits: remainingSponsorPrincipal.toString(),
+            requestedAmountBaseUnits: amount.toString(),
+            message: 'The requested payout exceeds the solidified, Fireblocks-reconciled and explicitly reviewed third-party USDT principal remaining after all non-rejected treasury withdrawals. No payout was submitted.',
+          })
+        }
+
         const balanceValue = await chainContract.balanceOf(treasuryAddress).call()
         const balance = BigInt(String(balanceValue))
         const unsettled = await client.query(`
