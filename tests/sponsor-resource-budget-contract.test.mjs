@@ -60,6 +60,20 @@ test('receipt resource usage is recorded as pending evidence, never falsely sett
 
 test('testnet signing and broadcast remain blocked until attribution and settlement are independently complete', async () => {
   const { getSponsorFeeBudgetSettlementGate } = await import('../server/routes/sponsor-fee-settlement-gate.mjs')
+  const originalTestnetFlag = process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+  const originalMainnetFlag = process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED
+  try {
+    process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = 'true'
+    process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED = 'true'
+    const releaseGate = getSponsorFeeBudgetSettlementGate()
+    assert.equal(releaseGate.ready, false, 'environment flags must never override the source-code release gate')
+    assert.ok(releaseGate.blockers.length > 0)
+  } finally {
+    if (originalTestnetFlag === undefined) delete process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED
+    else process.env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED = originalTestnetFlag
+    if (originalMainnetFlag === undefined) delete process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED
+    else process.env.SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED = originalMainnetFlag
+  }
   const releaseGate = getSponsorFeeBudgetSettlementGate()
   assert.equal(releaseGate.ready, false)
   assert.ok(releaseGate.blockers.includes('historical-delegation-cryptographic-proof-implementation-not-independently-reviewed'))
