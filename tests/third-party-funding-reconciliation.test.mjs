@@ -214,6 +214,77 @@ function ownerHeaders() {
   return { authorization: 'Bearer ' + 'x'.repeat(43), origin: ORIGIN }
 }
 
+test('third-party funding ledger rejects missing owner session before any database read', async () => {
+  let reads = 0
+  await withServer({
+    sessionLookup: async () => { reads += 1; return SESSION({ tokenHash: 'x', origin: ORIGIN }) },
+    store: {
+      persistAuthorization: async () => ({ persisted: true }),
+      getAuthorization: async () => ({ success: true, authorization: null }),
+      listAuthorizations: async () => { reads += 1; return { success: true, authorizations: [] } },
+      persistDeposit: async () => ({ persisted: true }),
+      markDepositFireblocksVerified: async () => ({ verified: true }),
+      revokeAuthorization: async () => ({ revoked: true }),
+    },
+  }, async (baseUrl) => {
+    const response = await fetch(baseUrl + '/third-party-funding/authorizations')
+    const payload = await response.json()
+    assert.equal(response.status, 401)
+    assert.equal(payload.error, 'owner-session-required')
+    assert.equal(reads, 0)
+  })
+})
+
+test('third-party funding ledger rejects a wallet session for another owner address', async () => {
+  let reads = 0
+  await withServer({
+    sessionLookup: async ({ origin }) => ({
+      success: true,
+      session: { address: SPONSOR, network: 'mainnet', origin },
+    }),
+    store: {
+      persistAuthorization: async () => ({ persisted: true }),
+      getAuthorization: async () => ({ success: true, authorization: null }),
+      listAuthorizations: async () => { reads += 1; return { success: true, authorizations: [] } },
+      persistDeposit: async () => ({ persisted: true }),
+      markDepositFireblocksVerified: async () => ({ verified: true }),
+      revokeAuthorization: async () => ({ revoked: true }),
+    },
+  }, async (baseUrl) => {
+    const response = await fetch(baseUrl + '/third-party-funding/authorizations', { headers: ownerHeaders() })
+    const payload = await response.json()
+    assert.equal(response.status, 403)
+    assert.equal(payload.error, 'owner-wallet-not-authorized')
+    assert.equal(reads, 0)
+  })
+})
+
+test('authorization registration rejects a stale inventory snapshot even when its old status says verified', async () => {
+  let writes = 0
+  const stale = inventorySnapshot({ checkedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString() })
+  await withServer({
+    readLatestSnapshot: async () => ({ success: true, snapshot: stale }),
+    verifyAuthorization: async () => ({ verified: true }),
+    store: {
+      persistAuthorization: async () => { writes += 1; return { persisted: true } },
+      getAuthorization: async () => ({ success: true, authorization: null }),
+      listAuthorizations: async () => ({ success: true, authorizations: [] }),
+      persistDeposit: async () => ({ persisted: true }),
+      markDepositFireblocksVerified: async () => ({ verified: true }),
+      revokeAuthorization: async () => ({ revoked: true }),
+    },
+  }, async (baseUrl) => {
+    const response = await fetch(baseUrl + '/third-party-funding/authorizations', {
+      method: 'POST',
+      headers: { ...ownerHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest: manifest(), agreementReviewAcknowledged: true }),
+    })
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).error, 'fireblocks-inventory-snapshot-stale-or-invalid')
+    assert.equal(writes, 0)
+  })
+})
+
 test('USDT deposit verifier requires exact confirmed TRC20 call and official Transfer event', () => {
   const result = verifyThirdPartyUsdtDepositEvidence(tronWeb, {
     ...confirmedUsdtEvidence(), transactionHash: TXID,
