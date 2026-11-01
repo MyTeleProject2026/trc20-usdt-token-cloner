@@ -138,6 +138,7 @@ export async function initializeDatabase() {
           agreement_reference TEXT NOT NULL,
           agreement_reviewed_by TEXT NOT NULL,
           agreement_reviewed_at TIMESTAMPTZ NOT NULL,
+          signature TEXT NOT NULL,
           signature_hash CHAR(64) NOT NULL UNIQUE,
           message_hash CHAR(64) NOT NULL,
           issued_at TIMESTAMPTZ NOT NULL,
@@ -176,6 +177,7 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash, asset)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
       await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
         ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
@@ -3365,7 +3367,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
   const {
     authorizationId, sponsorAddress, vaultAddress, usdtContract,
     maxUsdtBaseUnits, maxTrxSun, agreementReference,
-    agreementReviewedBy, agreementReviewedAt, signatureHash, messageHash,
+    agreementReviewedBy, agreementReviewedAt, signature, signatureHash, messageHash,
     issuedAt, expiresAt,
   } = input
   const parseDate = (value) => value instanceof Date ? value : new Date(value)
@@ -3381,7 +3383,9 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
     || !isValidTronAddress(agreementReviewedBy)
     || !Number.isFinite(reviewed.getTime()) || !Number.isFinite(issued.getTime()) || !Number.isFinite(expires.getTime())
     || expires <= issued || expires <= new Date()
+    || typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)
     || typeof signatureHash !== 'string' || !/^[0-9a-f]{64}$/.test(signatureHash)
+    || createHash('sha256').update(signature, 'utf8').digest('hex') !== signatureHash
     || typeof messageHash !== 'string' || !/^[0-9a-f]{64}$/.test(messageHash)) {
     return { persisted: false, reason: 'invalid-third-party-funding-authorization' }
   }
@@ -3396,19 +3400,19 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
       `INSERT INTO ${schema}.third_party_funding_authorizations
         (authorization_id, network, sponsor_address, vault_address, usdt_contract,
          max_usdt_base_units, max_trx_sun, agreement_reference, agreement_reviewed_by,
-         agreement_reviewed_at, signature_hash, message_hash, issued_at, expires_at)
-       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         agreement_reviewed_at, signature, signature_hash, message_hash, issued_at, expires_at)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        ON CONFLICT DO NOTHING
        RETURNING authorization_id`,
       [authorizationId, sponsorAddress, vaultAddress, usdtContract, maxUsdtBaseUnits, maxTrxSun,
-       agreementReference, agreementReviewedBy, reviewed, signatureHash, messageHash, issued, expires],
+       agreementReference, agreementReviewedBy, reviewed, signature, signatureHash, messageHash, issued, expires],
     )
     if (!result.rows.length) {
       const existing = await client.query(
         `SELECT authorization_id, sponsor_address, vault_address, usdt_contract,
                 max_usdt_base_units::text AS max_usdt_base_units,
                 max_trx_sun::text AS max_trx_sun, agreement_reference,
-                signature_hash, message_hash, issued_at, expires_at, status
+                signature, signature_hash, message_hash, issued_at, expires_at, status
            FROM ${schema}.third_party_funding_authorizations
           WHERE authorization_id = $1 OR signature_hash = $2
           FOR UPDATE`,
@@ -3420,7 +3424,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
         && row.usdt_contract === usdtContract
         && row.max_usdt_base_units === maxUsdtBaseUnits && row.max_trx_sun === maxTrxSun
         && row.agreement_reference === agreementReference
-        && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
+        && row.signature === signature && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
         && new Date(row.issued_at).getTime() === issued.getTime()
         && new Date(row.expires_at).getTime() === expires.getTime()
       if (!same) {
