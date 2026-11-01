@@ -1,11 +1,12 @@
 /**
  * Hard release gate for testnet sponsor signing and broadcast.
  *
- * Resource mandates, reservations, conditional receipt settlement and a
- * two-provider solidified block-history cross-check are implemented. The gate remains
- * closed because cryptographic/independent block and transaction-inclusion proof,
- * protocol-wide stake-change review, production database migration/restore,
- * funded testnet E2E, and sponsor/security approvals remain outstanding.
+ * Resource mandates, reservations, conditional receipt settlement, local
+ * cryptographic block/transaction integrity checks, and conservative two-provider
+ * DPoS finality cross-checks are implemented. The gate remains closed until those
+ * implementations receive independent protocol/security review, the remaining
+ * stake-changing contract surface is reviewed, production database restore is
+ * rehearsed, funded testnet E2E is observed, and sponsor approvals are verified.
  */
 const SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY = false
 
@@ -18,7 +19,8 @@ export function getSponsorFeeBudgetSettlementGate() {
     blockers: SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY
       ? []
       : [
-          'historical-delegation-block-and-transaction-inclusion-not-independently-verified',
+          'historical-delegation-cryptographic-proof-implementation-not-independently-reviewed',
+          'historical-delegation-witness-state-and-canonical-chain-not-independently-witnessed',
           'stake-changing-contract-coverage-not-independently-reviewed',
           'fee-to-principal-resource-delegation-transactions-not-independently-audited',
           'production-database-migration-and-restore-rehearsal-not-complete',

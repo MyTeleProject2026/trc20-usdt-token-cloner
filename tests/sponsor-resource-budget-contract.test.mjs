@@ -58,9 +58,16 @@ test('receipt resource usage is recorded as pending evidence, never falsely sett
   assert.match(reconciliationSource, /solidified-costs-observed-pending-resource-attribution/)
 })
 
-test('testnet signing and broadcast remain blocked until attribution and settlement are independently complete', () => {
+test('testnet signing and broadcast remain blocked until attribution and settlement are independently complete', async () => {
+  const { getSponsorFeeBudgetSettlementGate } = await import('../server/routes/sponsor-fee-settlement-gate.mjs')
+  const releaseGate = getSponsorFeeBudgetSettlementGate()
+  assert.equal(releaseGate.ready, false)
+  assert.ok(releaseGate.blockers.includes('historical-delegation-cryptographic-proof-implementation-not-independently-reviewed'))
+  assert.ok(releaseGate.blockers.includes('historical-delegation-witness-state-and-canonical-chain-not-independently-witnessed'))
+  assert.ok(!releaseGate.blockers.includes('historical-delegation-block-and-transaction-inclusion-not-independently-verified'))
   assert.match(gateSource, /SPONSOR_FEE_BUDGET_SETTLEMENT_ADAPTER_READY = false/)
-  assert.match(gateSource, /historical-delegation-block-and-transaction-inclusion-not-independently-verified/)
+  assert.match(gateSource, /historical-delegation-cryptographic-proof-implementation-not-independently-reviewed/)
+  assert.match(gateSource, /historical-delegation-witness-state-and-canonical-chain-not-independently-witnessed/)
   assert.match(gateSource, /stake-changing-contract-coverage-not-independently-reviewed/)
   assert.match(gateSource, /fee-to-principal-resource-delegation-transactions-not-independently-audited/)
   assert.match(gateSource, /funded-nile-and-shasta-sponsored-transfer-not-verified/)
