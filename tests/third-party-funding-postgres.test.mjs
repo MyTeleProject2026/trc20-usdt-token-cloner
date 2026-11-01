@@ -31,6 +31,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     listThirdPartyFundingAuthorizations,
     persistThirdPartyFundingDeposit,
     markThirdPartyFundingDepositFireblocksVerified,
+    persistFireblocksInventorySnapshot,
     revokeThirdPartyFundingAuthorization,
   } = await import('../server/database.mjs')
 
@@ -129,11 +130,45 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   })
   assert.equal(trxDeposit.persisted, true)
 
+  const inventoryCheckedAt = new Date(Date.now() + 5_000)
+  const inventory = await persistFireblocksInventorySnapshot({
+    workflowRunId: String(Date.now()) + suffix,
+    workflowRunAttempt: 1,
+    repository: 'MyTeleProject2026/trc20-usdt-token-cloner',
+    branch: 'main',
+    commitSha: 'a'.repeat(40),
+    verificationStatus: 'verified',
+    checkedAt: inventoryCheckedAt,
+    configuration: {
+      apiBase: 'https://api.fireblocks.io', vaultAccountId: '42',
+      usdtAssetId: 'TRON_USDT', trxAssetId: 'TRX',
+      treasuryAddress: vaultAddress, signerMode: 'fireblocks', network: 'mainnet',
+      usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      usdtDecimals: 6, trxDecimals: 6, apiKeyConfigured: true,
+    },
+    checks: {
+      fireblocksApiAuthenticated: true, vaultAccountVerified: true,
+      usdtAssetActivated: true, officialUsdtAssetVerified: true,
+      usdtAddressMatches: true, trxAssetActivated: true,
+      nativeTrxAssetVerified: true, trxAddressMatches: true,
+      officialUsdtChainVerified: true, treasuryTrxChainBalanceRead: true,
+      databaseReady: true,
+    },
+    balances: {
+      fireblocksUsdtAvailableBaseUnits: '25000000',
+      chainUsdtBalanceBaseUnits: '25000000',
+      fireblocksTrxAvailableBaseUnits: '8000000',
+      chainTrxBalanceSun: '8000000',
+    },
+    reasons: [],
+  })
+  assert.equal(inventory.persisted, true)
+
   const marked = await markThirdPartyFundingDepositFireblocksVerified({
     authorizationId, asset: 'USDT', transactionHash: usdtTx,
-    snapshotId: '123456', treasuryAddress: vaultAddress, vaultAccountId: '42',
+    snapshotId: inventory.id, treasuryAddress: vaultAddress, vaultAccountId: '42',
     availableBalanceBaseUnits: '25000000', chainBalanceBaseUnits: '25000000',
-    checkedAt: new Date(Date.now() + 5_000),
+    checkedAt: inventoryCheckedAt,
   })
   assert.equal(marked.verified, true)
   assert.equal(marked.duplicate, false)
@@ -144,7 +179,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(detail.authorization.status, 'deposit-evidence-recorded')
   assert.equal(detail.deposits.length, 2)
   const usdtRow = detail.deposits.find((row) => row.asset === 'USDT')
-  assert.equal(usdtRow.fireblocksSnapshotId, '123456')
+  assert.equal(usdtRow.fireblocksSnapshotId, inventory.id)
   assert.equal(usdtRow.fireblocksVaultAccountId, '42')
   assert.ok(usdtRow.fireblocksVerifiedAt)
 
