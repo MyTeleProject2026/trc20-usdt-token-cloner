@@ -252,3 +252,41 @@ test('solidified history replay enforces a total scan deadline across multiple b
   assert.equal(result.reason, 'historical-delegation-scan-deadline-exceeded')
   assert.equal(result.totalTimeoutMs, 1)
 })
+
+
+test('solidified history replay rejects every covered legacy and Stake 2.0 sponsor stake/resource mutation', async (t) => {
+  const cases = [
+    { type: 'DelegateResourceContract', owner: feeHex, receiver: principalHex },
+    { type: 'UnDelegateResourceContract', owner: feeHex, receiver: principalHex },
+    { type: 'FreezeBalanceContract', owner: feeHex, receiver: principalHex },
+    { type: 'UnfreezeBalanceContract', owner: feeHex, receiver: principalHex },
+    { type: 'FreezeBalanceV2Contract', owner: feeHex },
+    { type: 'UnfreezeBalanceV2Contract', owner: feeHex },
+    { type: 'WithdrawExpireUnfreezeContract', owner: feeHex },
+    { type: 'CancelAllUnfreezeV2Contract', owner: feeHex },
+    { type: 'FutureStakeResourceMutationContract', owner: feeHex },
+    // Legacy Freeze/UnfreezeBalance can identify a delegated recipient through receiver_address.
+    { type: 'FreezeBalanceContract', owner: '41' + 'dd'.repeat(20), receiver: principalHex },
+  ]
+  for (const item of cases) {
+    await t.test(item.type + (item.receiver === principalHex && item.owner !== feeHex ? ' legacy recipient' : ''), async () => {
+      const mutation = tx('mutation-' + item.type + '-' + (item.receiver || 'owner'), [{
+        type: item.type,
+        parameter: { value: {
+          owner_address: item.owner,
+          ...(item.receiver ? { receiver_address: item.receiver } : {}),
+          resource: 'ENERGY',
+          frozen_balance: 1,
+          balance: 1,
+        } },
+      }])
+      const { verifier } = verifierFor({
+        blocks: standardBlocks({ middleTransactions: [mutation] }),
+      })
+      const result = await run(verifier)
+      assert.equal(result.success, false)
+      assert.equal(result.reason, 'historical-delegation-state-changed-during-interval')
+      assert.equal(result.contractType, item.type)
+    })
+  }
+})
