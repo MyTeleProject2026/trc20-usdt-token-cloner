@@ -99,10 +99,11 @@ function isStakeMutationForSponsorPair(contract, tronWeb, sponsor, principal) {
  *
  * The preflight account/delegation snapshot must have been bracketed by reads of
  * the same SolidityNode head. Every later block is fetched by exact height from
- * the SolidityNode, checked for sequential height/parent linkage, and every
- * transaction's raw_data_hex is hashed to its claimed txID. Any delegation or
- * stake mutation involving either sponsor role invalidates this conservative
- * proof. This is not a substitute for independent node/operator review.
+ * both Tatum and TRONGrid SolidityNodes, checked for matching ordered transaction
+ * lists and sequential height/parent linkage, and every transaction's raw_data_hex
+ * is hashed to its claimed txID. Any delegation or stake mutation involving
+ * either sponsor role invalidates this conservative cross-check. This is not a
+ * substitute for cryptographic inclusion proof or independent node/operator review.
  */
 export function createSponsorDelegationHistoryVerifier({
   env = process.env,
@@ -112,6 +113,7 @@ export function createSponsorDelegationHistoryVerifier({
     return new TronWeb({ fullHost: host, headers })
   },
   timeoutMs = 8000,
+  totalTimeoutMs = 90_000,
   maxBlockSpan = MAX_BLOCK_SPAN,
 } = {}) {
   return async function verifySponsorDelegationHistory({
@@ -146,6 +148,7 @@ export function createSponsorDelegationHistoryVerifier({
     }
     if (typeof fetchImpl !== 'function') return fail('provider-unavailable')
 
+    const deadlineAt = Date.now() + totalTimeoutMs
     try {
       const headers = { accept: 'application/json', 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
       const tronWeb = await tronWebFactory(host, headers)
@@ -161,12 +164,18 @@ export function createSponsorDelegationHistoryVerifier({
       }
       const secondaryHost = SECONDARY_NETWORKS[transfer.network]
       const requestBlock = async (number, providerHost, providerHeaders) => {
+        const remainingMs = deadlineAt - Date.now()
+        if (remainingMs <= 0) {
+          throw Object.assign(new Error('historical-delegation-scan-deadline-exceeded'), {
+            code: 'historical-delegation-scan-deadline-exceeded',
+          })
+        }
         const response = await fetchImpl(providerHost + '/walletsolidity/getblockbynum', {
           method: 'POST',
           redirect: 'error',
           headers: providerHeaders,
           body: JSON.stringify({ num: number, visible: false }),
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
         })
         if (!response.ok) throw Object.assign(new Error('provider-http-error'), { providerStatus: response.status })
         const payload = await response.json()
@@ -309,6 +318,9 @@ export function createSponsorDelegationHistoryVerifier({
         delegationSnapshot: preflightEvidence.delegationSnapshot,
       }
     } catch (error) {
+      if (error?.code === 'historical-delegation-scan-deadline-exceeded' || Date.now() >= deadlineAt) {
+        return fail('historical-delegation-scan-deadline-exceeded', { totalTimeoutMs })
+      }
       const status = Number.isInteger(error?.providerStatus) ? 'provider-http-error'
         : 'historical-delegation-history-unavailable'
       return fail(status, Number.isInteger(error?.providerStatus) ? { providerStatus: error.providerStatus } : {})
