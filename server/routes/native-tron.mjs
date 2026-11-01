@@ -362,8 +362,8 @@ router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
   }
   if (!['mainnet', 'shasta', 'nile'].includes(body.network)
     || typeof body.transactionId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(body.transactionId)
-    || !addressPattern.test(body.sponsorAddress || '')
-    || !addressPattern.test(body.receiverAddress || '')
+    || !isValidTronAddress(body.sponsorAddress)
+    || !isValidTronAddress(body.receiverAddress)
     || body.sponsorAddress === body.receiverAddress
     || !['ENERGY', 'BANDWIDTH'].includes(body.resourceType)
     || typeof body.stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,15}$/.test(body.stakeEquivalentSun)) {
@@ -373,7 +373,7 @@ router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
   // Do not let a caller classify an arbitrary wallet's delegation as sponsor activity.
   const sponsorAddressEnvironment = `SPONSOR_FEE_${body.network.toUpperCase()}_ADDRESS`
   const configuredFeeSponsor = process.env[sponsorAddressEnvironment]?.trim()
-  if (!configuredFeeSponsor || !addressPattern.test(configuredFeeSponsor)) {
+  if (!isValidTronAddress(configuredFeeSponsor)) {
     return res.status(503).json({
       success: false,
       verified: false,
