@@ -130,6 +130,23 @@ export default function ThirdPartyFundingPanel({
     && inventoryCheckedMs <= Date.now() + 60_000
     && Date.now() - inventoryCheckedMs <= 6 * 60 * 60 * 1000
 
+  async function selectAuthorization(authorizationId: string) {
+    setSelectedId(authorizationId)
+    setBusy('detail')
+    setError('')
+    try {
+      const detail = await request('/authorizations/' + encodeURIComponent(authorizationId))
+      setAuthorizations(current => current.map(item => item.authorizationId === authorizationId
+        ? { ...item, ...(detail.authorization || {}), deposits: Array.isArray(detail.deposits) ? detail.deposits : [] }
+        : item))
+      setTransactionHash('')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load authorization detail.')
+    } finally {
+      setBusy('')
+    }
+  }
+
   async function registerAuthorization() {
     setBusy('register')
     setError('')
@@ -314,7 +331,8 @@ export default function ThirdPartyFundingPanel({
                   type="button"
                   key={item.authorizationId}
                   className={'wallet-vault-wallet-choice' + (selectedId === item.authorizationId ? ' is-selected' : '')}
-                  onClick={() => { setSelectedId(item.authorizationId); setTransactionHash('') }}
+                  disabled={busy !== ''}
+                  onClick={() => void selectAuthorization(item.authorizationId)}
                 >
                   <span className="wallet-vault-wallet-details">
                     <strong>{item.authorizationId}</strong>
