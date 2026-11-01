@@ -36,6 +36,7 @@ test('USDT payout configuration fails closed without a separately identified nat
     TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
     TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
     TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     TREASURY_FEE_LIMIT_SUN: '50000000',
     TREASURY_WITHDRAWALS_ENABLED: 'true',
     TREASURY_SIGNER_MODE: 'fireblocks',
@@ -146,6 +147,9 @@ test('USDT sponsor configuration requires a traceable organization, agreement an
   assert.ok(treasuryUsdtConfiguration({
     ...base, TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'bad value with spaces',
   }).missing.includes('TREASURY_SPONSOR_AGREEMENT_REFERENCE'))
+  assert.equal(treasuryUsdtConfiguration({
+    ...base, SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|nile|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+  }).sponsorAgreementScopeApproved, false, 'testnet agreement must not authorize Mainnet USDT principal')
   assert.equal(treasuryUsdtConfiguration({
     ...base, TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '5',
   }).configurationComplete, false, 'aggregate sponsor cap must cover both the per-payout and daily caps')

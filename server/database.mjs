@@ -2284,8 +2284,8 @@ export async function createSponsorBudgetDraft(input) {
   }
 }
 
-function approvedSponsorAgreementScopes() {
-  return String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+function approvedSponsorAgreementScopes(env = process.env) {
+  return String(env?.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
     .split(';').map((entry) => entry.trim()).filter(Boolean)
     .map((entry) => {
       const fields = entry.split('|')
@@ -2309,14 +2309,14 @@ function approvedSponsorAgreementScopes() {
     .filter(Boolean)
 }
 
-export function isSponsorAgreementReferenceConfigured(reference) {
+export function isSponsorAgreementReferenceConfigured(reference, env = process.env) {
   return typeof reference === 'string'
-    && approvedSponsorAgreementScopes().some((scope) => scope.reference === reference)
+    && approvedSponsorAgreementScopes(env).some((scope) => scope.reference === reference)
 }
 
-export function isApprovedSponsorAgreementScope({ consentReference, budget } = {}) {
+export function isApprovedSponsorAgreementScope({ consentReference, budget, env = process.env } = {}) {
   if (typeof consentReference !== 'string' || !budget || typeof budget !== 'object') return false
-  return approvedSponsorAgreementScopes().some((scope) =>
+  return approvedSponsorAgreementScopes(env).some((scope) =>
     scope.reference === consentReference
       && scope.sponsorReference === budget.sponsor_reference
       && scope.network === budget.network

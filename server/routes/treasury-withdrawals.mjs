@@ -13,7 +13,7 @@ import {
   isNativeFireblocksTrxAsset,
   maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
-import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
+import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig, isApprovedSponsorAgreementScope } from '../database.mjs'
 import {
   buildTreasuryWithdrawalAuthorizationMessage,
   buildTreasuryTrxWithdrawalAuthorizationMessage,
@@ -485,13 +485,27 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
   const sponsorTotalBudget = readLimit(env.TREASURY_SPONSOR_TOTAL_BUDGET_USDT)
-  const sponsorReferencePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$/
   const sponsorOrganizationReference = typeof env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE === 'string'
     ? env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE.trim() : ''
   const sponsorAgreementReference = typeof env.TREASURY_SPONSOR_AGREEMENT_REFERENCE === 'string'
     ? env.TREASURY_SPONSOR_AGREEMENT_REFERENCE.trim() : ''
-  if (!sponsorReferencePattern.test(sponsorOrganizationReference)) missing.push('TREASURY_SPONSOR_ORGANIZATION_REFERENCE')
-  if (!sponsorReferencePattern.test(sponsorAgreementReference)) missing.push('TREASURY_SPONSOR_AGREEMENT_REFERENCE')
+  const sponsorOrganizationPattern = /^[A-Za-z0-9._:-]{8,128}$/
+  const sponsorAgreementPattern = /^[A-Za-z0-9._:-]{8,160}$/
+  if (!sponsorOrganizationPattern.test(sponsorOrganizationReference)) missing.push('TREASURY_SPONSOR_ORGANIZATION_REFERENCE')
+  if (!sponsorAgreementPattern.test(sponsorAgreementReference)) missing.push('TREASURY_SPONSOR_AGREEMENT_REFERENCE')
+  const sponsorAgreementScopeApproved = isApprovedSponsorAgreementScope({
+    consentReference: sponsorAgreementReference,
+    budget: {
+      sponsor_reference: sponsorOrganizationReference,
+      sponsor_address: typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : '',
+      network: 'mainnet',
+      purpose: 'asset-grant',
+      asset: 'USDT',
+      token_contract: USDT_MAINNET,
+    },
+    env,
+  })
+  if (!sponsorAgreementScopeApproved) missing.push('SPONSOR_APPROVED_AGREEMENT_REFERENCES (exact Mainnet USDT sponsor scope required)')
   if (!sponsorTotalBudget) missing.push('TREASURY_SPONSOR_TOTAL_BUDGET_USDT')
   if (sponsorTotalBudget && ((maxPayout && maxPayout > sponsorTotalBudget)
     || (dailyLimit && dailyLimit > sponsorTotalBudget))) {
@@ -515,8 +529,9 @@ export function treasuryUsdtConfiguration(env = process.env) {
     featureFlagEnabled,
     missing: [...new Set(missing)],
     ownerAddressesMatch,
-    sponsorOrganizationReference: sponsorReferencePattern.test(sponsorOrganizationReference) ? sponsorOrganizationReference : null,
-    sponsorAgreementReference: sponsorReferencePattern.test(sponsorAgreementReference) ? sponsorAgreementReference : null,
+    sponsorOrganizationReference: sponsorOrganizationPattern.test(sponsorOrganizationReference) ? sponsorOrganizationReference : null,
+    sponsorAgreementReference: sponsorAgreementPattern.test(sponsorAgreementReference) && sponsorAgreementScopeApproved ? sponsorAgreementReference : null,
+    sponsorAgreementScopeApproved,
     sponsorTotalBudgetBaseUnits: sponsorTotalBudget === null ? null : sponsorTotalBudget.toString(),
     signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
     providerConfigured: provider.configured,
