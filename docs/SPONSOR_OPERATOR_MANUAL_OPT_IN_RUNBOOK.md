@@ -340,3 +340,123 @@ The session store for wallet login is currently in application memory and sessio
 The console's **Reservation idempotency key** is the exact key created by the trusted reservation CLI or returned from the protected transfer ledger. It is not a transaction hash, wallet address, sponsor reference, or any wallet secret. The key cannot create/approve a reservation when pasted into the console. Use [the reservation idempotency guide](./SPONSOR_RESERVATION_IDEMPOTENCY.md) to create or locate an approved reservation, and stop if the console reports `transfer-not-found`.
 
 Neither a successful sign-in, a connected wallet, nor a visible sponsor balance means a transaction was signed or sent. Report a transfer as completed only after the exact transaction is visible in solidified chain data with the expected sender, receiver, token contract, amount and successful execution. Exchange-account credit remains an exchange-side status.
+
+## 15. Sponsor PostgreSQL migration and restore rehearsal
+
+The sponsor schema is currently created and advanced by the idempotent DDL in
+`server/database.mjs` during `initializeDatabase()`. A session-level advisory lock serializes
+that initialization across backend instances. There is not yet a separately versioned migration
+ledger. Do not describe a passing application startup or a GitHub PostgreSQL test as a production
+backup/restore rehearsal.
+
+### Read-only schema readiness check
+
+A dedicated command now checks the sponsor schema without running `initializeDatabase()` and
+without issuing DDL or data changes:
+
+```bash
+DATABASE_URL="$RESTORE_DATABASE_URL" npm run check:sponsor-db
+```
+
+The command reports whether the sponsor tables, required columns, operational indexes, and named
+fee/asset constraints are present. Exit code `0` means the inspected schema is structurally ready;
+exit code `1` means one or more objects are missing; exit code `2` means the database check could
+not connect or query. It reports the database name but never prints the connection URL or secrets.
+
+This is a structural check only. It does not validate row contents, sponsor consent, balances,
+provider connectivity, permissions to spend, historical chain evidence, or transfer readiness. It
+always reports `releaseAuthorized: false` and `submissionEnabled: false`. It does not migrate an
+old database. Current schema changes still run through the application's startup initializer.
+
+### Required isolated rehearsal procedure
+
+Run the rehearsal in an isolated, non-production PostgreSQL database on a protected network. Never
+restore over the live database or point a temporary backend at live provider credentials. Keep all
+signing/broadcast and payout flags disabled.
+
+1. Record the source database identifier, backup timestamp, PostgreSQL server major version, and
+   operator/change-ticket reference. Do not record a connection URL or password in GitHub or this
+   runbook.
+2. Create a protected custom-format backup using the approved secret manager/shell environment.
+   For example, after setting `SOURCE_DATABASE_URL` and `BACKUP_FILE` locally:
+
+   ```bash
+   umask 077
+   pg_dump --format=custom --no-owner --no-acl \
+     --file="$BACKUP_FILE" "$SOURCE_DATABASE_URL"
+   sha256sum "$BACKUP_FILE"
+   pg_restore --list "$BACKUP_FILE" >/dev/null
+   ```
+
+3. Provision a new, empty restore database that is separate from production. Verify the restore
+   target identifier before running the restore. Restore the custom-format backup without changing
+   ownership/ACLs:
+
+   ```bash
+   pg_restore --exit-on-error --no-owner --no-acl \
+     --dbname="$RESTORE_DATABASE_URL" "$BACKUP_FILE"
+   ```
+
+4. Run the read-only readiness check against the restored database:
+
+   ```bash
+   DATABASE_URL="$RESTORE_DATABASE_URL" npm run check:sponsor-db
+   ```
+
+   If the backup predates the current sponsor migrations, the check may correctly report missing
+   objects. In that case, run the current application initializer only against a separately
+   isolated rehearsal database/service with payout and provider execution disabled; then repeat the
+   read-only check. Do not use the readiness checker as a migration command.
+
+5. Compare source and restored sponsor ledger row counts using the same read-only query on both
+   connections. Keep the outputs in the private change record, not in a public issue:
+
+   ```sql
+   SELECT 'sponsor_budgets' AS table_name, COUNT(*)::text AS row_count
+     FROM trc20_token_clone.sponsor_budgets
+   UNION ALL
+   SELECT 'sponsor_transfers', COUNT(*)::text
+     FROM trc20_token_clone.sponsor_transfers
+   UNION ALL
+   SELECT 'sponsor_chain_cost_observations', COUNT(*)::text
+     FROM trc20_token_clone.sponsor_chain_cost_observations
+   UNION ALL
+   SELECT 'sponsor_resource_budgets', COUNT(*)::text
+     FROM trc20_token_clone.sponsor_resource_budgets
+   UNION ALL
+   SELECT 'sponsor_resource_reservations', COUNT(*)::text
+     FROM trc20_token_clone.sponsor_resource_reservations
+   UNION ALL
+   SELECT 'sponsor_resource_cost_settlements', COUNT(*)::text
+     FROM trc20_token_clone.sponsor_resource_cost_settlements
+   UNION ALL
+   SELECT 'sponsor_resource_delegations', COUNT(*)::text
+     FROM trc20_token_clone.sponsor_resource_delegations
+   UNION ALL
+   SELECT 'audit_events', COUNT(*)::text
+     FROM trc20_token_clone.audit_events
+   ORDER BY table_name;
+   ```
+
+   Run it once using the source connection and once using the restore connection. Investigate any
+   count difference; do not accept a restore based only on a successful `pg_restore` exit code.
+
+6. Confirm the restored application can read its sponsor ledger and audit rows, indexes and
+   constraints are present, and the application startup migration completed without errors. Record
+   the backup checksum, source/restore identifiers, PostgreSQL versions, readiness output, row-count
+   comparison, observed warnings, and independent reviewer sign-off.
+
+7. Destroy the isolated restore database and temporary backup copies using the approved retention
+   procedure after the evidence has been securely retained.
+
+### Completion criteria and release boundary
+
+Mark the rehearsal complete only after an operator has actually executed the backup, restored it
+into an isolated target, run the post-restore readiness check, compared the sponsor ledger row counts,
+and retained reviewed evidence. A repository code change cannot establish that this real-world
+rehearsal has occurred.
+
+A successful rehearsal still does not authorize payouts. Written authorization and funded fee/resource
+and asset-principal sponsor accounts, provider custody review, independent security review, and a
+supervised funded Nile/Shasta end-to-end pilot remain separate release gates. The hard sponsor
+submission gate stays closed; no user-funded fallback or Mainnet submission is enabled by this work.

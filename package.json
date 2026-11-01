@@ -12,6 +12,7 @@
     "sponsor:reserve": "node scripts/reserve-sponsor-transfer.mjs",
     "treasury:reconcile": "node scripts/reconcile-treasury-withdrawals.mjs",
     "check:env": "node scripts/check-production-env.mjs",
+    "check:sponsor-db": "node scripts/check-sponsor-database-readiness.mjs",
     "testnet:preflight": "node scripts/run-testnet-preflight.mjs"
   },
   "dependencies": {
