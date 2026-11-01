@@ -119,6 +119,7 @@ test('owner treasury panel is read-only and server payout execution is disabled 
   assert.match(vault, /serverTreasuryHasFunds/)
   assert.match(vault, /serverTreasuryReadiness\?\.executionEnabled === true/)
   assert.match(vault, /serverTreasuryReadiness\?\.sponsorPrincipalBudget\?\.withinBudget === true/)
+  assert.match(vault, /serverTreasuryReadiness\?\.sponsorPrincipalBudget\?\.commitmentCapConsistent === true/)
   assert.match(vault, /Sponsor organization reference/)
   assert.match(vault, /Sponsor agreement reference/)
   assert.match(vault, /Exact Mainnet USDT sponsor agreement scope/)

@@ -324,6 +324,7 @@ export default function WalletVault() {
     && serverTreasuryReadiness?.withdrawalsEnabled === true
     && serverTreasuryReadiness?.executionEnabled === true
     && serverTreasuryReadiness?.sponsorPrincipalBudget?.withinBudget === true
+    && serverTreasuryReadiness?.sponsorPrincipalBudget?.commitmentCapConsistent === true
     && typeof sponsorPrincipalBudgetRemaining === 'string'
     && /^(0|[1-9][0-9]*)$/.test(sponsorPrincipalBudgetRemaining)
     && BigInt(sponsorPrincipalBudgetRemaining) > 0n
