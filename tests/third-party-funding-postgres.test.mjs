@@ -100,7 +100,10 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   }
   assert.equal(digestConstraintError?.code, '23514')
 
-  const duplicateRegistration = await persistThirdPartyFundingAuthorization(authorizationInput)
+  const duplicateRegistration = await persistThirdPartyFundingAuthorization({
+    ...authorizationInput,
+    withdrawalDisbursementReviewedAt: new Date(Date.now() - 30_000),
+  })
   assert.equal(duplicateRegistration.persisted, true)
   assert.equal(duplicateRegistration.duplicate, true)
 
@@ -220,6 +223,23 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   const list = await listThirdPartyFundingAuthorizations({ limit: 50 })
   assert.equal(list.success, true)
   assert.ok(list.authorizations.some((item) => item.authorizationId === authorizationId))
+
+  const expiryPool = new Pool({ connectionString: process.env.DATABASE_URL })
+  try {
+    await expiryPool.query(
+      `UPDATE trc20_token_clone.third_party_funding_authorizations
+          SET expires_at = now() - interval '1 second'
+        WHERE authorization_id = $1`,
+      [authorizationId],
+    )
+  } finally {
+    await expiryPool.end()
+  }
+  const expiredSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
+  assert.equal(expiredSponsorPool.success, true)
+  assert.equal(expiredSponsorPool.verifiedDepositCount, '0')
+  assert.equal(expiredSponsorPool.reviewedAuthorizationCount, '0')
+  assert.equal(expiredSponsorPool.verifiedUsdtPrincipalBaseUnits, '0')
 
   const revoked = await revokeThirdPartyFundingAuthorization({
     authorizationId, revokedBy: makeTronAddress('33'),
