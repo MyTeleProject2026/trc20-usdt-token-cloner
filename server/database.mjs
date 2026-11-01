@@ -3232,3 +3232,69 @@ export async function persistFireblocksInventorySnapshot(input = {}) {
   return { persisted: true, duplicate: true, id: existing.rows[0].id, createdAt: existing.rows[0].created_at }
 }
 
+
+/**
+ * Read the newest sanitized Fireblocks inventory snapshot for the production
+ * repository. Secret-file paths are intentionally omitted from this API.
+ */
+export async function getLatestFireblocksInventorySnapshot() {
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      \`SELECT id::text AS id, workflow_run_id, workflow_run_attempt,
+              repository, branch, lower(commit_sha) AS commit_sha,
+              verification_status, checks, balances, configuration, reasons,
+              checked_at
+         FROM \${schema}.fireblocks_inventory_snapshots
+        WHERE repository = $1 AND branch = 'main'
+        ORDER BY checked_at DESC, id DESC
+        LIMIT 1\`,
+      ['MyTeleProject2026/trc20-usdt-token-cloner'],
+    )
+    if (!result.rows.length) return { success: true, snapshot: null }
+    const row = result.rows[0]
+    const configuration = row.configuration && typeof row.configuration === 'object'
+      && !Array.isArray(row.configuration) ? row.configuration : {}
+    const checks = row.checks && typeof row.checks === 'object' && !Array.isArray(row.checks)
+      ? row.checks : {}
+    const balances = row.balances && typeof row.balances === 'object' && !Array.isArray(row.balances)
+      ? row.balances : {}
+    const reasons = Array.isArray(row.reasons) ? row.reasons : []
+    return {
+      success: true,
+      snapshot: {
+        id: String(row.id),
+        workflowRunId: String(row.workflow_run_id),
+        workflowRunAttempt: Number(row.workflow_run_attempt),
+        repository: row.repository,
+        branch: row.branch,
+        commitSha: String(row.commit_sha).trim().toLowerCase(),
+        verificationStatus: row.verification_status,
+        checkedAt: row.checked_at,
+        configuration: {
+          apiBase: configuration.apiBase ?? null,
+          vaultAccountId: configuration.vaultAccountId ?? null,
+          usdtAssetId: configuration.usdtAssetId ?? null,
+          trxAssetId: configuration.trxAssetId ?? null,
+          treasuryAddress: configuration.treasuryAddress ?? null,
+          signerMode: configuration.signerMode ?? null,
+          network: configuration.network ?? null,
+          usdtContract: configuration.usdtContract ?? null,
+          usdtDecimals: configuration.usdtDecimals ?? null,
+          trxDecimals: configuration.trxDecimals ?? null,
+          apiKeyConfigured: configuration.apiKeyConfigured === true,
+          rsaKeyConfigured: configuration.rsaKeyConfigured === true,
+        },
+        checks,
+        balances,
+        reasons,
+      },
+    }
+  } catch (error) {
+    console.error('Fireblocks inventory snapshot lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
