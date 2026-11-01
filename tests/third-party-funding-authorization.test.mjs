@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import {
   buildThirdPartyFundingAuthorizationMessage,
   verifyThirdPartyFundingAuthorization,
@@ -7,8 +8,23 @@ import {
   THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT,
 } from '../src/third-party-funding-authorization.mjs'
 
-const SPONSOR = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const VAULT = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+function makeTronAddress(fill) {
+  const payload = Buffer.from('41' + fill.repeat(20), 'hex')
+  const firstHash = createHash('sha256').update(payload).digest()
+  const checksum = createHash('sha256').update(firstHash).digest().subarray(0, 4)
+  const bytes = Buffer.concat([payload, checksum])
+  let value = BigInt('0x' + bytes.toString('hex'))
+  let encoded = ''
+  while (value > 0n) {
+    const remainder = Number(value % 58n)
+    encoded = BASE58_ALPHABET[remainder] + encoded
+    value /= 58n
+  }
+  return '1'.repeat(bytes.findIndex((byte) => byte !== 0)) + encoded
+}
+const SPONSOR = makeTronAddress('11')
+const VAULT = makeTronAddress('22')
 const NOW = Date.parse('2026-11-01T00:00:00.000Z')
 const SIGNATURE = '0x' + 'a'.repeat(130)
 
