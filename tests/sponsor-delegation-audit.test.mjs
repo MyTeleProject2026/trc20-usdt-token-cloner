@@ -136,3 +136,12 @@ test('a live snapshot for a different network or sponsor pair cannot satisfy del
     assert.equal(result.status, 'live-delegation-state-not-verified')
   }
 })
+
+
+test('address-shaped values with an invalid TRON Base58Check checksum are rejected', () => {
+  const result = verifySponsorDelegationTransactionAudit(baseInput({
+    feeSponsorAddress: 'T' + 'A'.repeat(33),
+  }))
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'invalid-delegation-audit-identity')
+})
