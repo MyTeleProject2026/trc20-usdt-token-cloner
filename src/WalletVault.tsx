@@ -100,6 +100,32 @@ type OwnerTreasurySnapshot = {
   submissionEnabled?: boolean
 }
 
+type FireblocksInventorySnapshot = {
+  id?: string | null
+  workflowRunId?: string | null
+  workflowRunAttempt?: number | null
+  commitSha?: string | null
+  verificationStatus?: 'verified' | 'blocked' | 'unknown'
+  checkedAt?: string | null
+  workflowRunUrl?: string | null
+  configuration?: {
+    apiBase?: string | null
+    vaultAccountId?: string | null
+    usdtAssetId?: string | null
+    trxAssetId?: string | null
+    treasuryAddress?: string | null
+    usdtContract?: string | null
+  } | null
+  checks?: Record<string, boolean | null>
+  balances?: {
+    fireblocksUsdtAvailableBaseUnits?: string | null
+    chainUsdtBalanceBaseUnits?: string | null
+    fireblocksTrxAvailableBaseUnits?: string | null
+    chainTrxBalanceSun?: string | null
+  } | null
+  reasons?: string[]
+}
+
 const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -264,6 +290,8 @@ export default function WalletVault() {
   const [ownerSessionToken, setOwnerSessionToken] = useState('')
   const [ownerSessionAddress, setOwnerSessionAddress] = useState('')
   const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
+  const [fireblocksInventorySnapshot, setFireblocksInventorySnapshot] = useState<FireblocksInventorySnapshot | null>(null)
+  const [fireblocksInventoryError, setFireblocksInventoryError] = useState('')
   const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
   const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
   const [treasuryPayoutConfirm, setTreasuryPayoutConfirm] = useState('')
@@ -469,17 +497,21 @@ export default function WalletVault() {
 
         if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, inventoryResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
           fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
+          fetch(API_BASE + '/api/treasury/fireblocks/inventory/latest', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
         ])
-        const [funding, readiness] = await Promise.all([
+        const [funding, readiness, inventory] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
+          inventoryResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -488,6 +520,14 @@ export default function WalletVault() {
           setOwnerTreasurySnapshot(null)
         }
         setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
+        if (inventoryResponse.ok && inventory?.success === true) {
+          setFireblocksInventorySnapshot(inventory.snapshot && typeof inventory.snapshot === 'object'
+            ? inventory.snapshot as FireblocksInventorySnapshot : null)
+          setFireblocksInventoryError('')
+        } else {
+          setFireblocksInventorySnapshot(null)
+          setFireblocksInventoryError('The latest Fireblocks inventory snapshot could not be loaded. Check the owner session and backend database status.')
+        }
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
         }
@@ -496,6 +536,8 @@ export default function WalletVault() {
         setOwnerSessionAddress('')
         setOwnerTreasurySnapshot(null)
         setServerTreasuryReadiness(null)
+        setFireblocksInventorySnapshot(null)
+        setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
         setOwnerTreasuryError(caught instanceof Error
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
@@ -1497,6 +1539,75 @@ export default function WalletVault() {
           <strong>External organization approval is required</strong>
           <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
+        </div>
+        <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
+          <h3 id="fireblocks-inventory-heading">One-click Fireblocks inventory verification</h3>
+          <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
+          <p className="wallet-vault-caption">
+            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open GitHub Actions — Run Fireblocks inventory sync ↗</a>
+          </p>
+          {fireblocksInventoryError && <p className="wallet-vault-risk-note" role="alert">{fireblocksInventoryError}</p>}
+          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No saved inventory run is available yet. Run the manual workflow above; the result will appear here after it finishes and saves its database snapshot.</p>}
+          {fireblocksInventorySnapshot && <>
+            <div className="wallet-vault-review-grid">
+              <div>
+                <small>Latest inventory result</small>
+                <strong>{fireblocksInventorySnapshot.verificationStatus === 'verified' ? 'All read-only inventory checks passed' : fireblocksInventorySnapshot.verificationStatus === 'blocked' ? 'Blocked — review diagnostics' : 'Status unavailable'}</strong>
+              </div>
+              <div>
+                <small>Checked at</small>
+                <strong>{fireblocksInventorySnapshot.checkedAt ? new Date(fireblocksInventorySnapshot.checkedAt).toLocaleString() : 'Not recorded'}</strong>
+              </div>
+              <div>
+                <small>GitHub workflow run</small>
+                <strong>{fireblocksInventorySnapshot.workflowRunId || 'Not recorded'}{fireblocksInventorySnapshot.workflowRunAttempt ? ' · attempt ' + fireblocksInventorySnapshot.workflowRunAttempt : ''}</strong>
+                {fireblocksInventorySnapshot.workflowRunUrl && <a href={fireblocksInventorySnapshot.workflowRunUrl} target="_blank" rel="noopener noreferrer">Open run details ↗</a>}
+              </div>
+              <div>
+                <small>Vault account ID</small>
+                <strong>{fireblocksInventorySnapshot.configuration?.vaultAccountId || 'Not configured'}</strong>
+              </div>
+              <div>
+                <small>Fireblocks USDT asset ID</small>
+                <strong>{fireblocksInventorySnapshot.configuration?.usdtAssetId || 'Not configured'}</strong>
+              </div>
+              <div>
+                <small>Fireblocks TRX asset ID</small>
+                <strong>{fireblocksInventorySnapshot.configuration?.trxAssetId || 'Not configured'}</strong>
+              </div>
+              <div className="wallet-vault-review-wide">
+                <small>Verified treasury address</small>
+                <strong>{fireblocksInventorySnapshot.configuration?.treasuryAddress || 'Not verified'}</strong>
+              </div>
+              <div>
+                <small>Fireblocks available USDT</small>
+                <strong>{fireblocksInventorySnapshot.balances?.fireblocksUsdtAvailableBaseUnits !== null && fireblocksInventorySnapshot.balances?.fireblocksUsdtAvailableBaseUnits !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.fireblocksUsdtAvailableBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong>
+              </div>
+              <div>
+                <small>TRON-chain USDT</small>
+                <strong>{fireblocksInventorySnapshot.balances?.chainUsdtBalanceBaseUnits !== null && fireblocksInventorySnapshot.balances?.chainUsdtBalanceBaseUnits !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.chainUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong>
+              </div>
+              <div>
+                <small>Fireblocks available TRX</small>
+                <strong>{fireblocksInventorySnapshot.balances?.fireblocksTrxAvailableBaseUnits !== null && fireblocksInventorySnapshot.balances?.fireblocksTrxAvailableBaseUnits !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.fireblocksTrxAvailableBaseUnits, 6) + ' TRX' : 'Unavailable'}</strong>
+              </div>
+              <div>
+                <small>TRON-chain TRX</small>
+                <strong>{fireblocksInventorySnapshot.balances?.chainTrxBalanceSun !== null && fireblocksInventorySnapshot.balances?.chainTrxBalanceSun !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.chainTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong>
+              </div>
+            </div>
+            <h4>Inventory check results</h4>
+            <div className="wallet-vault-review-grid">
+              {Object.entries(fireblocksInventorySnapshot.checks || {}).map(([name, passed]) => (
+                <div key={name}>
+                  <small>{name.replaceAll(/([A-Z])/g, ' $1').replaceAll('-', ' ')}</small>
+                  <strong>{passed === true ? 'Passed' : passed === false ? 'Failed' : 'Not checked'}</strong>
+                </div>
+              ))}
+            </div>
+            {(fireblocksInventorySnapshot.reasons || []).length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Blockers:</strong> {fireblocksInventorySnapshot.reasons?.map((item) => item.replaceAll('-', ' ')).join('; ')}</p>}
+            <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Real-value payout execution remains hard-disabled in this build.</p>
+          </>}
         </div>
         <div className="wallet-vault-review-grid">
           <div>
