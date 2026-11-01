@@ -9,6 +9,7 @@ import {
   listThirdPartyFundingAuthorizations,
   persistThirdPartyFundingDeposit,
   markThirdPartyFundingDepositFireblocksVerified,
+  revokeThirdPartyFundingAuthorization,
 } from '../database.mjs'
 import {
   buildThirdPartyFundingAuthorizationMessage,
@@ -216,8 +217,7 @@ function inspectVerifiedFireblocksSnapshot(snapshot, expectedVaultAddress, nowMs
     || typeof snapshot.configuration?.vaultAccountId !== 'string'
     || typeof snapshot.configuration?.usdtAssetId !== 'string'
     || typeof snapshot.configuration?.trxAssetId !== 'string'
-    || snapshot.configuration?.apiKeyConfigured !== true
-    || snapshot.configuration?.rsaKeyConfigured !== true) {
+    || snapshot.configuration?.apiKeyConfigured !== true) {
     return { verified: false, reason: 'verified-fireblocks-inventory-snapshot-required' }
   }
   const checkedAt = new Date(snapshot.checkedAt).getTime()
@@ -253,6 +253,7 @@ export function createThirdPartyFundingRouter({
     listAuthorizations: listThirdPartyFundingAuthorizations,
     persistDeposit: persistThirdPartyFundingDeposit,
     markDepositFireblocksVerified: markThirdPartyFundingDepositFireblocksVerified,
+    revokeAuthorization: revokeThirdPartyFundingAuthorization,
   },
   now = () => Date.now(),
 } = {}) {
@@ -473,7 +474,8 @@ export function createThirdPartyFundingRouter({
       || typeof body.transactionHash !== 'string' || !TXID_PATTERN.test(body.transactionHash)) {
       return res.status(400).json({ success: false, error: 'invalid-fireblocks-deposit-reconciliation-request' })
     }
-    const inventoryResult = await readLatestSnapshot()
+    let inventoryResult
+    try { inventoryResult = await readLatestSnapshot() } catch { inventoryResult = null }
     const vaultAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
     const inventory = inventoryResult?.success === true
       ? inspectVerifiedFireblocksSnapshot(inventoryResult.snapshot, vaultAddress, now())
@@ -481,6 +483,7 @@ export function createThirdPartyFundingRouter({
     if (!inventory.verified) return res.status(503).json({ success: false, error: inventory.reason, fireblocksInventoryVerified: false })
 
     const lookup = await store.getAuthorization(authorizationId)
+    if (lookup?.success !== true) return res.status(503).json({ success: false, error: lookup?.reason || 'authorization-storage-unavailable' })
     const deposit = lookup?.deposits?.find((item) =>
       item.asset === body.asset && item.transactionHash.toLowerCase() === body.transactionHash.toLowerCase())
     if (!deposit || deposit.recipientAddress !== vaultAddress) {
@@ -521,9 +524,21 @@ export function createThirdPartyFundingRouter({
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    return res.status(501).json({
-      success: false, error: 'authorization-revocation-not-implemented',
-      note: 'Do not consider the authorization revoked until a durable revocation record is available.',
+    const authorizationId = req.params.authorizationId
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (!AUTHORIZATION_ID_PATTERN.test(authorizationId || '') || Object.keys(body).length > 0) {
+      return res.status(400).json({ success: false, error: 'invalid-authorization-revocation-request' })
+    }
+    const result = await store.revokeAuthorization({ authorizationId, revokedBy: auth.ownerAddress })
+    if (result?.revoked !== true) {
+      const status = result?.reason === 'funding-authorization-not-found' ? 404 : 409
+      return res.status(status).json({ success: false, error: result?.reason || 'authorization-revocation-failed' })
+    }
+    return res.json({
+      success: true, duplicate: result.duplicate === true,
+      authorizationId, status: 'revoked',
+      revokedBy: auth.ownerAddress,
+      payoutExecutionAuthorized: false,
     })
   })
 
