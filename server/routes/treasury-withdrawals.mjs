@@ -31,6 +31,10 @@ const MAINNET_RPC = 'https://api.trongrid.io'
 // This supervised application build must never submit real-value treasury payouts.
 // The hard gate is deliberately not controlled by Render environment variables.
 const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
+// The complete Fireblocks outbound history has not yet been ingested and reconciled
+// against app reservations from the dedicated vault's creation time. Never report
+// the sponsor principal pool as payout-ready until that independent ledger exists.
+const FIREBLOCKS_VAULT_OUTBOUND_HISTORY_RECONCILED = false
 const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
@@ -881,6 +885,9 @@ export function createTreasuryWithdrawalsRouter({
       snapshot = await readManagedTreasurySnapshot(treasuryAddress)
     }
     const blockers = []
+    if (!FIREBLOCKS_VAULT_OUTBOUND_HISTORY_RECONCILED) {
+      blockers.push('fireblocks-vault-outbound-history-not-reconciled')
+    }
     let pendingUsdtCount = '0'
     let pendingTrxCount = '0'
     let requiredFeeReserveSun = null
@@ -969,6 +976,8 @@ export function createTreasuryWithdrawalsRouter({
       databaseReady, treasuryAddress,
       thirdPartyFunding: {
         ...thirdPartyFunding,
+        externalOutboundHistoryVerified: FIREBLOCKS_VAULT_OUTBOUND_HISTORY_RECONCILED,
+        externalOutboundHistoryRequired: true,
         sponsorFundedOnly: true,
         outgoingUseRequiresReviewedExecutedAgreement: true,
         thisStatusIsNotPayoutAuthorization: true,
