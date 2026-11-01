@@ -33,6 +33,9 @@ export function verifySponsorDelegationTransactionAudit({
   }
 
   if (liveSnapshot?.success !== true
+    || liveSnapshot.network !== network
+    || liveSnapshot.fromAddress !== feeSponsorAddress
+    || liveSnapshot.toAddress !== principalSponsorAddress
     || !UINT_PATTERN.test(String(liveSnapshot.activeEnergyStakeSun ?? ''))
     || !UINT_PATTERN.test(String(liveSnapshot.activeBandwidthStakeSun ?? ''))
     || BigInt(liveSnapshot.activeEnergyStakeSun) <= 0n
