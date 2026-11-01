@@ -3678,7 +3678,6 @@ export async function markThirdPartyFundingDepositFireblocksVerified(input = {})
     || !isValidTronAddress(treasuryAddress)
     || typeof vaultAccountId !== 'string' || !/^[0-9]{1,20}$/.test(vaultAccountId)
     || !isPositiveUint256(availableBalanceBaseUnits) || !isPositiveUint256(chainBalanceBaseUnits)
-    || BigInt(availableBalanceBaseUnits) < BigInt(chainBalanceBaseUnits) * 0n
     || !Number.isFinite(checked.getTime()) || checked.getTime() > Date.now() + 60_000) {
     return { verified: false, reason: 'invalid-fireblocks-deposit-inventory-evidence' }
   }
