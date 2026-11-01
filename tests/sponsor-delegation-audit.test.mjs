@@ -15,6 +15,9 @@ function baseInput(overrides = {}) {
     principalSponsorAddress: principalSponsor,
     liveSnapshot: {
       success: true,
+      network: 'nile',
+      fromAddress: feeSponsor,
+      toAddress: principalSponsor,
       activeEnergyStakeSun: '9000000',
       activeBandwidthStakeSun: '3000000',
     },
@@ -119,4 +122,17 @@ test('missing live state cannot be replaced by historical transaction audit rows
   }))
   assert.equal(result.verified, false)
   assert.equal(result.status, 'live-delegation-state-not-verified')
+})
+
+
+test('a live snapshot for a different network or sponsor pair cannot satisfy delegation audit', () => {
+  for (const liveSnapshot of [
+    { ...baseInput().liveSnapshot, network: 'shasta' },
+    { ...baseInput().liveSnapshot, fromAddress: otherSponsor },
+    { ...baseInput().liveSnapshot, toAddress: otherSponsor },
+  ]) {
+    const result = verifySponsorDelegationTransactionAudit(baseInput({ liveSnapshot }))
+    assert.equal(result.verified, false)
+    assert.equal(result.status, 'live-delegation-state-not-verified')
+  }
 })
