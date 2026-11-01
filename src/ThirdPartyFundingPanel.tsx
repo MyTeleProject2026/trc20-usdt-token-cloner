@@ -74,6 +74,7 @@ export default function ThirdPartyFundingPanel({
       redirect: 'error',
     })
     const payload = await response.json().catch(() => null)
+    if (response.status === 202 && payload?.status === 'awaiting-solidification') return payload
     if (!response.ok || payload?.success !== true) {
       throw new Error(typeof payload?.error === 'string'
         ? payload.error.replaceAll('-', ' ')
@@ -88,9 +89,21 @@ export default function ThirdPartyFundingPanel({
     try {
       const payload = await request('/authorizations')
       const list = Array.isArray(payload.authorizations) ? payload.authorizations as FundingAuthorization[] : []
-      setAuthorizations(list)
-      setSelectedId(current => list.some(item => item.authorizationId === current)
-        ? current : list[0]?.authorizationId || '')
+      const nextId = list.some(item => item.authorizationId === selectedId)
+        ? selectedId : list[0]?.authorizationId || ''
+      let enriched = list
+      if (nextId) {
+        try {
+          const detail = await request('/authorizations/' + encodeURIComponent(nextId))
+          enriched = list.map(item => item.authorizationId === nextId
+            ? { ...item, ...(detail.authorization || {}), deposits: Array.isArray(detail.deposits) ? detail.deposits : [] }
+            : item)
+        } catch {
+          enriched = list
+        }
+      }
+      setAuthorizations(enriched)
+      setSelectedId(nextId)
       setNotice(list.length ? 'Authorization records loaded from the backend ledger.' : 'No third-party funding authorization has been registered.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load funding authorizations.')
@@ -166,8 +179,12 @@ export default function ThirdPartyFundingPanel({
 
   async function reconcileFireblocks() {
     if (!selectedId) return
-    if (!/^[0-9a-f]{64}$/i.test(transactionHash.trim())) {
-      setError('Enter the same confirmed transaction ID that was recorded for this deposit.')
+    const recordedHash = transactionHash.trim()
+      || selected?.deposits?.find(item => item.asset === asset && !item.fireblocksVerifiedAt)?.transactionHash
+      || selected?.deposits?.find(item => item.asset === asset)?.transactionHash
+      || ''
+    if (!/^[0-9a-f]{64}$/i.test(recordedHash)) {
+      setError('Select a chain-confirmed deposit or enter its recorded 64-character transaction ID.')
       return
     }
     setBusy('fireblocks')
@@ -176,7 +193,7 @@ export default function ThirdPartyFundingPanel({
     try {
       const payload = await request('/authorizations/' + encodeURIComponent(selectedId) + '/deposits/fireblocks-reconcile', 'POST', {
         asset,
-        transactionHash: transactionHash.trim().toLowerCase(),
+        transactionHash: recordedHash.toLowerCase(),
       })
       setNotice('Deposit reconciled against verified Fireblocks and TRON inventory. This is not payout authorization.')
       setTransactionHash('')
@@ -322,6 +339,9 @@ export default function ThirdPartyFundingPanel({
                     <strong>{item.asset} · {prettyUnits(item.amountBaseUnits, 6)}</strong>
                     <small>{item.transactionHash}</small>
                     <small>{item.fireblocksVerifiedAt ? 'Fireblocks inventory verified · snapshot ' + item.fireblocksSnapshotId : 'Chain confirmed; awaiting Fireblocks inventory reconciliation'}</small>
+                    <button type="button" className="wallet-vault-secondary" disabled={busy !== '' || Boolean(item.fireblocksVerifiedAt)} onClick={() => { setAsset(item.asset); setTransactionHash(item.transactionHash) }}>
+                      {item.fireblocksVerifiedAt ? 'Inventory already reconciled' : 'Select this deposit for reconciliation'}
+                    </button>
                   </div>
                   {item.fireblocksVerifiedAt ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
                 </div>
