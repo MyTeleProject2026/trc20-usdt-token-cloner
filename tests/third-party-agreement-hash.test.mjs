@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hashThirdPartyFundingAgreement } from '../scripts/hash-third-party-funding-agreement.mjs'
@@ -10,7 +10,7 @@ test('agreement hashing returns the SHA-256 of the exact local file bytes withou
   const directory = await mkdtemp(join(tmpdir(), 'funding-agreement-hash-'))
   try {
     const file = join(directory, 'executed-agreement.pdf')
-    const bytes = Buffer.from('%PDF-1.7\\nconfidential test document\\n', 'utf8')
+    const bytes = Buffer.from('%PDF-1.7\nconfidential test document\n', 'utf8')
     await writeFile(file, bytes)
     const result = await hashThirdPartyFundingAgreement(file)
     assert.equal(result.algorithm, 'sha256')
@@ -37,6 +37,19 @@ test('agreement hashing rejects non-file paths', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'funding-agreement-directory-'))
   try {
     await assert.rejects(() => hashThirdPartyFundingAgreement(directory), /regular file/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('agreement hashing rejects symbolic links instead of hashing an indirect path', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'funding-agreement-symlink-'))
+  try {
+    const target = join(directory, 'executed-agreement.pdf')
+    const link = join(directory, 'agreement-link.pdf')
+    await writeFile(target, 'executed agreement')
+    await symlink(target, link)
+    await assert.rejects(() => hashThirdPartyFundingAgreement(link), /non-symlink file/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
