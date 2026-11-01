@@ -280,6 +280,7 @@ export function createFireblocksClient(env = process.env, {
   readSecretFile = readFile,
   now = () => Date.now(),
   nonceFactory = () => randomBytes(16).toString('hex'),
+  signal: parentSignal = null,
 } = {}) {
   const config = fireblocksConfiguration(env)
 
@@ -321,7 +322,9 @@ export function createFireblocksClient(env = process.env, {
         },
         ...(payload === undefined ? {} : { body }),
         redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
+        signal: parentSignal
+          ? AbortSignal.any([parentSignal, AbortSignal.timeout(15_000)])
+          : AbortSignal.timeout(15_000),
       })
     } catch {
       throw new FireblocksApiError(502, 'fireblocks-provider-unreachable')

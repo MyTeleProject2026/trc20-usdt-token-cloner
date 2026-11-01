@@ -1,5 +1,5 @@
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
-import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast } from '../database.mjs'
+import { recordNativeTransferVerification, recordSponsorResourceDelegation, listSponsorResourceDelegations, listPersistedReceiverHistory, registerTrackedWallet, listSponsorBudgets, listSponsorTransfers, transitionSponsorTransfer, reserveSponsorTransfer, createSponsorBudgetDraft, pauseSponsorBudget, getSponsorBudgetById, activateSponsorBudget, isSponsorAgreementReferenceConfigured, isApprovedSponsorAgreementScope, createSponsorProviderApplication, getSponsorProviderApplicationStatus, listSponsorProviderApplications, reviewSponsorProviderApplication, getSponsorTransferForSubmission, persistSponsorUnsignedTransaction, claimSponsorTransferBroadcast, finalizeSponsorTransferBroadcast, reserveSponsorResourceBudgetForTransfer, getSponsorResourceReservationForTransfer, recordSponsorResourcePreflightEvidence, createSponsorResourceBudgetDraft, activateSponsorResourceBudget, pauseSponsorResourceBudget, listSponsorResourceBudgets } from '../database.mjs'
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto'
 import { getSponsorshipStatus } from '../sponsorship-status.mjs'
 import { createSponsorFundingReader } from '../sponsor-funding.mjs'
@@ -12,8 +12,24 @@ import { isPositiveUint256 } from '../base-units.mjs'
 import { buildSponsorUnsignedTransaction, validateSponsorSignedTransaction, verifySponsorFeeResourceCapacity, broadcastValidatedSponsorTransaction } from '../sponsor-tron-submission.mjs'
 
 import { Router } from 'express'
+import { getSponsorFeeBudgetSettlementGate } from './sponsor-fee-settlement-gate.mjs'
 
 const router = Router()
+
+function rejectIfSponsorFeeBudgetSettlementIsIncomplete(res) {
+  const gate = getSponsorFeeBudgetSettlementGate()
+  if (gate.ready) return false
+  res.status(503).json({
+    success: false, status: 'fee-sponsor-budget-settlement-unavailable',
+    error: gate.reason, blockers: gate.blockers,
+    feeSponsorBudgetSettled: false, feeCoverageVerified: false,
+    canSubmitSponsoredTransfer: false, submissionEnabled: false,
+    providerSubmissionAttempted: false, transactionBroadcast: false,
+    unpaidFallbackToUserFunds: false,
+    message: 'Transaction-specific fee-resource reservation and settlement are incomplete. No signing intent or broadcast is allowed.',
+  })
+  return true
+}
 const txPattern = /^[0-9a-fA-F]{64}$/
 const networks = {
   shasta: 'https://api.shasta.trongrid.io',
@@ -346,8 +362,8 @@ router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
   }
   if (!['mainnet', 'shasta', 'nile'].includes(body.network)
     || typeof body.transactionId !== 'string' || !/^[0-9a-fA-F]{64}$/.test(body.transactionId)
-    || !addressPattern.test(body.sponsorAddress || '')
-    || !addressPattern.test(body.receiverAddress || '')
+    || !isValidTronAddress(body.sponsorAddress)
+    || !isValidTronAddress(body.receiverAddress)
     || body.sponsorAddress === body.receiverAddress
     || !['ENERGY', 'BANDWIDTH'].includes(body.resourceType)
     || typeof body.stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,15}$/.test(body.stakeEquivalentSun)) {
@@ -357,7 +373,7 @@ router.post('/sponsorship/resource-delegations/verify', async (req, res) => {
   // Do not let a caller classify an arbitrary wallet's delegation as sponsor activity.
   const sponsorAddressEnvironment = `SPONSOR_FEE_${body.network.toUpperCase()}_ADDRESS`
   const configuredFeeSponsor = process.env[sponsorAddressEnvironment]?.trim()
-  if (!configuredFeeSponsor || !addressPattern.test(configuredFeeSponsor)) {
+  if (!isValidTronAddress(configuredFeeSponsor)) {
     return res.status(503).json({
       success: false,
       verified: false,
@@ -1059,6 +1075,115 @@ router.post('/sponsorship/budgets/:id/pause', async (req, res) => {
   }
 })
 
+// Operator-only delegated Energy/Bandwidth mandate management. These endpoints
+// create accounting limits only; they do not verify funding or enable submission.
+router.post('/sponsorship/resource-budgets', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string' || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) return res.status(401).json({ success: false, error: 'unauthorized' })
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  const allowed = new Set(['mandateReference','sponsorReference','network','energyBudgetUnits','bandwidthBudgetUnits','energyPerTransferLimit','bandwidthPerTransferLimit','validUntil'])
+  if (Object.keys(body).some(key => !allowed.has(key))) return res.status(400).json({ success: false, error: 'unexpected-fields' })
+  const network = body.network
+  if (!['nile','shasta'].includes(network)) return res.status(400).json({ success: false, error: 'testnet-resource-budgets-only' })
+  const suffix = network.toUpperCase()
+  const feeSponsorAddress = process.env['SPONSOR_FEE_' + suffix + '_ADDRESS']
+  const assetPrincipalAddress = process.env['SPONSOR_ASSET_' + suffix + '_ADDRESS']
+  if (!isValidTronAddress(feeSponsorAddress) || !isValidTronAddress(assetPrincipalAddress)
+    || feeSponsorAddress === assetPrincipalAddress) {
+    return res.status(503).json({ success: false, error: 'distinct-fee-and-asset-sponsor-addresses-required' })
+  }
+  try {
+    const result = await createSponsorResourceBudgetDraft({
+      ...body, network, feeSponsorAddress, assetPrincipalAddress,
+    })
+    if (!result.success) return res.status(result.reason === 'resource-mandate-already-exists' ? 409 : 400).json(result)
+    return res.status(201).json({
+      ...result, status: 'pending-review', canSubmitSponsoredTransfer: false,
+      note: 'This is a resource-unit budget draft, not chain funding, verified delegation, or permission to submit.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'resource-budget-draft-unavailable' })
+  }
+})
+
+router.post('/sponsorship/resource-budgets/:id/activate', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string' || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) return res.status(401).json({ success: false, error: 'unauthorized' })
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  if (Object.keys(body).some(key => !['approvalReference','reviewReference'].includes(key))) {
+    return res.status(400).json({ success: false, error: 'unexpected-fields' })
+  }
+  try {
+    const result = await activateSponsorResourceBudget({
+      budgetId: req.params?.id,
+      approvalReference: body.approvalReference,
+      reviewReference: body.reviewReference,
+    })
+    if (!result.success) {
+      const status = result.reason === 'resource-budget-not-found' ? 404
+        : result.reason === 'resource-mandate-scope-not-approved' ? 403
+          : result.reason === 'database-not-configured' ? 503 : 400
+      return res.status(status).json({ ...result, canSubmitSponsoredTransfer: false })
+    }
+    return res.json({ ...result, canSubmitSponsoredTransfer: false, submissionEnabled: false })
+  } catch {
+    return res.status(503).json({ success: false, error: 'resource-budget-activation-unavailable' })
+  }
+})
+
+router.post('/sponsorship/resource-budgets/:id/pause', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string' || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) return res.status(401).json({ success: false, error: 'unauthorized' })
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+  if (Object.keys(body).some(key => !['reasonCode'].includes(key))) {
+    return res.status(400).json({ success: false, error: 'unexpected-fields' })
+  }
+  try {
+    const result = await pauseSponsorResourceBudget({ budgetId: req.params?.id, reasonCode: body.reasonCode })
+    if (!result.success) return res.status(result.reason === 'resource-budget-not-found' ? 404 : 400).json(result)
+    return res.json({ ...result, canReserve: false, canSubmitSponsoredTransfer: false })
+  } catch {
+    return res.status(503).json({ success: false, error: 'resource-budget-pause-unavailable' })
+  }
+})
+
+router.get('/sponsorship/resource-budgets', async (req, res) => {
+  res.setHeader?.('Cache-Control', 'no-store')
+  res.setHeader?.('Vary', 'Authorization')
+  if (typeof process.env.SPONSOR_ADMIN_API_TOKEN !== 'string' || process.env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+    return res.status(503).json({ success: false, error: 'sponsor-admin-not-configured' })
+  }
+  if (!hasValidSponsorAdminToken(req)) return res.status(401).json({ success: false, error: 'unauthorized' })
+  const network = req.query?.network === undefined ? null : req.query.network
+  const limit = req.query?.limit === undefined ? 50 : Number(req.query.limit)
+  if (network !== null && !['nile','shasta'].includes(network)) return res.status(400).json({ success: false, error: 'invalid-network' })
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return res.status(400).json({ success: false, error: 'invalid-limit' })
+  try {
+    const result = await listSponsorResourceBudgets({ network, limit })
+    if (!result.success) return res.status(503).json({ success: false, error: result.reason || 'resource-budget-list-unavailable' })
+    return res.json({
+      success: true, status: 'sponsor-resource-budget-ledger-read',
+      count: result.budgets.length, budgets: result.budgets,
+      canSubmitSponsoredTransfer: false,
+      note: 'Configured resource-unit limits and reservations are not on-chain balances or proof of sponsor-funded resource consumption.',
+    })
+  } catch {
+    return res.status(503).json({ success: false, error: 'resource-budget-list-unavailable' })
+  }
+})
+
 // Privileged, read-only view of configured sponsor budget caps and ledger usage.
 // Budget values are not chain balances and this endpoint cannot activate budgets or send transfers.
 router.get('/sponsorship/budgets', async (req, res) => {
@@ -1367,6 +1492,8 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
       message: 'The testnet signing/broadcast gate is disabled until sponsor resource coverage, settlement, and end-to-end tests are reviewed.',
     })
   }
+
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   try {
     const found = await getSponsorTransferForSubmission(idempotencyKey)
     if (found?.success !== true) {
@@ -1427,6 +1554,35 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
         message: 'Fresh chain resource capacity for the exact sponsor transaction could not be proven. The transaction is persisted but is not authorized for signing or broadcast.',
       })
     }
+    const mandateReference = env['SPONSOR_RESOURCE_MANDATE_' + transfer.network.toUpperCase()]
+    if (typeof mandateReference !== 'string' || !mandateReference.trim()) {
+      return res.status(503).json({
+        success: false, error: 'approved-resource-mandate-not-configured',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+      })
+    }
+    const resourceReservation = await reserveSponsorResourceBudgetForTransfer({
+      idempotencyKey,
+      mandateReference: mandateReference.trim(),
+      energyUnits: feeCapacity.requiredEnergyUnits,
+      bandwidthUnits: feeCapacity.requiredBandwidthUnits,
+      expiresAt: new Date(signingTransaction.raw_data.expiration).toISOString(),
+    })
+    if (resourceReservation?.reserved !== true) {
+      return res.status(503).json({
+        success: false, error: resourceReservation?.reason || 'resource-budget-reservation-failed',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        feeCoverageVerified: false,
+      })
+    }
+    const preflightEvidence = await recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence: feeCapacity })
+    if (preflightEvidence?.success !== true) {
+      return res.status(503).json({
+        success: false, error: preflightEvidence?.reason || 'resource-preflight-evidence-persistence-failed',
+        canSubmitSponsoredTransfer: false, transactionBroadcast: false,
+        feeCoverageVerified: false,
+      })
+    }
     return res.json({
       success: true,
       status: 'unsigned-testnet-transaction-prepared',
@@ -1482,10 +1638,12 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
       providerSubmissionAttempted: false, transactionBroadcast: false,
     })
   }
+
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
   if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'signedTransaction')) {
     return res.status(400).json({ success: false, error: 'signed-transaction-only', canSubmitSponsoredTransfer: false })
   }
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   try {
     const found = await getSponsorTransferForSubmission(idempotencyKey)
     if (found?.success !== true) {
@@ -1543,6 +1701,21 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
         success: true, status: 'submitted', duplicate: true, network: transfer.network,
         transactionHash: signature.txID, transactionBroadcast: true, chainFinalityVerified: false,
         canSubmitSponsoredTransfer: false, submissionEnabled: false,
+      })
+    }
+    const preflightEvidence = await recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence: feeCapacity })
+    if (preflightEvidence?.success !== true) {
+      return res.status(503).json({
+        success: false, error: preflightEvidence?.reason || 'resource-preflight-evidence-persistence-failed',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
+      })
+    }
+    const resourceReservation = await getSponsorResourceReservationForTransfer(idempotencyKey)
+    if (resourceReservation?.success !== true) {
+      return res.status(409).json({
+        success: false, error: resourceReservation?.reason || 'active-fee-resource-reservation-required',
+        canSubmitSponsoredTransfer: false, providerSubmissionAttempted: false, transactionBroadcast: false,
+        userFundedFallbackAllowed: false,
       })
     }
     const claim = await claimSponsorTransferBroadcast({

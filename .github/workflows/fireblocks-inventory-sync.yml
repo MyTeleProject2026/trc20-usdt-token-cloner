@@ -65,6 +65,8 @@ jobs:
             "$ACTIONS_ID_TOKEN_REQUEST_URL")"
           oidc_token="$(OIDC_RESPONSE="$oidc_response" node -e 'const r=JSON.parse(process.env.OIDC_RESPONSE); if(typeof r.value!=="string" || r.value.length<100) process.exit(1); process.stdout.write(r.value);')"
           status="$(curl --silent --show-error --output sync-response.json --write-out '%{http_code}' \
+            --connect-timeout 10 \
+            --max-time 150 \
             --request POST \
             --header "Authorization: Bearer $oidc_token" \
             --header "Content-Type: application/json" \

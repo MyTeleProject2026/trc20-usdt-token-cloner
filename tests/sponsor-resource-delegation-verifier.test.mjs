@@ -1,17 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { createSponsorResourceDelegationVerifier } from '../server/sponsor-resource-delegation-verifier.mjs'
+import { isValidTronAddress } from '../server/tron-address.mjs'
 
-const sponsorAddress = 'T' + 'A'.repeat(33)
-const receiverAddress = 'T' + 'B'.repeat(33)
-const txId = 'a'.repeat(64)
+const sponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const receiverAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+const rawDataHex = Buffer.from('delegate-resource-test-fixture').toString('hex')
+const txId = createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest('hex')
 const sponsorHex = '41' + 'a'.repeat(40)
 const receiverHex = '41' + 'b'.repeat(40)
 
 function fakeTronWeb(host) {
   assert.equal(host, 'https://tron-shasta.gateway.tatum.io')
   return {
-    isAddress: (value) => value === sponsorAddress || value === receiverAddress,
+    isAddress: (value) => isValidTronAddress(value),
     address: {
       toHex: (value) => value === sponsorAddress ? sponsorHex
         : value === receiverAddress ? receiverHex : String(value).toLowerCase(),
@@ -21,12 +24,15 @@ function fakeTronWeb(host) {
   }
 }
 
-function mockFetch({ transactionOverrides = {}, info = { blockNumber: 100, result: 'SUCCESS' }, delegation = {
-  from: sponsorHex, to: receiverHex, frozen_balance_for_energy: '10000000',
+function mockFetch({ transactionOverrides = {}, info = { id: txId, blockNumber: 100, result: 'SUCCESS' }, delegation = {
+  from: sponsorHex, to: receiverHex,
+  frozen_balance_for_energy: '10000000',
+  expire_time_for_energy: 0,
 } } = {}) {
   const requests = []
   const transaction = {
     txID: txId,
+    raw_data_hex: rawDataHex,
     ret: [{ contractRet: 'SUCCESS' }],
     raw_data: { contract: [{
       type: 'DelegateResourceContract',
@@ -127,4 +133,138 @@ test('resource delegation verifier does not mark absent solidified transactions 
   })
   assert.equal(result.status, 'pending-solidification')
   assert.equal(result.verified, false)
+})
+
+
+test('resource delegation verifier rejects a transaction ID not derived from raw_data_hex or receipt identity', async (t) => {
+  const cases = [
+    { name: 'raw data hash mismatch', mock: { transactionOverrides: { raw_data_hex: 'deadbeef' } } },
+    { name: 'receipt transaction ID mismatch', mock: { info: { id: 'f'.repeat(64), blockNumber: 100, result: 'SUCCESS' } } },
+  ]
+  for (const item of cases) {
+    await t.test(item.name, async () => {
+      const mocked = mockFetch(item.mock)
+      const verifier = createSponsorResourceDelegationVerifier({
+        env: { TATUM_API_KEY: 'server-only-test-key' },
+        tronWebFactory: fakeTronWeb,
+        fetchImpl: mocked.fetchImpl,
+      })
+      const result = await verifier({
+        network: 'shasta', transactionId: txId, sponsorAddress, receiverAddress,
+        resourceType: 'ENERGY', stakeEquivalentSun: '10000000',
+      })
+      assert.equal(result.verified, false)
+      assert.equal(result.status, 'solidified-transaction-identity-mismatch')
+    })
+  }
+})
+
+test('resource delegation verifier rejects transactions containing multiple contracts', async () => {
+  const mocked = mockFetch({
+    transactionOverrides: {
+      raw_data: { contract: [
+        { type: 'DelegateResourceContract', parameter: { value: {
+          owner_address: sponsorHex, receiver_address: receiverHex,
+          resource: 1, balance: 10000000, lock: false,
+        } } },
+        { type: 'TransferContract', parameter: { value: {
+          owner_address: sponsorHex, to_address: receiverHex, amount: 1,
+        } } },
+      ] },
+    },
+  })
+  const verifier = createSponsorResourceDelegationVerifier({
+    env: { TATUM_API_KEY: 'server-only-test-key' },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: mocked.fetchImpl,
+  })
+  const result = await verifier({
+    network: 'shasta', transactionId: txId, sponsorAddress, receiverAddress,
+    resourceType: 'ENERGY', stakeEquivalentSun: '10000000',
+  })
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'solidified-transaction-mismatch')
+})
+
+test('resource delegation verifier does not count expired delegation as active', async () => {
+  const mocked = mockFetch({
+    delegation: {
+      from: sponsorHex, to: receiverHex,
+      frozen_balance_for_energy: '10000000',
+      expire_time_for_energy: Date.now() - 1000,
+    },
+  })
+  const verifier = createSponsorResourceDelegationVerifier({
+    env: { TATUM_API_KEY: 'server-only-test-key' },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: mocked.fetchImpl,
+  })
+  const result = await verifier({
+    network: 'shasta', transactionId: txId, sponsorAddress, receiverAddress,
+    resourceType: 'ENERGY', stakeEquivalentSun: '10000000',
+  })
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'delegation-state-not-yet-confirmed')
+  assert.equal(result.observedStakeEquivalentSun, '0')
+})
+
+test('resource delegation verifier rejects a matching delegation row with missing expiry evidence', async () => {
+  const mocked = mockFetch({
+    delegation: {
+      from: sponsorHex, to: receiverHex,
+      frozen_balance_for_energy: '10000000',
+    },
+  })
+  const verifier = createSponsorResourceDelegationVerifier({
+    env: { TATUM_API_KEY: 'server-only-test-key' },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: mocked.fetchImpl,
+  })
+  const result = await verifier({
+    network: 'shasta', transactionId: txId, sponsorAddress, receiverAddress,
+    resourceType: 'ENERGY', stakeEquivalentSun: '10000000',
+  })
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'delegation-state-unavailable')
+  assert.equal(result.reason, 'delegation-resource-or-expiry-invalid')
+})
+
+
+test('resource delegation verifier accepts a solidified system transaction with omitted optional receipt result fields', async () => {
+  const mocked = mockFetch({
+    info: { id: txId, blockNumber: 100 },
+    delegation: {
+      from: sponsorHex, to: receiverHex,
+      frozen_balance_for_energy: '10000000',
+      expire_time_for_energy: '0',
+    },
+  })
+  const verifier = createSponsorResourceDelegationVerifier({
+    env: { TATUM_API_KEY: 'server-only-test-key' },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: mocked.fetchImpl,
+  })
+  const result = await verifier({
+    network: 'shasta', transactionId: txId, sponsorAddress, receiverAddress,
+    resourceType: 'ENERGY', stakeEquivalentSun: '10000000',
+  })
+  assert.equal(result.verified, true)
+  assert.equal(result.observedStakeEquivalentSun, '10000000')
+})
+
+test('resource delegation verifier rejects an explicit non-success execution receipt', async () => {
+  const mocked = mockFetch({
+    info: { id: txId, blockNumber: 100, receipt: { result: 'REVERT' } },
+  })
+  const verifier = createSponsorResourceDelegationVerifier({
+    env: { TATUM_API_KEY: 'server-only-test-key' },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: mocked.fetchImpl,
+  })
+  const result = await verifier({
+    network: 'shasta', transactionId: txId, sponsorAddress, receiverAddress,
+    resourceType: 'ENERGY', stakeEquivalentSun: '10000000',
+  })
+  assert.equal(result.verified, false)
+  assert.equal(result.status, 'solidified-transaction-mismatch')
 })

@@ -1,6 +1,6 @@
 import { createPublicKey, verify as verifySignature } from 'node:crypto'
 import { Router } from 'express'
-import { TronWeb } from 'tronweb'
+import { TronWeb, providers } from 'tronweb'
 import {
   createFireblocksClient, fireblocksConfiguration, extractFireblocksAddresses,
   providerAssetAvailableBaseUnits, fireblocksAssetIdentifierMatches,
@@ -163,12 +163,31 @@ export async function verifyGitHubActionsInventoryOidcToken(token, expected, {
 const digits = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 96)
 
+export function createFireblocksInventoryTronReader({ apiKey = '', timeoutMs = 12_000 } = {}) {
+  const normalizedApiKey = typeof apiKey === 'string' ? apiKey.trim() : ''
+  const headers = normalizedApiKey ? { 'TRON-PRO-API-KEY': normalizedApiKey } : {}
+  const createProvider = () => new providers.HttpProvider(
+    'https://api.trongrid.io',
+    timeoutMs,
+    '',
+    '',
+    headers,
+  )
+  return new TronWeb({
+    fullNode: createProvider(),
+    solidityNode: createProvider(),
+    disablePlugins: true,
+  })
+}
+
 export function createFireblocksInventorySyncRouter({
   env = process.env,
-  fireblocksFactory = (currentEnv) => createFireblocksClient(currentEnv),
-  tronFactory = () => new TronWeb({
-    fullHost: 'https://api.trongrid.io',
-    ...(env.TRONGRID_API_KEY ? { headers: { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } } : {}),
+  fireblocksFactory = (currentEnv, options) => createFireblocksClient(currentEnv, options),
+  providerTimeoutMs = 90_000,
+  tronHttpTimeoutMs = 12_000,
+  tronFactory = () => createFireblocksInventoryTronReader({
+    apiKey: env.TRONGRID_API_KEY,
+    timeoutMs: tronHttpTimeoutMs,
   }),
   fetchImpl = globalThis.fetch,
   saveSnapshot = persistFireblocksInventorySnapshot,
@@ -225,7 +244,11 @@ export function createFireblocksInventorySyncRouter({
 
     if (cfg.providerConfigured && cfg.usdtAssetId && cfg.trxAssetConfigured && ADDRESS_PATTERN.test(address)) {
       try {
-        const fb = fireblocksFactory(env)
+        // All Fireblocks reads in this run share one deadline. The Fireblocks
+        // client also enforces its per-request timeout, so paginated reads cannot
+        // occupy the manual workflow indefinitely.
+        const providerSignal = AbortSignal.timeout(providerTimeoutMs)
+        const fb = fireblocksFactory(env, { signal: providerSignal })
         const tron = tronFactory()
         if (!tron?.isAddress?.(address) || !tron?.address?.toHex || !tron?.trx?.getBalance || !tron?.contract) {
           reasons.push('tron-read-provider-unavailable')

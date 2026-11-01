@@ -28,7 +28,7 @@ const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
 async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = {}) {
-  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
+  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, listSponsorResourceDelegations, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   const readiness = await initializeDatabase()
@@ -64,7 +64,7 @@ async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = 
       requestedNetwork, input.asset, input.tokenContract,
     ),
   })
-  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
+  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, listSponsorResourceDelegations, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
 }
 
 const testBudgetApprovals = new Map()
@@ -242,8 +242,8 @@ test('PostgreSQL keeps legacy VTRC history readable but rejects new VTRC ledger 
       pool.query(`INSERT INTO trc20_token_clone.sponsor_chain_cost_observations
         (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
          asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
-         block_number, execution_result, reported_fee_sun)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,'SUCCESS',0)`,
+         block_number, block_timestamp_ms, execution_result, reported_fee_sun)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,1700000000000,'SUCCESS',0)`,
         [network, 'a'.repeat(64), transferKey, sponsorReference, sponsorAddress, receiverAddress, receiverAddress, contractAddress]),
       (error) => error?.code === '23514' && error?.constraint === 'sponsor_chain_cost_observations_supported_asset_only',
     )
@@ -1050,6 +1050,52 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
     await pool.query(
       'DELETE FROM trc20_token_clone.transfer_verifications WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',
       [network, cases.map(item => item.hash)],
+    )
+    await pool.end()
+  }
+})
+
+
+test('PostgreSQL delegation audit query scopes history to the exact fee sponsor and principal pair', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test database',
+}, async () => {
+  const ctx = await setup()
+  const { pool, listSponsorResourceDelegations } = ctx
+  const otherSponsor = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+  const transactionIds = [0, 1, 2].map((index) =>
+    randomUUID().replaceAll('-', '').repeat(2).slice(0, 64))
+  try {
+    await pool.query(
+      `INSERT INTO trc20_token_clone.sponsor_resource_delegations
+        (network, transaction_hash, sponsor_address, receiver_address, resource_type,
+         stake_equivalent_sun, block_number, verification_status)
+       VALUES
+        ($1,$2,$3,$4,'ENERGY',1000000,100,'verified-on-chain'),
+        ($1,$5,$3,$4,'BANDWIDTH',2000000,101,'verified-on-chain'),
+        ($1,$6,$7,$4,'ENERGY',3000000,102,'verified-on-chain')`,
+      [network, transactionIds[0], sponsorAddress, receiverAddress,
+        transactionIds[1], transactionIds[2], otherSponsor],
+    )
+    const result = await listSponsorResourceDelegations({
+      network,
+      feeSponsorAddress: sponsorAddress,
+      principalSponsorAddress: receiverAddress,
+      limit: 100,
+    })
+    assert.equal(result.success, true)
+    assert.deepEqual(
+      result.delegations.map((row) => row.transactionId).sort(),
+      transactionIds.slice(0, 2).sort(),
+    )
+    const invalidFilter = await listSponsorResourceDelegations({
+      network, feeSponsorAddress: sponsorAddress, limit: 100,
+    })
+    assert.equal(invalidFilter.success, false)
+    assert.equal(invalidFilter.reason, 'invalid-sponsor-pair-filter')
+  } finally {
+    await pool.query(
+      'DELETE FROM trc20_token_clone.sponsor_resource_delegations WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',
+      [network, transactionIds],
     )
     await pool.end()
   }
