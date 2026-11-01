@@ -3500,7 +3500,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
         && (row.agreement_document_sha256 || '').trim() === agreementDocumentSha256
         && row.withdrawal_disbursement_acknowledged === true
         && row.withdrawal_disbursement_reviewed_by === withdrawalDisbursementReviewedBy
-        && new Date(row.withdrawal_disbursement_reviewed_at).getTime() === disbursementReviewed.getTime()
+        // Retried identical registrations preserve the original audit timestamp.
         && row.signature === signature && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
         && new Date(row.issued_at).getTime() === issued.getTime()
         && new Date(row.expires_at).getTime() === expires.getTime()
@@ -3636,10 +3636,6 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
   }
 }
 
-/**
- * Persist one exact solidified Mainnet deposit per asset for an authorization.
- * The caller must verify the transaction on the SolidityNode before this call.
- */
 /** Return verified third-party USDT principal with an explicitly reviewed disbursement mandate. */
 export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
   if (!isValidTronAddress(vaultAddress)) {
@@ -3691,6 +3687,10 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
   }
 }
 
+/**
+ * Persist one exact solidified Mainnet deposit per asset for an authorization.
+ * The caller must verify the transaction on the SolidityNode before this call.
+ */
 export async function persistThirdPartyFundingDeposit(input = {}) {
   const {
     authorizationId, transactionHash, asset, tokenContract = null,
