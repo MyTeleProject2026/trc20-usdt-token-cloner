@@ -4,6 +4,7 @@ import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
+import ThirdPartyFundingPanel from './ThirdPartyFundingPanel'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
   decryptWalletPrivateKey,
@@ -1657,6 +1658,12 @@ export default function WalletVault() {
           <button type="button" className="wallet-vault-secondary" onClick={() => void copyFireblocksEnvTemplate()}><Copy size={15} /> Copy placeholder-only environment template</button>
           <p className="wallet-vault-caption">The template contains placeholders, not credentials. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
         </div>
+        <ThirdPartyFundingPanel
+          apiBase={API_BASE}
+          sessionToken={ownerSessionToken}
+          inventoryVerified={fireblocksInventorySnapshot?.verificationStatus === 'verified'}
+          inventoryCheckedAt={fireblocksInventorySnapshot?.checkedAt || null}
+        />
       </section>
 
       <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
