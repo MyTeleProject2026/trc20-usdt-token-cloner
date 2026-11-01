@@ -23,6 +23,7 @@ function scrub(body) {
   const secrets = [
     ...credentialValues(),
     process.env.TATUM_API_KEY,
+    process.env.FIREBLOCKS_API_KEY,
     process.env.TRONGRID_API_KEY,
     process.env.OKX_API_KEY,
     process.env.OKX_API_SECRET,
