@@ -132,7 +132,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
 
   const inventoryCheckedAt = new Date(Date.now() + 5_000)
   const inventory = await persistFireblocksInventorySnapshot({
-    workflowRunId: String(Date.now()) + suffix,
+    workflowRunId: String(Date.now()) + String(parseInt(suffix, 16)).padStart(8, '0'),
     workflowRunAttempt: 1,
     repository: 'MyTeleProject2026/trc20-usdt-token-cloner',
     branch: 'main',
