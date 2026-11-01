@@ -58,6 +58,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     maxUsdtBaseUnits: '25000000',
     maxTrxSun: '8000000',
     agreementReference: 'PG-AGREEMENT-' + suffix,
+    agreementDocumentSha256: 'b'.repeat(64),
     agreementReviewedBy: makeTronAddress('33'),
     agreementReviewedAt: new Date(),
     signature,
@@ -179,6 +180,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   const detail = await getThirdPartyFundingAuthorization(authorizationId)
   assert.equal(detail.success, true)
   assert.equal(detail.authorization.authorizationId, authorizationId)
+  assert.equal(detail.authorization.agreementDocumentSha256, 'b'.repeat(64))
   assert.equal(detail.authorization.status, 'deposit-evidence-recorded')
   assert.equal(detail.deposits.length, 2)
   const usdtRow = detail.deposits.find((row) => row.asset === 'USDT')
