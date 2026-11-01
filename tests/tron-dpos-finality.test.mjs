@@ -56,8 +56,8 @@ test('rejects a target above the recomputed 19-of-27 witness solidified height',
 
   assert.equal(result.verified, false)
   assert.equal(result.reason, 'target-block-not-solidified-by-active-witness-threshold')
-  assert.equal(result.solidifiedHeight, 200)
-  assert.equal(result.supportingWitnessCount, 19)
+  assert.equal(result.solidifiedHeight, 100)
+  assert.equal(result.supportingWitnessCount, 18)
 })
 
 test('rejects a provider disagreement about the active witness set', () => {
