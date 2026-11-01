@@ -347,6 +347,7 @@ export function createThirdPartyFundingRouter({
       agreementReference: manifest.agreementReference,
       agreementReviewedBy: auth.ownerAddress,
       agreementReviewedAt: new Date(now()),
+      signature: manifest.signature,
       signatureHash,
       messageHash,
       issuedAt: manifest.issuedAt,
