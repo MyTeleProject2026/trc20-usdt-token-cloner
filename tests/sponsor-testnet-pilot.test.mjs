@@ -78,6 +78,8 @@ test('combined pilot preflight checks Nile and Shasta but never enables sponsore
     DATABASE_URL: 'postgresql://test-only-secret',
     SPONSOR_ADMIN_API_TOKEN: 'x'.repeat(40),
     SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'approved-reference|sponsor-ref|nile|public|asset-grant|TRX|-',
+    SPONSOR_USDT_NILE_CONTRACTS: assetAddress,
+    SPONSOR_USDT_SHASTA_CONTRACTS: assetAddress,
     SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED: 'true',
   }
   const readHead = async (network) => ({
@@ -117,16 +119,19 @@ test('combined pilot preflight checks Nile and Shasta but never enables sponsore
           onChainBalanceRead: true,
           status: 'read-only',
           native: { status: 'verified', balanceSun: '2000000', balanceTRX: '2', accountExists: true },
-          tokens: [{ asset: 'USDT', status: 'verified', balanceBaseUnits: '1230000', decimals: 6 }],
+          tokens: [{ asset: 'USDT (testnet)', tokenContract: assetAddress, status: 'verified', balanceBaseUnits: '1230000', decimals: 6 }],
           tokenBalancesComplete: true,
         },
       },
       feeSponsorDelegationToPrincipal: {
         success: true,
         status: 'solidified-delegation-state-read',
-        activeEnergyStakeSun: '1',
-        activeBandwidthStakeSun: '1',
-        transactionAuditVerified: false,
+        activeEnergyStakeSun: '1000000',
+        activeBandwidthStakeSun: '1000000',
+        transactionAuditVerified: true,
+        transactionAuditStatus: 'verified-energy-and-bandwidth-delegation-transactions',
+        auditedResourceTypes: ['ENERGY', 'BANDWIDTH'],
+        auditedTransactionCount: 2,
       },
     }
   }
@@ -279,3 +284,151 @@ test('combined pilot preflight rejects unsupported network filters', async (t) =
   assert.equal(payload.canSubmitSponsoredTransfer, false)
   assert.equal(called, false)
 })
+
+test('pilot readiness blocks partial Energy/Bandwidth delegation and missing USDT allowlisting', () => {
+  const makeRoleResult = ({
+    energy = '1000000',
+    bandwidth = '1000000',
+    transactionAuditVerified = true,
+  } = {}) => ({
+    configuredAddressesDistinct: true,
+    roles: {
+      networkFeeSponsor: {
+        addressConfigured: true,
+        onChainBalanceRead: true,
+        resourceStatus: {
+          status: 'verified',
+          resourceRead: true,
+          currentlyAvailableEnergy: '1000',
+          currentlyAvailableBandwidth: '1000',
+        },
+      },
+      assetPrincipalSponsor: {
+        addressConfigured: true,
+        onChainBalanceRead: true,
+        tokens: [{ asset: 'USDT (testnet)', tokenContract: feeAddress, status: 'verified', balanceBaseUnits: '1000000', decimals: 6 }],
+        tokenBalancesComplete: true,
+      },
+    },
+    feeSponsorDelegationToPrincipal: {
+      success: true,
+      activeEnergyStakeSun: energy,
+      activeBandwidthStakeSun: bandwidth,
+      transactionAuditVerified,
+      transactionAuditStatus: transactionAuditVerified
+        ? 'verified-energy-and-bandwidth-delegation-transactions'
+        : 'delegation-transaction-audit-missing-resource-types',
+      auditedResourceTypes: transactionAuditVerified ? ['ENERGY', 'BANDWIDTH'] : [],
+    },
+  })
+  const head = {
+    success: true,
+    status: 'solidified-node-reachable',
+    latestSolidifiedBlockNumber: 500,
+    latestSolidifiedBlockTimestamp: 1_800_000_000_000,
+    checkedAt: new Date().toISOString(),
+  }
+  const env = {
+    DATABASE_URL: 'postgresql://test-only-secret',
+    SPONSOR_ADMIN_API_TOKEN: 'x'.repeat(40),
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'reviewed-reference',
+    SPONSOR_USDT_NILE_CONTRACTS: feeAddress,
+  }
+
+  const energyOnly = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult({ energy: '1000000', bandwidth: '0' }),
+    env,
+  })
+  assert.equal(energyOnly.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(energyOnly.feeSponsorResources.delegation.activeDelegationObserved, false)
+  assert.ok(energyOnly.blockers.includes('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified'))
+
+  const bandwidthOnly = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult({ energy: '0', bandwidth: '1000000' }),
+    env,
+  })
+  assert.equal(bandwidthOnly.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(bandwidthOnly.feeSponsorResources.delegation.activeDelegationObserved, false)
+  assert.ok(bandwidthOnly.blockers.includes('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified'))
+
+  const unauditedDelegation = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult({ transactionAuditVerified: false }),
+    env,
+  })
+  assert.equal(unauditedDelegation.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(unauditedDelegation.feeSponsorResources.delegation.activeDelegationObserved, true)
+  assert.equal(unauditedDelegation.feeSponsorResources.delegation.transactionAuditVerified, false)
+  assert.ok(unauditedDelegation.blockers.includes('fee-to-principal-delegation-transactions-not-independently-audited'))
+
+  const incompleteAuditTypes = makeRoleResult()
+  incompleteAuditTypes.feeSponsorDelegationToPrincipal.auditedResourceTypes = ['ENERGY']
+  const missingBandwidthAudit = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: incompleteAuditTypes,
+    env,
+  })
+  assert.equal(missingBandwidthAudit.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(missingBandwidthAudit.feeSponsorResources.delegation.transactionAuditVerified, false)
+  assert.ok(missingBandwidthAudit.blockers.includes('fee-to-principal-delegation-transactions-not-independently-audited'))
+
+  const zeroUsdtBalance = makeRoleResult()
+  zeroUsdtBalance.roles.assetPrincipalSponsor.tokens[0].balanceBaseUnits = '0'
+  const unfundedPrincipal = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: zeroUsdtBalance,
+    env,
+  })
+  assert.equal(unfundedPrincipal.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(unfundedPrincipal.roleConfiguration.assetPrincipalUsdtFundingVerified, false)
+  assert.ok(unfundedPrincipal.blockers.includes('asset-principal-usdt-funding-not-verified-positive'))
+
+  const wrongDecimals = makeRoleResult()
+  wrongDecimals.roles.assetPrincipalSponsor.tokens[0].decimals = 18
+  const decimalsMismatch = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: wrongDecimals,
+    env,
+  })
+  assert.equal(decimalsMismatch.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.ok(decimalsMismatch.blockers.includes('asset-principal-usdt-funding-not-verified-positive'))
+
+  const wrongContract = makeRoleResult()
+  wrongContract.roles.assetPrincipalSponsor.tokens[0].tokenContract = assetAddress
+  const mismatchedToken = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: wrongContract,
+    env,
+  })
+  assert.equal(mismatchedToken.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.ok(mismatchedToken.blockers.includes('asset-principal-usdt-funding-not-verified-positive'))
+
+  const belowMinimum = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult({ energy: '999999', bandwidth: '1000000' }),
+    env,
+  })
+  assert.equal(belowMinimum.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.equal(belowMinimum.feeSponsorResources.delegation.activeDelegationObserved, false)
+  assert.ok(belowMinimum.blockers.includes('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified'))
+
+  const allowlistMissing = buildNetworkSummary({
+    network: 'nile',
+    head,
+    roleResult: makeRoleResult(),
+    env: { ...env, SPONSOR_USDT_NILE_CONTRACTS: '' },
+  })
+  assert.equal(allowlistMissing.preflightStatus, 'blocked-by-live-or-configuration-prerequisites')
+  assert.ok(allowlistMissing.blockers.includes('usdt-token-contract-allowlist-not-configured'))
+})
+
