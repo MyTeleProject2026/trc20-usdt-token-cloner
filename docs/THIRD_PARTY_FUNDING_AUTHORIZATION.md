@@ -125,7 +125,7 @@ Content-Type: application/json
 
 The owner acknowledgement is stored with the owner address and timestamp. It is an auditable operator assertion only. The application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
 
-The persistent record stores the authorization fields and SHA-256 hashes of the signature/message, not the wallet signature itself. The same authorization ID or signature hash cannot be registered with conflicting terms. The owner can inspect the record at:
+The persistent record retains the exact 65-byte message signature as public consent evidence, its SHA-256 digest, and the canonical-message hash alongside the authorization fields. A TRON message signature is not a private key, seed phrase, or transaction-signing key. The API does not return the raw signature in ordinary list/detail responses. The same authorization ID or signature hash cannot be registered with conflicting terms. The owner can inspect the sanitized record at:
 
 ```http
 GET /api/treasury/third-party-funding/authorizations
