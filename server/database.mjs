@@ -1196,11 +1196,23 @@ export async function recordSponsorResourceDelegation(input) {
 }
 
 /** Read previously independently verified, project-persisted sponsor resource delegations. */
-export async function listSponsorResourceDelegations({ network, limit = 20 } = {}) {
+export async function listSponsorResourceDelegations({
+  network, feeSponsorAddress = null, principalSponsorAddress = null, limit = 20,
+} = {}) {
   const normalizedNetwork = normalizeVerificationNetwork(network)
   if (!normalizedNetwork) return { success: false, reason: 'invalid-network', delegations: [] }
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     return { success: false, reason: 'invalid-limit', delegations: [] }
+  }
+  const hasFeeSponsor = feeSponsorAddress !== null
+  const hasPrincipal = principalSponsorAddress !== null
+  if (hasFeeSponsor !== hasPrincipal
+    || (hasFeeSponsor && (
+      typeof feeSponsorAddress !== 'string' || !isValidTronAddress(feeSponsorAddress)
+      || typeof principalSponsorAddress !== 'string' || !isValidTronAddress(principalSponsorAddress)
+      || feeSponsorAddress === principalSponsorAddress
+    ))) {
+    return { success: false, reason: 'invalid-sponsor-pair-filter', delegations: [] }
   }
   const db = getPool()
   if (!db) return { success: false, reason: 'database-not-configured', delegations: [] }
@@ -1212,9 +1224,11 @@ export async function listSponsorResourceDelegations({ network, limit = 20 } = {
               verification_status, created_at
          FROM ${schema}.sponsor_resource_delegations
         WHERE network = $1
-        ORDER BY created_at DESC
-        LIMIT $2`,
-      [normalizedNetwork, limit],
+          AND ($2::text IS NULL OR lower(sponsor_address) = lower($2))
+          AND ($3::text IS NULL OR lower(receiver_address) = lower($3))
+        ORDER BY block_number DESC, id DESC
+        LIMIT $4`,
+      [normalizedNetwork, feeSponsorAddress, principalSponsorAddress, limit],
     )
     return {
       success: true,
