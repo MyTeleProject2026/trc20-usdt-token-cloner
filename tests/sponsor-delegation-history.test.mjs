@@ -166,6 +166,11 @@ test('solidified history replay verifies a complete unchanged interval and the e
   assert.equal(result.blockNumber, 102)
   assert.equal(result.blockTimestampMs, 1_006_000)
   assert.equal(result.scannedBlockCount, 2)
+  assert.equal(result.finalityEvidence.verified, true)
+  assert.equal(result.finalityEvidence.solidifiedHeight, 200)
+  assert.equal(result.finalityEvidence.activeWitnessCount, 27)
+  assert.equal(result.finalityEvidence.requiredSupportingWitnessCount, 19)
+  assert.equal(result.finalityEvidence.supportingWitnessCount, 27)
   assert.equal(calls.length, 8)
 })
 
