@@ -32,6 +32,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     persistThirdPartyFundingDeposit,
     markThirdPartyFundingDepositFireblocksVerified,
     persistFireblocksInventorySnapshot,
+    getThirdPartyFundingUsdtPoolSnapshot,
     revokeThirdPartyFundingAuthorization,
   } = await import('../server/database.mjs')
 
@@ -61,6 +62,9 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     agreementDocumentSha256: 'b'.repeat(64),
     agreementReviewedBy: makeTronAddress('33'),
     agreementReviewedAt: new Date(),
+    withdrawalDisbursementAcknowledged: true,
+    withdrawalDisbursementReviewedBy: makeTronAddress('33'),
+    withdrawalDisbursementReviewedAt: new Date(),
     signature,
     signatureHash,
     messageHash,
@@ -194,10 +198,18 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(marked.verified, true)
   assert.equal(marked.duplicate, false)
 
+  const sponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
+  assert.equal(sponsorPool.success, true)
+  assert.equal(sponsorPool.verifiedDepositCount, '1')
+  assert.equal(sponsorPool.reviewedAuthorizationCount, '1')
+  assert.equal(sponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
+
   const detail = await getThirdPartyFundingAuthorization(authorizationId)
   assert.equal(detail.success, true)
   assert.equal(detail.authorization.authorizationId, authorizationId)
   assert.equal(detail.authorization.agreementDocumentSha256, 'b'.repeat(64))
+  assert.equal(detail.authorization.withdrawalDisbursementAcknowledged, true)
+  assert.equal(detail.authorization.withdrawalDisbursementReviewedBy, makeTronAddress('33'))
   assert.equal(detail.authorization.status, 'deposit-evidence-recorded')
   assert.equal(detail.deposits.length, 2)
   const usdtRow = detail.deposits.find((row) => row.asset === 'USDT')
