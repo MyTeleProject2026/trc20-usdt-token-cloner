@@ -80,6 +80,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     agreementReference: 'PG-AGREEMENT-' + suffix,
     agreementReviewedBy: makeTronAddress('33'),
     agreementReviewedAt: new Date(),
+    signature,
     signatureHash,
     messageHash,
     issuedAt,
