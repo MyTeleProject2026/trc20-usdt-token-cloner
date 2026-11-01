@@ -3358,9 +3358,10 @@ export async function getLatestFireblocksInventorySnapshot() {
 
 
 /**
- * Persist a wallet-signature-verified funding consent. Only hashes are stored:
- * no wallet signature, private key, seed phrase, or agreement document enters
- * the database. The owner-review acknowledgement is an auditable operator
+ * Persist a wallet-signature-verified funding consent. The off-chain message
+ * signature and its digest are retained as public consent evidence; private
+ * keys, seed phrases, wallet passwords, and agreement documents are never stored.
+ * The owner-review acknowledgement is an auditable operator
  * assertion, not an automated legal determination.
  */
 export async function persistThirdPartyFundingAuthorization(input = {}) {
