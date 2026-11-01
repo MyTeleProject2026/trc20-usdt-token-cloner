@@ -45,7 +45,8 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(isValidTronAddress(vaultAddress), true)
 
   const authorizationId = 'pg-funding-' + suffix
-  const signatureHash = createHash('sha256').update('signature-' + suffix).digest('hex')
+  const signature = '0x' + 'a'.repeat(130)
+  const signatureHash = createHash('sha256').update(signature, 'utf8').digest('hex')
   const messageHash = createHash('sha256').update('message-' + suffix).digest('hex')
   const issuedAt = new Date(Date.now() - 60_000)
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
@@ -59,6 +60,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     agreementReference: 'PG-AGREEMENT-' + suffix,
     agreementReviewedBy: makeTronAddress('33'),
     agreementReviewedAt: new Date(),
+    signature,
     signatureHash,
     messageHash,
     issuedAt,
