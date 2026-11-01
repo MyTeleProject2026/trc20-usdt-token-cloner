@@ -53,7 +53,7 @@ test('canonical funding consent binds source, actual vault, asset, caps and writ
   assert.match(message, /Maximum USDT principal in base units \(6 decimals\): 25000000/)
   assert.match(message, /Maximum native TRX in SUN \(6 decimals\): 8000000/)
   assert.match(message, /Separate written agreement reference: ORG-AGREEMENT-2026-001/)
-  assert.match(message, /does not authorize subsequent withdrawals/)
+  assert.match(message, /does not by itself authorize subsequent withdrawals/)
 })
 
 test('a valid signature from the exact sponsor wallet verifies as incoming-deposit consent only', async () => {
