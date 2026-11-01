@@ -35,3 +35,6 @@ Do not enable submission based solely on environment variables, a successful pro
 ## Exchange deposits
 
 A solidified on-chain transaction is not proof that an exchange credited a deposit. Exchange credit requires the receiving exchange's own confirmation/status or supported API, correct network and token contract, any required memo/tag, confirmation count, minimum deposit, and account eligibility.
+
+- The Tatum/TRONGrid historical scanner now independently reconstructs the TRON protobuf block-header bytes, verifies the composite block ID from SHA-256(header raw_data), recovers and checks the Super Representative ECDSA signer against `witness_address`, reconstructs each full protobuf transaction from `raw_data_hex`, signatures and supported result fields, and recomputes the java-tron transaction Merkle root against `txTrieRoot`. Unsupported transaction result fields fail closed rather than being silently omitted.
+- The scanner still relies on two SolidityNode providers for the assertion that the scanned blocks are solidified/canonical. A recovered witness signature proves the header was signed by the address named in the header; it does not independently prove the DPoS witness set, 19-SR finality, or canonical chain selection. Independent node operation and separate DPoS finality validation remain required for a trustless consensus claim.

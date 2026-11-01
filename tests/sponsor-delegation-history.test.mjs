@@ -65,6 +65,11 @@ function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256, tot
     env: { TATUM_API_KEY: 'test-only-provider-key' },
     maxBlockSpan,
     totalTimeoutMs,
+    blockProofVerifier: (candidate, expectedNumber) => ({
+      verified: candidate?.block_header?.raw_data?.number === expectedNumber,
+      blockId: candidate?.blockID?.toLowerCase(),
+      reason: 'mock-block-proof-invalid',
+    }),
     tronWebFactory: async () => ({
       isAddress: (value) => [feeSponsor, principal, receiver].includes(value),
       address: { toHex: (value) => ({

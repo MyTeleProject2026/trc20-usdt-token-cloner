@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
+import { verifyTronSolidifiedBlock } from './tron-solidified-block-proof.mjs'
 
 const NETWORKS = Object.freeze({
   shasta: 'https://tron-shasta.gateway.tatum.io',
@@ -115,6 +116,7 @@ export function createSponsorDelegationHistoryVerifier({
   timeoutMs = 8000,
   totalTimeoutMs = 90_000,
   maxBlockSpan = MAX_BLOCK_SPAN,
+  blockProofVerifier = verifyTronSolidifiedBlock,
 } = {}) {
   return async function verifySponsorDelegationHistory({
     transfer, preflightEvidence, transactionHash, blockNumber, blockTimestampMs,
@@ -191,9 +193,19 @@ export function createSponsorDelegationHistoryVerifier({
           ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY.trim() } : {}),
       }
       const compareProviderBlocks = (primary, secondary, height) => {
+        const primaryProof = blockProofVerifier(primary, height)
+        if (primaryProof?.verified !== true) {
+          return { proofFailure: 'primary', proofReason: primaryProof?.reason || 'block-proof-unavailable' }
+        }
+        const secondaryProof = blockProofVerifier(secondary, height)
+        if (secondaryProof?.verified !== true) {
+          return { proofFailure: 'secondary', proofReason: secondaryProof?.reason || 'block-proof-unavailable' }
+        }
         const primaryIdentity = blockIdentity(primary, height)
         const secondaryIdentity = blockIdentity(secondary, height)
         if (!primaryIdentity || !secondaryIdentity
+          || primaryProof.blockId !== primaryIdentity.blockId
+          || secondaryProof.blockId !== secondaryIdentity.blockId
           || primaryIdentity.blockId !== secondaryIdentity.blockId
           || primaryIdentity.parentHash !== secondaryIdentity.parentHash
           || primaryIdentity.timestamp !== secondaryIdentity.timestamp) return null
@@ -220,6 +232,13 @@ export function createSponsorDelegationHistoryVerifier({
       ])
       const anchorComparison = compareProviderBlocks(anchorBlock, secondaryAnchorBlock, anchor.blockNumber)
       const anchorIdentity = anchorComparison?.identity
+      if (anchorComparison?.proofFailure) {
+        return fail('historical-delegation-block-cryptographic-proof-invalid', {
+          failedProvider: anchorComparison.proofFailure,
+          proofReason: anchorComparison.proofReason,
+          failedBlockNumber: anchor.blockNumber,
+        })
+      }
       if (!anchorIdentity || anchorIdentity.blockId !== anchor.blockId.toLowerCase()
         || anchorIdentity.timestamp !== anchor.blockTimestampMs) {
         return fail('historical-delegation-anchor-block-mismatch')
@@ -236,6 +255,13 @@ export function createSponsorDelegationHistoryVerifier({
         const comparison = compareProviderBlocks(block, secondaryBlock, height)
         const identity = comparison?.identity
         if (!identity) {
+          if (comparison?.proofFailure) {
+            return fail('historical-delegation-block-cryptographic-proof-invalid', {
+              failedProvider: comparison.proofFailure,
+              proofReason: comparison.proofReason,
+              failedBlockNumber: height,
+            })
+          }
           if (Array.isArray(block?.transactions)
             && block.transactions.some((transaction) => !transactionIdentity(transaction))) {
             return fail('historical-delegation-transaction-id-invalid', { blockNumber: height })
@@ -310,11 +336,11 @@ export function createSponsorDelegationHistoryVerifier({
         scannedBlockCount: span,
         scannedTransactionCount,
         source: 'Tatum and TRONGrid SolidityNode walletsolidity/getblockbynum cross-check',
-        historySourceTrustModel: 'two-provider-solidified-block-and-transaction-list-match',
+        historySourceTrustModel: 'two-provider-solidified-blocks-with-local-block-id-witness-signature-and-transaction-merkle-verification; DPoS finality still depends on SolidityNode provider responses',
         primaryProvider: 'Tatum SolidityNode',
         secondaryProvider: 'TRONGrid SolidityNode',
-        blockIntegrityCheck: 'two-provider height/blockID/parentHash/timestamp match; witness signature and protobuf header hash remain provider-trusted',
-        transactionIntegrityCheck: 'two-provider ordered txID list match and sha256(raw_data_hex) matches txID; txTrieRoot Merkle inclusion remains provider-trusted',
+        blockIntegrityCheck: 'protobuf BlockHeader.raw_data SHA-256 recomputation matches the composite blockID; recovered witness ECDSA signer matches witness_address',
+        transactionIntegrityCheck: 'full protobuf Transaction messages reconstructed from raw_data_hex, signatures and supported ret fields; java-tron transaction Merkle algorithm recomputed and matched to txTrieRoot',
         delegationSnapshot: preflightEvidence.delegationSnapshot,
       }
     } catch (error) {
