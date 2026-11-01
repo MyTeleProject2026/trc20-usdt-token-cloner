@@ -70,14 +70,34 @@ function verifierFor({ blocks, secondaryBlocks = blocks, maxBlockSpan = 256, tot
       blockId: candidate?.blockID?.toLowerCase(),
       reason: 'mock-block-proof-invalid',
     }),
-    tronWebFactory: async () => ({
-      isAddress: (value) => [feeSponsor, principal, receiver].includes(value),
-      address: { toHex: (value) => ({
-        [feeSponsor]: feeHex,
-        [principal]: principalHex,
-        [receiver]: receiverHex,
-      })[value] || '' },
-    }),
+    tronWebFactory: async () => {
+      const allBlocks = [...Object.values(blocks || {}), ...Object.values(secondaryBlocks || {})]
+      const decodedByRawData = new Map()
+      for (const candidateBlock of allBlocks) {
+        for (const candidateTransaction of candidateBlock?.transactions || []) {
+          if (candidateTransaction.raw_data_hex && candidateTransaction.raw_data?.contract?.[0]) {
+            decodedByRawData.set(candidateTransaction.raw_data_hex, candidateTransaction.raw_data.contract[0])
+          }
+        }
+      }
+      return {
+        isAddress: (value) => [feeSponsor, principal, receiver].includes(value),
+        address: { toHex: (value) => ({
+          [feeSponsor]: feeHex,
+          [principal]: principalHex,
+          [receiver]: receiverHex,
+        })[value] || '' },
+        utils: {
+          deserializeTx: {
+            deserializeTransaction(type, rawDataHex) {
+              const contract = decodedByRawData.get(rawDataHex)
+              if (!contract || contract.type !== type) throw new Error('test raw-data mismatch')
+              return { contract: [contract] }
+            },
+          },
+        },
+      }
+    },
     fetchImpl: async (url, options) => {
       if (fetchDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, fetchDelayMs))
       calls.push({ url, body: JSON.parse(options.body) })
@@ -212,6 +232,33 @@ test('solidified history replay rejects another principal transaction that can c
   assert.equal(result.reason, 'historical-principal-resource-usage-intervened')
   assert.equal(result.transactionId, otherPrincipalTx.txID)
   assert.equal(result.blockNumber, 101)
+})
+
+test('solidified history replay rejects provider JSON contract fields that disagree with raw_data_hex decoding', async () => {
+  const blocks = standardBlocks()
+  const canonical = blocks[101].transactions[0]
+  const altered = {
+    ...canonical,
+    raw_data: {
+      ...canonical.raw_data,
+      contract: [{
+        ...canonical.raw_data.contract[0],
+        parameter: {
+          ...canonical.raw_data.contract[0].parameter,
+          value: {
+            ...canonical.raw_data.contract[0].parameter.value,
+            owner_address: feeHex,
+          },
+        },
+      }],
+    },
+  }
+  blocks[101] = { ...blocks[101], transactions: [altered] }
+  const { verifier } = verifierFor({ blocks })
+  const result = await run(verifier)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'historical-delegation-transaction-data-invalid')
+  assert.equal(result.proofReason, 'transaction-json-does-not-match-raw-data-protobuf')
 })
 
 test('solidified history replay rejects a broken parent-hash chain', async () => {

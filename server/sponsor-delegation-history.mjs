@@ -66,6 +66,87 @@ function contractAddresses(tronWeb, value) {
   }
 }
 
+
+function comparableValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return 'number:' + String(value)
+  if (typeof value === 'bigint') return 'number:' + value.toString()
+  if (typeof value === 'string') {
+    if (/^-?(0|[1-9][0-9]*)$/.test(value)) return 'number:' + BigInt(value).toString()
+    if (/^(?:0x)?[0-9a-f]+$/i.test(value)) return 'hex:' + value.replace(/^0x/i, '').toLowerCase()
+    return 'string:' + value
+  }
+  return value
+}
+
+function isDefaultProtoValue(value) {
+  return value === undefined || value === null || value === false || value === 0 || value === 0n
+    || value === '' || value === '0'
+    || (Array.isArray(value) && value.length === 0)
+    || (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0)
+}
+
+function decodedValueMatchesJson(decodedValue, jsonValue) {
+  if (!decodedValue || typeof decodedValue !== 'object' || Array.isArray(decodedValue)
+    || !jsonValue || typeof jsonValue !== 'object' || Array.isArray(jsonValue)) return false
+  const keys = new Set([...Object.keys(decodedValue), ...Object.keys(jsonValue)])
+  for (const key of keys) {
+    if (!Object.hasOwn(decodedValue, key) && isDefaultProtoValue(jsonValue[key])) continue
+    if (!Object.hasOwn(jsonValue, key) && isDefaultProtoValue(decodedValue[key])) continue
+    const decoded = decodedValue[key]
+    const exposed = jsonValue[key]
+    if (decoded && typeof decoded === 'object' && exposed && typeof exposed === 'object') {
+      if (Array.isArray(decoded) || Array.isArray(exposed)) {
+        if (!Array.isArray(decoded) || !Array.isArray(exposed)
+          || decoded.length !== exposed.length
+          || decoded.some((item, index) => comparableValue(item) !== comparableValue(exposed[index]))) return false
+      } else if (!decodedValueMatchesJson(decoded, exposed)) return false
+    } else if (comparableValue(decoded) !== comparableValue(exposed)) return false
+  }
+  return true
+}
+
+function decodeAndVerifyBlockContracts(block, tronWeb) {
+  if (!Array.isArray(block?.transactions)) throw Object.assign(new Error('block-transactions-missing'), { code: 'block-transactions-missing' })
+  const deserialize = tronWeb?.utils?.deserializeTx?.deserializeTransaction
+  if (typeof deserialize !== 'function') {
+    throw Object.assign(new Error('tronweb-transaction-decoder-unavailable'), { code: 'tronweb-transaction-decoder-unavailable' })
+  }
+  return block.transactions.map((transaction) => {
+    const jsonContracts = transaction?.raw_data?.contract
+    if (!Array.isArray(jsonContracts) || jsonContracts.length !== 1) {
+      throw Object.assign(new Error('transaction-contract-list-invalid'), { code: 'transaction-contract-list-invalid' })
+    }
+    const jsonContract = jsonContracts[0]
+    if (typeof jsonContract?.type !== 'string' || !jsonContract.parameter
+      || typeof jsonContract.parameter !== 'object') {
+      throw Object.assign(new Error('transaction-contract-json-invalid'), { code: 'transaction-contract-json-invalid' })
+    }
+    if ((jsonContract.provider && jsonContract.provider !== '')
+      || (jsonContract.ContractName && jsonContract.ContractName !== '')) {
+      throw Object.assign(new Error('transaction-contract-provider-metadata-unsupported'), { code: 'transaction-contract-provider-metadata-unsupported' })
+    }
+    let decoded
+    try {
+      decoded = deserialize(jsonContract.type, transaction.raw_data_hex)
+    } catch {
+      throw Object.assign(new Error('transaction-raw-data-protobuf-decode-failed'), { code: 'transaction-raw-data-protobuf-decode-failed' })
+    }
+    if (!Array.isArray(decoded?.contract) || decoded.contract.length !== 1) {
+      throw Object.assign(new Error('transaction-raw-data-contract-decode-incomplete'), { code: 'transaction-raw-data-contract-decode-incomplete' })
+    }
+    const decodedContract = decoded.contract[0]
+    if (decodedContract?.type !== jsonContract.type
+      || decodedContract?.parameter?.type_url !== jsonContract.parameter.type_url
+      || !decodedValueMatchesJson(decodedContract?.parameter?.value, jsonContract.parameter.value || {})
+      || String(decodedContract?.Permission_id ?? 0) !== String(jsonContract.Permission_id ?? jsonContract.permission_id ?? 0)) {
+      throw Object.assign(new Error('transaction-json-does-not-match-raw-data-protobuf'), {
+        code: 'transaction-json-does-not-match-raw-data-protobuf',
+      })
+    }
+    return decodedContract
+  })
+}
+
 function isStakeMutationForSponsorPair(contract, tronWeb, sponsor, principal) {
   const type = contract?.type
   const value = contract?.parameter?.value || {}
@@ -201,6 +282,14 @@ export function createSponsorDelegationHistoryVerifier({
         if (secondaryProof?.verified !== true) {
           return { proofFailure: 'secondary', proofReason: secondaryProof?.reason || 'block-proof-unavailable' }
         }
+        let primaryDecodedContracts
+        let secondaryDecodedContracts
+        try {
+          primaryDecodedContracts = decodeAndVerifyBlockContracts(primary, tronWeb)
+          secondaryDecodedContracts = decodeAndVerifyBlockContracts(secondary, tronWeb)
+        } catch (error) {
+          return { proofFailure: 'transaction', proofReason: error?.code || 'transaction-raw-data-decode-failed' }
+        }
         const primaryIdentity = blockIdentity(primary, height)
         const secondaryIdentity = blockIdentity(secondary, height)
         if (!primaryIdentity || !secondaryIdentity
@@ -221,9 +310,14 @@ export function createSponsorDelegationHistoryVerifier({
             && typeof secondaryTransaction.raw_data_hex === 'string'
             && transaction.raw_data_hex.toLowerCase() === secondaryTransaction.raw_data_hex.toLowerCase()
             && JSON.stringify(canonicalJson(transaction.raw_data)) === JSON.stringify(canonicalJson(secondaryTransaction.raw_data))
+            && JSON.stringify(canonicalJson(primaryDecodedContracts[index])) === JSON.stringify(canonicalJson(secondaryDecodedContracts[index]))
         })
         if (!transactionPayloadsMatch) return null
-        return { identity: primaryIdentity, transactionIds: primaryIds }
+        return {
+          identity: primaryIdentity,
+          transactionIds: primaryIds,
+          decodedContracts: primaryDecodedContracts,
+        }
       }
 
       const [anchorBlock, secondaryAnchorBlock] = await Promise.all([
@@ -233,11 +327,16 @@ export function createSponsorDelegationHistoryVerifier({
       const anchorComparison = compareProviderBlocks(anchorBlock, secondaryAnchorBlock, anchor.blockNumber)
       const anchorIdentity = anchorComparison?.identity
       if (anchorComparison?.proofFailure) {
-        return fail('historical-delegation-block-cryptographic-proof-invalid', {
-          failedProvider: anchorComparison.proofFailure,
-          proofReason: anchorComparison.proofReason,
-          failedBlockNumber: anchor.blockNumber,
-        })
+        return fail(
+          anchorComparison.proofFailure === 'transaction'
+            ? 'historical-delegation-transaction-data-invalid'
+            : 'historical-delegation-block-cryptographic-proof-invalid',
+          {
+            failedProvider: anchorComparison.proofFailure,
+            proofReason: anchorComparison.proofReason,
+            failedBlockNumber: anchor.blockNumber,
+          },
+        )
       }
       if (!anchorIdentity || anchorIdentity.blockId !== anchor.blockId.toLowerCase()
         || anchorIdentity.timestamp !== anchor.blockTimestampMs) {
@@ -256,11 +355,16 @@ export function createSponsorDelegationHistoryVerifier({
         const identity = comparison?.identity
         if (!identity) {
           if (comparison?.proofFailure) {
-            return fail('historical-delegation-block-cryptographic-proof-invalid', {
-              failedProvider: comparison.proofFailure,
-              proofReason: comparison.proofReason,
-              failedBlockNumber: height,
-            })
+            return fail(
+              comparison.proofFailure === 'transaction'
+                ? 'historical-delegation-transaction-data-invalid'
+                : 'historical-delegation-block-cryptographic-proof-invalid',
+              {
+                failedProvider: comparison.proofFailure,
+                proofReason: comparison.proofReason,
+                failedBlockNumber: height,
+              },
+            )
           }
           if (Array.isArray(block?.transactions)
             && block.transactions.some((transaction) => !transactionIdentity(transaction))) {
@@ -272,7 +376,8 @@ export function createSponsorDelegationHistoryVerifier({
           return fail('historical-delegation-block-chain-incomplete', { failedBlockNumber: height })
         }
         const transactions = block.transactions
-        for (const transaction of transactions) {
+        for (let transactionIndex = 0; transactionIndex < transactions.length; transactionIndex += 1) {
+          const transaction = transactions[transactionIndex]
           const id = transactionIdentity(transaction)
           if (!id) return fail('historical-delegation-transaction-id-invalid', { blockNumber: height })
           scannedTransactionCount += 1
@@ -280,8 +385,8 @@ export function createSponsorDelegationHistoryVerifier({
             targetTransactionCount += 1
             if (height !== blockNumber) return fail('historical-delegation-target-transaction-in-wrong-block')
           }
-          const contracts = transaction.raw_data?.contract
-          if (!Array.isArray(contracts) || contracts.length === 0) {
+          const contracts = [comparison.decodedContracts[transactionIndex]]
+          if (!contracts[0]) {
             return fail('historical-delegation-transaction-contracts-incomplete', { blockNumber: height })
           }
           for (const contract of contracts) {
@@ -297,8 +402,8 @@ export function createSponsorDelegationHistoryVerifier({
           }
           // Any other transaction initiated by the principal can consume its
           // delegated/free resource pool after the pinned preflight snapshot.
-          // Without a transaction-specific resource-source receipt, it makes
-          // the target transaction's exact Bandwidth/Energy attribution unclear.
+          // Contract owner fields are taken from raw_data_hex protobuf decoding,
+          // not the provider's independently rendered JSON object.
           const principalInitiated = contracts.some((contract) =>
             normalizeAddress(tronWeb, contract?.parameter?.value?.owner_address) === principal)
           if (principalInitiated && id !== hash) {
