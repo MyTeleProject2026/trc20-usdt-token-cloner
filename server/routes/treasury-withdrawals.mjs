@@ -80,6 +80,8 @@ async function ensureSchema(db) {
           treasury_address TEXT NOT NULL,
           recipient_address TEXT NOT NULL,
           token_contract TEXT NOT NULL,
+          sponsor_organization_reference TEXT,
+          sponsor_agreement_reference TEXT,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           status TEXT NOT NULL CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected')),
           transaction_hash CHAR(64),
@@ -96,6 +98,10 @@ async function ensureSchema(db) {
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_reference TEXT`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_sponsor_agreement_idx
+        ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, sponsor_organization_reference, sponsor_agreement_reference, status)`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_fee_reserve_idx
         ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, status)`)
       await db.query(`
@@ -141,6 +147,28 @@ function parsePositiveDecimal(value, decimals = 6) {
 
 function readLimit(value) {
   return typeof value === 'string' ? parsePositiveDecimal(value, 6) : null
+}
+
+/**
+ * Calculate the remaining third-party USDT principal commitment using integer
+ * six-decimal base units only. Unresolved reservations and confirmed payouts
+ * consume the commitment; failed/rejected payouts are excluded by the caller.
+ */
+export function calculateSponsorPrincipalBudgetState(totalBudgetBaseUnits, usedBaseUnits, requestedBaseUnits = '0') {
+  const valid = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (!valid(totalBudgetBaseUnits) || BigInt(totalBudgetBaseUnits) <= 0n
+    || !valid(usedBaseUnits) || !valid(requestedBaseUnits)) return null
+  const total = BigInt(totalBudgetBaseUnits)
+  const used = BigInt(usedBaseUnits)
+  const requested = BigInt(requestedBaseUnits)
+  const remaining = total > used ? total - used : 0n
+  return {
+    totalBudgetBaseUnits: total.toString(),
+    usedBaseUnits: used.toString(),
+    remainingBaseUnits: remaining.toString(),
+    requestedBaseUnits: requested.toString(),
+    withinBudget: used + requested <= total,
+  }
 }
 
 function formatUnitsDecimal(value, decimals = 6) {
@@ -213,6 +241,8 @@ export function matchesTreasuryWithdrawalRequest(row, {
   treasuryAddress,
   recipientAddress,
   amountBaseUnits,
+  sponsorOrganizationReference,
+  sponsorAgreementReference,
 } = {}) {
   if (!row || typeof row !== 'object') return false
   try {
@@ -220,6 +250,8 @@ export function matchesTreasuryWithdrawalRequest(row, {
       && row.treasury_address === treasuryAddress
       && row.recipient_address === recipientAddress
       && row.token_contract === USDT_MAINNET
+      && row.sponsor_organization_reference === sponsorOrganizationReference
+      && row.sponsor_agreement_reference === sponsorAgreementReference
       && BigInt(String(row.amount_base_units)) === BigInt(String(amountBaseUnits))
   } catch {
     return false
@@ -344,6 +376,8 @@ function safeStatus(row) {
     treasuryAddress: row.treasury_address,
     recipientAddress: row.recipient_address,
     amountBaseUnits: String(row.amount_base_units),
+    ...(typeof row.sponsor_organization_reference === 'string' ? { sponsorOrganizationReference: row.sponsor_organization_reference } : {}),
+    ...(typeof row.sponsor_agreement_reference === 'string' ? { sponsorAgreementReference: row.sponsor_agreement_reference } : {}),
     status: row.status,
     ...(row.transaction_hash ? { transactionHash: String(row.transaction_hash).trim() } : {}),
     ...(row.provider_transaction_id ? { providerTransactionId: String(row.provider_transaction_id) } : {}),
@@ -441,6 +475,8 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const required = [
     'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
     'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+    'TREASURY_SPONSOR_ORGANIZATION_REFERENCE', 'TREASURY_SPONSOR_AGREEMENT_REFERENCE',
+    'TREASURY_SPONSOR_TOTAL_BUDGET_USDT',
     'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
   ]
   const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
@@ -448,6 +484,19 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
+  const sponsorTotalBudget = readLimit(env.TREASURY_SPONSOR_TOTAL_BUDGET_USDT)
+  const sponsorReferencePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$/
+  const sponsorOrganizationReference = typeof env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE === 'string'
+    ? env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE.trim() : ''
+  const sponsorAgreementReference = typeof env.TREASURY_SPONSOR_AGREEMENT_REFERENCE === 'string'
+    ? env.TREASURY_SPONSOR_AGREEMENT_REFERENCE.trim() : ''
+  if (!sponsorReferencePattern.test(sponsorOrganizationReference)) missing.push('TREASURY_SPONSOR_ORGANIZATION_REFERENCE')
+  if (!sponsorReferencePattern.test(sponsorAgreementReference)) missing.push('TREASURY_SPONSOR_AGREEMENT_REFERENCE')
+  if (!sponsorTotalBudget) missing.push('TREASURY_SPONSOR_TOTAL_BUDGET_USDT')
+  if (sponsorTotalBudget && ((maxPayout && maxPayout > sponsorTotalBudget)
+    || (dailyLimit && dailyLimit > sponsorTotalBudget))) {
+    missing.push('TREASURY_SPONSOR_TOTAL_BUDGET_USDT (must cover per-transfer and daily caps)')
+  }
   const feeLimitValid = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
     && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
     && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
@@ -455,7 +504,10 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const configurationComplete = env.TREASURY_SIGNER_MODE === 'fireblocks'
     && missing.length === 0 && ownerAddressesMatch
     && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
-    && Boolean(maxPayout) && Boolean(dailyLimit) && feeLimitValid
+    && Boolean(maxPayout) && Boolean(dailyLimit) && Boolean(sponsorTotalBudget)
+    && Boolean(maxPayout && sponsorTotalBudget && maxPayout <= sponsorTotalBudget)
+    && Boolean(dailyLimit && sponsorTotalBudget && dailyLimit <= sponsorTotalBudget)
+    && feeLimitValid
   const featureFlagEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
   return {
     enabled: featureFlagEnabled && configurationComplete,
@@ -463,6 +515,9 @@ export function treasuryUsdtConfiguration(env = process.env) {
     featureFlagEnabled,
     missing: [...new Set(missing)],
     ownerAddressesMatch,
+    sponsorOrganizationReference: sponsorReferencePattern.test(sponsorOrganizationReference) ? sponsorOrganizationReference : null,
+    sponsorAgreementReference: sponsorReferencePattern.test(sponsorAgreementReference) ? sponsorAgreementReference : null,
+    sponsorTotalBudgetBaseUnits: sponsorTotalBudget === null ? null : sponsorTotalBudget.toString(),
     signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
     providerConfigured: provider.configured,
   }
@@ -869,6 +924,7 @@ export function createTreasuryWithdrawalsRouter({
     let pendingTrxCount = '0'
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
+    let sponsorPrincipalBudget = null
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -876,16 +932,30 @@ export function createTreasuryWithdrawalsRouter({
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
     if (databaseReady && treasuryAddress) {
       try {
-        const [pendingUsdt, pendingTrx] = await Promise.all([
+        const [pendingUsdt, pendingTrx, sponsorBudgetUsage] = await Promise.all([
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1
+              AND ((sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
+                OR (sponsor_organization_reference IS NULL AND sponsor_agreement_reference IS NULL))
+              AND status NOT IN ('rejected','failed')`,
+          [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
+        sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
+          config.sponsorTotalBudgetBaseUnits,
+          String(sponsorBudgetUsage.rows[0]?.amount || '0'),
+        )
+        if (!sponsorPrincipalBudget || BigInt(sponsorPrincipalBudget.remainingBaseUnits) <= 0n) {
+          blockers.push('sponsor-principal-agreement-budget-exhausted-or-unavailable')
+        }
         requiredFeeReserveSun = requiredTreasuryFeeReserveSun(env.TREASURY_FEE_LIMIT_SUN, pendingUsdtCount, pendingTrxCount)
         feeReserveCovered = snapshot.ok && requiredFeeReserveSun !== null
           && treasuryFeeReserveCovered(snapshot.treasuryTrxBalanceSun, snapshot.providerAvailableTrxBaseUnits, requiredFeeReserveSun)
@@ -921,6 +991,18 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: config.providerConfigured,
       },
       databaseReady, treasuryAddress,
+      sponsorPrincipalBudget: sponsorPrincipalBudget ? {
+        organizationReference: config.sponsorOrganizationReference,
+        agreementReference: config.sponsorAgreementReference,
+        totalBaseUnits: sponsorPrincipalBudget.totalBudgetBaseUnits,
+        usedAndReservedBaseUnits: sponsorPrincipalBudget.usedBaseUnits,
+        remainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
+        withinBudget: sponsorPrincipalBudget.withinBudget,
+      } : {
+        organizationReference: config.sponsorOrganizationReference,
+        agreementReference: config.sponsorAgreementReference,
+        status: 'not-verified',
+      },
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
         providerAvailableUsdtBaseUnits: snapshot.providerAvailableBaseUnits,
@@ -1035,6 +1117,8 @@ export function createTreasuryWithdrawalsRouter({
             treasuryAddress,
             recipientAddress: body.recipientAddress,
             amountBaseUnits: amount.toString(),
+            sponsorOrganizationReference: config.sponsorOrganizationReference,
+            sponsorAgreementReference: config.sponsorAgreementReference,
           })) {
             return res.status(409).json({
               success: false,
@@ -1126,30 +1210,81 @@ export function createTreasuryWithdrawalsRouter({
           })
         }
 
-        const spent = await client.query(`
-          SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
-            FROM trc20_token_clone.treasury_withdrawal_requests
-           WHERE created_at >= date_trunc('day', now())
-             AND status <> 'rejected'
-        `)
+        const [spent, sponsorBudgetUsage] = await Promise.all([
+          client.query(`
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+              FROM trc20_token_clone.treasury_withdrawal_requests
+             WHERE created_at >= date_trunc('day', now())
+               AND status <> 'rejected'
+          `),
+          client.query(`
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+              FROM trc20_token_clone.treasury_withdrawal_requests
+             WHERE treasury_address=$1
+               AND ((sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
+                 OR (sponsor_organization_reference IS NULL AND sponsor_agreement_reference IS NULL))
+               AND status NOT IN ('rejected','failed')
+          `, [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
+        ])
         const alreadyReserved = BigInt(spent.rows[0]?.amount || '0')
+        const sponsorBudget = calculateSponsorPrincipalBudgetState(
+          config.sponsorTotalBudgetBaseUnits,
+          String(sponsorBudgetUsage.rows[0]?.amount || '0'),
+          amount.toString(),
+        )
+        if (!sponsorBudget || !sponsorBudget.withinBudget) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'sponsor-principal-agreement-budget-exceeded',
+            sponsorPrincipalBudget: sponsorBudget ? {
+              totalBaseUnits: sponsorBudget.totalBudgetBaseUnits,
+              usedAndReservedBaseUnits: sponsorBudget.usedBaseUnits,
+              remainingBaseUnits: sponsorBudget.remainingBaseUnits,
+              requestedBaseUnits: sponsorBudget.requestedBaseUnits,
+            } : null,
+            transactionSubmitted: false,
+            message: 'The requested USDT principal exceeds the remaining commitment recorded for this sponsor agreement. No Fireblocks transfer was requested.',
+          })
+        }
         if (alreadyReserved + amount > dailyLimit) {
           await client.query('ROLLBACK')
           return res.status(429).json({ success: false, error: 'treasury-daily-limit-exceeded' })
         }
         const inserted = await client.query(`
           INSERT INTO trc20_token_clone.treasury_withdrawal_requests
-            (idempotency_key, owner_address, treasury_address, recipient_address, token_contract, amount_base_units, status)
-          VALUES ($1,$2,$3,$4,$5,$6,'broadcasting')
+            (idempotency_key, owner_address, treasury_address, recipient_address, token_contract,
+             sponsor_organization_reference, sponsor_agreement_reference, amount_base_units, status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'broadcasting')
           RETURNING *
-        `, [body.idempotencyKey, auth.ownerAddress, treasuryAddress, body.recipientAddress, USDT_MAINNET, amount.toString()])
+        `, [
+          body.idempotencyKey, auth.ownerAddress, treasuryAddress, body.recipientAddress, USDT_MAINNET,
+          config.sponsorOrganizationReference, config.sponsorAgreementReference, amount.toString(),
+        ])
         reservation = inserted.rows[0]
         await client.query('COMMIT')
       } catch (error) {
         try { await client.query('ROLLBACK') } catch {}
         if (error?.code === '23505') {
           const existing = await db.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1', [body.idempotencyKey])
-          if (existing.rows.length) return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existing.rows[0]), note: 'Existing request returned; no second transfer was broadcast.' })
+          if (existing.rows.length) {
+            const prior = existing.rows[0]
+            if (!matchesTreasuryWithdrawalRequest(prior, {
+              ownerAddress: auth.ownerAddress,
+              treasuryAddress,
+              recipientAddress: body.recipientAddress,
+              amountBaseUnits: amount.toString(),
+              sponsorOrganizationReference: config.sponsorOrganizationReference,
+              sponsorAgreementReference: config.sponsorAgreementReference,
+            })) {
+              return res.status(409).json({
+                success: false,
+                error: 'idempotency-key-conflict',
+                message: 'The existing request is bound to a different withdrawal intent or sponsor agreement. No second Fireblocks transfer was requested.',
+              })
+            }
+            return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Existing request returned; no second transfer was broadcast.' })
+          }
         }
         throw error
       } finally {

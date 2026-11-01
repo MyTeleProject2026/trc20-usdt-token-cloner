@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -33,6 +33,9 @@ test('USDT payout configuration fails closed without a separately identified nat
     TREASURY_ADDRESS: owner,
     TREASURY_MAX_PAYOUT_USDT: '10',
     TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
+    TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
+    TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
     TREASURY_FEE_LIMIT_SUN: '50000000',
     TREASURY_WITHDRAWALS_ENABLED: 'true',
     TREASURY_SIGNER_MODE: 'fireblocks',
@@ -98,6 +101,54 @@ test('USDT decimal parser converts exact six-decimal amounts to base units', () 
   assert.equal(parsePositiveDecimal('1'), 1_000_000n)
   assert.equal(parsePositiveDecimal('0.000001'), 1n)
   assert.equal(parsePositiveDecimal('12.340500'), 12_340_500n)
+})
+
+test('third-party USDT principal budget uses exact base units and includes unresolved reservations', () => {
+  assert.deepEqual(calculateSponsorPrincipalBudgetState('1000000000', '250000000', '500000000'), {
+    totalBudgetBaseUnits: '1000000000',
+    usedBaseUnits: '250000000',
+    remainingBaseUnits: '750000000',
+    requestedBaseUnits: '500000000',
+    withinBudget: true,
+  })
+  const exhausted = calculateSponsorPrincipalBudgetState('1000000000', '750000000', '250000001')
+  assert.equal(exhausted.withinBudget, false)
+  assert.equal(exhausted.remainingBaseUnits, '250000000')
+  assert.equal(calculateSponsorPrincipalBudgetState('1000000000', '1000000001', '1').withinBudget, false)
+  assert.equal(calculateSponsorPrincipalBudgetState('1e6', '0', '1'), null)
+  assert.equal(calculateSponsorPrincipalBudgetState('1000000000', '-1', '1'), null)
+})
+
+test('USDT sponsor configuration requires a traceable organization, agreement and aggregate principal cap', () => {
+  const owner = 'T' + 'A'.repeat(33)
+  const base = {
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
+    TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
+    TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/etc/secrets/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: 'TRON_USDT',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+  }
+  assert.equal(treasuryUsdtConfiguration(base).configurationComplete, true)
+  assert.equal(treasuryUsdtConfiguration({
+    ...base, TREASURY_SPONSOR_AGREEMENT_REFERENCE: '',
+  }).configurationComplete, false)
+  assert.ok(treasuryUsdtConfiguration({
+    ...base, TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'bad value with spaces',
+  }).missing.includes('TREASURY_SPONSOR_AGREEMENT_REFERENCE'))
+  assert.equal(treasuryUsdtConfiguration({
+    ...base, TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '5',
+  }).configurationComplete, false, 'aggregate sponsor cap must cover both the per-payout and daily caps')
 })
 
 test('USDT decimal parser rejects zero, excess precision, exponent notation and malformed input', () => {
@@ -332,6 +383,8 @@ test('withdrawal idempotency binds an existing key to the exact owner, treasury,
     treasury_address: treasuryAddress,
     recipient_address: recipientAddress,
     token_contract: usdtContract,
+    sponsor_organization_reference: 'authorized-sponsor-org-001',
+    sponsor_agreement_reference: 'sponsor-agreement-2026-001',
     amount_base_units: amountBaseUnits,
   }
   const request = {
@@ -339,11 +392,15 @@ test('withdrawal idempotency binds an existing key to the exact owner, treasury,
     treasuryAddress,
     recipientAddress,
     amountBaseUnits,
+    sponsorOrganizationReference: 'authorized-sponsor-org-001',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
   }
   assert.equal(matchesTreasuryWithdrawalRequest(row, request), true)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, recipientAddress: treasuryAddress }), false)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, amountBaseUnits: '1' }), false)
   assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, ownerAddress: recipientAddress }), false)
+  assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, sponsorAgreementReference: 'different-agreement' }), false)
+  assert.equal(matchesTreasuryWithdrawalRequest(row, { ...request, sponsorOrganizationReference: 'different-org' }), false)
 })
 
 test('USDT readiness still probes provider and chain funding while transfer submission remains disabled', async (t) => {
