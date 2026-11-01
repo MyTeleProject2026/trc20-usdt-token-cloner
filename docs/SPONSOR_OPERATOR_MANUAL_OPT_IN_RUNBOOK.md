@@ -4,20 +4,11 @@ This is a hands-on operator checklist for `MyTeleProject2026/trc20-usdt-token-cl
 It is not a declaration that sponsorship is production-ready. Follow it in order. Do not skip
 readiness checks because an environment variable or wallet connection appears successful.
 
-## Current Render testnet opt-in (2026-10-27)
+## Historical Render testnet flag record (2026-10-27; live state unverified)
 
-At the operator's request, the Render backend environment flag
-`SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` has been set to `true` for the existing
-experimental Shasta/Nile signer-and-broadcast route. Render accepted the environment update and deploy dep-dbftfsm7bikc73b5a3u0 reached live. Its startup logs reported the project database ready and the API listening. This confirms the configuration rollout, not a live sponsored transfer or end-to-end settlement. This is a route opt-in only: it does not create a transfer, approve a budget,
-prove sponsor consent/funding, or mark any transaction settled. The route still requires the exact
-approved testnet reservation, distinct configured sponsor roles, the fee-resource/delegation checks,
-the sponsor wallet's signature over the stored intent, and transaction identity validation. If any
-gate fails, no new broadcast is authorized. Mainnet broadcast remains unavailable in this route.
-Set the flag back to `false` to close the experimental testnet signing/broadcast route.
+An earlier operator note recorded that `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` had been set to `true` and that a Render deployment became live. This is a historical configuration record only. The current Render value has not been independently inspected, and a live deployment or configured flag is not evidence of an actual sponsored transfer.
 
-The checklist below describes the secure baseline for initial onboarding. Do not interpret the
-testnet flag change as a production go-live approval: separate fee/resource cost settlement and a
-supported live end-to-end sponsor pilot are still required.
+The current source code contains a hard release gate in `server/routes/sponsor-fee-settlement-gate.mjs`. It returns not-ready until the independent release evidence and acceptance requirements are completed. Setting `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=true` cannot bypass that source-code gate. Keep the flag `false`; do not dispatch signing or transfer tests as a workaround. Mainnet submission remains unavailable.
 
 ## 0. Safe baseline for initial onboarding
 
@@ -30,7 +21,7 @@ For a new deployment before a controlled test, use this safe baseline:
     SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED=false
     SPONSOR_TESTNET_MAX_FEE_LIMIT_SUN=50000000
 
-Current Render state: the testnet-only signing/broadcast feature flag is explicitly enabled for the controlled Shasta/Nile pilot. Set it to false to close that route and redeploy. The flag does not activate Mainnet, approve a reservation, bypass wallet signing, or prove that any transfer was sent. Budget activation is a separate ledger control; Mainnet transaction submission is not available through this experimental route.
+The current live Render value is unverified. Keep this flag `false`. The source-code release gate also blocks signing and broadcast, even if the environment flag is accidentally true. The separate resource-ledger approval and historical evidence requirements must not be bypassed. Mainnet transaction submission is not available through this experimental route.
 
 ## 1. Get the actual sponsor authorization outside the application
 
@@ -75,7 +66,7 @@ Set the following testnet values only after the sponsor owners authorized monito
 | `SPONSOR_VTRC_NILE_CONTRACTS` | Exact Nile VTRC contract address(es) only, if VTRC is in scope; VTRC is not official USDT |
 | `SPONSOR_ADMIN_API_TOKEN` | A newly generated random secret with at least 32 characters, kept only in Render and an authorized local admin secret manager |
 | `SPONSOR_APPROVED_AGREEMENT_REFERENCES` | The exact reviewed agreement scopes described in section 3 |
-| `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` | Current Render pilot: `true` for the Shasta/Nile route only; set `false` to close it. For a new service before an approved pilot, keep `false`. |
+| `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED` | Keep `false`. This flag cannot bypass the hard source-code release gate; do not enable before independent pilot approval. |
 | `SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED` | Keep `false` |
 
 The budget-drafting endpoint for role-specific testnet budgets also needs a database. If a configured
@@ -245,7 +236,7 @@ second sponsor reference to bypass the duplicate protection.
 
 ## 7. What is still needed before a controlled testnet transfer can be called complete
 
-The current Render route flag is documented as enabled for the controlled Shasta/Nile pilot, but this is only a route-level opt-in. The application must still enforce an existing approved reservation, active budget and agreement scope, distinct sponsor roles, exact transaction intent, sponsor-owned wallet signature, fresh resource/funding checks, and the final broadcast checks. This is not a claim that a transfer has been sent.
+The current Render flag value is unverified, and the source-code signing/broadcast gate remains hard-closed. A resource ledger and a dual-provider historical delegation cross-check are implemented in the draft branch, but the cross-check is not cryptographic proof and no funded Shasta/Nile end-to-end pilot has been recorded. Do not claim a transfer has been sent or enable the source gate until the remaining independent evidence, review, database restore rehearsal, and controlled pilot are complete.
 
 A transfer can be called complete only when the live test proves: a real sponsor-authorized and funded testnet transaction; persisted intent and replay/idempotency checks; successful solidified transaction body and receipt matching the exact sender/receiver/token/amount; receiver balance read on the same network and contract; separately reconciled fee/resource expense; failure/timeout handling; and an operator review of the audit trail. If any gate fails, do not force the transaction through by changing unrelated flags. If any outcome is ambiguous, reconcile the same stored intent and transaction ID; never retry with a different key or transaction just to make the UI appear successful. The application must not deduct the transfer principal from the receiver's amount and must never fall back to charging the sender.
 
