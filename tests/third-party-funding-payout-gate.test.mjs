@@ -56,6 +56,7 @@ test('verified third-party USDT pool requires an acknowledged mandate, agreement
   assert.match(query, /d\.receipt_result = 'SUCCESS'/)
   assert.match(query, /d\.fireblocks_verified_at IS NOT NULL/)
   assert.match(query, /d\.fireblocks_checked_at >= d\.chain_verified_at/)
+  assert.doesNotMatch(query, /a\.expires_at > now\(\)/, 'expiry prevents new deposits but does not invalidate a pre-expiry confirmed deposit')
 })
 
 test('payout readiness and reservation both require remaining verified third-party deposits', async () => {
@@ -73,7 +74,7 @@ test('payout readiness and reservation both require remaining verified third-par
   assert.match(post, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress\)/)
   assert.match(post, /remainingVerifiedThirdPartyPrincipalBaseUnits/)
   assert.match(post, /third-party-usdt-principal-insufficient-after-withdrawals/)
-  assert.match(post, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
+  assert.match(route, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
 })
 
 test('authorization revocation shares the payout reservation advisory lock and does not edit deposit history', async () => {
