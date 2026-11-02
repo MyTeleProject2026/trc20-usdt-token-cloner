@@ -1781,38 +1781,6 @@ export default function WalletVault() {
     }
   }
 
-  async function copyFireblocksEnvTemplate() {
-    const template = [
-      'TREASURY_SIGNER_MODE=fireblocks',
-      'FIREBLOCKS_API_BASE=<verified-production-region-api-base>',
-      'FIREBLOCKS_API_KEY=<organization-issued-api-user-id>',
-      'FIREBLOCKS_SECRET_KEY_PATH=/etc/secrets/fireblocks_api_private_key.pem',
-      'FIREBLOCKS_VAULT_ACCOUNT_ID=<verified-vault-account-id>',
-      'FIREBLOCKS_USDT_ASSET_ID=<verified-official-tron-usdt-asset-id>',
-      'FIREBLOCKS_TRX_ASSET_ID=<verified-native-trx-asset-id>',
-      'TREASURY_ADDRESS=<verified-tron-vault-address>',
-      'OWNER_WALLET_ADDRESS=<organization-approved-owner-address>',
-      'TREASURY_OWNER_ADDRESS=<same-organization-approved-owner-address>',
-      'TREASURY_MAX_PAYOUT_USDT=<organization-approved-per-payout-limit>',
-      'TREASURY_DAILY_LIMIT_USDT=<organization-approved-daily-limit>',
-      'TREASURY_SPONSOR_ORGANIZATION_REFERENCE=<executed-sponsor-organization-reference>',
-      'TREASURY_SPONSOR_AGREEMENT_REFERENCE=<executed-sponsor-agreement-reference>',
-      'TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>',
-      'TREASURY_ALLOWED_RECIPIENT_ADDRESSES=<comma-separated-sponsor-approved-tron-destinations>',
-      'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
-      'TREASURY_WITHDRAWALS_ENABLED=false',
-      'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
-    ].join('\n')
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
-      await navigator.clipboard.writeText(template)
-      setError('')
-      setNotice('Copied a placeholder-only template. Replace placeholders in the backend Render service only; never enter credentials in this wallet UI.')
-    } catch {
-      setError('Clipboard access is unavailable. Use the documented backend Render setup steps instead; do not paste Fireblocks secrets into this page.')
-    }
-  }
-
   function navigateSendAsset(asset: TransferAsset) {
     setActivePanel('send')
     scrollWorkspaceToTop()
@@ -2318,13 +2286,13 @@ export default function WalletVault() {
           <p className="wallet-vault-caption">A complete history scan is mandatory for payout readiness. Manual Fireblocks transfers reduce sponsor principal; unresolved or ambiguous history blocks new payouts. Fireblocks transaction policy and independent approval remain separate controls.</p>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
-          <h3 id="fireblocks-inventory-heading">Saved Fireblocks inventory evidence</h3>
-          <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
+          <h3 id="fireblocks-inventory-heading">Automatically refreshed Fireblocks inventory evidence</h3>
+          <p>This panel shows the latest backend-saved read-only inventory result. The owner console refreshes status automatically; the optional GitHub workflow is an audit/export tool, not a requirement for reading current readiness. It never sends funds or changes Fireblocks permissions.</p>
           <p className="wallet-vault-caption">
-            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open GitHub Actions — Run Fireblocks inventory sync ↗</a>
+            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open optional read-only inventory audit workflow ↗</a>
           </p>
           {fireblocksInventoryError && <p className="wallet-vault-risk-note" role="alert">{fireblocksInventoryError}</p>}
-          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No saved inventory run is available yet. Run the manual workflow above; the result will appear here after it finishes and saves its database snapshot.</p>}
+          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No saved inventory snapshot has been returned yet. Live readiness is displayed separately; a missing snapshot is not proof that the vault is funded or configured.</p>}
           {fireblocksInventorySnapshot && <>
             <div className="wallet-vault-review-grid">
               <div>
@@ -2385,6 +2353,46 @@ export default function WalletVault() {
             {(fireblocksInventorySnapshot.reasons || []).length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Blockers:</strong> {fireblocksInventorySnapshot.reasons?.map((item) => item.replaceAll('-', ' ')).join('; ')}</p>}
             <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Live Render deployment remains separately hard-locked until the reviewed PR stack and external release prerequisites are completed.</p>
           </>}
+        </div>
+        <div className="wallet-vault-review-grid" aria-label="Sponsor funding target and verified payout capacity">
+          <div>
+            <small>Requested sponsor funding target · planning only</small>
+            <strong>100,000 USDT</strong>
+            <p className="wallet-vault-caption">A requested target, not a sponsor commitment, token balance or available asset.</p>
+          </div>
+          <div>
+            <small>Verified TRON Mainnet USDT balance</small>
+            <strong>{typeof serverTreasuryReadiness?.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Fireblocks available USDT</small>
+            <strong>{typeof serverTreasuryReadiness?.providerAvailableUsdtBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.providerAvailableUsdtBaseUnits) ? formatUnits(serverTreasuryReadiness.providerAvailableUsdtBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Outstanding USDT reservations</small>
+            <strong>{typeof serverTreasuryReadiness?.outstandingUsdtReservationBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.outstandingUsdtReservationBaseUnits) ? formatUnits(serverTreasuryReadiness.outstandingUsdtReservationBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Verified funds after reservations</small>
+            <strong>{typeof serverTreasuryReadiness?.availableUsdtAfterReservationsBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.availableUsdtAfterReservationsBaseUnits) ? formatUnits(serverTreasuryReadiness.availableUsdtAfterReservationsBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Remaining sponsor commitment</small>
+            <strong>{typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Remaining daily payout allowance</small>
+            <strong>{typeof serverTreasuryReadiness?.dailyUsdtRemainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.dailyUsdtRemainingBaseUnits) ? formatUnits(serverTreasuryReadiness.dailyUsdtRemainingBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Estimated eligible capacity before release lock</small>
+            <strong>{typeof serverTreasuryReadiness?.estimatedEligiblePayoutCapacityBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.estimatedEligiblePayoutCapacityBaseUnits) ? formatUnits(serverTreasuryReadiness.estimatedEligiblePayoutCapacityBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Currently withdrawable now</small>
+            <strong>{typeof serverTreasuryReadiness?.currentlyWithdrawableBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.currentlyWithdrawableBaseUnits) ? formatUnits(serverTreasuryReadiness.currentlyWithdrawableBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+            <p className="wallet-vault-caption">The source-build real-value execution lock remains closed; a funding figure is not permission to broadcast.</p>
+          </div>
         </div>
         <div className="wallet-vault-review-grid">
           <div>
@@ -2464,11 +2472,16 @@ export default function WalletVault() {
           </p>
         </div>
         <div className="wallet-vault-transfer-section">
-          <h3>Backend Render configuration</h3>
-          <p>Enter organization-issued identifiers and approved limits in the backend Web Service environment only. Upload the RSA private key as a Secret File named <code>fireblocks_api_private_key.pem</code>; the path below points to that file. Never add credentials to frontend <code>VITE_*</code> variables, GitHub, or this browser page.</p>
-          <p className="wallet-vault-caption">Backend service: <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">Open Render backend environment ↗</a></p>
-          <button type="button" className="wallet-vault-secondary" onClick={() => void copyFireblocksEnvTemplate()}><Copy size={15} /> Copy placeholder-only environment template</button>
-          <p className="wallet-vault-caption">The template contains placeholders, not credentials. The sponsor organization and agreement references plus total USDT commitment must come from the sponsor’s executed agreement; they are not proof of funding. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
+          <h3>Backend-managed configuration and external prerequisites</h3>
+          <p>Non-secret settings already present on the backend load automatically into this owner console. Missing settings are reported by the backend; this frontend does not ask you to type or copy environment values and does not modify Render.</p>
+          <p className="wallet-vault-caption">Only the authorized sponsor organization can provision its Fireblocks API identity, RSA secret file, production vault, signed agreement, approved limits, independent sponsor signer addresses and real funding. Those credentials, approvals and funds cannot be generated by this application. Keep private RSA material in the backend Secret File store, never in this browser.</p>
+          <p className="wallet-vault-caption">Backend service: <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">TRON Token Studio API ↗</a>. This owner page only reads backend-provided status.</p>
+          {Array.isArray(serverTreasuryReadiness?.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
+            <p className="wallet-vault-risk-note" role="status"><strong>Backend-reported missing prerequisites:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
+          )}
+          {serverTreasuryReadiness?.configuration?.configurationComplete === true
+            ? <p className="wallet-vault-caption">The backend reports its syntactic configuration complete. This does not prove sponsor authority, funding or permission to withdraw.</p>
+            : <p className="wallet-vault-caption">Backend configuration is incomplete. Missing organization-owned values keep payout readiness blocked.</p>}
         </div>
       </section>
 
