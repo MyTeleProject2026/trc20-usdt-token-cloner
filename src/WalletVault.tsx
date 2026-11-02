@@ -1111,9 +1111,6 @@ export default function WalletVault() {
       pushToast('info', payload?.status === 'broadcast-unknown'
         ? 'Provider outcome is unknown. The sponsor principal remains reserved; reconcile this same request key and do not submit a replacement.'
         : 'Treasury payout request handed to Fireblocks. Provider acceptance is not on-chain confirmation; verify the solidified TRON receipt.')
-      if (typeof window !== 'undefined') {
-        window.setTimeout(() => { void lookupServerTreasuryPayout() }, 0)
-      }
     } catch (caught) {
       setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Treasury payout request failed.')
     } finally {
