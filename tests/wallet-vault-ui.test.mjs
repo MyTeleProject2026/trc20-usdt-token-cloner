@@ -154,6 +154,7 @@ test('owner payout reference persists only the opaque idempotency key for safe r
   assert.match(vault, /readTreasuryPayoutReference\(\)/)
   assert.match(vault, /savedReference\.ownerAddress === unlocked\?\.record\.address/)
   assert.match(vault, /saveTreasuryPayoutReference\(ownerSessionAddress, idempotencyKey\)/)
+  assert.match(vault, /clearTreasuryPayoutReference\(\)/)
   assert.match(reference, /never contains a private key, signed authorization, or claim of success/)
   assert.doesNotMatch(reference, /privateKey|seedPhrase|ownerAuthorizationSignature/)
 })
