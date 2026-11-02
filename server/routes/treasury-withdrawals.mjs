@@ -15,7 +15,7 @@ import {
   maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
 import { getFireblocksOutboundHistoryStatus } from './fireblocks-outbound-history.mjs'
-import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig, isApprovedSponsorAgreementScope } from '../database.mjs'
+import { getWalletAuthSession, getThirdPartyFundingUsdtPoolSnapshot, normalizeDatabaseConnectionString, databaseSslConfig, isApprovedSponsorAgreementScope } from '../database.mjs'
 import {
   buildTreasuryWithdrawalAuthorizationMessage,
   buildTreasuryTrxWithdrawalAuthorizationMessage,
@@ -711,6 +711,16 @@ export function unreservedTreasuryBalance(balanceBaseUnits, outstandingReservati
   return (balanceValue > reservedValue ? balanceValue - reservedValue : 0n).toString()
 }
 
+/** Remaining genuine third-party USDT principal after all committed app and external outflows. */
+export function remainingThirdPartyFundingPrincipal(verifiedPrincipalBaseUnits, committedWithdrawalBaseUnits) {
+  const verified = typeof verifiedPrincipalBaseUnits === 'string' ? verifiedPrincipalBaseUnits : ''
+  const committed = typeof committedWithdrawalBaseUnits === 'string' ? committedWithdrawalBaseUnits : ''
+  if (!/^(0|[1-9][0-9]{0,77})$/.test(verified)
+    || !/^(0|[1-9][0-9]{0,77})$/.test(committed)) return null
+  const remaining = BigInt(verified) - BigInt(committed)
+  return (remaining > 0n ? remaining : 0n).toString()
+}
+
 /** Calculate a conservative request capacity using integer USDT base units only. */
 export function calculateTreasuryPayoutCapacity({
   verifiedSpendableBaseUnits,
@@ -719,6 +729,7 @@ export function calculateTreasuryPayoutCapacity({
   dailyLimitBaseUnits,
   dailyUsedBaseUnits,
   maximumSinglePayoutBaseUnits,
+  verifiedThirdPartyPrincipalRemainingBaseUnits,
 } = {}) {
   const parse = (value) => {
     const text = typeof value === 'string' ? value : String(value ?? '')
@@ -730,12 +741,13 @@ export function calculateTreasuryPayoutCapacity({
   const dailyLimit = parse(dailyLimitBaseUnits)
   const dailyUsed = parse(dailyUsedBaseUnits)
   const singlePayoutLimit = parse(maximumSinglePayoutBaseUnits)
-  if ([funded, reserved, commitment, dailyLimit, dailyUsed, singlePayoutLimit].some((value) => value === null)) {
+  const thirdPartyPrincipal = parse(verifiedThirdPartyPrincipalRemainingBaseUnits)
+  if ([funded, reserved, commitment, dailyLimit, dailyUsed, singlePayoutLimit, thirdPartyPrincipal].some((value) => value === null)) {
     return null
   }
   const availableAfterReservations = funded > reserved ? funded - reserved : 0n
   const dailyRemaining = dailyLimit > dailyUsed ? dailyLimit - dailyUsed : 0n
-  const eligible = [availableAfterReservations, commitment, dailyRemaining, singlePayoutLimit]
+  const eligible = [availableAfterReservations, commitment, dailyRemaining, singlePayoutLimit, thirdPartyPrincipal]
     .reduce((smallest, value) => value < smallest ? value : smallest)
   return {
     verifiedSpendableBaseUnits: funded.toString(),
@@ -746,6 +758,7 @@ export function calculateTreasuryPayoutCapacity({
     dailyUsedBaseUnits: dailyUsed.toString(),
     dailyRemainingBaseUnits: dailyRemaining.toString(),
     maximumSinglePayoutBaseUnits: singlePayoutLimit.toString(),
+    verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyPrincipal.toString(),
     eligibleCapacityBaseUnits: eligible.toString(),
   }
 }
