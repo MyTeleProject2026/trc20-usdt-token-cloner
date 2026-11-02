@@ -79,7 +79,7 @@ function safeVaultName(value) {
   return normalized ? normalized.slice(0, 120) : null
 }
 
-function addressList(value) {
+function addressList(value, isValidAddress) {
   const rows = Array.isArray(value) ? value
     : Array.isArray(value?.addresses) ? value.addresses
       : Array.isArray(value?.data) ? value.data : []
@@ -87,7 +87,14 @@ function addressList(value) {
     : typeof item?.address === 'string' ? item.address
       : typeof item?.addressString === 'string' ? item.addressString
         : typeof item?.address_string === 'string' ? item.address_string : '')
-    .filter((address) => OWNER_ADDRESS_PATTERN.test(address))]
+    .filter((address) => OWNER_ADDRESS_PATTERN.test(address) && isValidAddress(address))]
+}
+
+function hasExactSymbol(asset, expected) {
+  const symbols = [asset?.symbol, asset?.displaySymbol, asset?.onchain?.symbol]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => value.trim().toUpperCase())
+  return symbols.length > 0 && symbols.every((symbol) => symbol === expected)
 }
 
 export function createFireblocksDiscoveryRouter({
@@ -188,7 +195,8 @@ export function createFireblocksDiscoveryRouter({
       }
 
       const officialUsdtAssets = [...new Map(usdtResult.items
-        .filter((asset) => isOfficialFireblocksUsdtAsset(asset, tronWeb, USDT_MAINNET))
+        .filter((asset) => hasExactSymbol(asset, 'USDT')
+          && isOfficialFireblocksUsdtAsset(asset, tronWeb, USDT_MAINNET))
         .map((asset) => [assetIdOf(asset), asset])
         .filter(([id]) => Boolean(id))).entries()]
         .map(([id, asset]) => ({ id, symbol: 'USDT', contractAddress: USDT_MAINNET, decimals: 6,
@@ -226,8 +234,8 @@ export function createFireblocksDiscoveryRouter({
               fireblocks.getAssetAddresses(usdtAssetId, candidate.vaultAccountId, { credentialsOnly: true }),
               fireblocks.getAssetAddresses(trxAssetId, candidate.vaultAccountId, { credentialsOnly: true }),
             ])
-            const usdtAddresses = addressList(usdtAddressResponse)
-            const trxAddresses = addressList(trxAddressResponse)
+            const usdtAddresses = addressList(usdtAddressResponse, isValidAddress)
+            const trxAddresses = addressList(trxAddressResponse, isValidAddress)
             const addressMatches = usdtAddresses.length === 1 && trxAddresses.length === 1
               && usdtAddresses[0] === trxAddresses[0]
             addressChecks.push({
