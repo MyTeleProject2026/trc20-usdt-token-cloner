@@ -1296,3 +1296,107 @@ main .grid > button[aria-pressed] > span {
   .wallet-vault-toast { animation: none; }
   .wallet-vault-owner-app .wallet-vault-quick-action:hover { transform: none; }
 }
+
+
+
+/* Guided Mainnet payout start page: readable cards with explicit, one-step navigation. */
+.wallet-vault-payout-guide { margin-top: 16px; }
+.wallet-vault-payout-guide-status {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.wallet-vault-payout-guide-status > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid #29483e;
+  border-radius: 11px;
+  background: rgba(6, 19, 18, .82);
+}
+.wallet-vault-payout-guide-status small {
+  color: #8daf9f;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.wallet-vault-payout-guide-status strong {
+  color: #dff8eb;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.wallet-vault-payout-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 9px;
+}
+.wallet-vault-payout-guide-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  min-height: 192px;
+  padding: 13px 12px;
+  border: 1px solid #28483d;
+  border-radius: 13px;
+  color: #e3f7ed;
+  background: linear-gradient(150deg, rgba(15, 39, 32, .92), rgba(7, 18, 20, .96));
+  text-align: left;
+  cursor: pointer;
+}
+.wallet-vault-payout-guide-step > svg { color: #83e5ba; flex: 0 0 auto; }
+.wallet-vault-payout-guide-step:hover,
+.wallet-vault-payout-guide-step:focus-visible {
+  border-color: #59c79a;
+  background: linear-gradient(150deg, rgba(20, 54, 43, .98), rgba(8, 25, 23, .98));
+}
+.wallet-vault-payout-guide-number {
+  display: inline-grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid #39715a;
+  border-radius: 8px;
+  color: #a9f2d2;
+  background: #0c281e;
+  font-size: 10px;
+  font-weight: 900;
+}
+.wallet-vault-payout-guide-step > strong {
+  color: #e9fff4;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.wallet-vault-payout-guide-step > small {
+  color: #a5c2b6;
+  font-size: 9px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.wallet-vault-payout-guide-action {
+  margin-top: auto;
+  padding-top: 4px;
+  color: #78e9b9;
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+@media (max-width: 1180px) {
+  .wallet-vault-payout-guide-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  .wallet-vault-payout-guide-status { grid-template-columns: minmax(0, 1fr); }
+  .wallet-vault-payout-guide-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wallet-vault-payout-guide-step { min-height: 182px; }
+}
+@media (max-width: 430px) {
+  .wallet-vault-payout-guide-grid { grid-template-columns: minmax(0, 1fr); }
+  .wallet-vault-payout-guide-step { min-height: 0; padding: 14px; }
+}
