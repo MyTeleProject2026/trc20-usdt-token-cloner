@@ -570,7 +570,7 @@ export function createFireblocksClient(env = process.env, {
       if (!validTimestamp(after) || !validTimestamp(before) || BigInt(before) <= BigInt(after)
         || !Number.isInteger(limit) || limit < 1 || limit > 500
         || (next !== undefined && (typeof next !== 'string' || !next.trim()
-          || next.length > 8192 || /[\\r\\n]/.test(next)))) {
+          || next.length > 8192 || /[\r\n]/.test(next)))) {
         throw new FireblocksApiError(400, 'invalid-fireblocks-transaction-history-page-request')
       }
       const query = new URLSearchParams({
@@ -593,7 +593,7 @@ export function createFireblocksClient(env = process.env, {
       if (!rows) throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-response')
       const nextPage = typeof result.nextPage === 'string' && result.nextPage.trim()
         ? result.nextPage.trim() : null
-      if (nextPage && (nextPage.length > 8192 || /[\\r\\n]/.test(nextPage))) {
+      if (nextPage && (nextPage.length > 8192 || /[\r\n]/.test(nextPage))) {
         throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-cursor')
       }
       return { transactions: rows, nextPage }
