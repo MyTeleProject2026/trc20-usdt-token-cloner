@@ -27,7 +27,7 @@ Open **Wallet Vault → Fireblocks treasury setup → One-click Fireblocks inven
 
 A missing snapshot means no run has been successfully persisted yet. A blocked snapshot contains diagnostic reason codes; fix the actual provider/database configuration and dispatch a new run. Do not edit the database row or treat an artifact with a blocked status as verified.
 
-This endpoint and panel are read-only. Even a `verified` inventory snapshot does not authorize a payout, prove organizational approval, enable signing, or confirm an exchange deposit. The backend hard lock and both payout feature flags remain disabled.
+This endpoint and panel are read-only. Even a `verified` inventory snapshot does not authorize a payout, prove organizational approval, enable signing, or confirm an exchange deposit. The third-party funding panel can use a later fresh inventory snapshot to reconcile a separately confirmed incoming sponsor deposit to the exact same Fireblocks vault and asset. A deposit is not counted as sponsor principal before this provider/chain balance reconciliation succeeds. The backend hard lock and both payout feature flags remain disabled.
 
 ## Running it
 
