@@ -2236,7 +2236,7 @@ export function createTreasuryWithdrawalsRouter({
           db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1 AND status <> 'rejected'`, [treasuryAddress]),
-          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
