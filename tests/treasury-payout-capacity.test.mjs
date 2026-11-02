@@ -86,6 +86,13 @@ test('readiness endpoint subtracts pending reservations and reports zero withdra
   assert.equal(source.split("WHERE created_at >= date_trunc('day', now())").length - 1, 2, 'readiness and submission use the same sponsor-wide daily usage query')
   assert.match(source, /payoutExecution\.executionEnabled && sponsorPayoutCapacity/)
   assert.match(source, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
+  assert.match(source, /getThirdPartyFundingUsdtPoolSnapshot\\(treasuryAddress\\)/)
+  assert.match(source, /thirdParty-verified-usdt-deposit-and-reviewed-disbursement-mandate-required/)
+  assert.match(source, /verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyFunding\.availablePrincipalBaseUnits/)
+  const post = source.slice(source.indexOf("router.post('/withdrawals'"))
+  assert.match(post, /getThirdPartyFundingUsdtPoolSnapshot\\(treasuryAddress\\)/)
+  assert.match(post, /remainingVerifiedThirdPartyPrincipalBaseUnits/)
+  assert.match(post, /third-party-usdt-principal-insufficient-after-withdrawals/)
 })
 
 test('third-party principal pool subtracts all application and external outflows and cannot become negative', () => {
