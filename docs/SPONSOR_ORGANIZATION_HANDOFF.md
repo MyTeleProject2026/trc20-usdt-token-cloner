@@ -89,6 +89,21 @@ A transaction ID alone is not proof of an exchange deposit credit or of withdraw
 
 The owner console periodically refreshes backend readiness and the read-only Fireblocks snapshots. A refreshed display is an observation, not a spending authorization.
 
+## Third-party source consent and incoming deposit verification
+
+The owner console includes **ThirdPartyFundingPanel** under the Fireblocks sponsor-funding screen. Use it only after a real organization has executed the relevant funding/disbursement agreement and the production Fireblocks vault has been independently selected.
+
+1. Have the sponsor prepare the consent manifest using the CLI scripts `funding:agreement:hash` and `funding:authorization:message`. Hash the exact executed agreement document locally; do not upload the confidential agreement to the application.
+2. The sponsor-controlled source wallet reviews and signs the canonical consent message. The manifest binds the sponsor address, exact TRON Mainnet vault address, official USDT contract, authorized USDT/TRX funding limits, agreement reference, document SHA-256 and expiry.
+3. In **Wallet Vault → Sponsor payouts → Third-party source authorization**, review the agreement and explicit withdrawal-disbursement acknowledgement, then register the signed manifest. The owner console uses its existing signed Mainnet owner session; it never asks for the sponsor's private key.
+4. The sponsor sends a genuine incoming USDT transfer (and, separately, native TRX for fees) from the authorized source wallet to the exact Fireblocks TRON vault address. Enter the transaction ID into the panel. The backend checks the confirmed transaction, successful solidified receipt, sender, destination, exact official token/contract and exact base-unit amount.
+5. Reconcile the recorded incoming deposit against a fresh verified Fireblocks inventory snapshot for the same vault/address. The provider-available asset and chain balance must cover the deposit. Only then is the deposit counted as **verified third-party principal**.
+6. Review the authorization and deposit ledger. Revoke an authorization if it must no longer accept/use funds. Expiry blocks new deposits; it does not erase a deposit that was confirmed before expiry. Explicit revocation removes that authorization's principal from eligible funding.
+
+**Important:** A signed source consent authorizes only the bounded incoming deposit described in the manifest. It is not the later sponsor release signature, is not an owner withdrawal signature, and does not authorize a payout. The outgoing path separately requires the approved sponsor mandate/scope, sponsor-signed release, recipient approval, owner per-request signature, funding/fee checks, reservation accounting and successful receipt verification.
+
+The payout readiness API now reports verified third-party USDT principal, reviewed authorization/deposit counts, committed withdrawals and remaining sponsor principal. The capacity calculation is capped by that remaining verified deposit principal. If the source consent, incoming receipt, Fireblocks match or outbound-history reconciliation is absent, third-party principal is unavailable and payout readiness remains blocked.
+
 ## Requested 100,000 USDT target — funding and balance semantics
 
 The requested **100,000 USDT** is a sponsor-funding target only. It is not a balance that Tron Token Studio can mint, manufacture, credit to a Fireblocks vault, or make withdrawable through a database row or configuration value.
