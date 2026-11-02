@@ -1651,7 +1651,15 @@ export default function WalletVault() {
           </div>
           <div>
             <small>Principal sponsor destination allowlist</small>
-            <strong>{serverTreasuryReadiness?.configuration?.recipientAllowlistValid === true ? (serverTreasuryReadiness?.configuration?.recipientAllowlistCount || 0) + ' approved destinations' : 'Missing or invalid — payouts blocked'}</strong>
+            <strong>{
+              serverTreasuryReadiness?.configuration?.recipientApprovalMode === 'sponsor-signed'
+                ? `Sponsor-signed destinations · ${serverTreasuryReadiness?.configuration?.sponsorApproverCount || 0} independent signer(s)`
+                : serverTreasuryReadiness?.configuration?.recipientApprovalMode === 'mixed'
+                  ? `${serverTreasuryReadiness?.configuration?.recipientAllowlistCount || 0} static destinations + ${serverTreasuryReadiness?.configuration?.sponsorApproverCount || 0} sponsor signer(s)`
+                  : serverTreasuryReadiness?.configuration?.recipientAllowlistValid === true
+                    ? `${serverTreasuryReadiness?.configuration?.recipientAllowlistCount || 0} approved static destinations`
+                    : 'Missing or invalid — payouts blocked'
+            }</strong>
           </div>
           <div>
             <small>Stored principal commitment cap</small>
