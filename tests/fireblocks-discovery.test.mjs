@@ -49,7 +49,7 @@ function makeFixture({
         }
         return nestedPagination
           ? { data: { assets: [{ id: '3ed32525-70df-45c8-bae3-e69ab56dc095', legacyId: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }], paging: {} } }
-          : { assets: [{ id: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
+          : { assets: [{ id: '3ed32525-70df-45c8-bae3-e69ab56dc095', legacyId: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
       }
       return nestedPagination
         ? { data: [{ id: '3a3b5f06-61e7-44f0-9962-4425b55795ff', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }], paging: {} }
