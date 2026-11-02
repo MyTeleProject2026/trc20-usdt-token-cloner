@@ -174,6 +174,8 @@ test('owner treasury dashboard automatically refreshes read-only Fireblocks disc
   const app = await read('server/index.mjs')
   assert.match(vault, /\/api\/treasury\/fireblocks\/discovery/)
   assert.match(vault, /sessionStorage\.setItem\(OWNER_CONSOLE_SESSION_KEY, verified\.sessionToken\)/)
+  assert.match(vault, /let token = ownerSessionToken/)
+  assert.match(vault, /token = token \|\| window\.sessionStorage\.getItem\(OWNER_CONSOLE_SESSION_KEY\)/)
   assert.match(vault, /sessionStorage\.removeItem\(OWNER_CONSOLE_SESSION_KEY\)/)
   assert.match(vault, /\}, \[unlocked\?\.record\.address, network, ownerSessionToken\]\)/)
   assert.match(vault, /setFireblocksDiscoverySnapshot/)
