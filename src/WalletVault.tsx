@@ -292,6 +292,11 @@ function shortenAddress(address: string): string {
   return address.length > 16 ? address.slice(0, 8) + '…' + address.slice(-6) : address
 }
 
+function hasPositiveBaseUnits(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)) return false
+  try { return BigInt(value) > 0n } catch { return false }
+}
+
 export default function WalletVault() {
   const [records, setRecords] = useState<WalletRecord[]>(readWalletRecords)
   const [selectedAddress, setSelectedAddress] = useState(() => readWalletRecords()[0]?.address || '')
@@ -399,6 +404,31 @@ export default function WalletVault() {
     && BigInt(sponsorPrincipalBudgetRemaining) > 0n
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
+  const sponsorConfig = serverTreasuryReadiness?.configuration
+  const sponsorBudget = serverTreasuryReadiness?.sponsorPrincipalBudget
+  const sponsorOrganizationReferencePresent = typeof sponsorBudget?.organizationReference === 'string' && sponsorBudget.organizationReference.trim().length > 0
+  const sponsorAgreementReferencePresent = typeof sponsorBudget?.agreementReference === 'string' && sponsorBudget.agreementReference.trim().length > 0
+  const fireblocksReadOnlyIdentityReady = fireblocksDiscoverySnapshot?.configuration?.credentialsConfigured === true
+  const fireblocksAssetIdentityReady = serverTreasuryReadiness?.providerAssetIdentityVerified === true
+    && serverTreasuryReadiness?.nativeTrxAssetIdentityVerified === true
+  const fireblocksVaultAddressReady = serverTreasuryReadiness?.providerVaultAddressVerified === true
+    && serverTreasuryReadiness?.nativeTrxVaultAddressVerified === true
+  const sponsorRecipientPolicyReady = sponsorConfig?.recipientAllowlistValid === true
+    || (sponsorConfig?.recipientApprovalMode === 'sponsor-signed'
+      && Number(sponsorConfig?.sponsorApproverCount || 0) > 0)
+    || (sponsorConfig?.recipientApprovalMode === 'mixed'
+      && Number(sponsorConfig?.sponsorApproverCount || 0) > 0)
+  const sponsorBudgetReady = sponsorBudget?.withinBudget === true
+    && sponsorBudget?.commitmentCapConsistent === true
+    && hasPositiveBaseUnits(sponsorBudgetRemaining)
+  const sponsorPrincipalReady = serverTreasuryHasFunds
+    && hasPositiveBaseUnits(serverTreasuryReadiness?.providerAvailableUsdtBaseUnits)
+  const sponsorFeeReady = serverTreasuryReadiness?.networkFeeCapCovered === true
+    && serverTreasuryReadiness?.feeReserveCovered === true
+    && hasPositiveBaseUnits(serverTreasuryReadiness?.providerAvailableTrxBaseUnits)
+  const sponsorHistoryReady = fireblocksOutboundHistorySnapshot?.verified === true
+  const sponsorReleaseReady = serverTreasuryReadiness?.releaseAuthorization?.authorized === true
+  const treasuryDatabaseReady = serverTreasuryReadiness?.databaseReady === true
   const treasuryPayoutCurrentStatus = treasuryPayoutStatus?.withdrawal?.status || treasuryPayoutStatus?.status || ''
   const treasuryPayoutInFlight = ['broadcasting', 'provider-pending', 'broadcast-accepted', 'broadcast-unknown', 'submission-outcome-unknown'].includes(treasuryPayoutCurrentStatus)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
@@ -1867,8 +1897,8 @@ export default function WalletVault() {
         <nav className="wallet-vault-sidebar-nav" aria-label="Primary owner navigation">
           <button type="button" className={activePanel === 'dashboard' ? 'is-active' : ''} aria-current={activePanel === 'dashboard' ? 'page' : undefined} onClick={() => navigatePanel('dashboard')}><Home size={17} /><span>Home</span></button>
           <button type="button" className={activePanel === 'wallet' ? 'is-active' : ''} aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={() => navigatePanel('wallet')}><Coins size={17} /><span>Assets</span></button>
-          <button type="button" className={activePanel === 'send' ? 'is-active' : ''} aria-current={activePanel === 'send' ? 'page' : undefined} onClick={() => navigatePanel('send')}><Send size={17} /><span>Send</span></button>
-          <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={17} /><span>Organization payouts</span></button>
+          <button type="button" className={activePanel === 'send' ? 'is-active' : ''} aria-current={activePanel === 'send' ? 'page' : undefined} onClick={() => navigatePanel('send')}><Send size={17} /><span>Personal wallet</span></button>
+          <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={17} /><span>Sponsor payouts</span></button>
           <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={17} /><span>Account</span></button>
           <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={17} /><span>Activity</span></button>
           <button type="button" className={activePanel === 'settings' ? 'is-active' : ''} aria-current={activePanel === 'settings' ? 'page' : undefined} onClick={() => navigatePanel('settings')}><Settings size={17} /><span>Settings</span></button>
@@ -1878,15 +1908,15 @@ export default function WalletVault() {
 
       <section id="owner-dashboard" className="wallet-vault-hero wallet-vault-hero--compact">
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
-        <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
+        <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Personal wallet assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Personal wallet · Send USDT' : 'Personal wallet · Send TRX') : activePanel === 'treasury' ? 'Sponsor-funded payouts' : activePanel === 'account' ? 'Owner account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
         <p>{activePanel === 'dashboard'
           ? 'Overview of your authenticated owner account, verified treasury balances, and payout readiness. No TronLink connection is required to use this standalone owner wallet.'
           : activePanel === 'wallet'
             ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
             : activePanel === 'send'
-              ? 'Inspect transfer details and read-only chain information. Signing and broadcast are disabled in this build.'
+              ? 'Personal-wallet route only: any future transfer is sourced from the exact unlocked wallet shown in Assets. It never spends the sponsor treasury. This build provides review only; signing and broadcast remain disabled.'
               : activePanel === 'treasury'
-                ? 'Inspect the public treasury address and request organization-funded payouts only from real, funded on-chain assets.'
+                ? 'Separate sponsor-funded route: the organization vault supplies genuine USDT principal and authorized network fees. Your personal wallet only signs a one-request authorization; it does not fund the payout.'
                 : activePanel === 'account'
                   ? 'Create, import, unlock, or recover the local owner signing wallet. Key material is processed on this device.'
                   : activePanel === 'activity'
@@ -1901,12 +1931,39 @@ export default function WalletVault() {
         <p>This application cannot create USDT or spend an observed balance. A payout requires an authorized sponsor organization’s Fireblocks vault to hold genuine official TRON USDT and enough TRX for network fees. The owner wallet signs a one-request authorization only; it does not fund the payout. Real-value execution remains hard-disabled until the sponsor, provider, custody, chain and security controls are independently approved.</p>
       </div>
 
+      <section className="wallet-vault-panel wallet-vault-route-chooser" aria-labelledby="wallet-vault-route-chooser-heading" hidden={activePanel !== 'dashboard'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Send size={16} /></span>
+          <div>
+            <h2 id="wallet-vault-route-chooser-heading">Choose the correct transfer route</h2>
+            <p>These are two different sources of funds. Choose the route that matches who owns the assets.</p>
+          </div>
+        </div>
+        <div className="wallet-vault-route-grid">
+          <button type="button" className="wallet-vault-route-card wallet-vault-route-card--personal" onClick={() => navigatePanel('send')}>
+            <span className="wallet-vault-route-kicker">ROUTE A · YOUR WALLET</span>
+            <Wallet size={22} aria-hidden="true" />
+            <strong>Personal wallet transfer</strong>
+            <small>Uses only real TRX or verified tokens already held by the unlocked personal wallet. The wallet must also cover any required network fee.</small>
+            <span className="wallet-vault-route-foot">Open Personal wallet →</span>
+          </button>
+          <button type="button" className="wallet-vault-route-card wallet-vault-route-card--sponsor" onClick={() => navigatePanel('treasury')}>
+            <span className="wallet-vault-route-kicker">ROUTE B · ORGANIZATION FUNDS</span>
+            <Landmark size={22} aria-hidden="true" />
+            <strong>Sponsor-funded payout</strong>
+            <small>Uses only an authorized, independently verified and funded organization vault. It never draws USDT principal from your personal wallet. This route is currently locked.</small>
+            <span className="wallet-vault-route-foot">Open Sponsor payouts →</span>
+          </button>
+        </div>
+        <p className="wallet-vault-caption">A balance observation, wallet login or sponsor budget record is not permission to spend. The selected route always checks its own source address, funds and authorization.</p>
+      </section>
+
       <section className="wallet-vault-panel wallet-vault-payout-guide" aria-labelledby="wallet-vault-payout-guide-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step"><Landmark size={16} /></span>
           <div>
-            <h2 id="wallet-vault-payout-guide-heading">Start here · Organization-funded Mainnet USDT payout</h2>
-            <p>Follow these steps in order. Each button opens the relevant page; the backend still rechecks every condition before any request can proceed.</p>
+            <h2 id="wallet-vault-payout-guide-heading">Sponsor route · Mainnet USDT payout journey</h2>
+            <p>Use this journey only when an organization has authorized and funded the separate Fireblocks treasury. It is independent of the Personal wallet route.</p>
           </div>
         </div>
         <div className="wallet-vault-payout-guide-status" role="status" aria-live="polite">
@@ -2072,6 +2129,30 @@ export default function WalletVault() {
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Review read-only owner status</button>
       </section>
 
+      <section className="wallet-vault-panel wallet-vault-sponsor-route-intro" aria-labelledby="wallet-vault-sponsor-route-heading" hidden={activePanel !== 'treasury'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Landmark size={16} /></span>
+          <div>
+            <h2 id="wallet-vault-sponsor-route-heading">Organization-funded payouts · separate funding source</h2>
+            <p>This page never spends the personal wallet's USDT. A sponsor-owned Fireblocks vault supplies the actual on-chain USDT and fee assets under the organization's approval policy.</p>
+          </div>
+        </div>
+        <div className="wallet-vault-transfer-warning" role="note">
+          <strong>Production execution is blocked in this source build</strong>
+          <p>Provider configuration, database records, positive balances and sponsor signatures cannot override the immutable server execution lock. No Mainnet transfer can be submitted from this build. This page provides status, reconciliation and a controlled organization handoff only.</p>
+        </div>
+        <div className="wallet-vault-review-grid">
+          <div><small>Current server execution state</small><strong>{serverTreasuryReadiness?.executionBlocker || 'Readiness not yet loaded'}</strong></div>
+          <div><small>Organization reference</small><strong>{sponsorOrganizationReferencePresent ? 'Reference present · approval not independently proven' : 'Not configured'}</strong></div>
+          <div><small>Sponsor agreement reference</small><strong>{sponsorAgreementReferencePresent ? 'Reference present · authenticity not independently proven' : 'Not configured'}</strong></div>
+          <div><small>Database ledger</small><strong>{treasuryDatabaseReady ? 'Backend reports ready' : 'Not verified / unavailable'}</strong></div>
+          <div><small>Read-only Fireblocks identity</small><strong>{fireblocksReadOnlyIdentityReady ? 'Backend credentials configured' : 'Not configured / not verified'}</strong></div>
+          <div><small>Provider asset identity</small><strong>{fireblocksAssetIdentityReady ? 'Official USDT and native TRX metadata checks passed' : 'Not verified'}</strong></div>
+          <div><small>Complete provider history</small><strong>{sponsorHistoryReady ? 'Reconciliation verified' : 'Not verified / incomplete'}</strong></div>
+          <div><small>Sponsor release signature</small><strong>{sponsorReleaseReady ? 'Signature verified by backend' : 'Not authorized'}</strong></div>
+        </div>
+      </section>
+
       <section className="wallet-vault-panel wallet-vault-fireblocks-setup" aria-labelledby="fireblocks-setup-heading" hidden={activePanel !== 'treasury'}>
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step"><Landmark size={16} /></span>
@@ -2080,6 +2161,31 @@ export default function WalletVault() {
             <p>Organization-admin controlled setup and read-only configuration status. This page does not create or authorize a custody account.</p>
           </div>
         </div>
+        <section className="wallet-vault-transfer-section" aria-labelledby="sponsor-organization-handoff-heading">
+          <div className="wallet-vault-panel-head">
+            <span className="wallet-vault-step">01–08</span>
+            <div>
+              <h3 id="sponsor-organization-handoff-heading">Organization approval and configuration handoff</h3>
+              <p>Track each prerequisite using backend/provider evidence. A reference entered into the application is not proof that the sponsor organization approved it.</p>
+            </div>
+          </div>
+          <ol className="wallet-vault-handoff-list">
+            <li><strong>Organization authority and mandate</strong><span>{sponsorOrganizationReferencePresent && sponsorAgreementReferencePresent ? 'Sponsor references are present; the organization must still confirm the signed mandate and scope independently.' : 'Waiting for the sponsor organization’s authorized representative to provide the real organization and signed agreement references.'}</span></li>
+            <li><strong>Fireblocks read-only API identity</strong><span>{fireblocksReadOnlyIdentityReady ? 'The backend reports read-only credentials configured.' : 'The sponsor must issue a dedicated read-only API identity and backend-mounted RSA authentication file.'}</span></li>
+            <li><strong>Production vault and asset mapping</strong><span>{fireblocksAssetIdentityReady && fireblocksVaultAddressReady ? 'USDT/TRX metadata and the provider vault address checks passed.' : 'The organization must create the production TRON vault, enable official USDT and native TRX, then verify both asset IDs and matching addresses.'}</span></li>
+            <li><strong>Persistent withdrawal ledger</strong><span>{treasuryDatabaseReady ? 'The withdrawal readiness endpoint reports the ledger database ready.' : 'The backend database/ledger is not verified. No reservation or payout is allowed while this check is missing.'}</span></li>
+            <li><strong>Exact agreement and recipient policy</strong><span>{sponsorConfig?.sponsorAgreementScopeApproved === true && sponsorRecipientPolicyReady ? 'Exact Mainnet USDT agreement scope and recipient policy checks passed.' : 'The exact Mainnet USDT sponsor scope and independent recipient allowlist/signer policy remain incomplete.'}</span></li>
+            <li><strong>Principal budget and genuine funding</strong><span>{sponsorBudgetReady && sponsorPrincipalReady ? 'The remaining sponsor commitment and provider/on-chain USDT balances passed their current checks.' : 'The sponsor must approve a real principal commitment and fund the vault with genuine USDT; provider and chain balances must both be positive and reconcile.'}</span></li>
+            <li><strong>Network-fee reserve and complete outflow history</strong><span>{sponsorFeeReady && sponsorHistoryReady ? 'Provider TRX fee coverage and complete outbound-history reconciliation passed.' : 'The organization must fund sufficient native TRX and complete a fresh Fireblocks outbound-history reconciliation.'}</span></li>
+            <li><strong>Sponsor release and independent security review</strong><span>{sponsorReleaseReady ? 'The backend reports an unexpired sponsor release signature; the source-build execution lock still blocks broadcast.' : 'An authorized sponsor signer must approve the exact release message after independent custody, policy and security review.'}</span></li>
+          </ol>
+          <div className="wallet-vault-transfer-warning" role="note">
+            <strong>What can load automatically, and what cannot</strong>
+            <p>Read-only Fireblocks vault/asset discovery, backend readiness, chain balances, withdrawal-ledger reservations and reconciliation snapshots can be refreshed by the application. Sponsor-issued API credentials/private RSA files, the legal agreement, organization approval, vault creation and actual funding cannot be generated by this app. The current treasury configuration still reads sensitive provider credentials and several policy/limit values from backend environment settings; the database is used for the durable ledger and reconciliation, not as a magic source for missing sponsor facts.</p>
+          </div>
+          <p className="wallet-vault-caption">Never paste private keys, API secrets, RSA keys or recovery phrases into this page. The configuration template below contains placeholders only; use the organization’s secured backend administration process for actual provider credentials.</p>
+        </section>
+
         <div className="wallet-vault-transfer-warning" role="note">
           <strong>External organization approval is required</strong>
           <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
@@ -2550,8 +2656,8 @@ export default function WalletVault() {
                     </>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>Server treasury payout — gated by live authorization</strong>
-                    <p>The form below submits only when the backend confirms every live sponsor, custody, funding, owner-signature and policy gate. This repository branch is not deployed to the live Render service; the deployed service remains separately hard-locked.</p>
+                    <strong>Sponsor-funded Mainnet payout — never debits the personal wallet</strong>
+                    <p>The organization’s Fireblocks vault supplies the genuine USDT principal and approved fee assets. The unlocked owner wallet signs only the exact one-request authorization. The backend still rejects submission while any sponsor, custody, funding, database, policy or source-build release gate is closed.</p>
                   </div>
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
@@ -2599,8 +2705,8 @@ export default function WalletVault() {
                     <p className="wallet-vault-risk-note" role="note">The server treasury has no verified positive USDT balance. Fund it with genuine USDT and verify the balance before requesting a payout.</p>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>Submit a sponsor-funded Mainnet USDT withdrawal</strong>
-                    <p>This form is available only when the current sponsor release, authenticated owner, live Fireblocks/chain preflight, exact treasury address and sponsor principal budget are verified. The owner signature authorizes this one request only; it does not spend the owner's wallet balance.</p>
+                    <strong>Sponsor-funded Mainnet USDT withdrawal request</strong>
+                    <p>The source is the authorized organization’s Fireblocks vault, not the personal wallet. This form remains unavailable unless the backend verifies the exact sponsor release, authenticated owner, live provider/chain preflight, database reservations, recipient policy, fee reserve and principal budget. The owner signature authorizes one request only and does not provide the USDT funds.</p>
                   </div>
                   <div className="wallet-vault-form">
                     <label htmlFor="treasury-payout-recipient">External TRON Mainnet recipient</label>
@@ -2746,15 +2852,16 @@ export default function WalletVault() {
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
                 <div className="wallet-vault-panel-head">
                   <span className="wallet-vault-step">03</span>
-                  <div><h2 id="wallet-vault-transfer-heading">Transfer preview</h2><p>{network === 'mainnet' ? 'This path spends assets held by the unlocked wallet. If the owner wallet does not hold USDT, use the separate Treasury payout section, which requires a funded server treasury.' : 'Review transfer details only. Signing and broadcast are disabled in this build.'}</p></div>
+                  <div><h2 id="wallet-vault-transfer-heading">Personal wallet transfer preview</h2><p>This route uses only the exact address and assets held by the currently unlocked personal wallet. It never uses sponsor funds. A sponsored withdrawal belongs exclusively in Sponsor payouts. This build provides review only; signing and broadcast are disabled.</p></div>
                 </div>
                 <div className="wallet-vault-transfer-warning" role="note">
-                  <strong>Read-only transfer review</strong>
-                  <p>This panel may validate details and perform read-only checks, but this build cannot sign or broadcast a transaction. No payment is sent from this screen. A transfer preview is not proof of funds or an exchange deposit credit.</p>
+                  <strong>Personal wallet only — no organization funds</strong>
+                  <p>The source is the unlocked personal wallet shown in Assets. The wallet must hold the real selected token and enough native TRX for any required network fee. This panel validates details and performs read-only checks only; this build cannot sign or broadcast. No sponsor balance is used here.</p>
                   {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this password-encrypted browser wallet has not undergone an independent wallet-security audit and is not hardware-backed. Do not keep substantial value in an unaudited browser wallet.</p>}
                   {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
                 </div>
 
+                <p className="wallet-vault-caption">Need an organization to provide the withdrawal principal instead of using your personal wallet? Switch to <button type="button" className="wallet-vault-inline-action" onClick={() => navigatePanel('treasury')}>Sponsor payouts</button>. That separate route requires a genuine, authorized and funded sponsor vault.</p>
                 <div className="wallet-vault-transfer-form">
                   <label htmlFor="wallet-transfer-asset">Asset</label>
                   <select id="wallet-transfer-asset" value={transferAsset} onChange={event => { setTransferAsset(event.target.value as TransferAsset); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }}>
@@ -2854,8 +2961,8 @@ export default function WalletVault() {
       <nav className="wallet-vault-bottom-nav" aria-label="Owner wallet sections">
         <button type="button" className={activePanel === 'dashboard' ? 'is-active' : ''} aria-current={activePanel === 'dashboard' ? 'page' : undefined} onClick={() => navigatePanel('dashboard')}><Home size={18} /><span>Home</span></button>
         <button type="button" className={activePanel === 'wallet' ? 'is-active' : ''} aria-current={activePanel === 'wallet' ? 'page' : undefined} onClick={() => navigatePanel('wallet')}><Coins size={18} /><span>Assets</span></button>
-        <button type="button" className={activePanel === 'send' ? 'is-active' : ''} aria-current={activePanel === 'send' ? 'page' : undefined} onClick={() => navigatePanel('send')}><Send size={18} /><span>Send</span></button>
-        <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={18} /><span>Treasury</span></button>
+        <button type="button" className={activePanel === 'send' ? 'is-active' : ''} aria-current={activePanel === 'send' ? 'page' : undefined} onClick={() => navigatePanel('send')}><Send size={18} /><span>Personal</span></button>
+        <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={18} /><span>Sponsor</span></button>
         <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={18} /><span>Activity</span></button>
         <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={18} /><span>Account</span></button>
         <button type="button" className={activePanel === 'settings' ? 'is-active' : ''} aria-current={activePanel === 'settings' ? 'page' : undefined} onClick={() => navigatePanel('settings')}><Settings size={18} /><span>Settings</span></button>
