@@ -21,13 +21,15 @@ The API user should have only the read permissions needed for vault account, ass
 
 ## Owner-console status display
 
-After the manual workflow completes, the private owner console reads the latest saved snapshot from `GET /api/treasury/fireblocks/inventory/latest`. This endpoint requires the existing Mainnet owner session, matching request origin, and the same `OWNER_WALLET_ADDRESS` / `TREASURY_OWNER_ADDRESS` identity. It returns only allow-listed public configuration identifiers, sanitized check results, balances, timestamps, and workflow run metadata. The secret-file path and all credentials are excluded.
+The private owner console automatically reloads the latest saved snapshot from `GET /api/treasury/fireblocks/inventory/latest` together with the live `GET /api/treasury/withdrawals/readiness` response while the owner session is active. The Fireblocks treasury panel also offers **Refresh backend configuration now** for an immediate reload. The inventory endpoint requires the existing Mainnet owner session, matching request origin, and the same `OWNER_WALLET_ADDRESS` / `TREASURY_OWNER_ADDRESS` identity. It returns only allow-listed public configuration identifiers, sanitized check results, balances, timestamps, and workflow run metadata. The secret-file path and all credentials are excluded.
+
+The frontend does not require the owner to type Fireblocks identifiers or copy placeholder environment variables. It displays only values already provisioned by the backend and reports missing prerequisites. The manual `workflow_dispatch` remains an optional audit/export action for an organization administrator; it is not required for the frontend's periodic readiness reload.
 
 Open **Wallet Vault → Fireblocks treasury setup → One-click Fireblocks inventory verification** to see the latest saved run. The panel links to the matching GitHub Actions run and distinguishes a passed inventory check from a blocked run. It displays the provider and chain observations side by side so mismatches are visible.
 
 A missing snapshot means no run has been successfully persisted yet. A blocked snapshot contains diagnostic reason codes; fix the actual provider/database configuration and dispatch a new run. Do not edit the database row or treat an artifact with a blocked status as verified.
 
-This endpoint and panel are read-only. Even a `verified` inventory snapshot does not authorize a payout, prove organizational approval, enable signing, or confirm an exchange deposit. The backend hard lock and both payout feature flags remain disabled.
+This endpoint and panel are read-only. Even a `verified` inventory snapshot does not authorize a payout, prove organizational approval, enable signing, or confirm an exchange deposit. Mainnet USDT execution requires the separate configured release switch and a current sponsor-signed release authorization in addition to every live preflight check; inventory status alone never opens that gate.
 
 ## Running it
 
@@ -59,4 +61,4 @@ A timeout is a failed/blocked inventory attempt, not a positive verification. Di
 
 The artifact intentionally excludes `FIREBLOCKS_API_KEY`, the RSA private key, database credentials, GitHub OIDC tokens, Fireblocks JWTs, and wallet private keys. Those values must remain in Render's secret store. A portable EXE containing those credentials would be extractable and unsafe; a sanitized ZIP plus non-secret environment file is the correct export format. The `.env` file is not a replacement for the backend's secret-file mount or database connection.
 
-This is inventory verification only. It does not create or approve vaults, change Fireblocks policies, fund assets, enable payouts, sign transactions, or submit transfers. The existing hard-coded real-value payout execution lock remains unchanged, and both payout feature flags are exported as `false`.
+This is inventory verification only. It does not create or approve vaults, change Fireblocks policies, fund assets, enable payouts, sign transactions, or submit transfers. The artifact still exports the payout feature flags as `false`; production execution remains blocked until a sponsor-approved release is separately configured and signed.
