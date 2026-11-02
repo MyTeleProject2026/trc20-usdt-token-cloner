@@ -88,8 +88,19 @@ The current backend service is the Node web service linked to this repository. U
 | `FIREBLOCKS_USDT_ASSET_ID` | Exact asset ID for the official TRON USDT token in that workspace |
 | `FIREBLOCKS_TRX_ASSET_ID` | Exact asset ID for native TRX in that workspace |
 | `TREASURY_ADDRESS` | Exact TRON address returned by the configured Fireblocks vault assets |
+| `TREASURY_SPONSOR_ORGANIZATION_REFERENCE` | Sponsor organization's real legal/contract reference, matching the signed agreement |
+| `TREASURY_SPONSOR_AGREEMENT_REFERENCE` | Exact signed agreement reference, also present in the approved agreement scope |
+| `TREASURY_SPONSOR_TOTAL_BUDGET_USDT` | Maximum USDT principal commitment expressly authorized by the sponsor |
+| `TREASURY_MAX_PAYOUT_USDT` / `TREASURY_DAILY_LIMIT_USDT` | Per-transfer and daily caps that do not exceed the sponsor's signed commitment |
+| `TREASURY_FEE_LIMIT_SUN` | Conservative native-TRX fee reserve threshold in SUN |
+| `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` | Optional static comma-separated recipient allowlist; alternatively use sponsor-signed recipient approvals |
+| `TREASURY_SPONSOR_APPROVER_ADDRESSES` | 1–20 independent public TRON addresses controlled by the sponsor; any one signer can approve/revoke (1-of-N) |
+| `TREASURY_WITHDRAWALS_ENABLED` | Keep `false` during setup; set `true` only for the approved sponsor-release workflow |
+| `TREASURY_REAL_VALUE_EXECUTION_ENABLED` | Keep `false` during setup; a sponsor signature is still mandatory when set `true` |
+| `TREASURY_REAL_VALUE_RELEASE_REFERENCE` | Unique release authorization reference for the approved scope |
+| `TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT` | Future Unix-millisecond expiry, no more than 30 days ahead |
 
-The existing application also needs its normal owner identity, PostgreSQL, and payout-limit configuration as documented in [TREASURY_WITHDRAWALS.md](TREASURY_WITHDRAWALS.md). Do not overwrite unrelated Render variables while adding these values.
+The existing application also needs `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` set to the same public owner address, `DATABASE_URL`, `FRONTEND_ORIGIN`, and the exact `SPONSOR_APPROVED_AGREEMENT_REFERENCES` scope. The official USDT contract is fixed in the application; do not set a replacement contract. Do not overwrite unrelated Render variables while adding these values.
 
 Render reference: [Environment variables and secret files](https://render.com/docs/configure-environment-variables).
 
