@@ -253,8 +253,8 @@ test('Fireblocks discovery does not suggest UUID-only assets as payout API ident
     assert.equal(response.status, 200)
     assert.equal(payload.discoveryStatus, 'review-required')
     assert.equal(payload.officialUsdtAssets.length, 0)
-    // The fixture still supplies a valid legacy native-TRX identifier; only USDT is UUID-only.
-    assert.equal(payload.nativeTrxAssets.length, 1)
+    // Both catalogue entries are UUID-only, so neither is safe as a payout API ID.
+    assert.equal(payload.nativeTrxAssets.length, 0)
     assert.equal(payload.suggestedConfiguration, null)
   })
 })
