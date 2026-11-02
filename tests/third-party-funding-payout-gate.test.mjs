@@ -1,0 +1,86 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+
+const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
+
+test('third-party source consent and deposit endpoints are mounted under the owner treasury API', async () => {
+  const index = await read('server/index.mjs')
+  const route = await read('server/routes/third-party-funding.mjs')
+  assert.match(index, /createThirdPartyFundingRouter/)
+  assert.match(index, /app\.use\('\/api\/treasury', createThirdPartyFundingRouter\(\)\)/)
+  assert.match(route, /router\.post\('\/third-party-funding\/authorizations'/)
+  assert.match(route, /router\.post\('\/third-party-funding\/authorizations\/:authorizationId\/deposits'/)
+  assert.match(route, /router\.post\('\/third-party-funding\/authorizations\/:authorizationId\/deposits\/fireblocks-reconcile'/)
+  assert.match(route, /agreementReviewAcknowledged !== true/)
+  assert.match(route, /withdrawalDisbursementAcknowledged !== true/)
+  assert.match(route, /verifyAuthorization\(body\.manifest, \{ expectedVaultAddress: vaultAddress, now \}\)/)
+})
+
+test('incoming USDT deposit is proven by solidified receipt, exact transaction call and official Transfer event', async () => {
+  const route = await read('server/routes/third-party-funding.mjs')
+  assert.match(route, /solidifiedReceiptMatches\(transaction, transactionInfo, transactionHash\)/)
+  assert.match(route, /contracts\.length !== 1/)
+  assert.match(route, /OFFICIAL_TRON_MAINNET_USDT/)
+  assert.match(route, /a9059cbb/)
+  assert.match(route, /TRANSFER_TOPIC/)
+  assert.match(route, /exactTransferEvents\.length !== 1/)
+  assert.match(route, /amountBaseUnits: evidence\.amountBaseUnits/)
+  assert.match(route, /status: 'chain-confirmed-awaiting-fireblocks-inventory'/)
+})
+
+test('Fireblocks inventory must be fresh, verified and belong to the exact configured Mainnet vault', async () => {
+  const route = await read('server/routes/third-party-funding.mjs')
+  assert.match(route, /snapshot\.repository !== 'MyTeleProject2026\/trc20-usdt-token-cloner'/)
+  assert.match(route, /snapshot\.branch !== 'main'/)
+  assert.match(route, /snapshot\.configuration\?\.treasuryAddress !== expectedVaultAddress/)
+  assert.match(route, /MAX_INVENTORY_AGE_MS/)
+  assert.match(route, /fireblocksCheckedAt >= new Date\(deposit\.chainVerifiedAt\)/)
+  assert.match(route, /fireblocks-vault-available-balance-does-not-cover-deposit/)
+  assert.match(route, /payoutExecutionAuthorized: false/)
+})
+
+test('verified third-party USDT pool requires an acknowledged mandate, agreement fingerprint, amount cap, receipt and later Fireblocks match', async () => {
+  const db = await read('server/database.mjs')
+  const start = db.indexOf('export async function getThirdPartyFundingUsdtPoolSnapshot')
+  const end = db.indexOf('\nexport async function getThirdPartyFundingTrxPoolSnapshot', start)
+  const query = db.slice(start, end)
+  assert.ok(start > 0 && end > start)
+  assert.match(query, /a\.status = 'deposit-evidence-recorded'/)
+  assert.match(query, /a\.withdrawal_disbursement_acknowledged = true/)
+  assert.match(query, /a\.withdrawal_disbursement_reviewed_by IS NOT NULL/)
+  assert.match(query, /a\.agreement_document_sha256 IS NOT NULL/)
+  assert.match(query, /d\.token_contract = '\$\{OFFICIAL_MAINNET_USDT_CONTRACT\}'/)
+  assert.match(query, /d\.amount_base_units <= a\.max_usdt_base_units/)
+  assert.match(query, /d\.chain_verified_at <= a\.expires_at/)
+  assert.match(query, /d\.receipt_result = 'SUCCESS'/)
+  assert.match(query, /d\.fireblocks_verified_at IS NOT NULL/)
+  assert.match(query, /d\.fireblocks_checked_at >= d\.chain_verified_at/)
+})
+
+test('payout readiness and reservation both require remaining verified third-party deposits', async () => {
+  const route = await read('server/routes/treasury-withdrawals.mjs')
+  const readinessStart = route.indexOf("router.get('/withdrawals/readiness'")
+  const postStart = route.indexOf("router.post('/withdrawals'")
+  const postEnd = route.indexOf("router.post('/trx-withdrawals'", postStart)
+  const readiness = route.slice(readinessStart, postStart)
+  const post = route.slice(postStart, postEnd)
+  assert.match(readiness, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress\)/)
+  assert.match(readiness, /remainingThirdPartyFundingPrincipal/)
+  assert.match(readiness, /verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyFunding\.availablePrincipalBaseUnits/)
+  assert.match(readiness, /third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required/)
+  assert.match(post, /pg_advisory_xact_lock\(hashtext\('tron-token-studio-treasury-withdrawals-mainnet'\)\)/)
+  assert.match(post, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress\)/)
+  assert.match(post, /remainingVerifiedThirdPartyPrincipalBaseUnits/)
+  assert.match(post, /third-party-usdt-principal-insufficient-after-withdrawals/)
+  assert.match(post, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
+})
+
+test('authorization revocation shares the payout reservation advisory lock and does not edit deposit history', async () => {
+  const db = await read('server/database.mjs')
+  const start = db.indexOf('export async function revokeThirdPartyFundingAuthorization')
+  const source = db.slice(start)
+  assert.match(source, /pg_advisory_xact_lock\(hashtext\('tron-token-studio-treasury-withdrawals-mainnet'\)\)/)
+  assert.match(source, /UPDATE \$\{schema\}\.third_party_funding_authorizations/)
+  assert.doesNotMatch(source, /DELETE FROM \$\{schema\}\.third_party_funding_deposits/)
+})
