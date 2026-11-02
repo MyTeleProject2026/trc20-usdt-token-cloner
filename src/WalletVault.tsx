@@ -329,6 +329,9 @@ export default function WalletVault() {
   const [fireblocksInventoryError, setFireblocksInventoryError] = useState('')
   const [fireblocksDiscoverySnapshot, setFireblocksDiscoverySnapshot] = useState<FireblocksDiscoverySnapshot | null>(null)
   const [fireblocksDiscoveryError, setFireblocksDiscoveryError] = useState('')
+  const [fireblocksOutboundHistorySnapshot, setFireblocksOutboundHistorySnapshot] = useState<any>(null)
+  const [fireblocksOutboundHistoryBusy, setFireblocksOutboundHistoryBusy] = useState(false)
+  const [fireblocksOutboundHistoryError, setFireblocksOutboundHistoryError] = useState('')
   const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
   const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
   const [treasuryPayoutConfirm, setTreasuryPayoutConfirm] = useState('')
@@ -582,7 +585,7 @@ export default function WalletVault() {
 
         if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse, outboundHistoryResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
@@ -595,12 +598,16 @@ export default function WalletVault() {
           fetch(API_BASE + '/api/treasury/fireblocks/discovery', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
+          fetch(API_BASE + '/api/treasury/fireblocks/outbound-history/status', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
         ])
-        const [funding, readiness, inventory, discovery] = await Promise.all([
+        const [funding, readiness, inventory, discovery, outboundHistory] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
           inventoryResponse.json().catch(() => null),
           discoveryResponse.json().catch(() => null),
+          outboundHistoryResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -624,6 +631,13 @@ export default function WalletVault() {
           setFireblocksDiscoverySnapshot(null)
           setFireblocksDiscoveryError('Live Fireblocks auto-discovery is unavailable. Check the owner session and backend API credentials status.')
         }
+        if (outboundHistoryResponse.ok && outboundHistory?.success === true) {
+          setFireblocksOutboundHistorySnapshot(outboundHistory)
+          setFireblocksOutboundHistoryError('')
+        } else {
+          setFireblocksOutboundHistorySnapshot(outboundHistory && typeof outboundHistory === 'object' ? outboundHistory : null)
+          setFireblocksOutboundHistoryError('Fireblocks outbound history status is unavailable. Payout readiness remains blocked.')
+        }
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
         }
@@ -636,6 +650,8 @@ export default function WalletVault() {
         setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
         setFireblocksDiscoverySnapshot(null)
         setFireblocksDiscoveryError('The owner-only Fireblocks discovery status is unavailable.')
+        setFireblocksOutboundHistorySnapshot(null)
+        setFireblocksOutboundHistoryError('The owner-only Fireblocks outbound history status is unavailable.')
         setOwnerTreasuryError(caught instanceof Error
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
