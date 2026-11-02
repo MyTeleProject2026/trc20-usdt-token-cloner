@@ -49,7 +49,7 @@ The current code reads provider credentials, selected vault/asset identifiers, s
 
 The current PostgreSQL ledger is used for withdrawal reservations, fee reservations, sponsor commitment accounting, reconciliation snapshots and audit history. It is not presently a general-purpose secret/configuration vault, and this branch does not automatically move all backend configuration from environment settings into database records. Provider credentials must remain backend-only secrets.
 
-The UI can display and refresh values already provided by the backend and can discover provider metadata. It must not manufacture missing organization references, limits, API keys, secret files, vaults, approval signatures or balances.
+The UI can display and refresh values already provided by the backend and can discover provider metadata. The owner handoff page now provides direct jump links to provider discovery, inventory evidence, history reconciliation, sponsor release authorization and the payout request. These controls only navigate to existing sections; they do not create or approve external resources. It must not manufacture missing organization references, limits, API keys, secret files, vaults, approval signatures or balances.
 
 ### 6. Fund and reconcile the vault
 
@@ -102,3 +102,15 @@ This build's personal-wallet transfer page is also a review-only flow: signing a
 - Never infer sponsor consent, authority or available principal from a wallet login, a configuration field or a provider credential.
 - Never bypass provider transaction policy, recipient approval, budget reservations, idempotency or receipt verification.
 - Never request or paste passwords, API secrets, RSA private keys, wallet private keys or seed phrases into this UI or chat.
+
+
+## Owner-console navigation update
+
+The owner dashboard presents two separate routes:
+
+- **Personal wallet transfer:** review-only; the source is the currently unlocked local wallet and no sponsor funds are used.
+- **Sponsor-funded payout:** a separate organization-owned vault and approval path; the personal wallet can sign a request but cannot supply the sponsor principal.
+
+On the Organization payouts page, the handoff list is ordered and the jump controls take the operator to provider discovery, saved inventory, outbound-history reconciliation, sponsor release and the payout request. The interface refreshes backend/provider evidence automatically, but a UI status is not an independent sponsor mandate or permission to spend.
+
+The website does not accept Fireblocks API secrets or RSA private keys. Provider bootstrap remains a sponsor-admin task through a secured backend secret-management process. The current implementation does not support moving all provider secrets and sponsor policy configuration into PostgreSQL, and the UI must not claim that it does.
