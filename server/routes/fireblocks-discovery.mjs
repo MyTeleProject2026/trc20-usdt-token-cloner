@@ -143,6 +143,12 @@ export function createFireblocksDiscoveryRouter({
       || !isValidAddress(ownerAddress)) {
       return res.status(503).json({ success: false, error: 'treasury-owner-configuration-invalid' })
     }
+    let tronWeb
+    try { tronWeb = tronWebFactory() } catch { tronWeb = null }
+    if (typeof tronWeb?.isAddress !== 'function' || !tronWeb.isAddress(ownerAddress)
+      || typeof tronWeb?.address?.toHex !== 'function') {
+      return res.status(503).json({ success: false, error: 'treasury-owner-address-validation-unavailable' })
+    }
 
     const token = bearerToken(req)
     const origin = req.get('origin')
@@ -222,11 +228,7 @@ export function createFireblocksDiscoveryRouter({
         }), { keys: ['assets', 'items', 'data'], maxPages: MAX_ASSET_PAGES }),
       ])
 
-      const tronWeb = tronWebFactory()
-      if (!tronWeb?.address?.toHex) {
-        return res.status(503).json({ success: false, error: 'tron-address-validation-unavailable' })
-      }
-
+      const validTronAddress = (address) => isValidAddress(address) && tronWeb.isAddress(address) === true
       const officialUsdtAssets = [...new Map(usdtResult.items
         .filter((asset) => hasExactSymbol(asset, 'USDT')
           && isOfficialFireblocksUsdtAsset(asset, tronWeb, USDT_MAINNET))
@@ -267,8 +269,8 @@ export function createFireblocksDiscoveryRouter({
               fireblocks.getAssetAddresses(usdtAssetId, candidate.vaultAccountId, { credentialsOnly: true }),
               fireblocks.getAssetAddresses(trxAssetId, candidate.vaultAccountId, { credentialsOnly: true }),
             ])
-            const usdtAddresses = addressList(usdtAddressResponse, isValidAddress)
-            const trxAddresses = addressList(trxAddressResponse, isValidAddress)
+            const usdtAddresses = addressList(usdtAddressResponse, validTronAddress)
+            const trxAddresses = addressList(trxAddressResponse, validTronAddress)
             const addressMatches = usdtAddresses.length === 1 && trxAddresses.length === 1
               && usdtAddresses[0] === trxAddresses[0]
             addressChecks.push({
