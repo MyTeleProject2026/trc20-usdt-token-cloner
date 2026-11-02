@@ -59,6 +59,10 @@ The owner console refreshes this discovery snapshot with the other backend statu
 
 The API key and mounted RSA authentication file cannot be auto-created by this application; they must be issued by Fireblocks to the authorized sponsor organization. The endpoint does not return the API key, secret-file path, RSA key, private key or signing material to the frontend.
 
+The discovery endpoint prefers each asset's Fireblocks `legacyId` (API ID) when the catalogue returns both a newer asset UUID and a legacy identifier. Fireblocks' current List Assets API reference says to continue using the legacy ID until all services support the newer UUID. If an asset response has no valid legacy ID, treat the identifier as unconfirmed and do not manually substitute a different-looking ID.
+
+Reference: [Fireblocks List Assets API](https://fireblocks.readme.io/reference/listassets).
+
 ## 3. Fund the vault only through the organization's approved treasury process
 
 Funding is a real asset movement, not an application setting. The organization's authorized treasury staff must use its approved source of funds and its own independent controls to fund the Fireblocks TRON address with genuine official USDT and enough native TRX to cover the configured fee reserve. Verify the network and address in the Fireblocks Console before any deposit; do not rely on an address copied from chat or an unverified UI.
