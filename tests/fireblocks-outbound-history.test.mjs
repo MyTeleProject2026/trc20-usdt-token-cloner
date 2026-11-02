@@ -92,6 +92,16 @@ test('Fireblocks outbound transaction parser accepts exact vault-sourced USDT an
   assert.equal(trx.amountBaseUnits, '12000001')
 })
 
+test('Fireblocks outbound parser accepts registered unmanaged-wallet destinations using the top-level destination address', () => {
+  const transaction = providerTransfer()
+  transaction.destination = { type: 'UNMANAGED_WALLET', id: 'registered-external-wallet-1' }
+  transaction.destinationAddress = recipient
+  const entry = parse(transaction)
+  assert.equal(entry.destinationType, 'UNMANAGED_WALLET')
+  assert.equal(entry.destinationId, 'registered-external-wallet-1')
+  assert.equal(entry.destinationAddress, recipient)
+})
+
 test('Fireblocks outbound parser fails closed for unsupported source, operation, asset and amount', () => {
   const cases = [
     [providerTransfer({ sourceId: '999' }), 'fireblocks-history-source-vault-mismatch'],
