@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parseTreasurySponsorApproverAllowlist, buildTreasuryRecipientApprovalMessage, buildTreasuryRecipientRevocationMessage, recoverTreasurySponsorRecipientApprover, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches, treasuryPayoutExecutionState } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parseTreasurySponsorApproverAllowlist, buildTreasuryRecipientApprovalMessage, buildTreasuryRecipientRevocationMessage, recoverTreasurySponsorRecipientApprover, verifyTreasurySponsorRecipientApproval, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches, treasuryPayoutExecutionState } from '../server/routes/treasury-withdrawals.mjs'
 
 
 test('treasury readiness never reports withdrawals enabled while the hard real-value execution lock is closed', () => {
@@ -884,4 +885,50 @@ test('USDT configuration supports independently sponsor-signed destinations with
   })
   assert.equal(ownerCannotSelfApprove.configurationComplete, false)
   assert.equal(ownerCannotSelfApprove.sponsorApproverAddressesValid, false)
+})
+
+test('stored sponsor recipient approval is accepted only when its canonical hash and recovered signer match', async () => {
+  const { owner, treasury, recipient, sponsorSigner, requestId } = RECIPIENT_APPROVAL_FIXTURES
+  const approvalRow = {
+    request_id: requestId,
+    sponsor_organization_reference: 'authorized-sponsor-org-001',
+    sponsor_agreement_reference: 'sponsor-agreement-2026-001',
+    treasury_address: treasury,
+    recipient_address: recipient,
+    token_contract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    requester_owner_address: owner,
+    requester_origin: 'https://tron-token-studio.example',
+    request_reason: 'Approve the recipient exchange deposit address for this sponsor agreement',
+    approval_expires_at: new Date(1_800_000_000_000),
+    status: 'approved',
+    approver_address: sponsorSigner,
+    approval_signature: '0x' + 'b'.repeat(130),
+  }
+  const message = buildTreasuryRecipientApprovalMessage({
+    requestId,
+    sponsorOrganizationReference: approvalRow.sponsor_organization_reference,
+    sponsorAgreementReference: approvalRow.sponsor_agreement_reference,
+    treasuryAddress: treasury,
+    recipientAddress: recipient,
+    requesterAddress: owner,
+    requesterOrigin: approvalRow.requester_origin,
+    reason: approvalRow.request_reason,
+    expiresAt: approvalRow.approval_expires_at.getTime(),
+  })
+  approvalRow.approval_message_hash = createHash('sha256').update(message, 'utf8').digest('hex')
+  const tronWeb = { trx: { verifyMessageV2: async () => sponsorSigner } }
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
+    allowedSignerAddresses: [sponsorSigner],
+  }), true)
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
+    allowedSignerAddresses: ['TLPsmx7qvAq5QGJSYxCBkXb6j9bQvVQ3yP'],
+  }), false)
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, {
+    ...approvalRow,
+    approval_message_hash: '0'.repeat(64),
+  }, { allowedSignerAddresses: [sponsorSigner] }), false)
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, {
+    ...approvalRow,
+    status: 'revoked',
+  }, { allowedSignerAddresses: [sponsorSigner] }), false)
 })
