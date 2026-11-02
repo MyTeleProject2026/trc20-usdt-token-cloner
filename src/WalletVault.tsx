@@ -494,6 +494,7 @@ export default function WalletVault() {
     setTransferAcknowledged(false)
     setMainnetSendPhrase('')
     setOwnerSessionToken('')
+    try { window.sessionStorage.removeItem(OWNER_CONSOLE_SESSION_KEY) } catch {}
     setOwnerTreasurySnapshot(null)
     setServerTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
@@ -514,6 +515,7 @@ export default function WalletVault() {
   // the matching unlocked owner so an ambiguous request can be safely looked up.
   useEffect(() => {
     setOwnerSessionToken('')
+    try { window.sessionStorage.removeItem(OWNER_CONSOLE_SESSION_KEY) } catch {}
     setOwnerTreasurySnapshot(null)
     setServerTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
@@ -656,7 +658,7 @@ export default function WalletVault() {
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [unlocked?.record.address, network])
+  }, [unlocked?.record.address, network, ownerSessionToken])
 
 
   useEffect(() => {
@@ -1061,6 +1063,7 @@ export default function WalletVault() {
         }
         throw new Error('Owner-only treasury verification failed. No payout was signed or submitted.')
       }
+      try { window.sessionStorage.setItem(OWNER_CONSOLE_SESSION_KEY, verified.sessionToken) } catch {}
       setOwnerSessionToken(verified.sessionToken)
       setOwnerTreasurySnapshot(status as OwnerTreasurySnapshot)
       const payoutReadinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
