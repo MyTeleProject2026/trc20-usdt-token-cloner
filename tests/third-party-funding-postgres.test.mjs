@@ -218,6 +218,16 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(sponsorPool.verifiedDepositCount, '1')
   assert.equal(sponsorPool.reviewedAuthorizationCount, '1')
   assert.equal(sponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
+  const otherOrganizationPool = await getThirdPartyFundingUsdtPoolSnapshot(
+    vaultAddress, 'OTHER-SPONSOR-ORG-' + suffix, authorizationInput.agreementReference,
+  )
+  assert.equal(otherOrganizationPool.success, true)
+  assert.equal(otherOrganizationPool.verifiedUsdtPrincipalBaseUnits, '0')
+  const otherAgreementPool = await getThirdPartyFundingUsdtPoolSnapshot(
+    vaultAddress, authorizationInput.sponsorOrganizationReference, 'OTHER-AGREEMENT-' + suffix,
+  )
+  assert.equal(otherAgreementPool.success, true)
+  assert.equal(otherAgreementPool.verifiedUsdtPrincipalBaseUnits, '0')
 
   const sponsorTrxPool = await getThirdPartyFundingTrxPoolSnapshot(
     vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference,
