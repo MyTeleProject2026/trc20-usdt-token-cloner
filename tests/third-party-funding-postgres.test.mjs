@@ -236,6 +236,16 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(sponsorTrxPool.verifiedDepositCount, '1')
   assert.equal(sponsorTrxPool.reviewedAuthorizationCount, '1')
   assert.equal(sponsorTrxPool.verifiedTrxPrincipalSun, '8000000')
+  const otherSponsorTrxPool = await getThirdPartyFundingTrxPoolSnapshot(
+    vaultAddress, 'OTHER-SPONSOR-ORG-' + suffix, authorizationInput.agreementReference,
+  )
+  assert.equal(otherSponsorTrxPool.success, true)
+  assert.equal(otherSponsorTrxPool.verifiedTrxPrincipalSun, '0')
+  const otherAgreementTrxPool = await getThirdPartyFundingTrxPoolSnapshot(
+    vaultAddress, authorizationInput.sponsorOrganizationReference, 'OTHER-AGREEMENT-' + suffix,
+  )
+  assert.equal(otherAgreementTrxPool.success, true)
+  assert.equal(otherAgreementTrxPool.verifiedTrxPrincipalSun, '0')
 
   const detail = await getThirdPartyFundingAuthorization(authorizationId)
   assert.equal(detail.success, true)
