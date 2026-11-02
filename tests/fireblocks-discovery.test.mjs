@@ -6,6 +6,7 @@ import { createFireblocksDiscoveryRouter } from '../server/routes/fireblocks-dis
 
 const OWNER = 'T' + 'A'.repeat(33)
 const OTHER = 'T' + 'B'.repeat(33)
+const BAD_CHECKSUM = 'T' + 'C'.repeat(33)
 const TOKEN = 'a'.repeat(43)
 const ORIGIN = 'https://studio.example'
 const OFFICIAL_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
@@ -23,6 +24,7 @@ function makeFixture({
   usdtAddress = OWNER,
   trxAddress = OWNER,
   nestedPagination = false,
+  allowPatternOnlyAddress = false,
 } = {}) {
   const calls = []
   const fireblocksFactory = () => ({
@@ -63,7 +65,8 @@ function makeFixture({
       assert.equal(origin, ORIGIN)
       return { success: true, session: { address: OWNER, network: 'mainnet', origin } }
     },
-    isValidAddress: (value) => value === OWNER || value === OTHER,
+    isValidAddress: (value) => value === OWNER || value === OTHER
+      || (allowPatternOnlyAddress && value === BAD_CHECKSUM),
     tronWebFactory: () => ({
       isAddress: (value) => value === OWNER || value === OTHER,
       address: { toHex: (value) => value === OFFICIAL_USDT ? '41' + '11'.repeat(20) : '' },
@@ -213,5 +216,23 @@ test('Fireblocks discovery prefers API-compatible legacy asset IDs when the cata
     assert.equal(response.status, 200)
     assert.equal(payload.suggestedConfiguration.usdtAssetId, 'USDT_TRON')
     assert.equal(payload.suggestedConfiguration.trxAssetId, 'TRX')
+  })
+})
+
+
+test('Fireblocks discovery rejects Base58-shaped addresses that fail TRON checksum validation', async () => {
+  const fixture = makeFixture({
+    usdtAddress: BAD_CHECKSUM,
+    trxAddress: BAD_CHECKSUM,
+    allowPatternOnlyAddress: true,
+  })
+  await withServer(fixture, async (url) => {
+    const response = await getDiscovery(url)
+    const payload = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(payload.discoveryStatus, 'review-required')
+    assert.equal(payload.suggestedConfiguration, null)
+    assert.equal(payload.candidateVaults[0].addressChecks[0].usdtAddressCount, 0)
+    assert.equal(payload.candidateVaults[0].addressChecks[0].trxAddressCount, 0)
   })
 })
