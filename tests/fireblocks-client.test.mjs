@@ -115,6 +115,8 @@ test('read-only Fireblocks client fetches bounded vault transaction-history page
     FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
     FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
     FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+    FIREBLOCKS_USDT_ASSET_ID: 'USDT_TRON',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
   }
   const client = createFireblocksReadOnlyClient(env, {
     fetchImpl: async (url, init) => {
