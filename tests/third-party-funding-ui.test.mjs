@@ -17,6 +17,10 @@ test('third-party funding panel is mounted in the Fireblocks owner treasury scre
   assert.match(panel, /Verify incoming chain deposit/)
   assert.match(panel, /Reconcile latest Fireblocks inventory/)
   assert.match(panel, /Revoke this funding authorization/)
+  assert.match(panel, /\/api\/treasury\/fireblocks\/outbound-history\/sync/)
+  assert.match(panel, /Sync Fireblocks outbound history/)
+  assert.match(panel, /Sync \/ resume next history batch/)
+  assert.match(panel, /payouts remain blocked/)
 })
 
 test('funding panel never asks for or accepts a third-party wallet private key', async () => {

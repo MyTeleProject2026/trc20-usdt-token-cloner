@@ -38,6 +38,22 @@ type Props = {
   inventoryCheckedAt?: string | null
 }
 
+type OutboundHistoryStatus = {
+  verified: boolean
+  status?: string
+  reason?: string | null
+  checkedAt?: string | null
+  ageMs?: number | null
+  transactionCount?: string
+  externalUsdtBaseUnits?: string
+  externalTrxBaseUnits?: string
+  externalUsdtOutboundBaseUnits?: string
+  externalTrxOutboundBaseUnits?: string
+  reconciliationDigest?: string
+  blockers?: string[]
+  nextAction?: string
+}
+
 function prettyUnits(value: string, decimals: number) {
   if (!/^(0|[1-9][0-9]*)$/.test(value)) return value
   const digits = value.padStart(decimals + 1, '0')
@@ -62,6 +78,67 @@ export default function ThirdPartyFundingPanel({
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [outboundHistory, setOutboundHistory] = useState<OutboundHistoryStatus | null>(null)
+
+  const historyRequest = useCallback(async (path: string, method = 'GET') => {
+    if (!sessionToken || !/^[A-Za-z0-9_-]{43}$/.test(sessionToken)) {
+      throw new Error('Sign the owner treasury check first. A current Mainnet owner session is required.')
+    }
+    const response = await fetch(apiBase + '/api/treasury' + path, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer ' + sessionToken,
+      },
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+    })
+    const payload = await response.json().catch(() => null)
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Fireblocks outbound-history API returned an invalid response.')
+    }
+    return { response, payload }
+  }, [apiBase, sessionToken])
+
+  const loadOutboundHistory = useCallback(async () => {
+    const { response, payload } = await historyRequest('/fireblocks/outbound-history/status')
+    if (!response.ok || payload.success !== true) {
+      throw new Error(typeof payload.error === 'string'
+        ? payload.error.replaceAll('-', ' ')
+        : 'Could not load Fireblocks outbound-history status.')
+    }
+    setOutboundHistory(payload as OutboundHistoryStatus)
+  }, [historyRequest])
+
+  const syncOutboundHistory = useCallback(async () => {
+    setBusy('history')
+    setError('')
+    setNotice('')
+    try {
+      const { response, payload } = await historyRequest('/fireblocks/outbound-history/sync', 'POST')
+      const next = {
+        ...payload,
+        verified: payload.status === 'complete' && payload.success === true,
+      } as OutboundHistoryStatus
+      setOutboundHistory(next)
+      if (payload.status === 'scanning') {
+        setNotice('History scan is partial. Select Sync / resume again to continue the next batch; payouts remain blocked.')
+      } else if (next.verified) {
+        setNotice('Fireblocks outbound history completed and reconciled. This is a read-only prerequisite, not payout authorization.')
+      } else if (!response.ok || payload.success !== true) {
+        setError(typeof payload.error === 'string'
+          ? payload.error.replaceAll('-', ' ')
+          : (Array.isArray(payload.blockers) ? payload.blockers.join(', ') : 'Outbound history remains blocked.'))
+      } else {
+        setNotice('Outbound history status updated. Payout authorization remains disabled.')
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not synchronize Fireblocks outbound history.')
+    } finally {
+      setBusy('')
+    }
+  }, [historyRequest])
 
   const request = useCallback(async (path: string, method = 'GET', body?: unknown) => {
     if (!sessionToken || !/^[A-Za-z0-9_-]{43}$/.test(sessionToken)) {
@@ -122,17 +199,26 @@ export default function ThirdPartyFundingPanel({
     if (!sessionToken) {
       setAuthorizations([])
       setSelectedId('')
+      setOutboundHistory(null)
       setNotice('')
       return
     }
     void loadAuthorizations(selectedId)
-  }, [sessionToken, loadAuthorizations])
+    void loadOutboundHistory().catch(caught => {
+      setOutboundHistory(null)
+      setError(caught instanceof Error ? caught.message : 'Could not load Fireblocks outbound-history status.')
+    })
+  }, [sessionToken, loadAuthorizations, loadOutboundHistory])
 
   const selected = authorizations.find(item => item.authorizationId === selectedId) || null
   const inventoryCheckedMs = inventoryCheckedAt ? Date.parse(inventoryCheckedAt) : Number.NaN
   const inventoryFresh = inventoryVerified && Number.isFinite(inventoryCheckedMs)
     && inventoryCheckedMs <= Date.now() + 60_000
     && Date.now() - inventoryCheckedMs <= 6 * 60 * 60 * 1000
+  const externalUsdtBaseUnits = outboundHistory?.externalUsdtOutboundBaseUnits
+    ?? outboundHistory?.externalUsdtBaseUnits
+  const externalTrxBaseUnits = outboundHistory?.externalTrxOutboundBaseUnits
+    ?? outboundHistory?.externalTrxBaseUnits
 
   async function selectAuthorization(authorizationId: string) {
     setSelectedId(authorizationId)
@@ -287,6 +373,34 @@ export default function ThirdPartyFundingPanel({
             <small>Payout execution</small>
             <strong>Disabled in this build</strong>
           </div>
+        </div>
+
+        <div className="wallet-vault-form">
+          <div className="wallet-vault-section-title">
+            <div>
+              <h4>Fireblocks outbound-history reconciliation</h4>
+              <p>This read-only scan accounts for vault withdrawals created outside this application before displaying the conservative USDT principal ceiling.</p>
+            </div>
+            <button type="button" className="wallet-vault-secondary" disabled={busy !== ''} onClick={() => void loadOutboundHistory().catch(caught => setError(caught instanceof Error ? caught.message : 'Could not refresh history status.'))}>
+              <RefreshCw size={15} /> Refresh status
+            </button>
+          </div>
+          <div className="wallet-vault-review-grid">
+            <div><small>History status</small><strong>{outboundHistory?.verified ? 'Complete · reconciled' : outboundHistory?.status === 'scanning' ? 'Partial · resume required' : outboundHistory?.status === 'blocked' ? 'Blocked' : 'Not verified'}</strong></div>
+            <div><small>Provider records</small><strong>{outboundHistory?.transactionCount || '—'}</strong></div>
+            <div><small>External USDT outflow</small><strong>{externalUsdtBaseUnits !== undefined ? prettyUnits(externalUsdtBaseUnits, 6) + ' USDT' : 'Not reconciled'}</strong></div>
+            <div><small>External TRX outflow</small><strong>{externalTrxBaseUnits !== undefined ? prettyUnits(externalTrxBaseUnits, 6) + ' TRX' : 'Not reconciled'}</strong></div>
+            <div className="wallet-vault-review-wide"><small>Last scan checked</small><strong>{outboundHistory?.checkedAt ? new Date(outboundHistory.checkedAt).toLocaleString() : 'No complete scan recorded'}</strong></div>
+          </div>
+          {Array.isArray(outboundHistory?.blockers) && outboundHistory.blockers.length > 0
+            ? <p className="wallet-vault-risk-note" role="status">History blockers: {outboundHistory.blockers.join(', ')}</p>
+            : outboundHistory?.reason && !outboundHistory.verified
+              ? <p className="wallet-vault-risk-note" role="status">{outboundHistory.reason.replaceAll('-', ' ')}</p>
+              : null}
+          <button type="button" className="wallet-vault-primary" disabled={busy !== ''} onClick={() => void syncOutboundHistory()}>
+            <RefreshCw size={16} /> {busy === 'history' ? 'Synchronizing read-only history…' : outboundHistory?.status === 'scanning' ? 'Sync / resume next history batch' : 'Sync Fireblocks outbound history'}
+          </button>
+          <p className="wallet-vault-caption">Each request reads at most 20 pages. When the API reports a partial scan, press Sync / resume again until status is complete. A fresh, complete scan is required; this action does not approve, sign, or submit a payout.</p>
         </div>
 
         <div className="wallet-vault-form">
