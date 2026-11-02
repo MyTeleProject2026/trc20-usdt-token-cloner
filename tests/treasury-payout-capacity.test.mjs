@@ -73,7 +73,7 @@ test('invalid or missing funding, reservation, agreement or limit evidence fails
 test('readiness endpoint subtracts pending reservations and reports zero withdrawable while the source lock is closed', async () => {
   const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
   assert.match(source, /pendingUsdtReservations/)
-  assert.match(source, /status IN \\(?'broadcasting','provider-pending','broadcast-accepted','broadcast-unknown'/)
+  assert.ok(source.includes("status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')"))
   assert.match(source, /availableUsdtAfterReservationsBaseUnits/)
   assert.match(source, /estimatedEligiblePayoutCapacityBaseUnits/)
   assert.match(source, /payoutExecution\.executionEnabled && sponsorPayoutCapacity/)
