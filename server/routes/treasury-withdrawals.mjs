@@ -156,7 +156,7 @@ export function buildTreasuryRecipientApprovalMessage({
     || requesterOrigin !== normalizeTreasuryApprovalOrigin(requesterOrigin)) {
     throw new Error('A configured application origin is required for sponsor recipient approval.')
   }
-  if (typeof reason !== 'string' || !reason.trim() || reason.length > 500 || /[\r\n\u0000-\u001f]/.test(reason)) {
+  if (typeof reason !== 'string' || !/^[\x20-\x7e]{10,500}$/.test(reason.trim())) {
     throw new Error('A single-line recipient approval reason of at most 500 characters is required.')
   }
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= 0) {
@@ -1267,8 +1267,7 @@ export function createTreasuryWithdrawalsRouter({
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['recipientAddress', 'reason'].includes(key))
       || !isValidTronAddress(body.recipientAddress)
-      || typeof body.reason !== 'string' || body.reason.trim().length < 10
-      || body.reason.length > 500 || /[\r\n\u0000-\u001f]/.test(body.reason)) {
+      || typeof body.reason !== 'string' || !/^[\x20-\x7e]{10,500}$/.test(body.reason.trim())) {
       return res.status(400).json({ success: false, error: 'invalid-recipient-approval-request' })
     }
     const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
