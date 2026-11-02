@@ -173,6 +173,7 @@ function manifest(overrides = {}) {
     usdtContract: OFFICIAL_TRON_MAINNET_USDT,
     maxUsdtBaseUnits: AMOUNT_USDT,
     maxTrxSun: AMOUNT_TRX,
+    sponsorOrganizationReference: 'TEST-SPONSOR-ORG-001',
     agreementReference: 'TEST-AGREEMENT-001',
     agreementDocumentSha256: 'b'.repeat(64),
     issuedAt,
@@ -187,6 +188,8 @@ const ENV = {
   TREASURY_OWNER_ADDRESS: OWNER,
   TREASURY_ADDRESS: VAULT,
   TREASURY_SIGNER_MODE: 'fireblocks',
+  TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'TEST-SPONSOR-ORG-001',
+  TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'TEST-AGREEMENT-001',
 }
 const SESSION = async ({ tokenHash, origin }) => ({
   success: true,
@@ -453,7 +456,7 @@ test('new registrations reject legacy v1 consent before checking treasury invent
       }),
     })
     assert.equal(response.status, 400)
-    assert.equal((await response.json()).error, 'agreement-document-hash-v2-required')
+    assert.equal((await response.json()).error, 'agreement-hash-and-sponsor-scope-v3-required')
     assert.equal(inventoryReads, 0)
     assert.equal(writes, 0)
   })
