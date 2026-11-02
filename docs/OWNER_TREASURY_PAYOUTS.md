@@ -17,6 +17,16 @@ The sponsor panel distinguishes the requested **100,000 USDT planning target** f
 The backend returns **0 currently withdrawable** while the immutable source-build real-value execution lock is closed, even when read-only funding evidence shows a positive balance. A positive balance or a sponsor agreement does not independently authorize a transfer. Missing or stale provider, chain, database, budget or reconciliation evidence keeps the capacity unavailable.
 
 
+## Third-party sponsor funding ledger
+
+Before the owner console can report sponsor principal as eligible, the sponsor must register a signed source-wallet consent and a SHA-256 fingerprint of the executed agreement. The consent binds the source address, exact Fireblocks Mainnet vault address, official TRON USDT contract, authorized amount caps and expiry. The owner console records that the written agreement and disbursement scope were reviewed; this acknowledgement is an application record, not a substitute for the sponsor's legal authority.
+
+The sponsor then sends the genuine incoming token transfer. The backend verifies the sender, destination, official token contract, exact transfer calldata, matching Transfer event, solidified successful receipt and amount cap. A later inventory snapshot must show the same token in the same configured Fireblocks vault and must post-date the chain confirmation.
+
+The verified third-party pool is reduced by all application withdrawal reservations/committed withdrawals and reconciled external Fireblocks USDT outflows. Both the read-only readiness endpoint and the future POST reservation logic cap the request amount by this remaining principal. The source consent does not authorize an outgoing payout; outgoing requests still require the separately signed sponsor release and owner/recipient policies.
+
+Authorization expiry blocks new deposits, but a deposit already confirmed before expiry remains in the verified pool until the authorization is explicitly revoked or its evidence is invalidated. Revocation takes the same database advisory lock as payout reservations, preventing it from racing a new reservation. Never edit ledger rows directly to manufacture sponsor principal.
+
 ## Managed signer
 
 The USDT payout route on this feature branch uses the Fireblocks production REST API. Fireblocks holds the vault transaction signing authority; Tron Token Studio sends a bounded transaction request using server-only API credentials. The Fireblocks API authentication RSA key is mounted as a backend secret file; it is not a blockchain private key, and it is never sent to the frontend.
