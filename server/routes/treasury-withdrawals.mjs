@@ -187,7 +187,7 @@ export function buildTreasuryRealValueReleaseRevocationMessage({
     `Release reference: ${releaseReference}`,
     `Original release message SHA-256: ${messageHash.toLowerCase()}`,
     `Application origin: ${requesterOrigin}`,
-  ].join('\\n')
+  ].join('\n')
 }
 /**
  * Require the console's only permitted owner and the payout authorizer to be
@@ -1195,7 +1195,11 @@ export function createTreasuryWithdrawalsRouter({
       ])
       const row = result.rows[0]
       if (!row) return { authorized: false, reason: 'sponsor-release-signature-not-recorded-or-scope-changed' }
-      return verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, row.sponsor_signature, { now: nowMs })
+      const verified = await verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, row.sponsor_signature, { now: nowMs })
+      if (!verified.authorized || verified.signerAddress !== row.sponsor_signer_address) {
+        return { authorized: false, reason: 'sponsor-release-record-signature-mismatch' }
+      }
+      return verified
     } catch {
       return { authorized: false, reason: 'sponsor-release-authorization-storage-unavailable' }
     }
@@ -1839,6 +1843,171 @@ export function createTreasuryWithdrawalsRouter({
         error: 'treasury-release-message-unavailable',
         reason: error instanceof Error ? error.message : 'release-configuration-invalid',
       })
+    }
+  })
+
+  router.post('/withdrawals/release-authorization/signature', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+      return res.status(403).json({ success: false, error: 'owner-release-switch-must-be-explicitly-enabled-first' })
+    }
+    const config = configuration()
+    if (!config.enabled || !config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+      return res.status(503).json({ success: false, error: 'treasury-release-preconditions-incomplete', missing: config.missing })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || typeof body.signature !== 'string'
+      || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-release-signature' })
+    }
+    if (!isConfiguredTreasuryApprovalOrigin(req.get('origin'), env)) {
+      return res.status(403).json({ success: false, error: 'release-approval-origin-not-allowed' })
+    }
+    const clock = now()
+    const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+    let message
+    try {
+      message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-release-message-invalid' })
+    }
+    const sponsorSigner = await recoverTreasurySponsorRecipientApprover(tronWebFactory(), {
+      message,
+      signature: body.signature,
+      allowedSignerAddresses: config.sponsorApproverAddresses,
+    })
+    if (!sponsorSigner) {
+      return res.status(403).json({ success: false, error: 'sponsor-release-signature-not-from-authorized-signer' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'release-authorization-database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const releaseReference = env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim()
+      const messageHash = createHash('sha256').update(message, 'utf8').digest('hex')
+      const existing = await client.query(`SELECT release_authorization_id, sponsor_signer_address
+        FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND release_message_hash=$2 AND status='active'
+        FOR UPDATE`, [releaseReference, messageHash])
+      if (existing.rows.length) {
+        await client.query('COMMIT')
+        return res.json({
+          success: true,
+          alreadyAuthorized: true,
+          releaseAuthorization: {
+            releaseReference,
+            messageHash,
+            sponsorSignerAddress: existing.rows[0].sponsor_signer_address,
+            expiresAt: env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT,
+          },
+          note: 'This exact sponsor release scope was already recorded. No transfer was initiated.',
+        })
+      }
+      await client.query(`UPDATE trc20_token_clone.treasury_real_value_release_authorizations
+        SET status='superseded', updated_at=now()
+        WHERE release_reference=$1 AND status='active'`, [releaseReference])
+      const inserted = await client.query(`INSERT INTO trc20_token_clone.treasury_real_value_release_authorizations
+        (release_authorization_id, release_reference, sponsor_organization_reference,
+         sponsor_agreement_reference, treasury_address, requester_origin,
+         release_message, release_message_hash, release_expires_at,
+         sponsor_signer_address, sponsor_signature, status, created_by_owner_address)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,to_timestamp($9 / 1000.0),$10,$11,'active',$12)
+        RETURNING release_authorization_id, release_reference, release_message_hash,
+                  release_expires_at, sponsor_signer_address, status, created_at`, [
+        randomUUID(), releaseReference, config.sponsorOrganizationReference,
+        config.sponsorAgreementReference, env.TREASURY_ADDRESS.trim(), req.get('origin'),
+        message, messageHash, Number(env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT),
+        sponsorSigner, body.signature, auth.ownerAddress,
+      ])
+      await client.query('COMMIT')
+      return res.status(201).json({
+        success: true,
+        releaseAuthorization: inserted.rows[0],
+        note: 'Sponsor release approval stored for this exact current configuration. Actual withdrawals remain subject to live readiness, owner per-transfer signature, Fireblocks policy and chain receipt verification.',
+      })
+    } catch {
+      try { await client?.query('ROLLBACK') } catch {}
+      return res.status(503).json({ success: false, error: 'sponsor-release-authorization-storage-unavailable' })
+    } finally {
+      client?.release()
+    }
+  })
+
+  router.post('/withdrawals/release-authorization/revoke', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const origin = req.get('origin')
+    if (!isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(403).json({ success: false, error: 'release-approval-origin-not-allowed' })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || typeof body.signature !== 'string'
+      || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-release-revocation-signature' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'release-authorization-database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const config = configuration()
+      const lookup = await client.query(`SELECT * FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND sponsor_organization_reference=$2
+          AND sponsor_agreement_reference=$3 AND treasury_address=$4
+          AND status='active'
+        ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [
+        typeof env.TREASURY_REAL_VALUE_RELEASE_REFERENCE === 'string' ? env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim() : '',
+        config.sponsorOrganizationReference, config.sponsorAgreementReference,
+        typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : '',
+      ])
+      const row = lookup.rows[0]
+      if (!row) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'active-sponsor-release-not-found' })
+      }
+      const revocationMessage = buildTreasuryRealValueReleaseRevocationMessage({
+        releaseReference: row.release_reference,
+        messageHash: String(row.release_message_hash).trim(),
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        requesterOrigin: row.requester_origin,
+      })
+      const sponsorSigner = await recoverTreasurySponsorRecipientApprover(tronWebFactory(), {
+        message: revocationMessage,
+        signature: body.signature,
+        allowedSignerAddresses: config.sponsorApproverAddresses,
+      })
+      if (!sponsorSigner) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'sponsor-release-revocation-signature-invalid' })
+      }
+      const revocationHash = createHash('sha256').update(revocationMessage, 'utf8').digest('hex')
+      const updated = await client.query(`UPDATE trc20_token_clone.treasury_real_value_release_authorizations
+        SET status='revoked', revocation_message_hash=$2, revoked_by=$3,
+            revocation_signature=$4, revoked_at=now(), updated_at=now()
+        WHERE release_authorization_id=$1 AND status='active'
+        RETURNING release_authorization_id, release_reference, status, revoked_by, revoked_at`,
+      [row.release_authorization_id, revocationHash, sponsorSigner, body.signature])
+      await client.query('COMMIT')
+      return res.json({
+        success: true,
+        releaseAuthorization: updated.rows[0],
+        note: 'Sponsor release authorization revoked. New USDT submissions are blocked; any request already reserved or submitted must be reconciled separately.',
+      })
+    } catch {
+      try { await client?.query('ROLLBACK') } catch {}
+      return res.status(503).json({ success: false, error: 'sponsor-release-revocation-unavailable' })
+    } finally {
+      client?.release()
     }
   })
 
