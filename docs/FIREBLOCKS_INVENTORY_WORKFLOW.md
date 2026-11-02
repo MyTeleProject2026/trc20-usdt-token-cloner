@@ -21,7 +21,7 @@ The API user should have only the read permissions needed for vault account, ass
 
 ## Owner-console status display
 
-After the manual workflow completes, the private owner console reads the latest saved snapshot from `GET /api/treasury/fireblocks/inventory/latest`. This endpoint requires the existing Mainnet owner session, matching request origin, and the same `OWNER_WALLET_ADDRESS` / `TREASURY_OWNER_ADDRESS` identity. It returns only allow-listed public configuration identifiers, sanitized check results, balances, timestamps, and workflow run metadata. The secret-file path and all credentials are excluded.
+The private owner console automatically reloads the latest saved snapshot from `GET /api/treasury/fireblocks/inventory/latest` together with live `GET /api/treasury/withdrawals/readiness` and owner funding-status responses while the owner session is active. It refreshes every 30 seconds, when the tab becomes visible and when it regains focus. The Fireblocks treasury panel also offers **Refresh backend configuration now** for an immediate reload. This endpoint requires the existing Mainnet owner session, matching request origin, and the same `OWNER_WALLET_ADDRESS` / `TREASURY_OWNER_ADDRESS` identity. It returns only allow-listed public configuration identifiers, sanitized check results, balances, timestamps, and workflow run metadata. The secret-file path and all credentials are excluded.
 
 Open **Wallet Vault → Fireblocks treasury setup → One-click Fireblocks inventory verification** to see the latest saved run. The panel links to the matching GitHub Actions run and distinguishes a passed inventory check from a blocked run. It displays the provider and chain observations side by side so mismatches are visible.
 
@@ -59,4 +59,4 @@ A timeout is a failed/blocked inventory attempt, not a positive verification. Di
 
 The artifact intentionally excludes `FIREBLOCKS_API_KEY`, the RSA private key, database credentials, GitHub OIDC tokens, Fireblocks JWTs, and wallet private keys. Those values must remain in Render's secret store. A portable EXE containing those credentials would be extractable and unsafe; a sanitized ZIP plus non-secret environment file is the correct export format. The `.env` file is not a replacement for the backend's secret-file mount or database connection.
 
-This is inventory verification only. It does not create or approve vaults, change Fireblocks policies, fund assets, enable payouts, sign transactions, or submit transfers. The existing hard-coded real-value payout execution lock remains unchanged, and both payout feature flags are exported as `false`.
+This is inventory verification only. It does not create or approve vaults, change Fireblocks policies, fund assets, enable payouts, sign transactions, or submit transfers. The real-value payout execution source-build lock remains closed until a sponsor-approved release is separately configured and signed.
