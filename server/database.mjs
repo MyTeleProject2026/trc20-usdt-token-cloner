@@ -156,6 +156,7 @@ export async function initializeDatabase() {
         CREATE TABLE IF NOT EXISTS ${schema}.third_party_funding_authorizations (
           authorization_id TEXT PRIMARY KEY,
           network TEXT NOT NULL CHECK (network = 'mainnet'),
+          sponsor_organization_reference TEXT NOT NULL DEFAULT 'legacy-unscoped',
           sponsor_address TEXT NOT NULL,
           vault_address TEXT NOT NULL,
           usdt_contract TEXT NOT NULL CHECK (usdt_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'),
@@ -218,6 +219,7 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash, asset)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT NOT NULL DEFAULT 'legacy-unscoped'`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64)`)
       await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false`)
@@ -4582,7 +4584,7 @@ export async function recordSponsorResourcePreflightEvidence({ idempotencyKey, e
 
 export async function persistThirdPartyFundingAuthorization(input = {}) {
   const {
-    authorizationId, sponsorAddress, vaultAddress, usdtContract,
+    authorizationId, sponsorOrganizationReference, sponsorAddress, vaultAddress, usdtContract,
     maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
     agreementReviewedBy, agreementReviewedAt,
     withdrawalDisbursementAcknowledged, withdrawalDisbursementReviewedBy, withdrawalDisbursementReviewedAt,
@@ -4594,6 +4596,8 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
   const reviewed = parseDate(agreementReviewedAt)
   const disbursementReviewed = parseDate(withdrawalDisbursementReviewedAt)
   if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || typeof sponsorOrganizationReference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(sponsorOrganizationReference)
+    || sponsorOrganizationReference === 'legacy-unscoped'
     || !isValidTronAddress(sponsorAddress) || !isValidTronAddress(vaultAddress)
     || sponsorAddress === vaultAddress
     || usdtContract !== OFFICIAL_MAINNET_USDT_CONTRACT
@@ -4621,23 +4625,23 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
     await client.query('BEGIN')
     const result = await client.query(
       `INSERT INTO ${schema}.third_party_funding_authorizations
-        (authorization_id, network, sponsor_address, vault_address, usdt_contract,
+        (authorization_id, network, sponsor_organization_reference, sponsor_address, vault_address, usdt_contract,
          max_usdt_base_units, max_trx_sun, agreement_reference, agreement_document_sha256,
          agreement_reviewed_by, agreement_reviewed_at,
          withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
          withdrawal_disbursement_reviewed_at, signature, signature_hash,
          message_hash, issued_at, expires_at)
-       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,$12,$13,$14,$15,$16,$17)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,$12,$13,$14,$15,$16,$17,$18)
        ON CONFLICT DO NOTHING
        RETURNING authorization_id`,
-      [authorizationId, sponsorAddress, vaultAddress, usdtContract, maxUsdtBaseUnits, maxTrxSun,
-       agreementReference, agreementDocumentSha256, agreementReviewedBy, reviewed,
+      [authorizationId, sponsorOrganizationReference, sponsorAddress, vaultAddress, usdtContract,
+       maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256, agreementReviewedBy, reviewed,
        withdrawalDisbursementReviewedBy, disbursementReviewed,
        signature, signatureHash, messageHash, issued, expires],
     )
     if (!result.rows.length) {
       const existing = await client.query(
-        `SELECT authorization_id, sponsor_address, vault_address, usdt_contract,
+        `SELECT authorization_id, sponsor_organization_reference, sponsor_address, vault_address, usdt_contract,
                 max_usdt_base_units::text AS max_usdt_base_units,
                 max_trx_sun::text AS max_trx_sun, agreement_reference,
                 agreement_document_sha256, withdrawal_disbursement_acknowledged,
@@ -4650,6 +4654,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
       )
       const row = existing.rows[0]
       const same = row && row.authorization_id === authorizationId
+        && row.sponsor_organization_reference === sponsorOrganizationReference
         && row.sponsor_address === sponsorAddress && row.vault_address === vaultAddress
         && row.usdt_contract === usdtContract
         && row.max_usdt_base_units === maxUsdtBaseUnits && row.max_trx_sun === maxTrxSun
@@ -4672,7 +4677,7 @@ export async function persistThirdPartyFundingAuthorization(input = {}) {
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
        VALUES ('third-party-funding-consent-verified','third-party-funding-authorization',$1,$2::jsonb)`,
       [authorizationId, JSON.stringify({
-        network: 'mainnet', sponsorAddress, vaultAddress, usdtContract,
+        network: 'mainnet', sponsorOrganizationReference, sponsorAddress, vaultAddress, usdtContract,
         maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
         agreementReviewAcknowledgedBy: agreementReviewedBy,
         withdrawalDisbursementAcknowledged: true,
@@ -4704,7 +4709,7 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
   try {
     await initializeDatabase()
     const authorization = await db.query(
-      `SELECT authorization_id, network, sponsor_address, vault_address, usdt_contract,
+      `SELECT authorization_id, network, sponsor_organization_reference, sponsor_address, vault_address, usdt_contract,
               max_usdt_base_units::text AS max_usdt_base_units,
               max_trx_sun::text AS max_trx_sun, agreement_reference,
               agreement_document_sha256, agreement_reviewed_by, agreement_reviewed_at,
@@ -4730,6 +4735,7 @@ export async function getThirdPartyFundingAuthorization(authorizationId) {
       success: true,
       authorization: {
         authorizationId: row.authorization_id, network: row.network,
+        sponsorOrganizationReference: row.sponsor_organization_reference,
         sponsorAddress: row.sponsor_address, vaultAddress: row.vault_address,
         usdtContract: row.usdt_contract, maxUsdtBaseUnits: row.max_usdt_base_units,
         maxTrxSun: row.max_trx_sun, agreementReference: row.agreement_reference,
@@ -4771,7 +4777,7 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
   try {
     await initializeDatabase()
     const result = await db.query(
-      `SELECT authorization_id, sponsor_address, vault_address, agreement_reference,
+      `SELECT authorization_id, sponsor_organization_reference, sponsor_address, vault_address, agreement_reference,
               withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_at,
               issued_at, expires_at, status, created_at
          FROM ${schema}.third_party_funding_authorizations
@@ -4781,8 +4787,9 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
     return {
       success: true,
       authorizations: result.rows.map((row) => ({
-        authorizationId: row.authorization_id, sponsorAddress: row.sponsor_address,
-        vaultAddress: row.vault_address, agreementReference: row.agreement_reference,
+        authorizationId: row.authorization_id, sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAddress: row.sponsor_address, vaultAddress: row.vault_address,
+        agreementReference: row.agreement_reference,
         withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
         withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
         issuedAt: row.issued_at, expiresAt: row.expires_at,
@@ -4797,9 +4804,11 @@ export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
 
 /** Return verified third-party USDT principal with an explicitly reviewed disbursement mandate. */
 
-export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
-  if (!isValidTronAddress(vaultAddress)) {
-    return { success: false, reason: 'invalid-treasury-address', verifiedDepositCount: '0',
+export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress, sponsorOrganizationReference, agreementReference) {
+  const validIdentifier = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(value)
+  if (!isValidTronAddress(vaultAddress) || !validIdentifier(sponsorOrganizationReference)
+    || sponsorOrganizationReference === 'legacy-unscoped' || !validIdentifier(agreementReference)) {
+    return { success: false, reason: 'invalid-treasury-or-sponsor-scope', verifiedDepositCount: '0',
       reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
   }
   const db = getPool()
@@ -4816,6 +4825,8 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
            ON d.authorization_id = a.authorization_id
         WHERE a.network = 'mainnet'
           AND a.vault_address = $1
+          AND a.sponsor_organization_reference = $2
+          AND a.agreement_reference = $3
           AND a.status = 'deposit-evidence-recorded'
           AND a.withdrawal_disbursement_acknowledged = true
           AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
@@ -4833,7 +4844,7 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
           AND d.fireblocks_vault_account_id IS NOT NULL
           AND d.fireblocks_checked_at IS NOT NULL
           AND d.fireblocks_checked_at >= d.chain_verified_at`,
-      [vaultAddress],
+      [vaultAddress, sponsorOrganizationReference, agreementReference],
     )
     const row = result.rows[0] || {}
     return {
@@ -4851,9 +4862,11 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
 
 /** Return verified third-party native TRX principal available to sponsor network fees. */
 
-export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress) {
-  if (!isValidTronAddress(vaultAddress)) {
-    return { success: false, reason: 'invalid-treasury-address', verifiedDepositCount: '0',
+export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress, sponsorOrganizationReference, agreementReference) {
+  const validIdentifier = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(value)
+  if (!isValidTronAddress(vaultAddress) || !validIdentifier(sponsorOrganizationReference)
+    || sponsorOrganizationReference === 'legacy-unscoped' || !validIdentifier(agreementReference)) {
+    return { success: false, reason: 'invalid-treasury-or-sponsor-scope', verifiedDepositCount: '0',
       reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
   }
   const db = getPool()
@@ -4887,7 +4900,7 @@ export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress) {
           AND d.fireblocks_vault_account_id IS NOT NULL
           AND d.fireblocks_checked_at IS NOT NULL
           AND d.fireblocks_checked_at >= d.chain_verified_at`,
-      [vaultAddress],
+      [vaultAddress, sponsorOrganizationReference, agreementReference],
     )
     const row = result.rows[0] || {}
     return {
