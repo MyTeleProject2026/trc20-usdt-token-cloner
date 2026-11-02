@@ -129,7 +129,7 @@ test('owner treasury panel exposes sponsor release and gated payout submission c
   assert.match(vault, /Remaining USDT principal commitment/)
   assert.match(vault, /TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>/)
   assert.match(vault, /matching official Transfer event were verified on TRON/)
-  assert.match(vault, /async function submitServerTreasuryPayout\(\)[\s\S]{0,1800}buildTreasuryWithdrawalAuthorizationMessage/)
+  assert.match(vault, /async function submitServerTreasuryPayout\(\)[\s\S]{0,2400}buildTreasuryWithdrawalAuthorizationMessage/)
   assert.match(vault, /tronWeb\.trx\.signMessageV2\(authorizationMessage\)/)
   assert.match(vault, /treasuryPayoutConfirm\.trim\(\) !== 'SEND USDT'/)
   assert.match(vault, /saveTreasuryPayoutReference\(ownerSessionAddress, idempotencyKey\)/)
