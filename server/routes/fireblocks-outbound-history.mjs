@@ -546,8 +546,17 @@ export function createFireblocksOutboundHistoryRouter({
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
 
     let client
+    let scanLockClient
     try {
       await ensureHistorySchema(db)
+      // One scan per vault at a time. The session-scoped advisory lock remains
+      // held across provider paging so parallel tabs cannot advance the same
+      // cursor or commit a partial scan out of order.
+      scanLockClient = await db.connect()
+      await scanLockClient.query(
+        'SELECT pg_advisory_lock(hashtextextended($1,0))',
+        ['fireblocks-outbound-history:' + cfg.vaultAccountId],
+      )
       const fireblocks = fireblocksFactory(env)
       const vault = await fireblocks.getVaultAccount()
       if (String(vault?.id ?? '') !== cfg.vaultAccountId) {
@@ -789,6 +798,7 @@ export function createFireblocksOutboundHistoryRouter({
       })
     } finally {
       client?.release()
+      scanLockClient?.release()
     }
   })
 
