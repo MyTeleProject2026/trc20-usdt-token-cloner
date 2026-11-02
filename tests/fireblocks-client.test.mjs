@@ -70,9 +70,12 @@ test('Fireblocks accepts only an absolute mounted secret-file path and known pro
 })
 
 test('Fireblocks read-only identity requires independent API key and RSA secret path', () => {
-  const env = { ...configuredEnv, FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
+  const env = {
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
     FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
-    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io' }
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+  }
   assert.equal(fireblocksReadOnlyConfiguration(env).configured, true)
   assert.equal(fireblocksReadOnlyConfiguration({ ...env,
     FIREBLOCKS_READONLY_API_KEY: configuredEnv.FIREBLOCKS_API_KEY }).configured, false)
@@ -106,10 +109,10 @@ test('read-only Fireblocks client fetches bounded vault transaction-history page
   const { privateKey } = keyPair()
   const calls = []
   const env = {
-    ...configuredEnv,
     FIREBLOCKS_READONLY_API_KEY: 'viewer-history-api-key',
     FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
     FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
   }
   const client = createFireblocksReadOnlyClient(env, {
     fetchImpl: async (url, init) => {
