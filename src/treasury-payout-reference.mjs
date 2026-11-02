@@ -52,3 +52,19 @@ export function readTreasuryPayoutReference(storage = browserStorage()) {
     return null
   }
 }
+
+
+/**
+ * Clear the saved opaque reference only after the backend confirms that no
+ * matching withdrawal reservation exists, or after an operator explicitly
+ * discards a resolved reference. This never changes a server-side payout.
+ */
+export function clearTreasuryPayoutReference(storage = browserStorage()) {
+  if (!storage || typeof storage.removeItem !== 'function') return false
+  try {
+    storage.removeItem(TREASURY_PAYOUT_REFERENCE_STORAGE_KEY)
+    return true
+  } catch {
+    return false
+  }
+}
