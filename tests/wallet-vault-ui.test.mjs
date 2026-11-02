@@ -102,6 +102,7 @@ test('owner wallet uses responsive owner navigation and separates recovery from 
   assert.match(vault, /setInterval\(\(\) => \{ void loadOwnerTreasuryDashboard\(\) \}, 60_000\)/)
   assert.match(vault, /requestInFlight \|\| cancelled/)
   assert.match(vault, /async function refreshBackendTreasuryConfiguration\(\)/)
+  assert.match(vault, /if \(!cancelled\) \{\s*setOwnerSessionAddress\(String\(sessionPayload\.address\)\)\s*setOwnerSessionToken\(token\)\s*\}/)
   assert.match(vault, /Refresh backend configuration now/)
   assert.match(vault, /Automatically loaded backend configuration/)
   assert.match(vault, /\/api\/treasury\/withdrawals\/readiness/)
