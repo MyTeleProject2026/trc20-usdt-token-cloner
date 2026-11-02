@@ -322,7 +322,17 @@ export default function WalletVault() {
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
-  const [ownerSessionToken, setOwnerSessionToken] = useState('')
+  const [ownerSessionToken, setOwnerSessionToken] = useState<string>(() => {
+    // Restore the tab-scoped owner session into React state on page reload.
+    // The backend still validates the token and expiry before serving any data.
+    try {
+      const token = window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+      return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : ''
+    } catch {
+      return ''
+    }
+  })
+  const [ownerTreasuryRefreshNonce, setOwnerTreasuryRefreshNonce] = useState(0)
   const [ownerSessionAddress, setOwnerSessionAddress] = useState('')
   const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
   const [fireblocksInventorySnapshot, setFireblocksInventorySnapshot] = useState<FireblocksInventorySnapshot | null>(null)
@@ -676,7 +686,7 @@ export default function WalletVault() {
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [unlocked?.record.address, network, ownerSessionToken])
+  }, [unlocked?.record.address, network, ownerSessionToken, ownerTreasuryRefreshNonce])
 
 
   useEffect(() => {
@@ -1009,6 +1019,21 @@ export default function WalletVault() {
     } finally {
       setEvidenceLoading('')
     }
+  }
+
+  function refreshBackendTreasuryConfigurationNow() {
+    let token = ownerSessionToken
+    try {
+      token = token || window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+    } catch {
+      // The in-memory session token remains usable when browser storage is blocked.
+    }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      setOwnerTreasuryError('Sign in to the owner console before refreshing backend treasury configuration.')
+      return
+    }
+    setOwnerSessionToken(token)
+    setOwnerTreasuryRefreshNonce((current) => current + 1)
   }
 
   async function refreshOwnerTreasury() {
@@ -1994,6 +2019,16 @@ export default function WalletVault() {
           <strong>External organization approval is required</strong>
           <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
+        </div>
+        <div className="wallet-vault-transfer-section">
+          <h3>Backend configuration refresh</h3>
+          <p>The owner console automatically reloads backend funding, payout readiness, saved inventory, Fireblocks discovery and outbound-history status every 30 seconds while visible, and when the app regains focus. Use this control to request an immediate read-only refresh.</p>
+          <button type="button" className="wallet-vault-secondary"
+            disabled={ownerTreasuryLoading}
+            onClick={refreshBackendTreasuryConfigurationNow}>
+            <RefreshCw size={15} />
+            {ownerTreasuryLoading ? 'Refreshing backend configuration…' : 'Refresh backend configuration now'}
+          </button>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-discovery-heading">
           <h3 id="fireblocks-discovery-heading">Automatic Fireblocks configuration discovery</h3>
