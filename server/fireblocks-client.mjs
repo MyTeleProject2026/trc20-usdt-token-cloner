@@ -567,7 +567,9 @@ export function createFireblocksClient(env = process.env, {
     },
     async getTransactionsPage({ after, before, next, limit = 500 } = {}) {
       const validTimestamp = (value) => typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value)
+      const historyAssetIds = [config.usdtAssetId, config.trxAssetId]
       if (!validTimestamp(after) || !validTimestamp(before) || BigInt(before) <= BigInt(after)
+        || !historyAssetIds.every((assetId) => IDENTIFIER_PATTERN.test(assetId || ''))
         || !Number.isInteger(limit) || limit < 1 || limit > 500
         || (next !== undefined && (typeof next !== 'string' || !next.trim()
           || next.length > 8192 || /[\r\n]/.test(next)))) {
@@ -579,6 +581,7 @@ export function createFireblocksClient(env = process.env, {
         limit: String(limit),
         sourceType: 'VAULT_ACCOUNT',
         sourceId: config.vaultAccountId,
+        assets: historyAssetIds.join(','),
         orderBy: 'createdAt',
         sort: 'ASC',
       })
