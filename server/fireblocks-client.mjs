@@ -103,11 +103,6 @@ export function fireblocksConfiguration(env = process.env) {
 }
 
 /**
- * Fireblocks REST JWT authentication. secretKey is the API-user RSA key issued
- * by Fireblocks, not a blockchain signing key. Wallet transaction signatures
- * are performed by Fireblocks custody infrastructure.
- */
-/**
  * Read-only discovery uses a separate Fireblocks API user and RSA key file.
  * It refuses to run if either credential is shared with the payout identity.
  */
@@ -151,6 +146,11 @@ export function createFireblocksReadOnlyClient(env = process.env, options = {}) 
   })
 }
 
+/**
+ * Fireblocks REST JWT authentication. secretKey is the API-user RSA key issued
+ * by Fireblocks, not a blockchain signing key. Wallet transaction signatures
+ * are performed by Fireblocks custody infrastructure.
+ */
 export function createFireblocksJwt({
   apiKey,
   secretKey,
