@@ -154,3 +154,19 @@ test('Fireblocks discovery refuses automatic selection when more than one eligib
     assert.equal(payload.candidateVaults.length, 2)
   })
 })
+
+
+test('Fireblocks discovery caches the read-only workspace result across automatic dashboard refreshes', async () => {
+  const fixture = makeFixture()
+  await withServer(fixture, async (url) => {
+    const first = await getDiscovery(url)
+    const firstPayload = await first.json()
+    const callsAfterFirst = fixture.calls.length
+    const second = await getDiscovery(url)
+    const secondPayload = await second.json()
+    assert.equal(firstPayload.cacheHit, false)
+    assert.equal(secondPayload.cacheHit, true)
+    assert.equal(secondPayload.discoveryStatus, firstPayload.discoveryStatus)
+    assert.equal(fixture.calls.length, callsAfterFirst, 'a fresh cached result must not repeat Fireblocks provider requests')
+  })
+})
