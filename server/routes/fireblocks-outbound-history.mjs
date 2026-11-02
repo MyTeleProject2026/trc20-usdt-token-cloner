@@ -440,9 +440,10 @@ export async function getFireblocksOutboundHistoryStatus({
 } = {}) {
   const cfg = fireblocksConfiguration(env)
   const vaultAccountId = cfg.vaultAccountId
+  const validAssetId = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
   if (!env.DATABASE_URL) return { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
-  if (!cfg.providerConfigured || !cfg.usdtAssetId || !cfg.trxAssetId
-    || !vaultAccountId || !ADDRESS_PATTERN.test(treasuryAddress || '')) {
+  if (!/^\d{1,32}$/.test(vaultAccountId || '') || !validAssetId(cfg.usdtAssetId)
+    || !validAssetId(cfg.trxAssetId) || !ADDRESS_PATTERN.test(treasuryAddress || '')) {
     return { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
   }
   const db = getPool(env)
@@ -535,8 +536,10 @@ export function createFireblocksOutboundHistoryRouter({
     const cfg = fireblocksConfiguration(env)
     const readOnlyConfig = fireblocksReadOnlyConfiguration(env)
     const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
-    if (!readOnlyConfig.configured || !cfg.providerConfigured || !cfg.usdtAssetId || !cfg.trxAssetId
-      || !cfg.vaultAccountId || !ADDRESS_PATTERN.test(treasuryAddress)) {
+    const validAssetId = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+    if (!readOnlyConfig.configured || !/^\d{1,32}$/.test(cfg.vaultAccountId || '')
+      || !validAssetId(cfg.usdtAssetId) || !validAssetId(cfg.trxAssetId)
+      || !ADDRESS_PATTERN.test(treasuryAddress)) {
       return res.status(503).json({ success: false, error: 'fireblocks-outbound-history-configuration-incomplete' })
     }
     const db = getPool(env)
