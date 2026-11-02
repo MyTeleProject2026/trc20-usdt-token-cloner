@@ -332,7 +332,14 @@ export default function WalletVault() {
     && serverTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot.treasuryAddress
   const sponsorPrincipalBudgetRemaining = serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits
   const canSubmitServerTreasuryPayout = Boolean(ownerSessionToken
+    && ownerSessionAddress
+    && unlocked?.record.address === ownerSessionAddress
+    && network === 'mainnet'
     && ownerTreasurySnapshot?.ownerAccessVerified === true
+    && serverTreasuryReadiness?.network === 'mainnet'
+    && serverTreasuryReadiness?.tokenContract === OFFICIAL_MAINNET_USDT
+    && serverTreasuryReadiness?.payoutsPreflightReady === true
+    && serverTreasuryReadiness?.releaseAuthorization?.authorized === true
     && serverTreasuryReadiness?.withdrawalsEnabled === true
     && serverTreasuryReadiness?.executionEnabled === true
     && serverTreasuryReadiness?.sponsorPrincipalBudget?.withinBudget === true
@@ -342,6 +349,8 @@ export default function WalletVault() {
     && BigInt(sponsorPrincipalBudgetRemaining) > 0n
     && serverTreasuryAddressMatchesSnapshot
     && serverTreasuryHasFunds)
+  const treasuryPayoutCurrentStatus = treasuryPayoutStatus?.withdrawal?.status || treasuryPayoutStatus?.status || ''
+  const treasuryPayoutInFlight = ['broadcasting', 'provider-pending', 'broadcast-accepted', 'broadcast-unknown', 'submission-outcome-unknown'].includes(treasuryPayoutCurrentStatus)
   const ownerAddressForHeader = ownerSessionAddress || unlocked?.record.address || selectedAddress || ''
   const monitoredTreasuryAddress = ownerTreasurySnapshot?.treasuryAddress || serverTreasuryReadiness?.treasuryAddress || ''
   const headerTreasuryUsdt = ownerTreasurySnapshot?.officialUsdt?.status === 'verified'
@@ -1013,7 +1022,103 @@ export default function WalletVault() {
   }
 
   async function submitServerTreasuryPayout() {
-    throw new Error('Server-funded payout submission is disabled in this supervised development build. Read-only status checks remain available.')
+    if (treasuryPayoutBusy) return
+    setTreasuryPayoutBusy(true)
+    setTreasuryPayoutError('')
+    let idempotencyKey = ''
+    try {
+      if (!canSubmitServerTreasuryPayout) {
+        throw new Error('Mainnet USDT payout is blocked until the authenticated owner, exact sponsor release, live preflight, treasury balance and sponsor principal budget all pass.')
+      }
+      if (!unlocked?.privateKey || unlocked.record.address !== ownerSessionAddress) {
+        throw new Error('Unlock the exact owner wallet used for this authenticated treasury session. The owner wallet signs authorization only; it does not fund the payout.')
+      }
+      if (treasuryPayoutConfirm.trim() !== 'SEND USDT') {
+        throw new Error('Type SEND USDT to confirm this exact sponsor-funded payout request.')
+      }
+      const recipientAddress = treasuryPayoutRecipient.trim()
+      const tronWeb = createTronWeb('mainnet', unlocked.privateKey)
+      if (!tronWeb.isAddress(recipientAddress) || !ADDRESS_PATTERN.test(recipientAddress)) {
+        throw new Error('Enter a valid TRON Mainnet recipient address.')
+      }
+      if (recipientAddress === serverTreasuryReadiness.treasuryAddress) {
+        throw new Error('The recipient must be different from the sponsor treasury address.')
+      }
+      const amountBaseUnits = parseUnitsDecimal(treasuryPayoutAmount, 6)
+      const priorKey = treasuryPayoutStatus?.status === 'submission-outcome-unknown'
+        ? treasuryPayoutStatus.idempotencyKey : ''
+      idempotencyKey = typeof priorKey === 'string' && /^[A-Za-z0-9._:-]{24,128}$/.test(priorKey)
+        ? priorKey : window.crypto.randomUUID()
+      if (!/^[A-Za-z0-9._:-]{24,128}$/.test(idempotencyKey)) {
+        throw new Error('A secure one-use withdrawal request key could not be generated.')
+      }
+      const authorizationExpiresAt = Date.now() + 90_000
+      const authorizationMessage = buildTreasuryWithdrawalAuthorizationMessage({
+        origin: window.location.origin,
+        ownerAddress: ownerSessionAddress,
+        treasuryAddress: serverTreasuryReadiness.treasuryAddress,
+        recipientAddress,
+        amountBaseUnits,
+        idempotencyKey,
+        authorizationExpiresAt,
+      })
+      if (String(tronWeb.defaultAddress?.base58 || '') !== ownerSessionAddress) {
+        throw new Error('The unlocked wallet signer does not match the authenticated treasury owner.')
+      }
+      const ownerAuthorizationSignature = await tronWeb.trx.signMessageV2(authorizationMessage)
+      if (typeof ownerAuthorizationSignature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(ownerAuthorizationSignature)) {
+        throw new Error('The wallet did not return a valid one-request owner authorization signature.')
+      }
+      saveTreasuryPayoutReference(ownerSessionAddress, idempotencyKey)
+      let response
+      try {
+        response = await fetch(API_BASE + '/api/treasury/withdrawals', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + ownerSessionToken,
+          },
+          body: JSON.stringify({
+            recipientAddress,
+            amountUsdt: treasuryPayoutAmount.trim(),
+            idempotencyKey,
+            ownerAuthorizationSignature,
+            authorizationExpiresAt,
+          }),
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+      } catch {
+        setTreasuryPayoutStatus({ status: 'submission-outcome-unknown', idempotencyKey })
+        throw new Error('The request connection failed after authorization. Its outcome is unknown. Do not create a new request; retry this exact intent with the same key or look up the saved reference.')
+      }
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || (payload?.success !== true && payload?.status !== 'broadcast-unknown')) {
+        if (payload && typeof payload === 'object' && payload.status === 'rejected') {
+          setTreasuryPayoutStatus({ ...payload, idempotencyKey })
+        }
+        throw new Error(typeof payload?.message === 'string'
+          ? payload.message
+          : typeof payload?.error === 'string' ? payload.error : 'The treasury payout request was not accepted.')
+      }
+      setTreasuryPayoutStatus({
+        ...payload,
+        idempotencyKey: payload?.withdrawal?.idempotencyKey || payload?.idempotencyKey || idempotencyKey,
+      })
+      setTreasuryPayoutConfirm('')
+      pushToast('info', payload?.status === 'broadcast-unknown'
+        ? 'Provider outcome is unknown. The sponsor principal remains reserved; reconcile this same request key and do not submit a replacement.'
+        : 'Treasury payout request handed to Fireblocks. Provider acceptance is not on-chain confirmation; verify the solidified TRON receipt.')
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => { void lookupServerTreasuryPayout() }, 0)
+      }
+    } catch (caught) {
+      setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Treasury payout request failed.')
+    } finally {
+      setTreasuryPayoutBusy(false)
+    }
   }
 
   async function lookupServerTreasuryPayout() {
@@ -2190,8 +2295,44 @@ export default function WalletVault() {
                     <p className="wallet-vault-risk-note" role="note">The server treasury has no verified positive USDT balance. Fund it with genuine USDT and verify the balance before requesting a payout.</p>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>No payout request can be submitted from this build</strong>
-                    <p>Recipient and amount entry are intentionally unavailable. This panel is limited to read-only treasury observations and previously saved request-reference lookup; it does not create a payout, reserve funds, sign, or broadcast a transaction.</p>
+                    <strong>Submit a sponsor-funded Mainnet USDT withdrawal</strong>
+                    <p>This form is available only when the current sponsor release, authenticated owner, live Fireblocks/chain preflight, exact treasury address and sponsor principal budget are verified. The owner signature authorizes this one request only; it does not spend the owner's wallet balance.</p>
+                  </div>
+                  <div className="wallet-vault-form">
+                    <label htmlFor="treasury-payout-recipient">External TRON Mainnet recipient</label>
+                    <input id="treasury-payout-recipient" autoComplete="off" spellCheck={false}
+                      value={treasuryPayoutRecipient}
+                      disabled={treasuryPayoutBusy || treasuryPayoutInFlight}
+                      onChange={event => setTreasuryPayoutRecipient(event.target.value)}
+                      placeholder="T... exchange deposit or external wallet address" />
+                    <label htmlFor="treasury-payout-amount">USDT amount (6 decimals)</label>
+                    <input id="treasury-payout-amount" inputMode="decimal" autoComplete="off"
+                      value={treasuryPayoutAmount}
+                      disabled={treasuryPayoutBusy || treasuryPayoutInFlight}
+                      onChange={event => setTreasuryPayoutAmount(event.target.value)}
+                      placeholder="0.00" />
+                    <label htmlFor="treasury-payout-confirm">Type SEND USDT to confirm this exact request</label>
+                    <input id="treasury-payout-confirm" autoComplete="off"
+                      value={treasuryPayoutConfirm}
+                      disabled={treasuryPayoutBusy || treasuryPayoutInFlight}
+                      onChange={event => setTreasuryPayoutConfirm(event.target.value)}
+                      placeholder="SEND USDT" />
+                    <button type="button" className="wallet-vault-primary"
+                      disabled={treasuryPayoutBusy || !canSubmitServerTreasuryPayout
+                        || !treasuryPayoutRecipient.trim() || !treasuryPayoutAmount.trim()
+                        || treasuryPayoutConfirm.trim() !== 'SEND USDT'
+                        || (treasuryPayoutInFlight && treasuryPayoutCurrentStatus !== 'submission-outcome-unknown')}
+                      onClick={() => void submitServerTreasuryPayout()}>
+                      {treasuryPayoutBusy ? 'Authorizing & submitting…'
+                        : treasuryPayoutCurrentStatus === 'submission-outcome-unknown' ? 'Retry same request safely'
+                          : 'Sign & submit sponsor-funded USDT payout'}
+                    </button>
+                    {!canSubmitServerTreasuryPayout && (
+                      <p className="wallet-vault-caption">Submission is locked. Complete the owner check, sponsor release authorization, current readiness checks, funding verification and sponsor budget checks first.</p>
+                    )}
+                    {treasuryPayoutInFlight && treasuryPayoutCurrentStatus !== 'submission-outcome-unknown' && (
+                      <p className="wallet-vault-caption">This request is already in flight. Do not create another payout. Verify and look up the existing request below.</p>
+                    )}
                   </div>
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Mainnet USDT execution release authorization</strong>
@@ -2294,7 +2435,7 @@ export default function WalletVault() {
                     </div>
                   )}
                   <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !treasuryPayoutStatus} onClick={() => void lookupServerTreasuryPayout()}>Verify receipt & look up saved status</button>
-                  <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
+                  <p className="wallet-vault-caption">A Fireblocks request or TRON broadcast is not proof of final delivery. Only a verified successful solidified USDT Transfer receipt confirms the on-chain transfer; an exchange deposit credit is controlled separately by the receiving exchange.</p>
                 </section>
               )}
 
