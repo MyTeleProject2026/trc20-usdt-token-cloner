@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { Router } from 'express'
 import pg from 'pg'
 import { TronWeb } from 'tronweb'
+import { getFireblocksOutboundHistoryStatus } from './fireblocks-outbound-history.mjs'
 import {
   createFireblocksClient,
   fireblocksConfiguration,
@@ -31,10 +32,6 @@ const MAINNET_RPC = 'https://api.trongrid.io'
 // This supervised application build must never submit real-value treasury payouts.
 // The hard gate is deliberately not controlled by Render environment variables.
 const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
-// The complete Fireblocks outbound history has not yet been ingested and reconciled
-// against app reservations from the dedicated vault's creation time. Never report
-// the sponsor principal pool as payout-ready until that independent ledger exists.
-const FIREBLOCKS_VAULT_OUTBOUND_HISTORY_RECONCILED = false
 const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
@@ -884,8 +881,11 @@ export function createTreasuryWithdrawalsRouter({
     if (config.providerConfigured && treasuryAddress) {
       snapshot = await readManagedTreasurySnapshot(treasuryAddress)
     }
+    const outboundHistory = databaseReady && treasuryAddress
+      ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
+      : { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
     const blockers = []
-    if (!FIREBLOCKS_VAULT_OUTBOUND_HISTORY_RECONCILED) {
+    if (!outboundHistory.verified) {
       blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     }
     let pendingUsdtCount = '0'
@@ -921,8 +921,13 @@ export function createTreasuryWithdrawalsRouter({
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
-        const committedWithdrawalBaseUnits = String(committedWithdrawals.rows[0]?.amount || '0')
-        const sponsorFundingAvailable = sponsorPool?.success === true
+        const applicationCommittedWithdrawalBaseUnits = String(committedWithdrawals.rows[0]?.amount || '0')
+        const externalOutboundUsdtBaseUnits = outboundHistory.verified
+          ? String(outboundHistory.externalUsdtBaseUnits || '0') : '0'
+        const committedWithdrawalBaseUnits = (
+          BigInt(applicationCommittedWithdrawalBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)
+        ).toString()
+        const sponsorFundingAvailable = sponsorPool?.success === true && outboundHistory.verified
           ? remainingThirdPartyFundingPrincipal(sponsorPool.verifiedUsdtPrincipalBaseUnits, committedWithdrawalBaseUnits)
           : null
         thirdPartyFunding = {
@@ -930,6 +935,8 @@ export function createTreasuryWithdrawalsRouter({
           verifiedDepositCount: String(sponsorPool?.verifiedDepositCount || '0'),
           reviewedAuthorizationCount: String(sponsorPool?.reviewedAuthorizationCount || '0'),
           verifiedUsdtPrincipalBaseUnits: String(sponsorPool?.verifiedUsdtPrincipalBaseUnits || '0'),
+          applicationCommittedWithdrawalBaseUnits,
+          externalOutboundUsdtBaseUnits,
           committedWithdrawalBaseUnits,
           availablePrincipalBaseUnits: sponsorFundingAvailable || '0',
         }
@@ -976,7 +983,11 @@ export function createTreasuryWithdrawalsRouter({
       databaseReady, treasuryAddress,
       thirdPartyFunding: {
         ...thirdPartyFunding,
-        externalOutboundHistoryVerified: FIREBLOCKS_VAULT_OUTBOUND_HISTORY_RECONCILED,
+        externalOutboundHistoryVerified: outboundHistory.verified,
+        externalOutboundHistoryCheckedAt: outboundHistory.checkedAt || null,
+        externalOutboundHistoryAgeMs: outboundHistory.ageMs ?? null,
+        externalOutboundHistoryTransactionCount: outboundHistory.transactionCount || '0',
+        externalOutboundTrxBaseUnits: outboundHistory.verified ? outboundHistory.externalTrxBaseUnits : '0',
         externalOutboundHistoryRequired: true,
         sponsorFundedOnly: true,
         outgoingUseRequiresReviewedExecutedAgreement: true,
@@ -1029,6 +1040,14 @@ export function createTreasuryWithdrawalsRouter({
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
     if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-withdrawals-disabled', missing: config.missing })
+    const historyGate = await getFireblocksOutboundHistoryStatus({ env })
+    if (!historyGate.verified) {
+      return res.status(409).json({
+        success: false,
+        error: 'fireblocks-vault-outbound-history-not-reconciled',
+        submissionEnabled: false,
+      })
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['recipientAddress', 'amountUsdt', 'idempotencyKey', 'ownerAuthorizationSignature', 'authorizationExpiresAt'].includes(key))
       || !ADDRESS_PATTERN.test(body.recipientAddress || '')
@@ -1464,6 +1483,10 @@ export function createTreasuryWithdrawalsRouter({
     if (!config.configurationComplete) blockers.push('trx-withdrawal-configuration-incomplete')
     if (!ADDRESS_PATTERN.test(treasuryAddress)) blockers.push('treasury-address-not-configured')
     if (ADDRESS_PATTERN.test(treasuryAddress)) snapshot = await readManagedTreasuryTrxSnapshot(treasuryAddress)
+    const outboundHistory = db && ADDRESS_PATTERN.test(treasuryAddress)
+      ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
+      : { verified: false }
+    if (!outboundHistory.verified) blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     if (!snapshot.ok) blockers.push(snapshot.reason || 'fireblocks-trx-funding-unverified')
 
     try {
@@ -1512,7 +1535,7 @@ export function createTreasuryWithdrawalsRouter({
       if (databaseReady && BigInt(availableNativeSun) <= 0n) blockers.push('treasury-trx-no-unreserved-payout-balance')
     }
 
-    const withdrawalsEnabled = config.enabled && databaseReady && snapshot.ok && blockers.length === 0
+    const withdrawalsEnabled = config.enabled && databaseReady && snapshot.ok && outboundHistory.verified && blockers.length === 0
     const preflightChecksPassed = withdrawalsEnabled
     const executionEnabled = preflightChecksPassed && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
     const executionBlocker = REAL_VALUE_PAYOUT_EXECUTION_DISABLED
@@ -1538,6 +1561,10 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: typeof managedSigner()?.isTrxAssetConfigured === 'function' && managedSigner().isTrxAssetConfigured() === true,
       },
       databaseReady,
+      externalOutboundHistoryVerified: outboundHistory.verified,
+      externalOutboundHistoryCheckedAt: outboundHistory.checkedAt || null,
+      externalOutboundHistoryAgeMs: outboundHistory.ageMs ?? null,
+      externalOutboundTrxBaseUnits: outboundHistory.verified ? outboundHistory.externalTrxBaseUnits : '0',
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
         providerAvailableTrxBaseUnits: snapshot.providerAvailableBaseUnits,
@@ -1575,6 +1602,14 @@ export function createTreasuryWithdrawalsRouter({
         success: false,
         error: 'treasury-trx-withdrawals-disabled',
         missing: config.missing,
+        submissionEnabled: false,
+      })
+    }
+    const historyGate = await getFireblocksOutboundHistoryStatus({ env })
+    if (!historyGate.verified) {
+      return res.status(409).json({
+        success: false,
+        error: 'fireblocks-vault-outbound-history-not-reconciled',
         submissionEnabled: false,
       })
     }
