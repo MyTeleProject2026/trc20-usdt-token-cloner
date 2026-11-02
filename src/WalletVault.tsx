@@ -495,10 +495,10 @@ export default function WalletVault() {
       : null
     if (savedReference && savedReference.ownerAddress === unlocked?.record.address) {
       setTreasuryPayoutStatus({
-        status: 'saved-reference',
+        status: 'submission-outcome-unknown',
         idempotencyKey: savedReference.idempotencyKey,
         ownerAddress: savedReference.ownerAddress,
-        note: 'Saved request reference only. Re-authenticate the owner and verify the status from the backend and TRON chain.',
+        note: 'Saved request reference only. Re-authenticate the owner and verify this same request key from the backend and TRON chain before starting another payout.',
       })
     } else {
       setTreasuryPayoutStatus(null)
