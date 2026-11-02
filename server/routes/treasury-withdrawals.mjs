@@ -2777,6 +2777,40 @@ export function createTreasuryWithdrawalsRouter({
             payoutExecutionAuthorized: false,
           })
         }
+        const committedThirdPartyPrincipalBaseUnits = (
+          BigInt(String(committedThirdPartyWithdrawals.rows[0]?.amount || '0'))
+          + BigInt(String(historyGate.externalUsdtBaseUnits || '0'))
+        ).toString()
+        const remainingVerifiedThirdPartyPrincipalBaseUnits = sponsorFundingPool?.success === true
+          ? remainingThirdPartyFundingPrincipal(
+            String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0'),
+            committedThirdPartyPrincipalBaseUnits,
+          )
+          : null
+        if (!sponsorFundingPool?.success || remainingVerifiedThirdPartyPrincipalBaseUnits === null
+          || BigInt(String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0')) <= 0n) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required',
+            transactionSubmitted: false,
+            payoutExecutionAuthorized: false,
+            message: 'A reviewed source-wallet mandate, a real incoming official-USDT transfer and matching Fireblocks vault inventory evidence are required before sponsor principal can be reserved.',
+          })
+        }
+        if (amount > BigInt(remainingVerifiedThirdPartyPrincipalBaseUnits)) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-usdt-principal-insufficient-after-withdrawals',
+            verifiedThirdPartyPrincipalBaseUnits: String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits),
+            committedThirdPartyPrincipalBaseUnits,
+            availableThirdPartyPrincipalBaseUnits: remainingVerifiedThirdPartyPrincipalBaseUnits,
+            requestedAmountBaseUnits: amount.toString(),
+            transactionSubmitted: false,
+            payoutExecutionAuthorized: false,
+          })
+        }
         if (alreadyReserved + amount > dailyLimit) {
           await client.query('ROLLBACK')
           return res.status(429).json({ success: false, error: 'treasury-daily-limit-exceeded' })
