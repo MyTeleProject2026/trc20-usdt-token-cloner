@@ -9,7 +9,20 @@ A transaction must never be described as paid, confirmed, or exchange-credited u
 
 ## Recipient approval and execution-status rules
 
-The current production recipient gate is the server-side `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` allowlist. Each entry must be a unique, checksum-valid TRON Base58Check address. A withdrawal request is rejected before a database reservation or Fireblocks call when its destination is not in that list. Adding a destination is an operator-controlled sponsor-policy change: first obtain the sponsor organization's documented approval for the exact address and Mainnet USDT scope, then update the backend secret/configuration through the organization's controlled change process and re-run readiness. Do not accept a destination merely because the owner typed it into the UI or signed an ordinary withdrawal request.
+Recipient authorization supports two independent sponsor-controlled policies:
+
+- **Static sponsor allowlist:** `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` is a comma-separated list of 1–100 unique, checksum-valid TRON Base58Check addresses. Every new entry still requires documented sponsor approval and a controlled backend configuration change.
+- **Sponsor-signed approval registry:** `TREASURY_SPONSOR_APPROVER_ADDRESSES` is a comma-separated list of 1–20 unique, checksum-valid TRON addresses controlled by the sponsor organization. It must not include the platform owner or treasury address. Any signer in this configured list may approve or revoke an exact recipient request; the backend recovers the signer from the TRON message signature and checks that it is on this independent sponsor list. Supplying this variable is a sponsor-admin operation, not a value the platform owner can self-assign.
+
+The sponsor-signed lifecycle is exposed under the treasury API:
+- `POST /api/treasury/recipient-approval-requests`: an authenticated owner creates a request with an exact recipient address and a single-line reason. The server binds the request to the current sponsor organization, agreement, treasury source, official Mainnet USDT contract, requesting owner, configured origin, unique request ID, and a 24-hour expiry. The response contains the canonical text that the sponsor signer must inspect and sign.
+- `GET /api/treasury/recipient-approval-requests/:requestId`: retrieves the pending approval message, or the revocation message for an approved request.
+- `POST /api/treasury/recipient-approval-requests/:requestId/approve`: accepts only the signature of a currently configured sponsor approver over the exact canonical approval message. The backend checks the message hash, expiry, and the agreement/treasury/token scope again before persisting the approval.
+- `POST /api/treasury/recipient-approval-requests/:requestId/revoke`: accepts only a sponsor-approver signature over a separate revocation message bound to the original approval hash. Revoked entries no longer authorize new withdrawals.
+
+The payout reservation transaction locks the approved registry row while it re-verifies the stored message hash and sponsor signature, so a concurrent revocation cannot slip between approval verification and reservation. A recipient is accepted only through the static allowlist or a currently active, cryptographically verified sponsor-signed record for the exact organization, agreement, treasury and Mainnet USDT contract. An owner wallet signature on a normal withdrawal request is not sponsor approval.
+
+These API routes are backend-ready but do not yet provide a dedicated sponsor-facing UI or wallet-signing screen. A sponsor operator must use a trusted wallet/tool under the sponsor organization's own controls to inspect and sign the canonical approval or revocation message, then submit the signature to the matching endpoint. Never ask the platform owner to impersonate the sponsor or paste a sponsor private key into the service.
 
 Readiness has two distinct meanings:
 - `payoutsPreflightReady` / `preflightChecksPassed`: configuration, provider metadata, balances, fee reserve, database and sponsor-budget checks passed.
@@ -17,13 +30,19 @@ Readiness has two distinct meanings:
 
 The UI must not label a successful preflight as an active withdrawal capability. Environment feature flags, a positive balance, a Fireblocks API response, or a successful readiness request cannot override the server-side release lock.
 
+## Sponsor recipient signer environment
+
+Set `TREASURY_SPONSOR_APPROVER_ADDRESSES` only after the actual sponsor organization has independently verified and authorized its sponsor approver wallet(s). The values are public TRON addresses, not private keys. The configured approver set must remain separate from `OWNER_WALLET_ADDRESS`, `TREASURY_OWNER_ADDRESS`, and the treasury source address. Changes to this set are controlled sponsor-policy changes and require renewed review; the API does not allow the owner console to add approver addresses.
+
+A sponsor approval signature is a policy authorization only. It does not sign a Fireblocks transaction or transfer USDT. A payout still requires the separately authenticated owner session, a one-request owner signature, approved sponsor agreement scope, remaining principal commitment, genuine USDT and fee balances, Fireblocks policy approval, reservation/idempotency controls, and independent on-chain receipt verification.
+
 ## Authorization model
 
 "Without per-transfer approval" means pre-authorized automation under an owner-configured policy, not spending without authorization:
 
 - The owner explicitly configures and signs off on the policy once.
 - Every payout requires a valid authenticated owner session and a unique idempotency key.
-- Enforce recipient allowlists or a policy-defined address review period.
+- Enforce recipient allowlists or a policy-defined address review period. New-recipient approval must come from an independent sponsor-controlled signer or from the sponsor's controlled static configuration process.
 - Enforce per-transfer, daily, and rolling-window limits.
 - Require an independent second factor or delayed approval for policy changes, new recipients, and high-value payouts.
 - Reject replayed requests and use an atomic reservation/ledger update before attempting broadcast.
@@ -77,7 +96,7 @@ The managed USDT route expects:
 - Fireblocks' own transaction policy configured to require appropriate authorization/approval, with separate destination and spending controls.
 - A written, separately signed third-party treasury sponsorship agreement, identified by TREASURY_SPONSOR_ORGANIZATION_REFERENCE and TREASURY_SPONSOR_AGREEMENT_REFERENCE, and an exact `SPONSOR_APPROVED_AGREEMENT_REFERENCES` entry matching the organization reference, `mainnet`, the verified Fireblocks vault address, `asset-grant`, `USDT`, and the official Tether contract.
 - TREASURY_SPONSOR_TOTAL_BUDGET_USDT records the agreement's total USDT principal commitment. It is enforced against confirmed payouts plus unresolved reservations, independently of the per-payout and daily caps.
-- `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` is a comma-separated list of 1–100 unique, checksum-valid TRON Base58Check addresses. The application rejects any withdrawal to an address outside this list before it reserves principal or calls Fireblocks. The sponsor organization must approve destinations through its own policy; the application list is an additional guard, not a substitute for Fireblocks destination policy.
+- `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` is an optional comma-separated list of 1–100 unique, checksum-valid TRON Base58Check addresses. `TREASURY_SPONSOR_APPROVER_ADDRESSES` is an alternative or additive list of 1–20 independent sponsor-controlled TRON signer addresses. At least one of these two destination policies must be valid. If both are configured the mode is mixed. The dynamic signer list supports one authorized sponsor signature from any configured signer; it is not an M-of-N quorum. The sponsor organization must separately configure its Fireblocks destination policy and any required multi-person approval there.
 
 The code uses a provider transaction ID and `externalTxId` to reconcile ambiguous submissions. It does not treat provider acceptance as chain confirmation. A Fireblocks terminal failure without an independently verified TRON transaction and solidified receipt remains `broadcast-unknown`; the principal reservation is retained instead of being released based only on the provider status. No Mainnet payout is considered confirmed until the independent verifier validates the real transaction, sender, recipient, amount, official USDT contract, successful solidified receipt, and Transfer event.
 
