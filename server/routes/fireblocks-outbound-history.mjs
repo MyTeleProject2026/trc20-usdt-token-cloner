@@ -18,6 +18,7 @@ const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
 const HISTORY_START_MS = '1'
 const HISTORY_MAX_AGE_MS = 10 * 60 * 1000
+const HISTORY_OVERLAP_MS = 7 * 24 * 60 * 60 * 1000
 const PAGE_SIZE = 500
 const MAX_PAGES_PER_CALL = 20
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -47,6 +48,7 @@ async function ensureHistorySchema(db) {
     'vault_account_id TEXT PRIMARY KEY,' +
     'treasury_address TEXT NOT NULL,' +
     'history_start_ms BIGINT NOT NULL DEFAULT 1,' +
+    'scan_after_ms BIGINT NOT NULL DEFAULT 1,' +
     'history_end_ms BIGINT NOT NULL,' +
     'usdt_asset_id TEXT,' +
     'trx_asset_id TEXT,' +
@@ -91,6 +93,7 @@ async function ensureHistorySchema(db) {
     'last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()' +
     ')',
   )
+  await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS scan_after_ms BIGINT NOT NULL DEFAULT 1')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS usdt_asset_id TEXT')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS trx_asset_id TEXT')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS current_run_id TEXT')
@@ -167,6 +170,19 @@ function parseCreatedAtMs(value) {
 function safeText(value, max = 256) {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= max
     && !/[\r\n]/.test(value) ? value.trim() : ''
+}
+
+/**
+ * Start the first scan from the full-history baseline. Completed scans resume
+ * from the prior upper boundary with a rolling overlap and preserve all older
+ * provider entries for cumulative reconciliation.
+ */
+export function fireblocksHistoryScanAfterMs(state, overlapMs = HISTORY_OVERLAP_MS) {
+  if (!state || state.status !== 'complete') return HISTORY_START_MS
+  const previousEnd = Number(state.history_end_ms)
+  if (!Number.isSafeInteger(previousEnd) || previousEnd <= 0
+    || !Number.isSafeInteger(overlapMs) || overlapMs < 0) return HISTORY_START_MS
+  return String(Math.max(1, previousEnd - overlapMs))
 }
 
 export function parseFireblocksOutboundHistoryTransaction(transaction, {
@@ -602,32 +618,35 @@ export function createFireblocksOutboundHistoryRouter({
         [cfg.vaultAccountId],
       )
       let state = existing.rows[0] || null
+      // A vault ID is bound to one treasury address and one official USDT/TRX
+      // asset pair. Never reuse accumulated entries under a changed identity.
+      if (state && (state.treasury_address !== treasuryAddress
+        || state.usdt_asset_id !== cfg.usdtAssetId || state.trx_asset_id !== cfg.trxAssetId
+        || String(state.history_start_ms) !== HISTORY_START_MS)) {
+        return res.status(409).json({ success: false, error: 'fireblocks-outbound-history-scan-identity-mismatch' })
+      }
       if (!state || state.status !== 'scanning') {
         const endMs = String(now())
+        const scanAfterMs = fireblocksHistoryScanAfterMs(state)
         const started = await db.query(
           'INSERT INTO ' + SCHEMA + '.fireblocks_outbound_history_state ' +
-          '(vault_account_id,treasury_address,history_start_ms,history_end_ms,usdt_asset_id,trx_asset_id,current_run_id,previous_complete_transaction_count,status,next_page_cursor,page_count,transaction_count,' +
+          '(vault_account_id,treasury_address,history_start_ms,scan_after_ms,history_end_ms,usdt_asset_id,trx_asset_id,current_run_id,previous_complete_transaction_count,status,next_page_cursor,page_count,transaction_count,' +
           'external_usdt_base_units,external_trx_base_units,reconciliation_digest,failure_code,checked_at,updated_at) ' +
-          "VALUES ($1,$2,1,$3,$4,$5,$6,$7,'scanning',NULL,0,0,0,0,NULL,NULL,NULL,now()) " +
+          "VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,'scanning',NULL,0,0,0,0,NULL,NULL,NULL,now()) " +
           'ON CONFLICT (vault_account_id) DO UPDATE SET treasury_address=EXCLUDED.treasury_address,' +
-          'history_start_ms=1,history_end_ms=EXCLUDED.history_end_ms,usdt_asset_id=EXCLUDED.usdt_asset_id,' +
-          'trx_asset_id=EXCLUDED.trx_asset_id,current_run_id=EXCLUDED.current_run_id,' +
+          'history_start_ms=1,scan_after_ms=EXCLUDED.scan_after_ms,history_end_ms=EXCLUDED.history_end_ms,' +
+          'usdt_asset_id=EXCLUDED.usdt_asset_id,trx_asset_id=EXCLUDED.trx_asset_id,current_run_id=EXCLUDED.current_run_id,' +
           'previous_complete_transaction_count=EXCLUDED.previous_complete_transaction_count,' +
           "status='scanning',next_page_cursor=NULL," +
           'page_count=0,transaction_count=0,external_usdt_base_units=0,external_trx_base_units=0,network_fee_trx_base_units=0,' +
           'reconciliation_digest=NULL,failure_code=NULL,checked_at=NULL,updated_at=now() RETURNING *',
-          [cfg.vaultAccountId, treasuryAddress, endMs, cfg.usdtAssetId, cfg.trxAssetId, randomUUID(),
+          [cfg.vaultAccountId, treasuryAddress, scanAfterMs, endMs, cfg.usdtAssetId, cfg.trxAssetId, randomUUID(),
             state?.status === 'complete'
               ? String(state.transaction_count || '0')
               : String(state?.previous_complete_transaction_count || '0')],
         )
         state = started.rows[0]
-      } else if (state.treasury_address !== treasuryAddress
-        || state.usdt_asset_id !== cfg.usdtAssetId || state.trx_asset_id !== cfg.trxAssetId
-        || String(state.history_start_ms) !== HISTORY_START_MS) {
-        return res.status(409).json({ success: false, error: 'fireblocks-outbound-history-scan-identity-mismatch' })
       }
-
       client = await db.connect()
       let cursor = state.next_page_cursor || null
       let pagesThisCall = 0
@@ -636,7 +655,7 @@ export function createFireblocksOutboundHistoryRouter({
 
       while (pagesThisCall < MAX_PAGES_PER_CALL) {
         const page = await fireblocks.getTransactionsPage({
-          after: HISTORY_START_MS,
+          after: String(state.scan_after_ms || HISTORY_START_MS),
           before: String(state.history_end_ms),
           next: cursor || undefined,
           limit: PAGE_SIZE,
@@ -733,9 +752,14 @@ export function createFireblocksOutboundHistoryRouter({
         'operation,provider_status,external_tx_id,transaction_hash,source_type,source_id,destination_type,' +
         'destination_id,destination_address,created_at_ms,raw_sha256,terminal_no_broadcast,' +
         'network_fee_trx_base_units::text AS network_fee_trx_base_units,fee_paid_by_vault ' +
-        'FROM ' + SCHEMA + '.fireblocks_outbound_history_entries WHERE vault_account_id=$1 AND last_seen_run_id=$2 ORDER BY provider_transaction_id',
+        'FROM ' + SCHEMA + '.fireblocks_outbound_history_entries WHERE vault_account_id=$1 ORDER BY provider_transaction_id',
+        [cfg.vaultAccountId],
+      )
+      const currentRunCountResult = await db.query(
+        'SELECT COUNT(*)::text AS count FROM ' + SCHEMA + '.fireblocks_outbound_history_entries WHERE vault_account_id=$1 AND last_seen_run_id=$2',
         [cfg.vaultAccountId, state.current_run_id],
       )
+      const currentRunCount = BigInt(String(currentRunCountResult.rows[0]?.count || '0'))
       const appLedger = await readAppWithdrawalLedgers(db, treasuryAddress)
       const reconciliation = reconcileFireblocksOutboundHistory({
         entries: stored.rows.map((row) => ({
@@ -763,7 +787,7 @@ export function createFireblocksOutboundHistoryRouter({
         trxAssetId: cfg.trxAssetId,
       })
       const historyCountRegressed = BigInt(String(state.previous_complete_transaction_count || '0')) > BigInt(stored.rows.length)
-      const historyEntryCountMismatch = transactionCount !== BigInt(stored.rows.length)
+      const historyEntryCountMismatch = transactionCount !== currentRunCount
       const blockers = [
         ...reconciliation.blockers,
         ...(historyCountRegressed ? ['fireblocks-history-entry-count-regressed'] : []),
