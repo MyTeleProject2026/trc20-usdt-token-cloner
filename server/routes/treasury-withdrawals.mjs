@@ -2706,7 +2706,7 @@ export function createTreasuryWithdrawalsRouter({
               FROM trc20_token_clone.treasury_withdrawal_requests
              WHERE treasury_address=$1 AND status <> 'rejected'
           `, [treasuryAddress]),
-          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference),
         ])
         const alreadyReserved = BigInt(spent.rows[0]?.amount || '0')
         const sponsorBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
