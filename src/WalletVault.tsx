@@ -623,7 +623,10 @@ export default function WalletVault() {
           throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
         }
 
-        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
+        if (!cancelled) {
+          setOwnerSessionAddress(String(sessionPayload.address))
+          setOwnerSessionToken(token)
+        }
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
         const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse, outboundHistoryResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
