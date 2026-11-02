@@ -159,7 +159,7 @@ test('Fireblocks outbound reconciliation blocks when an app request and provider
 test('Fireblocks outbound reconciliation blocks if more than one provider transaction claims one app request', () => {
   const appRequest = {
     idempotency_key: 'app-usdt-payout-0000000004',
-    provider_transaction_id: 'provider-app-duplicate-1',
+    provider_transaction_id: null,
     recipient_address: recipient,
     amount_base_units: '2500000',
     status: 'broadcast-accepted',
