@@ -590,13 +590,21 @@ export default function WalletVault() {
         if (!cancelled) setOwnerTreasuryLoading(false)
       }
     }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void loadOwnerTreasuryDashboard()
+    }
     void loadOwnerTreasuryDashboard()
-    // Keep the owner-only treasury monitor fresh without creating overlapping
-    // provider requests. The backend still verifies every response on-chain.
-    const refreshInterval = window.setInterval(() => { void loadOwnerTreasuryDashboard() }, 60_000)
+    // Refresh the backend-managed configuration/readiness snapshot on a timer,
+    // immediately when the user returns to the tab, and when the app regains
+    // focus. Never overlap requests or run background polls in a hidden tab.
+    const refreshInterval = window.setInterval(refreshWhenVisible, 30_000)
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
     return () => {
       cancelled = true
       window.clearInterval(refreshInterval)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [unlocked?.record.address, network])
 
@@ -1827,7 +1835,7 @@ export default function WalletVault() {
           <p className="wallet-vault-caption">Live treasury status is not available yet. Check owner-console configuration, the backend database, allowed app origin, and TRON provider access.</p>
         )}
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
-        <p className="wallet-vault-caption">This is read-only status. It never generates USDT or authorizes a payout. Real-value payout execution is disabled in this build even if the provider's informational readiness flag passes.</p>
+        <p className="wallet-vault-caption">Backend-managed configuration and readiness refresh automatically every 30 seconds and when this tab regains focus. Execution is enabled only when live preflight, sponsor release authorization, owner authorization, recipient policy, balances and budgets all pass; missing sponsor credentials or approvals remain explicit blockers.</p>
       </section>
 
 
@@ -1914,7 +1922,7 @@ export default function WalletVault() {
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
-          <h3 id="fireblocks-inventory-heading">One-click Fireblocks inventory verification</h3>
+          <h3 id="fireblocks-inventory-heading">Saved Fireblocks inventory evidence</h3>
           <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
           <p className="wallet-vault-caption">
             <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open GitHub Actions — Run Fireblocks inventory sync ↗</a>
