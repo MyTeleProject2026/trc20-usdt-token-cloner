@@ -2170,10 +2170,15 @@ export function createTreasuryWithdrawalsRouter({
         const committedSponsorPrincipalBaseUnits = (
           BigInt(applicationCommittedBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)
         ).toString()
-        sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
-          config.sponsorTotalBudgetBaseUnits,
-          committedSponsorPrincipalBaseUnits,
-        )
+        // Never report apparent remaining sponsor principal from app rows alone.
+        // If external vault history is missing/stale, the unobserved manual outflows
+        // could consume the remaining commitment; keep this budget unverified.
+        if (outboundHistory.verified) {
+          sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
+            config.sponsorTotalBudgetBaseUnits,
+            committedSponsorPrincipalBaseUnits,
+          )
+        }
         if (!sponsorPrincipalBudgetCapConsistent) blockers.push('sponsor-principal-agreement-budget-cap-changed-or-legacy-rows-unpinned')
         if (!sponsorPrincipalBudget || BigInt(sponsorPrincipalBudget.remainingBaseUnits) <= 0n) {
           blockers.push('sponsor-principal-agreement-budget-exhausted-or-unavailable')
@@ -2241,7 +2246,7 @@ export function createTreasuryWithdrawalsRouter({
         totalBaseUnits: sponsorPrincipalBudget.totalBudgetBaseUnits,
         usedAndReservedBaseUnits: sponsorPrincipalBudget.usedBaseUnits,
         applicationCommittedBaseUnits: typeof applicationCommittedBaseUnits === 'string' ? applicationCommittedBaseUnits : '0',
-        externalOutboundUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : '0',
+        externalOutboundUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
         remainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
         withinBudget: sponsorPrincipalBudget.withinBudget,
         commitmentCapConsistent: sponsorPrincipalBudgetCapConsistent,
