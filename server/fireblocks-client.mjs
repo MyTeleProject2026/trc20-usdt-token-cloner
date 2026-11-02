@@ -288,7 +288,7 @@ export function createFireblocksClient(env = process.env, {
 } = {}) {
   const config = fireblocksConfiguration(env)
 
-  async function request(method, uri, payload, { credentialsOnly = false } = {}) {
+  async function request(method, uri, payload, { credentialsOnly = false, preserveEnvelope = false } = {}) {
     if (credentialsOnly ? !config.credentialsConfigured : !config.providerConfigured) {
       throw new FireblocksApiError(503, credentialsOnly ? 'fireblocks-credentials-not-configured' : 'fireblocks-not-configured')
     }
@@ -352,7 +352,7 @@ export function createFireblocksClient(env = process.env, {
       // Provider response text and policy internals are deliberately not returned.
       throw new FireblocksApiError(response.status, 'fireblocks-provider-http-error')
     }
-    return unwrapResponse(parsed)
+    return preserveEnvelope ? parsed : unwrapResponse(parsed)
   }
 
   return Object.freeze({
@@ -398,7 +398,7 @@ export function createFireblocksClient(env = process.env, {
       if (namePrefix !== undefined) query.set('namePrefix', namePrefix.trim())
       if (nameSuffix !== undefined) query.set('nameSuffix', nameSuffix.trim())
       if (minAmountThreshold !== undefined) query.set('minAmountThreshold', String(minAmountThreshold))
-      return request('GET', '/v1/vault/accounts_paged?' + query.toString(), undefined, { credentialsOnly: true })
+      return request('GET', '/v1/vault/accounts_paged?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
     async getAssets({ symbol, pageSize = 500, pageCursor } = {}) {
       if (typeof symbol !== 'string' || !/^[A-Z0-9._-]{1,24}$/.test(symbol)
@@ -408,7 +408,7 @@ export function createFireblocksClient(env = process.env, {
       }
       const query = new URLSearchParams({ symbol, pageSize: String(pageSize) })
       if (pageCursor !== undefined) query.set('pageCursor', pageCursor)
-      return request('GET', '/v1/assets?' + query.toString(), undefined, { credentialsOnly: true })
+      return request('GET', '/v1/assets?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
     async getVaultAccountAsset(assetId = config.usdtAssetId) {
       if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
