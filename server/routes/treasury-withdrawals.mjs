@@ -2259,7 +2259,9 @@ export function createTreasuryWithdrawalsRouter({
     const preflightChecksPassed = blockers.length === 0
     const releaseAuthorization = await currentRealValueReleaseAuthorization()
     const payoutExecution = treasuryPayoutExecutionState(preflightChecksPassed, releaseAuthorization.authorized)
-    const sponsorPayoutCapacity = snapshot.ok && databaseReady && sponsorPrincipalBudget
+    const sponsorPayoutCapacity = snapshot.ok && databaseReady
+      && sponsorPrincipalBudget && sponsorPrincipalBudgetCapConsistent
+      && config.sponsorAgreementScopeApproved === true
       ? calculateTreasuryPayoutCapacity({
         verifiedSpendableBaseUnits: snapshot.spendableUsdtBaseUnits,
         outstandingReservationBaseUnits,
