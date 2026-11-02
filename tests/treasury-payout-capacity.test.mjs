@@ -77,7 +77,7 @@ test('readiness endpoint subtracts pending reservations and reports zero withdra
   assert.match(source, /availableUsdtAfterReservationsBaseUnits/)
   assert.match(source, /estimatedEligiblePayoutCapacityBaseUnits/)
   assert.match(source, /sponsorPrincipalBudgetCapConsistent &&\s*config\.sponsorAgreementScopeApproved === true/)
-  assert.match(source, /WHERE treasury_address=\$1\s+AND created_at >= date_trunc\('day', now\(\)\)/, 'daily capacity usage is scoped to the exact sponsor vault')
+  assert.equal(source.split("WHERE created_at >= date_trunc('day', now())").length - 1, 2, 'readiness and submission use the same sponsor-wide daily usage query')
   assert.match(source, /payoutExecution\.executionEnabled && sponsorPayoutCapacity/)
   assert.match(source, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
 })
