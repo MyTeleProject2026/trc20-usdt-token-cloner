@@ -125,15 +125,13 @@ export function buildTreasuryRealValueReleaseMessage(env = process.env, {
   ].join('\n')
 }
 
-export async function verifyTreasuryRealValueReleaseAuthorization(tronWeb, env = process.env, {
+export async function verifyTreasuryRealValueReleaseAuthorization(tronWeb, env = process.env, signature, {
   now = Date.now(),
 } = {}) {
   if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
     return { authorized: false, reason: 'real-value-execution-switch-disabled' }
   }
-  const signature = typeof env.TREASURY_REAL_VALUE_RELEASE_SIGNATURE === 'string'
-    ? env.TREASURY_REAL_VALUE_RELEASE_SIGNATURE.trim() : ''
-  if (!OWNER_PAYOUT_SIGNATURE_PATTERN.test(signature)) {
+  if (typeof signature !== 'string' || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(signature)) {
     return { authorized: false, reason: 'sponsor-release-signature-missing-or-invalid' }
   }
   try {
@@ -152,10 +150,44 @@ export async function verifyTreasuryRealValueReleaseAuthorization(tronWeb, env =
       releaseReference: env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
       expiresAt,
       messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+      message,
     }
   } catch {
     return { authorized: false, reason: 'sponsor-release-configuration-or-signature-invalid' }
   }
+}
+
+export function buildTreasuryRealValueReleaseRevocationMessage({
+  releaseReference,
+  messageHash,
+  sponsorOrganizationReference,
+  sponsorAgreementReference,
+  treasuryAddress,
+  requesterOrigin,
+} = {}) {
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(releaseReference || '')
+    || !/^[0-9a-f]{64}$/i.test(messageHash || '')
+    || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorOrganizationReference || '')
+    || !/^[A-Za-z0-9._:-]{8,160}$/.test(sponsorAgreementReference || '')
+    || !isValidTronAddress(treasuryAddress)
+    || typeof requesterOrigin !== 'string' || !normalizeTreasuryApprovalOrigin(requesterOrigin)
+    || normalizeTreasuryApprovalOrigin(requesterOrigin) !== requesterOrigin) {
+    throw new Error('A valid active sponsor release record is required for revocation.')
+  }
+  return [
+    'TRON Token Studio Mainnet USDT real-value payout release revocation',
+    'Version: 1',
+    'Purpose: revoke the exact sponsor release authorization below. This does not cancel an already reserved or submitted Fireblocks transaction.',
+    'Network: TRON Mainnet',
+    'Asset: genuine Tether USDT',
+    `Token contract: ${USDT_MAINNET}`,
+    `Sponsor organization reference: ${sponsorOrganizationReference}`,
+    `Sponsor agreement reference: ${sponsorAgreementReference}`,
+    `Treasury source address: ${treasuryAddress}`,
+    `Release reference: ${releaseReference}`,
+    `Original release message SHA-256: ${messageHash.toLowerCase()}`,
+    `Application origin: ${requesterOrigin}`,
+  ].join('\\n')
 }
 /**
  * Require the console's only permitted owner and the payout authorizer to be
@@ -470,6 +502,36 @@ async function ensureSchema(db) {
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_recipient_approval_lookup_idx
         ON trc20_token_clone.treasury_recipient_approval_requests
           (treasury_address, sponsor_organization_reference, sponsor_agreement_reference, recipient_address, status)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_real_value_release_authorizations (
+          release_authorization_id UUID PRIMARY KEY,
+          release_reference TEXT NOT NULL,
+          sponsor_organization_reference TEXT NOT NULL,
+          sponsor_agreement_reference TEXT NOT NULL,
+          treasury_address TEXT NOT NULL,
+          requester_origin TEXT NOT NULL,
+          release_message TEXT NOT NULL,
+          release_message_hash CHAR(64) NOT NULL,
+          release_expires_at TIMESTAMPTZ NOT NULL,
+          sponsor_signer_address TEXT NOT NULL,
+          sponsor_signature TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active','revoked','expired','superseded')),
+          revocation_message_hash CHAR(64),
+          revoked_by TEXT,
+          revocation_signature TEXT,
+          revoked_at TIMESTAMPTZ,
+          created_by_owner_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((status <> 'revoked') OR (revoked_by IS NOT NULL AND revocation_signature IS NOT NULL AND revoked_at IS NOT NULL))
+        )
+      `)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS treasury_real_value_release_active_idx
+        ON trc20_token_clone.treasury_real_value_release_authorizations (release_reference)
+        WHERE status='active'`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_real_value_release_lookup_idx
+        ON trc20_token_clone.treasury_real_value_release_authorizations
+          (release_reference, sponsor_organization_reference, sponsor_agreement_reference, treasury_address, status)`)
 
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests
         ADD CONSTRAINT treasury_withdrawal_requests_status_check
@@ -1107,9 +1169,36 @@ export function createTreasuryWithdrawalsRouter({
   const router = Router()
   const managedSigner = () => fireblocksClientFactory(env)
   async function currentRealValueReleaseAuthorization() {
-    const clock = now()
-    const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
-    return verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, { now: nowMs })
+    if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+      return { authorized: false, reason: 'real-value-execution-switch-disabled' }
+    }
+    const db = getPool(env)
+    if (!db) return { authorized: false, reason: 'release-authorization-database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const clock = now()
+      const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+      const message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+      const messageHash = createHash('sha256').update(message, 'utf8').digest('hex')
+      const result = await db.query(`SELECT *
+        FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND sponsor_organization_reference=$2
+          AND sponsor_agreement_reference=$3 AND treasury_address=$4
+          AND release_message_hash=$5 AND status='active'
+          AND release_expires_at > now()
+        ORDER BY created_at DESC LIMIT 1`, [
+        env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+        configuration().sponsorOrganizationReference,
+        configuration().sponsorAgreementReference,
+        env.TREASURY_ADDRESS.trim(),
+        messageHash,
+      ])
+      const row = result.rows[0]
+      if (!row) return { authorized: false, reason: 'sponsor-release-signature-not-recorded-or-scope-changed' }
+      return verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, row.sponsor_signature, { now: nowMs })
+    } catch {
+      return { authorized: false, reason: 'sponsor-release-authorization-storage-unavailable' }
+    }
   }
 
   async function authenticateOwner(req) {
