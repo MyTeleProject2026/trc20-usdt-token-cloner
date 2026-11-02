@@ -305,6 +305,11 @@ export default function WalletVault() {
   const [sponsorRecipientSignature, setSponsorRecipientSignature] = useState('')
   const [sponsorRecipientBusy, setSponsorRecipientBusy] = useState(false)
   const [sponsorRecipientError, setSponsorRecipientError] = useState('')
+  const [treasuryReleaseMessage, setTreasuryReleaseMessage] = useState('')
+  const [treasuryReleaseSignature, setTreasuryReleaseSignature] = useState('')
+  const [treasuryReleaseAction, setTreasuryReleaseAction] = useState<'approve' | 'revoke'>('approve')
+  const [treasuryReleaseBusy, setTreasuryReleaseBusy] = useState(false)
+  const [treasuryReleaseError, setTreasuryReleaseError] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -452,6 +457,10 @@ export default function WalletVault() {
     setSponsorRecipientRequestId('')
     setSponsorRecipientSignature('')
     setSponsorRecipientError('')
+    setTreasuryReleaseMessage('')
+    setTreasuryReleaseSignature('')
+    setTreasuryReleaseAction('approve')
+    setTreasuryReleaseError('')
   }, [network])
 
   // A reusable owner bearer session must not survive a lock or wallet switch.
@@ -468,6 +477,10 @@ export default function WalletVault() {
     setSponsorRecipientRequestId('')
     setSponsorRecipientSignature('')
     setSponsorRecipientError('')
+    setTreasuryReleaseMessage('')
+    setTreasuryReleaseSignature('')
+    setTreasuryReleaseAction('approve')
+    setTreasuryReleaseError('')
     const savedReference = unlocked?.record.address
       ? readTreasuryPayoutReference()
       : null
@@ -1047,6 +1060,104 @@ export default function WalletVault() {
       setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Withdrawal status lookup failed.')
     } finally {
       setTreasuryPayoutBusy(false)
+    }
+  }
+
+  async function loadTreasuryReleaseMessage(action: 'approve' | 'revoke') {
+    if (!ownerSessionToken) {
+      setTreasuryReleaseError('Sign the owner treasury check first to establish the authenticated owner-console session.')
+      return
+    }
+    setTreasuryReleaseBusy(true)
+    setTreasuryReleaseError('')
+    setTreasuryReleaseMessage('')
+    setTreasuryReleaseSignature('')
+    try {
+      const path = action === 'approve'
+        ? '/api/treasury/withdrawals/release-authorization/message'
+        : '/api/treasury/withdrawals/release-authorization/revocation-message'
+      const response = await fetch(API_BASE + path, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || typeof payload?.message !== 'string') {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Sponsor release message could not be prepared.')
+      }
+      setTreasuryReleaseAction(action)
+      setTreasuryReleaseMessage(payload.message)
+      pushToast('info', action === 'approve'
+        ? 'Release message prepared. This does not enable transfers until a configured sponsor signature is verified and stored.'
+        : 'Release revocation message prepared. Existing reserved or submitted transfers are not automatically cancelled.')
+    } catch (caught) {
+      setTreasuryReleaseError(caught instanceof Error ? caught.message : 'Sponsor release message could not be loaded.')
+    } finally {
+      setTreasuryReleaseBusy(false)
+    }
+  }
+
+  async function submitTreasuryReleaseSignature() {
+    if (!ownerSessionToken || !treasuryReleaseMessage) {
+      setTreasuryReleaseError('Prepare the exact sponsor release or revocation message before submitting its signature.')
+      return
+    }
+    const signature = treasuryReleaseSignature.trim()
+    if (!/^0x[0-9a-f]{130}$/i.test(signature)) {
+      setTreasuryReleaseError('Paste only the 65-byte 0x-prefixed message signature from the configured sponsor wallet. Never paste a private key.')
+      return
+    }
+    setTreasuryReleaseBusy(true)
+    setTreasuryReleaseError('')
+    try {
+      const path = treasuryReleaseAction === 'approve'
+        ? '/api/treasury/withdrawals/release-authorization/signature'
+        : '/api/treasury/withdrawals/release-authorization/revoke'
+      const response = await fetch(API_BASE + path, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({ signature }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Sponsor release signature was not accepted.')
+      }
+      setTreasuryReleaseSignature('')
+      setTreasuryReleaseMessage('')
+      const readinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const readiness = await readinessResponse.json().catch(() => null)
+      if (readinessResponse.ok && readiness?.success === true) setServerTreasuryReadiness(readiness)
+      pushToast('info', treasuryReleaseAction === 'approve'
+        ? 'Sponsor release signature verified and stored. New USDT execution is possible only if every live funding and payout preflight check also passes.'
+        : 'Sponsor release authorization revoked. New USDT submission is blocked; reconcile any existing in-flight transfer.')
+    } catch (caught) {
+      setTreasuryReleaseError(caught instanceof Error ? caught.message : 'Sponsor release signature submission failed.')
+    } finally {
+      setTreasuryReleaseBusy(false)
+    }
+  }
+
+  async function copyTreasuryReleaseMessage() {
+    if (!treasuryReleaseMessage) return
+    try {
+      await navigator.clipboard.writeText(treasuryReleaseMessage)
+      pushToast('success', 'Canonical release message copied. It contains no private key or transaction signing material.')
+    } catch {
+      setTreasuryReleaseError('Clipboard access is unavailable. Select and copy the canonical release message manually.')
     }
   }
 
@@ -1640,8 +1751,8 @@ export default function WalletVault() {
           </article>
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><ShieldCheck size={18} /><div><strong>Organization payout provider</strong><small>Backend-enforced readiness</small></div></div>
-            <p>Provider preflight values are informational only. This application build does not create, authorize, sign, or submit third-party treasury payouts.</p>
-            <span className="wallet-vault-state-pill is-blocked">Execution disabled in this build</span>
+            <p>Mainnet USDT execution is gated by a time-limited sponsor signature, the owner release switch, live Fireblocks funding checks, and a separate per-transfer owner signature.</p>
+            <span className={'wallet-vault-state-pill ' + (serverTreasuryReadiness?.executionEnabled === true ? 'is-ready' : 'is-blocked')}>{serverTreasuryReadiness?.executionEnabled === true ? 'Release and preflight passed' : 'Sponsor release or preflight missing'}</span>
           </article>
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><Wallet size={18} /><div><strong>Local wallet security</strong><small>Owner-controlled keys</small></div></div>
@@ -1670,7 +1781,7 @@ export default function WalletVault() {
           <div className="wallet-vault-review-wide"><small>Configured watch address</small>{ADDRESS_PATTERN.test(String(monitoredTreasuryAddress)) ? <a href={explorerUrl('mainnet', String(monitoredTreasuryAddress))} target="_blank" rel="noopener noreferrer">{monitoredTreasuryAddress} ↗</a> : <strong>Not configured</strong>}</div>
           <div><small>Read-only official USDT balance</small><strong>{headerTreasuryUsdt} USDT</strong></div>
           <div><small>Read-only TRX balance</small><strong>{headerTreasuryTrx} TRX</strong></div>
-          <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled' : serverTreasuryReadiness?.executionBlocker === 'real-value-payout-execution-disabled-in-this-build' ? 'Disabled by server safety gate' : 'Disabled in this build'}</strong></div>
+          <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled after sponsor release and all preflight checks' : serverTreasuryReadiness?.releaseAuthorization?.reason || serverTreasuryReadiness?.executionBlocker || 'Not authorized'}</strong></div>
         </div>
         {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
@@ -2037,7 +2148,7 @@ export default function WalletVault() {
                     <div className="wallet-vault-review-grid">
                       <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
                       <div><small>Payout preflight readiness</small><strong>{serverTreasuryReadiness.payoutsPreflightReady === true ? 'Passed (checks only)' : 'Not passed'}</strong></div>
-                      <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled' : serverTreasuryReadiness?.executionBlocker === 'real-value-payout-execution-disabled-in-this-build' ? 'Disabled by server safety gate' : 'Disabled in this build'}</strong></div>
+                      <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled after sponsor release and all preflight checks' : serverTreasuryReadiness?.releaseAuthorization?.reason || serverTreasuryReadiness?.executionBlocker || 'Not authorized'}</strong></div>
                       <div><small>Configuration completeness</small><strong>{serverTreasuryReadiness.configuration?.configurationComplete === true ? 'Complete' : 'Incomplete'}</strong></div>
                       <div><small>USDT payout switch</small><strong>{serverTreasuryReadiness.configuration?.featureFlagEnabled === true ? 'Enabled' : 'Disabled (safe default)'}</strong></div>
                       <div><small>USDT asset identity</small><strong>{serverTreasuryReadiness.providerAssetIdentityVerified === true ? 'Verified' : 'Unverified'}</strong></div>
@@ -2081,6 +2192,41 @@ export default function WalletVault() {
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>No payout request can be submitted from this build</strong>
                     <p>Recipient and amount entry are intentionally unavailable. This panel is limited to read-only treasury observations and previously saved request-reference lookup; it does not create a payout, reserve funds, sign, or broadcast a transaction.</p>
+                  </div>
+                  <div className="wallet-vault-transfer-warning" role="note">
+                    <strong>Mainnet USDT execution release authorization</strong>
+                    <p>Live USDT execution requires the owner-controlled <code>TREASURY_REAL_VALUE_EXECUTION_ENABLED=true</code> switch plus a sponsor message signature stored by the backend. The sponsor signature binds the exact Fireblocks vault, agreement, treasury address, USDT contract, TRX fee asset, limits, and recipient-policy hash. This is a release authorization, not a transfer instruction; live preflight and a separate owner signature are still required for each payout.</p>
+                  </div>
+                  <div className="wallet-vault-review-grid">
+                    <div><small>Owner release switch / sponsor authorization</small><strong>{serverTreasuryReadiness?.releaseAuthorization?.authorized === true ? 'Sponsor release authorized' : serverTreasuryReadiness?.releaseAuthorization?.reason || 'Not authorized'}</strong></div>
+                    <div><small>Release reference</small><strong>{serverTreasuryReadiness?.releaseAuthorization?.releaseReference || 'Not configured'}</strong></div>
+                    <div><small>Sponsor release signer</small><strong>{serverTreasuryReadiness?.releaseAuthorization?.signerAddress || 'Not verified'}</strong></div>
+                    <div><small>Release expiry</small><strong>{serverTreasuryReadiness?.releaseAuthorization?.expiresAt ? new Date(serverTreasuryReadiness.releaseAuthorization.expiresAt).toLocaleString() : 'Not authorized'}</strong></div>
+                    <div className="wallet-vault-review-wide"><small>Release message hash</small><strong>{serverTreasuryReadiness?.releaseAuthorization?.messageHash || 'Not recorded'}</strong></div>
+                  </div>
+                  <div className="wallet-vault-form">
+                    <button type="button" className="wallet-vault-primary" disabled={treasuryReleaseBusy || !ownerSessionToken} onClick={() => void loadTreasuryReleaseMessage('approve')}>
+                      {treasuryReleaseBusy && treasuryReleaseAction === 'approve' ? 'Preparing message…' : 'Prepare sponsor release message'}
+                    </button>
+                    {serverTreasuryReadiness?.releaseAuthorization?.authorized === true && (
+                      <button type="button" className="wallet-vault-secondary" disabled={treasuryReleaseBusy || !ownerSessionToken} onClick={() => void loadTreasuryReleaseMessage('revoke')}>
+                        Prepare sponsor release revocation message
+                      </button>
+                    )}
+                    {treasuryReleaseError && <p className="wallet-vault-risk-note" role="alert">{treasuryReleaseError}</p>}
+                    {treasuryReleaseMessage && (
+                      <>
+                        <label htmlFor="treasury-release-canonical-message">{treasuryReleaseAction === 'approve' ? 'Exact sponsor release message' : 'Exact sponsor revocation message'}</label>
+                        <textarea id="treasury-release-canonical-message" rows={10} readOnly value={treasuryReleaseMessage} />
+                        <button type="button" className="wallet-vault-secondary" disabled={treasuryReleaseBusy} onClick={() => void copyTreasuryReleaseMessage()}>Copy canonical sponsor message</button>
+                        <label htmlFor="treasury-release-signature">Sponsor wallet message signature only</label>
+                        <textarea id="treasury-release-signature" rows={2} autoComplete="off" spellCheck={false} value={treasuryReleaseSignature} onChange={event => setTreasuryReleaseSignature(event.target.value)} placeholder="0x followed by 130 hexadecimal characters" />
+                        <button type="button" className="wallet-vault-primary" disabled={treasuryReleaseBusy || !treasuryReleaseSignature.trim()} onClick={() => void submitTreasuryReleaseSignature()}>
+                          {treasuryReleaseBusy ? 'Verifying signature…' : treasuryReleaseAction === 'approve' ? 'Verify & store sponsor release' : 'Verify & revoke sponsor release'}
+                        </button>
+                        <p className="wallet-vault-caption">Only a public message signature is submitted. Never paste a sponsor seed phrase, private key, Fireblocks RSA key, or API secret. The release setting alone cannot activate execution without the independently verified sponsor signature record.</p>
+                      </>
+                    )}
                   </div>
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Sponsor-approved external destination</strong>
