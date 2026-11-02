@@ -2090,7 +2090,7 @@ export default function WalletVault() {
                   </div>
                   <div className="wallet-vault-form">
                     <label htmlFor="sponsor-recipient-request-id">Recipient approval request ID</label>
-                    <input id="sponsor-recipient-request-id" autoComplete="off" spellCheck={false} value={sponsorRecipientRequestId} onChange={event => setSponsorRecipientRequestId(event.target.value)} placeholder="Paste an existing request UUID to reload it" />
+                    <input id="sponsor-recipient-request-id" autoComplete="off" spellCheck={false} value={sponsorRecipientRequestId} onChange={event => { setSponsorRecipientRequestId(event.target.value); setSponsorRecipientRequest(null); setSponsorRecipientSignature('') }} placeholder="Paste an existing request UUID to reload it" />
                     <button type="button" className="wallet-vault-secondary" disabled={sponsorRecipientBusy || !sponsorRecipientRequestId.trim()} onClick={() => void loadSponsorRecipientApprovalRequest()}>
                       Load approval request
                     </button>
@@ -2098,6 +2098,9 @@ export default function WalletVault() {
                   {sponsorRecipientError && <p className="wallet-vault-risk-note" role="alert">{sponsorRecipientError}</p>}
                   {sponsorRecipientRequest?.request && (
                     <div className="wallet-vault-review-grid">
+                      {Array.isArray(sponsorRecipientRequest.requiredSponsorSignerAddresses) && sponsorRecipientRequest.requiredSponsorSignerAddresses.length > 0 && (
+                        <div className="wallet-vault-review-wide"><small>Configured sponsor signer addresses (public)</small><strong>{sponsorRecipientRequest.requiredSponsorSignerAddresses.join(', ')}</strong></div>
+                      )}
                       <div><small>Sponsor recipient request status</small><strong>{sponsorRecipientRequest.request.status}</strong></div>
                       <div className="wallet-vault-review-wide"><small>Request ID</small><strong>{sponsorRecipientRequest.request.requestId}</strong></div>
                       <div className="wallet-vault-review-wide"><small>Exact recipient</small><strong>{sponsorRecipientRequest.request.recipientAddress}</strong></div>
