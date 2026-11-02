@@ -1367,6 +1367,7 @@ export function createTreasuryWithdrawalsRouter({
     if (!UUID_PATTERN.test(requestId || '') || !isConfiguredTreasuryApprovalOrigin(origin, env)) {
       return res.status(400).json({ success: false, error: 'invalid-recipient-approval-reference-or-origin' })
     }
+    const config = configuration()
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
@@ -1421,6 +1422,8 @@ export function createTreasuryWithdrawalsRouter({
         },
         approvalMessage,
         revocationMessage,
+        sponsorApproverAddressesValid: config.sponsorApproverAddressesValid,
+        requiredSponsorSignerAddresses: config.sponsorApproverAddresses,
         note: 'The sponsor signer must independently inspect this exact request. The owner console cannot approve a destination on the sponsor organization behalf.',
       })
     } catch {
