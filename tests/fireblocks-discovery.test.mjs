@@ -22,19 +22,32 @@ function makeFixture({
   vaults = [{ id: '7', name: 'TRON treasury', assets: [{ id: 'USDT_TRON' }, { id: 'TRX' }] }],
   usdtAddress = OWNER,
   trxAddress = OWNER,
+  nestedPagination = false,
 } = {}) {
   const calls = []
   const fireblocksFactory = () => ({
     async getPagedVaultAccounts(args) {
       calls.push(['vaults', args])
+      if (nestedPagination) {
+        return args.after
+          ? { data: { accounts: [], paging: {} } }
+          : { data: { accounts: vaults, paging: { after: 'vault-page-2' } } }
+      }
       return { accounts: vaults, paging: {} }
     },
     async getAssets({ symbol, pageSize, pageCursor }) {
       calls.push(['assets', { symbol, pageSize, pageCursor }])
       if (symbol === 'USDT') {
-        return { assets: [{ id: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
+        if (nestedPagination && !pageCursor) {
+          return { data: { assets: [{ id: 'USDT_WRONG', symbol: 'USDT', contractAddress: OTHER }], paging: { pageCursor: 'usdt-page-2' } } }
+        }
+        return nestedPagination
+          ? { data: { assets: [{ id: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }], paging: {} } }
+          : { assets: [{ id: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
       }
-      return { assets: [{ id: 'TRX', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }] }
+      return nestedPagination
+        ? { data: [{ id: 'TRX', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }], paging: {} }
+        : { assets: [{ id: 'TRX', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }] }
     },
     async getAssetAddresses(assetId, vaultId, options) {
       calls.push(['addresses', { assetId, vaultId, options }])
@@ -168,5 +181,25 @@ test('Fireblocks discovery caches the read-only workspace result across automati
     assert.equal(secondPayload.cacheHit, true)
     assert.equal(secondPayload.discoveryStatus, firstPayload.discoveryStatus)
     assert.equal(fixture.calls.length, callsAfterFirst, 'a fresh cached result must not repeat Fireblocks provider requests')
+  })
+})
+
+
+test('Fireblocks discovery follows nested Fireblocks paging envelopes and keeps scanning until the official asset page', async () => {
+  const fixture = makeFixture({ nestedPagination: true })
+  await withServer(fixture, async (url) => {
+    const response = await getDiscovery(url)
+    const payload = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(payload.discoveryStatus, 'single-unambiguous-candidate')
+    assert.deepEqual(payload.suggestedConfiguration, {
+      vaultAccountId: '7',
+      usdtAssetId: 'USDT_TRON',
+      trxAssetId: 'TRX',
+      treasuryAddress: OWNER,
+    })
+    assert.ok(fixture.calls.some(([name, args]) => name === 'vaults' && args.after === 'vault-page-2'))
+    assert.ok(fixture.calls.some(([name, args]) => name === 'assets' && args.symbol === 'USDT' && args.pageCursor === 'usdt-page-2'))
+    assert.equal(payload.discoveryTruncated, false)
   })
 })
