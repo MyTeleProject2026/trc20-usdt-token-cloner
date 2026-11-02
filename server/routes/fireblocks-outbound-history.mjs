@@ -209,11 +209,11 @@ export function parseFireblocksOutboundHistoryTransaction(transaction, {
   const destinationType = safeText(destination.type, 64).toUpperCase()
   const destinationId = safeText(destination.id, 128) || null
   const destinationAddress = safeText(
-    destination.oneTimeAddress?.address || destination.address, 64,
+    destination.oneTimeAddress?.address || destination.address || transaction?.destinationAddress, 64,
   ) || null
   const supportedDestinationTypes = new Set([
     'ONE_TIME_ADDRESS', 'VAULT_ACCOUNT', 'EXCHANGE_ACCOUNT', 'INTERNAL_WALLET',
-    'EXTERNAL_WALLET', 'CONTRACT', 'FIAT_ACCOUNT', 'NETWORK_CONNECTION',
+    'EXTERNAL_WALLET', 'UNMANAGED_WALLET', 'CONTRACT', 'FIAT_ACCOUNT', 'NETWORK_CONNECTION',
     'COMPOUND', 'END_USER_WALLET',
   ])
   const feeInfo = transaction?.feeInfo && typeof transaction.feeInfo === 'object'
