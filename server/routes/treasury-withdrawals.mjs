@@ -2743,40 +2743,6 @@ export function createTreasuryWithdrawalsRouter({
             message: 'The requested USDT principal exceeds the remaining commitment recorded for this sponsor agreement. No Fireblocks transfer was requested.',
           })
         }
-        const thirdPartyCommittedBaseUnits = (
-          BigInt(String(committedThirdPartyWithdrawals.rows[0]?.amount || '0'))
-          + BigInt(String(historyGate.externalUsdtBaseUnits || '0'))
-        ).toString()
-        const thirdPartyPrincipalRemainingBaseUnits = sponsorFundingPool?.success === true
-          ? remainingThirdPartyFundingPrincipal(
-            String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0'),
-            thirdPartyCommittedBaseUnits,
-          )
-          : null
-        if (!sponsorFundingPool?.success || thirdPartyPrincipalRemainingBaseUnits === null
-          || BigInt(String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0')) <= 0n) {
-          await client.query('ROLLBACK')
-          return res.status(409).json({
-            success: false,
-            error: 'third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required',
-            transactionSubmitted: false,
-            payoutExecutionAuthorized: false,
-            message: 'No valid, reviewed sponsor agreement and incoming official-USDT deposit have been reconciled to the authorized Fireblocks vault. No Fireblocks transfer was requested.',
-          })
-        }
-        if (amount > BigInt(thirdPartyPrincipalRemainingBaseUnits)) {
-          await client.query('ROLLBACK')
-          return res.status(409).json({
-            success: false,
-            error: 'third-party-usdt-principal-insufficient-after-withdrawals',
-            verifiedThirdPartyPrincipalBaseUnits: String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits),
-            committedThirdPartyPrincipalBaseUnits: thirdPartyCommittedBaseUnits,
-            availableThirdPartyPrincipalBaseUnits: thirdPartyPrincipalRemainingBaseUnits,
-            requestedAmountBaseUnits: amount.toString(),
-            transactionSubmitted: false,
-            payoutExecutionAuthorized: false,
-          })
-        }
         const committedThirdPartyPrincipalBaseUnits = (
           BigInt(String(committedThirdPartyWithdrawals.rows[0]?.amount || '0'))
           + BigInt(String(historyGate.externalUsdtBaseUnits || '0'))
