@@ -559,10 +559,18 @@ export function createFireblocksOutboundHistoryRouter({
       // held across provider paging so parallel tabs cannot advance the same
       // cursor or commit a partial scan out of order.
       scanLockClient = await db.connect()
-      await scanLockClient.query(
-        'SELECT pg_advisory_lock(hashtextextended($1,0))',
+      const lockResult = await scanLockClient.query(
+        'SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS acquired',
         ['fireblocks-outbound-history:' + cfg.vaultAccountId],
       )
+      if (lockResult.rows[0]?.acquired !== true) {
+        return res.status(409).json({
+          success: false,
+          status: 'scanning',
+          error: 'fireblocks-outbound-history-sync-already-running',
+          payoutExecutionAuthorized: false,
+        })
+      }
       const fireblocks = fireblocksFactory(env)
       const vault = await fireblocks.getVaultAccount()
       if (String(vault?.id ?? '') !== cfg.vaultAccountId) {
