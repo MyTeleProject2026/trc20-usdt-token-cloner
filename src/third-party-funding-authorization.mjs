@@ -153,7 +153,9 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
     `Official TRON USDT contract: ${manifest.usdtContract}`,
     `Maximum USDT principal in base units (6 decimals): ${manifest.maxUsdtBaseUnits}`,
     `Maximum native TRX in SUN (6 decimals): ${manifest.maxTrxSun}`,
-    `Sponsor organization reference: ${manifest.sponsorOrganizationReference || 'legacy-unscoped'}`,
+    ...(manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+      ? [`Sponsor organization reference: ${manifest.sponsorOrganizationReference}`]
+      : []),
     `Separate written agreement reference: ${manifest.agreementReference}`,
     ...(manifest.format === PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
       || manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
