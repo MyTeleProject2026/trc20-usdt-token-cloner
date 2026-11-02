@@ -400,13 +400,14 @@ export function createFireblocksClient(env = process.env, {
       if (minAmountThreshold !== undefined) query.set('minAmountThreshold', String(minAmountThreshold))
       return request('GET', '/v1/vault/accounts_paged?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
-    async getAssets({ symbol, pageSize = 500, pageCursor } = {}) {
+    async getAssets({ symbol, pageSize = 500, pageCursor, deprecated = false } = {}) {
       if (typeof symbol !== 'string' || !/^[A-Z0-9._-]{1,24}$/.test(symbol)
         || !Number.isInteger(pageSize) || pageSize < 100 || pageSize > 1000
+        || typeof deprecated !== 'boolean'
         || (pageCursor !== undefined && (typeof pageCursor !== 'string' || !pageCursor.trim() || pageCursor.length > 2048))) {
         throw new FireblocksApiError(400, 'invalid-fireblocks-asset-discovery-request')
       }
-      const query = new URLSearchParams({ symbol, pageSize: String(pageSize) })
+      const query = new URLSearchParams({ symbol, pageSize: String(pageSize), deprecated: String(deprecated) })
       if (pageCursor !== undefined) query.set('pageCursor', pageCursor)
       return request('GET', '/v1/assets?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
