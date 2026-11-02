@@ -17,7 +17,7 @@ test('third-party source consent and deposit endpoints are mounted under the own
   assert.match(route, /body\.manifest\.agreementReference !== agreementReference/)
   assert.match(route, /expectedSponsorOrganizationReference: sponsorOrganizationReference, expectedAgreementReference: agreementReference/)
   assert.match(route, /withdrawalDisbursementAcknowledged !== true/)
-  assert.match(route, /verifyAuthorization\(body\.manifest, \{ expectedVaultAddress: vaultAddress, now \}\)/)
+  assert.match(route, /verifyAuthorization\(body\.manifest, \{ expectedVaultAddress: vaultAddress, expectedSponsorOrganizationReference: sponsorOrganizationReference, expectedAgreementReference: agreementReference, now \}\)/)
 })
 
 test('incoming USDT deposit is proven by solidified receipt, exact transaction call and official Transfer event', async () => {
@@ -72,12 +72,12 @@ test('payout readiness and reservation both require remaining verified third-par
   const postEnd = route.indexOf("router.post('/trx-withdrawals'", postStart)
   const readiness = route.slice(readinessStart, postStart)
   const post = route.slice(postStart, postEnd)
-  assert.match(readiness, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress\)/)
+  assert.match(readiness, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress, config\.sponsorOrganizationReference, config\.sponsorAgreementReference\)/)
   assert.match(readiness, /remainingThirdPartyFundingPrincipal/)
   assert.match(readiness, /verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyFunding\.availablePrincipalBaseUnits/)
   assert.match(readiness, /third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required/)
   assert.match(post, /pg_advisory_xact_lock\(hashtext\('tron-token-studio-treasury-withdrawals-mainnet'\)\)/)
-  assert.match(post, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress\)/)
+  assert.match(post, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress, config\.sponsorOrganizationReference, config\.sponsorAgreementReference\)/)
   assert.match(post, /remainingVerifiedThirdPartyPrincipalBaseUnits/)
   assert.match(post, /third-party-usdt-principal-insufficient-after-withdrawals/)
   assert.match(route, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
