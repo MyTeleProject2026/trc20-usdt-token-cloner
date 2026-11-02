@@ -25,6 +25,7 @@ function makeFixture({
   trxAddress = OWNER,
   nestedPagination = false,
   allowPatternOnlyAddress = false,
+  uuidOnlyCatalog = false,
 } = {}) {
   const calls = []
   const fireblocksFactory = () => ({
@@ -40,6 +41,9 @@ function makeFixture({
     async getAssets({ symbol, pageSize, pageCursor }) {
       calls.push(['assets', { symbol, pageSize, pageCursor }])
       if (symbol === 'USDT') {
+        if (uuidOnlyCatalog) {
+          return { assets: [{ id: '3ed32525-70df-45c8-bae3-e69ab56dc095', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
+        }
         if (nestedPagination && !pageCursor) {
           return { data: { assets: [{ id: 'USDT_WRONG', symbol: 'USDT', contractAddress: OTHER }], paging: { pageCursor: 'usdt-page-2' } } }
         }
@@ -234,5 +238,19 @@ test('Fireblocks discovery rejects Base58-shaped addresses that fail TRON checks
     assert.equal(payload.suggestedConfiguration, null)
     assert.equal(payload.candidateVaults[0].addressChecks[0].usdtAddressCount, 0)
     assert.equal(payload.candidateVaults[0].addressChecks[0].trxAddressCount, 0)
+  })
+})
+
+
+test('Fireblocks discovery does not suggest UUID-only assets as payout API identifiers', async () => {
+  const fixture = makeFixture({ uuidOnlyCatalog: true })
+  await withServer(fixture, async (url) => {
+    const response = await getDiscovery(url)
+    const payload = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(payload.discoveryStatus, 'review-required')
+    assert.equal(payload.officialUsdtAssets.length, 0)
+    assert.equal(payload.nativeTrxAssets.length, 0)
+    assert.equal(payload.suggestedConfiguration, null)
   })
 })
