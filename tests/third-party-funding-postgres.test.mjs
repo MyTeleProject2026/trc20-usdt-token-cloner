@@ -250,19 +250,27 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   } finally {
     await expiryPool.end()
   }
+  // Expiry blocks new deposits but does not erase the principal of deposits
+  // already confirmed on-chain before the signed consent expiry.
   const expiredSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
   assert.equal(expiredSponsorPool.success, true)
-  assert.equal(expiredSponsorPool.verifiedDepositCount, '0')
-  assert.equal(expiredSponsorPool.reviewedAuthorizationCount, '0')
-  assert.equal(expiredSponsorPool.verifiedUsdtPrincipalBaseUnits, '0')
+  assert.equal(expiredSponsorPool.verifiedDepositCount, '1')
+  assert.equal(expiredSponsorPool.reviewedAuthorizationCount, '1')
+  assert.equal(expiredSponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
   const expiredTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress)
   assert.equal(expiredTrxPool.success, true)
-  assert.equal(expiredTrxPool.verifiedTrxPrincipalSun, '0')
+  assert.equal(expiredTrxPool.verifiedTrxPrincipalSun, '8000000')
 
   const revoked = await revokeThirdPartyFundingAuthorization({
     authorizationId, revokedBy: makeTronAddress('33'),
   })
   assert.equal(revoked.revoked, true)
+  const revokedSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
+  assert.equal(revokedSponsorPool.success, true)
+  assert.equal(revokedSponsorPool.verifiedUsdtPrincipalBaseUnits, '0')
+  const revokedTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress)
+  assert.equal(revokedTrxPool.success, true)
+  assert.equal(revokedTrxPool.verifiedTrxPrincipalSun, '0')
   assert.equal(revoked.status, 'revoked')
 
   const repeatedRevocation = await revokeThirdPartyFundingAuthorization({
