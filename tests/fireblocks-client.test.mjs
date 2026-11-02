@@ -607,6 +607,7 @@ test('Fireblocks can discover vaults and assets with authorized API credentials 
   ])
   assert.equal(calls[0].parsed.searchParams.get('limit'), '200')
   assert.equal(calls[1].parsed.searchParams.get('symbol'), 'USDT')
+  assert.equal(calls[1].parsed.searchParams.get('deprecated'), 'false')
   assert.ok(calls.every(({ init }) => init.method === 'GET' && init.body === undefined))
   assert.ok(calls.every(({ init }) => init.headers['X-API-Key'] === 'discovery-api-key'))
 
