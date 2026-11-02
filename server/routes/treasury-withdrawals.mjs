@@ -240,6 +240,39 @@ export async function recoverTreasurySponsorRecipientApprover(tronWeb, {
   }
 }
 
+export async function verifyTreasurySponsorRecipientApproval(tronWeb, row, {
+  allowedSignerAddresses = [],
+} = {}) {
+  if (!row || typeof row !== 'object' || row.status !== 'approved'
+    || row.token_contract !== USDT_MAINNET
+    || typeof row.approver_address !== 'string'
+    || typeof row.approval_message_hash !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(row.approval_message_hash)) return false
+  try {
+    const approvalMessage = buildTreasuryRecipientApprovalMessage({
+      requestId: row.request_id,
+      sponsorOrganizationReference: row.sponsor_organization_reference,
+      sponsorAgreementReference: row.sponsor_agreement_reference,
+      treasuryAddress: row.treasury_address,
+      recipientAddress: row.recipient_address,
+      requesterAddress: row.requester_owner_address,
+      requesterOrigin: row.requester_origin,
+      reason: row.request_reason,
+      expiresAt: new Date(row.approval_expires_at).getTime(),
+    })
+    const expectedHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
+    if (expectedHash !== row.approval_message_hash.trim().toLowerCase()) return false
+    const recoveredApprover = await recoverTreasurySponsorRecipientApprover(tronWeb, {
+      message: approvalMessage,
+      signature: row.approval_signature,
+      allowedSignerAddresses,
+    })
+    return recoveredApprover === row.approver_address
+  } catch {
+    return false
+  }
+}
+
 export function isUnifiedTreasuryOwnerConfiguration(env = process.env) {
   const consoleOwner = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
   const treasuryOwner = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
@@ -1834,28 +1867,9 @@ export function createTreasuryWithdrawalsRouter({
             treasuryAddress, body.recipientAddress, USDT_MAINNET, config.sponsorApproverAddresses,
           ])
           const approvalRow = approved.rows[0]
-          let sponsorSignedApproval = false
-          if (approvalRow) {
-            const approvalMessage = buildTreasuryRecipientApprovalMessage({
-              requestId: approvalRow.request_id,
-              sponsorOrganizationReference: approvalRow.sponsor_organization_reference,
-              sponsorAgreementReference: approvalRow.sponsor_agreement_reference,
-              treasuryAddress: approvalRow.treasury_address,
-              recipientAddress: approvalRow.recipient_address,
-              requesterAddress: approvalRow.requester_owner_address,
-              requesterOrigin: approvalRow.requester_origin,
-              reason: approvalRow.request_reason,
-              expiresAt: new Date(approvalRow.approval_expires_at).getTime(),
-            })
-            const expectedApprovalHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
-            const recoveredApprover = await recoverTreasurySponsorRecipientApprover(tronWeb, {
-              message: approvalMessage,
-              signature: approvalRow.approval_signature,
-              allowedSignerAddresses: config.sponsorApproverAddresses,
-            })
-            sponsorSignedApproval = expectedApprovalHash === String(approvalRow.approval_message_hash).trim().toLowerCase()
-              && recoveredApprover === approvalRow.approver_address
-          }
+          const sponsorSignedApproval = await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
+            allowedSignerAddresses: config.sponsorApproverAddresses,
+          })
           if (!sponsorSignedApproval) {
             await client.query('ROLLBACK')
             return res.status(403).json({
