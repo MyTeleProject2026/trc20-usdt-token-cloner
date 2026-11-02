@@ -6,6 +6,17 @@ This design lets the single authorized Tron Token Studio owner request withdrawa
 
 A transaction must never be described as paid, confirmed, or exchange-credited until the relevant evidence exists. A chain-confirmed transfer does not guarantee that a centralized exchange credited a deposit.
 
+
+## Recipient approval and execution-status rules
+
+The current production recipient gate is the server-side `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` allowlist. Each entry must be a unique, checksum-valid TRON Base58Check address. A withdrawal request is rejected before a database reservation or Fireblocks call when its destination is not in that list. Adding a destination is an operator-controlled sponsor-policy change: first obtain the sponsor organization's documented approval for the exact address and Mainnet USDT scope, then update the backend secret/configuration through the organization's controlled change process and re-run readiness. Do not accept a destination merely because the owner typed it into the UI or signed an ordinary withdrawal request.
+
+Readiness has two distinct meanings:
+- `payoutsPreflightReady` / `preflightChecksPassed`: configuration, provider metadata, balances, fee reserve, database and sponsor-budget checks passed.
+- `withdrawalsEnabled` / `executionEnabled`: the server is actually permitted to submit real-value withdrawals. In supervised builds this remains `false` while the immutable execution lock is closed, even when preflight is otherwise complete.
+
+The UI must not label a successful preflight as an active withdrawal capability. Environment feature flags, a positive balance, a Fireblocks API response, or a successful readiness request cannot override the server-side release lock.
+
 ## Authorization model
 
 "Without per-transfer approval" means pre-authorized automation under an owner-configured policy, not spending without authorization:

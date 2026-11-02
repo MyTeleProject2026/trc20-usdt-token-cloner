@@ -3,7 +3,21 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches, treasuryPayoutExecutionState } from '../server/routes/treasury-withdrawals.mjs'
+
+
+test('treasury readiness never reports withdrawals enabled while the hard real-value execution lock is closed', () => {
+  const result = treasuryPayoutExecutionState(true)
+  assert.equal(result.payoutsPreflightReady, true, 'provider, funding and policy preflight may pass independently')
+  assert.equal(result.withdrawalsEnabled, false, 'the public enablement field must reflect executable capability')
+  assert.equal(result.executionEnabled, false)
+  assert.equal(result.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
+
+  const blocked = treasuryPayoutExecutionState(false)
+  assert.equal(blocked.payoutsPreflightReady, false)
+  assert.equal(blocked.withdrawalsEnabled, false)
+  assert.equal(blocked.executionEnabled, false)
+})
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
