@@ -7,6 +7,21 @@ import { createServer } from 'node:http'
 import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parseTreasurySponsorApproverAllowlist, buildTreasuryRecipientApprovalMessage, buildTreasuryRecipientRevocationMessage, recoverTreasurySponsorRecipientApprover, verifyTreasurySponsorRecipientApproval, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches, treasuryPayoutExecutionState, treasuryTrxPayoutExecutionState, buildTreasuryRealValueReleaseMessage, verifyTreasuryRealValueReleaseAuthorization, buildTreasuryRealValueReleaseRevocationMessage } from '../server/routes/treasury-withdrawals.mjs'
 
 
+test('Mainnet USDT payout readiness and submission fail closed without fresh Fireblocks outbound history', async () => {
+  const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
+  const historyRoute = await readFile(new URL('../server/routes/fireblocks-outbound-history.mjs', import.meta.url), 'utf8')
+  assert.match(source, /getFireblocksOutboundHistoryStatus/)
+  assert.match(source, /fireblocks-vault-outbound-history-not-reconciled/)
+  assert.match(source, /BigInt\(applicationCommittedBaseUnits\) \+ BigInt\(externalOutboundUsdtBaseUnits\)/)
+  assert.match(source, /AND status <> 'rejected'/, 'failed or ambiguous app requests remain committed')
+  assert.match(source, /if \(outboundHistory\.verified\) \{\s*sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState/)
+  assert.match(historyRoute, /createFireblocksReadOnlyClient/)
+  assert.match(historyRoute, /fireblocksReadOnlyConfiguration/)
+  assert.doesNotMatch(historyRoute, /!cfg\.providerConfigured/, 'history sync must not require the payout API identity')
+  assert.match(historyRoute, /pg_advisory_lock\(hashtextextended/)
+  assert.match(historyRoute, /now\(\) - historyEndMs/, 'freshness must be measured from the covered provider-history boundary')
+})
+
 test('USDT payout execution requires successful preflight and separate sponsor release authorization', () => {
   const missingRelease = treasuryPayoutExecutionState(true, false)
   assert.equal(missingRelease.payoutsPreflightReady, true)
