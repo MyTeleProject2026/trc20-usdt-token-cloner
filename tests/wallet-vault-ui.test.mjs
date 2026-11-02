@@ -110,7 +110,7 @@ test('owner wallet uses responsive owner navigation and separates recovery from 
   assert.match(css, /\.wallet-vault-setup-details/)
 })
 
-test('owner treasury panel exposes sponsor release controls but keeps payout submission unavailable', async () => {
+test('owner treasury panel exposes sponsor release and gated payout submission controls', async () => {
   const vault = await read('src/WalletVault.tsx')
   const server = await read('server/routes/treasury-withdrawals.mjs')
   assert.match(vault, /setOwnerSessionToken\(''\)/)
@@ -129,10 +129,12 @@ test('owner treasury panel exposes sponsor release controls but keeps payout sub
   assert.match(vault, /Remaining USDT principal commitment/)
   assert.match(vault, /TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>/)
   assert.match(vault, /matching official Transfer event were verified on TRON/)
-  assert.match(vault, /async function submitServerTreasuryPayout\(\)[\s\S]{0,300}server-funded payout submission is disabled/i)
-  assert.match(vault, /No payout request can be submitted from this build/)
-  assert.match(vault, /Recipient and amount entry are intentionally unavailable/)
-  assert.match(vault, /Application payout execution/)
+  assert.match(vault, /async function submitServerTreasuryPayout\(\)[\s\S]{0,1800}buildTreasuryWithdrawalAuthorizationMessage/)
+  assert.match(vault, /tronWeb\.trx\.signMessageV2\(authorizationMessage\)/)
+  assert.match(vault, /treasuryPayoutConfirm\.trim\(\) !== 'SEND USDT'/)
+  assert.match(vault, /saveTreasuryPayoutReference\(ownerSessionAddress, idempotencyKey\)/)
+  assert.match(vault, /\/api\/treasury\/withdrawals/)
+  assert.match(vault, /canSubmitServerTreasuryPayout/)
   assert.match(vault, /Mainnet USDT execution release authorization/)
   assert.match(vault, /TREASURY_REAL_VALUE_EXECUTION_ENABLED=true/)
   assert.match(vault, /Prepare sponsor release message/)
@@ -146,12 +148,12 @@ test('owner treasury panel exposes sponsor release controls but keeps payout sub
   assert.match(server, /owner-payout-authorization-expired-or-outside-window/)
 })
 
-test('owner payout reference can only be inspected; this build does not create payout requests', async () => {
+test('owner payout reference persists only the opaque idempotency key for safe recovery', async () => {
   const vault = await read('src/WalletVault.tsx')
   const reference = await read('src/treasury-payout-reference.mjs')
   assert.match(vault, /readTreasuryPayoutReference\(\)/)
   assert.match(vault, /savedReference\.ownerAddress === unlocked\?\.record\.address/)
-  assert.doesNotMatch(vault, /saveTreasuryPayoutReference\(/)
+  assert.match(vault, /saveTreasuryPayoutReference\(ownerSessionAddress, idempotencyKey\)/)
   assert.match(reference, /never contains a private key, signed authorization, or claim of success/)
   assert.doesNotMatch(reference, /privateKey|seedPhrase|ownerAuthorizationSignature/)
 })
