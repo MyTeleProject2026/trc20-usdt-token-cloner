@@ -2,7 +2,8 @@ import { Trx } from 'tronweb'
 import { isValidTronAddress } from '../server/tron-address.mjs'
 
 const LEGACY_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v1'
-export const THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v2'
+const PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v2'
+export const THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT = 'tron-token-studio/third-party-funding-authorization/v3'
 export const OFFICIAL_TRON_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -23,24 +24,26 @@ function validIsoTimestamp(value) {
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value
 }
 
-function validateFields(manifest, { expectedVaultAddress, nowMs = Date.now() } = {}) {
+function validateFields(manifest, { expectedVaultAddress, expectedSponsorOrganizationReference, expectedAgreementReference, nowMs = Date.now() } = {}) {
   if (!isRecord(manifest)) return { valid: false, reason: 'manifest-must-be-json-object' }
 
   const isLegacyV1 = manifest.format === LEGACY_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
-  const isV2 = manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+  const isV2 = manifest.format === PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+  const isV3 = manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
   const allowed = new Set([
     'format', 'authorizationId', 'network', 'sponsorAddress', 'vaultAddress',
     'usdtContract', 'maxUsdtBaseUnits', 'maxTrxSun', 'agreementReference',
-    ...(isV2 ? ['agreementDocumentSha256'] : []),
+    ...(isV2 || isV3 ? ['agreementDocumentSha256'] : []),
+    ...(isV3 ? ['sponsorOrganizationReference'] : []),
     'issuedAt', 'expiresAt', 'signature',
   ])
   if (Object.keys(manifest).some((key) => !allowed.has(key))) {
     return { valid: false, reason: 'manifest-contains-unsupported-fields' }
   }
-  if (!isLegacyV1 && !isV2) {
+  if (!isLegacyV1 && !isV2 && !isV3) {
     return { valid: false, reason: 'unsupported-authorization-format' }
   }
-  if (isV2 && (typeof manifest.agreementDocumentSha256 !== 'string'
+  if ((isV2 || isV3) && (typeof manifest.agreementDocumentSha256 !== 'string'
     || !/^[0-9a-f]{64}$/.test(manifest.agreementDocumentSha256))) {
     return { valid: false, reason: 'agreement-document-sha256-required' }
   }
@@ -50,6 +53,18 @@ function validateFields(manifest, { expectedVaultAddress, nowMs = Date.now() } =
   }
   if (typeof manifest.agreementReference !== 'string' || !IDENTIFIER_PATTERN.test(manifest.agreementReference)) {
     return { valid: false, reason: 'agreement-reference-required' }
+  }
+  if (isV3 && (typeof manifest.sponsorOrganizationReference !== 'string'
+    || !IDENTIFIER_PATTERN.test(manifest.sponsorOrganizationReference))) {
+    return { valid: false, reason: 'sponsor-organization-reference-required' }
+  }
+  if (isV3 && expectedSponsorOrganizationReference !== undefined
+    && manifest.sponsorOrganizationReference !== expectedSponsorOrganizationReference) {
+    return { valid: false, reason: 'sponsor-organization-reference-does-not-match-outgoing-policy' }
+  }
+  if (expectedAgreementReference !== undefined
+    && manifest.agreementReference !== expectedAgreementReference) {
+    return { valid: false, reason: 'sponsor-agreement-reference-does-not-match-outgoing-policy' }
   }
   if (!ADDRESS_PATTERN.test(String(manifest.sponsorAddress || ''))
     || !isValidTronAddress(manifest.sponsorAddress)) {
@@ -116,7 +131,9 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
     manifest.maxUsdtBaseUnits,
     manifest.maxTrxSun,
     manifest.agreementReference,
-    ...(manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? [manifest.agreementDocumentSha256] : []),
+    ...(manifest.format === PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+      || manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? [manifest.agreementDocumentSha256] : []),
+    ...(manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? [manifest.sponsorOrganizationReference] : []),
     manifest.issuedAt,
     manifest.expiresAt,
   ]
@@ -126,7 +143,8 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
 
   return [
     'TRON Token Studio third-party treasury funding consent',
-    manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? 'Version: 2' : 'Version: 1',
+    manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? 'Version: 3'
+      : manifest.format === PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? 'Version: 2' : 'Version: 1',
     'Purpose: authorize one manually initiated incoming deposit to the named Fireblocks vault only.',
     'Network: TRON Mainnet',
     `Authorization ID: ${manifest.authorizationId}`,
@@ -135,8 +153,10 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
     `Official TRON USDT contract: ${manifest.usdtContract}`,
     `Maximum USDT principal in base units (6 decimals): ${manifest.maxUsdtBaseUnits}`,
     `Maximum native TRX in SUN (6 decimals): ${manifest.maxTrxSun}`,
+    `Sponsor organization reference: ${manifest.sponsorOrganizationReference || 'legacy-unscoped'}`,
     `Separate written agreement reference: ${manifest.agreementReference}`,
-    ...(manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+    ...(manifest.format === PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+      || manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
       ? [`SHA-256 of exact executed agreement file: ${manifest.agreementDocumentSha256}`]
       : []),
     `Issued at: ${manifest.issuedAt}`,
@@ -149,10 +169,12 @@ export function buildThirdPartyFundingAuthorizationMessage(manifest) {
 
 export async function verifyThirdPartyFundingAuthorization(manifest, {
   expectedVaultAddress,
+  expectedSponsorOrganizationReference,
+  expectedAgreementReference,
   now = () => Date.now(),
   verifyMessage = (message, signature) => Trx.verifyMessageV2(message, signature),
 } = {}) {
-  const fields = validateFields(manifest, { expectedVaultAddress, nowMs: now() })
+  const fields = validateFields(manifest, { expectedVaultAddress, expectedSponsorOrganizationReference, expectedAgreementReference, nowMs: now() })
   if (!fields.valid) return { verified: false, reason: fields.reason }
   if (typeof manifest.signature !== 'string' || !SIGNATURE_PATTERN.test(manifest.signature)) {
     return { verified: false, reason: 'authorization-signature-invalid-format' }
@@ -179,8 +201,10 @@ export async function verifyThirdPartyFundingAuthorization(manifest, {
       usdtContract: OFFICIAL_TRON_MAINNET_USDT,
       maxUsdtBaseUnits: manifest.maxUsdtBaseUnits,
       maxTrxSun: manifest.maxTrxSun,
+      sponsorOrganizationReference: manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT ? manifest.sponsorOrganizationReference : 'legacy-unscoped',
       agreementReference: manifest.agreementReference,
-      agreementDocumentSha256: manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+      agreementDocumentSha256: manifest.format === PREVIOUS_THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
+        || manifest.format === THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
         ? manifest.agreementDocumentSha256 : null,
       issuedAt: manifest.issuedAt,
       expiresAt: manifest.expiresAt,
