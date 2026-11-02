@@ -133,16 +133,16 @@ export function createFireblocksReadOnlyClient(env = process.env, options = {}) 
     FIREBLOCKS_API_KEY: config.configured ? config.apiKey : '',
     FIREBLOCKS_SECRET_KEY_PATH: config.configured ? config.secretKeyPath : '',
     FIREBLOCKS_API_BASE: config.apiBase,
-    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
-    FIREBLOCKS_USDT_ASSET_ID: '',
   }, options)
   return Object.freeze({
     configuration: () => ({ credentialsConfigured: config.configured,
       credentialsMissing: [...config.credentialsMissing], apiBase: config.apiBase }),
+    getVaultAccount: () => client.getVaultAccount(),
     getPagedVaultAccounts: (args) => client.getPagedVaultAccounts(args),
     getAssets: (args) => client.getAssets(args),
     getAssetAddresses: (assetId, vaultAccountId) =>
       client.getAssetAddresses(assetId, vaultAccountId, { credentialsOnly: true }),
+    getTransactionsPage: (args) => client.getTransactionsPage(args),
   })
 }
 
@@ -332,7 +332,7 @@ export function createFireblocksClient(env = process.env, {
 } = {}) {
   const config = fireblocksConfiguration(env)
 
-  async function request(method, uri, payload, { credentialsOnly = false, preserveEnvelope = false } = {}) {
+  async function request(method, uri, payload, { credentialsOnly = false, preserveEnvelope = false, includeHeaders = false } = {}) {
     if (credentialsOnly ? !config.credentialsConfigured : !config.providerConfigured) {
       throw new FireblocksApiError(503, credentialsOnly ? 'fireblocks-credentials-not-configured' : 'fireblocks-not-configured')
     }
@@ -396,7 +396,12 @@ export function createFireblocksClient(env = process.env, {
       // Provider response text and policy internals are deliberately not returned.
       throw new FireblocksApiError(response.status, 'fireblocks-provider-http-error')
     }
-    return preserveEnvelope ? parsed : unwrapResponse(parsed)
+    const data = preserveEnvelope ? parsed : unwrapResponse(parsed)
+    if (includeHeaders) {
+      const nextPage = response.headers?.get('next-page') || response.headers?.get('Next-Page') || null
+      return { data, nextPage }
+    }
+    return data
   }
 
   return Object.freeze({
@@ -559,6 +564,39 @@ export function createFireblocksClient(env = process.env, {
         note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury TRX payout',
       }
       return request('POST', '/v1/transactions', requestBody)
+    },
+    async getTransactionsPage({ after, before, next, limit = 500 } = {}) {
+      const validTimestamp = (value) => typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value)
+      if (!validTimestamp(after) || !validTimestamp(before) || BigInt(before) <= BigInt(after)
+        || !Number.isInteger(limit) || limit < 1 || limit > 500
+        || (next !== undefined && (typeof next !== 'string' || !next.trim()
+          || next.length > 8192 || /[\r\n]/.test(next)))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-transaction-history-page-request')
+      }
+      const query = new URLSearchParams({
+        after,
+        before,
+        limit: String(limit),
+        sourceType: 'VAULT_ACCOUNT',
+        sourceId: config.vaultAccountId,
+        orderBy: 'createdAt',
+        sort: 'ASC',
+      })
+      if (next !== undefined) query.set('next', next)
+      const result = await request('GET', '/v1/transactions?' + query.toString(), undefined, {
+        credentialsOnly: true,
+        includeHeaders: true,
+      })
+      const rows = Array.isArray(result.data) ? result.data
+        : Array.isArray(result.data?.transactions) ? result.data.transactions
+          : Array.isArray(result.data?.data) ? result.data.data : null
+      if (!rows) throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-response')
+      const nextPage = typeof result.nextPage === 'string' && result.nextPage.trim()
+        ? result.nextPage.trim() : null
+      if (nextPage && (nextPage.length > 8192 || /[\r\n]/.test(nextPage))) {
+        throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-cursor')
+      }
+      return { transactions: rows, nextPage }
     },
     async getTransaction(transactionId) {
       if (typeof transactionId !== 'string' || !IDENTIFIER_PATTERN.test(transactionId)) {

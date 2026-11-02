@@ -70,9 +70,14 @@ test('Fireblocks accepts only an absolute mounted secret-file path and known pro
 })
 
 test('Fireblocks read-only identity requires independent API key and RSA secret path', () => {
-  const env = { ...configuredEnv, FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
+  const env = {
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
     FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
-    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io' }
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+    FIREBLOCKS_API_KEY: configuredEnv.FIREBLOCKS_API_KEY,
+    FIREBLOCKS_SECRET_KEY_PATH: configuredEnv.FIREBLOCKS_SECRET_KEY_PATH,
+  }
   assert.equal(fireblocksReadOnlyConfiguration(env).configured, true)
   assert.equal(fireblocksReadOnlyConfiguration({ ...env,
     FIREBLOCKS_READONLY_API_KEY: configuredEnv.FIREBLOCKS_API_KEY }).configured, false)
@@ -100,6 +105,74 @@ test('read-only Fireblocks client authenticates with its own identity and expose
   await client.getAssets({ symbol: 'USDT', pageSize: 500 })
   assert.equal(calls.length, 1)
   assert.equal(calls[0].init.headers['X-API-Key'], 'viewer-api-key')
+})
+
+test('read-only Fireblocks client fetches bounded vault transaction-history pages using the Viewer identity', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const env = {
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-history-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+  }
+  const client = createFireblocksReadOnlyClient(env, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url: new URL(url), init })
+      return new Response(JSON.stringify({ data: [{
+        id: 'history-tx-1', operation: 'TRANSFER', assetId: 'USDT_TRON',
+      }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'next-page': 'cursor-page-2' },
+      })
+    },
+    readSecretFile: async (path) => {
+      assert.equal(path, env.FIREBLOCKS_READONLY_SECRET_KEY_PATH)
+      return privateKey
+    },
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'readonly-history-nonce',
+  })
+  const result = await client.getTransactionsPage({
+    after: '1',
+    before: '1798000000000',
+    limit: 500,
+  })
+  assert.equal(result.transactions.length, 1)
+  assert.equal(result.nextPage, 'cursor-page-2')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.headers['X-API-Key'], 'viewer-history-api-key')
+  assert.equal(calls[0].url.pathname, '/v1/transactions')
+  assert.equal(calls[0].url.searchParams.get('after'), '1')
+  assert.equal(calls[0].url.searchParams.get('before'), '1798000000000')
+  assert.equal(calls[0].url.searchParams.get('limit'), '500')
+  assert.equal(calls[0].url.searchParams.get('sourceType'), 'VAULT_ACCOUNT')
+  assert.equal(calls[0].url.searchParams.get('sourceId'), '0')
+  assert.equal(calls[0].url.searchParams.get('orderBy'), 'createdAt')
+  assert.equal(calls[0].url.searchParams.get('sort'), 'ASC')
+  assert.equal('createUsdtTransfer' in client, false)
+  assert.equal('createTrxTransfer' in client, false)
+  assert.equal('estimateUsdtTransferFee' in client, false)
+})
+
+test('Fireblocks transaction-history pagination rejects invalid ranges, excessive limits and unsafe cursors', async () => {
+  const { privateKey } = keyPair()
+  const env = {
+    ...configuredEnv,
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-history-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+  }
+  const client = createFireblocksReadOnlyClient(env, {
+    fetchImpl: async () => { throw new Error('provider should not be called') },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'readonly-history-invalid',
+  })
+  await assert.rejects(client.getTransactionsPage({ after: '0', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '10', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', limit: 501 }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', next: 'bad' + String.fromCharCode(10) + 'page' }), /invalid-fireblocks-transaction-history-page-request/)
 })
 
 test('Fireblocks JWT signs URI, nonce, time, API key subject and exact body hash', () => {

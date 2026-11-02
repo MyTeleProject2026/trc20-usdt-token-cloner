@@ -322,13 +322,26 @@ export default function WalletVault() {
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
-  const [ownerSessionToken, setOwnerSessionToken] = useState('')
+  const [ownerSessionToken, setOwnerSessionToken] = useState<string>(() => {
+    // Restore the tab-scoped owner session into React state on page reload.
+    // The backend still validates the token and expiry before serving any data.
+    try {
+      const token = window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+      return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : ''
+    } catch {
+      return ''
+    }
+  })
+  const [ownerTreasuryRefreshNonce, setOwnerTreasuryRefreshNonce] = useState(0)
   const [ownerSessionAddress, setOwnerSessionAddress] = useState('')
   const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
   const [fireblocksInventorySnapshot, setFireblocksInventorySnapshot] = useState<FireblocksInventorySnapshot | null>(null)
   const [fireblocksInventoryError, setFireblocksInventoryError] = useState('')
   const [fireblocksDiscoverySnapshot, setFireblocksDiscoverySnapshot] = useState<FireblocksDiscoverySnapshot | null>(null)
   const [fireblocksDiscoveryError, setFireblocksDiscoveryError] = useState('')
+  const [fireblocksOutboundHistorySnapshot, setFireblocksOutboundHistorySnapshot] = useState<any>(null)
+  const [fireblocksOutboundHistoryBusy, setFireblocksOutboundHistoryBusy] = useState(false)
+  const [fireblocksOutboundHistoryError, setFireblocksOutboundHistoryError] = useState('')
   const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
   const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
   const [treasuryPayoutConfirm, setTreasuryPayoutConfirm] = useState('')
@@ -582,7 +595,7 @@ export default function WalletVault() {
 
         if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse, outboundHistoryResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
@@ -595,12 +608,16 @@ export default function WalletVault() {
           fetch(API_BASE + '/api/treasury/fireblocks/discovery', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
+          fetch(API_BASE + '/api/treasury/fireblocks/outbound-history/status', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
         ])
-        const [funding, readiness, inventory, discovery] = await Promise.all([
+        const [funding, readiness, inventory, discovery, outboundHistory] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
           inventoryResponse.json().catch(() => null),
           discoveryResponse.json().catch(() => null),
+          outboundHistoryResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -624,6 +641,13 @@ export default function WalletVault() {
           setFireblocksDiscoverySnapshot(null)
           setFireblocksDiscoveryError('Live Fireblocks auto-discovery is unavailable. Check the owner session and backend API credentials status.')
         }
+        if (outboundHistoryResponse.ok && outboundHistory?.success === true) {
+          setFireblocksOutboundHistorySnapshot(outboundHistory)
+          setFireblocksOutboundHistoryError('')
+        } else {
+          setFireblocksOutboundHistorySnapshot(outboundHistory && typeof outboundHistory === 'object' ? outboundHistory : null)
+          setFireblocksOutboundHistoryError('Fireblocks outbound history status is unavailable. Payout readiness remains blocked.')
+        }
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
         }
@@ -636,6 +660,8 @@ export default function WalletVault() {
         setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
         setFireblocksDiscoverySnapshot(null)
         setFireblocksDiscoveryError('The owner-only Fireblocks discovery status is unavailable.')
+        setFireblocksOutboundHistorySnapshot(null)
+        setFireblocksOutboundHistoryError('The owner-only Fireblocks outbound history status is unavailable.')
         setOwnerTreasuryError(caught instanceof Error
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
@@ -660,7 +686,7 @@ export default function WalletVault() {
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [unlocked?.record.address, network, ownerSessionToken])
+  }, [unlocked?.record.address, network, ownerSessionToken, ownerTreasuryRefreshNonce])
 
 
   useEffect(() => {
@@ -993,6 +1019,21 @@ export default function WalletVault() {
     } finally {
       setEvidenceLoading('')
     }
+  }
+
+  function refreshBackendTreasuryConfigurationNow() {
+    let token = ownerSessionToken
+    try {
+      token = token || window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+    } catch {
+      // The in-memory session token remains usable when browser storage is blocked.
+    }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      setOwnerTreasuryError('Sign in to the owner console before refreshing backend treasury configuration.')
+      return
+    }
+    setOwnerSessionToken(token)
+    setOwnerTreasuryRefreshNonce((current) => current + 1)
   }
 
   async function refreshOwnerTreasury() {
@@ -1979,6 +2020,16 @@ export default function WalletVault() {
           <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
         </div>
+        <div className="wallet-vault-transfer-section">
+          <h3>Backend configuration refresh</h3>
+          <p>The owner console automatically reloads backend funding, payout readiness, saved inventory, Fireblocks discovery and outbound-history status every 30 seconds while visible, and when the app regains focus. Use this control to request an immediate read-only refresh.</p>
+          <button type="button" className="wallet-vault-secondary"
+            disabled={ownerTreasuryLoading}
+            onClick={refreshBackendTreasuryConfigurationNow}>
+            <RefreshCw size={15} />
+            {ownerTreasuryLoading ? 'Refreshing backend configuration…' : 'Refresh backend configuration now'}
+          </button>
+        </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-discovery-heading">
           <h3 id="fireblocks-discovery-heading">Automatic Fireblocks configuration discovery</h3>
           <p>The backend queries the authorized workspace for vaults and asset metadata. This read-only check refreshes with the owner dashboard; it does not create a vault, change backend settings, approve a sponsor, or enable withdrawals.</p>
@@ -2017,6 +2068,83 @@ export default function WalletVault() {
             {fireblocksDiscoverySnapshot.discoveryTruncated === true && <p className="wallet-vault-risk-note" role="status">Discovery reached its safety page/probe limit. Results are partial; no automatic suggestion is authorized.</p>}
             <p className="wallet-vault-caption">{fireblocksDiscoverySnapshot.note || 'Provider discovery is informational. A suggested configuration is not an approved source of funds.'}</p>
           </>}
+        </div>
+        <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-outbound-history-heading">
+          <h3 id="fireblocks-outbound-history-heading">External vault outflow reconciliation</h3>
+          <p>The backend reads the complete Fireblocks vault transaction history using the separate read-only Viewer identity. Unmatched USDT/TRX transfers and verified vault-paid fees are reconciled against this app’s withdrawal ledger. This operation never submits or signs a transaction.</p>
+          {fireblocksOutboundHistoryError && <p className="wallet-vault-risk-note" role="alert">{fireblocksOutboundHistoryError}</p>}
+          <div className="wallet-vault-review-grid">
+            <div><small>Reconciliation status</small><strong>{fireblocksOutboundHistorySnapshot?.verified === true ? 'Complete and fresh' : fireblocksOutboundHistorySnapshot?.status === 'scanning' ? 'Scanning — more pages required' : fireblocksOutboundHistorySnapshot?.status === 'blocked' ? 'Blocked — manual review required' : 'Not verified'}</strong></div>
+            <div><small>Last complete scan</small><strong>{fireblocksOutboundHistorySnapshot?.checkedAt ? new Date(fireblocksOutboundHistorySnapshot.checkedAt).toLocaleString() : 'Not recorded'}</strong></div>
+            <div><small>Provider transactions</small><strong>{fireblocksOutboundHistorySnapshot?.transactionCount ?? '—'}</strong></div>
+            <div><small>Unmatched external USDT outflows</small><strong>{fireblocksOutboundHistorySnapshot?.verified === true && typeof fireblocksOutboundHistorySnapshot.externalUsdtBaseUnits === 'string' ? formatUnits(fireblocksOutboundHistorySnapshot.externalUsdtBaseUnits, 6) + ' USDT' : 'Not verified'}</strong></div>
+            <div><small>Unmatched external TRX outflows</small><strong>{fireblocksOutboundHistorySnapshot?.verified === true && typeof fireblocksOutboundHistorySnapshot.externalTrxBaseUnits === 'string' ? formatUnits(fireblocksOutboundHistorySnapshot.externalTrxBaseUnits, 6) + ' TRX' : 'Not verified'}</strong></div>
+            <div><small>Vault-paid network fees</small><strong>{fireblocksOutboundHistorySnapshot?.verified === true && typeof fireblocksOutboundHistorySnapshot.networkFeeTrxBaseUnits === 'string' ? formatUnits(fireblocksOutboundHistorySnapshot.networkFeeTrxBaseUnits, 6) + ' TRX' : 'Not verified'}</strong></div>
+          </div>
+          {fireblocksOutboundHistorySnapshot?.reason && <p className="wallet-vault-risk-note" role="status"><strong>History blocker:</strong> {String(fireblocksOutboundHistorySnapshot.reason).replaceAll('-', ' ')}</p>}
+          {fireblocksOutboundHistorySnapshot?.nextAction && <p className="wallet-vault-caption">{fireblocksOutboundHistorySnapshot.nextAction}</p>}
+          <button
+            type="button"
+            className="wallet-vault-secondary"
+            disabled={fireblocksOutboundHistoryBusy}
+            onClick={async () => {
+              if (fireblocksOutboundHistoryBusy) return
+              setFireblocksOutboundHistoryBusy(true)
+              setFireblocksOutboundHistoryError('')
+              try {
+                let token = ownerSessionToken
+                try {
+                  token = token || window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+                } catch {
+                  // Use the in-memory owner token when browser storage is unavailable.
+                }
+                if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+                  throw new Error('An authenticated Mainnet owner session is required to synchronize Fireblocks history.')
+                }
+                const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
+                const syncResponse = await fetch(API_BASE + '/api/treasury/fireblocks/outbound-history/sync', {
+                  method: 'POST', headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+                })
+                const syncPayload = await syncResponse.json().catch(() => null)
+                if (syncPayload && typeof syncPayload === 'object') {
+                  setFireblocksOutboundHistorySnapshot(syncPayload)
+                }
+                if ((!syncResponse.ok && syncResponse.status !== 202) || syncPayload?.success !== true) {
+                  const blockers = Array.isArray(syncPayload?.blockers) ? ': ' + syncPayload.blockers.join(', ') : ''
+                  throw new Error((syncPayload?.error || 'Fireblocks outbound-history synchronization failed.') + blockers)
+                }
+                const statusResponse = await fetch(API_BASE + '/api/treasury/fireblocks/outbound-history/status', {
+                  headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+                })
+                const statusPayload = await statusResponse.json().catch(() => null)
+                if (!statusResponse.ok || statusPayload?.success !== true) {
+                  throw new Error(statusPayload?.error || 'The latest outbound-history status could not be read.')
+                }
+                setFireblocksOutboundHistorySnapshot(statusPayload)
+                const readinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+                  headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+                })
+                const readinessPayload = await readinessResponse.json().catch(() => null)
+                if (readinessResponse.ok && readinessPayload?.success === true) {
+                  setServerTreasuryReadiness(readinessPayload)
+                }
+                if (syncPayload.status === 'scanning' || statusPayload.status === 'scanning') {
+                  setFireblocksOutboundHistoryError('The scan is incomplete. Use Continue history scan until the backend reports a fresh complete reconciliation.')
+                } else if (statusPayload.verified !== true) {
+                  setFireblocksOutboundHistoryError('The provider history scan did not pass reconciliation. Payout readiness remains blocked.')
+                }
+              } catch (caught) {
+                setFireblocksOutboundHistoryError(caught instanceof Error ? caught.message : 'Fireblocks history synchronization is unavailable.')
+              } finally {
+                setFireblocksOutboundHistoryBusy(false)
+              }
+            }}
+          >
+            <RefreshCw size={15} />
+            {fireblocksOutboundHistoryBusy ? 'Synchronizing history…' : fireblocksOutboundHistorySnapshot?.status === 'scanning' ? 'Continue history scan' : 'Synchronize complete vault history'}
+          </button>
+          <p className="wallet-vault-caption">Each request processes at most 20 pages. Large workspaces require repeated syncs until status is complete. A completed scan is a point-in-time reconciliation, not a lock preventing later transfers from the Fireblocks Console.</p>
+          <p className="wallet-vault-caption">A complete history scan is mandatory for payout readiness. Manual Fireblocks transfers reduce sponsor principal; unresolved or ambiguous history blocks new payouts. Fireblocks transaction policy and independent approval remain separate controls.</p>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
           <h3 id="fireblocks-inventory-heading">Saved Fireblocks inventory evidence</h3>

@@ -14,6 +14,7 @@ import {
   isNativeFireblocksTrxAsset,
   maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
+import { getFireblocksOutboundHistoryStatus } from './fireblocks-outbound-history.mjs'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig, isApprovedSponsorAgreementScope } from '../database.mjs'
 import {
   buildTreasuryWithdrawalAuthorizationMessage,
@@ -23,6 +24,9 @@ import {
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
+// Both real-value submission paths remain hard-locked until a separate reviewed
+// release change after sponsor, custody, security and funded acceptance gates.
+const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
 // Native TRX principal withdrawals are not part of the USDT sponsor-release path.
 const REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED = true
 const REAL_VALUE_RELEASE_MAX_FUTURE_MS = 30 * 24 * 60 * 60 * 1000
@@ -45,14 +49,17 @@ export function treasuryPayoutExecutionState(preflightChecksPassed, releaseAutho
   const payoutsPreflightReady = preflightChecksPassed === true
   const sponsorReleaseAuthorized = releaseAuthorized === true
   const executionEnabled = payoutsPreflightReady && sponsorReleaseAuthorized
+    && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
   return {
     payoutsPreflightReady,
     sponsorReleaseAuthorized,
     withdrawalsEnabled: executionEnabled,
     executionEnabled,
-    executionBlocker: !sponsorReleaseAuthorized
-      ? 'real-value-payout-release-authorization-incomplete'
-      : payoutsPreflightReady ? null : 'payout-preflight-incomplete',
+    executionBlocker: REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+      ? 'real-value-payout-execution-disabled-in-this-build'
+      : !sponsorReleaseAuthorized
+        ? 'real-value-payout-release-authorization-incomplete'
+        : payoutsPreflightReady ? null : 'payout-preflight-incomplete',
   }
 }
 
@@ -2103,6 +2110,9 @@ export function createTreasuryWithdrawalsRouter({
     let databaseReady = false
     if (db) { try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {} }
     const treasuryAddress = ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '') ? env.TREASURY_ADDRESS.trim() : null
+    const outboundHistory = databaseReady && treasuryAddress
+      ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
+      : { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
     let snapshot = { ok: false, reason: 'treasury-address-not-configured' }
     // Read-only readiness must work while payouts are deliberately disabled.
     // Probe Fireblocks and public Mainnet balances when provider credentials and
@@ -2111,12 +2121,15 @@ export function createTreasuryWithdrawalsRouter({
       snapshot = await readManagedTreasurySnapshot(treasuryAddress)
     }
     const blockers = []
+    if (!outboundHistory.verified) blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     let pendingUsdtCount = '0'
     let pendingTrxCount = '0'
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
     let sponsorPrincipalBudget = null
     let sponsorPrincipalBudgetCapConsistent = false
+    let applicationCommittedBaseUnits = '0'
+    let externalOutboundUsdtBaseUnits = '0'
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -2146,7 +2159,7 @@ export function createTreasuryWithdrawalsRouter({
                 OR sponsor_organization_reference IS NULL
                 OR sponsor_agreement_reference IS NULL
               )
-              AND status NOT IN ('rejected','failed')`,
+              AND status <> 'rejected'`,
           [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
@@ -2156,10 +2169,22 @@ export function createTreasuryWithdrawalsRouter({
           maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
           unpinnedAgreementRows: String(sponsorBudgetUsage.rows[0]?.unpinned_agreement_rows || '0'),
         })
-        sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
-          config.sponsorTotalBudgetBaseUnits,
-          String(sponsorBudgetUsage.rows[0]?.amount || '0'),
-        )
+        applicationCommittedBaseUnits = String(sponsorBudgetUsage.rows[0]?.amount || '0')
+        externalOutboundUsdtBaseUnits = outboundHistory.verified
+          ? String(outboundHistory.externalUsdtBaseUnits || '0')
+          : '0'
+        const committedSponsorPrincipalBaseUnits = (
+          BigInt(applicationCommittedBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)
+        ).toString()
+        // Never report apparent remaining sponsor principal from app rows alone.
+        // If external vault history is missing/stale, the unobserved manual outflows
+        // could consume the remaining commitment; keep this budget unverified.
+        if (outboundHistory.verified) {
+          sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
+            config.sponsorTotalBudgetBaseUnits,
+            committedSponsorPrincipalBaseUnits,
+          )
+        }
         if (!sponsorPrincipalBudgetCapConsistent) blockers.push('sponsor-principal-agreement-budget-cap-changed-or-legacy-rows-unpinned')
         if (!sponsorPrincipalBudget || BigInt(sponsorPrincipalBudget.remainingBaseUnits) <= 0n) {
           blockers.push('sponsor-principal-agreement-budget-exhausted-or-unavailable')
@@ -2209,11 +2234,25 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: config.providerConfigured,
       },
       databaseReady, treasuryAddress,
+      externalOutboundHistory: {
+        verified: outboundHistory.verified === true,
+        status: outboundHistory.status || null,
+        reason: outboundHistory.reason || null,
+        checkedAt: outboundHistory.checkedAt || null,
+        ageMs: outboundHistory.ageMs ?? null,
+        transactionCount: outboundHistory.transactionCount || '0',
+        externalUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
+        externalTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.externalTrxBaseUnits || '0') : null,
+        networkFeeTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.networkFeeTrxBaseUnits || '0') : null,
+        reconciliationDigest: outboundHistory.verified ? outboundHistory.reconciliationDigest || null : null,
+      },
       sponsorPrincipalBudget: sponsorPrincipalBudget ? {
         organizationReference: config.sponsorOrganizationReference,
         agreementReference: config.sponsorAgreementReference,
         totalBaseUnits: sponsorPrincipalBudget.totalBudgetBaseUnits,
         usedAndReservedBaseUnits: sponsorPrincipalBudget.usedBaseUnits,
+        applicationCommittedBaseUnits: typeof applicationCommittedBaseUnits === 'string' ? applicationCommittedBaseUnits : '0',
+        externalOutboundUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
         remainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
         withinBudget: sponsorPrincipalBudget.withinBudget,
         commitmentCapConsistent: sponsorPrincipalBudgetCapConsistent,
@@ -2257,8 +2296,23 @@ export function createTreasuryWithdrawalsRouter({
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
+      return res.status(503).json({
+        success: false,
+        error: 'real-value-payout-execution-disabled-in-this-build',
+        submissionEnabled: false,
+      })
+    }
     const config = configuration()
     if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-withdrawals-disabled', missing: config.missing })
+    const historyGate = await getFireblocksOutboundHistoryStatus({ env })
+    if (!historyGate.verified) {
+      return res.status(409).json({
+        success: false,
+        error: 'fireblocks-vault-outbound-history-not-reconciled',
+        submissionEnabled: false,
+      })
+    }
     const releaseAuthorization = await currentRealValueReleaseAuthorization()
     if (!releaseAuthorization.authorized) {
       return res.status(503).json({
@@ -2780,6 +2834,10 @@ export function createTreasuryWithdrawalsRouter({
     if (!config.configurationComplete) blockers.push('trx-withdrawal-configuration-incomplete')
     if (!ADDRESS_PATTERN.test(treasuryAddress)) blockers.push('treasury-address-not-configured')
     if (ADDRESS_PATTERN.test(treasuryAddress)) snapshot = await readManagedTreasuryTrxSnapshot(treasuryAddress)
+    const outboundHistory = db && ADDRESS_PATTERN.test(treasuryAddress)
+      ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
+      : { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
+    if (!outboundHistory.verified) blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     if (!snapshot.ok) blockers.push(snapshot.reason || 'fireblocks-trx-funding-unverified')
 
     try {
@@ -2848,6 +2906,12 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: typeof managedSigner()?.isTrxAssetConfigured === 'function' && managedSigner().isTrxAssetConfigured() === true,
       },
       databaseReady,
+      externalOutboundHistoryVerified: outboundHistory.verified === true,
+      externalOutboundHistoryCheckedAt: outboundHistory.checkedAt || null,
+      externalOutboundHistoryAgeMs: outboundHistory.ageMs ?? null,
+      externalOutboundUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
+      externalOutboundTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.externalTrxBaseUnits || '0') : null,
+      externalOutboundNetworkFeeTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.networkFeeTrxBaseUnits || '0') : null,
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
         providerAvailableTrxBaseUnits: snapshot.providerAvailableBaseUnits,

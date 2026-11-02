@@ -20,6 +20,7 @@ import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import fireblocksInventorySyncRoutes from './routes/fireblocks-inventory-sync.mjs'
 import fireblocksInventoryStatusRoutes from './routes/fireblocks-inventory-status.mjs'
 import { createFireblocksDiscoveryRouter } from './routes/fireblocks-discovery.mjs'
+import { createFireblocksOutboundHistoryRouter } from './routes/fireblocks-outbound-history.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
@@ -152,6 +153,7 @@ app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/treasury', fireblocksInventorySyncRoutes())
 app.use('/api/treasury', fireblocksInventoryStatusRoutes())
 app.use('/api/treasury', createFireblocksDiscoveryRouter())
+app.use('/api/treasury', createFireblocksOutboundHistoryRouter())
 app.use('/api/tron', sponsorRequestIntakeRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
