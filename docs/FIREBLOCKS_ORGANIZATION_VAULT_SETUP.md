@@ -94,7 +94,7 @@ The current backend service is the Node web service linked to this repository. U
 | `TREASURY_MAX_PAYOUT_USDT` / `TREASURY_DAILY_LIMIT_USDT` | Per-transfer and daily caps that do not exceed the sponsor's signed commitment |
 | `TREASURY_FEE_LIMIT_SUN` | Conservative native-TRX fee reserve threshold in SUN |
 | `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` | Optional static comma-separated recipient allowlist; alternatively use sponsor-signed recipient approvals |
-| `TREASURY_SPONSOR_APPROVER_ADDRESSES` | 1–20 independent public TRON addresses controlled by the sponsor; any one signer can approve/revoke (1-of-N) |
+| `TREASURY_SPONSOR_APPROVER_ADDRESSES` | Required: 1–20 independent public TRON addresses controlled by the sponsor; any one signer can approve/revoke the release (1-of-N), even when a static recipient allowlist is used |
 | `TREASURY_WITHDRAWALS_ENABLED` | Keep `false` during setup; set `true` only for the approved sponsor-release workflow |
 | `TREASURY_REAL_VALUE_EXECUTION_ENABLED` | Keep `false` during setup; a sponsor signature is still mandatory when set `true` |
 | `TREASURY_REAL_VALUE_RELEASE_REFERENCE` | Unique release authorization reference for the approved scope |
