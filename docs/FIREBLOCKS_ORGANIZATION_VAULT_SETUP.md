@@ -39,6 +39,30 @@ Fireblocks references:
 - [Create Vault Accounts](https://fireblocks.readme.io/reference/create-vault-account)
 - [Fireblocks object model](https://fireblocks.readme.io/docs/object-model)
 
+## 2A. Automatic, read-only configuration discovery
+
+After the organization has created its Fireblocks API user and installed the API authentication RSA key as a backend-only secret file, the owner console can query:
+
+`GET /api/treasury/fireblocks/discovery`
+
+The endpoint is owner-session authenticated and read-only. It uses the API user's read permissions to:
+- enumerate paginated Vault Accounts;
+- query Fireblocks' supported asset catalog for USDT and TRX;
+- accept USDT only when provider contract metadata matches the official TRON Mainnet Tether contract;
+- accept TRX only when provider metadata identifies the native six-decimal TRX asset;
+- compare each candidate vault's active assets and, for a bounded number of candidates, read both asset-address lists;
+- suggest vault ID, asset IDs and the common TRON address only when the result is unambiguous.
+
+The owner console refreshes this discovery snapshot with the other backend status data. The backend caches successful discovery results briefly to avoid repeatedly calling Fireblocks while the dashboard polls.
+
+**Discovery is not configuration activation.** The endpoint does not select a vault, write Render environment variables, create or activate assets, move balances, approve a sponsor agreement, or enable transfers. If several matching vaults or asset pairs exist, the endpoint reports candidates but does not choose one. The organization must review and approve the exact source vault and agreement scope. The existing payout readiness checks and sponsor release signature still bind the final vault ID, asset IDs, treasury address, contract, limits and recipient policy.
+
+The API key and mounted RSA authentication file cannot be auto-created by this application; they must be issued by Fireblocks to the authorized sponsor organization. The endpoint does not return the API key, secret-file path, RSA key, private key or signing material to the frontend.
+
+The discovery endpoint prefers each asset's Fireblocks `legacyId` (API ID) when the catalogue returns both a newer asset UUID and a legacy identifier. Fireblocks' current List Assets API reference says to continue using the legacy ID until all services support the newer UUID. If an asset response has no valid legacy ID, treat the identifier as unconfirmed and do not manually substitute a different-looking ID.
+
+Reference: [Fireblocks List Assets API](https://fireblocks.readme.io/reference/listassets).
+
 ## 3. Fund the vault only through the organization's approved treasury process
 
 Funding is a real asset movement, not an application setting. The organization's authorized treasury staff must use its approved source of funds and its own independent controls to fund the Fireblocks TRON address with genuine official USDT and enough native TRX to cover the configured fee reserve. Verify the network and address in the Fireblocks Console before any deposit; do not rely on an address copied from chat or an unverified UI.
@@ -88,16 +112,28 @@ The current backend service is the Node web service linked to this repository. U
 | `FIREBLOCKS_USDT_ASSET_ID` | Exact asset ID for the official TRON USDT token in that workspace |
 | `FIREBLOCKS_TRX_ASSET_ID` | Exact asset ID for native TRX in that workspace |
 | `TREASURY_ADDRESS` | Exact TRON address returned by the configured Fireblocks vault assets |
+| `TREASURY_SPONSOR_ORGANIZATION_REFERENCE` | Sponsor organization's real legal/contract reference, matching the signed agreement |
+| `TREASURY_SPONSOR_AGREEMENT_REFERENCE` | Exact signed agreement reference, also present in the approved agreement scope |
+| `TREASURY_SPONSOR_TOTAL_BUDGET_USDT` | Maximum USDT principal commitment expressly authorized by the sponsor |
+| `TREASURY_MAX_PAYOUT_USDT` / `TREASURY_DAILY_LIMIT_USDT` | Per-transfer and daily caps that do not exceed the sponsor's signed commitment |
+| `TREASURY_FEE_LIMIT_SUN` | Conservative native-TRX fee reserve threshold in SUN |
+| `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` | Optional static comma-separated recipient allowlist; alternatively use sponsor-signed recipient approvals |
+| `TREASURY_SPONSOR_APPROVER_ADDRESSES` | Required: 1–20 independent public TRON addresses controlled by the sponsor; any one signer can approve/revoke the release (1-of-N), even when a static recipient allowlist is used |
+| `TREASURY_WITHDRAWALS_ENABLED` | Keep `false` during setup; set `true` only for the approved sponsor-release workflow |
+| `TREASURY_REAL_VALUE_EXECUTION_ENABLED` | Keep `false` during setup; a sponsor signature is still mandatory when set `true` |
+| `TREASURY_REAL_VALUE_RELEASE_REFERENCE` | Unique release authorization reference for the approved scope |
+| `TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT` | Future Unix-millisecond expiry, no more than 30 days ahead |
 
-The existing application also needs its normal owner identity, PostgreSQL, and payout-limit configuration as documented in [TREASURY_WITHDRAWALS.md](TREASURY_WITHDRAWALS.md). Do not overwrite unrelated Render variables while adding these values.
+The existing application also needs `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` set to the same public owner address, `DATABASE_URL`, `FRONTEND_ORIGIN`, and the exact `SPONSOR_APPROVED_AGREEMENT_REFERENCES` scope. The official USDT contract is fixed in the application; do not set a replacement contract. Do not overwrite unrelated Render variables while adding these values.
 
 Render reference: [Environment variables and secret files](https://render.com/docs/configure-environment-variables).
 
-## 6. Read-only validation before any payout
+## 6. Read-only validation and staged Mainnet release
 
-Keep both flags set to the literal string `false`:
+During initial setup and read-only validation, keep all execution flags set to the literal string `false`:
 
 - `TREASURY_WITHDRAWALS_ENABLED=false`
+- `TREASURY_REAL_VALUE_EXECUTION_ENABLED=false`
 - `TREASURY_TRX_WITHDRAWALS_ENABLED=false`
 
 After the secret file and non-secret identifiers are configured and the service redeploys:
@@ -107,9 +143,13 @@ After the secret file and non-secret identifiers are configured and the service 
    - `GET /api/treasury/withdrawals/readiness`
    - `GET /api/treasury/trx-withdrawals/readiness`
 3. Confirm that the Fireblocks API authentication works, the USDT contract metadata is exact, native TRX metadata is correct, both asset addresses match `TREASURY_ADDRESS`, balances are independently visible on Fireblocks and TRON, the database is ready, and the fee reserve is covered.
-4. Save sanitized evidence only. Never publish API IDs together with secrets, private keys, full account identifiers, or confidential organization details.
+4. Confirm that the sponsor agreement is genuinely signed and its exact Mainnet USDT scope is present in `SPONSOR_APPROVED_AGREEMENT_REFERENCES`. Configure `TREASURY_SPONSOR_ORGANIZATION_REFERENCE`, `TREASURY_SPONSOR_AGREEMENT_REFERENCE`, `TREASURY_SPONSOR_TOTAL_BUDGET_USDT`, payout caps, and either a static `TREASURY_ALLOWED_RECIPIENT_ADDRESSES` list or independent sponsor-controlled `TREASURY_SPONSOR_APPROVER_ADDRESSES`.
+5. Set a unique `TREASURY_REAL_VALUE_RELEASE_REFERENCE` and `TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT` (Unix milliseconds, no more than 30 days in the future). The release signature binds these values and the current vault/asset/limit/recipient-policy scope.
+6. Only after all read-only provider/chain checks pass, the real sponsor controls the signer allowlist and Fireblocks transaction policy, and the organization has approved the release, set `TREASURY_WITHDRAWALS_ENABLED=true` and `TREASURY_REAL_VALUE_EXECUTION_ENABLED=true`. These two switches allow the console to prepare the exact sponsor release message and submit the sponsor's public message signature. **They do not activate execution by themselves.** The backend continues to return `executionEnabled: false` until a valid, unexpired sponsor signature is stored and re-verified against the configured independent signer.
+7. Keep `TREASURY_TRX_WITHDRAWALS_ENABLED=false`; native-TRX payout execution is a separate, disabled route and is not part of this Mainnet USDT release.
+8. Save sanitized evidence only. Never publish API IDs together with secrets, private keys, full account identifiers, or confidential organization details.
 
-Readiness must not be bypassed by turning on a payout flag. If a check fails, fix the actual provider configuration or contact Fireblocks support; do not spoof a response.
+If any configuration bound into the release message changes, or the sponsor release expires or is revoked, execution must return to disabled until a new release reference/expiry is configured and the sponsor signs the new canonical message. If any provider, database, balance, fee-reserve, or agreement check fails, do not bypass it or treat a successful read-only response as permission to spend.
 
 ## 7. Separate provider approval from application authorization
 
