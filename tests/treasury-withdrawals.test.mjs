@@ -19,6 +19,10 @@ test('Mainnet USDT payout readiness and submission fail closed without fresh Fir
   assert.match(historyRoute, /fireblocksReadOnlyConfiguration/)
   assert.doesNotMatch(historyRoute, /!cfg\.providerConfigured/, 'history sync must not require the payout API identity')
   assert.match(historyRoute, /pg_try_advisory_lock\(hashtextextended/)
+  assert.match(historyRoute, /scan_after_ms/, 'scan cursor must persist the incremental lower boundary')
+  assert.match(historyRoute, /fireblocksHistoryScanAfterMs/, 'completed scans must advance from the prior upper boundary with an overlap')
+  assert.match(historyRoute, /WHERE vault_account_id=\$1 ORDER BY provider_transaction_id/, 'reconciliation must include cumulative persisted provider history')
+  assert.match(historyRoute, /last_seen_run_id=\$2/, 'the current incremental window must be count-checked separately')
   assert.match(historyRoute, /now\(\) - historyEndMs/, 'freshness must be measured from the covered provider-history boundary')
 })
 
