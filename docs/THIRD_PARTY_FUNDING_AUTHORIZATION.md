@@ -27,7 +27,7 @@ Before requesting a wallet signature, the parties must execute a separate writte
 6. Maximum principal, maximum fee funding, permitted network and token contract, time period, recipient policy and approval authority.
 7. Reconciliation, reporting, fees, disputes, sanctions/compliance responsibilities, revocation and return-of-funds terms.
 
-The manifest's `agreementReference` identifies the separately retained agreement. New v2 authorizations also include `agreementDocumentSha256`, the SHA-256 fingerprint of the exact final executed file bytes. This lets the source wallet signature bind to one exact agreement version without uploading the confidential document. The hash does not establish authenticity, signatory authority, source of funds or legal enforceability; those still require independent organizational and legal review.
+The manifest's `agreementReference` identifies the separately retained agreement. New v3 authorizations also include `agreementDocumentSha256`, the SHA-256 fingerprint of the exact final executed file bytes. This lets the source wallet signature bind to one exact agreement version without uploading the confidential document. The hash does not establish authenticity, signatory authority, source of funds or legal enforceability; those still require independent organizational and legal review.
 
 ## Stage 2 — create and verify the real Fireblocks destination
 
@@ -52,15 +52,16 @@ npm run funding:agreement:hash -- ./executed-agreement.pdf
 
 The command reads a regular local file of up to 50 MiB and prints its lowercase SHA-256 digest and byte count. It does not transmit or store the document. If the agreement is amended or replaced, calculate a new digest and obtain a new source-wallet signature.
 
-Create a local JSON manifest, kept outside Git, using the v2 format:
+Create a local JSON manifest, kept outside Git, using the v3 format:
 
 ```json
 {
-  "format": "tron-token-studio/third-party-funding-authorization/v2",
+  "format": "tron-token-studio/third-party-funding-authorization/v3",
   "authorizationId": "funding-consent-2026-001",
   "network": "mainnet",
   "sponsorAddress": "SOURCE_WALLET_CONTROLLED_BY_AUTHORIZED_ORG",
   "vaultAddress": "ACTUAL_FIREBLOCKS_TRON_VAULT_ADDRESS",
+  "sponsorOrganizationReference": "SPONSOR-ORG-2026-001",
   "usdtContract": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
   "maxUsdtBaseUnits": "25000000",
   "maxTrxSun": "8000000",
@@ -74,10 +75,12 @@ Create a local JSON manifest, kept outside Git, using the v2 format:
 
 The example limits mean at most 25 USDT (25,000,000 base units at six decimals) and 8 TRX (8,000,000 SUN at six decimals). They are examples only. The real organization must choose the limits that match its separately approved agreement.
 
+The v3 manifest must use the exact `TREASURY_SPONSOR_ORGANIZATION_REFERENCE` and `TREASURY_SPONSOR_AGREEMENT_REFERENCE` configured for the outgoing payout policy. Those two values are part of the source wallet's canonical signed message. The backend and CLI both reject a different organization or agreement. Do not reuse a manifest from another sponsor scope. Historical v1/v2 consent records are retained as legacy evidence but stored with the `legacy-unscoped` organization sentinel and are excluded from every current sponsor principal pool.
+
 The signed text includes the agreement's SHA-256 fingerprint. To print the exact text to present to the source wallet owner:
 
 ```bash
-TREASURY_ADDRESS=ACTUAL_FIREBLOCKS_VAULT_ADDRESS npm run funding:authorization:message -- ./third-party-funding-authorization.json
+TREASURY_ADDRESS=ACTUAL_FIREBLOCKS_VAULT_ADDRESS TREASURY_SPONSOR_ORGANIZATION_REFERENCE=SPONSOR-ORG-2026-001 TREASURY_SPONSOR_AGREEMENT_REFERENCE=ORG-AGREEMENT-2026-001 npm run funding:authorization:message -- ./third-party-funding-authorization.json
 ```
 
 The authorized wallet owner should connect their own wallet on TRON Mainnet, inspect the complete message and sign that exact text using the wallet's plaintext `signMessageV2` message-signing feature. For TronLink, the browser-side signing call is:
@@ -102,7 +105,7 @@ TREASURY_ADDRESS=ACTUAL_FIREBLOCKS_VAULT_ADDRESS npm run funding:authorization:v
 
 The verifier checks:
 
-- Canonical v2 manifest format and supported fields only.
+- Canonical v3 manifest format and supported fields only.
 - A required lowercase 64-character SHA-256 fingerprint of the exact executed agreement file bytes.
 - Mainnet network and exact official USDT contract.
 - Valid TRON Base58Check source and vault addresses.
@@ -134,7 +137,7 @@ Content-Type: application/json
 }
 ```
 
-Both acknowledgements are stored separately with the owner address and timestamp. The second acknowledgement states that the exact executed agreement expressly permits the Fireblocks-held third-party funds to be used for external recipient withdrawals. The source wallet's v2 signature binds the same agreement digest. These are auditable source-consent and operator-review evidence only; the application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
+Both acknowledgements are stored separately with the owner address and timestamp. The second acknowledgement states that the exact executed agreement expressly permits the Fireblocks-held third-party funds to be used for external recipient withdrawals. The source wallet's v3 signature binds the same agreement digest. These are auditable source-consent and operator-review evidence only; the application does not certify the legal agreement, the source-of-funds record, or the source signer's authority to represent an organization.
 
 The persistent record retains the exact 65-byte message signature as public consent evidence, its SHA-256 digest, the canonical-message hash, and the executed-agreement document digest alongside the authorization fields. Legacy v1 records may be displayed for historical evidence but cannot be newly registered by the v2 route. A TRON message signature is not a private key, seed phrase, or transaction-signing key. The API does not return the raw signature in ordinary list/detail responses. The same authorization ID or signature hash cannot be registered with conflicting terms. The authorization detail also displays whether the disbursement-use review was recorded. Older records default to no disbursement acknowledgement and are excluded from the withdrawal funding pool until a new valid authorization is registered with the explicit review.
 
