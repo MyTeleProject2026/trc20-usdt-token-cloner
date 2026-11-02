@@ -76,15 +76,23 @@ async function readAllPages(readPage, { keys, maxPages }) {
 }
 
 function assetIdOf(asset) {
-  const id = typeof asset?.id === 'string' ? asset.id
-    : typeof asset?.legacyId === 'string' ? asset.legacyId : ''
-  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id) ? id : ''
+  // Fireblocks documents that legacy IDs should be used until all services
+  // support the newer asset UUID. Prefer legacyId in discovery suggestions.
+  const candidates = [asset?.legacyId, asset?.legacyID, asset?.id]
+  return candidates.find((id) => typeof id === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) || ''
+}
+
+function assetIdAliases(asset) {
+  if (typeof asset === 'string') return [asset]
+  return [...new Set([asset?.legacyId, asset?.legacyID, asset?.id]
+    .filter((id) => typeof id === 'string'
+      && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)))]
 }
 
 function activeAssetIds(vault) {
   const entries = Array.isArray(vault?.assets) ? vault.assets : []
-  return new Set(entries.map((item) => typeof item === 'string' ? item
-    : typeof item?.id === 'string' ? item.id : '').filter(Boolean))
+  return new Set(entries.flatMap((item) => assetIdAliases(item)))
 }
 
 function safeVaultName(value) {
@@ -235,8 +243,8 @@ export function createFireblocksDiscoveryRouter({
       const accounts = vaultResult.items.filter((vault) => VAULT_ID_PATTERN.test(String(vault?.id || '')))
       const candidates = accounts.map((vault) => {
         const active = activeAssetIds(vault)
-        const usdtIds = officialUsdtAssets.filter((asset) => active.has(asset.id)).map((asset) => asset.id)
-        const trxIds = nativeTrxAssets.filter((asset) => active.has(asset.id)).map((asset) => asset.id)
+        const usdtIds = officialUsdtAssets.filter((asset) => asset.id && active.has(asset.id)).map((asset) => asset.id)
+        const trxIds = nativeTrxAssets.filter((asset) => asset.id && active.has(asset.id)).map((asset) => asset.id)
         return {
           vaultAccountId: String(vault.id),
           name: safeVaultName(vault.name),
