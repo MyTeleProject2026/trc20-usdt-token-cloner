@@ -2071,10 +2071,13 @@ export default function WalletVault() {
                   method: 'POST', headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
                 })
                 const syncPayload = await syncResponse.json().catch(() => null)
-                if ((!syncResponse.ok && syncResponse.status !== 202) || syncPayload?.success !== true) {
-                  throw new Error(syncPayload?.error || 'Fireblocks outbound-history synchronization failed.')
+                if (syncPayload && typeof syncPayload === 'object') {
+                  setFireblocksOutboundHistorySnapshot(syncPayload)
                 }
-                setFireblocksOutboundHistorySnapshot(syncPayload)
+                if ((!syncResponse.ok && syncResponse.status !== 202) || syncPayload?.success !== true) {
+                  const blockers = Array.isArray(syncPayload?.blockers) ? ': ' + syncPayload.blockers.join(', ') : ''
+                  throw new Error((syncPayload?.error || 'Fireblocks outbound-history synchronization failed.') + blockers)
+                }
                 const statusResponse = await fetch(API_BASE + '/api/treasury/fireblocks/outbound-history/status', {
                   headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
                 })
