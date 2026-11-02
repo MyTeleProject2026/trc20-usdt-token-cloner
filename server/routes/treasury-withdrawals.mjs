@@ -2676,7 +2676,7 @@ export function createTreasuryWithdrawalsRouter({
           })
         }
 
-        const [spent, sponsorBudgetUsage] = await Promise.all([
+        const [spent, sponsorBudgetUsage, committedThirdPartyWithdrawals, sponsorFundingPool] = await Promise.all([
           client.query(`
             SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
               FROM trc20_token_clone.treasury_withdrawal_requests
@@ -2701,6 +2701,12 @@ export function createTreasuryWithdrawalsRouter({
                )
                AND status NOT IN ('rejected','failed')
           `, [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
+          client.query(`
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+              FROM trc20_token_clone.treasury_withdrawal_requests
+             WHERE treasury_address=$1 AND status <> 'rejected'
+          `, [treasuryAddress]),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress),
         ])
         const alreadyReserved = BigInt(spent.rows[0]?.amount || '0')
         const sponsorBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
@@ -2735,6 +2741,40 @@ export function createTreasuryWithdrawalsRouter({
             } : null,
             transactionSubmitted: false,
             message: 'The requested USDT principal exceeds the remaining commitment recorded for this sponsor agreement. No Fireblocks transfer was requested.',
+          })
+        }
+        const thirdPartyCommittedBaseUnits = (
+          BigInt(String(committedThirdPartyWithdrawals.rows[0]?.amount || '0'))
+          + BigInt(String(historyGate.externalUsdtBaseUnits || '0'))
+        ).toString()
+        const thirdPartyPrincipalRemainingBaseUnits = sponsorFundingPool?.success === true
+          ? remainingThirdPartyFundingPrincipal(
+            String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0'),
+            thirdPartyCommittedBaseUnits,
+          )
+          : null
+        if (!sponsorFundingPool?.success || thirdPartyPrincipalRemainingBaseUnits === null
+          || BigInt(String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0')) <= 0n) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required',
+            transactionSubmitted: false,
+            payoutExecutionAuthorized: false,
+            message: 'No valid, reviewed sponsor agreement and incoming official-USDT deposit have been reconciled to the authorized Fireblocks vault. No Fireblocks transfer was requested.',
+          })
+        }
+        if (amount > BigInt(thirdPartyPrincipalRemainingBaseUnits)) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-usdt-principal-insufficient-after-withdrawals',
+            verifiedThirdPartyPrincipalBaseUnits: String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits),
+            committedThirdPartyPrincipalBaseUnits: thirdPartyCommittedBaseUnits,
+            availableThirdPartyPrincipalBaseUnits: thirdPartyPrincipalRemainingBaseUnits,
+            requestedAmountBaseUnits: amount.toString(),
+            transactionSubmitted: false,
+            payoutExecutionAuthorized: false,
           })
         }
         if (alreadyReserved + amount > dailyLimit) {
