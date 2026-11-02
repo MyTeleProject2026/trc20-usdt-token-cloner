@@ -548,11 +548,13 @@ export default function WalletVault() {
   // Outgoing payouts still require a separate, request-specific signature from
   // the owner wallet held inside this app; the console password does not mint assets.
   useEffect(() => {
-    let token = ''
+    // Prefer the in-memory authenticated token; sessionStorage is only a
+    // convenience for page refreshes and may be unavailable in restricted contexts.
+    let token = ownerSessionToken
     try {
-      token = window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
+      token = token || window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
     } catch {
-      token = ''
+      // Keep the in-memory session token when browser storage is unavailable.
     }
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
 
