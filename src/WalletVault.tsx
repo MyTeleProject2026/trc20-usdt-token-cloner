@@ -1803,14 +1803,14 @@ export default function WalletVault() {
                   ? 'Create, import, unlock, or recover the local owner signing wallet. Key material is processed on this device.'
                   : activePanel === 'activity'
                     ? 'Review local transaction records against actual chain status.'
-                    : 'View public treasury settings and read-only provider checks. Payout execution is unavailable in this build.'}
+                    : 'View automatically loaded treasury configuration and provider checks. Payout requests require the separate sponsor release and owner authorization gates.'}
         </p>
         <a className="wallet-vault-secondary" href="#/testnet-sandbox">Open read-only Testnet Sandbox</a>
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
         <strong>Owner-only funding model</strong>
-        <p>This build does not submit treasury payout requests. A future arrangement would require a treasury organization to control the genuine assets and separately authorize the service; observed balances do not grant this app spending permission.</p>
+        <p>This dashboard is read-only. A payout request is available only through the separate Organization payouts workflow after the sponsor organization controls genuine assets and authorizes the exact release; observed balances alone never grant spending permission.</p>
       </div>
 
       <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
@@ -1916,7 +1916,7 @@ export default function WalletVault() {
         </div>
         {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Current blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>}
         {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
-        <p className="wallet-vault-caption">A treasury organization may control its own funds independently of this app. This build does not accept or execute treasury payout requests; the read-only balance display is not a withdrawal authorization.</p>
+        <p className="wallet-vault-caption">A treasury organization controls its own funds independently of this app. This status panel is read-only; actual withdrawal requests are available only through the separately gated sponsor-funded payout form.</p>
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Review read-only owner status</button>
       </section>
 
@@ -2006,7 +2006,7 @@ export default function WalletVault() {
               ))}
             </div>
             {(fireblocksInventorySnapshot.reasons || []).length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Blockers:</strong> {fireblocksInventorySnapshot.reasons?.map((item) => item.replaceAll('-', ' ')).join('; ')}</p>}
-            <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Real-value payout execution remains hard-disabled in this build.</p>
+            <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Live execution additionally requires current preflight and an unexpired sponsor release authorization.</p>
           </>}
         </div>
         <div className="wallet-vault-review-grid">
