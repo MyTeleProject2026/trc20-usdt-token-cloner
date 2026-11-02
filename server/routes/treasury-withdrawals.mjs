@@ -711,6 +711,45 @@ export function unreservedTreasuryBalance(balanceBaseUnits, outstandingReservati
   return (balanceValue > reservedValue ? balanceValue - reservedValue : 0n).toString()
 }
 
+/** Calculate a conservative request capacity using integer USDT base units only. */
+export function calculateTreasuryPayoutCapacity({
+  verifiedSpendableBaseUnits,
+  outstandingReservationBaseUnits,
+  sponsorCommitmentRemainingBaseUnits,
+  dailyLimitBaseUnits,
+  dailyUsedBaseUnits,
+  maximumSinglePayoutBaseUnits,
+} = {}) {
+  const parse = (value) => {
+    const text = typeof value === 'string' ? value : String(value ?? '')
+    return /^(0|[1-9][0-9]{0,77})$/.test(text) ? BigInt(text) : null
+  }
+  const funded = parse(verifiedSpendableBaseUnits)
+  const reserved = parse(outstandingReservationBaseUnits)
+  const commitment = parse(sponsorCommitmentRemainingBaseUnits)
+  const dailyLimit = parse(dailyLimitBaseUnits)
+  const dailyUsed = parse(dailyUsedBaseUnits)
+  const singlePayoutLimit = parse(maximumSinglePayoutBaseUnits)
+  if ([funded, reserved, commitment, dailyLimit, dailyUsed, singlePayoutLimit].some((value) => value === null)) {
+    return null
+  }
+  const availableAfterReservations = funded > reserved ? funded - reserved : 0n
+  const dailyRemaining = dailyLimit > dailyUsed ? dailyLimit - dailyUsed : 0n
+  const eligible = [availableAfterReservations, commitment, dailyRemaining, singlePayoutLimit]
+    .reduce((smallest, value) => value < smallest ? value : smallest)
+  return {
+    verifiedSpendableBaseUnits: funded.toString(),
+    outstandingReservationBaseUnits: reserved.toString(),
+    availableAfterReservationsBaseUnits: availableAfterReservations.toString(),
+    sponsorCommitmentRemainingBaseUnits: commitment.toString(),
+    dailyLimitBaseUnits: dailyLimit.toString(),
+    dailyUsedBaseUnits: dailyUsed.toString(),
+    dailyRemainingBaseUnits: dailyRemaining.toString(),
+    maximumSinglePayoutBaseUnits: singlePayoutLimit.toString(),
+    eligibleCapacityBaseUnits: eligible.toString(),
+  }
+}
+
 /** Idempotency keys are bound to the original owner, recipient and amount. */
 export function matchesTreasuryWithdrawalRequest(row, {
   ownerAddress,
@@ -2124,6 +2163,8 @@ export function createTreasuryWithdrawalsRouter({
     if (!outboundHistory.verified) blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     let pendingUsdtCount = '0'
     let pendingTrxCount = '0'
+    let outstandingUsdtReservationBaseUnits = null
+    let dailyUsdtUsedBaseUnits = null
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
     let sponsorPrincipalBudget = null
@@ -2137,7 +2178,7 @@ export function createTreasuryWithdrawalsRouter({
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
     if (databaseReady && treasuryAddress) {
       try {
-        const [pendingUsdt, pendingTrx, sponsorBudgetUsage] = await Promise.all([
+        const [pendingUsdt, pendingTrx, sponsorBudgetUsage, pendingUsdtReservations, dailyUsdtUsage] = await Promise.all([
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
@@ -2161,9 +2202,18 @@ export function createTreasuryWithdrawalsRouter({
               )
               AND status <> 'rejected'`,
           [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1
+              AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE created_at >= date_trunc('day', now()) AND status <> 'rejected'`),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
+        outstandingUsdtReservationBaseUnits = String(pendingUsdtReservations.rows[0]?.amount || '0')
+        dailyUsdtUsedBaseUnits = String(dailyUsdtUsage.rows[0]?.amount || '0')
         sponsorPrincipalBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
           minimumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.min_budget_cap ?? null,
           maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
@@ -2207,6 +2257,19 @@ export function createTreasuryWithdrawalsRouter({
     const preflightChecksPassed = blockers.length === 0
     const releaseAuthorization = await currentRealValueReleaseAuthorization()
     const payoutExecution = treasuryPayoutExecutionState(preflightChecksPassed, releaseAuthorization.authorized)
+    const sponsorPayoutCapacity = snapshot.ok && databaseReady && sponsorPrincipalBudget
+      ? calculateTreasuryPayoutCapacity({
+        verifiedSpendableBaseUnits: snapshot.spendableUsdtBaseUnits,
+        outstandingReservationBaseUnits,
+        sponsorCommitmentRemainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
+        dailyLimitBaseUnits: readLimit(env.TREASURY_DAILY_LIMIT_USDT)?.toString(),
+        dailyUsedBaseUnits: dailyUsdtUsedBaseUnits,
+        maximumSinglePayoutBaseUnits: readLimit(env.TREASURY_MAX_PAYOUT_USDT)?.toString(),
+      })
+      : null
+    const currentlyWithdrawableBaseUnits = payoutExecution.executionEnabled && sponsorPayoutCapacity
+      ? sponsorPayoutCapacity.eligibleCapacityBaseUnits
+      : '0'
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
       ...payoutExecution,
@@ -2234,6 +2297,15 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: config.providerConfigured,
       },
       databaseReady, treasuryAddress,
+      outstandingUsdtReservationBaseUnits: databaseReady ? outstandingUsdtReservationBaseUnits : null,
+      dailyUsdtUsedBaseUnits: databaseReady ? dailyUsdtUsedBaseUnits : null,
+      dailyUsdtLimitBaseUnits: readLimit(env.TREASURY_DAILY_LIMIT_USDT)?.toString() ?? null,
+      dailyUsdtRemainingBaseUnits: sponsorPayoutCapacity?.dailyRemainingBaseUnits ?? null,
+      maximumSinglePayoutBaseUnits: readLimit(env.TREASURY_MAX_PAYOUT_USDT)?.toString() ?? null,
+      availableUsdtAfterReservationsBaseUnits: sponsorPayoutCapacity?.availableAfterReservationsBaseUnits ?? null,
+      estimatedEligiblePayoutCapacityBaseUnits: sponsorPayoutCapacity?.eligibleCapacityBaseUnits ?? null,
+      currentlyWithdrawableBaseUnits,
+      payoutCapacityVerified: sponsorPayoutCapacity !== null,
       externalOutboundHistory: {
         verified: outboundHistory.verified === true,
         status: outboundHistory.status || null,
