@@ -42,11 +42,11 @@ function makeFixture({
           return { data: { assets: [{ id: 'USDT_WRONG', symbol: 'USDT', contractAddress: OTHER }], paging: { pageCursor: 'usdt-page-2' } } }
         }
         return nestedPagination
-          ? { data: { assets: [{ id: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }], paging: {} } }
+          ? { data: { assets: [{ id: '3ed32525-70df-45c8-bae3-e69ab56dc095', legacyId: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }], paging: {} } }
           : { assets: [{ id: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
       }
       return nestedPagination
-        ? { data: [{ id: 'TRX', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }], paging: {} }
+        ? { data: [{ id: '3a3b5f06-61e7-44f0-9962-4425b55795ff', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }], paging: {} }
         : { assets: [{ id: 'TRX', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }] }
     },
     async getAssetAddresses(assetId, vaultId, options) {
@@ -201,5 +201,17 @@ test('Fireblocks discovery follows nested Fireblocks paging envelopes and keeps 
     assert.ok(fixture.calls.some(([name, args]) => name === 'vaults' && args.after === 'vault-page-2'))
     assert.ok(fixture.calls.some(([name, args]) => name === 'assets' && args.symbol === 'USDT' && args.pageCursor === 'usdt-page-2'))
     assert.equal(payload.discoveryTruncated, false)
+  })
+})
+
+
+test('Fireblocks discovery prefers API-compatible legacy asset IDs when the catalogue also includes UUIDs', async () => {
+  const fixture = makeFixture()
+  await withServer(fixture, async (url) => {
+    const response = await getDiscovery(url)
+    const payload = await response.json()
+    assert.equal(response.status, 200)
+    assert.equal(payload.suggestedConfiguration.usdtAssetId, 'USDT_TRON')
+    assert.equal(payload.suggestedConfiguration.trxAssetId, 'TRX')
   })
 })
