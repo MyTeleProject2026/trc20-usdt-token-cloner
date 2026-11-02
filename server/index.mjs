@@ -19,7 +19,6 @@ import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import fireblocksInventorySyncRoutes from './routes/fireblocks-inventory-sync.mjs'
 import fireblocksInventoryStatusRoutes from './routes/fireblocks-inventory-status.mjs'
-import fireblocksDiscoveryRoutes from './routes/fireblocks-discovery.mjs'
 import { createFireblocksDiscoveryRouter } from './routes/fireblocks-discovery.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
@@ -152,8 +151,6 @@ app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/treasury', fireblocksInventorySyncRoutes())
 app.use('/api/treasury', fireblocksInventoryStatusRoutes())
-// Owner-only, read-only discovery; never mutates custody or payout configuration.
-app.use('/api/treasury', fireblocksDiscoveryRoutes())
 app.use('/api/treasury', createFireblocksDiscoveryRouter())
 app.use('/api/tron', sponsorRequestIntakeRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
