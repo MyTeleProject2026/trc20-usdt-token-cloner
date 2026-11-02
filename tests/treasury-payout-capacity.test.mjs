@@ -76,6 +76,7 @@ test('readiness endpoint subtracts pending reservations and reports zero withdra
   assert.ok(source.includes("status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')"))
   assert.match(source, /availableUsdtAfterReservationsBaseUnits/)
   assert.match(source, /estimatedEligiblePayoutCapacityBaseUnits/)
+  assert.ok(source.includes("WHERE treasury_address=$1\\n              AND created_at >= date_trunc('day', now())"), 'daily capacity usage is scoped to the exact sponsor vault')
   assert.match(source, /payoutExecution\.executionEnabled && sponsorPayoutCapacity/)
   assert.match(source, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
 })
