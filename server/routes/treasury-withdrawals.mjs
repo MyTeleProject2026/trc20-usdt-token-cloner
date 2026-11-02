@@ -1141,7 +1141,7 @@ export function createTreasuryWithdrawalsRouter({
         nativeTrxAssetIdentityVerified: snapshot.nativeTrxAssetIdentityVerified,
         nativeTrxVaultAddressVerified: snapshot.nativeTrxVaultAddressVerified,
       } : {}),
-      payoutBlockers: [...new Set([...blockers, ...(executionBlocker ? [executionBlocker] : [])])],
+      payoutBlockers: [...new Set([...blockers, ...(payoutExecution.executionBlocker ? [payoutExecution.executionBlocker] : [])])],
       limitations: [
         'Transfers are initiated through the configured managed Fireblocks vault; blockchain signing keys are not loaded by the API.',
         'Provider transaction acceptance is not proof of on-chain confirmation; verify the successful solidified receipt and exact official-USDT Transfer event.',
@@ -1716,7 +1716,7 @@ export function createTreasuryWithdrawalsRouter({
       dailyReservedTrxBaseUnits: dailyReservedSun,
       maxPayoutTrx: typeof env.TREASURY_MAX_PAYOUT_TRX === 'string' ? env.TREASURY_MAX_PAYOUT_TRX : null,
       dailyLimitTrx: typeof env.TREASURY_DAILY_LIMIT_TRX === 'string' ? env.TREASURY_DAILY_LIMIT_TRX : null,
-      payoutBlockers: [...new Set([...blockers, ...(executionBlocker ? [executionBlocker] : [])])],
+      payoutBlockers: [...new Set([...blockers, ...(payoutExecution.executionBlocker ? [payoutExecution.executionBlocker] : [])])],
       note: 'Readiness is not a payout authorization. Every TRX payout requires owner authorization, a configured Fireblocks vault, real TRX covering principal and the reserved fee cap, and a verified chain receipt.',
     })
   })
