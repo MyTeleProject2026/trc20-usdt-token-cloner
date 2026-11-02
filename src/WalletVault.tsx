@@ -1901,44 +1901,6 @@ export default function WalletVault() {
         <p>This application cannot create USDT or spend an observed balance. A payout requires an authorized sponsor organization’s Fireblocks vault to hold genuine official TRON USDT and enough TRX for network fees. The owner wallet signs a one-request authorization only; it does not fund the payout. Real-value execution remains hard-disabled until the sponsor, provider, custody, chain and security controls are independently approved.</p>
       </div>
 
-      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
-        <div className="wallet-vault-panel-head">
-          <span className="wallet-vault-step">READ-ONLY</span>
-          <div>
-            <h2 id="owner-dashboard-treasury-heading">Read-only Mainnet treasury status</h2>
-            <p>Loads public treasury observations for review. A live chain read does not mean this build can submit payouts.</p>
-          </div>
-        </div>
-        {ownerTreasuryLoading && <p className="wallet-vault-caption" role="status"><RefreshCw size={14} /> Reading the configured treasury from TRON Mainnet…</p>}
-        {serverTreasuryReadiness && (
-          <>
-            <div className="wallet-vault-review-grid">
-              <div className="wallet-vault-review-wide">
-                <small>Server treasury address</small>
-                {ADDRESS_PATTERN.test(String(serverTreasuryReadiness.treasuryAddress || ''))
-                  ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a>
-                  : <strong>Not verified</strong>}
-              </div>
-              <div><small>Backend preflight flag (informational)</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed — execution still disabled' : 'Not passed — execution disabled'}</strong></div>
-              <div><small>Verified official USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
-              <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
-            </div>
-            {Array.isArray(serverTreasuryReadiness.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && (
-              <p className="wallet-vault-risk-note" role="status"><strong>Withdrawal blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
-            )}
-            {Array.isArray(serverTreasuryReadiness.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
-              <p className="wallet-vault-risk-note" role="status"><strong>Backend settings missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
-            )}
-          </>
-        )}
-        {!serverTreasuryReadiness && !ownerTreasuryLoading && (
-          <p className="wallet-vault-caption">Live treasury status is not available yet. Check owner-console configuration, the backend database, allowed app origin, and TRON provider access.</p>
-        )}
-        {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
-        <p className="wallet-vault-caption">Backend-managed configuration and readiness refresh automatically every 30 seconds and when this tab regains focus. Execution is enabled only when live preflight, sponsor release authorization, owner authorization, recipient policy, balances and budgets all pass; missing sponsor credentials or approvals remain explicit blockers.</p>
-      </section>
-
-
       <section className="wallet-vault-panel wallet-vault-payout-guide" aria-labelledby="wallet-vault-payout-guide-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step"><Landmark size={16} /></span>
@@ -1957,7 +1919,7 @@ export default function WalletVault() {
             <strong>{canSubmitServerTreasuryPayout
               ? 'UI owner and readiness checks currently pass · backend revalidation still required'
               : serverTreasuryReadiness
-                ? 'Locked · open Organization payouts to review the exact blockers'
+                ? 'Blocked: ' + String(serverTreasuryReadiness.executionBlocker || serverTreasuryReadiness.releaseAuthorization?.reason || 'readiness evidence incomplete').replaceAll('-', ' ') + ' · open Organization payouts for details'
                 : 'Waiting for live sponsor and treasury readiness evidence'}</strong>
           </div>
         </div>
@@ -2000,6 +1962,46 @@ export default function WalletVault() {
         </div>
         <p className="wallet-vault-caption">A TRON transaction ID and a successful USDT Transfer event prove an on-chain transfer only. They do not prove an exchange credited the deposit or made it withdrawable. Never send a fake, simulated or restricted token while representing it as genuine Tether USDT.</p>
       </section>
+
+
+
+      <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step">READ-ONLY</span>
+          <div>
+            <h2 id="owner-dashboard-treasury-heading">Read-only Mainnet treasury status</h2>
+            <p>Loads public treasury observations for review. A live chain read does not mean this build can submit payouts.</p>
+          </div>
+        </div>
+        {ownerTreasuryLoading && <p className="wallet-vault-caption" role="status"><RefreshCw size={14} /> Reading the configured treasury from TRON Mainnet…</p>}
+        {serverTreasuryReadiness && (
+          <>
+            <div className="wallet-vault-review-grid">
+              <div className="wallet-vault-review-wide">
+                <small>Server treasury address</small>
+                {ADDRESS_PATTERN.test(String(serverTreasuryReadiness.treasuryAddress || ''))
+                  ? <a href={explorerUrl('mainnet', String(serverTreasuryReadiness.treasuryAddress))} target="_blank" rel="noopener noreferrer">{serverTreasuryReadiness.treasuryAddress} ↗</a>
+                  : <strong>Not verified</strong>}
+              </div>
+              <div><small>Backend preflight flag (informational)</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed — execution still disabled' : 'Not passed — execution disabled'}</strong></div>
+              <div><small>Verified official USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
+              <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
+            </div>
+            {Array.isArray(serverTreasuryReadiness.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && (
+              <p className="wallet-vault-risk-note" role="status"><strong>Withdrawal blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
+            )}
+            {Array.isArray(serverTreasuryReadiness.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
+              <p className="wallet-vault-risk-note" role="status"><strong>Backend settings missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
+            )}
+          </>
+        )}
+        {!serverTreasuryReadiness && !ownerTreasuryLoading && (
+          <p className="wallet-vault-caption">Live treasury status is not available yet. Check owner-console configuration, the backend database, allowed app origin, and TRON provider access.</p>
+        )}
+        {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
+        <p className="wallet-vault-caption">Backend-managed configuration and readiness refresh automatically every 30 seconds and when this tab regains focus. Execution is enabled only when live preflight, sponsor release authorization, owner authorization, recipient policy, balances and budgets all pass; missing sponsor credentials or approvals remain explicit blockers.</p>
+      </section>
+
 
       <section className="wallet-vault-panel wallet-vault-quick-actions" aria-labelledby="wallet-vault-quick-actions-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
