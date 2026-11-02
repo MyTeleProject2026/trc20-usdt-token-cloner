@@ -23,9 +23,9 @@ import {
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
-// This supervised application build must never submit real-value treasury payouts.
-// The hard gate is deliberately not controlled by Render environment variables.
-const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
+// Native TRX principal withdrawals are not part of the USDT sponsor-release path.
+const REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED = true
+const REAL_VALUE_RELEASE_MAX_FUTURE_MS = 30 * 24 * 60 * 60 * 1000
 const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
@@ -36,20 +36,125 @@ const OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS = 120_000
 const UINT256_MAX = (1n << 256n) - 1n
 
 /**
- * Keep operational preflight separate from permission to move real assets.
- * The supervised build's hard execution lock is authoritative and cannot be
- * overridden by environment flags or a successful provider/balance check.
+ * Production USDT release requires a sponsor signature over the exact current
+ * treasury, Fireblocks vault, agreement, limits and recipient policy. Environment
+ * flags alone cannot authorize execution. The sponsor signature is deliberately
+ * separate from the per-transfer owner signature and Fireblocks approval policy.
  */
-export function treasuryPayoutExecutionState(preflightChecksPassed) {
+export function treasuryPayoutExecutionState(preflightChecksPassed, releaseAuthorized = false) {
   const payoutsPreflightReady = preflightChecksPassed === true
-  const executionEnabled = payoutsPreflightReady && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+  const sponsorReleaseAuthorized = releaseAuthorized === true
+  const executionEnabled = payoutsPreflightReady && sponsorReleaseAuthorized
   return {
     payoutsPreflightReady,
+    sponsorReleaseAuthorized,
     withdrawalsEnabled: executionEnabled,
     executionEnabled,
-    executionBlocker: REAL_VALUE_PAYOUT_EXECUTION_DISABLED
-      ? 'real-value-payout-execution-disabled-in-this-build'
+    executionBlocker: !sponsorReleaseAuthorized
+      ? 'real-value-payout-release-authorization-incomplete'
       : payoutsPreflightReady ? null : 'payout-preflight-incomplete',
+  }
+}
+
+export function treasuryTrxPayoutExecutionState(preflightChecksPassed) {
+  return {
+    payoutsPreflightReady: preflightChecksPassed === true,
+    sponsorReleaseAuthorized: false,
+    withdrawalsEnabled: false,
+    executionEnabled: false,
+    executionBlocker: REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED
+      ? 'native-trx-payout-execution-disabled-in-this-build'
+      : 'native-trx-release-authorization-required',
+  }
+}
+
+export function buildTreasuryRealValueReleaseMessage(env = process.env, {
+  now = Date.now(),
+} = {}) {
+  const config = treasuryUsdtConfiguration(env)
+  const releaseReference = typeof env.TREASURY_REAL_VALUE_RELEASE_REFERENCE === 'string'
+    ? env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim() : ''
+  const expiryRaw = typeof env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT === 'string'
+    ? env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT.trim() : ''
+  const expiresAt = /^\d{13}$/.test(expiryRaw) ? Number(expiryRaw) : NaN
+  if (!config.configurationComplete || !config.featureFlagEnabled
+    || !config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+    throw new Error('Complete Mainnet USDT sponsor, owner, Fireblocks and policy configuration is required before requesting a release signature.')
+  }
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(releaseReference)) {
+    throw new Error('A unique sponsor release reference of 8–160 safe characters is required.')
+  }
+  if (!Number.isSafeInteger(now) || !Number.isSafeInteger(expiresAt)
+    || expiresAt <= now || expiresAt > now + REAL_VALUE_RELEASE_MAX_FUTURE_MS) {
+    throw new Error('The sponsor release expiry must be in the future and no more than 30 days away.')
+  }
+  const staticRecipients = [...config.allowedRecipientAddresses].sort()
+  const sponsorApprovers = [...config.sponsorApproverAddresses].sort()
+  const recipientPolicyHash = createHash('sha256').update(JSON.stringify({
+    staticRecipients,
+    sponsorApprovers,
+  }), 'utf8').digest('hex')
+  const treasuryAddress = env.TREASURY_ADDRESS.trim()
+  const ownerAddress = env.TREASURY_OWNER_ADDRESS.trim()
+  const vaultAccountId = String(env.FIREBLOCKS_VAULT_ACCOUNT_ID || '').trim()
+  const usdtAssetId = String(env.FIREBLOCKS_USDT_ASSET_ID || '').trim()
+  const trxAssetId = String(env.FIREBLOCKS_TRX_ASSET_ID || '').trim()
+  return [
+    'TRON Token Studio Mainnet USDT real-value payout release',
+    'Version: 1',
+    'Purpose: authorize the platform to submit real Mainnet USDT withdrawals only within the exact sponsor agreement, treasury, vault, destination policy and limits below.',
+    'This does not waive Fireblocks transaction policy, owner per-transfer authorization, balance checks, idempotency, fee reserves or chain receipt verification.',
+    'Network: TRON Mainnet',
+    'Asset: genuine Tether USDT',
+    `Token contract: ${USDT_MAINNET}`,
+    `Sponsor organization reference: ${config.sponsorOrganizationReference}`,
+    `Sponsor agreement reference: ${config.sponsorAgreementReference}`,
+    `Treasury source address: ${treasuryAddress}`,
+    `Owner authorization address: ${ownerAddress}`,
+    `Fireblocks vault account ID: ${vaultAccountId}`,
+    `Fireblocks USDT asset ID: ${usdtAssetId}`,
+    `Fireblocks native TRX asset ID: ${trxAssetId}`,
+    `Maximum single payout USDT: ${env.TREASURY_MAX_PAYOUT_USDT.trim()}`,
+    `Daily USDT payout limit: ${env.TREASURY_DAILY_LIMIT_USDT.trim()}`,
+    `Total sponsor USDT principal commitment: ${env.TREASURY_SPONSOR_TOTAL_BUDGET_USDT.trim()}`,
+    `Maximum estimated network fee reserve SUN: ${env.TREASURY_FEE_LIMIT_SUN.trim()}`,
+    `Recipient policy SHA-256: ${recipientPolicyHash}`,
+    `Approved sponsor signer addresses: ${sponsorApprovers.join(',')}`,
+    `Release reference: ${releaseReference}`,
+    `Release expires at Unix milliseconds: ${expiresAt}`,
+  ].join('\n')
+}
+
+export async function verifyTreasuryRealValueReleaseAuthorization(tronWeb, env = process.env, {
+  now = Date.now(),
+} = {}) {
+  if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+    return { authorized: false, reason: 'real-value-execution-switch-disabled' }
+  }
+  const signature = typeof env.TREASURY_REAL_VALUE_RELEASE_SIGNATURE === 'string'
+    ? env.TREASURY_REAL_VALUE_RELEASE_SIGNATURE.trim() : ''
+  if (!OWNER_PAYOUT_SIGNATURE_PATTERN.test(signature)) {
+    return { authorized: false, reason: 'sponsor-release-signature-missing-or-invalid' }
+  }
+  try {
+    const message = buildTreasuryRealValueReleaseMessage(env, { now })
+    const signerAddress = await recoverTreasurySponsorRecipientApprover(tronWeb, {
+      message,
+      signature,
+      allowedSignerAddresses: treasuryUsdtConfiguration(env).sponsorApproverAddresses,
+    })
+    if (!signerAddress) return { authorized: false, reason: 'sponsor-release-signature-not-from-authorized-signer' }
+    const expiresAt = Number(env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT)
+    return {
+      authorized: true,
+      reason: null,
+      signerAddress,
+      releaseReference: env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+      expiresAt,
+      messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+    }
+  } catch {
+    return { authorized: false, reason: 'sponsor-release-configuration-or-signature-invalid' }
   }
 }
 /**
@@ -1001,6 +1106,11 @@ export function createTreasuryWithdrawalsRouter({
 } = {}) {
   const router = Router()
   const managedSigner = () => fireblocksClientFactory(env)
+  async function currentRealValueReleaseAuthorization() {
+    const clock = now()
+    const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+    return verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, { now: nowMs })
+  }
 
   async function authenticateOwner(req) {
     const origin = req.get('origin')
@@ -1609,6 +1719,40 @@ export function createTreasuryWithdrawalsRouter({
     }
   })
 
+  router.get('/withdrawals/release-authorization/message', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const config = configuration()
+    if (!config.configurationComplete || !config.featureFlagEnabled) {
+      return res.status(503).json({
+        success: false,
+        error: 'treasury-release-preconditions-incomplete',
+        missing: config.missing,
+      })
+    }
+    try {
+      const clock = now()
+      const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+      const message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+      return res.json({
+        success: true,
+        message,
+        messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+        releaseReference: env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+        expiresAt: Number(env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT),
+        requiredSponsorSignerAddresses: config.sponsorApproverAddresses,
+        note: 'A configured sponsor signer must inspect this complete message and sign it in the sponsor organization’s controlled wallet. This signature enables only the exact release scope; it does not send USDT. The application never receives a private key.',
+      })
+    } catch (error) {
+      return res.status(503).json({
+        success: false,
+        error: 'treasury-release-message-unavailable',
+        reason: error instanceof Error ? error.message : 'release-configuration-invalid',
+      })
+    }
+  })
+
   router.get('/withdrawals/readiness', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     res.setHeader('Pragma', 'no-cache')
@@ -1696,11 +1840,20 @@ export function createTreasuryWithdrawalsRouter({
     }
     if (!databaseReady && !blockers.includes('database-not-ready')) blockers.push('database-not-ready')
     const preflightChecksPassed = blockers.length === 0
-    const payoutExecution = treasuryPayoutExecutionState(preflightChecksPassed)
+    const releaseAuthorization = await currentRealValueReleaseAuthorization()
+    const payoutExecution = treasuryPayoutExecutionState(preflightChecksPassed, releaseAuthorization.authorized)
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
       ...payoutExecution,
       preflightChecksPassed,
+      releaseAuthorization: {
+        authorized: releaseAuthorization.authorized,
+        reason: releaseAuthorization.reason,
+        signerAddress: releaseAuthorization.signerAddress || null,
+        releaseReference: releaseAuthorization.releaseReference || null,
+        expiresAt: releaseAuthorization.expiresAt || null,
+        messageHash: releaseAuthorization.messageHash || null,
+      },
       configuration: {
         enabled: config.enabled,
         configurationComplete: config.configurationComplete,
@@ -1762,17 +1915,19 @@ export function createTreasuryWithdrawalsRouter({
 
   router.post('/withdrawals', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
-    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
-      return res.status(503).json({
-        success: false,
-        error: 'real-value-payout-execution-disabled-in-this-build',
-        submissionEnabled: false,
-      })
-    }
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
     if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-withdrawals-disabled', missing: config.missing })
+    const releaseAuthorization = await currentRealValueReleaseAuthorization()
+    if (!releaseAuthorization.authorized) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-real-value-release-authorization-required',
+        reason: releaseAuthorization.reason,
+        submissionEnabled: false,
+      })
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['recipientAddress', 'amountUsdt', 'idempotencyKey', 'ownerAuthorizationSignature', 'authorizationExpiresAt'].includes(key))
       || !ADDRESS_PATTERN.test(body.recipientAddress || '')
@@ -2320,7 +2475,7 @@ export function createTreasuryWithdrawalsRouter({
     }
 
     const preflightChecksPassed = config.enabled && databaseReady && snapshot.ok && blockers.length === 0
-    const payoutExecution = treasuryPayoutExecutionState(preflightChecksPassed)
+    const payoutExecution = treasuryTrxPayoutExecutionState(preflightChecksPassed)
     return res.json({
       success: true,
       network: 'mainnet',
@@ -2360,10 +2515,10 @@ export function createTreasuryWithdrawalsRouter({
 
   router.post('/trx-withdrawals', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
-    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
+    if (REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED) {
       return res.status(503).json({
         success: false,
-        error: 'real-value-payout-execution-disabled-in-this-build',
+        error: 'native-trx-payout-execution-disabled-in-this-build',
         submissionEnabled: false,
       })
     }
