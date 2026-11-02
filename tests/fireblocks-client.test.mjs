@@ -75,6 +75,8 @@ test('Fireblocks read-only identity requires independent API key and RSA secret 
     FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
     FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
     FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+    FIREBLOCKS_API_KEY: configuredEnv.FIREBLOCKS_API_KEY,
+    FIREBLOCKS_SECRET_KEY_PATH: configuredEnv.FIREBLOCKS_SECRET_KEY_PATH,
   }
   assert.equal(fireblocksReadOnlyConfiguration(env).configured, true)
   assert.equal(fireblocksReadOnlyConfiguration({ ...env,
@@ -170,7 +172,7 @@ test('Fireblocks transaction-history pagination rejects invalid ranges, excessiv
   await assert.rejects(client.getTransactionsPage({ after: '0', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
   await assert.rejects(client.getTransactionsPage({ after: '10', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
   await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', limit: 501 }), /invalid-fireblocks-transaction-history-page-request/)
-  await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', next: 'bad\\npage' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', next: 'bad' + String.fromCharCode(10) + 'page' }), /invalid-fireblocks-transaction-history-page-request/)
 })
 
 test('Fireblocks JWT signs URI, nonce, time, API key subject and exact body hash', () => {
