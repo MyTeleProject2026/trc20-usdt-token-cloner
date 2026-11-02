@@ -46,7 +46,7 @@ test('USDT payout execution requires successful preflight and separate sponsor r
   assert.equal(blockedPreflight.sponsorReleaseAuthorized, true)
   assert.equal(blockedPreflight.withdrawalsEnabled, false)
   assert.equal(blockedPreflight.executionEnabled, false)
-  assert.equal(blockedPreflight.executionBlocker, 'payout-preflight-incomplete')
+  assert.equal(blockedPreflight.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
   const trx = treasuryTrxPayoutExecutionState(true)
   assert.equal(trx.withdrawalsEnabled, false)
   assert.equal(trx.executionBlocker, 'native-trx-payout-execution-disabled-in-this-build')
