@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  fireblocksHistoryScanAfterMs,
   parseFireblocksOutboundHistoryTransaction,
   reconcileFireblocksOutboundHistory,
 } from '../server/routes/fireblocks-outbound-history.mjs'
@@ -49,6 +50,27 @@ function parse(transaction) {
   assert.equal(result.valid, true, result.reason)
   return result.entry
 }
+
+test('Fireblocks history starts with a full baseline then uses a rolling overlap for incremental scans', () => {
+  assert.equal(fireblocksHistoryScanAfterMs(null), '1')
+  assert.equal(fireblocksHistoryScanAfterMs({ status: 'scanning', history_end_ms: '1798000000000' }), '1')
+  assert.equal(fireblocksHistoryScanAfterMs({
+    status: 'complete',
+    history_end_ms: '1798000000000',
+  }), String(1798000000000 - 7 * 24 * 60 * 60 * 1000))
+  assert.equal(fireblocksHistoryScanAfterMs({
+    status: 'complete',
+    history_end_ms: '1000',
+  }), '1')
+  assert.equal(fireblocksHistoryScanAfterMs({
+    status: 'complete',
+    history_end_ms: 'invalid',
+  }), '1')
+  assert.equal(fireblocksHistoryScanAfterMs({
+    status: 'complete',
+    history_end_ms: '1798000000000',
+  }, 0), '1798000000000')
+})
 
 test('Fireblocks outbound transaction parser accepts exact vault-sourced USDT and TRX transfers', () => {
   const usdt = parse(providerTransfer())
