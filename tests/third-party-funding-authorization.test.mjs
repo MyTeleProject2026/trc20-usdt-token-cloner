@@ -38,6 +38,7 @@ function manifest(overrides = {}) {
     usdtContract: OFFICIAL_TRON_MAINNET_USDT,
     maxUsdtBaseUnits: '25000000',
     maxTrxSun: '8000000',
+    sponsorOrganizationReference: 'SPONSOR-ORG-2026-001',
     agreementReference: 'ORG-AGREEMENT-2026-001',
     agreementDocumentSha256: 'b'.repeat(64),
     issuedAt: '2026-11-01T00:00:00.000Z',
@@ -55,7 +56,8 @@ test('canonical funding consent binds source, actual vault, asset, caps and writ
   assert.match(message, /Maximum native TRX in SUN \(6 decimals\): 8000000/)
   assert.match(message, /Separate written agreement reference: ORG-AGREEMENT-2026-001/)
   assert.match(message, /SHA-256 of exact executed agreement file: b{64}/)
-  assert.match(message, /Version: 2/)
+  assert.match(message, /Version: 3/)
+  assert.match(message, /Sponsor organization reference: SPONSOR-ORG-2026-001/)
   assert.match(message, /does not by itself authorize subsequent withdrawals/)
 })
 
@@ -63,6 +65,8 @@ test('a valid signature from the exact sponsor wallet verifies as incoming-depos
   let verifiedMessage = ''
   const result = await verifyThirdPartyFundingAuthorization(manifest(), {
     expectedVaultAddress: VAULT,
+    expectedSponsorOrganizationReference: 'SPONSOR-ORG-2026-001',
+    expectedAgreementReference: 'ORG-AGREEMENT-2026-001',
     now: () => NOW,
     verifyMessage: async (message, signature) => {
       verifiedMessage = message
@@ -75,6 +79,28 @@ test('a valid signature from the exact sponsor wallet verifies as incoming-depos
   assert.equal(result.authorization.subsequentPayoutsAuthorized, false)
   assert.match(verifiedMessage, /TRON Mainnet/)
   assert.match(verifiedMessage, /SHA-256 of exact executed agreement file: b{64}/)
+})
+
+test('signed consent must match the exact sponsor organization and agreement used by the outgoing policy', async () => {
+  const wrongOrganization = await verifyThirdPartyFundingAuthorization(manifest(), {
+    expectedVaultAddress: VAULT,
+    expectedSponsorOrganizationReference: 'OTHER-SPONSOR-ORG',
+    expectedAgreementReference: 'ORG-AGREEMENT-2026-001',
+    now: () => NOW,
+    verifyMessage: async () => SPONSOR,
+  })
+  assert.equal(wrongOrganization.verified, false)
+  assert.equal(wrongOrganization.reason, 'sponsor-organization-reference-does-not-match-outgoing-policy')
+
+  const wrongAgreement = await verifyThirdPartyFundingAuthorization(manifest(), {
+    expectedVaultAddress: VAULT,
+    expectedSponsorOrganizationReference: 'SPONSOR-ORG-2026-001',
+    expectedAgreementReference: 'OTHER-AGREEMENT',
+    now: () => NOW,
+    verifyMessage: async () => SPONSOR,
+  })
+  assert.equal(wrongAgreement.verified, false)
+  assert.equal(wrongAgreement.reason, 'sponsor-agreement-reference-does-not-match-outgoing-policy')
 })
 
 test('a signature recovered to a different address is rejected', async () => {
