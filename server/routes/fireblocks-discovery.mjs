@@ -27,7 +27,10 @@ function rowsFrom(value, keys) {
   if (Array.isArray(value)) return value
   for (const key of keys) {
     if (Array.isArray(value?.[key])) return value[key]
+    if (Array.isArray(value?.data?.[key])) return value.data[key]
   }
+  if (Array.isArray(value?.data)) return value.data
+  if (Array.isArray(value?.result?.[key])) return value.result[key]
   return []
 }
 
@@ -40,6 +43,16 @@ function nextCursorFrom(value) {
     value?.nextPageCursor,
     value?.after,
     value?.next,
+    value?.data?.paging?.pageCursor,
+    value?.data?.paging?.after,
+    value?.data?.paging?.next,
+    value?.data?.pageCursor,
+    value?.data?.nextPageCursor,
+    value?.data?.after,
+    value?.data?.next,
+    value?.result?.paging?.pageCursor,
+    value?.result?.paging?.after,
+    value?.result?.paging?.next,
   ]
   return candidates.find((item) => typeof item === 'string' && item.trim()) || ''
 }
