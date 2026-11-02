@@ -319,6 +319,7 @@ async function ensureSchema(db) {
           sponsor_organization_reference TEXT,
           sponsor_agreement_reference TEXT,
           sponsor_agreement_budget_base_units NUMERIC(78,0),
+          recipient_approval_request_id UUID,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           status TEXT NOT NULL CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected')),
           transaction_hash CHAR(64),
@@ -373,6 +374,10 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_reference TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_budget_base_units NUMERIC(78,0)`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS recipient_approval_request_id UUID`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_recipient_approval_idx
+        ON trc20_token_clone.treasury_withdrawal_requests (recipient_approval_request_id)
+        WHERE recipient_approval_request_id IS NOT NULL`)
       await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET status='broadcast-unknown',
             failure_code='fireblocks-terminal-unverified-' || COALESCE(NULLIF(provider_status, ''), 'unknown'),
@@ -678,6 +683,7 @@ function safeStatus(row) {
     ...(typeof row.sponsor_organization_reference === 'string' ? { sponsorOrganizationReference: row.sponsor_organization_reference } : {}),
     ...(typeof row.sponsor_agreement_reference === 'string' ? { sponsorAgreementReference: row.sponsor_agreement_reference } : {}),
     ...(row.sponsor_agreement_budget_base_units !== null && row.sponsor_agreement_budget_base_units !== undefined ? { sponsorAgreementBudgetBaseUnits: String(row.sponsor_agreement_budget_base_units) } : {}),
+    ...(typeof row.recipient_approval_request_id === 'string' ? { recipientApprovalRequestId: row.recipient_approval_request_id } : {}),
     status: row.status,
     ...(row.transaction_hash ? { transactionHash: String(row.transaction_hash).trim() } : {}),
     ...(row.provider_transaction_id ? { providerTransactionId: String(row.provider_transaction_id) } : {}),
@@ -1826,6 +1832,7 @@ export function createTreasuryWithdrawalsRouter({
 
       const client = await db.connect()
       let reservation
+      let sponsorRecipientApprovalRequestId = null
       try {
         await client.query('BEGIN')
         await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
@@ -1880,6 +1887,7 @@ export function createTreasuryWithdrawalsRouter({
               message: 'The destination has no active cryptographically verified sponsor-signed approval for this exact organization, agreement, treasury and Mainnet USDT contract. No withdrawal reservation or Fireblocks transfer was created.',
             })
           }
+          sponsorRecipientApprovalRequestId = approvalRow.request_id
         }
 
         // Re-read the treasury's actual native TRX before reserving principal.
@@ -2031,13 +2039,14 @@ export function createTreasuryWithdrawalsRouter({
         const inserted = await client.query(`
           INSERT INTO trc20_token_clone.treasury_withdrawal_requests
             (idempotency_key, owner_address, treasury_address, recipient_address, token_contract,
-             sponsor_organization_reference, sponsor_agreement_reference, sponsor_agreement_budget_base_units, amount_base_units, status)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'broadcasting')
+             sponsor_organization_reference, sponsor_agreement_reference, sponsor_agreement_budget_base_units,
+             recipient_approval_request_id, amount_base_units, status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'broadcasting')
           RETURNING *
         `, [
           body.idempotencyKey, auth.ownerAddress, treasuryAddress, body.recipientAddress, USDT_MAINNET,
           config.sponsorOrganizationReference, config.sponsorAgreementReference,
-          config.sponsorTotalBudgetBaseUnits, amount.toString(),
+          config.sponsorTotalBudgetBaseUnits, sponsorRecipientApprovalRequestId, amount.toString(),
         ])
         reservation = inserted.rows[0]
         await client.query('COMMIT')
