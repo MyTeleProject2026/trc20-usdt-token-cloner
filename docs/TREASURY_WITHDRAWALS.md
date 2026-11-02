@@ -8,6 +8,20 @@ A successful payout must move genuine USDT from the configured Fireblocks vault 
 
 The owner’s local Wallet Vault identity wallet does not need to hold the USDT principal. The authorized Fireblocks vault must hold the real USDT, the matching on-chain address must hold that USDT, and actual TRX must cover the configured `TREASURY_FEE_LIMIT_SUN` reserve unless a separately verified fee sponsor is integrated. This repository currently does **not** assume a sponsored-fee path.
 
+## Verified third-party principal ledger
+
+The owner console's **Third-party funding authorization** panel records a source-wallet consent manifest that is signed by the sponsor-controlled wallet. The manifest binds the sponsor source address, exact Fireblocks TRON Mainnet vault address, official USDT contract, per-asset maximum deposits, expiry, sponsor agreement reference and SHA-256 fingerprint of the executed agreement. The document is fingerprinted locally; confidential agreement contents are not uploaded.
+
+The owner session can register the signed manifest only after acknowledging written agreement review and the separate outgoing-disbursement scope. Those checkboxes are auditable owner-operator assertions, not independent proof of corporate authority. The source wallet signs the consent; it never hands its private key to this app.
+
+The sponsor manually sends the genuine incoming transfer. The backend verifies the confirmed transaction body and matching solidified successful receipt. For USDT it verifies the exact official contract, `transfer(address,uint256)` calldata, source, vault destination, amount cap and the official `Transfer` event. For TRX it verifies the native `TransferContract` source, destination and amount. The recorded deposit is not counted toward principal until a later fresh verified Fireblocks inventory snapshot identifies the same vault, activated asset, source address and an available provider/chain balance that covers the deposit.
+
+Only the resulting verified deposit pool counts as sponsor principal. Payout readiness and the withdrawal reservation transaction both subtract application withdrawals and complete Fireblocks external outflows from this pool. The remaining verified third-party principal is an additional independent cap alongside actual provider/chain availability, unsettled reservations, the reviewed agreement commitment, daily allowance and per-payout maximum. A sponsor budget or 100,000 USDT planning target without a verified incoming deposit produces **zero eligible third-party principal**.
+
+Authorization expiry prevents new deposits but does not erase a deposit confirmed before the signed expiry. Explicit revocation removes that authorization's principal from the eligible pool. Revocation takes the same PostgreSQL advisory lock as withdrawal reservation, so it cannot race a reservation after the principal check. Never edit the database ledger directly to create or increase sponsor principal.
+
+The incoming source consent does not authorize an outgoing withdrawal. Every outgoing request still requires the independent sponsor-signed release for the exact scope, recipient policy approval, the owner's short-lived request signature, current fee reserve, Fireblocks policy/quorum approvals, idempotent reservation and a verified solidified chain receipt. Mainnet submission remains disabled by the source-build lock in this release.
+
 ## Provider integration
 
 The feature branch uses Fireblocks' production REST API. The API-user RSA key is used only to authenticate requests to Fireblocks and is read from a mounted secret file on the backend. The blockchain signing key is not loaded into Tron Token Studio: the provider's custody system signs according to its configured transaction policy.
