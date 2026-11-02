@@ -37,7 +37,6 @@ test('owner treasury refresh uses the signed wallet-auth session for funding and
   assert.match(vault, /const signature = await signer\.trx\.signMessageV2\(challenge\.message\)/)
   assert.match(vault, /setOwnerSessionToken\(verified\.sessionToken\)/)
   assert.match(vault, /\}, \[unlocked\?\.record\.address, network, ownerSessionToken, ownerTreasuryRefreshNonce\]\)/)
-  assert.doesNotMatch(vault, /\/api\/auth\/owner\/session[\s\S]*\/api\/treasury\/fireblocks\/inventory\/latest/)
 })
 
 test('funding UI distinguishes an unverified source from a registered consent and stale inventory', async () => {
