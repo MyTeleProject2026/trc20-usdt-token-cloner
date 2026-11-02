@@ -96,7 +96,9 @@ export function parseTreasurySponsorApproverAllowlist(value, { excludedAddresses
   if (addresses.length !== entries.length) {
     return { valid: false, addresses: [], reason: 'sponsor-approver-allowlist-contains-duplicates' }
   }
-  const excluded = new Set(excludedAddresses.filter((address) => typeof address === 'string' && address.trim()))
+  const excluded = new Set(excludedAddresses
+    .filter((address) => typeof address === 'string' && address.trim())
+    .map((address) => address.trim()))
   if (addresses.some((address) => excluded.has(address))) {
     return { valid: false, addresses: [], reason: 'sponsor-approver-must-be-independent-of-owner-and-treasury' }
   }
@@ -1264,6 +1266,17 @@ export function createTreasuryWithdrawalsRouter({
           success: false,
           error: existing.rows[0].status === 'approved' ? 'recipient-already-sponsor-approved' : 'recipient-approval-request-already-pending',
           requestId: existing.rows[0].request_id,
+        })
+      }
+      const recentRequests = await db.query(`SELECT COUNT(*)::text AS count
+        FROM trc20_token_clone.treasury_recipient_approval_requests
+        WHERE requester_owner_address=$1 AND created_at > now() - interval '24 hours'`,
+      [auth.ownerAddress])
+      if (BigInt(recentRequests.rows[0]?.count || '0') >= 20n) {
+        return res.status(429).json({
+          success: false,
+          error: 'recipient-approval-request-rate-limited',
+          message: 'The owner may create at most 20 recipient approval requests in a rolling 24-hour window.',
         })
       }
       const current = now()
