@@ -9,6 +9,7 @@ import {
 import {
   createFireblocksClient,
   fireblocksConfiguration,
+  extractFireblocksAddresses,
   parseSixDecimalBaseUnits,
 } from '../fireblocks-client.mjs'
 
@@ -325,7 +326,12 @@ export function reconcileFireblocksOutboundHistory({
         blockers.push('fireblocks-history-application-transaction-mismatch')
         continue
       }
-      seenApplicationRequests.add(rowIdentity(matched.kind, row))
+      const matchedRequestIdentity = rowIdentity(matched.kind, row)
+      if (seenApplicationRequests.has(matchedRequestIdentity)) {
+        blockers.push('fireblocks-history-application-request-matched-multiple-times')
+        continue
+      }
+      seenApplicationRequests.add(matchedRequestIdentity)
       continue
     }
 
@@ -496,6 +502,20 @@ export function createFireblocksOutboundHistoryRouter({
         : [])
       if (!activeAssets.has(cfg.usdtAssetId) || !activeAssets.has(cfg.trxAssetId)) {
         return res.status(409).json({ success: false, error: 'fireblocks-outbound-history-assets-not-active' })
+      }
+      const [usdtAddressResponse, trxAddressResponse] = await Promise.all([
+        fireblocks.getAssetAddresses(cfg.usdtAssetId),
+        fireblocks.getAssetAddresses(cfg.trxAssetId),
+      ])
+      const usdtAddresses = [...new Set(extractFireblocksAddresses(usdtAddressResponse))]
+      const trxAddresses = [...new Set(extractFireblocksAddresses(trxAddressResponse))]
+      if (usdtAddresses.length !== 1 || usdtAddresses[0] !== treasuryAddress
+        || trxAddresses.length !== 1 || trxAddresses[0] !== treasuryAddress) {
+        return res.status(409).json({
+          success: false,
+          error: 'fireblocks-outbound-history-vault-address-mismatch',
+          payoutExecutionAuthorized: false,
+        })
       }
 
       const existing = await db.query(

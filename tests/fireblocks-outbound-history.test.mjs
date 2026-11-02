@@ -156,6 +156,33 @@ test('Fireblocks outbound reconciliation blocks when an app request and provider
   assert.ok(result.blockers.includes('fireblocks-history-application-transaction-mismatch'))
 })
 
+test('Fireblocks outbound reconciliation blocks if more than one provider transaction claims one app request', () => {
+  const appRequest = {
+    idempotency_key: 'app-usdt-payout-0000000004',
+    provider_transaction_id: 'provider-app-duplicate-1',
+    recipient_address: recipient,
+    amount_base_units: '2500000',
+    status: 'broadcast-accepted',
+  }
+  const result = reconcileFireblocksOutboundHistory({
+    entries: [
+      parse(providerTransfer({
+        id: 'provider-app-duplicate-1',
+        externalTxId: appRequest.idempotency_key,
+      })),
+      parse(providerTransfer({
+        id: 'provider-app-duplicate-2',
+        externalTxId: appRequest.idempotency_key,
+      })),
+    ],
+    usdtRequests: [appRequest],
+    trxRequests: [],
+    ...config,
+  })
+  assert.equal(result.verified, false)
+  assert.ok(result.blockers.includes('fireblocks-history-application-request-matched-multiple-times'))
+})
+
 test('Fireblocks outbound reconciliation blocks if a committed application transaction is absent', () => {
   const appRequest = {
     idempotency_key: 'app-usdt-payout-0000000003',
