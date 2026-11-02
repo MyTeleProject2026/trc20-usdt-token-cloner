@@ -149,6 +149,7 @@ test('read-only Fireblocks client fetches bounded vault transaction-history page
   assert.equal(calls[0].url.searchParams.get('limit'), '500')
   assert.equal(calls[0].url.searchParams.get('sourceType'), 'VAULT_ACCOUNT')
   assert.equal(calls[0].url.searchParams.get('sourceId'), '0')
+  assert.equal(calls[0].url.searchParams.get('assets'), 'USDT_TRON,TRX')
   assert.equal(calls[0].url.searchParams.get('orderBy'), 'createdAt')
   assert.equal(calls[0].url.searchParams.get('sort'), 'ASC')
   assert.equal('createUsdtTransfer' in client, false)
@@ -173,6 +174,10 @@ test('Fireblocks transaction-history pagination rejects invalid ranges, excessiv
   await assert.rejects(client.getTransactionsPage({ after: '10', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
   await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', limit: 501 }), /invalid-fireblocks-transaction-history-page-request/)
   await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', next: 'bad' + String.fromCharCode(10) + 'page' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(createFireblocksReadOnlyClient({
+    ...env, FIREBLOCKS_USDT_ASSET_ID: '',
+  }, { fetchImpl: async () => { throw new Error('provider should not be called') } })
+    .getTransactionsPage({ after: '1', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
 })
 
 test('Fireblocks JWT signs URI, nonce, time, API key subject and exact body hash', () => {
