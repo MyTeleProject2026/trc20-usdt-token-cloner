@@ -92,7 +92,7 @@ async function ensureHistorySchema(db) {
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS previous_complete_transaction_count BIGINT NOT NULL DEFAULT 0')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_entries ADD COLUMN IF NOT EXISTS last_seen_run_id TEXT')
   await db.query(
-    'CREATE INDEX IF NOT EXISTS fireblocks_outbound_history_vault_asset_idx '
+    'CREATE INDEX IF NOT EXISTS fireblocks_outbound_history_vault_asset_idx ' +
     'ON ' + SCHEMA + '.fireblocks_outbound_history_entries (vault_account_id, asset_code)',
   )
   await db.query(
