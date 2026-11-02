@@ -1035,6 +1035,9 @@ export default function WalletVault() {
     setTreasuryPayoutError('')
     let idempotencyKey = ''
     try {
+      if (treasuryPayoutStatus?.status === 'submission-outcome-unknown') {
+        throw new Error('This request may already have reached the backend. Look up the existing idempotency key first; do not resubmit or create a replacement until the backend confirms that no reservation exists.')
+      }
       if (!canSubmitServerTreasuryPayout) {
         throw new Error('Mainnet USDT payout is blocked until the authenticated owner, exact sponsor release, live preflight, treasury balance and sponsor principal budget all pass.')
       }
@@ -1053,10 +1056,10 @@ export default function WalletVault() {
         throw new Error('The recipient must be different from the sponsor treasury address.')
       }
       const amountBaseUnits = parseUnitsDecimal(treasuryPayoutAmount, 6)
-      const priorKey = treasuryPayoutStatus?.status === 'submission-outcome-unknown'
-        ? treasuryPayoutStatus.idempotencyKey : ''
-      idempotencyKey = typeof priorKey === 'string' && /^[A-Za-z0-9._:-]{24,128}$/.test(priorKey)
-        ? priorKey : window.crypto.randomUUID()
+      // A new idempotency key is generated only for a new intent. An ambiguous
+      // prior request must be reconciled by lookup, never re-submitted from
+      // possibly edited or reloaded recipient/amount fields.
+      idempotencyKey = window.crypto.randomUUID()
       if (!/^[A-Za-z0-9._:-]{24,128}$/.test(idempotencyKey)) {
         throw new Error('A secure one-use withdrawal request key could not be generated.')
       }
@@ -1100,7 +1103,7 @@ export default function WalletVault() {
         })
       } catch {
         setTreasuryPayoutStatus({ status: 'submission-outcome-unknown', idempotencyKey })
-        throw new Error('The request connection failed after authorization. Its outcome is unknown. Do not create a new request; retry this exact intent with the same key or look up the saved reference.')
+        throw new Error('The request connection failed after authorization. Its outcome is unknown. Do not resubmit. Look up the saved idempotency key and wait for the backend to confirm whether a reservation exists.')
       }
       const payload = await response.json().catch(() => null)
       if (!response.ok || (payload?.success !== true && payload?.status !== 'broadcast-unknown')) {
@@ -2260,8 +2263,8 @@ export default function WalletVault() {
                     </>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>Server treasury payout — disabled in this build</strong>
-                    <p>This panel is read-only in the current supervised development build. It does not sign or submit a payout. Any future production treasury workflow requires separate review and authorization by the responsible organization.</p>
+                    <strong>Server treasury payout — gated by live authorization</strong>
+                    <p>The form below submits only when the backend confirms every live sponsor, custody, funding, owner-signature and policy gate. This repository branch is not deployed to the live Render service; the deployed service remains separately hard-locked.</p>
                   </div>
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
@@ -2328,17 +2331,17 @@ export default function WalletVault() {
                     <label htmlFor="treasury-payout-confirm">Type SEND USDT to confirm this exact request</label>
                     <input id="treasury-payout-confirm" autoComplete="off"
                       value={treasuryPayoutConfirm}
-                      disabled={treasuryPayoutBusy || (treasuryPayoutInFlight && treasuryPayoutCurrentStatus !== 'submission-outcome-unknown')}
+                      disabled={treasuryPayoutBusy || treasuryPayoutInFlight}
                       onChange={event => setTreasuryPayoutConfirm(event.target.value)}
                       placeholder="SEND USDT" />
                     <button type="button" className="wallet-vault-primary"
                       disabled={treasuryPayoutBusy || !canSubmitServerTreasuryPayout
                         || !treasuryPayoutRecipient.trim() || !treasuryPayoutAmount.trim()
                         || treasuryPayoutConfirm.trim() !== 'SEND USDT'
-                        || (treasuryPayoutInFlight && treasuryPayoutCurrentStatus !== 'submission-outcome-unknown')}
+                        || treasuryPayoutInFlight}
                       onClick={() => void submitServerTreasuryPayout()}>
                       {treasuryPayoutBusy ? 'Authorizing & submitting…'
-                        : treasuryPayoutCurrentStatus === 'submission-outcome-unknown' ? 'Retry same request safely'
+                        : treasuryPayoutCurrentStatus === 'submission-outcome-unknown' ? 'Lookup existing request before retry'
                           : 'Sign & submit sponsor-funded USDT payout'}
                     </button>
                     {!canSubmitServerTreasuryPayout && (
