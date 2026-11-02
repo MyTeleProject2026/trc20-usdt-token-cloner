@@ -21,6 +21,21 @@ export async function runThirdPartyFundingAuthorizationCli(args = process.argv.s
   }
   const manifest = await loadManifest(manifestPath)
   const expectedVaultAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+  const expectedSponsorOrganizationReference = typeof env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE === 'string'
+    ? env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE.trim() : ''
+  const expectedAgreementReference = typeof env.TREASURY_SPONSOR_AGREEMENT_REFERENCE === 'string'
+    ? env.TREASURY_SPONSOR_AGREEMENT_REFERENCE.trim() : ''
+  if (!expectedSponsorOrganizationReference || !expectedAgreementReference
+    || manifest?.sponsorOrganizationReference !== expectedSponsorOrganizationReference
+    || manifest?.agreementReference !== expectedAgreementReference) {
+    process.stdout.write(JSON.stringify({
+      success: false,
+      verified: false,
+      reason: 'manifest-sponsor-organization-or-agreement-does-not-match-outgoing-policy',
+      payoutExecutionAuthorized: false,
+    }, null, 2) + '\n')
+    return { success: false, verified: false }
+  }
   if (!expectedVaultAddress || manifest?.vaultAddress !== expectedVaultAddress) {
     process.stdout.write(JSON.stringify({
       success: false,
@@ -38,7 +53,7 @@ export async function runThirdPartyFundingAuthorizationCli(args = process.argv.s
     return { success: true, command: 'message' }
   }
 
-  const result = await verifyThirdPartyFundingAuthorization(manifest, { expectedVaultAddress })
+  const result = await verifyThirdPartyFundingAuthorization(manifest, { expectedVaultAddress, expectedSponsorOrganizationReference, expectedAgreementReference })
   process.stdout.write(JSON.stringify({
     success: result.verified === true,
     verified: result.verified === true,
