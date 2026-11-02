@@ -1871,6 +1871,7 @@ export default function WalletVault() {
           <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={17} /><span>Organization payouts</span></button>
           <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={17} /><span>Account</span></button>
           <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={17} /><span>Activity</span></button>
+          <button type="button" className={activePanel === 'settings' ? 'is-active' : ''} aria-current={activePanel === 'settings' ? 'page' : undefined} onClick={() => navigatePanel('settings')}><Settings size={17} /><span>Settings</span></button>
         </nav>
 
       </aside>
@@ -1896,8 +1897,8 @@ export default function WalletVault() {
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
-        <strong>Owner-only funding model</strong>
-        <p>This build does not submit treasury payout requests. A future arrangement would require a treasury organization to control the genuine assets and separately authorize the service; observed balances do not grant this app spending permission.</p>
+        <strong>Important: sponsor-funded Mainnet payouts are locked</strong>
+        <p>This application cannot create USDT or spend an observed balance. A payout requires an authorized sponsor organization’s Fireblocks vault to hold genuine official TRON USDT and enough TRX for network fees. The owner wallet signs a one-request authorization only; it does not fund the payout. Real-value execution remains hard-disabled until the sponsor, provider, custody, chain and security controls are independently approved.</p>
       </div>
 
       <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
@@ -1937,6 +1938,68 @@ export default function WalletVault() {
         <p className="wallet-vault-caption">Backend-managed configuration and readiness refresh automatically every 30 seconds and when this tab regains focus. Execution is enabled only when live preflight, sponsor release authorization, owner authorization, recipient policy, balances and budgets all pass; missing sponsor credentials or approvals remain explicit blockers.</p>
       </section>
 
+
+      <section className="wallet-vault-panel wallet-vault-payout-guide" aria-labelledby="wallet-vault-payout-guide-heading" hidden={activePanel !== 'dashboard'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Landmark size={16} /></span>
+          <div>
+            <h2 id="wallet-vault-payout-guide-heading">Start here · Organization-funded Mainnet USDT payout</h2>
+            <p>Follow these steps in order. Each button opens the relevant page; the backend still rechecks every condition before any request can proceed.</p>
+          </div>
+        </div>
+        <div className="wallet-vault-payout-guide-status" role="status" aria-live="polite">
+          <div>
+            <small>Current network</small>
+            <strong>{network === 'mainnet' ? 'TRON Mainnet selected' : (network === 'nile' ? 'Nile testnet selected' : 'Shasta testnet selected') + ' · payout page switches to Mainnet'}</strong>
+          </div>
+          <div>
+            <small>Current payout gate</small>
+            <strong>{canSubmitServerTreasuryPayout
+              ? 'UI owner and readiness checks currently pass · backend revalidation still required'
+              : serverTreasuryReadiness
+                ? 'Locked · open Organization payouts to review the exact blockers'
+                : 'Waiting for live sponsor and treasury readiness evidence'}</strong>
+          </div>
+        </div>
+        <div className="wallet-vault-payout-guide-grid">
+          <button type="button" className="wallet-vault-payout-guide-step" onClick={() => navigatePanel('settings')}>
+            <span className="wallet-vault-payout-guide-number">01</span>
+            <Settings size={19} aria-hidden="true" />
+            <strong>Select Mainnet</strong>
+            <small>Open Settings and select TRON Mainnet. The payout page will also switch to Mainnet automatically.</small>
+            <span className="wallet-vault-payout-guide-action">Open Settings →</span>
+          </button>
+          <button type="button" className="wallet-vault-payout-guide-step" onClick={() => navigatePanel('treasury')}>
+            <span className="wallet-vault-payout-guide-number">02</span>
+            <Landmark size={19} aria-hidden="true" />
+            <strong>Check sponsor funding</strong>
+            <small>Review Fireblocks discovery, official USDT and TRX balances, sponsor approval, budgets and complete outbound-history reconciliation.</small>
+            <span className="wallet-vault-payout-guide-action">Open Organization payouts →</span>
+          </button>
+          <button type="button" className="wallet-vault-payout-guide-step" onClick={() => navigatePanel('account')}>
+            <span className="wallet-vault-payout-guide-number">03</span>
+            <Wallet size={19} aria-hidden="true" />
+            <strong>Unlock owner authorization</strong>
+            <small>Unlock the exact owner wallet used for the authenticated owner session. It signs the request; it does not provide USDT principal or pay sponsor fees.</small>
+            <span className="wallet-vault-payout-guide-action">Open Account →</span>
+          </button>
+          <button type="button" className="wallet-vault-payout-guide-step" onClick={() => navigatePanel('treasury')}>
+            <span className="wallet-vault-payout-guide-number">04</span>
+            <Send size={19} aria-hidden="true" />
+            <strong>Prepare one payout request</strong>
+            <small>Only after all gates pass, enter the exact external Mainnet TRON address and amount, review them, type SEND USDT and sign the one-use authorization.</small>
+            <span className="wallet-vault-payout-guide-action">Open payout form →</span>
+          </button>
+          <button type="button" className="wallet-vault-payout-guide-step" onClick={() => navigatePanel('treasury')}>
+            <span className="wallet-vault-payout-guide-number">05</span>
+            <ShieldCheck size={19} aria-hidden="true" />
+            <strong>Verify settlement and credit</strong>
+            <small>Look up the same request key, verify its solidified TRON transaction and official USDT Transfer event, then check the receiving exchange’s own deposit status.</small>
+            <span className="wallet-vault-payout-guide-action">Open payout status →</span>
+          </button>
+        </div>
+        <p className="wallet-vault-caption">A TRON transaction ID and a successful USDT Transfer event prove an on-chain transfer only. They do not prove an exchange credited the deposit or made it withdrawable. Never send a fake, simulated or restricted token while representing it as genuine Tether USDT.</p>
+      </section>
 
       <section className="wallet-vault-panel wallet-vault-quick-actions" aria-labelledby="wallet-vault-quick-actions-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
@@ -2793,6 +2856,7 @@ export default function WalletVault() {
         <button type="button" className={activePanel === 'treasury' ? 'is-active' : ''} aria-current={activePanel === 'treasury' ? 'page' : undefined} onClick={() => navigatePanel('treasury')}><Landmark size={18} /><span>Treasury</span></button>
         <button type="button" className={activePanel === 'activity' ? 'is-active' : ''} aria-current={activePanel === 'activity' ? 'page' : undefined} onClick={() => navigatePanel('activity')}><Activity size={18} /><span>Activity</span></button>
         <button type="button" className={activePanel === 'account' ? 'is-active' : ''} aria-current={activePanel === 'account' ? 'page' : undefined} onClick={() => navigatePanel('account')}><UserRound size={18} /><span>Account</span></button>
+        <button type="button" className={activePanel === 'settings' ? 'is-active' : ''} aria-current={activePanel === 'settings' ? 'page' : undefined} onClick={() => navigatePanel('settings')}><Settings size={18} /><span>Settings</span></button>
       </nav>
 
       {toast && (
