@@ -103,6 +103,50 @@ export function fireblocksConfiguration(env = process.env) {
 }
 
 /**
+ * Read-only discovery uses a separate Fireblocks API user and RSA key file.
+ * It refuses to run if either credential is shared with the payout identity.
+ */
+export function fireblocksReadOnlyConfiguration(env = process.env) {
+  const apiKey = typeof env.FIREBLOCKS_READONLY_API_KEY === 'string' ? env.FIREBLOCKS_READONLY_API_KEY.trim() : ''
+  const secretKeyPath = typeof env.FIREBLOCKS_READONLY_SECRET_KEY_PATH === 'string' ? env.FIREBLOCKS_READONLY_SECRET_KEY_PATH.trim() : ''
+  const payoutApiKey = typeof env.FIREBLOCKS_API_KEY === 'string' ? env.FIREBLOCKS_API_KEY.trim() : ''
+  const payoutSecretKeyPath = typeof env.FIREBLOCKS_SECRET_KEY_PATH === 'string' ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
+  const apiBaseInput = typeof env.FIREBLOCKS_READONLY_API_BASE === 'string' && env.FIREBLOCKS_READONLY_API_BASE.trim()
+    ? env.FIREBLOCKS_READONLY_API_BASE.trim().replace(/\/+$/, '')
+    : (typeof env.FIREBLOCKS_API_BASE === 'string' && env.FIREBLOCKS_API_BASE.trim()
+      ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : DEFAULT_API_BASE)
+  const credentialsMissing = []
+  if (!apiKey) credentialsMissing.push('FIREBLOCKS_READONLY_API_KEY')
+  if (!secretKeyPath || !isAbsolute(secretKeyPath)) credentialsMissing.push('FIREBLOCKS_READONLY_SECRET_KEY_PATH')
+  if (!ALLOWED_API_BASES.has(apiBaseInput)) credentialsMissing.push('FIREBLOCKS_READONLY_API_BASE (unsupported production URL)')
+  if (apiKey && payoutApiKey && apiKey === payoutApiKey) credentialsMissing.push('FIREBLOCKS_READONLY_API_KEY (must differ from FIREBLOCKS_API_KEY)')
+  if (secretKeyPath && payoutSecretKeyPath && secretKeyPath === payoutSecretKeyPath) credentialsMissing.push('FIREBLOCKS_READONLY_SECRET_KEY_PATH (must differ from FIREBLOCKS_SECRET_KEY_PATH)')
+  return { configured: credentialsMissing.length === 0, credentialsConfigured: credentialsMissing.length === 0,
+    credentialsMissing, apiKey, secretKeyPath, apiBase: apiBaseInput }
+}
+
+/** Discovery-only client: no transaction submission or fee-estimate methods are exposed. */
+export function createFireblocksReadOnlyClient(env = process.env, options = {}) {
+  const config = fireblocksReadOnlyConfiguration(env)
+  const client = createFireblocksClient({
+    ...env,
+    FIREBLOCKS_API_KEY: config.configured ? config.apiKey : '',
+    FIREBLOCKS_SECRET_KEY_PATH: config.configured ? config.secretKeyPath : '',
+    FIREBLOCKS_API_BASE: config.apiBase,
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+    FIREBLOCKS_USDT_ASSET_ID: '',
+  }, options)
+  return Object.freeze({
+    configuration: () => ({ credentialsConfigured: config.configured,
+      credentialsMissing: [...config.credentialsMissing], apiBase: config.apiBase }),
+    getPagedVaultAccounts: (args) => client.getPagedVaultAccounts(args),
+    getAssets: (args) => client.getAssets(args),
+    getAssetAddresses: (assetId, vaultAccountId) =>
+      client.getAssetAddresses(assetId, vaultAccountId, { credentialsOnly: true }),
+  })
+}
+
+/**
  * Fireblocks REST JWT authentication. secretKey is the API-user RSA key issued
  * by Fireblocks, not a blockchain signing key. Wallet transaction signatures
  * are performed by Fireblocks custody infrastructure.

@@ -13,8 +13,11 @@ const OFFICIAL_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ENV = {
   OWNER_WALLET_ADDRESS: OWNER,
   TREASURY_OWNER_ADDRESS: OWNER,
-  FIREBLOCKS_API_KEY: 'discovery-api-key-do-not-return',
-  FIREBLOCKS_SECRET_KEY_PATH: '/run/secrets/fireblocks-api.pem',
+  FIREBLOCKS_READONLY_API_KEY: 'discovery-api-key-do-not-return',
+  FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-readonly-api.pem',
+  FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+  FIREBLOCKS_API_KEY: 'payout-api-key-separate',
+  FIREBLOCKS_SECRET_KEY_PATH: '/run/secrets/fireblocks-payout-api.pem',
   FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
 }
 
@@ -113,13 +116,13 @@ test('Fireblocks discovery requires the authenticated owner before calling provi
 })
 
 test('Fireblocks discovery reports credential prerequisites without leaking secrets or calling the provider', async () => {
-  const fixture = makeFixture({ env: { ...ENV, FIREBLOCKS_API_KEY: '', FIREBLOCKS_SECRET_KEY_PATH: '' } })
+  const fixture = makeFixture({ env: { ...ENV, FIREBLOCKS_READONLY_API_KEY: '', FIREBLOCKS_READONLY_SECRET_KEY_PATH: '' } })
   await withServer(fixture, async (url) => {
     const response = await getDiscovery(url)
     const payload = await response.json()
     assert.equal(response.status, 200)
     assert.equal(payload.discoveryStatus, 'credentials-required')
-    assert.deepEqual(payload.configuration.credentialsMissing, ['FIREBLOCKS_API_KEY', 'FIREBLOCKS_SECRET_KEY_PATH'])
+    assert.deepEqual(payload.configuration.credentialsMissing, ['FIREBLOCKS_READONLY_API_KEY', 'FIREBLOCKS_READONLY_SECRET_KEY_PATH'])
     assert.equal(payload.suggestedConfiguration, null)
     assert.equal(JSON.stringify(payload).includes('discovery-api-key-do-not-return'), false)
     assert.equal(fixture.calls.length, 0)
@@ -253,8 +256,8 @@ test('Fireblocks discovery does not suggest UUID-only assets as payout API ident
     assert.equal(response.status, 200)
     assert.equal(payload.discoveryStatus, 'review-required')
     assert.equal(payload.officialUsdtAssets.length, 0)
-    // The fixture still supplies a valid legacy native-TRX identifier; only USDT is UUID-only.
-    assert.equal(payload.nativeTrxAssets.length, 1)
+    // Both catalogue entries are UUID-only, so neither is safe as a payout API ID.
+    assert.equal(payload.nativeTrxAssets.length, 0)
     assert.equal(payload.suggestedConfiguration, null)
   })
 })

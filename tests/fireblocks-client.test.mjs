@@ -10,6 +10,8 @@ import {
   extractFireblocksAddresses,
   fireblocksAssetIdentifierMatches,
   fireblocksConfiguration,
+  fireblocksReadOnlyConfiguration,
+  createFireblocksReadOnlyClient,
   isOfficialFireblocksUsdtAsset,
   isNativeFireblocksTrxAsset,
   providerAssetAvailableBaseUnits,
@@ -65,6 +67,39 @@ test('Fireblocks accepts only an absolute mounted secret-file path and known pro
   assert.equal(fireblocksConfiguration({
     ...configuredEnv, FIREBLOCKS_API_BASE: 'https://attacker.example',
   }).configured, false)
+})
+
+test('Fireblocks read-only identity requires independent API key and RSA secret path', () => {
+  const env = { ...configuredEnv, FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io' }
+  assert.equal(fireblocksReadOnlyConfiguration(env).configured, true)
+  assert.equal(fireblocksReadOnlyConfiguration({ ...env,
+    FIREBLOCKS_READONLY_API_KEY: configuredEnv.FIREBLOCKS_API_KEY }).configured, false)
+  assert.equal(fireblocksReadOnlyConfiguration({ ...env,
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: configuredEnv.FIREBLOCKS_SECRET_KEY_PATH }).configured, false)
+})
+
+test('read-only Fireblocks client authenticates with its own identity and exposes no transaction methods', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const env = { ...configuredEnv, FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io' }
+  const client = createFireblocksReadOnlyClient(env, {
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify({ assets: [] }), { status: 200 }) },
+    readSecretFile: async (path) => { assert.equal(path, env.FIREBLOCKS_READONLY_SECRET_KEY_PATH); return privateKey },
+    now: () => 1_700_000_000_000, nonceFactory: () => 'readonly-nonce',
+  })
+  assert.equal(typeof client.getAssets, 'function')
+  assert.equal(typeof client.getPagedVaultAccounts, 'function')
+  assert.equal(typeof client.getAssetAddresses, 'function')
+  assert.equal('createUsdtTransfer' in client, false)
+  assert.equal('createTrxTransfer' in client, false)
+  assert.equal('estimateUsdtTransferFee' in client, false)
+  await client.getAssets({ symbol: 'USDT', pageSize: 500 })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].init.headers['X-API-Key'], 'viewer-api-key')
 })
 
 test('Fireblocks JWT signs URI, nonce, time, API key subject and exact body hash', () => {

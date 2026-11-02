@@ -41,11 +41,11 @@ Fireblocks references:
 
 ## 2A. Automatic, read-only configuration discovery
 
-After the organization has created its Fireblocks API user and installed the API authentication RSA key as a backend-only secret file, the owner console can query:
+After the organization has created a dedicated read-only Fireblocks API user and installed its separate API-authentication RSA key as a backend-only secret file, the owner console can query:
 
 `GET /api/treasury/fireblocks/discovery`
 
-The endpoint is owner-session authenticated and read-only. It uses the API user's read permissions to:
+The endpoint is owner-session authenticated and read-only. It uses only the dedicated `FIREBLOCKS_READONLY_API_KEY` / `FIREBLOCKS_READONLY_SECRET_KEY_PATH` identity, which must differ from the payout identity, and calls only vault, asset-catalogue and address-read methods:
 - enumerate paginated Vault Accounts;
 - query Fireblocks' supported asset catalog for USDT and TRX;
 - accept USDT only when provider contract metadata matches the official TRON Mainnet Tether contract;
@@ -57,7 +57,7 @@ The owner console refreshes this discovery snapshot with the other backend statu
 
 **Discovery is not configuration activation.** The endpoint does not select a vault, write Render environment variables, create or activate assets, move balances, approve a sponsor agreement, or enable transfers. If several matching vaults or asset pairs exist, the endpoint reports candidates but does not choose one. The organization must review and approve the exact source vault and agreement scope. The existing payout readiness checks and sponsor release signature still bind the final vault ID, asset IDs, treasury address, contract, limits and recipient policy.
 
-The API key and mounted RSA authentication file cannot be auto-created by this application; they must be issued by Fireblocks to the authorized sponsor organization. The endpoint does not return the API key, secret-file path, RSA key, private key or signing material to the frontend.
+The read-only API key and mounted RSA authentication file cannot be auto-created by this application; they must be issued by Fireblocks to the authorized sponsor organization. The read-only client exposes no transaction-submission or fee-estimate methods. The endpoint does not return the API key, secret-file path, RSA key, private key or signing material to the frontend.
 
 The discovery endpoint prefers each asset's Fireblocks `legacyId` (API ID) when the catalogue returns both a newer asset UUID and a legacy identifier. Fireblocks' current List Assets API reference says to continue using the legacy ID until all services support the newer UUID. If an asset response has no valid legacy ID, treat the identifier as unconfirmed and do not manually substitute a different-looking ID.
 
@@ -69,7 +69,14 @@ Funding is a real asset movement, not an application setting. The organization's
 
 The application compares Fireblocks' available balance with the public TRON chain balance. A provider balance alone or a public-chain balance alone is insufficient. The app does not mint, manufacture, borrow, or display synthetic USDT.
 
-## 4. Create a dedicated Fireblocks API user/key
+## 4. Create separate Fireblocks API users/keys
+
+Create two API users in the same approved workspace, with two independently generated RSA-4096 key pairs and separate secret files:
+
+- **Discovery identity:** Viewer/read-only permissions sufficient for vault-account enumeration, asset-catalogue reads and vault address reads. It must not have transaction-initiation or signing permissions. Configure `FIREBLOCKS_READONLY_API_KEY`, `FIREBLOCKS_READONLY_SECRET_KEY_PATH` and optionally `FIREBLOCKS_READONLY_API_BASE`.
+- **Payout identity:** the minimum transaction-capable role Fireblocks confirms is required for fee estimation, transaction initiation and status lookup. Keep Fireblocks policy approvals and human quorum enabled. Configure the existing `FIREBLOCKS_API_KEY`, `FIREBLOCKS_SECRET_KEY_PATH` and `FIREBLOCKS_API_BASE`.
+
+The application rejects a read-only identity that reuses the payout API key or RSA secret-file path. Do not use one API user for both roles.
 
 The API key is an identifier for an API user. Its matching RSA private key is a **Fireblocks API-authentication credential**, not a TRON wallet private key and not the key that directly signs blockchain transfers. Keep the API private key secret and keep Fireblocks' custody signing controls inside Fireblocks.
 
@@ -100,13 +107,16 @@ Fireblocks references:
 
 The current backend service is the Node web service linked to this repository. Use its Render Dashboard → **Environment** page.
 
-1. Under **Secret Files**, add a file named `fireblocks_api_private_key.pem` and paste the contents of the RSA private-key file there. Render makes service secret files available at `/etc/secrets/<filename>`.
+1. Under **Secret Files**, add two separate files: `fireblocks_readonly_api_private_key.pem` and `fireblocks_payout_api_private_key.pem`. Each must match its own Fireblocks API user CSR. Render makes service secret files available at `/etc/secrets/<filename>`.
 2. Add the following variables to the backend service (not the frontend/static site and never as `VITE_*` variables):
 
 | Variable | Value to obtain from the approved Fireblocks workspace |
 |---|---|
-| `FIREBLOCKS_API_KEY` | The API user ID shown in Fireblocks |
-| `FIREBLOCKS_SECRET_KEY_PATH` | `/etc/secrets/fireblocks_api_private_key.pem` |
+| `FIREBLOCKS_READONLY_API_KEY` | Dedicated Viewer/read-only API user ID for discovery |
+| `FIREBLOCKS_READONLY_SECRET_KEY_PATH` | `/etc/secrets/fireblocks_readonly_api_private_key.pem` |
+| `FIREBLOCKS_READONLY_API_BASE` | Production regional API origin for the read-only identity |
+| `FIREBLOCKS_API_KEY` | Separate transaction-capable payout API user ID shown in Fireblocks |
+| `FIREBLOCKS_SECRET_KEY_PATH` | `/etc/secrets/fireblocks_payout_api_private_key.pem` |
 | `FIREBLOCKS_API_BASE` | The exact production regional API origin shown/confirmed for the workspace; leave unset for the documented default if appropriate |
 | `FIREBLOCKS_VAULT_ACCOUNT_ID` | Numeric ID of the dedicated TRON treasury Vault Account |
 | `FIREBLOCKS_USDT_ASSET_ID` | Exact asset ID for the official TRON USDT token in that workspace |
