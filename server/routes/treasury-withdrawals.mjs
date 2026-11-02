@@ -2208,9 +2208,8 @@ export function createTreasuryWithdrawalsRouter({
               AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
           db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
             FROM trc20_token_clone.treasury_withdrawal_requests
-            WHERE treasury_address=$1
-              AND created_at >= date_trunc('day', now())
-              AND status <> 'rejected'`, [treasuryAddress]),
+            WHERE created_at >= date_trunc('day', now())
+              AND status <> 'rejected'`),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
