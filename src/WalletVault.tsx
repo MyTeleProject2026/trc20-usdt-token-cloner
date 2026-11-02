@@ -1888,7 +1888,7 @@ export default function WalletVault() {
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
                       <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
-                      <div><small>Backend preflight flag</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed (informational only)' : 'Not passed'}</strong></div>
+                      <div><small>Payout preflight readiness</small><strong>{serverTreasuryReadiness.payoutsPreflightReady === true ? 'Passed (checks only)' : 'Not passed'}</strong></div>
                       <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled' : serverTreasuryReadiness?.executionBlocker === 'real-value-payout-execution-disabled-in-this-build' ? 'Disabled by server safety gate' : 'Disabled in this build'}</strong></div>
                       <div><small>Configuration completeness</small><strong>{serverTreasuryReadiness.configuration?.configurationComplete === true ? 'Complete' : 'Incomplete'}</strong></div>
                       <div><small>USDT payout switch</small><strong>{serverTreasuryReadiness.configuration?.featureFlagEnabled === true ? 'Enabled' : 'Disabled (safe default)'}</strong></div>
@@ -1908,7 +1908,7 @@ export default function WalletVault() {
                   )}
                   {serverTreasuryReadiness?.withdrawalsEnabled !== true && (
                     <div className="wallet-vault-transfer-warning" role="status">
-                      <strong>Real payout readiness</strong>
+                      <strong>Withdrawal execution status</strong>
                       <p>Server-funded USDT withdrawals remain disabled unless the backend signer, persistent database, payout limits and actual treasury balance all pass checks. This screen never creates USDT or pays a recipient from an empty treasury.</p>
                       {Array.isArray(serverTreasuryReadiness?.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
                         <p><strong>Backend configuration still missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
