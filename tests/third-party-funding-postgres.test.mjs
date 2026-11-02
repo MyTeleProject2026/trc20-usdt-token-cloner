@@ -54,6 +54,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
   const authorizationInput = {
     authorizationId,
+    sponsorOrganizationReference: 'SPONSOR-ORG-PG-' + suffix,
     sponsorAddress,
     vaultAddress,
     usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
@@ -210,13 +211,17 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   })
   assert.equal(markedTrx.verified, true)
 
-  const sponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
+  const sponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(
+    vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference,
+  )
   assert.equal(sponsorPool.success, true)
   assert.equal(sponsorPool.verifiedDepositCount, '1')
   assert.equal(sponsorPool.reviewedAuthorizationCount, '1')
   assert.equal(sponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
 
-  const sponsorTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress)
+  const sponsorTrxPool = await getThirdPartyFundingTrxPoolSnapshot(
+    vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference,
+  )
   assert.equal(sponsorTrxPool.success, true)
   assert.equal(sponsorTrxPool.verifiedDepositCount, '1')
   assert.equal(sponsorTrxPool.reviewedAuthorizationCount, '1')
@@ -252,12 +257,12 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   }
   // Expiry blocks new deposits but does not erase the principal of deposits
   // already confirmed on-chain before the signed consent expiry.
-  const expiredSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
+  const expiredSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference)
   assert.equal(expiredSponsorPool.success, true)
   assert.equal(expiredSponsorPool.verifiedDepositCount, '1')
   assert.equal(expiredSponsorPool.reviewedAuthorizationCount, '1')
   assert.equal(expiredSponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
-  const expiredTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress)
+  const expiredTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference)
   assert.equal(expiredTrxPool.success, true)
   assert.equal(expiredTrxPool.verifiedTrxPrincipalSun, '8000000')
 
