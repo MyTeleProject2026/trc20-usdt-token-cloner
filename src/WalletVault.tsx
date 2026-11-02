@@ -2371,6 +2371,8 @@ export default function WalletVault() {
             sessionToken={ownerSessionToken}
             inventoryVerified={fireblocksInventorySnapshot?.verificationStatus === 'verified'}
             inventoryCheckedAt={fireblocksInventorySnapshot?.checkedAt || null}
+            expectedSponsorOrganizationReference={serverTreasuryReadiness?.sponsorPrincipalBudget?.organizationReference || ''}
+            expectedAgreementReference={serverTreasuryReadiness?.sponsorPrincipalBudget?.agreementReference || ''}
           />
         </div>
         <div className="wallet-vault-review-grid" aria-label="Sponsor funding target and verified payout capacity">
