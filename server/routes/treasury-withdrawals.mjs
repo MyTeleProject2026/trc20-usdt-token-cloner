@@ -24,6 +24,9 @@ import {
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
+// Both real-value submission paths remain hard-locked until a separate reviewed
+// release change after sponsor, custody, security and funded acceptance gates.
+const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
 // Native TRX principal withdrawals are not part of the USDT sponsor-release path.
 const REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED = true
 const REAL_VALUE_RELEASE_MAX_FUTURE_MS = 30 * 24 * 60 * 60 * 1000
@@ -46,14 +49,17 @@ export function treasuryPayoutExecutionState(preflightChecksPassed, releaseAutho
   const payoutsPreflightReady = preflightChecksPassed === true
   const sponsorReleaseAuthorized = releaseAuthorized === true
   const executionEnabled = payoutsPreflightReady && sponsorReleaseAuthorized
+    && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
   return {
     payoutsPreflightReady,
     sponsorReleaseAuthorized,
     withdrawalsEnabled: executionEnabled,
     executionEnabled,
-    executionBlocker: !sponsorReleaseAuthorized
-      ? 'real-value-payout-release-authorization-incomplete'
-      : payoutsPreflightReady ? null : 'payout-preflight-incomplete',
+    executionBlocker: REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+      ? 'real-value-payout-execution-disabled-in-this-build'
+      : !sponsorReleaseAuthorized
+        ? 'real-value-payout-release-authorization-incomplete'
+        : payoutsPreflightReady ? null : 'payout-preflight-incomplete',
   }
 }
 
@@ -2290,6 +2296,13 @@ export function createTreasuryWithdrawalsRouter({
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
+      return res.status(503).json({
+        success: false,
+        error: 'real-value-payout-execution-disabled-in-this-build',
+        submissionEnabled: false,
+      })
+    }
     const config = configuration()
     if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-withdrawals-disabled', missing: config.missing })
     const historyGate = await getFireblocksOutboundHistoryStatus({ env })
