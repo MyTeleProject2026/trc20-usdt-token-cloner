@@ -382,6 +382,13 @@ export default function WalletVault() {
   const serverTreasuryHasFunds = typeof serverTreasuryBalanceBaseUnits === 'string'
     && /^(0|[1-9][0-9]*)$/.test(serverTreasuryBalanceBaseUnits)
     && BigInt(serverTreasuryBalanceBaseUnits) > 0n
+  const sponsorPlanningTargetBaseUnits = 100_000_000_000n
+  const verifiedSponsorFundingBaseUnits = serverTreasuryReadiness?.spendableUsdtBaseUnits
+  const sponsorPlanningFundingGapBaseUnits = typeof verifiedSponsorFundingBaseUnits === 'string'
+    && /^(0|[1-9][0-9]*)$/.test(verifiedSponsorFundingBaseUnits)
+    ? (sponsorPlanningTargetBaseUnits > BigInt(verifiedSponsorFundingBaseUnits)
+      ? sponsorPlanningTargetBaseUnits - BigInt(verifiedSponsorFundingBaseUnits) : 0n).toString()
+    : null
   const serverTreasuryAddressMatchesSnapshot = typeof serverTreasuryReadiness?.treasuryAddress === 'string'
     && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
     && serverTreasuryReadiness.treasuryAddress === ownerTreasurySnapshot.treasuryAddress
@@ -2370,6 +2377,11 @@ export default function WalletVault() {
           <div>
             <small>Fireblocks available USDT</small>
             <strong>{typeof serverTreasuryReadiness?.providerAvailableUsdtBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.providerAvailableUsdtBaseUnits) ? formatUnits(serverTreasuryReadiness.providerAvailableUsdtBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Remaining gap to 100,000 USDT planning target</small>
+            <strong>{sponsorPlanningFundingGapBaseUnits !== null ? formatUnits(sponsorPlanningFundingGapBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+            <p className="wallet-vault-caption">Calculated from the lower provider/chain balance before reservations; this is not a debt or a token balance.</p>
           </div>
           <div>
             <small>Outstanding USDT reservations</small>
