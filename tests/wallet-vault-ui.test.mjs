@@ -110,7 +110,7 @@ test('owner wallet uses responsive owner navigation and separates recovery from 
   assert.match(css, /\.wallet-vault-setup-details/)
 })
 
-test('owner treasury panel is read-only and server payout execution is disabled in this build', async () => {
+test('owner treasury panel exposes sponsor release controls but keeps payout submission unavailable', async () => {
   const vault = await read('src/WalletVault.tsx')
   const server = await read('server/routes/treasury-withdrawals.mjs')
   assert.match(vault, /setOwnerSessionToken\(''\)/)
@@ -133,7 +133,12 @@ test('owner treasury panel is read-only and server payout execution is disabled 
   assert.match(vault, /No payout request can be submitted from this build/)
   assert.match(vault, /Recipient and amount entry are intentionally unavailable/)
   assert.match(vault, /Application payout execution/)
-  assert.match(vault, /Disabled in this build/)
+  assert.match(vault, /Mainnet USDT execution release authorization/)
+  assert.match(vault, /TREASURY_REAL_VALUE_EXECUTION_ENABLED=true/)
+  assert.match(vault, /Prepare sponsor release message/)
+  assert.match(server, /verifyTreasuryRealValueReleaseAuthorization/)
+  assert.match(server, /lockCurrentRealValueReleaseAuthorization\(client\)/)
+  assert.match(server, /sponsor-real-value-release-authorization-required/)
   assert.doesNotMatch(vault, /Open Account to authorize a payout/)
   assert.match(vault, /async function lookupServerTreasuryPayout/)
   assert.match(server, /verifyTreasuryOwnerPayoutSignature/)

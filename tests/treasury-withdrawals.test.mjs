@@ -1,22 +1,31 @@
+import { createHash } from 'node:crypto'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches, treasuryPayoutExecutionState } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, fireblocksPayoutLedgerState, isUnifiedTreasuryOwnerConfiguration, isTreasuryRecipientAllowed, matchesTreasuryWithdrawalRequest, parseTreasuryRecipientAllowlist, parseTreasurySponsorApproverAllowlist, buildTreasuryRecipientApprovalMessage, buildTreasuryRecipientRevocationMessage, recoverTreasurySponsorRecipientApprover, verifyTreasurySponsorRecipientApproval, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence, calculateSponsorPrincipalBudgetState, sponsorPrincipalBudgetCapMatches, treasuryPayoutExecutionState, treasuryTrxPayoutExecutionState, buildTreasuryRealValueReleaseMessage, verifyTreasuryRealValueReleaseAuthorization, buildTreasuryRealValueReleaseRevocationMessage } from '../server/routes/treasury-withdrawals.mjs'
 
 
-test('treasury readiness never reports withdrawals enabled while the hard real-value execution lock is closed', () => {
-  const result = treasuryPayoutExecutionState(true)
-  assert.equal(result.payoutsPreflightReady, true, 'provider, funding and policy preflight may pass independently')
-  assert.equal(result.withdrawalsEnabled, false, 'the public enablement field must reflect executable capability')
-  assert.equal(result.executionEnabled, false)
-  assert.equal(result.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
-
-  const blocked = treasuryPayoutExecutionState(false)
-  assert.equal(blocked.payoutsPreflightReady, false)
-  assert.equal(blocked.withdrawalsEnabled, false)
-  assert.equal(blocked.executionEnabled, false)
+test('USDT payout execution requires successful preflight and separate sponsor release authorization', () => {
+  const missingRelease = treasuryPayoutExecutionState(true, false)
+  assert.equal(missingRelease.payoutsPreflightReady, true)
+  assert.equal(missingRelease.sponsorReleaseAuthorized, false)
+  assert.equal(missingRelease.withdrawalsEnabled, false)
+  assert.equal(missingRelease.executionEnabled, false)
+  assert.equal(missingRelease.executionBlocker, 'real-value-payout-release-authorization-incomplete')
+  const authorized = treasuryPayoutExecutionState(true, true)
+  assert.equal(authorized.withdrawalsEnabled, true)
+  assert.equal(authorized.executionEnabled, true)
+  assert.equal(authorized.executionBlocker, null)
+  const blockedPreflight = treasuryPayoutExecutionState(false, true)
+  assert.equal(blockedPreflight.sponsorReleaseAuthorized, true)
+  assert.equal(blockedPreflight.withdrawalsEnabled, false)
+  assert.equal(blockedPreflight.executionEnabled, false)
+  assert.equal(blockedPreflight.executionBlocker, 'payout-preflight-incomplete')
+  const trx = treasuryTrxPayoutExecutionState(true)
+  assert.equal(trx.withdrawalsEnabled, false)
+  assert.equal(trx.executionBlocker, 'native-trx-payout-execution-disabled-in-this-build')
 })
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
@@ -292,7 +301,7 @@ test('USDT parser rejects values above uint256 and accepts its exact six-decimal
   assert.equal(parsePositiveDecimal('9'.repeat(5000)), null)
 })
 
-test('real-value USDT and TRX payout submission is hard-disabled even when environment flags are true', async (t) => {
+test('USDT submission requires authenticated owner plus sponsor release; native TRX remains disabled', async (t) => {
   let sessionLookups = 0
   let providerFactoryCalls = 0
   const app = express()
@@ -304,30 +313,35 @@ test('real-value USDT and TRX payout submission is hard-disabled even when envir
     },
     sessionLookup: async () => {
       sessionLookups += 1
-      throw new Error('owner session lookup must not run while execution is hard-disabled')
+      throw new Error('owner identity configuration is intentionally absent in this fail-closed fixture')
     },
     fireblocksClientFactory: () => {
       providerFactoryCalls += 1
-      throw new Error('Fireblocks must not be contacted while execution is hard-disabled')
+      throw new Error('Fireblocks must not be contacted before sponsor release')
     },
   }))
   const server = createServer(app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
   const baseUrl = `http://127.0.0.1:${server.address().port}/api/treasury`
-  for (const path of ['/withdrawals', '/trx-withdrawals']) {
-    const response = await fetch(baseUrl + path, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://owner.example' },
-      body: JSON.stringify({ recipientAddress: 'T' + 'A'.repeat(33), amountUsdt: '1', amountTrx: '1' }),
-    })
-    assert.equal(response.status, 503)
-    assert.deepEqual(await response.json(), {
-      success: false,
-      error: 'real-value-payout-execution-disabled-in-this-build',
-      submissionEnabled: false,
-    })
-  }
+  const usdt = await fetch(baseUrl + '/withdrawals', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: 'https://owner.example' },
+    body: JSON.stringify({ recipientAddress: 'T' + 'A'.repeat(33), amountUsdt: '1' }),
+  })
+  assert.equal(usdt.status, 401)
+  assert.deepEqual(await usdt.json(), { success: false, error: 'owner-auth-required' })
+  const trx = await fetch(baseUrl + '/trx-withdrawals', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: 'https://owner.example' },
+    body: JSON.stringify({ recipientAddress: 'T' + 'A'.repeat(33), amountTrx: '1' }),
+  })
+  assert.equal(trx.status, 503)
+  assert.deepEqual(await trx.json(), {
+    success: false,
+    error: 'native-trx-payout-execution-disabled-in-this-build',
+    submissionEnabled: false,
+  })
   assert.equal(sessionLookups, 0)
   assert.equal(providerFactoryCalls, 0)
 })
@@ -631,8 +645,10 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.equal(payload.withdrawalsEnabled, false)
   assert.equal(payload.preflightChecksPassed, false)
   assert.equal(payload.executionEnabled, false)
-  assert.equal(payload.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
-  assert.ok(payload.payoutBlockers.includes('real-value-payout-execution-disabled-in-this-build'))
+  assert.equal(payload.executionBlocker, 'real-value-payout-release-authorization-incomplete')
+  assert.ok(payload.payoutBlockers.includes('real-value-payout-release-authorization-incomplete'))
+  assert.equal(payload.releaseAuthorization.authorized, false)
+  assert.equal(payload.releaseAuthorization.reason, 'real-value-execution-switch-disabled')
   assert.ok(payload.payoutBlockers.includes('usdt-payout-feature-disabled'))
   assert.ok(payload.payoutBlockers.includes('database-not-ready'))
   assert.equal(payload.providerAssetIdentityVerified, true, 'readiness should still verify Fireblocks asset metadata')
@@ -671,8 +687,8 @@ test('native TRX readiness reports the immutable real-value execution gate separ
   assert.equal(payload.withdrawalsEnabled, false)
   assert.equal(payload.preflightChecksPassed, false)
   assert.equal(payload.executionEnabled, false)
-  assert.equal(payload.executionBlocker, 'real-value-payout-execution-disabled-in-this-build')
-  assert.ok(payload.payoutBlockers.includes('real-value-payout-execution-disabled-in-this-build'))
+  assert.equal(payload.executionBlocker, 'native-trx-payout-execution-disabled-in-this-build')
+  assert.ok(payload.payoutBlockers.includes('native-trx-payout-execution-disabled-in-this-build'))
 })
 
 test('native TRX configuration distinguishes an incomplete setup from a deliberately closed payout gate', () => {
@@ -740,4 +756,334 @@ test('failed USDT withdrawal is chain-verified only when its failure code came f
     status: 'provider-pending',
     failure_code: 'confirmed-solidified-failed-receipt',
   }).terminal, false)
+})
+
+
+const RECIPIENT_APPROVAL_FIXTURES = {
+  owner: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+  treasury: 'TKzxdSv2FZKQrEqkKVgp5DcwEXBEKMg2Ax',
+  recipient: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
+  sponsorSigner: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
+  requestId: '2b3b6e9b-5978-4b7e-bc6c-3f40d6ab12ef',
+}
+
+test('sponsor recipient approver configuration requires independent, unique, checksum-valid TRON signers', () => {
+  const { owner, treasury, sponsorSigner } = RECIPIENT_APPROVAL_FIXTURES
+  assert.deepEqual(parseTreasurySponsorApproverAllowlist(sponsorSigner, {
+    excludedAddresses: [owner, treasury],
+  }), { valid: true, addresses: [sponsorSigner], reason: null })
+  assert.equal(parseTreasurySponsorApproverAllowlist(owner, {
+    excludedAddresses: [owner, treasury],
+  }).reason, 'sponsor-approver-must-be-independent-of-owner-and-treasury')
+  assert.equal(parseTreasurySponsorApproverAllowlist(sponsorSigner + ',' + sponsorSigner).reason,
+    'sponsor-approver-allowlist-contains-duplicates')
+  assert.equal(parseTreasurySponsorApproverAllowlist('not-a-tron-address').valid, false)
+  assert.equal(parseTreasurySponsorApproverAllowlist('').valid, false)
+})
+
+test('sponsor-signed recipient approval message binds the exact Mainnet USDT scope and has canonical newlines', () => {
+  const { owner, treasury, recipient, requestId } = RECIPIENT_APPROVAL_FIXTURES
+  const message = buildTreasuryRecipientApprovalMessage({
+    requestId,
+    sponsorOrganizationReference: 'authorized-sponsor-org-001',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    treasuryAddress: treasury,
+    recipientAddress: recipient,
+    requesterAddress: owner,
+    requesterOrigin: 'https://tron-token-studio.example',
+    reason: 'Approve the recipient exchange deposit address for this sponsor agreement',
+    expiresAt: 1_800_000_000_000,
+  })
+  for (const expected of [
+    'Network: TRON Mainnet',
+    'Asset: USDT',
+    'Token contract: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    'Sponsor organization reference: authorized-sponsor-org-001',
+    'Sponsor agreement reference: sponsor-agreement-2026-001',
+    `Treasury source address: ${treasury}`,
+    `Approved recipient: ${recipient}`,
+    `Requested by owner: ${owner}`,
+    `Request ID: ${requestId}`,
+    'does not authorize, sign, or execute a token transfer',
+  ]) assert.ok(message.includes(expected), expected)
+  assert.ok(message.includes('\n'), 'approval payload must have real newline separators')
+  assert.equal(message.includes('\\n'), false, 'approval payload must not contain literal backslash-n separators')
+  assert.throws(() => buildTreasuryRecipientApprovalMessage({
+    requestId, sponsorOrganizationReference: 'bad ref',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    treasuryAddress: treasury, recipientAddress: recipient, requesterAddress: owner,
+    requesterOrigin: 'https://tron-token-studio.example', reason: 'approve address',
+    expiresAt: 1_800_000_000_000,
+  }))
+})
+
+test('sponsor recipient revocation message binds the original approved request hash', () => {
+  const { treasury, recipient, requestId } = RECIPIENT_APPROVAL_FIXTURES
+  const message = buildTreasuryRecipientRevocationMessage({
+    requestId,
+    sponsorOrganizationReference: 'authorized-sponsor-org-001',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    treasuryAddress: treasury,
+    recipientAddress: recipient,
+    approvalMessageHash: 'a'.repeat(64),
+    requesterOrigin: 'https://tron-token-studio.example',
+  })
+  assert.ok(message.includes(`Request ID: ${requestId}`))
+  assert.ok(message.includes(`Recipient to revoke: ${recipient}`))
+  assert.ok(message.includes(`Original approval message SHA-256: ${'a'.repeat(64)}`))
+  assert.ok(message.includes('does not execute a token transfer'))
+  assert.throws(() => buildTreasuryRecipientRevocationMessage({
+    requestId, sponsorOrganizationReference: 'authorized-sponsor-org-001',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    treasuryAddress: treasury, recipientAddress: recipient,
+    approvalMessageHash: 'invalid', requesterOrigin: 'https://tron-token-studio.example',
+  }))
+})
+
+test('sponsor recipient signature recovery accepts only a configured sponsor signer', async () => {
+  const { sponsorSigner } = RECIPIENT_APPROVAL_FIXTURES
+  const message = 'exact sponsor approval payload'
+  const signature = '0x' + 'a'.repeat(130)
+  const tronWeb = { trx: { verifyMessageV2: async (observedMessage, observedSignature) => {
+    assert.equal(observedMessage, message)
+    assert.equal(observedSignature, signature)
+    return sponsorSigner
+  } } }
+  assert.equal(await recoverTreasurySponsorRecipientApprover(tronWeb, {
+    message, signature, allowedSignerAddresses: [sponsorSigner],
+  }), sponsorSigner)
+  assert.equal(await recoverTreasurySponsorRecipientApprover(tronWeb, {
+    message, signature, allowedSignerAddresses: ['TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'],
+  }), null)
+  assert.equal(await recoverTreasurySponsorRecipientApprover(tronWeb, {
+    message, signature: 'malformed', allowedSignerAddresses: [sponsorSigner],
+  }), null)
+  assert.equal(await recoverTreasurySponsorRecipientApprover({
+    trx: { verifyMessageV2: async () => { throw new Error('verification failed') } },
+  }, { message, signature, allowedSignerAddresses: [sponsorSigner] }), null)
+})
+
+test('USDT configuration supports independently sponsor-signed destinations without a static recipient list', () => {
+  const { owner, sponsorSigner } = RECIPIENT_APPROVAL_FIXTURES
+  const base = {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
+    TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
+    TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    TREASURY_SPONSOR_APPROVER_ADDRESSES: sponsorSigner,
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/etc/secrets/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: 'TRON_USDT',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+  }
+  const config = treasuryUsdtConfiguration(base)
+  assert.equal(config.configurationComplete, true)
+  assert.equal(config.recipientAllowlistValid, false)
+  assert.equal(config.sponsorApproverAddressesValid, true)
+  assert.equal(config.sponsorApproverCount, 1)
+  assert.equal(config.recipientApprovalMode, 'sponsor-signed')
+  assert.ok(!config.missing.some((item) => item.includes('TREASURY_ALLOWED_RECIPIENT_ADDRESSES')))
+  const ownerCannotSelfApprove = treasuryUsdtConfiguration({
+    ...base,
+    TREASURY_SPONSOR_APPROVER_ADDRESSES: owner,
+  })
+  assert.equal(ownerCannotSelfApprove.configurationComplete, false)
+  assert.equal(ownerCannotSelfApprove.sponsorApproverAddressesValid, false)
+})
+
+test('stored sponsor recipient approval is accepted only when its canonical hash and recovered signer match', async () => {
+  const { owner, treasury, recipient, sponsorSigner, requestId } = RECIPIENT_APPROVAL_FIXTURES
+  const approvalRow = {
+    request_id: requestId,
+    sponsor_organization_reference: 'authorized-sponsor-org-001',
+    sponsor_agreement_reference: 'sponsor-agreement-2026-001',
+    treasury_address: treasury,
+    recipient_address: recipient,
+    token_contract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    requester_owner_address: owner,
+    requester_origin: 'https://tron-token-studio.example',
+    request_reason: 'Approve the recipient exchange deposit address for this sponsor agreement',
+    approval_expires_at: new Date(1_800_000_000_000),
+    status: 'approved',
+    approver_address: sponsorSigner,
+    approval_signature: '0x' + 'b'.repeat(130),
+  }
+  const message = buildTreasuryRecipientApprovalMessage({
+    requestId,
+    sponsorOrganizationReference: approvalRow.sponsor_organization_reference,
+    sponsorAgreementReference: approvalRow.sponsor_agreement_reference,
+    treasuryAddress: treasury,
+    recipientAddress: recipient,
+    requesterAddress: owner,
+    requesterOrigin: approvalRow.requester_origin,
+    reason: approvalRow.request_reason,
+    expiresAt: approvalRow.approval_expires_at.getTime(),
+  })
+  approvalRow.approval_message_hash = createHash('sha256').update(message, 'utf8').digest('hex')
+  const tronWeb = { trx: { verifyMessageV2: async () => sponsorSigner } }
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
+    allowedSignerAddresses: [sponsorSigner],
+  }), true)
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
+    allowedSignerAddresses: ['TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'],
+  }), false)
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, {
+    ...approvalRow,
+    approval_message_hash: '0'.repeat(64),
+  }, { allowedSignerAddresses: [sponsorSigner] }), false)
+  assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, {
+    ...approvalRow,
+    status: 'revoked',
+  }, { allowedSignerAddresses: [sponsorSigner] }), false)
+})
+
+
+test('Mainnet USDT release message binds exact sponsor, vault, limits, asset IDs and recipient policy', () => {
+  const now = 1_700_000_000_000
+  const { owner, sponsorSigner } = RECIPIENT_APPROVAL_FIXTURES
+  const base = {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
+    TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
+    TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    TREASURY_SPONSOR_APPROVER_ADDRESSES: sponsorSigner,
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/etc/secrets/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: 'TRON_USDT',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+    TREASURY_REAL_VALUE_EXECUTION_ENABLED: 'true',
+    TREASURY_REAL_VALUE_RELEASE_REFERENCE: 'mainnet-release-test-001',
+    TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT: String(now + 7 * 24 * 60 * 60 * 1000),
+  }
+  const message = buildTreasuryRealValueReleaseMessage(base, { now })
+  for (const expected of [
+    'authorize the platform to submit real Mainnet USDT withdrawals',
+    'Network: TRON Mainnet',
+    'Asset: genuine Tether USDT',
+    'Token contract: TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    'Sponsor organization reference: authorized-sponsor-org-001',
+    'Sponsor agreement reference: sponsor-agreement-2026-001',
+    'Fireblocks vault account ID: 123',
+    'Fireblocks USDT asset ID: TRON_USDT',
+    'Fireblocks native TRX asset ID: TRX',
+    'Maximum single payout USDT: 10',
+    'Daily USDT payout limit: 100',
+    'Total sponsor USDT principal commitment: 1000',
+    'Release reference: mainnet-release-test-001',
+  ]) assert.ok(message.includes(expected), expected)
+  assert.ok(message.includes('\n'), 'signed release payload uses canonical newlines')
+  const changedLimits = buildTreasuryRealValueReleaseMessage({
+    ...base,
+    TREASURY_MAX_PAYOUT_USDT: '11',
+  }, { now })
+  assert.notEqual(changedLimits, message, 'changing a cap invalidates the prior sponsor signature')
+  assert.throws(() => buildTreasuryRealValueReleaseMessage({
+    ...base,
+    TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT: String(now + 31 * 24 * 60 * 60 * 1000),
+  }, { now }), /no more than 30 days/)
+})
+
+test('real-value release authorization accepts only an approved sponsor signer over the current scope', async () => {
+  const now = 1_700_000_000_000
+  const { owner, sponsorSigner } = RECIPIENT_APPROVAL_FIXTURES
+  const signature = '0x' + 'c'.repeat(130)
+  const env = {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://example.invalid/db',
+    OWNER_WALLET_ADDRESS: owner,
+    TREASURY_OWNER_ADDRESS: owner,
+    TREASURY_ADDRESS: owner,
+    TREASURY_MAX_PAYOUT_USDT: '10',
+    TREASURY_DAILY_LIMIT_USDT: '100',
+    TREASURY_SPONSOR_ORGANIZATION_REFERENCE: 'authorized-sponsor-org-001',
+    TREASURY_SPONSOR_AGREEMENT_REFERENCE: 'sponsor-agreement-2026-001',
+    TREASURY_SPONSOR_TOTAL_BUDGET_USDT: '1000',
+    TREASURY_SPONSOR_APPROVER_ADDRESSES: sponsorSigner,
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: 'sponsor-agreement-2026-001|authorized-sponsor-org-001|mainnet|' + owner + '|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    TREASURY_FEE_LIMIT_SUN: '50000000',
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
+    TREASURY_SIGNER_MODE: 'fireblocks',
+    FIREBLOCKS_API_KEY: 'synthetic-test-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/etc/secrets/fireblocks-test.pem',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
+    FIREBLOCKS_USDT_ASSET_ID: 'TRON_USDT',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+    TREASURY_REAL_VALUE_EXECUTION_ENABLED: 'true',
+    TREASURY_REAL_VALUE_RELEASE_REFERENCE: 'mainnet-release-test-002',
+    TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT: String(now + 7 * 24 * 60 * 60 * 1000),
+  }
+  const expectedMessage = buildTreasuryRealValueReleaseMessage(env, { now })
+  const tronWeb = { trx: { verifyMessageV2: async (message, observedSignature) => {
+    assert.equal(observedSignature, signature)
+    return message === expectedMessage ? sponsorSigner : 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+  } } }
+  const approved = await verifyTreasuryRealValueReleaseAuthorization(tronWeb, env, signature, { now })
+  assert.equal(approved.authorized, true)
+  assert.equal(approved.signerAddress, sponsorSigner)
+  assert.equal(approved.releaseReference, 'mainnet-release-test-002')
+  assert.equal(approved.messageHash, createHash('sha256').update(expectedMessage, 'utf8').digest('hex'))
+  const wrongSigner = await verifyTreasuryRealValueReleaseAuthorization({
+    trx: { verifyMessageV2: async () => 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2' },
+  }, env, signature, { now })
+  assert.equal(wrongSigner.authorized, false)
+  const switchedOff = await verifyTreasuryRealValueReleaseAuthorization(tronWeb, {
+    ...env,
+    TREASURY_REAL_VALUE_EXECUTION_ENABLED: 'false',
+  }, signature, { now })
+  assert.equal(switchedOff.authorized, false)
+  assert.equal(switchedOff.reason, 'real-value-execution-switch-disabled')
+  const changedScope = await verifyTreasuryRealValueReleaseAuthorization(tronWeb, {
+    ...env,
+    TREASURY_DAILY_LIMIT_USDT: '90',
+  }, signature, { now })
+  assert.equal(changedScope.authorized, false)
+  const expired = await verifyTreasuryRealValueReleaseAuthorization(tronWeb, env, signature, {
+    now: now + 8 * 24 * 60 * 60 * 1000,
+  })
+  assert.equal(expired.authorized, false)
+})
+
+test('release revocation message binds release reference and exact approved message hash', () => {
+  const message = buildTreasuryRealValueReleaseRevocationMessage({
+    releaseReference: 'mainnet-release-test-003',
+    messageHash: 'd'.repeat(64),
+    sponsorOrganizationReference: 'authorized-sponsor-org-001',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    treasuryAddress: RECIPIENT_APPROVAL_FIXTURES.owner,
+    requesterOrigin: 'https://tron-token-studio.example',
+  })
+  assert.ok(message.includes('Release reference: mainnet-release-test-003'))
+  assert.ok(message.includes('Original release message SHA-256: ' + 'd'.repeat(64)))
+  assert.ok(message.includes('does not cancel an already reserved or submitted Fireblocks transaction'))
+  assert.ok(message.includes('\n'))
+  assert.throws(() => buildTreasuryRealValueReleaseRevocationMessage({
+    releaseReference: 'invalid',
+    messageHash: 'd'.repeat(64),
+    sponsorOrganizationReference: 'authorized-sponsor-org-001',
+    sponsorAgreementReference: 'sponsor-agreement-2026-001',
+    treasuryAddress: RECIPIENT_APPROVAL_FIXTURES.owner,
+    requesterOrigin: 'https://tron-token-studio.example',
+  }))
 })
