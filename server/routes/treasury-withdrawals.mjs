@@ -1205,6 +1205,37 @@ export function createTreasuryWithdrawalsRouter({
     }
   }
 
+  async function lockCurrentRealValueReleaseAuthorization(client) {
+    if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+      return { authorized: false, reason: 'real-value-execution-switch-disabled' }
+    }
+    const clock = now()
+    const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+    const config = configuration()
+    const message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+    const messageHash = createHash('sha256').update(message, 'utf8').digest('hex')
+    const result = await client.query(`SELECT *
+      FROM trc20_token_clone.treasury_real_value_release_authorizations
+      WHERE release_reference=$1 AND sponsor_organization_reference=$2
+        AND sponsor_agreement_reference=$3 AND treasury_address=$4
+        AND release_message_hash=$5 AND status='active'
+        AND release_expires_at > now()
+      ORDER BY created_at DESC LIMIT 1 FOR SHARE`, [
+      env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+      config.sponsorOrganizationReference,
+      config.sponsorAgreementReference,
+      env.TREASURY_ADDRESS.trim(),
+      messageHash,
+    ])
+    const row = result.rows[0]
+    if (!row) return { authorized: false, reason: 'sponsor-release-signature-not-recorded-or-scope-changed' }
+    const verified = await verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, row.sponsor_signature, { now: nowMs })
+    if (!verified.authorized || verified.signerAddress !== row.sponsor_signer_address) {
+      return { authorized: false, reason: 'sponsor-release-record-signature-mismatch' }
+    }
+    return verified
+  }
+
   async function authenticateOwner(req) {
     const origin = req.get('origin')
     const token = bearerToken(req)
@@ -2271,9 +2302,23 @@ export function createTreasuryWithdrawalsRouter({
           return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
         }
 
+        // Keep the sponsor release row locked through the principal reservation.
+        // Sponsor release revocation takes FOR UPDATE and therefore cannot race
+        // between release verification and reserving this new payout.
+        const transactionalRelease = await lockCurrentRealValueReleaseAuthorization(client)
+        if (!transactionalRelease.authorized) {
+          await client.query('ROLLBACK')
+          return res.status(503).json({
+            success: false,
+            error: 'sponsor-real-value-release-authorization-required',
+            reason: transactionalRelease.reason,
+            transactionSubmitted: false,
+          })
+        }
+
         // Lock the signed recipient approval in the same transaction as the payout reservation.
-        // Sponsor revocation takes FOR UPDATE on this row and therefore cannot race
-        // between approval verification and principal reservation.
+        // Sponsor recipient revocation takes FOR UPDATE on that row and therefore cannot race
+        // between destination verification and principal reservation.
         if (!staticallyApproved) {
           if (!config.sponsorApproverAddressesValid) {
             await client.query('ROLLBACK')
