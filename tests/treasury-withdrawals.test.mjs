@@ -747,7 +747,7 @@ test('failed USDT withdrawal is chain-verified only when its failure code came f
 const RECIPIENT_APPROVAL_FIXTURES = {
   owner: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
   treasury: 'TKzxdSv2FZKQrEqkKVgp5DcwEXBEKMg2Ax',
-  recipient: 'TLPsmx7qvAq5QGJSYxCBkXb6j9bQvVQ3yP',
+  recipient: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
   sponsorSigner: 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp',
   requestId: '2b3b6e9b-5978-4b7e-bc6c-3f40d6ab12ef',
 }
@@ -838,7 +838,7 @@ test('sponsor recipient signature recovery accepts only a configured sponsor sig
     message, signature, allowedSignerAddresses: [sponsorSigner],
   }), sponsorSigner)
   assert.equal(await recoverTreasurySponsorRecipientApprover(tronWeb, {
-    message, signature, allowedSignerAddresses: ['TLPsmx7qvAq5QGJSYxCBkXb6j9bQvVQ3yP'],
+    message, signature, allowedSignerAddresses: ['TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'],
   }), null)
   assert.equal(await recoverTreasurySponsorRecipientApprover(tronWeb, {
     message, signature: 'malformed', allowedSignerAddresses: [sponsorSigner],
@@ -921,7 +921,7 @@ test('stored sponsor recipient approval is accepted only when its canonical hash
     allowedSignerAddresses: [sponsorSigner],
   }), true)
   assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
-    allowedSignerAddresses: ['TLPsmx7qvAq5QGJSYxCBkXb6j9bQvVQ3yP'],
+    allowedSignerAddresses: ['TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'],
   }), false)
   assert.equal(await verifyTreasurySponsorRecipientApproval(tronWeb, {
     ...approvalRow,
