@@ -457,13 +457,19 @@ export async function getFireblocksOutboundHistoryStatus({
     if (!result.rows.length) return { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
     const row = result.rows[0]
     const checkedAt = row.checked_at ? new Date(row.checked_at).getTime() : 0
-    const ageMs = checkedAt > 0 ? now() - checkedAt : null
+    const historyEndMs = Number(row.history_end_ms)
+    // Freshness is measured from the fixed provider-history upper bound, not
+    // from scan completion. A slow multi-page scan must not appear fresher than
+    // the data window it actually covered.
+    const ageMs = Number.isSafeInteger(historyEndMs) && historyEndMs > 0
+      ? now() - historyEndMs : null
     const verified = row.status === 'complete'
       && row.treasury_address === treasuryAddress
       && row.usdt_asset_id === cfg.usdtAssetId
       && row.trx_asset_id === cfg.trxAssetId
       && String(row.history_start_ms) === HISTORY_START_MS
       && row.failure_code === null
+      && checkedAt > 0
       && Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= maxAgeMs
     if (!verified) return {
       verified: false,
