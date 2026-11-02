@@ -1747,47 +1747,6 @@ export function createTreasuryWithdrawalsRouter({
       const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
       const tronWeb = tronWebFactory()
       const staticallyApproved = isTreasuryRecipientAllowed(body.recipientAddress, config.allowedRecipientAddresses)
-      let sponsorSignedApproval = false
-      if (!staticallyApproved && config.sponsorApproverAddressesValid) {
-        const approved = await db.query(`SELECT *
-          FROM trc20_token_clone.treasury_recipient_approval_requests
-          WHERE sponsor_organization_reference=$1 AND sponsor_agreement_reference=$2
-            AND treasury_address=$3 AND recipient_address=$4 AND token_contract=$5
-            AND status='approved' AND approver_address = ANY($6::text[])
-          ORDER BY approved_at DESC LIMIT 1`, [
-          config.sponsorOrganizationReference, config.sponsorAgreementReference,
-          treasuryAddress, body.recipientAddress, USDT_MAINNET, config.sponsorApproverAddresses,
-        ])
-        const approvalRow = approved.rows[0]
-        if (approvalRow) {
-          const approvalMessage = buildTreasuryRecipientApprovalMessage({
-            requestId: approvalRow.request_id,
-            sponsorOrganizationReference: approvalRow.sponsor_organization_reference,
-            sponsorAgreementReference: approvalRow.sponsor_agreement_reference,
-            treasuryAddress: approvalRow.treasury_address,
-            recipientAddress: approvalRow.recipient_address,
-            requesterAddress: approvalRow.requester_owner_address,
-            requesterOrigin: approvalRow.requester_origin,
-            reason: approvalRow.request_reason,
-            expiresAt: new Date(approvalRow.approval_expires_at).getTime(),
-          })
-          const expectedApprovalHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
-          const recoveredApprover = await recoverTreasurySponsorRecipientApprover(tronWeb, {
-            message: approvalMessage,
-            signature: approvalRow.approval_signature,
-            allowedSignerAddresses: config.sponsorApproverAddresses,
-          })
-          sponsorSignedApproval = expectedApprovalHash === String(approvalRow.approval_message_hash).trim().toLowerCase()
-            && recoveredApprover === approvalRow.approver_address
-        }
-      }
-      if (!staticallyApproved && !sponsorSignedApproval) {
-        return res.status(403).json({
-          success: false,
-          error: 'treasury-recipient-not-allowlisted',
-          message: 'The destination has no active static sponsor allowlist entry or cryptographically verified sponsor-signed approval for this exact organization, agreement, treasury and Mainnet USDT contract. No withdrawal reservation or Fireblocks transfer was created.',
-        })
-      }
       if (!tronWeb.isAddress(body.recipientAddress)
         || !ADDRESS_PATTERN.test(treasuryAddress)
         || !tronWeb.isAddress(treasuryAddress)
@@ -1842,6 +1801,56 @@ export function createTreasuryWithdrawalsRouter({
             })
           }
           return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
+        }
+
+        // Lock the signed recipient approval in the same transaction as the payout reservation.
+        // Sponsor revocation takes FOR UPDATE on this row and therefore cannot race
+        // between approval verification and principal reservation.
+        if (!staticallyApproved) {
+          if (!config.sponsorApproverAddressesValid) {
+            await client.query('ROLLBACK')
+            return res.status(403).json({ success: false, error: 'treasury-recipient-not-allowlisted' })
+          }
+          const approved = await client.query(`SELECT *
+            FROM trc20_token_clone.treasury_recipient_approval_requests
+            WHERE sponsor_organization_reference=$1 AND sponsor_agreement_reference=$2
+              AND treasury_address=$3 AND recipient_address=$4 AND token_contract=$5
+              AND status='approved' AND approver_address = ANY($6::text[])
+            ORDER BY approved_at DESC LIMIT 1 FOR SHARE`, [
+            config.sponsorOrganizationReference, config.sponsorAgreementReference,
+            treasuryAddress, body.recipientAddress, USDT_MAINNET, config.sponsorApproverAddresses,
+          ])
+          const approvalRow = approved.rows[0]
+          let sponsorSignedApproval = false
+          if (approvalRow) {
+            const approvalMessage = buildTreasuryRecipientApprovalMessage({
+              requestId: approvalRow.request_id,
+              sponsorOrganizationReference: approvalRow.sponsor_organization_reference,
+              sponsorAgreementReference: approvalRow.sponsor_agreement_reference,
+              treasuryAddress: approvalRow.treasury_address,
+              recipientAddress: approvalRow.recipient_address,
+              requesterAddress: approvalRow.requester_owner_address,
+              requesterOrigin: approvalRow.requester_origin,
+              reason: approvalRow.request_reason,
+              expiresAt: new Date(approvalRow.approval_expires_at).getTime(),
+            })
+            const expectedApprovalHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
+            const recoveredApprover = await recoverTreasurySponsorRecipientApprover(tronWeb, {
+              message: approvalMessage,
+              signature: approvalRow.approval_signature,
+              allowedSignerAddresses: config.sponsorApproverAddresses,
+            })
+            sponsorSignedApproval = expectedApprovalHash === String(approvalRow.approval_message_hash).trim().toLowerCase()
+              && recoveredApprover === approvalRow.approver_address
+          }
+          if (!sponsorSignedApproval) {
+            await client.query('ROLLBACK')
+            return res.status(403).json({
+              success: false,
+              error: 'treasury-recipient-not-allowlisted',
+              message: 'The destination has no active cryptographically verified sponsor-signed approval for this exact organization, agreement, treasury and Mainnet USDT contract. No withdrawal reservation or Fireblocks transfer was created.',
+            })
+          }
         }
 
         // Re-read the treasury's actual native TRX before reserving principal.
