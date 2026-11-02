@@ -2122,6 +2122,8 @@ export function createTreasuryWithdrawalsRouter({
     let feeReserveCovered = false
     let sponsorPrincipalBudget = null
     let sponsorPrincipalBudgetCapConsistent = false
+    let applicationCommittedBaseUnits = '0'
+    let externalOutboundUsdtBaseUnits = '0'
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -2161,8 +2163,8 @@ export function createTreasuryWithdrawalsRouter({
           maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
           unpinnedAgreementRows: String(sponsorBudgetUsage.rows[0]?.unpinned_agreement_rows || '0'),
         })
-        const applicationCommittedBaseUnits = String(sponsorBudgetUsage.rows[0]?.amount || '0')
-        const externalOutboundUsdtBaseUnits = outboundHistory.verified
+        applicationCommittedBaseUnits = String(sponsorBudgetUsage.rows[0]?.amount || '0')
+        externalOutboundUsdtBaseUnits = outboundHistory.verified
           ? String(outboundHistory.externalUsdtBaseUnits || '0')
           : '0'
         const committedSponsorPrincipalBaseUnits = (
