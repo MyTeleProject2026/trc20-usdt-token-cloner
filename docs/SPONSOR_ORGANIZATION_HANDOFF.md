@@ -107,6 +107,20 @@ If the sponsor has not transferred funds, the verified balance and withdrawable 
 
 A positive USDT balance alone is also insufficient: native TRX fee reserves, sponsor release authorization, database reservations, recipient policy, Fireblocks transaction policy and receipt reconciliation must all pass before any production payout can be considered.
 
+### Readiness API balance fields
+
+The owner-only `GET /api/treasury/withdrawals/readiness` response now distinguishes:
+- `treasuryUsdtBalanceBaseUnits`: the real official-USDT balance read from TRON Mainnet.
+- `providerAvailableUsdtBaseUnits`: Fireblocks' available balance for the selected vault asset.
+- `outstandingUsdtReservationBaseUnits`: unsettled requests still reserved in the PostgreSQL ledger.
+- `availableUsdtAfterReservationsBaseUnits`: the lower verified provider/chain balance after those reservations.
+- `sponsorPrincipalBudget.remainingBaseUnits`: the unused part of the sponsor commitment after application and external outflows.
+- `dailyUsdtRemainingBaseUnits` and `maximumSinglePayoutBaseUnits`: remaining policy limits.
+- `estimatedEligiblePayoutCapacityBaseUnits`: the minimum of the above funded and policy-adjusted amounts, before the independent release gate.
+- `currentlyWithdrawableBaseUnits`: the amount the app is actually permitted to submit. This is zero while the immutable source-build release lock is closed.
+
+The owner console refreshes read-only backend status on a 30-second visible-tab interval, on focus/visibility return, and through its manual **Refresh backend configuration now** action. A missing, stale or invalid amount is shown as unavailable, not silently treated as zero evidence or as a successful balance check. The displayed 100,000 USDT target is a planning target only; it is not injected into the Fireblocks balance, sponsor commitment or database ledger.
+
 ## Current source-build release status
 
 The Mainnet real-value withdrawal route remains blocked by the source-level constant `REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true`. Setting environment variables, inserting rows in PostgreSQL, discovering a vault, or obtaining a provider response cannot override this lock. It must remain closed until the sponsor mandate, real funded Mainnet vault, provider transaction controls, full accounting reconciliation and independent security review have been completed.
