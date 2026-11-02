@@ -18,7 +18,7 @@ test('Mainnet USDT payout readiness and submission fail closed without fresh Fir
   assert.match(historyRoute, /createFireblocksReadOnlyClient/)
   assert.match(historyRoute, /fireblocksReadOnlyConfiguration/)
   assert.doesNotMatch(historyRoute, /!cfg\.providerConfigured/, 'history sync must not require the payout API identity')
-  assert.match(historyRoute, /pg_advisory_lock\(hashtextextended/)
+  assert.match(historyRoute, /pg_try_advisory_lock\(hashtextextended/)
   assert.match(historyRoute, /now\(\) - historyEndMs/, 'freshness must be measured from the covered provider-history boundary')
 })
 
