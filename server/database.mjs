@@ -4817,7 +4817,6 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
         WHERE a.network = 'mainnet'
           AND a.vault_address = $1
           AND a.status = 'deposit-evidence-recorded'
-          AND a.expires_at > now()
           AND a.withdrawal_disbursement_acknowledged = true
           AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
           AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
@@ -4825,6 +4824,8 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
           AND d.network = 'mainnet'
           AND d.asset = 'USDT'
           AND d.token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'
+          AND d.amount_base_units <= a.max_usdt_base_units
+          AND d.chain_verified_at <= a.expires_at
           AND d.recipient_address = $1
           AND d.receipt_result = 'SUCCESS'
           AND d.fireblocks_verified_at IS NOT NULL
@@ -4870,7 +4871,6 @@ export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress) {
         WHERE a.network = 'mainnet'
           AND a.vault_address = $1
           AND a.status = 'deposit-evidence-recorded'
-          AND a.expires_at > now()
           AND a.withdrawal_disbursement_acknowledged = true
           AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
           AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
@@ -4879,6 +4879,7 @@ export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress) {
           AND d.asset = 'TRX'
           AND d.token_contract IS NULL
           AND d.amount_base_units <= a.max_trx_sun
+          AND d.chain_verified_at <= a.expires_at
           AND d.recipient_address = $1
           AND d.receipt_result = 'SUCCESS'
           AND d.fireblocks_verified_at IS NOT NULL
@@ -5144,6 +5145,7 @@ export async function revokeThirdPartyFundingAuthorization({ authorizationId, re
     await initializeDatabase()
     client = await db.connect()
     await client.query('BEGIN')
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
     const result = await client.query(
       `UPDATE ${schema}.third_party_funding_authorizations
           SET status='revoked', updated_at=now()
