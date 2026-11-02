@@ -12,6 +12,7 @@ import {
 const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const OWNER_ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const VAULT_ID_PATTERN = /^\d{1,32}$/
+const ASSET_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MAX_VAULT_PAGES = 5
 const MAX_ASSET_PAGES = 5
 const MAX_ADDRESS_PROBES = 8
@@ -77,10 +78,12 @@ async function readAllPages(readPage, { keys, maxPages }) {
 
 function assetIdOf(asset) {
   // Fireblocks documents that legacy IDs should be used until all services
-  // support the newer asset UUID. Prefer legacyId in discovery suggestions.
-  const candidates = [asset?.legacyId, asset?.legacyID, asset?.id]
-  return candidates.find((id) => typeof id === 'string'
-    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) || ''
+  // support the newer asset UUID. Never suggest a UUID as a transfer API ID.
+  const legacyId = [asset?.legacyId, asset?.legacyID].find((id) => typeof id === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id))
+  if (legacyId) return legacyId
+  const id = typeof asset?.id === 'string' ? asset.id : ''
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id) && !ASSET_UUID_PATTERN.test(id) ? id : ''
 }
 
 function assetIdAliases(asset) {
