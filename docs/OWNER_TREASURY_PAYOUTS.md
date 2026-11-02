@@ -8,6 +8,15 @@ The private console uses the existing single-owner wallet-auth challenge/session
 
 Never share passwords, API credentials, secret files, private keys or recovery phrases in chat, source control, APK resources, or logs.
 
+## Automatic backend refresh and funding capacity
+
+After an authenticated owner session is restored, the console reloads the owner funding snapshot, Mainnet payout readiness, Fireblocks inventory/discovery and outbound-history status. It refreshes every 30 seconds while the tab is visible, when the app regains focus or becomes visible, and through **Refresh backend configuration now**. These are read-only requests; they do not modify Render settings or create sponsor credentials.
+
+The sponsor panel distinguishes the requested **100,000 USDT planning target** from the real on-chain balance, Fireblocks-available balance, pending reservations, remaining sponsor commitment, daily allowance, estimated eligible capacity and currently withdrawable amount. The target never populates any asset balance. The backend computes available-after-reservations from the lower provider/chain observation and subtracts open payout reservations. It then caps estimated capacity by the remaining sponsor commitment, daily allowance and per-payout maximum.
+
+The backend returns **0 currently withdrawable** while the immutable source-build real-value execution lock is closed, even when read-only funding evidence shows a positive balance. A positive balance or a sponsor agreement does not independently authorize a transfer. Missing or stale provider, chain, database, budget or reconciliation evidence keeps the capacity unavailable.
+
+
 ## Managed signer
 
 The USDT payout route on this feature branch uses the Fireblocks production REST API. Fireblocks holds the vault transaction signing authority; Tron Token Studio sends a bounded transaction request using server-only API credentials. The Fireblocks API authentication RSA key is mounted as a backend secret file; it is not a blockchain private key, and it is never sent to the frontend.
