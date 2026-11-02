@@ -36,7 +36,7 @@ test('owner treasury refresh uses the signed wallet-auth session for funding and
   const vault = await read('src/WalletVault.tsx')
   assert.match(vault, /const signature = await signer\.trx\.signMessageV2\(challenge\.message\)/)
   assert.match(vault, /setOwnerSessionToken\(verified\.sessionToken\)/)
-  assert.match(vault, /useEffect\(\(\) => \{[\s\S]*ownerSessionToken[\s\S]*\/api\/treasury\/fireblocks\/inventory\/latest[\s\S]*\}, \[ownerSessionToken\]\)/)
+  assert.match(vault, /\}, \[unlocked\?\.record\.address, network, ownerSessionToken, ownerTreasuryRefreshNonce\]\)/)
   assert.doesNotMatch(vault, /\/api\/auth\/owner\/session[\s\S]*\/api\/treasury\/fireblocks\/inventory\/latest/)
 })
 
