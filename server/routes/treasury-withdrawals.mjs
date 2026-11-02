@@ -176,7 +176,7 @@ export function buildTreasuryRecipientApprovalMessage({
     `Request ID: ${requestId}`,
     `Reason: ${reason.trim()}`,
     `Approval request expires at Unix milliseconds: ${expiresAt}`,
-  ].join('\\n')
+  ].join('\n')
 }
 
 export function buildTreasuryRecipientRevocationMessage({
@@ -216,7 +216,7 @@ export function buildTreasuryRecipientRevocationMessage({
     `Request ID: ${requestId}`,
     `Application origin: ${requesterOrigin}`,
     `Original approval message SHA-256: ${approvalMessageHash.toLowerCase()}`,
-  ].join('\\n')
+  ].join('\n')
 }
 
 export async function recoverTreasurySponsorRecipientApprover(tronWeb, {
