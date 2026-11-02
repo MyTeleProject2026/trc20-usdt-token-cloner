@@ -152,6 +152,8 @@ app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/treasury', fireblocksInventorySyncRoutes())
 app.use('/api/treasury', fireblocksInventoryStatusRoutes())
+// Owner-only, read-only discovery; never mutates custody or payout configuration.
+app.use('/api/treasury', fireblocksDiscoveryRoutes())
 app.use('/api/treasury', createFireblocksDiscoveryRouter())
 app.use('/api/tron', sponsorRequestIntakeRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
