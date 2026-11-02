@@ -199,7 +199,7 @@ The owner-only `GET /api/treasury/withdrawals/readiness` endpoint reports a spon
 
 The scan is not a signature, approval, funding check or payout authorization. The API only reads Fireblocks and writes a local audit ledger. A complete history scan does not establish the sponsor's legal mandate or prove that Fireblocks is configured for production. The build-time real-value payout lock remains enabled.
 
-The signed consent is not a deposit and does not make funds available. A pending or failed transfer is not funding evidence.
+The signed consent is not a deposit and does not make funds available. A pending or failed transfer is not funding evidence. Authorization expiry blocks new deposits; it does not erase a deposit whose successful solidified receipt was verified before the signed expiry. Such a deposit remains eligible only while its authorization is not explicitly revoked and its Fireblocks inventory reconciliation remains valid. An explicit revocation removes that authorization's deposits from the eligible principal pool.
 
 ## What this verifier does not authorize
 
