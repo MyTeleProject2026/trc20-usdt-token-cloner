@@ -541,3 +541,69 @@ test('Fireblocks retrieves paged vault accounts with validated supported filters
   )
   assert.equal(calls.length, 1, 'invalid page filters must be rejected before any provider request')
 })
+
+
+test('Fireblocks outbound history uses explicit date bounds, vault source filters, and response-header pagination', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async (url) => {
+      calls.push(new URL(url))
+      const first = calls.length === 1
+      return new Response(JSON.stringify(first
+        ? [{ id: 'provider-outbound-1', operation: 'TRANSFER' }]
+        : [{ id: 'provider-outbound-2', operation: 'TRANSFER' }]), {
+        status: 200,
+        headers: first ? { 'next-page': 'cursor-next-2' } : {},
+      })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'nonce-history',
+  })
+  const first = await client.getTransactionsPage({ after: '1', before: '1800000000000', limit: 500 })
+  assert.equal(first.transactions[0].id, 'provider-outbound-1')
+  assert.equal(first.nextPage, 'cursor-next-2')
+  const second = await client.getTransactionsPage({
+    after: '1', before: '1800000000000', next: first.nextPage, limit: 500,
+  })
+  assert.equal(second.transactions[0].id, 'provider-outbound-2')
+  assert.equal(second.nextPage, null)
+  assert.deepEqual(calls.map((url) => ({
+    pathname: url.pathname,
+    after: url.searchParams.get('after'),
+    before: url.searchParams.get('before'),
+    limit: url.searchParams.get('limit'),
+    sourceType: url.searchParams.get('sourceType'),
+    sourceId: url.searchParams.get('sourceId'),
+    orderBy: url.searchParams.get('orderBy'),
+    sort: url.searchParams.get('sort'),
+    next: url.searchParams.get('next'),
+  })), [
+    {
+      pathname: '/v1/transactions', after: '1', before: '1800000000000',
+      limit: '500', sourceType: 'VAULT_ACCOUNT', sourceId: '0', orderBy: 'createdAt', sort: 'ASC', next: null,
+    },
+    {
+      pathname: '/v1/transactions', after: '1', before: '1800000000000',
+      limit: '500', sourceType: 'VAULT_ACCOUNT', sourceId: '0', orderBy: 'createdAt', sort: 'ASC', next: 'cursor-next-2',
+    },
+  ])
+})
+
+test('Fireblocks outbound history rejects implicit date windows, invalid bounds and oversized cursors', async () => {
+  const { privateKey } = keyPair()
+  let calls = 0
+  const client = createFireblocksClient(configuredEnv, {
+    fetchImpl: async () => { calls += 1; return new Response('[]', { status: 200 }) },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'nonce-history-invalid',
+  })
+  await assert.rejects(() => client.getTransactionsPage({ before: '1800000000000' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(() => client.getTransactionsPage({ after: '1800000000000', before: '1' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(() => client.getTransactionsPage({
+    after: '1', before: '1800000000000', next: 'x'.repeat(8193),
+  }), /invalid-fireblocks-transaction-history-page-request/)
+  assert.equal(calls, 0)
+})

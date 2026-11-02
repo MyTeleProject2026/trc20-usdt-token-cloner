@@ -39,6 +39,14 @@ Fireblocks references:
 - [Create Vault Accounts](https://fireblocks.readme.io/reference/create-vault-account)
 - [Fireblocks object model](https://fireblocks.readme.io/docs/object-model)
 
+## Third-party sponsor authorization prerequisite
+
+For Option A funding from an external organization, complete the separate [third-party funding authorization runbook](./THIRD_PARTY_FUNDING_AUTHORIZATION.md) before asking the source wallet owner to send any funds. That runbook defines a scoped, off-chain wallet consent which is bound to the exact Fireblocks vault address, official USDT contract, maximum USDT/TRX amounts, written-agreement reference and expiry.
+
+A source wallet address that is visible on-chain or available only in watch-only form is not an authorized funding source. Do not configure it as `TREASURY_ADDRESS`. The source owner must personally sign the exact consent message and later initiate the approved incoming deposit. The Fireblocks vault address remains the configured treasury address and the only intended source for subsequent Fireblocks payouts.
+
+A valid wallet message signature proves control of the source address and consent to the narrowly described incoming deposit; it does not prove corporate authority, replace the written agreement, prove that a deposit settled, or authorize subsequent withdrawals. Keep the application payout execution lock closed while these independent steps are incomplete.
+
 ## 3. Fund the vault only through the organization's approved treasury process
 
 Funding is a real asset movement, not an application setting. The organization's authorized treasury staff must use its approved source of funds and its own independent controls to fund the Fireblocks TRON address with genuine official USDT and enough native TRX to cover the configured fee reserve. Verify the network and address in the Fireblocks Console before any deposit; do not rely on an address copied from chat or an unverified UI.

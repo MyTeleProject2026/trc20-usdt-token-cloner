@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import { createServer } from 'node:http'
-import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
+import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, remainingThirdPartyFundingPrincipal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
 
 test('treasury payouts require the owner-console and treasury owner address to match exactly', () => {
   const owner = 'T' + 'A'.repeat(33)
@@ -318,6 +318,15 @@ test('cross-asset fee reserve requires both on-chain and provider-available TRX 
   assert.equal(treasuryFeeReserveCovered('100000000', 'invalid', '100000000'), false)
 })
 
+test('third-party principal is limited to verified deposits minus every committed withdrawal', () => {
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '0'), '25000000')
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '10000000'), '15000000')
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '25000000'), '0')
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', '26000000'), '0')
+  assert.equal(remainingThirdPartyFundingPrincipal('bad', '0'), null)
+  assert.equal(remainingThirdPartyFundingPrincipal('25000000', 'bad'), null)
+})
+
 test('treasury available-balance calculation reserves ambiguous or pending payouts conservatively', () => {
   assert.equal(unreservedTreasuryBalance('10000000', '2500000'), '7500000')
   assert.equal(unreservedTreasuryBalance('10000000', '10000000'), '0')
@@ -450,6 +459,9 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.ok(payload.payoutBlockers.includes('real-value-payout-execution-disabled-in-this-build'))
   assert.ok(payload.payoutBlockers.includes('usdt-payout-feature-disabled'))
   assert.ok(payload.payoutBlockers.includes('database-not-ready'))
+  assert.ok(payload.payoutBlockers.includes('fireblocks-vault-outbound-history-not-reconciled'))
+  assert.equal(payload.thirdPartyFunding.externalOutboundHistoryVerified, false)
+  assert.equal(payload.thirdPartyFunding.externalOutboundHistoryRequired, true)
   assert.equal(payload.providerAssetIdentityVerified, true, 'readiness should still verify Fireblocks asset metadata')
   assert.equal(payload.providerVaultAccountVerified, true, 'readiness should verify the configured Fireblocks vault account ID')
   assert.equal(payload.providerUsdtAssetActivated, true, 'readiness should verify that USDT is activated in the vault')

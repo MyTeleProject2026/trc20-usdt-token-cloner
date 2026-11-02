@@ -12,7 +12,10 @@
     "sponsor:reserve": "node scripts/reserve-sponsor-transfer.mjs",
     "treasury:reconcile": "node scripts/reconcile-treasury-withdrawals.mjs",
     "check:env": "node scripts/check-production-env.mjs",
-    "testnet:preflight": "node scripts/run-testnet-preflight.mjs"
+    "testnet:preflight": "node scripts/run-testnet-preflight.mjs",
+    "funding:authorization:message": "node scripts/third-party-funding-authorization.mjs message",
+    "funding:authorization:verify": "node scripts/third-party-funding-authorization.mjs verify",
+    "funding:agreement:hash": "node scripts/hash-third-party-funding-agreement.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.1",

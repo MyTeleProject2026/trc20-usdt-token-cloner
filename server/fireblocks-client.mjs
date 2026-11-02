@@ -283,7 +283,7 @@ export function createFireblocksClient(env = process.env, {
 } = {}) {
   const config = fireblocksConfiguration(env)
 
-  async function request(method, uri, payload) {
+  async function request(method, uri, payload, { includeHeaders = false } = {}) {
     if (!config.providerConfigured) throw new FireblocksApiError(503, 'fireblocks-not-configured')
     if (typeof fetchImpl !== 'function') throw new FireblocksApiError(503, 'fetch-unavailable')
     if (typeof uri !== 'string' || !uri.startsWith('/v1/') || uri.includes('://') || uri.includes('#')) {
@@ -343,7 +343,11 @@ export function createFireblocksClient(env = process.env, {
       // Provider response text and policy internals are deliberately not returned.
       throw new FireblocksApiError(response.status, 'fireblocks-provider-http-error')
     }
-    return unwrapResponse(parsed)
+    const data = unwrapResponse(parsed)
+    if (includeHeaders) {
+      return { data, nextPage: response.headers?.get('next-page') || response.headers?.get('Next-Page') || null }
+    }
+    return data
   }
 
   return Object.freeze({
@@ -491,6 +495,33 @@ export function createFireblocksClient(env = process.env, {
         note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury TRX payout',
       }
       return request('POST', '/v1/transactions', requestBody)
+    },
+    async getTransactionsPage({ after, before, next, limit = 500 } = {}) {
+      const validTimestamp = (value) => typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value)
+      if (!validTimestamp(after) || !validTimestamp(before) || BigInt(before) <= BigInt(after)
+        || !Number.isInteger(limit) || limit < 1 || limit > 500
+        || (next !== undefined && (typeof next !== 'string' || !next.trim()
+          || next.length > 8192 || /[\r\n]/.test(next)))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-transaction-history-page-request')
+      }
+      const query = new URLSearchParams({
+        after,
+        before,
+        limit: String(limit),
+        sourceType: 'VAULT_ACCOUNT',
+        sourceId: config.vaultAccountId,
+        orderBy: 'createdAt',
+        sort: 'ASC',
+      })
+      if (next !== undefined) query.set('next', next)
+      const result = await request('GET', '/v1/transactions?' + query.toString(), undefined, { includeHeaders: true })
+      const rows = Array.isArray(result.data) ? result.data
+        : Array.isArray(result.data?.transactions) ? result.data.transactions
+          : Array.isArray(result.data?.data) ? result.data.data : null
+      if (!rows) throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-response')
+      const nextPage = typeof result.nextPage === 'string' && result.nextPage.trim()
+        ? result.nextPage.trim() : null
+      return { transactions: rows, nextPage }
     },
     async getTransaction(transactionId) {
       if (typeof transactionId !== 'string' || !IDENTIFIER_PATTERN.test(transactionId)) {

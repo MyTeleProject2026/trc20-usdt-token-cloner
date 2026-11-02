@@ -126,6 +126,125 @@ export async function initializeDatabase() {
       `)
       await db.query(`CREATE INDEX IF NOT EXISTS fireblocks_inventory_checked_at_idx
         ON ${schema}.fireblocks_inventory_snapshots (checked_at DESC)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.third_party_funding_authorizations (
+          authorization_id TEXT PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network = 'mainnet'),
+          sponsor_address TEXT NOT NULL,
+          vault_address TEXT NOT NULL,
+          usdt_contract TEXT NOT NULL CHECK (usdt_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'),
+          max_usdt_base_units NUMERIC(78,0) NOT NULL CHECK (max_usdt_base_units > 0),
+          max_trx_sun NUMERIC(78,0) NOT NULL CHECK (max_trx_sun > 0),
+          agreement_reference TEXT NOT NULL,
+          agreement_document_sha256 CHAR(64),
+          agreement_reviewed_by TEXT NOT NULL,
+          agreement_reviewed_at TIMESTAMPTZ NOT NULL,
+          withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false,
+          withdrawal_disbursement_reviewed_by TEXT,
+          withdrawal_disbursement_reviewed_at TIMESTAMPTZ,
+          signature TEXT NOT NULL,
+          signature_hash CHAR(64) NOT NULL UNIQUE,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          status TEXT NOT NULL DEFAULT 'awaiting-deposit'
+            CHECK (status IN ('awaiting-deposit','deposit-evidence-recorded','revoked','expired','cap-reached')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT third_party_funding_agreement_sha256_format_check
+            CHECK (
+              agreement_document_sha256 IS NULL
+              OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+            ),
+          CONSTRAINT third_party_funding_disbursement_review_check
+            CHECK (
+              NOT withdrawal_disbursement_acknowledged
+              OR (withdrawal_disbursement_reviewed_by IS NOT NULL
+                AND withdrawal_disbursement_reviewed_at IS NOT NULL)
+            ),
+          CHECK (sponsor_address <> vault_address),
+          CHECK (expires_at > issued_at)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.third_party_funding_deposits (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          authorization_id TEXT NOT NULL REFERENCES ${schema}.third_party_funding_authorizations(authorization_id),
+          network TEXT NOT NULL CHECK (network = 'mainnet'),
+          transaction_hash CHAR(64) NOT NULL,
+          asset TEXT NOT NULL CHECK (asset IN ('USDT','TRX')),
+          token_contract TEXT,
+          sender_address TEXT NOT NULL,
+          recipient_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          evidence_index INTEGER NOT NULL CHECK (evidence_index >= 0),
+          receipt_result TEXT NOT NULL CHECK (receipt_result = 'SUCCESS'),
+          chain_verified_at TIMESTAMPTZ NOT NULL,
+          fireblocks_verified_at TIMESTAMPTZ,
+          fireblocks_snapshot_id TEXT,
+          fireblocks_vault_account_id TEXT,
+          fireblocks_checked_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((asset = 'USDT' AND token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}')
+            OR (asset = 'TRX' AND token_contract IS NULL)),
+          UNIQUE (authorization_id, asset),
+          UNIQUE (network, transaction_hash, asset)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64)`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_reviewed_by TEXT`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_reviewed_at TIMESTAMPTZ`)
+      await db.query(`
+        DO $migration$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM pg_constraint
+             WHERE conrelid = '${schema}.third_party_funding_authorizations'::regclass
+               AND conname = 'third_party_funding_agreement_sha256_format_check'
+          ) THEN
+            ALTER TABLE ${schema}.third_party_funding_authorizations
+              ADD CONSTRAINT third_party_funding_agreement_sha256_format_check
+              CHECK (
+                agreement_document_sha256 IS NULL
+                OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+              ) NOT VALID;
+          END IF;
+        END;
+        $migration$;
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
+        VALIDATE CONSTRAINT third_party_funding_agreement_sha256_format_check`)
+      await db.query(`
+        DO $migration$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM pg_constraint
+             WHERE conrelid = '${schema}.third_party_funding_authorizations'::regclass
+               AND conname = 'third_party_funding_disbursement_review_check'
+          ) THEN
+            ALTER TABLE ${schema}.third_party_funding_authorizations
+              ADD CONSTRAINT third_party_funding_disbursement_review_check
+              CHECK (
+                NOT withdrawal_disbursement_acknowledged
+                OR (withdrawal_disbursement_reviewed_by IS NOT NULL
+                  AND withdrawal_disbursement_reviewed_at IS NOT NULL)
+              ) NOT VALID;
+          END IF;
+        END;
+        $migration$;
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
+        VALIDATE CONSTRAINT third_party_funding_disbursement_review_check`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
+      await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
+        ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_auth_expiry_idx
+        ON ${schema}.third_party_funding_authorizations (status, expires_at)`)
 
       // Make the inventory history immutable through the application connection.
       await db.query(`
@@ -938,7 +1057,6 @@ export async function getWalletAuthSession({ tokenHash, origin, nowMs = Date.now
     return { success: false, reason: 'database-unavailable' }
   }
 }
-
 /** Revoke one opaque wallet-auth session by its digest. */
 export async function revokeWalletAuthSession({ tokenHash } = {}) {
   if (typeof tokenHash !== 'string' || !/^[0-9a-f]{64}$/.test(tokenHash)) {
@@ -1938,8 +2056,7 @@ export async function claimSponsorTransferBroadcast({
       await client.query('ROLLBACK')
       return { claimed: false, reason: 'sponsor-budget-activation-required' }
     }
-    if (BigInt(budget.reserved_base_units) < BigInt(transfer.amount_base_units)) {
-      await client.query('ROLLBACK')
+    if (BigInt(budget.reserved_base_units) < BigInt(transfer.amount_base_units)) {      await client.query('ROLLBACK')
       return { claimed: false, reason: 'reservation-invariant-violated' }
     }
 
@@ -2938,8 +3055,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || (asset === 'TRX' && input.tokenContract != null)
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
-    || input.executionResult !== 'SUCCESS'
-    || integerValues.amountBaseUnits === '0') {
+    || input.executionResult !== 'SUCCESS'    || integerValues.amountBaseUnits === '0') {
     return { success: false, reason: 'invalid-chain-cost-observation' };
   }
 
@@ -3298,3 +3414,601 @@ export async function getLatestFireblocksInventorySnapshot() {
   }
 }
 
+
+
+/**
+ * Persist a wallet-signature-verified funding consent. The off-chain message
+ * signature and its digest are retained as public consent evidence; private
+ * keys, seed phrases, wallet passwords, and agreement documents are never stored.
+ * The owner-review acknowledgement is an auditable operator
+ * assertion, not an automated legal determination.
+ */
+export async function persistThirdPartyFundingAuthorization(input = {}) {
+  const {
+    authorizationId, sponsorAddress, vaultAddress, usdtContract,
+    maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
+    agreementReviewedBy, agreementReviewedAt,
+    withdrawalDisbursementAcknowledged, withdrawalDisbursementReviewedBy, withdrawalDisbursementReviewedAt,
+    signature, signatureHash, messageHash, issuedAt, expiresAt,
+  } = input
+  const parseDate = (value) => value instanceof Date ? value : new Date(value)
+  const issued = parseDate(issuedAt)
+  const expires = parseDate(expiresAt)
+  const reviewed = parseDate(agreementReviewedAt)
+  const disbursementReviewed = parseDate(withdrawalDisbursementReviewedAt)
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || !isValidTronAddress(sponsorAddress) || !isValidTronAddress(vaultAddress)
+    || sponsorAddress === vaultAddress
+    || usdtContract !== OFFICIAL_MAINNET_USDT_CONTRACT
+    || !isPositiveUint256(maxUsdtBaseUnits) || !isPositiveUint256(maxTrxSun)
+    || typeof agreementReference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(agreementReference)
+    || typeof agreementDocumentSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(agreementDocumentSha256)
+    || !isValidTronAddress(agreementReviewedBy)
+    || withdrawalDisbursementAcknowledged !== true
+    || !isValidTronAddress(withdrawalDisbursementReviewedBy)
+    || !Number.isFinite(disbursementReviewed.getTime())
+    || !Number.isFinite(reviewed.getTime()) || !Number.isFinite(issued.getTime()) || !Number.isFinite(expires.getTime())
+    || expires <= issued || expires <= new Date()
+    || typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)
+    || typeof signatureHash !== 'string' || !/^[0-9a-f]{64}$/.test(signatureHash)
+    || createHash('sha256').update(signature, 'utf8').digest('hex') !== signatureHash
+    || typeof messageHash !== 'string' || !/^[0-9a-f]{64}$/.test(messageHash)) {
+    return { persisted: false, reason: 'invalid-third-party-funding-authorization' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
+      `INSERT INTO ${schema}.third_party_funding_authorizations
+        (authorization_id, network, sponsor_address, vault_address, usdt_contract,
+         max_usdt_base_units, max_trx_sun, agreement_reference, agreement_document_sha256,
+         agreement_reviewed_by, agreement_reviewed_at,
+         withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
+         withdrawal_disbursement_reviewed_at, signature, signature_hash,
+         message_hash, issued_at, expires_at)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,$12,$13,$14,$15,$16,$17)
+       ON CONFLICT DO NOTHING
+       RETURNING authorization_id`,
+      [authorizationId, sponsorAddress, vaultAddress, usdtContract, maxUsdtBaseUnits, maxTrxSun,
+       agreementReference, agreementDocumentSha256, agreementReviewedBy, reviewed,
+       withdrawalDisbursementReviewedBy, disbursementReviewed,
+       signature, signatureHash, messageHash, issued, expires],
+    )
+    if (!result.rows.length) {
+      const existing = await client.query(
+        `SELECT authorization_id, sponsor_address, vault_address, usdt_contract,
+                max_usdt_base_units::text AS max_usdt_base_units,
+                max_trx_sun::text AS max_trx_sun, agreement_reference,
+                agreement_document_sha256, withdrawal_disbursement_acknowledged,
+                withdrawal_disbursement_reviewed_by, withdrawal_disbursement_reviewed_at,
+                signature, signature_hash, message_hash, issued_at, expires_at, status
+           FROM ${schema}.third_party_funding_authorizations
+          WHERE authorization_id = $1 OR signature_hash = $2
+          FOR UPDATE`,
+        [authorizationId, signatureHash],
+      )
+      const row = existing.rows[0]
+      const same = row && row.authorization_id === authorizationId
+        && row.sponsor_address === sponsorAddress && row.vault_address === vaultAddress
+        && row.usdt_contract === usdtContract
+        && row.max_usdt_base_units === maxUsdtBaseUnits && row.max_trx_sun === maxTrxSun
+        && row.agreement_reference === agreementReference
+        && (row.agreement_document_sha256 || '').trim() === agreementDocumentSha256
+        && row.withdrawal_disbursement_acknowledged === true
+        && row.withdrawal_disbursement_reviewed_by === withdrawalDisbursementReviewedBy
+        // Retried identical registrations preserve the original audit timestamp.
+        && row.signature === signature && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
+        && new Date(row.issued_at).getTime() === issued.getTime()
+        && new Date(row.expires_at).getTime() === expires.getTime()
+      if (!same) {
+        await client.query('ROLLBACK')
+        return { persisted: false, reason: 'authorization-id-or-signature-conflict' }
+      }
+      await client.query('COMMIT')
+      return { persisted: true, duplicate: true, authorizationId, status: row.status }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-consent-verified','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({
+        network: 'mainnet', sponsorAddress, vaultAddress, usdtContract,
+        maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
+        agreementReviewAcknowledgedBy: agreementReviewedBy,
+        withdrawalDisbursementAcknowledged: true,
+        withdrawalDisbursementReviewedBy,
+        withdrawalDisbursementReviewedAt: disbursementReviewed.toISOString(),
+        signatureHash, messageHash, issuedAt: issued.toISOString(), expiresAt: expires.toISOString(),
+        legalAuthorityIndependentlyVerified: false,
+      })],
+    )
+    await client.query('COMMIT')
+    return { persisted: true, duplicate: false, authorizationId, status: 'awaiting-deposit' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding authorization persistence failed:', error?.code || 'unknown')
+    return { persisted: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+/** Return a sanitized authorization record and its recorded deposits. */
+export async function getThirdPartyFundingAuthorization(authorizationId) {
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)) {
+    return { success: false, reason: 'invalid-authorization-id' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const authorization = await db.query(
+      `SELECT authorization_id, network, sponsor_address, vault_address, usdt_contract,
+              max_usdt_base_units::text AS max_usdt_base_units,
+              max_trx_sun::text AS max_trx_sun, agreement_reference,
+              agreement_document_sha256, agreement_reviewed_by, agreement_reviewed_at,
+              withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
+              withdrawal_disbursement_reviewed_at, issued_at, expires_at,
+              status, created_at, updated_at
+         FROM ${schema}.third_party_funding_authorizations
+        WHERE authorization_id = $1 LIMIT 1`,
+      [authorizationId],
+    )
+    if (!authorization.rows.length) return { success: true, authorization: null, deposits: [] }
+    const deposits = await db.query(
+      `SELECT transaction_hash, asset, token_contract, sender_address, recipient_address,
+              amount_base_units::text AS amount_base_units, block_number, evidence_index,
+              receipt_result, chain_verified_at, fireblocks_verified_at,
+              fireblocks_snapshot_id, fireblocks_vault_account_id, fireblocks_checked_at
+         FROM ${schema}.third_party_funding_deposits
+        WHERE authorization_id = $1 ORDER BY created_at ASC`,
+      [authorizationId],
+    )
+    const row = authorization.rows[0]
+    return {
+      success: true,
+      authorization: {
+        authorizationId: row.authorization_id, network: row.network,
+        sponsorAddress: row.sponsor_address, vaultAddress: row.vault_address,
+        usdtContract: row.usdt_contract, maxUsdtBaseUnits: row.max_usdt_base_units,
+        maxTrxSun: row.max_trx_sun, agreementReference: row.agreement_reference,
+        agreementDocumentSha256: row.agreement_document_sha256?.trim() || null,
+        agreementReviewedBy: row.agreement_reviewed_by,
+        agreementReviewedAt: row.agreement_reviewed_at,
+        withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
+        withdrawalDisbursementReviewedBy: row.withdrawal_disbursement_reviewed_by,
+        withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
+        issuedAt: row.issued_at, expiresAt: row.expires_at,
+        status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+      },
+      deposits: deposits.rows.map((item) => ({
+        transactionHash: item.transaction_hash.trim(), asset: item.asset,
+        tokenContract: item.token_contract, senderAddress: item.sender_address,
+        recipientAddress: item.recipient_address, amountBaseUnits: item.amount_base_units,
+        blockNumber: Number(item.block_number), evidenceIndex: Number(item.evidence_index),
+        receiptResult: item.receipt_result, chainVerifiedAt: item.chain_verified_at,
+        fireblocksVerifiedAt: item.fireblocks_verified_at,
+        fireblocksSnapshotId: item.fireblocks_snapshot_id,
+        fireblocksVaultAccountId: item.fireblocks_vault_account_id,
+        fireblocksCheckedAt: item.fireblocks_checked_at,
+      })),
+    }
+  } catch (error) {
+    console.error('Third-party funding authorization lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** List recent funding authorization records without exposing signatures or secrets. */
+export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', authorizations: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', authorizations: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT authorization_id, sponsor_address, vault_address, agreement_reference,
+              withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_at,
+              issued_at, expires_at, status, created_at
+         FROM ${schema}.third_party_funding_authorizations
+        ORDER BY created_at DESC LIMIT $1`,
+      [limit],
+    )
+    return {
+      success: true,
+      authorizations: result.rows.map((row) => ({
+        authorizationId: row.authorization_id, sponsorAddress: row.sponsor_address,
+        vaultAddress: row.vault_address, agreementReference: row.agreement_reference,
+        withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
+        withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
+        issuedAt: row.issued_at, expiresAt: row.expires_at,
+        status: row.status, createdAt: row.created_at,
+      })),
+    }
+  } catch (error) {
+    console.error('Third-party funding authorization list failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', authorizations: [] }
+  }
+}
+
+/** Return verified third-party USDT principal with an explicitly reviewed disbursement mandate. */
+export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
+  if (!isValidTronAddress(vaultAddress)) {
+    return { success: false, reason: 'invalid-treasury-address', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', verifiedDepositCount: '0',
+    reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT COUNT(*)::text AS verified_deposit_count,
+              COUNT(DISTINCT a.authorization_id)::text AS reviewed_authorization_count,
+              COALESCE(SUM(d.amount_base_units), 0)::text AS verified_usdt_principal_base_units
+         FROM ${schema}.third_party_funding_authorizations AS a
+         JOIN ${schema}.third_party_funding_deposits AS d
+           ON d.authorization_id = a.authorization_id
+        WHERE a.network = 'mainnet'
+          AND a.vault_address = $1
+          AND a.status = 'deposit-evidence-recorded'
+          AND a.expires_at > now()
+          AND a.withdrawal_disbursement_acknowledged = true
+          AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+          AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+          AND a.agreement_document_sha256 IS NOT NULL
+          AND d.network = 'mainnet'
+          AND d.asset = 'USDT'
+          AND d.token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'
+          AND d.recipient_address = $1
+          AND d.receipt_result = 'SUCCESS'
+          AND d.fireblocks_verified_at IS NOT NULL
+          AND d.fireblocks_snapshot_id IS NOT NULL
+          AND d.fireblocks_vault_account_id IS NOT NULL
+          AND d.fireblocks_checked_at IS NOT NULL
+          AND d.fireblocks_checked_at >= d.chain_verified_at`,
+      [vaultAddress],
+    )
+    const row = result.rows[0] || {}
+    return {
+      success: true,
+      verifiedDepositCount: String(row.verified_deposit_count || '0'),
+      reviewedAuthorizationCount: String(row.reviewed_authorization_count || '0'),
+      verifiedUsdtPrincipalBaseUnits: String(row.verified_usdt_principal_base_units || '0'),
+    }
+  } catch (error) {
+    console.error('Third-party funding USDT pool lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  }
+}
+
+/** Return verified third-party native TRX principal available to sponsor network fees. */
+export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress) {
+  if (!isValidTronAddress(vaultAddress)) {
+    return { success: false, reason: 'invalid-treasury-address', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', verifiedDepositCount: '0',
+    reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT COUNT(*)::text AS verified_deposit_count,
+              COUNT(DISTINCT a.authorization_id)::text AS reviewed_authorization_count,
+              COALESCE(SUM(d.amount_base_units), 0)::text AS verified_trx_principal_sun
+         FROM ${schema}.third_party_funding_authorizations AS a
+         JOIN ${schema}.third_party_funding_deposits AS d
+           ON d.authorization_id = a.authorization_id
+        WHERE a.network = 'mainnet'
+          AND a.vault_address = $1
+          AND a.status = 'deposit-evidence-recorded'
+          AND a.expires_at > now()
+          AND a.withdrawal_disbursement_acknowledged = true
+          AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+          AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+          AND a.agreement_document_sha256 IS NOT NULL
+          AND d.network = 'mainnet'
+          AND d.asset = 'TRX'
+          AND d.token_contract IS NULL
+          AND d.amount_base_units <= a.max_trx_sun
+          AND d.recipient_address = $1
+          AND d.receipt_result = 'SUCCESS'
+          AND d.fireblocks_verified_at IS NOT NULL
+          AND d.fireblocks_snapshot_id IS NOT NULL
+          AND d.fireblocks_vault_account_id IS NOT NULL
+          AND d.fireblocks_checked_at IS NOT NULL
+          AND d.fireblocks_checked_at >= d.chain_verified_at`,
+      [vaultAddress],
+    )
+    const row = result.rows[0] || {}
+    return {
+      success: true,
+      verifiedDepositCount: String(row.verified_deposit_count || '0'),
+      reviewedAuthorizationCount: String(row.reviewed_authorization_count || '0'),
+      verifiedTrxPrincipalSun: String(row.verified_trx_principal_sun || '0'),
+    }
+  } catch (error) {
+    console.error('Third-party funding TRX pool lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  }
+}
+
+/**
+ * Persist one exact solidified Mainnet deposit per asset for an authorization.
+ * The caller must verify the transaction on the SolidityNode before this call.
+ */
+export async function persistThirdPartyFundingDeposit(input = {}) {
+  const {
+    authorizationId, transactionHash, asset, tokenContract = null,
+    senderAddress, recipientAddress, amountBaseUnits, blockNumber, evidenceIndex = 0,
+  } = input
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || !['USDT','TRX'].includes(asset)
+    || (asset === 'USDT' && tokenContract !== OFFICIAL_MAINNET_USDT_CONTRACT)
+    || (asset === 'TRX' && tokenContract !== null)
+    || !isValidTronAddress(senderAddress) || !isValidTronAddress(recipientAddress)
+    || !isPositiveUint256(amountBaseUnits)
+    || !Number.isSafeInteger(blockNumber) || blockNumber < 1
+    || !Number.isSafeInteger(evidenceIndex) || evidenceIndex < 0 || evidenceIndex > 10000) {
+    return { persisted: false, reason: 'invalid-third-party-funding-deposit' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const authResult = await client.query(
+      `SELECT authorization_id, sponsor_address, vault_address,
+              max_usdt_base_units::text AS max_usdt_base_units,
+              max_trx_sun::text AS max_trx_sun, expires_at, status
+         FROM ${schema}.third_party_funding_authorizations
+        WHERE authorization_id = $1 FOR UPDATE`,
+      [authorizationId],
+    )
+    const auth = authResult.rows[0]
+    if (!auth) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'funding-authorization-not-found' }
+    }
+    if (auth.status === 'revoked') {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'funding-authorization-revoked' }
+    }
+    if (new Date(auth.expires_at).getTime() <= Date.now()) {
+      await client.query(`UPDATE ${schema}.third_party_funding_authorizations SET status='expired', updated_at=now() WHERE authorization_id=$1`, [authorizationId])
+      await client.query('COMMIT')
+      return { persisted: false, reason: 'funding-authorization-expired' }
+    }
+    if (auth.status === 'cap-reached') {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'funding-authorization-cap-reached' }
+    }
+    if (auth.sponsor_address !== senderAddress || auth.vault_address !== recipientAddress) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'deposit-source-or-vault-mismatch' }
+    }
+    const cap = asset === 'USDT' ? auth.max_usdt_base_units : auth.max_trx_sun
+    if (BigInt(amountBaseUnits) > BigInt(cap)) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'deposit-exceeds-authorized-cap' }
+    }
+    const duplicate = await client.query(
+      `SELECT transaction_hash, amount_base_units::text AS amount_base_units,
+              sender_address, recipient_address, block_number
+         FROM ${schema}.third_party_funding_deposits
+        WHERE authorization_id=$1 AND asset=$2 FOR UPDATE`,
+      [authorizationId, asset],
+    )
+    if (duplicate.rows.length) {
+      const row = duplicate.rows[0]
+      const same = row.transaction_hash.trim().toLowerCase() === transactionHash.toLowerCase()
+        && row.amount_base_units === amountBaseUnits && row.sender_address === senderAddress
+        && row.recipient_address === recipientAddress && Number(row.block_number) === blockNumber
+      await client.query('COMMIT')
+      return same
+        ? { persisted: true, duplicate: true, status: 'deposit-evidence-recorded' }
+        : { persisted: false, reason: 'deposit-for-asset-already-recorded' }
+    }
+    const usedTransaction = await client.query(
+      `SELECT authorization_id FROM ${schema}.third_party_funding_deposits
+        WHERE network='mainnet' AND transaction_hash=$1 AND asset=$2 LIMIT 1`,
+      [transactionHash.toLowerCase(), asset],
+    )
+    if (usedTransaction.rows.length) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'deposit-transaction-already-used' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.third_party_funding_deposits
+        (authorization_id, network, transaction_hash, asset, token_contract,
+         sender_address, recipient_address, amount_base_units, block_number,
+         evidence_index, receipt_result, chain_verified_at)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,'SUCCESS',now())`,
+      [authorizationId, transactionHash.toLowerCase(), asset, tokenContract,
+       senderAddress, recipientAddress, amountBaseUnits, blockNumber, evidenceIndex],
+    )
+    await client.query(
+      `UPDATE ${schema}.third_party_funding_authorizations
+          SET status='deposit-evidence-recorded', updated_at=now()
+        WHERE authorization_id=$1 AND status='awaiting-deposit'`,
+      [authorizationId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-deposit-chain-verified','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({
+        network: 'mainnet', transactionHash: transactionHash.toLowerCase(), asset,
+        tokenContract, senderAddress, recipientAddress, amountBaseUnits, blockNumber,
+        evidenceIndex, receiptResult: 'SUCCESS',
+      })],
+    )
+    await client.query('COMMIT')
+    return { persisted: true, duplicate: false, status: 'deposit-evidence-recorded' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    if (error?.code === '23505') return { persisted: false, reason: 'deposit-transaction-already-used' }
+    console.error('Third-party funding deposit persistence failed:', error?.code || 'unknown')
+    return { persisted: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+/** Mark a chain-confirmed deposit as visible in an independently verified Fireblocks inventory snapshot. */
+export async function markThirdPartyFundingDepositFireblocksVerified(input = {}) {
+  const { authorizationId, asset, transactionHash, snapshotId, treasuryAddress,
+    vaultAccountId, availableBalanceBaseUnits, chainBalanceBaseUnits, checkedAt } = input
+  const checked = checkedAt instanceof Date ? checkedAt : new Date(checkedAt)
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || !['USDT','TRX'].includes(asset)
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || typeof snapshotId !== 'string' || !/^[0-9]{1,24}$/.test(snapshotId)
+    || !isValidTronAddress(treasuryAddress)
+    || typeof vaultAccountId !== 'string' || !/^[0-9]{1,20}$/.test(vaultAccountId)
+    || !isPositiveUint256(availableBalanceBaseUnits) || !isPositiveUint256(chainBalanceBaseUnits)
+    || !Number.isFinite(checked.getTime()) || checked.getTime() > Date.now() + 60_000) {
+    return { verified: false, reason: 'invalid-fireblocks-deposit-inventory-evidence' }
+  }
+  const db = getPool()
+  if (!db) return { verified: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
+      `UPDATE ${schema}.third_party_funding_deposits AS d
+          SET fireblocks_verified_at=now(), fireblocks_snapshot_id=$6,
+              fireblocks_vault_account_id=$7, fireblocks_checked_at=$8
+         FROM ${schema}.third_party_funding_authorizations AS a,
+              ${schema}.fireblocks_inventory_snapshots AS s
+        WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
+          AND a.authorization_id=d.authorization_id AND a.vault_address=$4
+          AND d.recipient_address=$4 AND d.amount_base_units <= $5::numeric
+          AND d.amount_base_units <= $9::numeric
+          AND d.chain_verified_at <= $8::timestamptz
+          AND d.fireblocks_verified_at IS NULL
+          AND s.id=$6::bigint
+          AND s.repository='MyTeleProject2026/trc20-usdt-token-cloner'
+          AND s.branch='main' AND s.verification_status='verified'
+          AND s.treasury_address=$4 AND s.vault_account_id=$7
+          AND s.checked_at=$8::timestamptz
+          AND s.checked_at <= now() + interval '1 minute'
+          AND s.checked_at > now() - interval '6 hours'
+          AND s.checks @> '{
+            "fireblocksApiAuthenticated": true,
+            "vaultAccountVerified": true,
+            "usdtAssetActivated": true,
+            "officialUsdtAssetVerified": true,
+            "usdtAddressMatches": true,
+            "trxAssetActivated": true,
+            "nativeTrxAssetVerified": true,
+            "trxAddressMatches": true,
+            "officialUsdtChainVerified": true,
+            "treasuryTrxChainBalanceRead": true,
+            "databaseReady": true
+          }'::jsonb
+          AND s.balances->>(CASE WHEN $2='USDT' THEN 'fireblocksUsdtAvailableBaseUnits' ELSE 'fireblocksTrxAvailableBaseUnits' END)=$5::text
+          AND s.balances->>(CASE WHEN $2='USDT' THEN 'chainUsdtBalanceBaseUnits' ELSE 'chainTrxBalanceSun' END)=$9::text
+        RETURNING d.authorization_id`,
+      [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
+       availableBalanceBaseUnits, snapshotId, vaultAccountId, checked, chainBalanceBaseUnits],
+    )
+    if (!result.rowCount) {
+      const existing = await client.query(
+        `SELECT d.fireblocks_verified_at, d.fireblocks_snapshot_id,
+                d.fireblocks_vault_account_id
+           FROM ${schema}.third_party_funding_deposits AS d
+           JOIN ${schema}.third_party_funding_authorizations AS a
+             ON a.authorization_id=d.authorization_id
+          WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
+            AND a.vault_address=$4 AND d.recipient_address=$4
+            AND d.amount_base_units <= $5::numeric
+            AND d.amount_base_units <= $6::numeric
+          FOR UPDATE`,
+        [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
+         availableBalanceBaseUnits, chainBalanceBaseUnits],
+      )
+      if (existing.rows.length && existing.rows[0].fireblocks_snapshot_id === snapshotId
+        && existing.rows[0].fireblocks_vault_account_id === vaultAccountId) {
+        await client.query('COMMIT')
+        return { verified: true, duplicate: true }
+      }
+      await client.query('ROLLBACK')
+      return { verified: false, reason: 'fireblocks-inventory-does-not-match-chain-deposit' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-deposit-fireblocks-verified','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({
+        asset, transactionHash: transactionHash.toLowerCase(), snapshotId,
+        treasuryAddress, vaultAccountId, availableBalanceBaseUnits,
+        chainBalanceBaseUnits, checkedAt: checked.toISOString(),
+      })],
+    )
+    await client.query('COMMIT')
+    return { verified: true, duplicate: false }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding Fireblocks inventory reconciliation failed:', error?.code || 'unknown')
+    return { verified: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+
+/** Revoke an open funding authorization while retaining all historical evidence. */
+export async function revokeThirdPartyFundingAuthorization({ authorizationId, revokedBy } = {}) {
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || !isValidTronAddress(revokedBy)) return { revoked: false, reason: 'invalid-revocation-request' }
+  const db = getPool()
+  if (!db) return { revoked: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
+      `UPDATE ${schema}.third_party_funding_authorizations
+          SET status='revoked', updated_at=now()
+        WHERE authorization_id=$1 AND status IN ('awaiting-deposit','deposit-evidence-recorded')
+        RETURNING authorization_id`,
+      [authorizationId],
+    )
+    if (!result.rowCount) {
+      const existing = await client.query(
+        `SELECT status FROM ${schema}.third_party_funding_authorizations WHERE authorization_id=$1 FOR UPDATE`,
+        [authorizationId],
+      )
+      await client.query('COMMIT')
+      return existing.rows.length
+        ? { revoked: existing.rows[0].status === 'revoked', duplicate: existing.rows[0].status === 'revoked', status: existing.rows[0].status }
+        : { revoked: false, reason: 'funding-authorization-not-found' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-authorization-revoked','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({ revokedBy, revokedAt: new Date().toISOString() })],
+    )
+    await client.query('COMMIT')
+    return { revoked: true, duplicate: false, status: 'revoked' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding authorization revocation failed:', error?.code || 'unknown')
+    return { revoked: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}

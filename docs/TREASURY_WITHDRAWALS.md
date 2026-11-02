@@ -4,6 +4,8 @@
 
 This is a single-owner, treasury-funded TRON Mainnet payout workflow. It does not mint USDT, generate a local balance that can be spent on-chain, forge transaction hashes, or guarantee a receiving exchange's deposit credit.
 
+For Option A third-party funding, complete the separate [third-party funding authorization and deposit verification](./THIRD_PARTY_FUNDING_AUTHORIZATION.md) process before accepting an external contribution. That process verifies only scoped incoming-deposit consent; it does not authorize subsequent payouts or replace the organization's written agreement and Fireblocks policy.
+
 A successful payout must move genuine USDT from the configured Fireblocks vault to the exact recipient by calling Fireblocks' managed signing API, then independently verify the confirmed TRON transaction, successful receipt, official Tether TRC-20 contract and matching `Transfer` event. A provider request ID or broadcast hash alone is not confirmation.
 
 The owner’s local Wallet Vault identity wallet does not need to hold the USDT principal. The authorized Fireblocks vault must hold the real USDT, the matching on-chain address must hold that USDT, and actual TRX must cover the configured `TREASURY_FEE_LIMIT_SUN` reserve unless a separately verified fee sponsor is integrated. This repository currently does **not** assume a sponsored-fee path.
