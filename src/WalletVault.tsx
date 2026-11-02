@@ -126,6 +126,41 @@ type FireblocksInventorySnapshot = {
   reasons?: string[]
 }
 
+type FireblocksDiscoverySnapshot = {
+  success?: boolean
+  discoveryStatus?: 'credentials-required' | 'single-unambiguous-candidate' | 'review-required' | 'partial'
+  checkedAt?: string
+  configuration?: {
+    apiBase?: string
+    credentialsConfigured?: boolean
+    credentialsMissing?: string[]
+    vaultAccountIdConfigured?: boolean
+    usdtAssetIdConfigured?: boolean
+    trxAssetIdConfigured?: boolean
+  }
+  officialUsdtAssets?: Array<{ id: string; symbol: 'USDT'; contractAddress: string; decimals: 6; name?: string | null }>
+  nativeTrxAssets?: Array<{ id: string; symbol: 'TRX'; decimals: 6; name?: string | null }>
+  candidateVaults?: Array<{
+    vaultAccountId: string
+    name?: string | null
+    officialUsdtAssetIds: string[]
+    nativeTrxAssetIds: string[]
+    candidate: boolean
+    unambiguousAddressPair?: boolean
+    treasuryAddressCandidate?: string
+    suggestedUsdtAssetId?: string
+    suggestedTrxAssetId?: string
+  }>
+  suggestedConfiguration?: {
+    vaultAccountId: string
+    usdtAssetId: string
+    trxAssetId: string
+    treasuryAddress: string
+  } | null
+  discoveryTruncated?: boolean
+  note?: string
+}
+
 const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -292,6 +327,8 @@ export default function WalletVault() {
   const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
   const [fireblocksInventorySnapshot, setFireblocksInventorySnapshot] = useState<FireblocksInventorySnapshot | null>(null)
   const [fireblocksInventoryError, setFireblocksInventoryError] = useState('')
+  const [fireblocksDiscoverySnapshot, setFireblocksDiscoverySnapshot] = useState<FireblocksDiscoverySnapshot | null>(null)
+  const [fireblocksDiscoveryError, setFireblocksDiscoveryError] = useState('')
   const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
   const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
   const [treasuryPayoutConfirm, setTreasuryPayoutConfirm] = useState('')
@@ -541,7 +578,7 @@ export default function WalletVault() {
 
         if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse, inventoryResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
@@ -551,11 +588,15 @@ export default function WalletVault() {
           fetch(API_BASE + '/api/treasury/fireblocks/inventory/latest', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
+          fetch(API_BASE + '/api/treasury/fireblocks/discovery', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
         ])
-        const [funding, readiness, inventory] = await Promise.all([
+        const [funding, readiness, inventory, discovery] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
           inventoryResponse.json().catch(() => null),
+          discoveryResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -570,7 +611,14 @@ export default function WalletVault() {
           setFireblocksInventoryError('')
         } else {
           setFireblocksInventorySnapshot(null)
-          setFireblocksInventoryError('The latest Fireblocks inventory snapshot could not be loaded. Check the owner session and backend database status.')
+          setFireblocksInventoryError('The latest saved Fireblocks inventory evidence could not be loaded.')
+        }
+        if (discoveryResponse.ok && discovery?.success === true) {
+          setFireblocksDiscoverySnapshot(discovery as FireblocksDiscoverySnapshot)
+          setFireblocksDiscoveryError('')
+        } else {
+          setFireblocksDiscoverySnapshot(null)
+          setFireblocksDiscoveryError('Live Fireblocks auto-discovery is unavailable. Check the owner session and backend API credentials status.')
         }
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
@@ -582,6 +630,8 @@ export default function WalletVault() {
         setServerTreasuryReadiness(null)
         setFireblocksInventorySnapshot(null)
         setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
+        setFireblocksDiscoverySnapshot(null)
+        setFireblocksDiscoveryError('The owner-only Fireblocks discovery status is unavailable.')
         setOwnerTreasuryError(caught instanceof Error
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
@@ -1924,6 +1974,45 @@ export default function WalletVault() {
           <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
         </div>
+        <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-discovery-heading">
+          <h3 id="fireblocks-discovery-heading">Automatic Fireblocks configuration discovery</h3>
+          <p>The backend queries the authorized workspace for vaults and asset metadata. This read-only check refreshes with the owner dashboard; it does not create a vault, change backend settings, approve a sponsor, or enable withdrawals.</p>
+          {fireblocksDiscoveryError && <p className="wallet-vault-risk-note" role="alert">{fireblocksDiscoveryError}</p>}
+          {!fireblocksDiscoverySnapshot && !fireblocksDiscoveryError && <p className="wallet-vault-caption">Waiting for the backend discovery response…</p>}
+          {fireblocksDiscoverySnapshot && <>
+            <div className="wallet-vault-review-grid">
+              <div><small>Discovery status</small><strong>{fireblocksDiscoverySnapshot.discoveryStatus || 'Not available'}</strong></div>
+              <div><small>Last checked</small><strong>{fireblocksDiscoverySnapshot.checkedAt ? new Date(fireblocksDiscoverySnapshot.checkedAt).toLocaleString() : 'Not recorded'}</strong></div>
+              <div><small>Fireblocks API origin</small><strong>{fireblocksDiscoverySnapshot.configuration?.apiBase || 'Not resolved'}</strong></div>
+              <div><small>Workspace credentials</small><strong>{fireblocksDiscoverySnapshot.configuration?.credentialsConfigured ? 'Available to backend' : 'Not configured'}</strong></div>
+              <div><small>Vaults discovered</small><strong>{fireblocksDiscoverySnapshot.candidateVaults?.length ?? 0} qualifying candidate(s)</strong></div>
+              <div><small>Official USDT assets</small><strong>{fireblocksDiscoverySnapshot.officialUsdtAssets?.length ?? 0} verified metadata match(es)</strong></div>
+              <div><small>Native TRX assets</small><strong>{fireblocksDiscoverySnapshot.nativeTrxAssets?.length ?? 0} verified metadata match(es)</strong></div>
+              <div><small>Automatic suggestion</small><strong>{fireblocksDiscoverySnapshot.suggestedConfiguration ? 'One unambiguous provider address pair found' : 'Manual sponsor review required'}</strong></div>
+            </div>
+            {(fireblocksDiscoverySnapshot.configuration?.credentialsMissing || []).length > 0 && (
+              <p className="wallet-vault-risk-note" role="status"><strong>Backend-only prerequisites:</strong> {fireblocksDiscoverySnapshot.configuration?.credentialsMissing?.join(', ')}. Do not put these credentials in this browser page.</p>
+            )}
+            {fireblocksDiscoverySnapshot.suggestedConfiguration && (
+              <div className="wallet-vault-review-grid">
+                <div><small>Discovered vault account ID</small><strong>{fireblocksDiscoverySnapshot.suggestedConfiguration.vaultAccountId}</strong></div>
+                <div><small>Discovered official USDT asset ID</small><strong>{fireblocksDiscoverySnapshot.suggestedConfiguration.usdtAssetId}</strong></div>
+                <div><small>Discovered native TRX asset ID</small><strong>{fireblocksDiscoverySnapshot.suggestedConfiguration.trxAssetId}</strong></div>
+                <div className="wallet-vault-review-wide"><small>Matching Fireblocks TRON address</small><strong>{fireblocksDiscoverySnapshot.suggestedConfiguration.treasuryAddress}</strong></div>
+              </div>
+            )}
+            {(fireblocksDiscoverySnapshot.candidateVaults || []).map((candidate) => (
+              <div className="wallet-vault-review-grid" key={candidate.vaultAccountId}>
+                <div><small>Candidate vault</small><strong>{candidate.name || 'Unnamed vault'} · ID {candidate.vaultAccountId}</strong></div>
+                <div><small>Active official USDT assets</small><strong>{candidate.officialUsdtAssetIds.join(', ') || 'None'}</strong></div>
+                <div><small>Active native TRX assets</small><strong>{candidate.nativeTrxAssetIds.join(', ') || 'None'}</strong></div>
+                <div><small>Shared provider address</small><strong>{candidate.unambiguousAddressPair ? candidate.treasuryAddressCandidate : 'Not uniquely verified'}</strong></div>
+              </div>
+            ))}
+            {fireblocksDiscoverySnapshot.discoveryTruncated === true && <p className="wallet-vault-risk-note" role="status">Discovery reached its safety page/probe limit. Results are partial; no automatic suggestion is authorized.</p>}
+            <p className="wallet-vault-caption">{fireblocksDiscoverySnapshot.note || 'Provider discovery is informational. A suggested configuration is not an approved source of funds.'}</p>
+          </>}
+        </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
           <h3 id="fireblocks-inventory-heading">Saved Fireblocks inventory evidence</h3>
           <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
@@ -1990,7 +2079,7 @@ export default function WalletVault() {
               ))}
             </div>
             {(fireblocksInventorySnapshot.reasons || []).length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Blockers:</strong> {fireblocksInventorySnapshot.reasons?.map((item) => item.replaceAll('-', ' ')).join('; ')}</p>}
-            <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Real-value payout execution remains hard-disabled in this build.</p>
+            <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Live Render deployment remains separately hard-locked until the reviewed PR stack and external release prerequisites are completed.</p>
           </>}
         </div>
         <div className="wallet-vault-review-grid">
