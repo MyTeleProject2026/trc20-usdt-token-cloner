@@ -18,6 +18,11 @@ test('owner console visibly separates the 100,000 USDT planning target from real
   assert.match(vault, /Fee reserve, organization\/recipient policy, Fireblocks approvals and the source release lock are separate gates/)
   assert.match(vault, /Currently withdrawable now/)
   assert.match(vault, /currentlyWithdrawableBaseUnits/)
+  assert.match(vault, /import ThirdPartyFundingPanel from '\.\/ThirdPartyFundingPanel'/)
+  assert.match(vault, /<ThirdPartyFundingPanel[\\s\\S]*sessionToken=\\{ownerSessionToken\\}/)
+  assert.match(vault, /Verified third-party sponsor USDT principal/)
+  assert.match(vault, /Remaining verified sponsor principal after withdrawals/)
+  assert.match(vault, /serverTreasuryReadiness\?\.thirdPartyFunding\?\.ledgerReady === true/)
 })
 
 test('backend-managed settings refresh automatically and manually without asking for browser credentials', async () => {
