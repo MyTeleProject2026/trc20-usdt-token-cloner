@@ -2393,7 +2393,7 @@ export default function WalletVault() {
           </div>
           <div>
             <small>Remaining sponsor commitment</small>
-            <strong>{typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+            <strong>{serverTreasuryReadiness?.sponsorPrincipalBudget?.commitmentCapConsistent === true && typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
           </div>
           <div>
             <small>Remaining daily payout allowance</small>
