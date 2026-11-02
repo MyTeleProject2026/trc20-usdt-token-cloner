@@ -89,6 +89,24 @@ A transaction ID alone is not proof of an exchange deposit credit or of withdraw
 
 The owner console periodically refreshes backend readiness and the read-only Fireblocks snapshots. A refreshed display is an observation, not a spending authorization.
 
+## Requested 100,000 USDT target — funding and balance semantics
+
+The requested **100,000 USDT** is a sponsor-funding target only. It is not a balance that Tron Token Studio can mint, manufacture, credit to a Fireblocks vault, or make withdrawable through a database row or configuration value.
+
+Keep these amounts separate in the backend and owner console:
+
+- **Sponsor commitment:** the amount the authorized organization has contractually approved. A 100,000 USDT commitment is a ceiling/obligation, not proof that funds have arrived.
+- **Verified on-chain balance:** genuine official Tether USDT held at the sponsor's exact approved TRON Mainnet vault address, read from the chain.
+- **Fireblocks available balance:** the amount the sponsor's provider reports as available for the selected vault and official TRON USDT asset, after provider-side holds and pending activity.
+- **Reserved / unsettled principal:** amounts already reserved by open requests or unresolved transfers; these must not be offered a second time.
+- **Withdrawable amount:** the conservative amount remaining after comparing live provider availability with confirmed on-chain funds, subtracting outstanding reservations, and applying the sponsor's remaining commitment, per-request limit and daily limit.
+
+The backend may automatically refresh the provider inventory and Mainnet chain observations after the sponsor has provisioned valid read-only credentials and the vault/asset mapping has been independently approved. It must record observation timestamps and source identifiers, and treat stale, mismatched, unavailable or incomplete evidence as **not ready**.
+
+If the sponsor has not transferred funds, the verified balance and withdrawable amount are **0 USDT**, even when the agreement says 100,000 USDT. The app must never write the 100,000 target into an asset balance, fabricate a token transfer, or display a simulated/non-spendable token as genuine Tether USDT. The sponsor must actually fund the approved vault with genuine USDT on the official TRON Mainnet contract. The UI should display any difference as an **unfunded commitment gap**, not as available assets.
+
+A positive USDT balance alone is also insufficient: native TRX fee reserves, sponsor release authorization, database reservations, recipient policy, Fireblocks transaction policy and receipt reconciliation must all pass before any production payout can be considered.
+
 ## Current source-build release status
 
 The Mainnet real-value withdrawal route remains blocked by the source-level constant `REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true`. Setting environment variables, inserting rows in PostgreSQL, discovering a vault, or obtaining a provider response cannot override this lock. It must remain closed until the sponsor mandate, real funded Mainnet vault, provider transaction controls, full accounting reconciliation and independent security review have been completed.
