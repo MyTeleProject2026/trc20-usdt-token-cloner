@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
-import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
+import { clearTreasuryPayoutReference, readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
   decryptWalletPrivateKey,
@@ -1146,6 +1146,15 @@ export default function WalletVault() {
         redirect: 'error',
       })
       const payload = await response.json().catch(() => null)
+      if (response.status === 404 && payload?.error === 'withdrawal-not-found') {
+        clearTreasuryPayoutReference()
+        setTreasuryPayoutStatus({ status: 'not-found', idempotencyKey: key })
+        setTreasuryPayoutRecipient('')
+        setTreasuryPayoutAmount('')
+        setTreasuryPayoutConfirm('')
+        setNotice('The backend confirms that no withdrawal reservation exists for this saved key. You may now prepare a new payout request.')
+        return
+      }
       if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Withdrawal status lookup failed.')
       const combined = { ...payload, verification: verification?.verification || null }
       setTreasuryPayoutStatus(combined)
@@ -2311,7 +2320,7 @@ export default function WalletVault() {
                     <label htmlFor="treasury-payout-confirm">Type SEND USDT to confirm this exact request</label>
                     <input id="treasury-payout-confirm" autoComplete="off"
                       value={treasuryPayoutConfirm}
-                      disabled={treasuryPayoutBusy || treasuryPayoutInFlight}
+                      disabled={treasuryPayoutBusy || (treasuryPayoutInFlight && treasuryPayoutCurrentStatus !== 'submission-outcome-unknown')}
                       onChange={event => setTreasuryPayoutConfirm(event.target.value)}
                       placeholder="SEND USDT" />
                     <button type="button" className="wallet-vault-primary"
