@@ -298,6 +298,13 @@ export default function WalletVault() {
   const [treasuryPayoutBusy, setTreasuryPayoutBusy] = useState(false)
   const [treasuryPayoutStatus, setTreasuryPayoutStatus] = useState<any>(null)
   const [treasuryPayoutError, setTreasuryPayoutError] = useState('')
+  const [sponsorRecipientAddress, setSponsorRecipientAddress] = useState('')
+  const [sponsorRecipientReason, setSponsorRecipientReason] = useState('')
+  const [sponsorRecipientRequestId, setSponsorRecipientRequestId] = useState('')
+  const [sponsorRecipientRequest, setSponsorRecipientRequest] = useState<any>(null)
+  const [sponsorRecipientSignature, setSponsorRecipientSignature] = useState('')
+  const [sponsorRecipientBusy, setSponsorRecipientBusy] = useState(false)
+  const [sponsorRecipientError, setSponsorRecipientError] = useState('')
   const [busy, setBusy] = useState(false)
   const [balanceLoading, setBalanceLoading] = useState(false)
   const [transferInProgress, setTransferInProgress] = useState(false)
@@ -1032,6 +1039,131 @@ export default function WalletVault() {
       setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Withdrawal status lookup failed.')
     } finally {
       setTreasuryPayoutBusy(false)
+    }
+  }
+
+  async function createSponsorRecipientApprovalRequest() {
+    if (!ownerSessionToken) {
+      setSponsorRecipientError('Sign the owner treasury check first. A valid owner-console session is required to request a sponsor destination review.')
+      return
+    }
+    const recipientAddress = sponsorRecipientAddress.trim()
+    const reason = sponsorRecipientReason.trim()
+    if (!ADDRESS_PATTERN.test(recipientAddress) || recipientAddress === serverTreasuryReadiness?.treasuryAddress) {
+      setSponsorRecipientError('Enter a valid, different TRON recipient address. The treasury cannot approve itself as a destination.')
+      return
+    }
+    if (!/^[\x20-\x7e]{10,500}$/.test(reason)) {
+      setSponsorRecipientError('Enter a single-line reason using 10–500 printable ASCII characters.')
+      return
+    }
+    setSponsorRecipientBusy(true)
+    setSponsorRecipientError('')
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/recipient-approval-requests', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({ recipientAddress, reason }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || typeof payload?.request?.requestId !== 'string') {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Sponsor recipient request could not be created.')
+      }
+      setSponsorRecipientRequestId(payload.request.requestId)
+      setSponsorRecipientRequest(payload)
+      setSponsorRecipientSignature('')
+      pushToast('info', 'Recipient review request created. It is not a payout and no funds were reserved or sent.')
+    } catch (caught) {
+      setSponsorRecipientError(caught instanceof Error ? caught.message : 'Sponsor recipient request failed.')
+    } finally {
+      setSponsorRecipientBusy(false)
+    }
+  }
+
+  async function loadSponsorRecipientApprovalRequest() {
+    const requestId = sponsorRecipientRequestId.trim()
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      setSponsorRecipientError('Enter a valid recipient approval request ID.')
+      return
+    }
+    setSponsorRecipientBusy(true)
+    setSponsorRecipientError('')
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/recipient-approval-requests/' + encodeURIComponent(requestId), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.request?.requestId !== requestId) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Recipient approval request could not be loaded.')
+      }
+      setSponsorRecipientRequest(payload)
+      setSponsorRecipientSignature('')
+    } catch (caught) {
+      setSponsorRecipientError(caught instanceof Error ? caught.message : 'Recipient approval request lookup failed.')
+    } finally {
+      setSponsorRecipientBusy(false)
+    }
+  }
+
+  async function submitSponsorRecipientSignature() {
+    const requestId = sponsorRecipientRequest?.request?.requestId || sponsorRecipientRequestId.trim()
+    const status = sponsorRecipientRequest?.request?.status
+    const action = status === 'pending' ? 'approve' : status === 'approved' ? 'revoke' : ''
+    const signature = sponsorRecipientSignature.trim()
+    if (!action) {
+      setSponsorRecipientError('Load a pending or approved recipient request before submitting a sponsor signature.')
+      return
+    }
+    if (!/^0x[0-9a-f]{130}$/i.test(signature)) {
+      setSponsorRecipientError('Paste the 65-byte 0x-prefixed signature from the configured sponsor wallet. Never paste a private key.')
+      return
+    }
+    setSponsorRecipientBusy(true)
+    setSponsorRecipientError('')
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/recipient-approval-requests/' + encodeURIComponent(requestId) + '/' + action, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Sponsor signature was not accepted.')
+      }
+      setSponsorRecipientSignature('')
+      await loadSponsorRecipientApprovalRequest()
+      pushToast('info', action === 'approve'
+        ? 'Sponsor destination approval recorded. This does not authorize a USDT transfer.'
+        : 'Sponsor destination approval revoked. New withdrawals to this address are blocked.')
+    } catch (caught) {
+      setSponsorRecipientError(caught instanceof Error ? caught.message : 'Sponsor signature submission failed.')
+    } finally {
+      setSponsorRecipientBusy(false)
+    }
+  }
+
+  async function copySponsorRecipientMessage() {
+    const message = sponsorRecipientRequest?.approvalMessage || sponsorRecipientRequest?.revocationMessage
+    if (typeof message !== 'string' || !message) return
+    try {
+      await navigator.clipboard.writeText(message)
+      pushToast('success', 'Canonical sponsor message copied. It contains no private key or transfer authorization.')
+    } catch {
+      setSponsorRecipientError('Clipboard access is unavailable. Select and copy the canonical message manually.')
     }
   }
 
@@ -1942,6 +2074,58 @@ export default function WalletVault() {
                     <strong>No payout request can be submitted from this build</strong>
                     <p>Recipient and amount entry are intentionally unavailable. This panel is limited to read-only treasury observations and previously saved request-reference lookup; it does not create a payout, reserve funds, sign, or broadcast a transaction.</p>
                   </div>
+                  <div className="wallet-vault-transfer-warning" role="note">
+                    <strong>Sponsor-approved external destination</strong>
+                    <p>This workflow requests a sponsor's policy approval for one exact recipient. It does not initiate, reserve, sign, or submit a withdrawal. The sponsor must inspect the canonical message and sign it with a wallet whose address is already configured in <code>TREASURY_SPONSOR_APPROVER_ADDRESSES</code>.</p>
+                  </div>
+                  <div className="wallet-vault-form">
+                    <label htmlFor="sponsor-recipient-address">External TRON recipient address</label>
+                    <input id="sponsor-recipient-address" autoComplete="off" spellCheck={false} value={sponsorRecipientAddress} onChange={event => setSponsorRecipientAddress(event.target.value)} placeholder="T... recipient wallet or exchange deposit address" />
+                    <label htmlFor="sponsor-recipient-reason">Reason for sponsor review</label>
+                    <textarea id="sponsor-recipient-reason" rows={2} maxLength={500} value={sponsorRecipientReason} onChange={event => setSponsorRecipientReason(event.target.value)} placeholder="Exchange deposit address for an approved beneficiary" />
+                    <button type="button" className="wallet-vault-primary" disabled={sponsorRecipientBusy || !ownerSessionToken || !sponsorRecipientAddress.trim() || !sponsorRecipientReason.trim()} onClick={() => void createSponsorRecipientApprovalRequest()}>
+                      {sponsorRecipientBusy ? 'Creating request…' : 'Create sponsor destination request'}
+                    </button>
+                    {!ownerSessionToken && <p className="wallet-vault-caption">Sign the owner treasury check above to establish the owner-console session first.</p>}
+                  </div>
+                  <div className="wallet-vault-form">
+                    <label htmlFor="sponsor-recipient-request-id">Recipient approval request ID</label>
+                    <input id="sponsor-recipient-request-id" autoComplete="off" spellCheck={false} value={sponsorRecipientRequestId} onChange={event => setSponsorRecipientRequestId(event.target.value)} placeholder="Paste an existing request UUID to reload it" />
+                    <button type="button" className="wallet-vault-secondary" disabled={sponsorRecipientBusy || !sponsorRecipientRequestId.trim()} onClick={() => void loadSponsorRecipientApprovalRequest()}>
+                      Load approval request
+                    </button>
+                  </div>
+                  {sponsorRecipientError && <p className="wallet-vault-risk-note" role="alert">{sponsorRecipientError}</p>}
+                  {sponsorRecipientRequest?.request && (
+                    <div className="wallet-vault-review-grid">
+                      <div><small>Sponsor recipient request status</small><strong>{sponsorRecipientRequest.request.status}</strong></div>
+                      <div className="wallet-vault-review-wide"><small>Request ID</small><strong>{sponsorRecipientRequest.request.requestId}</strong></div>
+                      <div className="wallet-vault-review-wide"><small>Exact recipient</small><strong>{sponsorRecipientRequest.request.recipientAddress}</strong></div>
+                      <div><small>Sponsor organization</small><strong>{sponsorRecipientRequest.request.sponsorOrganizationReference}</strong></div>
+                      <div><small>Sponsor agreement</small><strong>{sponsorRecipientRequest.request.sponsorAgreementReference}</strong></div>
+                      <div><small>Approver address</small><strong>{sponsorRecipientRequest.request.approverAddress || 'Waiting for sponsor signature'}</strong></div>
+                      <div><small>Request expiry</small><strong>{sponsorRecipientRequest.request.expiresAt ? new Date(sponsorRecipientRequest.request.expiresAt).toLocaleString() : 'Unavailable'}</strong></div>
+                      {(sponsorRecipientRequest.approvalMessage || sponsorRecipientRequest.revocationMessage) && (
+                        <div className="wallet-vault-review-wide">
+                          <small>{sponsorRecipientRequest.request.status === 'approved' ? 'Sponsor revocation message' : 'Sponsor approval message'}</small>
+                          <pre>{sponsorRecipientRequest.revocationMessage || sponsorRecipientRequest.approvalMessage}</pre>
+                          <button type="button" className="wallet-vault-secondary" disabled={sponsorRecipientBusy} onClick={() => void copySponsorRecipientMessage()}>Copy canonical sponsor message</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {sponsorRecipientRequest?.request?.status === 'pending' || sponsorRecipientRequest?.request?.status === 'approved' ? (
+                    <div className="wallet-vault-form">
+                      <label htmlFor="sponsor-recipient-signature">Sponsor wallet signature (public signature only)</label>
+                      <textarea id="sponsor-recipient-signature" rows={2} autoComplete="off" spellCheck={false} value={sponsorRecipientSignature} onChange={event => setSponsorRecipientSignature(event.target.value)} placeholder="0x followed by 130 hexadecimal characters" />
+                      <button type="button" className="wallet-vault-primary" disabled={sponsorRecipientBusy || !sponsorRecipientSignature.trim()} onClick={() => void submitSponsorRecipientSignature()}>
+                        {sponsorRecipientBusy ? 'Verifying sponsor signature…' : sponsorRecipientRequest.request.status === 'approved' ? 'Submit sponsor revocation signature' : 'Submit sponsor approval signature'}
+                      </button>
+                      <p className="wallet-vault-caption">The backend recovers the signer and compares it with the independent sponsor allowlist. The signature authorizes only this exact recipient-policy change. Do not enter a seed phrase, private key, Fireblocks RSA key, or API secret.</p>
+                    </div>
+                  ) : sponsorRecipientRequest?.request?.status === 'revoked' || sponsorRecipientRequest?.request?.status === 'expired' ? (
+                    <p className="wallet-vault-risk-note" role="status">This recipient approval request is {sponsorRecipientRequest.request.status}. It cannot authorize a payout.</p>
+                  ) : null}
                   {treasuryPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryPayoutError}</p>}
                   {treasuryPayoutStatus && (
                     <div className="wallet-vault-review-grid">
