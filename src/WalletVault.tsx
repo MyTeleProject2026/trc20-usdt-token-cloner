@@ -2400,8 +2400,9 @@ export default function WalletVault() {
             <strong>{typeof serverTreasuryReadiness?.dailyUsdtRemainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.dailyUsdtRemainingBaseUnits) ? formatUnits(serverTreasuryReadiness.dailyUsdtRemainingBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
           </div>
           <div>
-            <small>Estimated eligible capacity before release lock</small>
+            <small>Funding and limit capacity estimate · not payout readiness</small>
             <strong>{typeof serverTreasuryReadiness?.estimatedEligiblePayoutCapacityBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.estimatedEligiblePayoutCapacityBaseUnits) ? formatUnits(serverTreasuryReadiness.estimatedEligiblePayoutCapacityBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+            <p className="wallet-vault-caption">This estimate applies balance, reservation, sponsor-commitment, daily and per-payout limits. Fee reserve, organization/recipient policy, Fireblocks approvals and the source release lock are separate gates.</p>
           </div>
           <div>
             <small>Currently withdrawable now</small>
