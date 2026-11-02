@@ -109,7 +109,7 @@ function addressList(value, isValidAddress) {
     : typeof item?.address === 'string' ? item.address
       : typeof item?.addressString === 'string' ? item.addressString
         : typeof item?.address_string === 'string' ? item.address_string : '')
-    .filter((address) => OWNER_ADDRESS_PATTERN.test(address) && isValidAddress(address))]
+    .filter((address) => OWNER_ADDRESS_PATTERN.test(address) && isValidAddress(address)))]
 }
 
 function hasExactSymbol(asset, expected) {
