@@ -177,6 +177,23 @@ test('the manifest rejects expired, overlong and future-issued authorizations', 
   }
 })
 
+test('historical v2 consent can be verified but is explicitly legacy-unscoped', async () => {
+  const legacy = manifest({ format: 'tron-token-studio/third-party-funding-authorization/v2' })
+  delete legacy.sponsorOrganizationReference
+  const result = await verifyThirdPartyFundingAuthorization(legacy, {
+    expectedVaultAddress: VAULT,
+    expectedAgreementReference: 'ORG-AGREEMENT-2026-001',
+    now: () => NOW,
+    verifyMessage: async (message) => {
+      assert.match(message, /Version: 2/)
+      assert.doesNotMatch(message, /Sponsor organization reference:/)
+      return SPONSOR
+    },
+  })
+  assert.equal(result.verified, true)
+  assert.equal(result.authorization.sponsorOrganizationReference, 'legacy-unscoped')
+})
+
 test('invalid signature format is rejected without invoking signature recovery', async () => {
   const result = await verifyThirdPartyFundingAuthorization(manifest({ signature: 'not-a-signature' }), {
     expectedVaultAddress: VAULT,
@@ -192,6 +209,7 @@ test('legacy v1 consent remains verifiable for historical evidence but carries n
   const legacy = manifest({
     format: 'tron-token-studio/third-party-funding-authorization/v1',
   })
+  delete legacy.sponsorOrganizationReference
   delete legacy.agreementDocumentSha256
   const result = await verifyThirdPartyFundingAuthorization(legacy, {
     expectedVaultAddress: VAULT,
