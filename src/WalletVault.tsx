@@ -1118,6 +1118,58 @@ export default function WalletVault() {
     }
   }
 
+  async function refreshBackendTreasuryConfiguration() {
+    const token = ownerSessionToken
+    if (!token) {
+      setFireblocksInventoryError('Verify the owner treasury session first. Backend configuration is only exposed to the authenticated owner.')
+      return
+    }
+    setOwnerTreasuryLoading(true)
+    setFireblocksInventoryError('')
+    try {
+      const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
+      const [readinessResponse, inventoryResponse, fundingResponse] = await Promise.all([
+        fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+          headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+        }),
+        fetch(API_BASE + '/api/treasury/fireblocks/inventory/latest', {
+          headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+        }),
+        fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
+          headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+        }),
+      ])
+      const [readiness, inventory, funding] = await Promise.all([
+        readinessResponse.json().catch(() => null),
+        inventoryResponse.json().catch(() => null),
+        fundingResponse.json().catch(() => null),
+      ])
+      if (!readinessResponse.ok || readiness?.success !== true) {
+        throw new Error(typeof readiness?.error === 'string'
+          ? readiness.error : 'The backend payout-readiness configuration could not be loaded.')
+      }
+      if (!inventoryResponse.ok || inventory?.success !== true) {
+        throw new Error(typeof inventory?.error === 'string'
+          ? inventory.error : 'The backend Fireblocks inventory snapshot could not be loaded.')
+      }
+      setServerTreasuryReadiness(readiness)
+      setFireblocksInventorySnapshot(inventory.snapshot && typeof inventory.snapshot === 'object'
+        ? inventory.snapshot as FireblocksInventorySnapshot : null)
+      if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
+        setOwnerTreasurySnapshot(funding as OwnerTreasurySnapshot)
+      } else {
+        setOwnerTreasurySnapshot(null)
+      }
+      setFireblocksInventoryError('')
+      setNotice('Backend configuration refreshed. Public identifiers and readiness were reloaded; no Render settings, secrets, sponsor permissions or funds were changed.')
+    } catch (caught) {
+      setFireblocksInventoryError(caught instanceof Error
+        ? caught.message : 'Backend configuration refresh failed.')
+    } finally {
+      setOwnerTreasuryLoading(false)
+    }
+  }
+
   async function lookupServerTreasuryPayout() {
     const key = treasuryPayoutStatus?.withdrawal?.idempotencyKey || treasuryPayoutStatus?.idempotencyKey
     if (!ownerSessionToken || typeof key !== 'string') {
@@ -1644,38 +1696,6 @@ export default function WalletVault() {
     }
   }
 
-  async function copyFireblocksEnvTemplate() {
-    const template = [
-      'TREASURY_SIGNER_MODE=fireblocks',
-      'FIREBLOCKS_API_BASE=<verified-production-region-api-base>',
-      'FIREBLOCKS_API_KEY=<organization-issued-api-user-id>',
-      'FIREBLOCKS_SECRET_KEY_PATH=/etc/secrets/fireblocks_api_private_key.pem',
-      'FIREBLOCKS_VAULT_ACCOUNT_ID=<verified-vault-account-id>',
-      'FIREBLOCKS_USDT_ASSET_ID=<verified-official-tron-usdt-asset-id>',
-      'FIREBLOCKS_TRX_ASSET_ID=<verified-native-trx-asset-id>',
-      'TREASURY_ADDRESS=<verified-tron-vault-address>',
-      'OWNER_WALLET_ADDRESS=<organization-approved-owner-address>',
-      'TREASURY_OWNER_ADDRESS=<same-organization-approved-owner-address>',
-      'TREASURY_MAX_PAYOUT_USDT=<organization-approved-per-payout-limit>',
-      'TREASURY_DAILY_LIMIT_USDT=<organization-approved-daily-limit>',
-      'TREASURY_SPONSOR_ORGANIZATION_REFERENCE=<executed-sponsor-organization-reference>',
-      'TREASURY_SPONSOR_AGREEMENT_REFERENCE=<executed-sponsor-agreement-reference>',
-      'TREASURY_SPONSOR_TOTAL_BUDGET_USDT=<maximum-usdt-principal-commitment-in-agreement>',
-      'TREASURY_ALLOWED_RECIPIENT_ADDRESSES=<comma-separated-sponsor-approved-tron-destinations>',
-      'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
-      'TREASURY_WITHDRAWALS_ENABLED=false',
-      'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
-    ].join('\n')
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
-      await navigator.clipboard.writeText(template)
-      setError('')
-      setNotice('Copied a placeholder-only template. Replace placeholders in the backend Render service only; never enter credentials in this wallet UI.')
-    } catch {
-      setError('Clipboard access is unavailable. Use the documented backend Render setup steps instead; do not paste Fireblocks secrets into this page.')
-    }
-  }
-
   function navigateSendAsset(asset: TransferAsset) {
     setActivePanel('send')
     scrollWorkspaceToTop()
@@ -1914,13 +1934,20 @@ export default function WalletVault() {
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
-          <h3 id="fireblocks-inventory-heading">One-click Fireblocks inventory verification</h3>
-          <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
+          <h3 id="fireblocks-inventory-heading">Automatically loaded backend configuration</h3>
+          <p>The owner console reloads the latest non-secret Fireblocks identifiers, saved inventory evidence and live payout-readiness checks from the backend. It refreshes automatically while the owner session is active; no Fireblocks values need to be typed into this frontend.</p>
+          <div className="wallet-vault-form">
+            <button type="button" className="wallet-vault-secondary"
+              disabled={ownerTreasuryLoading || !ownerSessionToken}
+              onClick={() => void refreshBackendTreasuryConfiguration()}>
+              <RefreshCw size={15} /> {ownerTreasuryLoading ? 'Refreshing backend configuration…' : 'Refresh backend configuration now'}
+            </button>
+          </div>
           <p className="wallet-vault-caption">
-            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open GitHub Actions — Run Fireblocks inventory sync ↗</a>
+            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open the optional read-only inventory audit workflow ↗</a>
           </p>
           {fireblocksInventoryError && <p className="wallet-vault-risk-note" role="alert">{fireblocksInventoryError}</p>}
-          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No saved inventory run is available yet. Run the manual workflow above; the result will appear here after it finishes and saves its database snapshot.</p>}
+          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No saved inventory snapshot has been returned yet. The live readiness check is loaded separately. A missing snapshot is not a verified Fireblocks setup.</p>}
           {fireblocksInventorySnapshot && <>
             <div className="wallet-vault-review-grid">
               <div>
@@ -2060,11 +2087,16 @@ export default function WalletVault() {
           </p>
         </div>
         <div className="wallet-vault-transfer-section">
-          <h3>Backend Render configuration</h3>
-          <p>Enter organization-issued identifiers and approved limits in the backend Web Service environment only. Upload the RSA private key as a Secret File named <code>fireblocks_api_private_key.pem</code>; the path below points to that file. Never add credentials to frontend <code>VITE_*</code> variables, GitHub, or this browser page.</p>
-          <p className="wallet-vault-caption">Backend service: <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">Open Render backend environment ↗</a></p>
-          <button type="button" className="wallet-vault-secondary" onClick={() => void copyFireblocksEnvTemplate()}><Copy size={15} /> Copy placeholder-only environment template</button>
-          <p className="wallet-vault-caption">The template contains placeholders, not credentials. The sponsor organization and agreement references plus total USDT commitment must come from the sponsor’s executed agreement; they are not proof of funding. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
+          <h3>Backend-managed configuration and external prerequisites</h3>
+          <p>All non-secret settings already present on the backend are loaded into this screen automatically. Missing settings are reported below; this frontend does not ask you to copy or manually enter environment values.</p>
+          <p className="wallet-vault-caption">Only the authorized sponsor organization can provision its Fireblocks API user, RSA secret file, production vault, signed agreement, approved limits and real funding. Those credentials and approvals cannot be fabricated or safely generated by this app. Keep the RSA private key in Render Secret Files, never in this browser.</p>
+          <p className="wallet-vault-caption">The backend service is <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">TRON Token Studio API ↗</a>. The link is provided for the authorized administrator; the owner frontend does not modify Render settings.</p>
+          {Array.isArray(serverTreasuryReadiness?.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
+            <p className="wallet-vault-risk-note" role="status"><strong>Backend-reported missing prerequisites:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
+          )}
+          {serverTreasuryReadiness?.configuration?.configurationComplete === true
+            ? <p className="wallet-vault-caption">Backend configuration checks report complete. This is not sponsor authorization or permission to withdraw.</p>
+            : <p className="wallet-vault-caption">Backend configuration is incomplete. The application remains blocked until the actual organization-owned values and approval evidence are available.</p>}
         </div>
       </section>
 
