@@ -3,8 +3,8 @@ import { Router } from 'express'
 import { TronWeb } from 'tronweb'
 import { getWalletAuthSession } from '../database.mjs'
 import {
-  createFireblocksClient,
-  fireblocksConfiguration,
+  createFireblocksReadOnlyClient,
+  fireblocksReadOnlyConfiguration,
   isNativeFireblocksTrxAsset,
   isOfficialFireblocksUsdtAsset,
 } from '../fireblocks-client.mjs'
@@ -125,7 +125,7 @@ function hasExactSymbol(asset, expected) {
 export function createFireblocksDiscoveryRouter({
   env = process.env,
   getSession = getWalletAuthSession,
-  fireblocksFactory = (currentEnv) => createFireblocksClient(currentEnv),
+  fireblocksFactory = (currentEnv) => createFireblocksReadOnlyClient(currentEnv),
   tronWebFactory = () => new TronWeb({ fullHost: 'https://api.trongrid.io' }),
   isValidAddress = (value) => OWNER_ADDRESS_PATTERN.test(value),
   now = () => Date.now(),
@@ -180,11 +180,10 @@ export function createFireblocksDiscoveryRouter({
       return res.status(403).json({ success: false, error: 'owner-wallet-not-authorized' })
     }
 
-    const providerConfig = fireblocksConfiguration(env)
+    const providerConfig = fireblocksReadOnlyConfiguration(env)
     const cacheTime = now() instanceof Date ? now().getTime() : Number(now())
     const cacheKey = createHash('sha256').update([
       providerConfig.apiBase, providerConfig.apiKey, providerConfig.secretKeyPath,
-      providerConfig.vaultAccountId, providerConfig.usdtAssetId, providerConfig.trxAssetId,
     ].join('\u0000')).digest('hex')
     if (cachedDiscovery && cachedDiscoveryKey === cacheKey && cachedDiscoveryExpiresAt > cacheTime) {
       return res.json({ ...cachedDiscovery, cacheHit: true })
