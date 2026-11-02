@@ -1400,3 +1400,96 @@ main .grid > button[aria-pressed] > span {
   .wallet-vault-payout-guide-grid { grid-template-columns: minmax(0, 1fr); }
   .wallet-vault-payout-guide-step { min-height: 0; padding: 14px; }
 }
+
+
+/* Explicitly separate personal-wallet transfers from organization-funded payouts. */
+.wallet-vault-route-chooser { margin-top: 16px; }
+.wallet-vault-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.wallet-vault-route-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 190px;
+  padding: 17px;
+  border: 1px solid #2a4a3e;
+  border-radius: 15px;
+  color: #e9fff4;
+  background: linear-gradient(145deg, rgba(13, 38, 32, .95), rgba(6, 18, 20, .97));
+  text-align: left;
+  cursor: pointer;
+}
+.wallet-vault-route-card--personal { border-color: #315b77; background: linear-gradient(145deg, rgba(14, 38, 55, .94), rgba(6, 18, 22, .97)); }
+.wallet-vault-route-card--sponsor { border-color: #397052; background: linear-gradient(145deg, rgba(14, 47, 34, .94), rgba(6, 18, 20, .97)); }
+.wallet-vault-route-card:hover,.wallet-vault-route-card:focus-visible {
+  outline: 2px solid #65e5b2;
+  outline-offset: 2px;
+  filter: brightness(1.08);
+}
+.wallet-vault-route-card > svg { color: #9cebc8; }
+.wallet-vault-route-kicker {
+  color: #9db8ad;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+.wallet-vault-route-card > strong { color: #effff7; font-size: 14px; line-height: 1.4; }
+.wallet-vault-route-card > small { color: #a9c5b9; font-size: 10px; line-height: 1.7; }
+.wallet-vault-route-foot {
+  margin-top: auto;
+  padding-top: 4px;
+  color: #8be4b8;
+  font-size: 10px;
+  font-weight: 850;
+}
+.wallet-vault-sponsor-route-intro { margin-top: 16px; }
+.wallet-vault-handoff-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 14px;
+  margin: 12px 0 16px;
+  padding: 0;
+  list-style: none;
+  counter-reset: sponsor-handoff;
+}
+.wallet-vault-handoff-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid #29483e;
+  border-radius: 11px;
+  background: rgba(5, 18, 17, .74);
+  counter-increment: sponsor-handoff;
+}
+.wallet-vault-handoff-list li::before {
+  content: "STEP " counter(sponsor-handoff, decimal-leading-zero);
+  color: #83dcb2;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+.wallet-vault-handoff-list li strong { color: #e5fff3; font-size: 11px; line-height: 1.45; }
+.wallet-vault-handoff-list li span { color: #9eb9ad; font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; }
+.wallet-vault-inline-action {
+  display: inline;
+  padding: 0;
+  border: 0;
+  color: #82e7b7;
+  background: transparent;
+  font: inherit;
+  font-weight: 850;
+  text-decoration: underline;
+  cursor: pointer;
+}
+@media (max-width: 820px) {
+  .wallet-vault-route-grid,.wallet-vault-handoff-list { grid-template-columns: minmax(0, 1fr); }
+  .wallet-vault-route-card { min-height: 0; }
+}
