@@ -1877,6 +1877,57 @@ export function createTreasuryWithdrawalsRouter({
     }
   })
 
+  router.get('/withdrawals/release-authorization/revocation-message', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const origin = req.get('origin')
+    if (!isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(403).json({ success: false, error: 'release-approval-origin-not-allowed' })
+    }
+    const config = configuration()
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'release-authorization-database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(`SELECT *
+        FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND sponsor_organization_reference=$2
+          AND sponsor_agreement_reference=$3 AND treasury_address=$4
+          AND status='active' AND release_expires_at > now()
+        ORDER BY created_at DESC LIMIT 1`, [
+        typeof env.TREASURY_REAL_VALUE_RELEASE_REFERENCE === 'string' ? env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim() : '',
+        config.sponsorOrganizationReference,
+        config.sponsorAgreementReference,
+        typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : '',
+      ])
+      const row = result.rows[0]
+      if (!row) return res.status(404).json({ success: false, error: 'active-sponsor-release-not-found' })
+      if (row.requester_origin !== origin) {
+        return res.status(403).json({ success: false, error: 'release-approval-origin-mismatch' })
+      }
+      const message = buildTreasuryRealValueReleaseRevocationMessage({
+        releaseReference: row.release_reference,
+        messageHash: String(row.release_message_hash).trim(),
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        requesterOrigin: row.requester_origin,
+      })
+      return res.json({
+        success: true,
+        message,
+        messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+        releaseReference: row.release_reference,
+        originalMessageHash: String(row.release_message_hash).trim(),
+        expiresAt: row.release_expires_at,
+        sponsorSignerAddress: row.sponsor_signer_address,
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-release-revocation-message-unavailable' })
+    }
+  })
+
   router.post('/withdrawals/release-authorization/signature', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await authenticateOwner(req)
