@@ -39,6 +39,26 @@ Fireblocks references:
 - [Create Vault Accounts](https://fireblocks.readme.io/reference/create-vault-account)
 - [Fireblocks object model](https://fireblocks.readme.io/docs/object-model)
 
+## 2A. Automatic, read-only configuration discovery
+
+After the organization has created its Fireblocks API user and installed the API authentication RSA key as a backend-only secret file, the owner console can query:
+
+`GET /api/treasury/fireblocks/discovery`
+
+The endpoint is owner-session authenticated and read-only. It uses the API user's read permissions to:
+- enumerate paginated Vault Accounts;
+- query Fireblocks' supported asset catalog for USDT and TRX;
+- accept USDT only when provider contract metadata matches the official TRON Mainnet Tether contract;
+- accept TRX only when provider metadata identifies the native six-decimal TRX asset;
+- compare each candidate vault's active assets and, for a bounded number of candidates, read both asset-address lists;
+- suggest vault ID, asset IDs and the common TRON address only when the result is unambiguous.
+
+The owner console refreshes this discovery snapshot with the other backend status data. The backend caches successful discovery results briefly to avoid repeatedly calling Fireblocks while the dashboard polls.
+
+**Discovery is not configuration activation.** The endpoint does not select a vault, write Render environment variables, create or activate assets, move balances, approve a sponsor agreement, or enable transfers. If several matching vaults or asset pairs exist, the endpoint reports candidates but does not choose one. The organization must review and approve the exact source vault and agreement scope. The existing payout readiness checks and sponsor release signature still bind the final vault ID, asset IDs, treasury address, contract, limits and recipient policy.
+
+The API key and mounted RSA authentication file cannot be auto-created by this application; they must be issued by Fireblocks to the authorized sponsor organization. The endpoint does not return the API key, secret-file path, RSA key, private key or signing material to the frontend.
+
 ## 3. Fund the vault only through the organization's approved treasury process
 
 Funding is a real asset movement, not an application setting. The organization's authorized treasury staff must use its approved source of funds and its own independent controls to fund the Fireblocks TRON address with genuine official USDT and enough native TRX to cover the configured fee reserve. Verify the network and address in the Fireblocks Console before any deposit; do not rely on an address copied from chat or an unverified UI.
