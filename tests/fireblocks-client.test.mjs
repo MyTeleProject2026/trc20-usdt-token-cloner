@@ -566,3 +566,50 @@ test('Fireblocks retrieves paged vault accounts with validated supported filters
   )
   assert.equal(calls.length, 1, 'invalid page filters must be rejected before any provider request')
 })
+
+
+test('Fireblocks can discover vaults and assets with authorized API credentials before a vault ID is configured', async () => {
+  const { privateKey } = keyPair()
+  const env = {
+    FIREBLOCKS_API_KEY: 'discovery-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/run/secrets/fireblocks-api.pem',
+    FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
+  }
+  const calls = []
+  const client = createFireblocksClient(env, {
+    fetchImpl: async (url, init) => {
+      const parsed = new URL(url)
+      calls.push({ parsed, init })
+      if (parsed.pathname === '/v1/vault/accounts_paged') {
+        return new Response(JSON.stringify({ accounts: [{ id: '7', name: 'TRON treasury', assets: [] }], paging: {} }), { status: 200 })
+      }
+      if (parsed.pathname === '/v1/assets') {
+        return new Response(JSON.stringify({ assets: [{ id: 'USDT_TRON' }] }), { status: 200 })
+      }
+      throw new Error('unexpected Fireblocks discovery URL')
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'discovery-read-only-nonce',
+  })
+
+  assert.equal(client.isConfigured(), false)
+  assert.equal(client.isProviderConfigured(), false)
+  assert.equal(client.configuration().credentialsConfigured, true)
+  assert.ok(client.configuration().providerMissing.includes('FIREBLOCKS_VAULT_ACCOUNT_ID'))
+
+  const accounts = await client.getPagedVaultAccounts({ limit: 200, orderBy: 'ASC' })
+  const assets = await client.getAssets({ symbol: 'USDT', pageSize: 500 })
+  assert.equal(accounts.accounts[0].id, '7')
+  assert.equal(assets.assets[0].id, 'USDT_TRON')
+  assert.deepEqual(calls.map(({ parsed }) => parsed.pathname), [
+    '/v1/vault/accounts_paged', '/v1/assets',
+  ])
+  assert.equal(calls[0].parsed.searchParams.get('limit'), '200')
+  assert.equal(calls[1].parsed.searchParams.get('symbol'), 'USDT')
+  assert.ok(calls.every(({ init }) => init.method === 'GET' && init.body === undefined))
+  assert.ok(calls.every(({ init }) => init.headers['X-API-Key'] === 'discovery-api-key'))
+
+  await assert.rejects(client.getVaultAccount(), (error) => error?.code === 'fireblocks-not-configured')
+  assert.equal(calls.length, 2, 'vault-specific operations remain blocked until an account is explicitly selected')
+})
