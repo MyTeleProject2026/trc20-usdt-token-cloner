@@ -57,6 +57,7 @@ async function ensureHistorySchema(db) {
     'transaction_count BIGINT NOT NULL DEFAULT 0,' +
     'external_usdt_base_units NUMERIC(78,0) NOT NULL DEFAULT 0,' +
     'external_trx_base_units NUMERIC(78,0) NOT NULL DEFAULT 0,' +
+    'network_fee_trx_base_units NUMERIC(78,0) NOT NULL DEFAULT 0,' +
     'reconciliation_digest CHAR(64),' +
     'failure_code TEXT,' +
     'checked_at TIMESTAMPTZ,' +
@@ -82,6 +83,8 @@ async function ensureHistorySchema(db) {
     'created_at_ms BIGINT NOT NULL,' +
     'raw_sha256 CHAR(64) NOT NULL,' +
     'terminal_no_broadcast BOOLEAN NOT NULL DEFAULT false,' +
+    'network_fee_trx_base_units NUMERIC(78,0) NOT NULL DEFAULT 0,' +
+    'fee_paid_by_vault BOOLEAN NOT NULL DEFAULT false,' +
     'last_seen_run_id TEXT,' +
     'first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),' +
     'last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()' +
@@ -91,6 +94,9 @@ async function ensureHistorySchema(db) {
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS trx_asset_id TEXT')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS current_run_id TEXT')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS previous_complete_transaction_count BIGINT NOT NULL DEFAULT 0')
+  await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_state ADD COLUMN IF NOT EXISTS network_fee_trx_base_units NUMERIC(78,0) NOT NULL DEFAULT 0')
+  await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_entries ADD COLUMN IF NOT EXISTS network_fee_trx_base_units NUMERIC(78,0) NOT NULL DEFAULT 0')
+  await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_entries ADD COLUMN IF NOT EXISTS fee_paid_by_vault BOOLEAN NOT NULL DEFAULT false')
   await db.query('ALTER TABLE ' + SCHEMA + '.fireblocks_outbound_history_entries ADD COLUMN IF NOT EXISTS last_seen_run_id TEXT')
   await db.query(
     'CREATE INDEX IF NOT EXISTS fireblocks_outbound_history_vault_asset_idx ' +
@@ -193,6 +199,13 @@ export function parseFireblocksOutboundHistoryTransaction(transaction, {
     'EXTERNAL_WALLET', 'CONTRACT', 'FIAT_ACCOUNT', 'NETWORK_CONNECTION',
     'COMPOUND', 'END_USER_WALLET',
   ])
+  const feeInfo = transaction?.feeInfo && typeof transaction.feeInfo === 'object'
+    ? transaction.feeInfo : {}
+  const feeCurrency = safeText(transaction?.feeCurrency, 64).toUpperCase()
+  const rawNetworkFee = typeof feeInfo.networkFee === 'string' ? feeInfo.networkFee : ''
+  const parsedNetworkFee = parseSixDecimalBaseUnits(rawNetworkFee)
+  let networkFeeTrxBaseUnits = '0'
+  let feePaidByVault = false
 
   if (!id) return { valid: false, reason: 'fireblocks-history-transaction-id-missing' }
   if (operation !== 'TRANSFER') return { valid: false, reason: 'fireblocks-history-unsupported-operation' }
@@ -222,6 +235,32 @@ export function parseFireblocksOutboundHistoryTransaction(transaction, {
   if (destinationType === 'VAULT_ACCOUNT' && !destinationId) {
     return { valid: false, reason: 'fireblocks-history-destination-vault-id-missing' }
   }
+  // A chain-hash-bearing transaction must include Fireblocks' explicit fee
+  // record. For TRON the fee is paid in native TRX. Unknown fee currencies,
+  // missing fee amounts and ambiguous relays fail closed.
+  if (transactionHash) {
+    const supportedFeeCurrencies = new Set(['TRX', 'TRON', String(trxAssetId).toUpperCase()])
+    if (parsedNetworkFee === null) {
+      return { valid: false, reason: 'fireblocks-history-network-fee-missing-or-invalid' }
+    }
+    if (!supportedFeeCurrencies.has(feeCurrency)) {
+      return { valid: false, reason: 'fireblocks-history-network-fee-currency-unverified' }
+    }
+    networkFeeTrxBaseUnits = parsedNetworkFee
+    if (feeInfo.paidByRelay === true) {
+      const relayType = safeText(feeInfo.relayType, 64).toUpperCase()
+      const relayId = safeText(feeInfo.relayId, 128)
+      if (relayType === 'THIRD_PARTY') {
+        feePaidByVault = false
+      } else if (relayType === 'LOCAL' && relayId) {
+        feePaidByVault = relayId === String(vaultAccountId)
+      } else {
+        return { valid: false, reason: 'fireblocks-history-fee-relay-identity-unverified' }
+      }
+    } else {
+      feePaidByVault = true
+    }
+  }
 
   return {
     valid: true,
@@ -242,6 +281,8 @@ export function parseFireblocksOutboundHistoryTransaction(transaction, {
       createdAtMs,
       rawSha256: createHash('sha256').update(JSON.stringify(transaction)).digest('hex'),
       terminalNoBroadcast: FINAL_NO_BROADCAST_STATUSES.has(status) && !transactionHash,
+      networkFeeTrxBaseUnits,
+      feePaidByVault,
     },
   }
 }
@@ -288,6 +329,7 @@ export function reconcileFireblocksOutboundHistory({
   const seenApplicationRequests = new Set()
   let externalUsdtBaseUnits = 0n
   let externalTrxBaseUnits = 0n
+  let networkFeeTrxBaseUnits = 0n
   const digest = createHash('sha256')
   const seenProviderIds = new Set()
 
@@ -298,6 +340,13 @@ export function reconcileFireblocksOutboundHistory({
     }
     seenProviderIds.add(entry.providerTransactionId)
     digest.update(entry.providerTransactionId + ':' + entry.rawSha256 + '\n')
+    if (!entry.terminalNoBroadcast && entry.feePaidByVault === true) {
+      if (!/^(0|[1-9][0-9]{0,77})$/.test(String(entry.networkFeeTrxBaseUnits ?? ''))) {
+        blockers.push('fireblocks-history-network-fee-total-invalid')
+      } else {
+        networkFeeTrxBaseUnits += BigInt(entry.networkFeeTrxBaseUnits)
+      }
+    }
 
     const candidates = [
       ...(entry.externalTxId ? (byExternalId.get(entry.externalTxId) || []) : []),
@@ -356,6 +405,7 @@ export function reconcileFireblocksOutboundHistory({
     blockers: [...new Set(blockers)],
     externalUsdtBaseUnits: externalUsdtBaseUnits.toString(),
     externalTrxBaseUnits: externalTrxBaseUnits.toString(),
+    networkFeeTrxBaseUnits: networkFeeTrxBaseUnits.toString(),
     transactionCount: entries.length,
     reconciliationDigest: digest.digest('hex'),
   }
@@ -429,6 +479,7 @@ export async function getFireblocksOutboundHistoryStatus({
       transactionCount: String(row.transaction_count || '0'),
       externalUsdtBaseUnits: String(row.external_usdt_base_units || '0'),
       externalTrxBaseUnits: String(row.external_trx_base_units || '0'),
+      networkFeeTrxBaseUnits: String(row.network_fee_trx_base_units || '0'),
       reconciliationDigest: String(row.reconciliation_digest || ''),
       historyStartMs: HISTORY_START_MS,
       historyEndMs: String(row.history_end_ms),
@@ -535,7 +586,7 @@ export function createFireblocksOutboundHistoryRouter({
           'trx_asset_id=EXCLUDED.trx_asset_id,current_run_id=EXCLUDED.current_run_id,' +
           'previous_complete_transaction_count=EXCLUDED.previous_complete_transaction_count,' +
           "status='scanning',next_page_cursor=NULL," +
-          'page_count=0,transaction_count=0,external_usdt_base_units=0,external_trx_base_units=0,' +
+          'page_count=0,transaction_count=0,external_usdt_base_units=0,external_trx_base_units=0,network_fee_trx_base_units=0,' +
           'reconciliation_digest=NULL,failure_code=NULL,checked_at=NULL,updated_at=now() RETURNING *',
           [cfg.vaultAccountId, treasuryAddress, endMs, cfg.usdtAssetId, cfg.trxAssetId, randomUUID(),
             state?.status === 'complete'
@@ -594,8 +645,8 @@ export function createFireblocksOutboundHistoryRouter({
             'INSERT INTO ' + SCHEMA + '.fireblocks_outbound_history_entries ' +
             '(provider_transaction_id,vault_account_id,asset_id,asset_code,amount_base_units,operation,provider_status,' +
             'external_tx_id,transaction_hash,source_type,source_id,destination_type,destination_id,destination_address,' +
-            'created_at_ms,raw_sha256,terminal_no_broadcast,last_seen_run_id,last_seen_at) ' +
-            'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,now()) ' +
+            'created_at_ms,raw_sha256,terminal_no_broadcast,network_fee_trx_base_units,fee_paid_by_vault,last_seen_run_id,last_seen_at) ' +
+            'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now()) ' +
             'ON CONFLICT (provider_transaction_id) DO UPDATE SET ' +
             'vault_account_id=EXCLUDED.vault_account_id,asset_id=EXCLUDED.asset_id,asset_code=EXCLUDED.asset_code,' +
             'amount_base_units=EXCLUDED.amount_base_units,operation=EXCLUDED.operation,provider_status=EXCLUDED.provider_status,' +
@@ -603,13 +654,15 @@ export function createFireblocksOutboundHistoryRouter({
             'source_type=EXCLUDED.source_type,source_id=EXCLUDED.source_id,destination_type=EXCLUDED.destination_type,' +
             'destination_id=EXCLUDED.destination_id,destination_address=EXCLUDED.destination_address,' +
             'created_at_ms=EXCLUDED.created_at_ms,raw_sha256=EXCLUDED.raw_sha256,' +
-            'terminal_no_broadcast=EXCLUDED.terminal_no_broadcast,last_seen_run_id=EXCLUDED.last_seen_run_id,last_seen_at=now()',
+            'terminal_no_broadcast=EXCLUDED.terminal_no_broadcast,network_fee_trx_base_units=EXCLUDED.network_fee_trx_base_units,' +
+            'fee_paid_by_vault=EXCLUDED.fee_paid_by_vault,last_seen_run_id=EXCLUDED.last_seen_run_id,last_seen_at=now()',
             [
               entry.providerTransactionId, cfg.vaultAccountId, entry.assetId, entry.assetCode,
               entry.amountBaseUnits, entry.operation, entry.providerStatus, entry.externalTxId,
               entry.transactionHash, entry.sourceType, entry.sourceId, entry.destinationType,
               entry.destinationId, entry.destinationAddress, entry.createdAtMs, entry.rawSha256,
-              entry.terminalNoBroadcast, state.current_run_id,
+              entry.terminalNoBroadcast, entry.networkFeeTrxBaseUnits,
+              entry.feePaidByVault, state.current_run_id,
             ],
           )
         }
@@ -650,7 +703,8 @@ export function createFireblocksOutboundHistoryRouter({
       const stored = await db.query(
         'SELECT provider_transaction_id,asset_id,asset_code,amount_base_units::text AS amount_base_units,' +
         'operation,provider_status,external_tx_id,transaction_hash,source_type,source_id,destination_type,' +
-        'destination_id,destination_address,created_at_ms,raw_sha256,terminal_no_broadcast ' +
+        'destination_id,destination_address,created_at_ms,raw_sha256,terminal_no_broadcast,' +
+        'network_fee_trx_base_units::text AS network_fee_trx_base_units,fee_paid_by_vault ' +
         'FROM ' + SCHEMA + '.fireblocks_outbound_history_entries WHERE vault_account_id=$1 AND last_seen_run_id=$2 ORDER BY provider_transaction_id',
         [cfg.vaultAccountId, state.current_run_id],
       )
@@ -673,6 +727,8 @@ export function createFireblocksOutboundHistoryRouter({
           createdAtMs: Number(row.created_at_ms),
           rawSha256: row.raw_sha256,
           terminalNoBroadcast: row.terminal_no_broadcast === true,
+          networkFeeTrxBaseUnits: String(row.network_fee_trx_base_units || '0'),
+          feePaidByVault: row.fee_paid_by_vault === true,
         })),
         ...appLedger,
         usdtAssetId: cfg.usdtAssetId,
@@ -692,12 +748,12 @@ export function createFireblocksOutboundHistoryRouter({
         'UPDATE ' + SCHEMA + '.fireblocks_outbound_history_state SET ' +
         'status=$2,next_page_cursor=NULL,transaction_count=$3,' +
         'previous_complete_transaction_count=CASE WHEN $2=\'complete\' THEN $3::bigint ELSE previous_complete_transaction_count END,' +
-        'external_usdt_base_units=$4,external_trx_base_units=$5,reconciliation_digest=$6,' +
-        'failure_code=$7,checked_at=now(),updated_at=now() WHERE vault_account_id=$1',
+        'external_usdt_base_units=$4,external_trx_base_units=$5,network_fee_trx_base_units=$6,' +
+        'reconciliation_digest=$7,failure_code=$8,checked_at=now(),updated_at=now() WHERE vault_account_id=$1',
         [
           cfg.vaultAccountId, status, String(stored.rows.length),
           reconciliation.externalUsdtBaseUnits, reconciliation.externalTrxBaseUnits,
-          reconciliation.reconciliationDigest, failureCode,
+          reconciliation.networkFeeTrxBaseUnits, reconciliation.reconciliationDigest, failureCode,
         ],
       )
       return res.status(reconciliationVerified ? 200 : 409).json({
@@ -706,6 +762,7 @@ export function createFireblocksOutboundHistoryRouter({
         transactionCount: reconciliation.transactionCount,
         externalUsdtOutboundBaseUnits: reconciliation.externalUsdtBaseUnits,
         externalTrxOutboundBaseUnits: reconciliation.externalTrxBaseUnits,
+        networkFeeTrxBaseUnits: reconciliation.networkFeeTrxBaseUnits,
         reconciliationDigest: reconciliation.reconciliationDigest,
         blockers,
         checkedAt: new Date(now()).toISOString(),

@@ -3688,6 +3688,59 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress) {
   }
 }
 
+/** Return verified third-party native TRX principal available to sponsor network fees. */
+export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress) {
+  if (!isValidTronAddress(vaultAddress)) {
+    return { success: false, reason: 'invalid-treasury-address', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', verifiedDepositCount: '0',
+    reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT COUNT(*)::text AS verified_deposit_count,
+              COUNT(DISTINCT a.authorization_id)::text AS reviewed_authorization_count,
+              COALESCE(SUM(d.amount_base_units), 0)::text AS verified_trx_principal_sun
+         FROM ${schema}.third_party_funding_authorizations AS a
+         JOIN ${schema}.third_party_funding_deposits AS d
+           ON d.authorization_id = a.authorization_id
+        WHERE a.network = 'mainnet'
+          AND a.vault_address = $1
+          AND a.status = 'deposit-evidence-recorded'
+          AND a.expires_at > now()
+          AND a.withdrawal_disbursement_acknowledged = true
+          AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+          AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+          AND a.agreement_document_sha256 IS NOT NULL
+          AND d.network = 'mainnet'
+          AND d.asset = 'TRX'
+          AND d.token_contract IS NULL
+          AND d.amount_base_units <= a.max_trx_sun
+          AND d.recipient_address = $1
+          AND d.receipt_result = 'SUCCESS'
+          AND d.fireblocks_verified_at IS NOT NULL
+          AND d.fireblocks_snapshot_id IS NOT NULL
+          AND d.fireblocks_vault_account_id IS NOT NULL
+          AND d.fireblocks_checked_at IS NOT NULL
+          AND d.fireblocks_checked_at >= d.chain_verified_at`,
+      [vaultAddress],
+    )
+    const row = result.rows[0] || {}
+    return {
+      success: true,
+      verifiedDepositCount: String(row.verified_deposit_count || '0'),
+      reviewedAuthorizationCount: String(row.reviewed_authorization_count || '0'),
+      verifiedTrxPrincipalSun: String(row.verified_trx_principal_sun || '0'),
+    }
+  } catch (error) {
+    console.error('Third-party funding TRX pool lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  }
+}
+
 /**
  * Persist one exact solidified Mainnet deposit per asset for an authorization.
  * The caller must verify the transaction on the SolidityNode before this call.

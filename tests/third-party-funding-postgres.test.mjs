@@ -33,6 +33,7 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
     markThirdPartyFundingDepositFireblocksVerified,
     persistFireblocksInventorySnapshot,
     getThirdPartyFundingUsdtPoolSnapshot,
+    getThirdPartyFundingTrxPoolSnapshot,
     revokeThirdPartyFundingAuthorization,
   } = await import('../server/database.mjs')
 
@@ -201,11 +202,25 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(marked.verified, true)
   assert.equal(marked.duplicate, false)
 
+  const markedTrx = await markThirdPartyFundingDepositFireblocksVerified({
+    authorizationId, asset: 'TRX', transactionHash: trxTx,
+    snapshotId: inventory.id, treasuryAddress: vaultAddress, vaultAccountId: '42',
+    availableBalanceBaseUnits: '8000000', chainBalanceBaseUnits: '8000000',
+    checkedAt: inventoryCheckedAt,
+  })
+  assert.equal(markedTrx.verified, true)
+
   const sponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress)
   assert.equal(sponsorPool.success, true)
   assert.equal(sponsorPool.verifiedDepositCount, '1')
   assert.equal(sponsorPool.reviewedAuthorizationCount, '1')
   assert.equal(sponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
+
+  const sponsorTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress)
+  assert.equal(sponsorTrxPool.success, true)
+  assert.equal(sponsorTrxPool.verifiedDepositCount, '1')
+  assert.equal(sponsorTrxPool.reviewedAuthorizationCount, '1')
+  assert.equal(sponsorTrxPool.verifiedTrxPrincipalSun, '8000000')
 
   const detail = await getThirdPartyFundingAuthorization(authorizationId)
   assert.equal(detail.success, true)
@@ -240,6 +255,9 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(expiredSponsorPool.verifiedDepositCount, '0')
   assert.equal(expiredSponsorPool.reviewedAuthorizationCount, '0')
   assert.equal(expiredSponsorPool.verifiedUsdtPrincipalBaseUnits, '0')
+  const expiredTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress)
+  assert.equal(expiredTrxPool.success, true)
+  assert.equal(expiredTrxPool.verifiedTrxPrincipalSun, '0')
 
   const revoked = await revokeThirdPartyFundingAuthorization({
     authorizationId, revokedBy: makeTronAddress('33'),

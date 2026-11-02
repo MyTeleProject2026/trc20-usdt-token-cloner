@@ -22,6 +22,8 @@ function providerTransfer({
   txHash = 'a'.repeat(64),
   operation = 'TRANSFER',
   sourceId = config.vaultAccountId,
+  feeInfo = { networkFee: '0.001000', paidByRelay: false },
+  feeCurrency = config.trxAssetId,
 } = {}) {
   return {
     id,
@@ -31,6 +33,8 @@ function providerTransfer({
     amount,
     externalTxId,
     txHash,
+    feeInfo,
+    feeCurrency,
     createdAt: 1_798_000_000_000,
     source: { type: 'VAULT_ACCOUNT', id: sourceId },
     destination: {
@@ -54,6 +58,8 @@ test('Fireblocks outbound transaction parser accepts exact vault-sourced USDT an
   assert.equal(usdt.sourceId, config.vaultAccountId)
   assert.equal(usdt.destinationAddress, recipient)
   assert.equal(usdt.terminalNoBroadcast, false)
+  assert.equal(usdt.networkFeeTrxBaseUnits, '1000')
+  assert.equal(usdt.feePaidByVault, true)
 
   const trx = parse(providerTransfer({
     id: 'provider-trx-1',
@@ -130,8 +136,62 @@ test('Fireblocks outbound reconciliation excludes matching app payouts and count
   assert.deepEqual(result.blockers, [])
   assert.equal(result.externalUsdtBaseUnits, '3125000')
   assert.equal(result.externalTrxBaseUnits, '4000000')
+  assert.equal(result.networkFeeTrxBaseUnits, '4000')
   assert.equal(result.transactionCount, 4)
   assert.match(result.reconciliationDigest, /^[0-9a-f]{64}$/)
+})
+
+test('Fireblocks outbound fee ledger includes only verified TRX fees paid by the configured vault', () => {
+  const localRelay = parse(providerTransfer({
+    id: 'provider-local-relay-fee',
+    feeInfo: { networkFee: '0.000123', paidByRelay: true, relayType: 'LOCAL', relayId: config.vaultAccountId },
+  }))
+  assert.equal(localRelay.feePaidByVault, true)
+  assert.equal(localRelay.networkFeeTrxBaseUnits, '123')
+
+  const thirdPartyRelay = parse(providerTransfer({
+    id: 'provider-third-party-relay-fee',
+    feeInfo: { networkFee: '0.000999', paidByRelay: true, relayType: 'THIRD_PARTY', relayId: 'other-tenant' },
+  }))
+  assert.equal(thirdPartyRelay.feePaidByVault, false)
+  assert.equal(thirdPartyRelay.networkFeeTrxBaseUnits, '999')
+
+  const otherLocalRelay = parse(providerTransfer({
+    id: 'provider-other-local-relay-fee',
+    feeInfo: { networkFee: '0.000555', paidByRelay: true, relayType: 'LOCAL', relayId: 'different-vault' },
+  }))
+  assert.equal(otherLocalRelay.feePaidByVault, false)
+
+  const result = reconcileFireblocksOutboundHistory({
+    entries: [localRelay, thirdPartyRelay, otherLocalRelay],
+    usdtRequests: [],
+    trxRequests: [],
+    ...config,
+  })
+  assert.equal(result.networkFeeTrxBaseUnits, '123')
+})
+
+test('Fireblocks outbound history blocks chain transactions with missing or unknown TRX fee currency', () => {
+  const missingFee = parseFireblocksOutboundHistoryTransaction(providerTransfer({
+    id: 'provider-missing-fee',
+    feeInfo: {},
+  }), config)
+  assert.equal(missingFee.valid, false)
+  assert.equal(missingFee.reason, 'fireblocks-history-network-fee-missing-or-invalid')
+
+  const wrongCurrency = parseFireblocksOutboundHistoryTransaction(providerTransfer({
+    id: 'provider-wrong-fee-currency',
+    feeCurrency: 'UNKNOWN',
+  }), config)
+  assert.equal(wrongCurrency.valid, false)
+  assert.equal(wrongCurrency.reason, 'fireblocks-history-network-fee-currency-unverified')
+
+  const ambiguousRelay = parseFireblocksOutboundHistoryTransaction(providerTransfer({
+    id: 'provider-ambiguous-relay',
+    feeInfo: { networkFee: '0.001000', paidByRelay: true, relayType: 'UNKNOWN' },
+  }), config)
+  assert.equal(ambiguousRelay.valid, false)
+  assert.equal(ambiguousRelay.reason, 'fireblocks-history-fee-relay-identity-unverified')
 })
 
 test('Fireblocks outbound reconciliation blocks when an app request and provider history disagree', () => {
