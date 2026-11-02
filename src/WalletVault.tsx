@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import ThirdPartyFundingPanel from './ThirdPartyFundingPanel'
 import { clearTreasuryPayoutReference, readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -2364,6 +2365,14 @@ export default function WalletVault() {
             <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Live Render deployment remains separately hard-locked until the reviewed PR stack and external release prerequisites are completed.</p>
           </>}
         </div>
+        <div className="wallet-vault-transfer-section" aria-label="Third-party sponsor source consent and deposit verification">
+          <ThirdPartyFundingPanel
+            apiBase={API_BASE}
+            sessionToken={ownerSessionToken}
+            inventoryVerified={fireblocksInventorySnapshot?.verificationStatus === 'verified'}
+            inventoryCheckedAt={fireblocksInventorySnapshot?.checkedAt || null}
+          />
+        </div>
         <div className="wallet-vault-review-grid" aria-label="Sponsor funding target and verified payout capacity">
           <div>
             <small>Requested sponsor funding target · planning only</small>
@@ -2394,6 +2403,15 @@ export default function WalletVault() {
           <div>
             <small>Remaining sponsor commitment</small>
             <strong>{serverTreasuryReadiness?.sponsorPrincipalBudget?.commitmentCapConsistent === true && typeof serverTreasuryReadiness?.sponsorPrincipalBudget?.remainingBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits) ? formatUnits(serverTreasuryReadiness.sponsorPrincipalBudget.remainingBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Verified third-party sponsor USDT principal</small>
+            <strong>{typeof serverTreasuryReadiness?.thirdPartyFunding?.verifiedUsdtPrincipalBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.thirdPartyFunding.verifiedUsdtPrincipalBaseUnits) ? formatUnits(serverTreasuryReadiness.thirdPartyFunding.verifiedUsdtPrincipalBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
+            <p className="wallet-vault-caption">{serverTreasuryReadiness?.thirdPartyFunding?.reviewedAuthorizationCount ?? '—'} reviewed sponsor mandate(s) · {serverTreasuryReadiness?.thirdPartyFunding?.verifiedDepositCount ?? '—'} Fireblocks-reconciled deposit(s)</p>
+          </div>
+          <div>
+            <small>Remaining verified sponsor principal after withdrawals</small>
+            <strong>{serverTreasuryReadiness?.thirdPartyFunding?.ledgerReady === true && typeof serverTreasuryReadiness.thirdPartyFunding.availablePrincipalBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.thirdPartyFunding.availablePrincipalBaseUnits) ? formatUnits(serverTreasuryReadiness.thirdPartyFunding.availablePrincipalBaseUnits, 6) + ' USDT' : 'Not verified'}</strong>
           </div>
           <div>
             <small>Remaining daily payout allowance</small>
