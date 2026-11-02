@@ -16,6 +16,7 @@ const MAX_VAULT_PAGES = 5
 const MAX_ASSET_PAGES = 5
 const MAX_ADDRESS_PROBES = 8
 const PAGE_SIZE = 200
+const CACHE_TTL_MS = 60_000
 
 function bearerToken(req) {
   const value = req.get('authorization') || ''
@@ -106,6 +107,9 @@ export function createFireblocksDiscoveryRouter({
   now = () => Date.now(),
 } = {}) {
   const router = Router()
+  let cachedDiscovery = null
+  let cachedDiscoveryKey = ''
+  let cachedDiscoveryExpiresAt = 0
 
   router.get('/fireblocks/discovery', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
@@ -147,6 +151,14 @@ export function createFireblocksDiscoveryRouter({
     }
 
     const providerConfig = fireblocksConfiguration(env)
+    const cacheTime = now() instanceof Date ? now().getTime() : Number(now())
+    const cacheKey = createHash('sha256').update([
+      providerConfig.apiBase, providerConfig.apiKey, providerConfig.secretKeyPath,
+      providerConfig.vaultAccountId, providerConfig.usdtAssetId, providerConfig.trxAssetId,
+    ].join('\u0000')).digest('hex')
+    if (cachedDiscovery && cachedDiscoveryKey === cacheKey && cachedDiscoveryExpiresAt > cacheTime) {
+      return res.json({ ...cachedDiscovery, cacheHit: true })
+    }
     if (!providerConfig.credentialsConfigured) {
       return res.status(200).json({
         success: true,
@@ -268,7 +280,7 @@ export function createFireblocksDiscoveryRouter({
         ? suggested[0] : null
       const truncated = vaultResult.truncated || usdtResult.truncated || trxResult.truncated
         || candidates.length > MAX_ADDRESS_PROBES
-      return res.json({
+      const payload = {
         success: true,
         discoveryStatus: truncated ? 'partial' : singleSuggestion ? 'single-unambiguous-candidate' : 'review-required',
         checkedAt: new Date(now()).toISOString(),
@@ -296,7 +308,12 @@ export function createFireblocksDiscoveryRouter({
         } : null,
         discoveryTruncated: truncated,
         note: 'Read-only discovery only. A suggestion is not an approved treasury configuration, sponsor release, balance check, transaction policy approval, or permission to transfer funds.',
-      })
+        cacheHit: false,
+      }
+      cachedDiscovery = payload
+      cachedDiscoveryKey = cacheKey
+      cachedDiscoveryExpiresAt = cacheTime + CACHE_TTL_MS
+      return res.json(payload)
     } catch {
       return res.status(503).json({
         success: false,
