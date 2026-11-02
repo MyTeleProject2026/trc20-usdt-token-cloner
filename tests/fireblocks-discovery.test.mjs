@@ -51,6 +51,9 @@ function makeFixture({
           ? { data: { assets: [{ id: '3ed32525-70df-45c8-bae3-e69ab56dc095', legacyId: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }], paging: {} } }
           : { assets: [{ id: '3ed32525-70df-45c8-bae3-e69ab56dc095', legacyId: 'USDT_TRON', symbol: 'USDT', contractAddress: OFFICIAL_USDT }] }
       }
+      if (uuidOnlyCatalog) {
+        return { assets: [{ id: '3a3b5f06-70df-45c8-bae3-e69ab56dc095', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }] }
+      }
       return nestedPagination
         ? { data: [{ id: '3a3b5f06-61e7-44f0-9962-4425b55795ff', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }], paging: {} }
         : { assets: [{ id: 'TRX', legacyId: 'TRX', symbol: 'TRX', assetClass: 'NATIVE', onchain: { symbol: 'TRX', decimals: 6 } }] }
