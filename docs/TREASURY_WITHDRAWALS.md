@@ -66,6 +66,7 @@ Do not set `TREASURY_PRIVATE_KEY` for either Fireblocks payout path. Both the US
 
 ## API endpoints
 
+- `GET /api/treasury/fireblocks/discovery` — owner-authenticated read-only workspace discovery for paginated vault accounts, exact official TRON USDT asset metadata, native TRX metadata, and matching asset addresses. It can suggest vault/asset/address identifiers when there is one unambiguous candidate; it never writes Render settings or activates a payout source. Successful results are cached briefly between dashboard refreshes.
 - `GET /api/treasury/withdrawals/readiness` — owner-authenticated configuration, provider authorization credentials, asset identity, provider balance, on-chain balance and fee budget checks.
 
 ### Readiness checks while payout gates are off
