@@ -18,6 +18,7 @@ type FundingAuthorization = {
   authorizationId: string
   sponsorAddress: string
   vaultAddress: string
+  sponsorOrganizationReference: string
   agreementReference: string
   agreementDocumentSha256?: string | null
   withdrawalDisbursementAcknowledged?: boolean
@@ -36,6 +37,8 @@ type Props = {
   sessionToken: string
   inventoryVerified: boolean
   inventoryCheckedAt?: string | null
+  expectedSponsorOrganizationReference: string
+  expectedAgreementReference: string
 }
 
 type OutboundHistoryStatus = {
@@ -67,6 +70,8 @@ export default function ThirdPartyFundingPanel({
   sessionToken,
   inventoryVerified,
   inventoryCheckedAt,
+  expectedSponsorOrganizationReference,
+  expectedAgreementReference,
 }: Props) {
   const [authorizations, setAuthorizations] = useState<FundingAuthorization[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -248,8 +253,20 @@ export default function ThirdPartyFundingPanel({
       } catch {
         throw new Error('The signed authorization manifest must be valid JSON.')
       }
+      if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+        throw new Error('The signed authorization manifest must be a JSON object.')
+      }
+      const signedManifest = manifest as Record<string, unknown>
+      if (!expectedSponsorOrganizationReference || !expectedAgreementReference) {
+        throw new Error('The outgoing sponsor organization/agreement scope has not been configured by the backend.')
+      }
+      if (signedManifest.format !== 'tron-token-studio/third-party-funding-authorization/v3'
+        || signedManifest.sponsorOrganizationReference !== expectedSponsorOrganizationReference
+        || signedManifest.agreementReference !== expectedAgreementReference) {
+        throw new Error('The signed v3 consent must bind the exact sponsor organization and agreement displayed by the backend. Generate a new consent signature when either value changes.')
+      }
       const payload = await request('/authorizations', 'POST', {
-        manifest,
+        manifest: signedManifest,
         agreementReviewAcknowledged: agreementAcknowledged,
         withdrawalDisbursementAcknowledged,
       })
@@ -364,6 +381,14 @@ export default function ThirdPartyFundingPanel({
           <div>
             <small>Inventory checked</small>
             <strong>{inventoryCheckedAt ? new Date(inventoryCheckedAt).toLocaleString() : 'Not verified'}</strong>
+          </div>
+          <div>
+            <small>Outgoing sponsor organization scope</small>
+            <strong>{expectedSponsorOrganizationReference || 'Not configured'}</strong>
+          </div>
+          <div>
+            <small>Outgoing sponsor agreement scope</small>
+            <strong>{expectedAgreementReference || 'Not configured'}</strong>
           </div>
           <div>
             <small>Funding consent status</small>
