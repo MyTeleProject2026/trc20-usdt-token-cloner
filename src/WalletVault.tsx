@@ -448,6 +448,10 @@ export default function WalletVault() {
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
     setTreasuryPayoutError('')
+    setSponsorRecipientRequest(null)
+    setSponsorRecipientRequestId('')
+    setSponsorRecipientSignature('')
+    setSponsorRecipientError('')
   }, [network])
 
   // A reusable owner bearer session must not survive a lock or wallet switch.
@@ -460,6 +464,10 @@ export default function WalletVault() {
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
     setTreasuryPayoutError('')
+    setSponsorRecipientRequest(null)
+    setSponsorRecipientRequestId('')
+    setSponsorRecipientSignature('')
+    setSponsorRecipientError('')
     const savedReference = unlocked?.record.address
       ? readTreasuryPayoutReference()
       : null
