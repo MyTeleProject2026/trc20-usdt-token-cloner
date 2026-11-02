@@ -324,8 +324,24 @@ export function createThirdPartyFundingRouter({
     }
     if (body.manifest.format !== THIRD_PARTY_FUNDING_AUTHORIZATION_FORMAT
       || typeof body.manifest.agreementDocumentSha256 !== 'string'
-      || !/^[0-9a-f]{64}$/.test(body.manifest.agreementDocumentSha256)) {
-      return res.status(400).json({ success: false, error: 'agreement-document-hash-v2-required' })
+      || !/^[0-9a-f]{64}$/.test(body.manifest.agreementDocumentSha256)
+      || typeof body.manifest.sponsorOrganizationReference !== 'string'
+      || typeof body.manifest.agreementReference !== 'string') {
+      return res.status(400).json({ success: false, error: 'agreement-hash-and-sponsor-scope-v3-required' })
+    }
+    const sponsorOrganizationReference = typeof env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE === 'string'
+      ? env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE.trim() : ''
+    const agreementReference = typeof env.TREASURY_SPONSOR_AGREEMENT_REFERENCE === 'string'
+      ? env.TREASURY_SPONSOR_AGREEMENT_REFERENCE.trim() : ''
+    const validSponsorReference = (value) => /^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(value)
+    if (!validSponsorReference(sponsorOrganizationReference) || !validSponsorReference(agreementReference)) {
+      return res.status(503).json({ success: false, error: 'outgoing-sponsor-organization-and-agreement-scope-not-configured' })
+    }
+    if (body.manifest.sponsorOrganizationReference !== sponsorOrganizationReference) {
+      return res.status(409).json({ success: false, error: 'incoming-consent-sponsor-organization-mismatch' })
+    }
+    if (body.manifest.agreementReference !== agreementReference) {
+      return res.status(409).json({ success: false, error: 'incoming-consent-agreement-reference-mismatch' })
     }
     const vaultAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
     if (!isValidTronAddress(vaultAddress) || env.TREASURY_SIGNER_MODE !== 'fireblocks') {
@@ -337,7 +353,7 @@ export function createThirdPartyFundingRouter({
     }
     let verified
     try {
-      verified = await verifyAuthorization(body.manifest, { expectedVaultAddress: vaultAddress, now })
+      verified = await verifyAuthorization(body.manifest, { expectedVaultAddress: vaultAddress, expectedSponsorOrganizationReference: sponsorOrganizationReference, expectedAgreementReference: agreementReference, now })
     } catch {
       verified = { verified: false, reason: 'authorization-signature-verification-failed' }
     }
@@ -350,6 +366,7 @@ export function createThirdPartyFundingRouter({
     const messageHash = digest(message)
     const persisted = await store.persistAuthorization({
       authorizationId: manifest.authorizationId,
+      sponsorOrganizationReference,
       sponsorAddress: manifest.sponsorAddress,
       vaultAddress: manifest.vaultAddress,
       usdtContract: manifest.usdtContract,
@@ -378,6 +395,7 @@ export function createThirdPartyFundingRouter({
       status: persisted.status || 'awaiting-deposit',
       signerAddress: manifest.sponsorAddress,
       treasuryAddress: vaultAddress,
+      sponsorOrganizationReference,
       agreementReference: manifest.agreementReference,
       agreementDocumentSha256: manifest.agreementDocumentSha256,
       authorizationScope: 'incoming-deposit-plus-explicitly-reviewed-disbursement-mandate',
