@@ -2184,6 +2184,16 @@ export function createTreasuryWithdrawalsRouter({
     let sponsorPrincipalBudgetCapConsistent = false
     let applicationCommittedBaseUnits = '0'
     let externalOutboundUsdtBaseUnits = '0'
+    let thirdPartyFunding = {
+      ledgerReady: false,
+      verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0',
+      verifiedUsdtPrincipalBaseUnits: '0',
+      applicationCommittedWithdrawalBaseUnits: '0',
+      externalOutboundUsdtBaseUnits: null,
+      committedWithdrawalBaseUnits: null,
+      availablePrincipalBaseUnits: '0',
+    }
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -2191,7 +2201,7 @@ export function createTreasuryWithdrawalsRouter({
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
     if (databaseReady && treasuryAddress) {
       try {
-        const [pendingUsdt, pendingTrx, sponsorBudgetUsage, pendingUsdtReservations, dailyUsdtUsage] = await Promise.all([
+        const [pendingUsdt, pendingTrx, sponsorBudgetUsage, pendingUsdtReservations, dailyUsdtUsage, committedWithdrawals, sponsorFundingPool] = await Promise.all([
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
@@ -2223,6 +2233,10 @@ export function createTreasuryWithdrawalsRouter({
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE created_at >= date_trunc('day', now())
               AND status <> 'rejected'`),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1 AND status <> 'rejected'`, [treasuryAddress]),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
@@ -2237,6 +2251,33 @@ export function createTreasuryWithdrawalsRouter({
         externalOutboundUsdtBaseUnits = outboundHistory.verified
           ? String(outboundHistory.externalUsdtBaseUnits || '0')
           : '0'
+        const applicationCommittedWithdrawalBaseUnits = String(committedWithdrawals.rows[0]?.amount || '0')
+        const thirdPartyCommittedWithdrawalBaseUnits = outboundHistory.verified
+          ? (BigInt(applicationCommittedWithdrawalBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)).toString()
+          : null
+        const thirdPartyPrincipalRemainingBaseUnits = sponsorFundingPool?.success === true
+          && outboundHistory.verified === true
+          ? remainingThirdPartyFundingPrincipal(
+            String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0'),
+            thirdPartyCommittedWithdrawalBaseUnits,
+          )
+          : null
+        thirdPartyFunding = {
+          ledgerReady: sponsorFundingPool?.success === true && thirdPartyPrincipalRemainingBaseUnits !== null,
+          verifiedDepositCount: String(sponsorFundingPool?.verifiedDepositCount || '0'),
+          reviewedAuthorizationCount: String(sponsorFundingPool?.reviewedAuthorizationCount || '0'),
+          verifiedUsdtPrincipalBaseUnits: String(sponsorFundingPool?.verifiedUsdtPrincipalBaseUnits || '0'),
+          applicationCommittedWithdrawalBaseUnits,
+          externalOutboundUsdtBaseUnits: outboundHistory.verified ? externalOutboundUsdtBaseUnits : null,
+          committedWithdrawalBaseUnits: thirdPartyCommittedWithdrawalBaseUnits,
+          availablePrincipalBaseUnits: thirdPartyPrincipalRemainingBaseUnits || '0',
+        }
+        if (!thirdPartyFunding.ledgerReady) blockers.push('third-party-funding-ledger-or-outbound-history-unavailable')
+        else if (BigInt(thirdPartyFunding.verifiedUsdtPrincipalBaseUnits) <= 0n) {
+          blockers.push('third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required')
+        } else if (BigInt(thirdPartyFunding.availablePrincipalBaseUnits) <= 0n) {
+          blockers.push('third-party-usdt-principal-fully-committed')
+        }
         const committedSponsorPrincipalBaseUnits = (
           BigInt(applicationCommittedBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)
         ).toString()
@@ -2274,6 +2315,8 @@ export function createTreasuryWithdrawalsRouter({
     const sponsorPayoutCapacity = snapshot.ok && databaseReady
       && sponsorPrincipalBudget && sponsorPrincipalBudgetCapConsistent
       && config.sponsorAgreementScopeApproved === true
+      && thirdPartyFunding.ledgerReady
+      && BigInt(thirdPartyFunding.availablePrincipalBaseUnits) > 0n
       ? calculateTreasuryPayoutCapacity({
         verifiedSpendableBaseUnits: snapshot.spendableUsdtBaseUnits,
         outstandingReservationBaseUnits,
@@ -2281,6 +2324,7 @@ export function createTreasuryWithdrawalsRouter({
         dailyLimitBaseUnits: readLimit(env.TREASURY_DAILY_LIMIT_USDT)?.toString(),
         dailyUsedBaseUnits: dailyUsdtUsedBaseUnits,
         maximumSinglePayoutBaseUnits: readLimit(env.TREASURY_MAX_PAYOUT_USDT)?.toString(),
+        verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyFunding.availablePrincipalBaseUnits,
       })
       : null
     const currentlyWithdrawableBaseUnits = payoutExecution.executionEnabled && sponsorPayoutCapacity
@@ -2322,6 +2366,16 @@ export function createTreasuryWithdrawalsRouter({
       estimatedEligiblePayoutCapacityBaseUnits: sponsorPayoutCapacity?.eligibleCapacityBaseUnits ?? null,
       currentlyWithdrawableBaseUnits,
       payoutCapacityVerified: sponsorPayoutCapacity !== null,
+      thirdPartyFunding: {
+        ...thirdPartyFunding,
+        externalOutboundHistoryVerified: outboundHistory.verified === true,
+        externalOutboundHistoryCheckedAt: outboundHistory.checkedAt || null,
+        externalOutboundHistoryAgeMs: outboundHistory.ageMs ?? null,
+        sponsorFundedOnly: true,
+        outgoingUseRequiresReviewedExecutedAgreement: true,
+        incomingConsentDoesNotAuthorizeWithdrawals: true,
+        thisStatusIsNotPayoutAuthorization: true,
+      },
       externalOutboundHistory: {
         verified: outboundHistory.verified === true,
         status: outboundHistory.status || null,
