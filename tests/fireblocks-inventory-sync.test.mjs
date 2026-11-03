@@ -217,6 +217,11 @@ test('inventory sync source uses the restricted Viewer client and never the payo
   assert.equal(source.includes('secretKeyPath:'), false)
   assert.ok(database.includes('secretKeyPath: null'))
   assert.ok(database.includes("signerMode: 'fireblocks-read-only'"))
+  const workflow = await readFile(new URL('../.github/workflows/fireblocks-inventory-sync.yml', import.meta.url), 'utf8')
+  assert.match(workflow, /FIREBLOCKS_READONLY_API_BASE=\$\{clean\(config\.apiBase\)\}/)
+  assert.doesNotMatch(workflow, /FIREBLOCKS_API_BASE=\$\{clean\(config\.apiBase\)\}/)
+  assert.doesNotMatch(workflow, /FIREBLOCKS_SECRET_KEY_PATH=/)
+  assert.match(workflow, /payout API key and payout RSA file are separate/)
 })
 
 test('read-only inventory sync verifies official USDT, native TRX, addresses and saves snapshot', async () => {
