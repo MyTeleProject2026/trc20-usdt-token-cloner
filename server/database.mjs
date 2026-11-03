@@ -5165,7 +5165,7 @@ export async function revokeThirdPartyFundingAuthorization({ authorizationId, re
     const result = await client.query(
       `UPDATE ${schema}.third_party_funding_authorizations
           SET status='revoked', updated_at=now()
-        WHERE authorization_id=$1 AND status IN ('awaiting-deposit','deposit-evidence-recorded')
+        WHERE authorization_id=$1 AND status IN ('awaiting-deposit','deposit-evidence-recorded','expired','cap-reached')
         RETURNING authorization_id`,
       [authorizationId],
     )
