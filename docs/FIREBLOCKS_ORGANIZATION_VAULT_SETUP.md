@@ -59,6 +59,8 @@ The owner console refreshes this discovery snapshot with the other backend statu
 
 The read-only API key and mounted RSA authentication file cannot be auto-created by this application; they must be issued by Fireblocks to the authorized sponsor organization. The read-only client exposes no transaction-submission or fee-estimate methods. The endpoint does not return the API key, secret-file path, RSA key, private key or signing material to the frontend.
 
+The same Viewer identity is used for live owner-console balance/readiness checks and outbound-history reconciliation. The backend's read-only treasury snapshot uses that identity to read vault balances, asset metadata and addresses; it does not construct the transaction-capable client. Keep the separate payout identity unconfigured until the sponsor has independently approved transaction-initiation permissions and policy. The viewer identity remains insufficient to initiate or approve transfers.
+
 The discovery endpoint prefers each asset's Fireblocks `legacyId` (API ID) when the catalogue returns both a newer asset UUID and a legacy identifier. Fireblocks' current List Assets API reference says to continue using the legacy ID until all services support the newer UUID. If an asset response has no valid legacy ID, treat the identifier as unconfirmed and do not manually substitute a different-looking ID.
 
 Reference: [Fireblocks List Assets API](https://fireblocks.readme.io/reference/listassets).
