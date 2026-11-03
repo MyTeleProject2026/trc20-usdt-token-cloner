@@ -111,6 +111,8 @@ test('read-only Fireblocks client authenticates with its own identity and expose
   assert.equal(calls.length, 4)
   assert.ok(calls.every((call) => call.init.method === 'GET'))
   assert.ok(calls.every((call) => call.init.headers['X-API-Key'] === 'viewer-api-key'))
+  assert.ok(calls.every((call) => new URL(call.url).pathname.startsWith('/v1/')))
+  assert.ok(calls.every((call) => !String(call.init.body || '').includes('TRANSFER')))
 })
 
 test('read-only Fireblocks client fetches bounded vault transaction-history pages using the Viewer identity', async () => {
