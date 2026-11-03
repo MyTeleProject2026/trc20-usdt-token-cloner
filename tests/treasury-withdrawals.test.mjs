@@ -589,8 +589,6 @@ test('USDT readiness still probes provider and chain funding while transfer subm
     TREASURY_MAX_PAYOUT_USDT: '10',
     TREASURY_DAILY_LIMIT_USDT: '100',
     TREASURY_FEE_LIMIT_SUN: '50000000',
-    FIREBLOCKS_API_KEY: 'test-provider-key',
-    FIREBLOCKS_SECRET_KEY_PATH: '/tmp/fireblocks-api-key.pem',
     FIREBLOCKS_READONLY_API_KEY: 'test-viewer-key',
     FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/tmp/fireblocks-viewer-key.pem',
     FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
@@ -641,6 +639,9 @@ test('USDT readiness still probes provider and chain funding while transfer subm
         },
       }),
     }),
+    fireblocksClientFactory: () => {
+      throw new Error('read-only readiness must not construct the payout Fireblocks client')
+    },
     fireblocksReadOnlyClientFactory: () => ({
       isConfigured: () => true,
       isTrxAssetConfigured: () => true,
@@ -670,7 +671,9 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   })
   const payload = await response.json()
   assert.equal(response.status, 200)
-  assert.equal(payload.configuration.configurationComplete, false, 'database config is intentionally absent in this fixture')
+  assert.equal(payload.configuration.configurationComplete, false, 'payout identity/database config is intentionally absent in this fixture')
+  assert.equal(payload.configuration.providerConfigured, false, 'the payout identity is intentionally absent')
+  assert.equal(payload.providerAssetIdentityVerified, true, 'the separate Viewer identity should still verify asset metadata')
   assert.equal(payload.configuration.featureFlagEnabled, false)
   assert.equal(payload.configuration.enabled, false)
   assert.equal(payload.withdrawalsEnabled, false)
