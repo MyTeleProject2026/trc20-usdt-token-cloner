@@ -207,12 +207,16 @@ test('GitHub OIDC verification rejects a modified JWT signature', async () => {
 test('inventory sync source uses the restricted Viewer client and never the payout client', async () => {
   const { readFile } = await import('node:fs/promises')
   const source = await readFile(new URL('../server/routes/fireblocks-inventory-sync.mjs', import.meta.url), 'utf8')
+  const database = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
   assert.ok(source.includes('createFireblocksReadOnlyClient'))
   assert.ok(source.includes('fireblocksReadOnlyConfiguration'))
   assert.equal(source.includes('createFireblocksClient'), false)
   assert.equal(source.includes('fireblocksConfiguration(env)'), false)
   assert.ok(source.includes('cfg.credentialsConfigured'))
   assert.equal(source.includes('FIREBLOCKS_API_KEY'), false)
+  assert.equal(source.includes('secretKeyPath:'), false)
+  assert.ok(database.includes('secretKeyPath: null'))
+  assert.ok(database.includes("signerMode: 'fireblocks-read-only'"))
 })
 
 test('read-only inventory sync verifies official USDT, native TRX, addresses and saves snapshot', async () => {
