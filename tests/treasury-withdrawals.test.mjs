@@ -673,6 +673,8 @@ test('USDT readiness still probes provider and chain funding while transfer subm
   assert.equal(response.status, 200)
   assert.equal(payload.configuration.configurationComplete, false, 'payout identity/database config is intentionally absent in this fixture')
   assert.equal(payload.configuration.providerConfigured, false, 'the payout identity is intentionally absent')
+  assert.equal(payload.configuration.readOnlyProviderConfigured, true, 'the separate Viewer identity is configured')
+  assert.deepEqual(payload.configuration.readOnlyProviderMissing, [])
   assert.equal(payload.providerAssetIdentityVerified, true, 'the separate Viewer identity should still verify asset metadata')
   assert.equal(payload.configuration.featureFlagEnabled, false)
   assert.equal(payload.configuration.enabled, false)
