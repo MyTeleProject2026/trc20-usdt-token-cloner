@@ -591,6 +591,9 @@ test('USDT readiness still probes provider and chain funding while transfer subm
     TREASURY_FEE_LIMIT_SUN: '50000000',
     FIREBLOCKS_API_KEY: 'test-provider-key',
     FIREBLOCKS_SECRET_KEY_PATH: '/tmp/fireblocks-api-key.pem',
+    FIREBLOCKS_READONLY_API_KEY: 'test-viewer-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/tmp/fireblocks-viewer-key.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
     FIREBLOCKS_VAULT_ACCOUNT_ID: '123',
     FIREBLOCKS_USDT_ASSET_ID: usdtAssetId,
     FIREBLOCKS_TRX_ASSET_ID: trxAssetId,
@@ -638,7 +641,7 @@ test('USDT readiness still probes provider and chain funding while transfer subm
         },
       }),
     }),
-    fireblocksClientFactory: () => ({
+    fireblocksReadOnlyClientFactory: () => ({
       isConfigured: () => true,
       isTrxAssetConfigured: () => true,
       getVaultAccount: async () => ({
