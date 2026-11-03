@@ -4828,7 +4828,7 @@ export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress, sponsor
           AND a.vault_address = $1
           AND a.sponsor_organization_reference = $2
           AND a.agreement_reference = $3
-          AND a.status = 'deposit-evidence-recorded'
+          AND a.status IN ('deposit-evidence-recorded','expired')
           AND a.withdrawal_disbursement_acknowledged = true
           AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
           AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
@@ -4886,7 +4886,7 @@ export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress, sponsorO
           AND a.vault_address = $1
           AND a.sponsor_organization_reference = $2
           AND a.agreement_reference = $3
-          AND a.status = 'deposit-evidence-recorded'
+          AND a.status IN ('deposit-evidence-recorded','expired')
           AND a.withdrawal_disbursement_acknowledged = true
           AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
           AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
