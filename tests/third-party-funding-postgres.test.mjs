@@ -283,6 +283,15 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   }
   // Expiry blocks new deposits but does not erase the principal of deposits
   // already confirmed on-chain before the signed consent expiry.
+  const lateDeposit = await persistThirdPartyFundingDeposit({
+    authorizationId,
+    transactionHash: createHash('sha256').update('late-usdt-' + suffix).digest('hex'),
+    asset: 'USDT', tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    senderAddress: sponsorAddress, recipientAddress: vaultAddress,
+    amountBaseUnits: '1', blockNumber: 1004, evidenceIndex: 0,
+  })
+  assert.equal(lateDeposit.persisted, false)
+  assert.equal(lateDeposit.reason, 'funding-authorization-expired')
   const expiredSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference)
   assert.equal(expiredSponsorPool.success, true)
   assert.equal(expiredSponsorPool.verifiedDepositCount, '1')
