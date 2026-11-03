@@ -427,7 +427,10 @@ export function createFireblocksClient(env = process.env, {
     }),
     async getVaultAccount({ credentialsOnly = false } = {}) {
       // Verify that the configured numeric Vault Account exists in the workspace.
-      if (!/^\d{1,32}$/.test(String(config.vaultAccountId || ''))) {
+      if (!credentialsOnly && !config.providerConfigured) {
+        throw new FireblocksApiError(503, 'fireblocks-not-configured')
+      }
+      if (!/^[0-9]{1,32}$/.test(String(config.vaultAccountId || ''))) {
         throw new FireblocksApiError(400, 'invalid-fireblocks-vault-account-id')
       }
       return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId),
@@ -472,7 +475,7 @@ export function createFireblocksClient(env = process.env, {
     },
     async getVaultAccountAsset(assetId = config.usdtAssetId, { credentialsOnly = false } = {}) {
       if (!IDENTIFIER_PATTERN.test(String(assetId || ''))
-        || !/^\d{1,32}$/.test(String(config.vaultAccountId || ''))) {
+        || !/^[0-9]{1,32}$/.test(String(config.vaultAccountId || ''))) {
         throw new FireblocksApiError(400, 'invalid-fireblocks-asset-or-vault-id')
       }
       return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId),
