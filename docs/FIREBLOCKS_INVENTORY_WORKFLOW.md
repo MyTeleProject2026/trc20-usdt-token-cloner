@@ -8,16 +8,17 @@ The workflow cannot create a Fireblocks organization, accept a Fireblocks invita
 
 On the Render backend, keep the following values server-side:
 
-- `FIREBLOCKS_API_KEY`: API key for a dedicated least-privilege Fireblocks API user.
-- `FIREBLOCKS_SECRET_KEY_PATH`: mounted RSA-4096 API-user key file path.
-- `FIREBLOCKS_API_BASE`: the correct Fireblocks region endpoint.
+- `FIREBLOCKS_READONLY_API_KEY`: API key for a dedicated Fireblocks Viewer/read-only API user.
+- `FIREBLOCKS_READONLY_SECRET_KEY_PATH`: mounted RSA-4096 Viewer API-user key file path.
+- `FIREBLOCKS_READONLY_API_BASE`: the correct Fireblocks region endpoint.
+- `FIREBLOCKS_API_KEY` and `FIREBLOCKS_SECRET_KEY_PATH`: a separate transaction-capable payout identity, if independently provisioned. The inventory workflow does not use this identity.
 - `FIREBLOCKS_VAULT_ACCOUNT_ID`, `FIREBLOCKS_USDT_ASSET_ID`, `FIREBLOCKS_TRX_ASSET_ID`: exact identifiers from the authorized workspace.
 - `TREASURY_ADDRESS`: the public TRON address assigned to the two assets.
 - `DATABASE_URL`: existing PostgreSQL connection string.
 
 Create a GitHub Actions Environment named `fireblocks-readonly-sync`. Configure required reviewer approval on this Environment when repository settings permit it. No long-lived workflow trigger secret is needed: the job requests a short-lived GitHub Actions OIDC token and the backend validates its signature, issuer, custom audience, repository and owner IDs, `main` ref, exact workflow file, `workflow_dispatch` event, Environment name, run ID, attempt, and commit SHA. The backend does not need an additional OIDC secret or new environment variable. Do not put the Fireblocks API key or RSA key in GitHub Actions secrets; the runner never receives Fireblocks credentials.
 
-The API user should have only the read permissions needed for vault account, asset metadata, balances, and asset-address reads. It does not need transaction creation, signing, or approval permissions.
+The inventory route constructs a restricted read-only client using only `FIREBLOCKS_READONLY_API_KEY` and `FIREBLOCKS_READONLY_SECRET_KEY_PATH`. Its exposed methods are limited to vault account, asset metadata, available balances, asset addresses and transaction-history reads; transfer creation, fee estimation, signing and approval methods are not exposed. The Viewer API user should have only the read permissions needed for these operations. The payout API key and payout RSA file are never passed to the inventory route.
 
 ## Owner-console status display
 
