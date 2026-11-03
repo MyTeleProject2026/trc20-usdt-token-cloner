@@ -2160,6 +2160,7 @@ export function createTreasuryWithdrawalsRouter({
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
+    const readOnlyProvider = fireblocksReadOnlyConfiguration(env)
     const db = getPool(env)
     let databaseReady = false
     if (db) { try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {} }
@@ -2167,11 +2168,15 @@ export function createTreasuryWithdrawalsRouter({
     const outboundHistory = databaseReady && treasuryAddress
       ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
       : { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
-    let snapshot = { ok: false, reason: 'treasury-address-not-configured' }
-    // Read-only readiness must work while payouts are deliberately disabled.
-    // Probe Fireblocks and public Mainnet balances when provider credentials and
-    // the configured treasury address are present; this never submits a transfer.
-    if (treasuryAddress && fireblocksReadOnlyConfiguration(env).credentialsConfigured) {
+    let snapshot = {
+      ok: false,
+      reason: !treasuryAddress ? 'treasury-address-not-configured'
+        : !readOnlyProvider.credentialsConfigured ? 'fireblocks-readonly-credentials-not-configured'
+          : 'provider-funding-unverified',
+    }
+    // Read-only readiness uses only the separate Fireblocks Viewer identity and
+    // public Mainnet reads; this path never constructs the payout client.
+    if (treasuryAddress && readOnlyProvider.credentialsConfigured) {
       snapshot = await readManagedTreasurySnapshot(treasuryAddress)
     }
     const blockers = []
@@ -2357,6 +2362,8 @@ export function createTreasuryWithdrawalsRouter({
         missing: config.missing,
         signerMode: config.signerMode,
         providerConfigured: config.providerConfigured,
+        readOnlyProviderConfigured: readOnlyProvider.credentialsConfigured,
+        readOnlyProviderMissing: [...readOnlyProvider.credentialsMissing],
       },
       databaseReady, treasuryAddress,
       outstandingUsdtReservationBaseUnits: databaseReady ? outstandingUsdtReservationBaseUnits : null,
