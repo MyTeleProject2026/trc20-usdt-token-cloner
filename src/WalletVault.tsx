@@ -1802,7 +1802,7 @@ export default function WalletVault() {
 
               {network === 'mainnet' && (
                 <>
-                <PlatformTreasuryPanel ownerSessionToken={ownerSessionToken} active={activePanel === 'treasury'} />
+                <PlatformTreasuryPanel ownerSessionToken={ownerSessionToken} active={activePanel === 'treasury'} onOwnerIdentitySignIn={() => void refreshOwnerTreasury()} />
                 <section id="owner-treasury-funding" className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading" hidden={activePanel !== 'treasury'}>
                   <div className="wallet-vault-panel-head">
                     <span className="wallet-vault-step">OWNER</span>

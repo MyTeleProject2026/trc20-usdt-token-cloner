@@ -65,6 +65,18 @@ test('configuration rejects identity-owner mismatch and missing payout limits', 
   }), () => true)
   assert.equal(missingLimits.configurationComplete, false)
   assert.ok(missingLimits.missing.includes('PLATFORM_TREASURY_MAX_PAYOUT_USDT'))
+
+  const numericOrdering = platformTreasuryConfiguration(baseEnv({
+    PLATFORM_TREASURY_MAX_PAYOUT_USDT: '9',
+    PLATFORM_TREASURY_DAILY_LIMIT_USDT: '10',
+  }), () => true)
+  assert.equal(numericOrdering.configurationComplete, true)
+
+  const insufficientDailyLimit = platformTreasuryConfiguration(baseEnv({
+    PLATFORM_TREASURY_MAX_PAYOUT_USDT: '25',
+    PLATFORM_TREASURY_DAILY_LIMIT_USDT: '10',
+  }), () => true)
+  assert.equal(insufficientDailyLimit.configurationComplete, false)
 })
 
 function makeTransferFixture() {

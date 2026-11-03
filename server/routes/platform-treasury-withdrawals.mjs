@@ -73,7 +73,7 @@ export function platformTreasuryConfiguration(env = process.env, checkAddress = 
   }
   if (!treasuryAddress || !checkAddress(treasuryAddress)) missing.push('PLATFORM_TREASURY_ADDRESS')
   if (maxPayout === null) missing.push('PLATFORM_TREASURY_MAX_PAYOUT_USDT')
-  if (dailyLimit === null || (maxPayout !== null && dailyLimit < maxPayout)) {
+  if (dailyLimit === null || (maxPayout !== null && BigInt(dailyLimit) < BigInt(maxPayout))) {
     missing.push('PLATFORM_TREASURY_DAILY_LIMIT_USDT')
   }
   if (maxFeeSun < 1_000_000n || maxFeeSun > 100_000_000n) {

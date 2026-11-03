@@ -133,9 +133,11 @@ async function apiRequest(path: string, token: string, init: RequestInit = {}) {
 export default function PlatformTreasuryPanel({
   ownerSessionToken,
   active,
+  onOwnerIdentitySignIn,
 }: {
   ownerSessionToken: string
   active: boolean
+  onOwnerIdentitySignIn: () => void
 }) {
   const [provider, setProvider] = useState<TronProvider | null>(null)
   const [treasuryAddress, setTreasuryAddress] = useState('')
@@ -330,7 +332,12 @@ export default function PlatformTreasuryPanel({
       </div>
 
       {!ownerSessionToken && (
-        <p className="wallet-vault-risk-note" role="status">Owner identity session is missing. Use the owner treasury sign-in above; the identity wallet does not need USDT or TRX.</p>
+        <>
+          <p className="wallet-vault-risk-note" role="status">Sign in with the owner identity wallet first. It can have zero TRX and zero USDT; its signature authorizes login only, not a treasury transfer.</p>
+          <button type="button" className="wallet-vault-primary" disabled={busy} onClick={onOwnerIdentitySignIn}>
+            Sign in with owner identity wallet
+          </button>
+        </>
       )}
 
       <div className="wallet-vault-review-grid">
