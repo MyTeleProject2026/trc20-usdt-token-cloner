@@ -301,6 +301,24 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   assert.equal(expiredTrxPool.success, true)
   assert.equal(expiredTrxPool.verifiedTrxPrincipalSun, '8000000')
 
+  const capPool = new Pool({ connectionString: process.env.DATABASE_URL })
+  try {
+    await capPool.query(
+      `UPDATE trc20_token_clone.third_party_funding_authorizations
+          SET status = 'cap-reached'
+        WHERE authorization_id = $1`,
+      [authorizationId],
+    )
+  } finally {
+    await capPool.end()
+  }
+  const cappedSponsorPool = await getThirdPartyFundingUsdtPoolSnapshot(vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference)
+  assert.equal(cappedSponsorPool.success, true)
+  assert.equal(cappedSponsorPool.verifiedUsdtPrincipalBaseUnits, '25000000')
+  const cappedTrxPool = await getThirdPartyFundingTrxPoolSnapshot(vaultAddress, authorizationInput.sponsorOrganizationReference, authorizationInput.agreementReference)
+  assert.equal(cappedTrxPool.success, true)
+  assert.equal(cappedTrxPool.verifiedTrxPrincipalSun, '8000000')
+
   const revoked = await revokeThirdPartyFundingAuthorization({
     authorizationId, revokedBy: makeTronAddress('33'),
   })
