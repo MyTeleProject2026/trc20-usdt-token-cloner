@@ -5,7 +5,9 @@ import { TronWeb } from 'tronweb'
 import { isValidTronAddress } from '../tron-address.mjs'
 import {
   createFireblocksClient,
+  createFireblocksReadOnlyClient,
   fireblocksConfiguration,
+  fireblocksReadOnlyConfiguration,
   extractFireblocksAddresses,
   providerAssetAvailableBaseUnits,
   fireblocksAssetIdentifierMatches,
@@ -1223,10 +1225,12 @@ export function createTreasuryWithdrawalsRouter({
       : {}),
   }),
   fireblocksClientFactory = (currentEnv) => createFireblocksClient(currentEnv),
+  fireblocksReadOnlyClientFactory = (currentEnv) => createFireblocksReadOnlyClient(currentEnv),
   now = () => new Date(),
 } = {}) {
   const router = Router()
   const managedSigner = () => fireblocksClientFactory(env)
+  const managedReadOnlyReader = () => fireblocksReadOnlyClientFactory(env)
   async function currentRealValueReleaseAuthorization() {
     if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
       return { authorized: false, reason: 'real-value-execution-switch-disabled' }
@@ -1321,15 +1325,13 @@ export function createTreasuryWithdrawalsRouter({
   }
 
   async function readManagedTreasurySnapshot(treasuryAddress) {
-    const fireblocks = managedSigner()
-    if (typeof fireblocks?.isConfigured !== 'function' || fireblocks.isConfigured() !== true) {
-      return { ok: false, reason: 'fireblocks-not-configured' }
+    const readerConfig = fireblocksReadOnlyConfiguration(env)
+    if (!readerConfig.credentialsConfigured) {
+      return { ok: false, reason: 'fireblocks-readonly-credentials-not-configured' }
     }
+    const fireblocks = managedReadOnlyReader()
     const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
-    if (typeof fireblocks?.isTrxAssetConfigured !== 'function'
-      || fireblocks.isTrxAssetConfigured() !== true || !trxAssetId) {
-      return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
-    }
+    if (!trxAssetId) return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
     try {
       const tronWeb = tronWebFactory()
       if (!tronWeb?.isAddress?.(treasuryAddress) || typeof tronWeb.contract !== 'function'
@@ -1426,15 +1428,15 @@ export function createTreasuryWithdrawalsRouter({
    * amount is the lower of provider-available TRX and actual on-chain TRX.
    */
   async function readManagedTreasuryTrxSnapshot(treasuryAddress) {
-    const fireblocks = managedSigner()
-    const assetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
-    // Native TRX requires shared provider authentication and its own verified asset
-    // ID; do not require the unrelated USDT asset ID to be configured.
-    if (typeof fireblocks?.isTrxAssetConfigured !== 'function'
-      || fireblocks.isTrxAssetConfigured() !== true
-      || !assetId) {
-      return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
+    const readerConfig = fireblocksReadOnlyConfiguration(env)
+    if (!readerConfig.credentialsConfigured) {
+      return { ok: false, reason: 'fireblocks-readonly-credentials-not-configured' }
     }
+    const fireblocks = managedReadOnlyReader()
+    const assetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
+    // Read-only balance checks use the separate Viewer identity; they do not
+    // require the transaction-capable payout API credentials.
+    if (!assetId) return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
     try {
       const tronWeb = tronWebFactory()
       if (!tronWeb?.isAddress?.(treasuryAddress) || typeof tronWeb?.trx?.getBalance !== 'function') {
@@ -2169,7 +2171,7 @@ export function createTreasuryWithdrawalsRouter({
     // Read-only readiness must work while payouts are deliberately disabled.
     // Probe Fireblocks and public Mainnet balances when provider credentials and
     // the configured treasury address are present; this never submits a transfer.
-    if (config.providerConfigured && treasuryAddress) {
+    if (treasuryAddress && fireblocksReadOnlyConfiguration(env).credentialsConfigured) {
       snapshot = await readManagedTreasurySnapshot(treasuryAddress)
     }
     const blockers = []
