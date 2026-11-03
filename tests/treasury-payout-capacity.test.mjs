@@ -87,7 +87,7 @@ test('readiness endpoint subtracts pending reservations and reports zero withdra
   assert.match(source, /payoutExecution\.executionEnabled && sponsorPayoutCapacity/)
   assert.match(source, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
   assert.match(source, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference\)/)
-  assert.match(source, /thirdParty-verified-usdt-deposit-and-reviewed-disbursement-mandate-required/)
+  assert.match(source, /third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required/)
   assert.match(source, /verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyFunding\.availablePrincipalBaseUnits/)
   const post = source.slice(source.indexOf("router.post('/withdrawals'"))
   assert.match(source, /getThirdPartyFundingUsdtPoolSnapshot\(treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference\)/)
