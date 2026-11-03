@@ -2,52 +2,60 @@
 
 **Repository:** `MyTeleProject2026/trc20-usdt-token-cloner`  
 **Implementation branch:** `docs/platform-owned-treasury-architecture`  
-**Documentation baseline:** `924a09b6df1088a787fcfe26ace867baed53358b`  
-**Status:** initial self-custody source integration added; validation and live acceptance still outstanding
+**Latest implementation revision verified by CI:** `3caa8150e0428300f4bc96139f54db5b707260d7`  
+**Status:** initial self-custody source integration present; live wallet acceptance and production release remain outstanding
 
-This report describes source changes on the feature branch. It is not evidence of a deployed service, a successful testnet transfer, a funded treasury, a Mainnet payout, or exchange deposit credit.
+This report describes the feature-branch source. It is not evidence of a deployed service, a funded treasury, a real testnet/Mainnet transfer, or exchange deposit credit.
 
 ## Existing implementation preserved
 
 - Wallet identity challenge/session routes remain in `server/routes/tron-wallet-auth.mjs`.
 - Wallet login remains a signed message challenge. It proves control of the configured owner identity address; it is not a transaction signature.
 - The identity wallet and configured treasury wallet can be different addresses. The identity wallet may have zero funds.
-- Existing Fireblocks and sponsor integrations, their tests, and the original safety gate remain in place as optional/legacy paths.
+- Existing Fireblocks and sponsor integrations, their tests, and the original Fireblocks execution safety gate remain in place as optional/legacy paths.
 
 ## New self-custody code added on this branch
 
 - `server/routes/platform-treasury-withdrawals.mjs` adds Mainnet-only routes under `/api/treasury/self-custody/*`.
-- `src/PlatformTreasuryPanel.tsx` adds a separate TronLink connection panel in the Wallet Vault Treasury view.
+- `src/PlatformTreasuryPanel.tsx` adds a separate TronLink connection panel in the Wallet Vault Treasury view, including an in-panel owner identity sign-in action and incomplete-configuration display.
 - `src/WalletVault.tsx` mounts the new panel and passes the existing owner-identity session token to it.
 - `server/index.mjs` mounts the new router.
 - `.env.example` documents the new platform treasury settings.
-- `tests/platform-treasury-withdrawals.test.mjs` adds initial parser, configuration, signed-intent, permission-threshold, disabled-gate, and private-key-input-rejection tests.
+- `tests/platform-treasury-withdrawals.test.mjs` covers amount parsing, numeric limit comparison, incomplete configuration, separate wallet roles, signature-weight thresholds, signed-intent matching, feature-off behavior, private-key-field rejection, and authenticated readiness when treasury settings are incomplete.
 
-The new path is separate from Fireblocks. It does not require an external sponsor organization or a Fireblocks vault. The platform must still control and fund the configured treasury address.
+The new path is separate from Fireblocks. It does not require an external sponsor organization or Fireblocks vault. The platform must still control and fund the configured treasury address.
 
-### Implemented route behavior in source
+## Implemented route behavior in source
 
 | Route | Source behavior |
 |---|---|
-| `GET /api/treasury/self-custody/readiness` | Authenticates the owner identity session and reads official Mainnet USDT and TRX balances, outstanding reservations, and configuration blockers. |
-| `POST /api/treasury/self-custody/prepare` | Validates the recipient and amount, estimates the TRC-20 fee, constructs an unsigned official-USDT transfer, and reserves the principal/fee atomically in PostgreSQL. |
+| `GET /api/treasury/self-custody/readiness` | Authenticates the owner identity session. When treasury settings are incomplete, returns the missing settings without attempting a chain read; otherwise reads official Mainnet USDT/TRX balances, outstanding reservations, and readiness blockers. |
+| `POST /api/treasury/self-custody/prepare` | Requires complete configuration and the explicit feature flag; validates the recipient and amount, estimates the TRC-20 fee, constructs an unsigned official-USDT transfer, and reserves principal/fee atomically in PostgreSQL. |
 | `POST /api/treasury/self-custody/submit` | Accepts only a signed copy matching the stored unsigned transaction and intent, checks TRON permission-signature weight, claims the intent once, and broadcasts the signed transaction. |
 | `GET /api/treasury/self-custody/withdrawals/:intentId` | Looks up the request and verifies the solidified transaction, successful receipt, exact official USDT contract, and matching Transfer event. |
 
-The browser connects to TronLink with the modern `window.tron` provider / TIP-6963 discovery path, requests `eth_requestAccounts`, checks Mainnet, and invokes the wallet's transaction-signing prompt. The browser does not send a private key to the backend. Account or network changes clear the current connection and prepared local intent state.
+The browser connects to TronLink through `window.tron` / TIP-6963 discovery, requests account access, checks Mainnet, and invokes the wallet's transaction-signing prompt. The browser does not send a private key to the backend. Account/network changes reset the current wallet connection and readiness; the server-side intent reference is not silently discarded, so an ambiguous or prepared request can still be reconciled.
 
-The backend uses TRON's signature-weight inspection before broadcast. A broadcast acceptance is still not final confirmation; only the later solidified-chain verifier can mark the transfer confirmed. Exchange deposit credit remains unverified unless the exchange itself confirms it.
+The backend checks the transaction's exact raw data and transaction ID, applies a strict signed-payload field allowlist, checks TRON signature weight against the permission threshold, and only then attempts broadcast. A broadcast acceptance is not final confirmation; only the later solidified-chain verifier can mark the transfer confirmed. Exchange deposit credit remains unverified unless the exchange itself confirms it.
+
+## Automated validation observed
+
+For implementation commit `3caa8150e0428300f4bc96139f54db5b707260d7`, GitHub Actions reported:
+- Full Node test suite and isolated PostgreSQL integration tests: passed.
+- Vite production build and contract compile: passed.
+- Dependency security audit: passed.
+
+This is CI evidence for the source revision. It does not validate TronLink with a real wallet, a live Mainnet balance, a funded treasury, an actual transfer, or exchange deposit credit.
 
 ## Critical remaining limitations
 
-1. **Execution is off by default.** `PLATFORM_TREASURY_SELF_CUSTODY_ENABLED=false` is the documented default. It must not be changed for production before code review, automated tests, signer acceptance, and operational approval.
-2. **The new route is Mainnet-only.** A dedicated testnet end-to-end route and test-token fixture have not been added for this self-custody route.
+1. **Execution is off by default.** `PLATFORM_TREASURY_SELF_CUSTODY_ENABLED=false` is the documented default. Do not enable it for production before the remaining code review, wallet-provider acceptance, security review, and operational approval.
+2. **The new route is Mainnet-only.** A dedicated self-custody testnet end-to-end route/test-token fixture has not been added.
 3. **No environment values have been configured or checked.** No Render variables, treasury address, database settings, limits, or secret files were changed.
 4. **No funds are created by code.** The configured platform treasury must already hold real official TRON USDT and sufficient TRX for network fees. An empty identity wallet cannot provide either.
-5. **No live signer test was performed.** TronLink connect/sign behavior, backend permission-weight response, broadcast, solidification, and exchange deposit handling still require controlled validation.
-6. **No build or test result is claimed here.** The new code and tests still need CI/build review after this commit.
-7. **No independent security review or production acceptance has occurred.** The new route should not be considered production-ready merely because it is present in the branch.
-8. The old Fireblocks route in `server/routes/treasury-withdrawals.mjs` remains hard-disabled by `REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true`. The new self-custody routes do not change or remove that existing gate.
+5. **No live signer test was performed.** TronLink connection/signing, permission-weight response, real broadcast, solidification, and exchange deposit handling still require controlled validation.
+6. **No independent security review or production acceptance has occurred.** The new route should not be considered production-ready merely because it is present and passes automated CI.
+7. The old Fireblocks route in `server/routes/treasury-withdrawals.mjs` remains hard-disabled by `REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true`. The new self-custody routes do not change or remove that existing gate.
 
 ## New backend configuration
 
@@ -74,12 +82,11 @@ The existing `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` still identify 
 
 ## Next acceptance work
 
-- [ ] Run the complete Node test suite and Vite production build in CI.
-- [ ] Review the new route for concurrency, expiration, reservation cleanup, authorization, and signature validation.
+- [ ] Review the new route for concurrency, expiry, reservation cleanup/recovery, authorization, and signature validation.
 - [ ] Add a testnet version or isolated testnet harness for the exact wallet-provider signing lifecycle.
-- [ ] Validate TronLink account/network events and transaction-signing behavior with a controlled test wallet.
+- [ ] Validate TronLink account/network/signing behavior with a controlled wallet.
 - [ ] Test permission-weight verification, insufficient permissions, invalid signatures, altered transaction data, and multi-signature cases.
-- [ ] Test duplicate prepare/submit requests, timeout/ambiguous broadcast, process restart, and concurrent reservations.
+- [ ] Test duplicate prepare/submit, timeout/ambiguous broadcast, process restart, and concurrent reservations.
 - [ ] Complete independent security review.
 - [ ] Only after the above and a funded platform treasury, conduct a small, explicitly owner-authorized Mainnet acceptance transfer and independently verify it.
 
