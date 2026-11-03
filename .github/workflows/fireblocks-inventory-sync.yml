@@ -117,8 +117,8 @@ jobs:
             `TREASURY_ADDRESS=${clean(config.treasuryAddress)}`,
             '# Set FIREBLOCKS_READONLY_API_KEY and FIREBLOCKS_READONLY_SECRET_KEY_PATH separately in the backend secret manager.',
             '# The payout API key and payout RSA file are separate and are not part of this read-only export.',
-            'TREASURY_SIGNER_MODE=fireblocks',
             'TREASURY_WITHDRAWALS_ENABLED=false',
+            'TREASURY_REAL_VALUE_EXECUTION_ENABLED=false',
             'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
             ''
           ];
