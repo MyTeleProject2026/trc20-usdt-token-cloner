@@ -3479,8 +3479,9 @@ export async function persistFireblocksInventorySnapshot(input = {}) {
     usdtAssetId: textValue(configuration.usdtAssetId, 128),
     trxAssetId: textValue(configuration.trxAssetId, 128),
     treasuryAddress: textValue(configuration.treasuryAddress, 64),
-    secretKeyPath: textValue(configuration.secretKeyPath, 512),
-    signerMode: 'fireblocks',
+    // Do not persist secret-file paths; the Viewer credential is process-local only.
+    secretKeyPath: null,
+    signerMode: 'fireblocks-read-only',
     network: 'mainnet',
     usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     usdtDecimals: 6,
