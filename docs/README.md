@@ -1,13 +1,14 @@
 # TRON Token Studio documentation
 
-This index identifies the current source of truth and separates the production target from the repository's present implementation.
+This index identifies the current source of truth and separates the selected architecture, initial self-custody code integration, and remaining production acceptance work.
 
 ## Read these first
 
-1. [Platform-owned treasury architecture](PLATFORM_OWNED_TREASURY_ARCHITECTURE.md) — selected target: identity wallet + separately controlled platform treasury + owner-signed withdrawals. No sponsor organization or Fireblocks vault is mandatory.
-2. [Current implementation status](CURRENT_IMPLEMENTATION_STATUS.md) — what the current `main` code actually does, what remains, and the hard execution blocker.
-3. [Current managed-withdrawal route reference](TREASURY_WITHDRAWALS.md) — existing Fireblocks-backed backend route, endpoints, and current fail-closed behavior. It is not evidence that withdrawals are enabled.
-4. [Wallet authentication implementation](WALLET_AUTH_IMPLEMENTATION.md) — signature challenge/session protocol. Login is not transaction authorization.
+1. [Platform-owned treasury architecture](PLATFORM_OWNED_TREASURY_ARCHITECTURE.md) — separate identity wallet + platform-owned treasury + wallet-provider signing. No sponsor organization or Fireblocks vault is mandatory.
+2. [Current implementation status](CURRENT_IMPLEMENTATION_STATUS.md) — source components now present on the implementation branch, explicit blockers, and remaining acceptance work.
+3. [Self-custody treasury runbook](PLATFORM_TREASURY_SELF_CUSTODY_RUNBOOK.md) — backend configuration, funding prerequisites, frontend workflow, API contracts, and release checklist.
+4. [Current managed-withdrawal route reference](TREASURY_WITHDRAWALS.md) — legacy Fireblocks-backed route and its hard-disabled execution status.
+5. [Wallet authentication implementation](WALLET_AUTH_IMPLEMENTATION.md) — existing signature challenge/session protocol. Login is not transaction authorization.
 
 ## Retained supporting documents
 
@@ -46,8 +47,8 @@ External sponsorship is not part of the selected default architecture. Keep its 
 
 ## Superseded files removed
 
-The overlapping owner-treasury and generic funded-withdrawal guides were consolidated into the architecture, status, and route-reference documents. Their unique security and operational points were retained. Implementation source, migrations, tests, provider adapters, and sponsor evidence were not deleted.
+The overlapping owner-treasury and generic funded-withdrawal guides were consolidated into the architecture, status, route-reference, and runbook documents. Their unique security and operational points were retained. Existing source, migrations, tests, provider adapters, and sponsor evidence were not deleted.
 
 ## Document maintenance rule
 
-Update the architecture and current-status documents whenever the signer model, withdrawal execution gate, or funding source changes. A document update never enables a payout or substitutes for a real end-to-end test.
+Update the architecture, status, and runbook whenever the signer model, withdrawal lifecycle, feature gates, or funding source changes. Documentation never enables a payout or substitutes for automated tests, independent review, or a real acceptance transaction.
