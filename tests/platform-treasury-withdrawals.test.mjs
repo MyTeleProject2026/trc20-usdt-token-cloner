@@ -125,6 +125,13 @@ test('TRON signature weight must satisfy the account permission threshold for th
   assert.equal(hasSufficientTronPermissionWeight({
     result: {},
     permission: { threshold: 2 },
+    current_weight: 2,
+    transaction: { txID: txid },
+  }, txid), true)
+
+  assert.equal(hasSufficientTronPermissionWeight({
+    result: {},
+    permission: { threshold: 2 },
     current_weight: 1,
     transaction: { txid },
   }, txid), false)
@@ -195,6 +202,38 @@ test('signed self-custody transaction must exactly match the stored transfer int
     amountBaseUnits: fixture.amountBaseUnits,
     tokenContract: token,
   }), false)
+})
+
+test('readiness reports missing treasury settings after authenticating the owner identity', async (t) => {
+  const app = express()
+  app.use(express.json())
+  let databaseFactoryCalls = 0
+  app.use('/api/treasury', createPlatformTreasuryRouter({
+    env: baseEnv({ PLATFORM_TREASURY_ADDRESS: '' }),
+    isValidAddress: () => true,
+    sessionLookup: async ({ origin }) => ({
+      success: true,
+      session: { address: owner, network: 'mainnet', origin },
+    }),
+    poolFactory: () => { databaseFactoryCalls += 1; return null },
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/treasury/self-custody/readiness'
+  const response = await fetch(url, {
+    headers: {
+      origin: 'https://owner.example',
+      authorization: 'Bearer ' + 'A'.repeat(43),
+    },
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.success, true)
+  assert.equal(payload.configurationComplete, false)
+  assert.equal(payload.executionEnabled, false)
+  assert.ok(payload.missing.includes('PLATFORM_TREASURY_ADDRESS'))
+  assert.equal(databaseFactoryCalls, 0)
 })
 
 test('self-custody prepare remains off unless its explicit server-side feature flag is enabled', async (t) => {

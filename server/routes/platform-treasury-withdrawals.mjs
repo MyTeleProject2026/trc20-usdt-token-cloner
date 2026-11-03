@@ -94,6 +94,7 @@ export function hasSufficientTronPermissionWeight(response, expectedTxId) {
   const weight = Number(response?.current_weight)
   const returnedTxId = String(
     response?.transaction?.txid
+      || response?.transaction?.txID
       || response?.transaction?.transaction?.txID
       || response?.transaction?.transaction?.txid
       || '',
@@ -289,7 +290,11 @@ export function createPlatformTreasuryRouter({
     const token = bearerToken(req)
     const origin = req.get('origin') || ''
     const config = platformTreasuryConfiguration(env, isValidAddress)
-    if (!token || !origin || !config.ownerAddress || !config.configurationComplete) {
+    const identityConfigured = typeof config.ownerAddress === 'string'
+      && ADDRESS_PATTERN.test(config.ownerAddress)
+      && config.treasuryOwnerAddress === config.ownerAddress
+      && isValidAddress(config.ownerAddress)
+    if (!token || !origin || !identityConfigured) {
       return { ok: false, status: 401, error: 'platform-owner-auth-required' }
     }
     let lookup
@@ -313,6 +318,23 @@ export function createPlatformTreasuryRouter({
     res.setHeader('Pragma', 'no-cache')
     const auth = await authenticateOwner(req)
     if (!auth.ok) return errorResponse(res, auth.status, auth.error)
+    if (!auth.config.configurationComplete) {
+      return res.json({
+        success: true,
+        network: 'mainnet',
+        asset: 'USDT',
+        tokenContract: USDT_MAINNET,
+        treasuryAddress: auth.config.treasuryAddress || null,
+        ownerIdentityAddress: auth.ownerAddress,
+        configurationComplete: false,
+        featureFlagEnabled: auth.config.enabled,
+        executionEnabled: false,
+        missing: auth.config.missing,
+        blockers: ['platform-treasury-configuration-incomplete'],
+        checkedAt: new Date(now()).toISOString(),
+        note: 'Owner identity is authenticated. Configure the separate platform treasury address and limits before chain readiness can be evaluated.',
+      })
+    }
     const db = getDb()
     if (!db) return errorResponse(res, 503, 'database-not-configured', { missing: auth.config.missing })
     try {
@@ -334,7 +356,7 @@ export function createPlatformTreasuryRouter({
       if (!auth.config.enabled) blockers.push('self-custody-execution-flag-disabled')
       if (availableUsdt <= 0n) blockers.push('treasury-usdt-principal-unavailable')
       if (availableTrx <= 0n) blockers.push('treasury-trx-fee-reserve-unavailable')
-      else if (availableTrx < BigInt(config.maxFeeSun)) blockers.push('treasury-trx-below-configured-fee-cap')
+      else if (availableTrx < BigInt(auth.config.maxFeeSun)) blockers.push('treasury-trx-below-configured-fee-cap')
       return res.json({
         success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
         treasuryAddress: snapshot.treasuryAddress, ownerIdentityAddress: auth.ownerAddress,
@@ -366,7 +388,7 @@ export function createPlatformTreasuryRouter({
     const recipient = typeof req.body.recipientAddress === 'string' ? req.body.recipientAddress.trim() : ''
     const amountBaseUnits = parseUsdtAmount(req.body.amountUsdt)
     if (!amountBaseUnits) return errorResponse(res, 400, 'invalid-usdt-amount')
-    if (BigInt(amountBaseUnits) > config.maxPayoutBaseUnits) return errorResponse(res, 400, 'per-payout-limit-exceeded')
+    if (BigInt(amountBaseUnits) > BigInt(config.maxPayoutBaseUnits)) return errorResponse(res, 400, 'per-payout-limit-exceeded')
     if (!isValidAddress(recipient) || recipient === config.treasuryAddress) return errorResponse(res, 400, 'invalid-recipient-address')
 
     const db = getDb()
@@ -462,7 +484,7 @@ export function createPlatformTreasuryRouter({
         await client.query('ROLLBACK'); transactionOpen = false
         return errorResponse(res, 409, 'insufficient-unreserved-trx-for-fees')
       }
-      if (dailyTotal + BigInt(amountBaseUnits) > config.dailyLimitBaseUnits) {
+      if (dailyTotal + BigInt(amountBaseUnits) > BigInt(config.dailyLimitBaseUnits)) {
         await client.query('ROLLBACK'); transactionOpen = false
         return errorResponse(res, 409, 'daily-payout-limit-exceeded')
       }
@@ -498,6 +520,9 @@ export function createPlatformTreasuryRouter({
     const auth = await authenticateOwner(req)
     if (!auth.ok) return errorResponse(res, auth.status, auth.error)
     if (!auth.config.enabled) return errorResponse(res, 503, 'self-custody-execution-disabled')
+    if (!auth.config.configurationComplete) {
+      return errorResponse(res, 503, 'platform-treasury-configuration-incomplete', { missing: auth.config.missing })
+    }
     if (!isPlainObject(req.body) || Object.keys(req.body).some((key) => !['intentId', 'signedTransaction'].includes(key))
       || !INTENT_PATTERN.test(req.body.intentId || '') || !isPlainObject(req.body.signedTransaction)) {
       return errorResponse(res, 400, 'invalid-signed-transaction-submission')
@@ -512,6 +537,13 @@ export function createPlatformTreasuryRouter({
       )
       if (!found.rows.length) return errorResponse(res, 404, 'withdrawal-intent-not-found')
       const row = found.rows[0]
+      if (row.treasury_address !== auth.config.treasuryAddress) {
+        await db.query(
+          "UPDATE trc20_token_clone.platform_treasury_withdrawals SET status='rejected', verification_reason='treasury-configuration-changed', updated_at=now() WHERE intent_id=$1 AND status='prepared'",
+          [req.body.intentId],
+        )
+        return errorResponse(res, 409, 'treasury-configuration-changed')
+      }
       if (row.status !== 'prepared') {
         return res.status(202).json({
           success: row.status === 'broadcast-accepted' || row.status === 'confirmed',
