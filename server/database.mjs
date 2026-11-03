@@ -4964,7 +4964,7 @@ export async function persistThirdPartyFundingDeposit(input = {}) {
       await client.query('ROLLBACK')
       return { persisted: false, reason: 'funding-authorization-revoked' }
     }
-    if (new Date(auth.expires_at).getTime() <= Date.now()) {
+    if (auth.status === 'expired' || new Date(auth.expires_at).getTime() <= Date.now()) {
       await client.query(`UPDATE ${schema}.third_party_funding_authorizations SET status='expired', updated_at=now() WHERE authorization_id=$1`, [authorizationId])
       await client.query('COMMIT')
       return { persisted: false, reason: 'funding-authorization-expired' }
