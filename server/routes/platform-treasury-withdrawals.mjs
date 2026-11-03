@@ -110,6 +110,10 @@ export function validateSignedSelfCustodyTransaction(tronWeb, {
   amountBaseUnits, tokenContract = USDT_MAINNET,
 } = {}) {
   if (!isPlainObject(unsignedTransaction) || !isPlainObject(signedTransaction)) return false
+  const allowedSignedFields = new Set(['visible', 'txID', 'raw_data', 'raw_data_hex', 'signature', 'ret'])
+  if (Object.keys(signedTransaction).some((key) => !allowedSignedFields.has(key))
+    || signedTransaction.visible === true
+    || (signedTransaction.visible !== undefined && typeof signedTransaction.visible !== 'boolean')) return false
   if (!isDeepStrictEqual(unsignedTransaction.raw_data, signedTransaction.raw_data)) return false
   if (typeof unsignedTransaction.raw_data_hex !== 'string'
     || !/^(?:[0-9a-f]{2})+$/i.test(unsignedTransaction.raw_data_hex)
@@ -330,6 +334,7 @@ export function createPlatformTreasuryRouter({
       if (!auth.config.enabled) blockers.push('self-custody-execution-flag-disabled')
       if (availableUsdt <= 0n) blockers.push('treasury-usdt-principal-unavailable')
       if (availableTrx <= 0n) blockers.push('treasury-trx-fee-reserve-unavailable')
+      else if (availableTrx < BigInt(config.maxFeeSun)) blockers.push('treasury-trx-below-configured-fee-cap')
       return res.json({
         success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
         treasuryAddress: snapshot.treasuryAddress, ownerIdentityAddress: auth.ownerAddress,
@@ -534,8 +539,12 @@ export function createPlatformTreasuryRouter({
       if (typeof tronWeb?.trx?.getSignWeight !== 'function') {
         return errorResponse(res, 503, 'tron-signature-permission-check-unavailable')
       }
+      // Forward only the transaction fields required by TronWeb. Unknown
+      // wallet-response fields are rejected above and never forwarded to a node.
       const broadcastTransaction = {
-        ...signedTransaction,
+        txID: String(signedTransaction.txID).toLowerCase(),
+        raw_data: signedTransaction.raw_data,
+        raw_data_hex: signedTransaction.raw_data_hex,
         signature: signedTransaction.signature.map((signature) => signature.replace(/^0x/i, '')),
       }
       let permissionWeight

@@ -174,6 +174,15 @@ test('signed self-custody transaction must exactly match the stored transfer int
     amountBaseUnits: fixture.amountBaseUnits,
     tokenContract: token,
   }), false)
+
+  assert.equal(validateSignedSelfCustodyTransaction(fixture.tronWeb, {
+    unsignedTransaction: fixture.unsignedTransaction,
+    signedTransaction: { ...fixture.signedTransaction, privateKey: 'must-not-be-forwarded' },
+    treasuryAddress: owner,
+    recipientAddress: recipient,
+    amountBaseUnits: fixture.amountBaseUnits,
+    tokenContract: token,
+  }), false)
 })
 
 test('self-custody prepare remains off unless its explicit server-side feature flag is enabled', async (t) => {

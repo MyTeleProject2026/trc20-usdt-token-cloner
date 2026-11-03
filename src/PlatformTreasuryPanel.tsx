@@ -157,6 +157,7 @@ export default function PlatformTreasuryPanel({
     const status = lastStatus?.intent?.status || prepared?.intent?.status
     if (status === 'confirmed') return 'Confirmed on TRON'
     if (status === 'failed') return 'Failed on-chain'
+    if (status === 'rejected') return 'Intent expired or rejected'
     if (status === 'broadcast-accepted') return 'Broadcast accepted · awaiting confirmation'
     if (status === 'broadcast-unknown' || status === 'broadcasting') return 'Broadcast outcome unknown · reconcile before retry'
     if (status === 'prepared') return 'Prepared · awaiting treasury-wallet signature'
@@ -186,8 +187,6 @@ export default function PlatformTreasuryPanel({
       const connected = await requestTreasuryWallet()
       setProvider(connected.provider)
       setTreasuryAddress(connected.address)
-      setPrepared(null)
-      setLastStatus(null)
       const data = await refreshReadiness(connected.provider, connected.address)
       setNotice(data.executionEnabled
         ? 'Platform treasury wallet connected. Mainnet balances and available reserves were read from chain.'
@@ -200,14 +199,21 @@ export default function PlatformTreasuryPanel({
   }
 
   useEffect(() => {
+    if (ownerSessionToken) return
+    setProvider(null)
+    setTreasuryAddress('')
+    setReadiness(null)
+    setPrepared(null)
+    setLastStatus(null)
+  }, [ownerSessionToken])
+
+  useEffect(() => {
     if (!provider) return
     const resetForWalletChange = () => {
       setProvider(null)
       setTreasuryAddress('')
       setReadiness(null)
-      setPrepared(null)
-      setLastStatus(null)
-      setNotice('')
+      setNotice('TronLink account or network changed. Reconnect the configured Mainnet treasury wallet before signing. Any prepared server-side intent remains reserved until it expires; do not create a duplicate.')
     }
     const accountsChanged = (accounts: unknown) => {
       const next = Array.isArray(accounts) && typeof accounts[0] === 'string' ? accounts[0] : ''
@@ -257,9 +263,16 @@ export default function PlatformTreasuryPanel({
       || signed.txID !== prepared.unsignedTransaction.txID) {
       throw new Error('TronLink returned a signature for different transaction data. Submission was stopped.')
     }
+    const signedTransaction = {
+      txID: signed.txID,
+      raw_data: signed.raw_data,
+      raw_data_hex: signed.raw_data_hex,
+      signature: signed.signature,
+      ...(typeof signed.visible === 'boolean' ? { visible: signed.visible } : {}),
+    }
     const result = await apiRequest('/api/treasury/self-custody/submit', ownerSessionToken, {
       method: 'POST',
-      body: JSON.stringify({ intentId: prepared.intent.intentId, signedTransaction: signed }),
+      body: JSON.stringify({ intentId: prepared.intent.intentId, signedTransaction }),
     })
     setLastStatus(result)
     if (result.intent) setPrepared((current) => current ? { ...current, intent: result.intent } : current)
