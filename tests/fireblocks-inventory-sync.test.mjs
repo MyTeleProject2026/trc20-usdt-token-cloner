@@ -221,6 +221,8 @@ test('inventory sync source uses the restricted Viewer client and never the payo
   assert.match(workflow, /FIREBLOCKS_READONLY_API_BASE=\$\{clean\(config\.apiBase\)\}/)
   assert.doesNotMatch(workflow, /FIREBLOCKS_API_BASE=\$\{clean\(config\.apiBase\)\}/)
   assert.doesNotMatch(workflow, /FIREBLOCKS_SECRET_KEY_PATH=/)
+  assert.doesNotMatch(workflow, /TREASURY_SIGNER_MODE=fireblocks/)
+  assert.match(workflow, /TREASURY_REAL_VALUE_EXECUTION_ENABLED=false/)
   assert.match(workflow, /payout API key and payout RSA file are separate/)
 })
 
