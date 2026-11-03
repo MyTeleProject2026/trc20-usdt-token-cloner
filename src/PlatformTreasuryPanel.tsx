@@ -174,6 +174,10 @@ export default function PlatformTreasuryPanel({
       throw new Error('The treasury wallet is no longer connected to verified TRON Mainnet.')
     }
     const data = await apiRequest('/api/treasury/self-custody/readiness', ownerSessionToken)
+    if (data.configurationComplete !== true) {
+      setReadiness(data)
+      return data
+    }
     if (data.treasuryAddress !== activeAddress) {
       throw new Error('Connected wallet does not match PLATFORM_TREASURY_ADDRESS. No transaction can be prepared.')
     }
