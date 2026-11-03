@@ -221,7 +221,7 @@ export function createFireblocksInventorySyncRouter({
     const vaultAccountId = typeof env.FIREBLOCKS_VAULT_ACCOUNT_ID === 'string' ? env.FIREBLOCKS_VAULT_ACCOUNT_ID.trim() : ''
     const usdtAssetId = typeof env.FIREBLOCKS_USDT_ASSET_ID === 'string' ? env.FIREBLOCKS_USDT_ASSET_ID.trim() : ''
     const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
-    const vaultConfigured = /^\\d{1,32}$/.test(vaultAccountId)
+    const vaultConfigured = /^\d{1,32}$/.test(vaultAccountId)
     const usdtAssetConfigured = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(usdtAssetId)
     const trxAssetConfigured = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(trxAssetId)
     const configuration = {
