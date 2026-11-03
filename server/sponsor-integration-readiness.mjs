@@ -1,5 +1,6 @@
 import { createGasFreeClient } from './gasfree-client.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
+import { getSponsorFeeBudgetSettlementGate } from './sponsor-fee-settlement-gate.mjs'
 
 const NETWORKS = ['mainnet', 'shasta', 'nile']
 
@@ -67,6 +68,7 @@ export function getSponsorIntegrationReadiness({
     }]
   }))
 
+  const feeBudgetSettlementGate = getSponsorFeeBudgetSettlementGate()
   const blockers = [
     'external-sponsor-agreement-and-funded-accounts-not-independently-verified',
     'provider-not-verified-to-provide-asset-principal-and-all-fees',
@@ -81,6 +83,7 @@ export function getSponsorIntegrationReadiness({
     'independent-security-review-not-recorded',
     'mainnet-operator-release-approval-not-recorded',
   ]
+  if (!feeBudgetSettlementGate.ready) blockers.push(feeBudgetSettlementGate.reason)
 
   return {
     success: true,
@@ -99,6 +102,9 @@ export function getSponsorIntegrationReadiness({
       enabled: false,
       canSubmitSponsoredTransfer: false,
       testnetSignedBroadcastFlagConfigured: env.SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED === 'true',
+      feeSponsorBudgetSettlementAdapterReady: feeBudgetSettlementGate.ready,
+      feeSponsorBudgetSettlementBlocker: feeBudgetSettlementGate.reason,
+      feeSponsorBudgetSettlementBlockers: feeBudgetSettlementGate.blockers,
       userFundedFallbackAllowed: false,
       blockerCount: blockers.length,
       blockers,
@@ -108,6 +114,7 @@ export function getSponsorIntegrationReadiness({
       'A valid public address is not proof of account control, spend authority, spendable token balance, or network-fee coverage.',
       'A configured provider API key is not proof of provider reachability or approval for sponsored transfer submissions.',
       'The experimental Shasta/Nile sponsor-wallet route is a separate feature flag and never enables Mainnet or production readiness.',
+      'The testnet route also has a source-code fee-sponsor budget settlement gate; setting its environment flag to true cannot bypass missing fee settlement integration.',
       'A solidified on-chain transfer is not proof that an exchange credited a deposit.',
     ],
   }

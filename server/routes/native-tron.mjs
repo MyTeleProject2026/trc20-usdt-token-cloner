@@ -10,6 +10,7 @@ import { reconcileSponsorBudgets } from '../sponsor-reconciliation.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { isPositiveUint256 } from '../base-units.mjs'
 import { buildSponsorUnsignedTransaction, validateSponsorSignedTransaction, verifySponsorFeeResourceCapacity, broadcastValidatedSponsorTransaction } from '../sponsor-tron-submission.mjs'
+import { getSponsorFeeBudgetSettlementGate } from '../sponsor-fee-settlement-gate.mjs'
 
 import { Router } from 'express'
 
@@ -23,6 +24,26 @@ const networks = {
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const providerApplicationScopes = new Set(['network-fees', 'trx-grant', 'trc20-grant'])
 const providerApplicationRateLimit = new Map()
+
+function rejectIfSponsorFeeBudgetSettlementIsIncomplete(res) {
+  const gate = getSponsorFeeBudgetSettlementGate()
+  if (gate.ready) return false
+  res.status(503).json({
+    success: false,
+    status: 'fee-sponsor-budget-settlement-unavailable',
+    error: gate.reason,
+    blockers: gate.blockers,
+    feeSponsorBudgetSettled: false,
+    feeCoverageVerified: false,
+    canSubmitSponsoredTransfer: false,
+    submissionEnabled: false,
+    providerSubmissionAttempted: false,
+    transactionBroadcast: false,
+    unpaidFallbackToUserFunds: false,
+    message: 'The separate fee-sponsor resource budget is not yet transactionally reserved and settled from verified chain evidence. The environment flag cannot bypass this code-level gate; no signing intent or broadcast is allowed.',
+  })
+  return true
+}
 
 function reserveProviderApplicationAttempt(normalizedEmail) {
   const now = Date.now()
@@ -1367,6 +1388,7 @@ router.get('/sponsorship/transfers/:idempotencyKey/signing-intent', async (req, 
       message: 'The testnet signing/broadcast gate is disabled until sponsor resource coverage, settlement, and end-to-end tests are reviewed.',
     })
   }
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   try {
     const found = await getSponsorTransferForSubmission(idempotencyKey)
     if (found?.success !== true) {
@@ -1486,6 +1508,7 @@ router.post('/sponsorship/transfers/:idempotencyKey/submit-signed', async (req, 
   if (Object.keys(body).length !== 1 || !Object.hasOwn(body, 'signedTransaction')) {
     return res.status(400).json({ success: false, error: 'signed-transaction-only', canSubmitSponsoredTransfer: false })
   }
+  if (rejectIfSponsorFeeBudgetSettlementIsIncomplete(res)) return
   try {
     const found = await getSponsorTransferForSubmission(idempotencyKey)
     if (found?.success !== true) {
