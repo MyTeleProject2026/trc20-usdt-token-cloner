@@ -80,12 +80,12 @@ function makeFixture({
 } = {}) {
   const calls = { fireblocks: 0, persisted: null }
   const env = {
-    FIREBLOCKS_API_KEY: 'test-api-key-not-real',
-    FIREBLOCKS_SECRET_KEY_PATH: '/tmp/fireblocks-api-test.pem',
+    FIREBLOCKS_READONLY_API_KEY: 'test-viewer-api-key-not-real',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/tmp/fireblocks-viewer-test.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
     FIREBLOCKS_VAULT_ACCOUNT_ID: '42',
     FIREBLOCKS_USDT_ASSET_ID: 'USDT_ASSET',
     FIREBLOCKS_TRX_ASSET_ID: 'TRX_ASSET',
-    FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
     TREASURY_ADDRESS: TREASURY_ADDRESS,
     DATABASE_URL: databaseUrl,
   }
