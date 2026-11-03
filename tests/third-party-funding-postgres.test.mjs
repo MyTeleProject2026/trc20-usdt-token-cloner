@@ -268,9 +268,14 @@ test('PostgreSQL persists scoped funding consent, single-use deposit evidence, F
   const expiryPool = new Pool({ connectionString: process.env.DATABASE_URL })
   try {
     await expiryPool.query(
-      `UPDATE trc20_token_clone.third_party_funding_authorizations
-          SET expires_at = now() - interval '1 second'
-        WHERE authorization_id = $1`,
+      `UPDATE trc20_token_clone.third_party_funding_authorizations AS a
+          SET status = 'expired',
+              expires_at = (
+                SELECT MAX(d.chain_verified_at) + interval '1 second'
+                  FROM trc20_token_clone.third_party_funding_deposits AS d
+                 WHERE d.authorization_id = a.authorization_id
+              )
+        WHERE a.authorization_id = $1`,
       [authorizationId],
     )
   } finally {
