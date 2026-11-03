@@ -228,7 +228,7 @@ export function createFireblocksInventorySyncRouter({
       apiBase: cfg.apiBase, vaultAccountId: vaultAccountId || null,
       usdtAssetId: usdtAssetId || null, trxAssetId: trxAssetId || null,
       treasuryAddress: ADDRESS_PATTERN.test(address) ? address : null,
-      secretKeyPath: cfg.secretKeyPath || null, apiKeyConfigured: Boolean(cfg.apiKey),
+      apiKeyConfigured: Boolean(cfg.apiKey),
       rsaKeyConfigured: false, signerMode: 'fireblocks-read-only', network: 'mainnet',
       usdtContract: USDT_MAINNET, usdtDecimals: 6, trxDecimals: 6,
     }
