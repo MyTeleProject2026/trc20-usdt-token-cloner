@@ -121,8 +121,12 @@ export function fireblocksReadOnlyConfiguration(env = process.env) {
   if (!ALLOWED_API_BASES.has(apiBaseInput)) credentialsMissing.push('FIREBLOCKS_READONLY_API_BASE (unsupported production URL)')
   if (apiKey && payoutApiKey && apiKey === payoutApiKey) credentialsMissing.push('FIREBLOCKS_READONLY_API_KEY (must differ from FIREBLOCKS_API_KEY)')
   if (secretKeyPath && payoutSecretKeyPath && secretKeyPath === payoutSecretKeyPath) credentialsMissing.push('FIREBLOCKS_READONLY_SECRET_KEY_PATH (must differ from FIREBLOCKS_SECRET_KEY_PATH)')
+  const vaultAccountId = typeof env.FIREBLOCKS_VAULT_ACCOUNT_ID === 'string' ? env.FIREBLOCKS_VAULT_ACCOUNT_ID.trim() : ''
+  const usdtAssetId = typeof env.FIREBLOCKS_USDT_ASSET_ID === 'string' ? env.FIREBLOCKS_USDT_ASSET_ID.trim() : ''
+  const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
   return { configured: credentialsMissing.length === 0, credentialsConfigured: credentialsMissing.length === 0,
-    credentialsMissing, apiKey, secretKeyPath, apiBase: apiBaseInput }
+    credentialsMissing, apiKey, secretKeyPath, apiBase: apiBaseInput,
+    vaultAccountId, usdtAssetId, trxAssetId }
 }
 
 /** Discovery-only client: no transaction submission or fee-estimate methods are exposed. */
@@ -137,9 +141,11 @@ export function createFireblocksReadOnlyClient(env = process.env, options = {}) 
   return Object.freeze({
     configuration: () => ({ credentialsConfigured: config.configured,
       credentialsMissing: [...config.credentialsMissing], apiBase: config.apiBase }),
-    getVaultAccount: () => client.getVaultAccount(),
+    getVaultAccount: () => client.getVaultAccount({ credentialsOnly: true }),
     getPagedVaultAccounts: (args) => client.getPagedVaultAccounts(args),
     getAssets: (args) => client.getAssets(args),
+    getVaultAccountAsset: (assetId) => client.getVaultAccountAsset(assetId, { credentialsOnly: true }),
+    getAssetMetadata: (assetId) => client.getAssetMetadata(assetId, { credentialsOnly: true }),
     getAssetAddresses: (assetId, vaultAccountId) =>
       client.getAssetAddresses(assetId, vaultAccountId, { credentialsOnly: true }),
     getTransactionsPage: (args) => client.getTransactionsPage(args),
@@ -419,9 +425,13 @@ export function createFireblocksClient(env = process.env, {
       missingTrxAsset: config.trxAssetConfigured ? [] : ['FIREBLOCKS_TRX_ASSET_ID'],
       apiBase: config.apiBase,
     }),
-    async getVaultAccount() {
+    async getVaultAccount({ credentialsOnly = false } = {}) {
       // Verify that the configured numeric Vault Account exists in the workspace.
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId))
+      if (!/^\\d{1,32}$/.test(String(config.vaultAccountId || ''))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-vault-account-id')
+      }
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId),
+        undefined, { credentialsOnly })
     },
     async getPagedVaultAccounts({
       limit = 200, assetId, orderBy = 'DESC', before, after,
@@ -460,15 +470,19 @@ export function createFireblocksClient(env = process.env, {
       if (pageCursor !== undefined) query.set('pageCursor', pageCursor)
       return request('GET', '/v1/assets?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
-    async getVaultAccountAsset(assetId = config.usdtAssetId) {
-      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))
+    async getVaultAccountAsset(assetId = config.usdtAssetId, { credentialsOnly = false } = {}) {
+      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))
+        || !/^\\d{1,32}$/.test(String(config.vaultAccountId || ''))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-asset-or-vault-id')
+      }
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId),
+        undefined, { credentialsOnly })
     },
-    async getAssetMetadata(assetId = config.usdtAssetId) {
+    async getAssetMetadata(assetId = config.usdtAssetId, { credentialsOnly = false } = {}) {
       // /v1/assets/{id} is provider metadata; vault/account asset responses are
       // separate available-balance records. Never confuse the two.
       if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
-      return request('GET', '/v1/assets/' + encodeURIComponent(assetId))
+      return request('GET', '/v1/assets/' + encodeURIComponent(assetId), undefined, { credentialsOnly })
     },
     async getAssetAddresses(assetId = config.usdtAssetId, vaultAccountId = config.vaultAccountId, { credentialsOnly = false } = {}) {
       if (!IDENTIFIER_PATTERN.test(String(assetId || '')) || !/^\d{1,32}$/.test(String(vaultAccountId || ''))) {
