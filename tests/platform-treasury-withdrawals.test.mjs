@@ -295,3 +295,35 @@ test('self-custody request rejects private-key fields and other unrecognized inp
   assert.equal(response.status, 400)
   assert.deepEqual(await response.json(), { success: false, error: 'invalid-withdrawal-request' })
 })
+
+test('self-custody prepare rejects missing or malformed idempotency request keys', async (t) => {
+  const app = express()
+  app.use(express.json())
+  app.use('/api/treasury', createPlatformTreasuryRouter({
+    env: baseEnv({ PLATFORM_TREASURY_SELF_CUSTODY_ENABLED: 'true' }),
+    isValidAddress: () => true,
+    sessionLookup: async ({ origin }) => ({
+      success: true,
+      session: { address: owner, network: 'mainnet', origin },
+    }),
+    poolFactory: () => { throw new Error('database must not be reached for invalid request keys') },
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const url = 'http://127.0.0.1:' + server.address().port + '/api/treasury/self-custody/prepare'
+  for (const requestKey of [undefined, 'not-a-uuid', '11111111-1111-1111-1111-111111111111']) {
+    const body = { recipientAddress: recipient, amountUsdt: '1', ...(requestKey ? { requestKey } : {}) }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        origin: 'https://owner.example',
+        authorization: 'Bearer ' + 'A'.repeat(43),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    assert.equal(response.status, 400)
+    assert.deepEqual(await response.json(), { success: false, error: 'invalid-withdrawal-request' })
+  }
+})

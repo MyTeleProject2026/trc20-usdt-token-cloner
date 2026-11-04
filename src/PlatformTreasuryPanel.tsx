@@ -151,6 +151,7 @@ export default function PlatformTreasuryPanel({
   const [readiness, setReadiness] = useState<TreasuryReadiness | null>(null)
   const [recipientAddress, setRecipientAddress] = useState('')
   const [amountUsdt, setAmountUsdt] = useState('')
+  const [prepareRequestKey, setPrepareRequestKey] = useState('')
   const [prepared, setPrepared] = useState<WithdrawalIntent | null>(null)
   const [lastStatus, setLastStatus] = useState<any>(null)
   const [busy, setBusy] = useState(false)
@@ -218,6 +219,7 @@ export default function PlatformTreasuryPanel({
     setReadiness(null)
     setPrepared(null)
     setLastStatus(null)
+    setPrepareRequestKey('')
   }, [ownerSessionToken])
 
   useEffect(() => {
@@ -252,9 +254,11 @@ export default function PlatformTreasuryPanel({
     }
     const data = await refreshReadiness()
     if (data.executionEnabled !== true) throw new Error('Treasury execution is not enabled or current readiness checks did not pass.')
+    const requestKey = prepareRequestKey || window.crypto.randomUUID()
+    setPrepareRequestKey(requestKey)
     const payload = await apiRequest('/api/treasury/self-custody/prepare', ownerSessionToken, {
       method: 'POST',
-      body: JSON.stringify({ recipientAddress: recipientAddress.trim(), amountUsdt: amountUsdt.trim() }),
+      body: JSON.stringify({ requestKey, recipientAddress: recipientAddress.trim(), amountUsdt: amountUsdt.trim() }),
     })
     if (payload.intent?.treasuryAddress !== treasuryAddress || !payload.unsignedTransaction) {
       throw new Error('Prepared transfer does not match the connected treasury wallet.')
@@ -319,6 +323,7 @@ export default function PlatformTreasuryPanel({
     setNotice(result.note || 'Withdrawal status refreshed from the TRON chain.')
     if (result.intent?.status === 'confirmed' || result.intent?.status === 'failed' || result.intent?.status === 'rejected') {
       setPrepared(null)
+      setPrepareRequestKey('')
       const next = await refreshReadiness().catch(() => null)
       if (next) setReadiness(next)
     }
@@ -412,9 +417,9 @@ export default function PlatformTreasuryPanel({
 
       <div className="wallet-vault-transfer-form">
         <label htmlFor="platform-treasury-recipient">External TRON wallet / exchange deposit address</label>
-        <input id="platform-treasury-recipient" value={recipientAddress} onChange={(event) => setRecipientAddress(event.target.value)} autoComplete="off" spellCheck={false} placeholder="T… (TRON Mainnet address)" />
+        <input id="platform-treasury-recipient" value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setPrepared(null); setLastStatus(null); setPrepareRequestKey('') }} autoComplete="off" spellCheck={false} placeholder="T… (TRON Mainnet address)" />
         <label htmlFor="platform-treasury-amount">USDT amount</label>
-        <input id="platform-treasury-amount" value={amountUsdt} onChange={(event) => { setAmountUsdt(event.target.value); setPrepared(null); setLastStatus(null) }} inputMode="decimal" autoComplete="off" placeholder="e.g. 10.00" />
+        <input id="platform-treasury-amount" value={amountUsdt} onChange={(event) => { setAmountUsdt(event.target.value); setPrepared(null); setLastStatus(null); setPrepareRequestKey('') }} inputMode="decimal" autoComplete="off" placeholder="e.g. 10.00" />
         <button type="button" className="wallet-vault-primary" disabled={busy || !canPrepare} onClick={() => void run(prepareWithdrawal)}>
           {busy ? 'Checking funds and preparing…' : 'Prepare USDT withdrawal'}
         </button>

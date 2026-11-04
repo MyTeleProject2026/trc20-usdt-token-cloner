@@ -13,6 +13,7 @@ const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
 const INTENT_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const REQUEST_KEY_PATTERN = INTENT_PATTERN
 const ABI = [
   { constant: true, inputs: [{ name: 'owner', type: 'address' }], name: 'balanceOf', outputs: [{ name: 'balance', type: 'uint256' }], stateMutability: 'view', type: 'function' },
   { constant: true, inputs: [], name: 'decimals', outputs: [{ name: '', type: 'uint8' }], stateMutability: 'view', type: 'function' },
@@ -151,7 +152,9 @@ function createPool(env) {
 
 async function ensureSchema(db) {
   await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
-  await db.query("CREATE TABLE IF NOT EXISTS trc20_token_clone.platform_treasury_withdrawals (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, intent_id UUID NOT NULL UNIQUE, owner_address TEXT NOT NULL, treasury_address TEXT NOT NULL, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), fee_limit_sun BIGINT NOT NULL CHECK (fee_limit_sun > 0), unsigned_tx_id CHAR(64) NOT NULL, unsigned_raw_data_hex TEXT NOT NULL, unsigned_transaction JSONB NOT NULL, transaction_hash CHAR(64), status TEXT NOT NULL CHECK (status IN ('prepared','broadcasting','broadcast-accepted','broadcast-unknown','confirmed','failed','rejected')), verification_reason TEXT, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+  await db.query("CREATE TABLE IF NOT EXISTS trc20_token_clone.platform_treasury_withdrawals (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, intent_id UUID NOT NULL UNIQUE, request_key TEXT, owner_address TEXT NOT NULL, treasury_address TEXT NOT NULL, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), fee_limit_sun BIGINT NOT NULL CHECK (fee_limit_sun > 0), unsigned_tx_id CHAR(64) NOT NULL, unsigned_raw_data_hex TEXT NOT NULL, unsigned_transaction JSONB NOT NULL, transaction_hash CHAR(64), status TEXT NOT NULL CHECK (status IN ('prepared','broadcasting','broadcast-accepted','broadcast-unknown','confirmed','failed','rejected')), verification_reason TEXT, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+  await db.query('ALTER TABLE trc20_token_clone.platform_treasury_withdrawals ADD COLUMN IF NOT EXISTS request_key TEXT')
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS platform_treasury_withdrawals_request_key_idx ON trc20_token_clone.platform_treasury_withdrawals (owner_address, request_key) WHERE request_key IS NOT NULL')
   await db.query('CREATE INDEX IF NOT EXISTS platform_treasury_withdrawals_reserve_idx ON trc20_token_clone.platform_treasury_withdrawals (treasury_address, status, created_at)')
   await db.query('CREATE INDEX IF NOT EXISTS platform_treasury_withdrawals_owner_idx ON trc20_token_clone.platform_treasury_withdrawals (owner_address, created_at DESC)')
 }
@@ -382,9 +385,11 @@ export function createPlatformTreasuryRouter({
     if (!auth.ok) return errorResponse(res, auth.status, auth.error)
     const config = auth.config
     if (!config.enabled) return errorResponse(res, 503, 'self-custody-execution-disabled')
-    if (!isPlainObject(req.body) || Object.keys(req.body).some((key) => !['recipientAddress', 'amountUsdt'].includes(key))) {
+    if (!isPlainObject(req.body) || Object.keys(req.body).some((key) => !['requestKey', 'recipientAddress', 'amountUsdt'].includes(key))
+      || typeof req.body.requestKey !== 'string' || !REQUEST_KEY_PATTERN.test(req.body.requestKey)) {
       return errorResponse(res, 400, 'invalid-withdrawal-request')
     }
+    const requestKey = req.body.requestKey.toLowerCase()
     const recipient = typeof req.body.recipientAddress === 'string' ? req.body.recipientAddress.trim() : ''
     const amountBaseUnits = parseUsdtAmount(req.body.amountUsdt)
     if (!amountBaseUnits) return errorResponse(res, 400, 'invalid-usdt-amount')
@@ -449,6 +454,31 @@ export function createPlatformTreasuryRouter({
       await client.query('BEGIN')
       transactionOpen = true
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [config.treasuryAddress])
+      await client.query(
+        "UPDATE trc20_token_clone.platform_treasury_withdrawals SET status='rejected', verification_reason='unsigned-intent-expired', updated_at=now() WHERE treasury_address=$1 AND status='prepared' AND expires_at <= now()",
+        [config.treasuryAddress],
+      )
+      const existingRequest = await client.query(
+        'SELECT * FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 AND request_key=$2 LIMIT 1',
+        [auth.ownerAddress, requestKey],
+      )
+      if (existingRequest.rows.length) {
+        const existing = existingRequest.rows[0]
+        const sameIntent = existing.treasury_address === config.treasuryAddress
+          && existing.recipient_address === recipient
+          && String(existing.amount_base_units) === amountBaseUnits
+        if (!sameIntent) {
+          await client.query('ROLLBACK'); transactionOpen = false
+          return errorResponse(res, 409, 'withdrawal-request-key-reused-with-different-details')
+        }
+        const existingUnsigned = isPlainObject(existing.unsigned_transaction)
+          ? existing.unsigned_transaction : JSON.parse(String(existing.unsigned_transaction || '{}'))
+        await client.query('COMMIT'); transactionOpen = false
+        return res.status(200).json({
+          success: true, intent: safeIntent(existing), unsignedTransaction: existingUnsigned,
+          note: 'Returned the existing withdrawal intent for this request key. No duplicate reservation or broadcast was created.',
+        })
+      }
 
       // Re-read balances after acquiring the treasury lock. The earlier
       // preflight was useful for transaction construction, but reservations
@@ -490,8 +520,8 @@ export function createPlatformTreasuryRouter({
       }
       const intentId = randomUUID()
       const inserted = await client.query(
-        "INSERT INTO trc20_token_clone.platform_treasury_withdrawals (intent_id, owner_address, treasury_address, recipient_address, token_contract, amount_base_units, fee_limit_sun, unsigned_tx_id, unsigned_raw_data_hex, unsigned_transaction, status, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,to_timestamp($12 / 1000.0)) RETURNING *",
-        [intentId, auth.ownerAddress, config.treasuryAddress, recipient, USDT_MAINNET, amountBaseUnits, feeLimitSun, unsignedTransaction.txID.toLowerCase(), unsignedTransaction.raw_data_hex, JSON.stringify(unsignedTransaction), 'prepared', expiration],
+        "INSERT INTO trc20_token_clone.platform_treasury_withdrawals (intent_id, request_key, owner_address, treasury_address, recipient_address, token_contract, amount_base_units, fee_limit_sun, unsigned_tx_id, unsigned_raw_data_hex, unsigned_transaction, status, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,to_timestamp($13 / 1000.0)) RETURNING *",
+        [intentId, requestKey, auth.ownerAddress, config.treasuryAddress, recipient, USDT_MAINNET, amountBaseUnits, feeLimitSun, unsignedTransaction.txID.toLowerCase(), unsignedTransaction.raw_data_hex, JSON.stringify(unsignedTransaction), 'prepared', expiration],
       )
       await client.query('COMMIT')
       transactionOpen = false
