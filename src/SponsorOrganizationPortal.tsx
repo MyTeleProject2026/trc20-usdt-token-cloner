@@ -143,6 +143,43 @@ async function signIn(address: string, tronWeb: any): Promise<SponsorSession> {
   return { address, expiresAt: verified.expiresAt, sessionToken: verified.sessionToken }
 }
 
+const ATTESTATION_VERSION = 'sponsor-organization-onboarding-2026-11-04-v1'
+
+function buildSponsorApplicationMessage({
+  address,
+  organizationName,
+  businessEmail,
+  jurisdiction,
+  website,
+  requestedRoles,
+}: {
+  address: string
+  organizationName: string
+  businessEmail: string
+  jurisdiction: string
+  website: string | null
+  requestedRoles: string[]
+}): string {
+  return [
+    'TRON Token Studio sponsor organization application authorization',
+    'Purpose: confirm the exact organization details and declarations below. This is not a transaction, transfer, or spending authorization.',
+    `Attestation version: ${ATTESTATION_VERSION}`,
+    'Network: TRON Mainnet',
+    `Sponsor wallet: ${address}`,
+    `Organization: ${organizationName}`,
+    `Business contact email: ${businessEmail}`,
+    `Jurisdiction: ${jurisdiction}`,
+    `Website: ${website || 'not provided'}`,
+    `Requested roles: ${requestedRoles.join(', ')}`,
+    'Declarations:',
+    '1. I am authorized to represent this organization.',
+    '2. The authenticated wallet is controlled by the organization or an authorized signer.',
+    '3. The proposed funds are lawfully controlled and may be used for the stated sponsorship purpose.',
+    '4. I accept separate written sponsor terms, caps, and transaction approvals before funding or payouts.',
+    '5. I consent to storing these organization details for manual due diligence.',
+  ].join('\\n')
+}
+
 function formatDate(value?: string | null): string {
   if (!value) return 'Not reviewed yet'
   const timestamp = Date.parse(value)
@@ -310,19 +347,60 @@ export default function SponsorOrganizationPortal() {
         || sessionCheck.payload.expiresAt <= Date.now()) {
         throw new Error('The sponsor wallet session is no longer valid. Reconnect and sign in again.')
       }
+      const normalizedOrganizationName = organizationName.trim()
+      const normalizedBusinessEmail = businessEmail.trim().toLowerCase()
+      const normalizedJurisdiction = jurisdiction.trim()
+      let normalizedWebsite: string | null = null
+      if (website.trim()) {
+        let parsedWebsite: URL
+        try { parsedWebsite = new URL(website.trim()) } catch {
+          throw new Error('Enter a valid HTTPS organization website.')
+        }
+        if (parsedWebsite.protocol !== 'https:' || parsedWebsite.username || parsedWebsite.password) {
+          throw new Error('The organization website must use HTTPS and cannot contain embedded credentials.')
+        }
+        normalizedWebsite = parsedWebsite.origin
+      }
       const requestedRoles = [
         ...(assetPrincipal ? ['asset-principal'] : []),
         ...(networkFees ? ['network-fees'] : []),
-      ]
+      ].sort()
+      if (requestedRoles.length === 0) throw new Error('Select at least one sponsorship role.')
+
+      const applicationMessage = buildSponsorApplicationMessage({
+        address: session.address,
+        organizationName: normalizedOrganizationName,
+        businessEmail: normalizedBusinessEmail,
+        jurisdiction: normalizedJurisdiction,
+        website: normalizedWebsite,
+        requestedRoles,
+      })
+      if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+        throw new Error('This TronLink version cannot sign the application declaration. Update TronLink and retry.')
+      }
+      // A second message signature binds the applicant's declarations to the
+      // exact normalized application. It is not a transaction or spend approval.
+      const applicationSignature = await tronWeb.trx.signMessageV2(applicationMessage)
+      if (typeof applicationSignature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(applicationSignature)) {
+        throw new Error('TronLink returned an invalid application declaration signature.')
+      }
+      const latestProvider = getProvider()
+      const latestTronWeb = latestProvider?.tronWeb || (window as any).tronWeb
+      checkMainnet(latestTronWeb)
+      if (String(latestTronWeb?.defaultAddress?.base58 || '') !== session.address) {
+        throw new Error('The sponsor wallet changed while signing the application. Reconnect and submit again.')
+      }
+
       const result = await apiJson('/api/tron/sponsorship/organizations', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + session.sessionToken },
         body: JSON.stringify({
-          organizationName,
-          businessEmail,
-          jurisdiction,
-          website: website.trim() || null,
+          organizationName: normalizedOrganizationName,
+          businessEmail: normalizedBusinessEmail,
+          jurisdiction: normalizedJurisdiction,
+          website: normalizedWebsite,
           requestedRoles,
+          applicationSignature,
           authorityToRepresentOrganization: authority,
           controlsSponsorWallet: walletControl,
           lawfulSourceOfFunds: lawfulFunds,
@@ -403,6 +481,7 @@ export default function SponsorOrganizationPortal() {
                 {connecting ? 'Connecting wallet…' : 'Connect & sign in with TronLink'}
               </button>
               <p className="sponsor-onboarding-note">Mainnet only. This portal never asks for a private key, recovery phrase, or seed phrase.</p>
+              <p className="sponsor-onboarding-note">After connecting, TronLink will ask for a second message signature over the exact organization application and declarations. This is not a transaction or permission to spend funds.</p>
             </>
           ) : (
             <div className="sponsor-onboarding-wallet">
