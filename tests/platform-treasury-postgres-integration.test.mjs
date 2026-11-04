@@ -191,6 +191,19 @@ test('PostgreSQL persists self-custody withdrawal replay and browser-refresh rec
     assert.equal(changedDetailsResponse.status, 409)
     assert.equal(changedDetails.error, 'withdrawal-request-key-reused-with-different-details')
 
+    const anotherRequestResponse = await ownerRequest(app.baseUrl, '/api/treasury/self-custody/prepare', {
+      method: 'POST',
+      body: JSON.stringify({
+        requestKey: randomUUID(),
+        recipientAddress: recipient,
+        amountUsdt: '2',
+      }),
+    })
+    const anotherRequest = await anotherRequestResponse.json()
+    assert.equal(anotherRequestResponse.status, 409)
+    assert.equal(anotherRequest.error, 'withdrawal-already-outstanding')
+    assert.equal(anotherRequest.intentId, first.intent.intentId)
+
     const historyResponse = await ownerRequest(app.baseUrl, '/api/treasury/self-custody/withdrawals?limit=20')
     const history = await historyResponse.json()
     assert.equal(historyResponse.status, 200)
