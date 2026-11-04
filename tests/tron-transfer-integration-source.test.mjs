@@ -38,6 +38,18 @@ test('Fincra live payout requires provider enablement, source funds, Tatum Mainn
   assert.match(route, /availableBaseUnits < BigInt\(row\.amount_base_units\)/)
 })
 
+test('Fincra payout amounts use exact six-decimal formatting before numeric API serialization', () => {
+  assert.match(route, /maxFincraBaseUnits = 1_000_000_000_000_000n/)
+  assert.match(route, /const normalizedFraction = fraction\.padEnd\(6, '0'\)\.replace\(\/0\+\$\//)
+  assert.doesNotMatch(route, /Number\(baseUnits\) \/ 1_000_000/)
+})
+
+test('duplicate Fincra customer references become unknown and never falsely failed', () => {
+  assert.match(route, /DUPLICATE_CUSTOMER_REFERENCE/)
+  assert.match(route, /fincra-duplicate-customer-reference/)
+  assert.match(route, /transactionSubmitted: 'unknown'/)
+})
+
 test('an ambiguous Fincra submission can never be automatically resubmitted after a 404 lookup', () => {
   assert.match(route, /let firstAttempt = false/)
   assert.match(route, /firstAttempt = true/)
