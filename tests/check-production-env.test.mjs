@@ -171,7 +171,7 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
 test('preflight rejects a readable but undersized Fireblocks RSA private key without exposing it', () => {
   const weakPem = generateKeyPairSync('rsa', { modulusLength: 2048 })
     .privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
-  const report = inspectProductionEnvironment(completeSyntacticEnv(), {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({ TREASURY_WITHDRAWALS_ENABLED: 'true' }), {
     fileExists: () => true,
     readSecretFile: () => weakPem,
   })
@@ -184,7 +184,7 @@ test('preflight rejects a readable but undersized Fireblocks RSA private key wit
 })
 
 test('preflight rejects unreadable or malformed Fireblocks PEM material without revealing it', () => {
-  const report = inspectProductionEnvironment(completeSyntacticEnv(), {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({ TREASURY_WITHDRAWALS_ENABLED: 'true' }), {
     fileExists: () => true,
     readSecretFile: () => 'not-a-private-key',
   })
