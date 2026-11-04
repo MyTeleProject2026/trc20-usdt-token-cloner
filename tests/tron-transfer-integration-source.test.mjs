@@ -98,3 +98,15 @@ test('live Fincra payout performs server-side official Mainnet USDT recipient pr
   assert.match(route, /recipient-mainnet-preflight-failed/)
   assert.ok(route.indexOf('const recipientPreflight = await preflightMainnetUsdtRecipient(row.recipient_address)') < route.indexOf('const created = await fincraRequest(config, \'/disbursements/payouts\''))
 })
+
+test('Fincra signed webhooks are reconciled against the authoritative payout record before sponsor status changes', () => {
+  assert.match(route, /fetchFincraPayoutByCustomerReference\(config, customerReference\)/)
+  assert.match(route, /payout\.customerReference \|\| payout\.customer_reference/)
+  assert.match(route, /destinationCurrency !== 'USDT'/)
+  assert.match(route, /paymentScheme !== 'usdt_trc20'/)
+  assert.match(route, /paymentDestination !== 'crypto_wallet'/)
+  assert.match(route, /providerAmount !== BigInt\(row\.amount_base_units\)/)
+  assert.match(route, /fincra-webhook-recipient-mismatch/)
+  assert.match(route, /fincra-webhook-settlement-amount-unverified/)
+  assert.match(route, /fincra_status IN \('successful','failed'\)/)
+})
