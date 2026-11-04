@@ -2051,7 +2051,7 @@ export default function WalletVault() {
               <section id="wallet-vault-history" className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading" hidden={activePanel !== 'activity'}>
                 <div className="wallet-vault-history-header"><div><h3 id="wallet-vault-history-heading">Real transfer history</h3><p>Locally saved transaction IDs; status is re-read from the selected chain.</p></div><span>{transferHistory.length} record{transferHistory.length === 1 ? '' : 's'}</span></div>
                 {transferHistory.length === 0 ? (
-                  <div className="wallet-vault-history-empty">No transfers have been submitted from this device yet. History entries are added only after the network accepts a signed transaction.</div>
+                  <div className="wallet-vault-history-empty">No local transfer records are stored on this device. The current Wallet Vault build disables signing and broadcast, so this empty list is expected; no transaction has been submitted from this screen.</div>
                 ) : (
                   <div className="wallet-vault-history-list">
                     {transferHistory.map(item => (
