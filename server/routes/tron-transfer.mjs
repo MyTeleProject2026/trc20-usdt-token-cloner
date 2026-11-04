@@ -387,6 +387,8 @@ export function createTronTransferRouter({ env = process.env } = {}) {
   }
 
   router.get('/readiness', async (_req, res) => {
+    const auth = await requireOwnerSession(_req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const db = getPool(env)
     const fincra = fincraConfig(env)
     const mainnetConfigured = Boolean(configuredApiKey(env, 'mainnet'))
