@@ -565,7 +565,7 @@ export default function App() {
           {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
           {error && <div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
 
-          {!walletRecord || !unlocked ? (
+          {(!walletRecord || !unlocked) && !['recipients', 'sponsors'].includes(activeTab) ? (
             <section className="panel wallet-access">
               <div className="panel-heading"><div><span className="eyebrow">DEVICE-LOCAL WALLET</span><h2>{walletRecord ? 'Unlock your wallet' : 'Create or import a wallet'}</h2><p>Private keys are encrypted in this browser. They are never sent to Tron Token Studio or a backend server.</p></div><div className="panel-icon"><LockKeyhole/></div></div>
               {walletRecord ? (
