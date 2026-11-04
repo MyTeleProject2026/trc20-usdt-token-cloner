@@ -64,7 +64,7 @@ test('syntactically valid configuration reports names and statuses only, never v
   assert.equal(report.releaseAuthorized, false, 'syntactic checks cannot authorize real payouts')
   assert.equal(report.checks.OWNER_WALLET_ADDRESS.status, 'configured')
   assert.equal(report.checks.TREASURY_OWNER_ADDRESS.status, 'configured')
-  assert.equal(report.checks.FIREBLOCKS_SECRET_KEY_PATH.status, 'configured')
+  assert.equal(report.checks.FIREBLOCKS_SECRET_KEY_PATH.status, 'not-required-disabled')
   assert.equal(report.checks.TREASURY_WITHDRAWALS_ENABLED.status, 'disabled')
   for (const secret of [
     'do-not-print-db-password',
@@ -75,6 +75,41 @@ test('syntactically valid configuration reports names and statuses only, never v
   ]) {
     assert.equal(serialized.includes(secret), false, 'report must not expose ' + secret)
   }
+})
+
+
+test('provider-independent sponsor mode does not require Fireblocks while Mainnet treasury payouts remain disabled', () => {
+  const env = completeSyntacticEnv({
+    TREASURY_SIGNER_MODE: undefined,
+    FIREBLOCKS_API_BASE: undefined,
+    FIREBLOCKS_API_KEY: undefined,
+    FIREBLOCKS_SECRET_KEY_PATH: undefined,
+    FIREBLOCKS_VAULT_ACCOUNT_ID: undefined,
+    FIREBLOCKS_USDT_ASSET_ID: undefined,
+    FIREBLOCKS_TRX_ASSET_ID: undefined,
+    TREASURY_ADDRESS: undefined,
+    TREASURY_MAX_PAYOUT_USDT: undefined,
+    TREASURY_DAILY_LIMIT_USDT: undefined,
+    TREASURY_MAX_PAYOUT_TRX: undefined,
+    TREASURY_DAILY_LIMIT_TRX: undefined,
+    TREASURY_FEE_LIMIT_SUN: undefined,
+  })
+  const report = inspectProductionEnvironment(env, { fileExists: () => false })
+  assert.equal(report.status, 'syntactic-preflight-passed')
+  assert.deepEqual(report.errors, [])
+  assert.equal(report.checks.TREASURY_SIGNER_MODE.status, 'not-required-disabled')
+  assert.equal(report.checks.FIREBLOCKS_API_KEY.status, 'not-required-disabled')
+  assert.equal(report.releaseAuthorized, false)
+})
+
+test('enabling Mainnet treasury payouts makes the selected Fireblocks signer configuration mandatory', () => {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
+    FIREBLOCKS_API_KEY: undefined,
+  }), { fileExists: () => true, readSecretFile: readValidFireblocksKey })
+  assert.equal(report.checks.FIREBLOCKS_API_KEY.status, 'missing')
+  assert.ok(report.errors.includes('FIREBLOCKS_API_KEY'))
+  assert.equal(report.releaseAuthorized, false)
 })
 
 test('preflight rejects mismatched owner/treasury owner and malformed sponsor addresses', () => {
@@ -105,6 +140,7 @@ test('preflight warns when any transfer gate is enabled and never reports produc
 
 test('preflight accepts valid decimal payout limits and rejects excess fractional precision', () => {
   const valid = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
     TREASURY_MAX_PAYOUT_USDT: '0.25',
     TREASURY_DAILY_LIMIT_USDT: '100.125',
     TREASURY_MAX_PAYOUT_TRX: '1.000001',
@@ -124,6 +160,7 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
   }
 
   const invalid = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
     TREASURY_MAX_PAYOUT_USDT: '1.0000001',
   }), {
     fileExists: () => true,
@@ -136,7 +173,7 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
 test('preflight rejects a readable but undersized Fireblocks RSA private key without exposing it', () => {
   const weakPem = generateKeyPairSync('rsa', { modulusLength: 2048 })
     .privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
-  const report = inspectProductionEnvironment(completeSyntacticEnv(), {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({ TREASURY_WITHDRAWALS_ENABLED: 'true' }), {
     fileExists: () => true,
     readSecretFile: () => weakPem,
   })
@@ -149,7 +186,7 @@ test('preflight rejects a readable but undersized Fireblocks RSA private key wit
 })
 
 test('preflight rejects unreadable or malformed Fireblocks PEM material without revealing it', () => {
-  const report = inspectProductionEnvironment(completeSyntacticEnv(), {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({ TREASURY_WITHDRAWALS_ENABLED: 'true' }), {
     fileExists: () => true,
     readSecretFile: () => 'not-a-private-key',
   })
