@@ -212,3 +212,16 @@ test('owner Mainnet payout flags cannot be enabled without the supported Fireblo
   assert.equal(report.checks.TREASURY_WITHDRAWALS_ENABLED.status, 'enabled-needs-independent-release-approval')
   assert.equal(report.releaseAuthorized, false)
 })
+
+test('preflight rejects case-mismatched payout booleans instead of disagreeing with runtime gates', () => {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_SIGNER_MODE: undefined,
+    TREASURY_WITHDRAWALS_ENABLED: 'TRUE',
+  }), {
+    fileExists: () => false,
+    readSecretFile: () => { throw new Error('must-not-read-unselected-key') },
+  })
+  assert.equal(report.checks.TREASURY_WITHDRAWALS_ENABLED.status, 'invalid')
+  assert.ok(report.errors.includes('TREASURY_WITHDRAWALS_ENABLED'))
+  assert.equal(report.releaseAuthorized, false)
+})
