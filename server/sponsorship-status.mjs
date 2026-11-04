@@ -2,10 +2,10 @@
 // Sponsorship remains fail-closed until real sponsor consent/funding, fee settlement,
 // and end-to-end evidence are verified. Mainnet signing/broadcast is not implemented.
 // Environment flags alone must never make the UI claim that funds are sponsored.
- //
- // IMPORTANT: fee sponsorship and giving a receiver USDT/TRX are separate products.
- // A fee sponsor can pay eligible network fees; it does not create or transfer the
- // sender's USDT/TRX asset. Only a verified chain balance is an on-chain balance.
+//
+// IMPORTANT: fee sponsorship and giving a receiver USDT/TRX are separate products.
+// A fee sponsor can pay eligible network fees; it does not create or transfer the
+// sender's USDT/TRX asset. Only a verified chain balance is an on-chain balance.
 export function getSponsorshipStatus() {
   return {
     enabled: false,
