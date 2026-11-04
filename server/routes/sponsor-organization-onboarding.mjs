@@ -507,7 +507,7 @@ export function createSponsorOrganizationOnboardingRouter({
       })
       if (result?.success !== true || !result.application) {
         const reason = result?.reason || 'application-storage-unavailable'
-        const status = reason === 'open-application-already-exists' ? 409
+        const status = ['open-application-already-exists', 'application-signature-already-used'].includes(reason) ? 409
           : reason === 'application-rate-limited' ? 429 : 503
         return res.status(status).json({
           success: false,
