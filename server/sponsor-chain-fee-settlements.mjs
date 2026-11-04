@@ -184,7 +184,6 @@ export async function settleSponsorChainFeeObservation(input = {}) {
         || observation.idempotency_key !== idempotencyKey
         || !['SUCCESS', 'FAILED'].includes(observation.execution_result)
         || !HEX_ADDRESS_PATTERN.test(ownerHex)
-        || payerHex !== ownerHex
         || ownerHex !== transferOwnerHex) {
         await client.query('ROLLBACK')
         return { success: false, reason: 'transaction-owner-and-fee-payer-evidence-mismatch' }
@@ -196,7 +195,13 @@ export async function settleSponsorChainFeeObservation(input = {}) {
       const feeSun = BigInt(observation.reported_fee_sun)
       if (feeSun === 0n) {
         await client.query('ROLLBACK')
-        return { success: false, reason: 'no-trx-burn-to-settle' }
+        return payerHex
+          ? { success: false, reason: 'transaction-owner-and-fee-payer-evidence-mismatch' }
+          : { success: false, reason: 'no-trx-burn-to-settle' }
+      }
+      if (payerHex !== ownerHex) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'transaction-owner-and-fee-payer-evidence-mismatch' }
       }
 
       const feeBudgetResult = await client.query(
