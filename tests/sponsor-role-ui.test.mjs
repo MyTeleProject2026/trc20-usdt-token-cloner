@@ -73,3 +73,17 @@ test('Mainnet direct sponsor diagnostics appear as read-only status without enab
   assert.ok(app.includes('canSubmitSponsoredTransfer'))
   assert.ok(app.includes('It will not create a withdrawal, reserve funds, request a signature, or submit a transaction'))
 })
+
+test('Mainnet sponsor request UI uses a separate Mainnet identity and only submits a review request', () => {
+  assert.ok(app.includes("JSON.stringify({ address, network: 'mainnet' })"))
+  assert.ok(app.includes("network: 'mainnet', nonce: challenge.nonce, signature"))
+  assert.ok(app.includes('/api/tron/sponsorship/mainnet-direct/requests'))
+  assert.ok(app.includes('Submit sponsor review request'))
+  assert.ok(app.includes('USDT · TRC20'))
+  assert.ok(app.includes('pending-sponsor-review'))
+  assert.ok(app.includes('Sponsor funds reserved: no'))
+  assert.ok(app.includes('TRON broadcast: no'))
+  assert.ok(app.includes('checkedMainnetWalletNetwork'))
+  assert.ok(app.includes('api.trongrid.io'))
+  assert.ok(app.includes('createSponsorRequestIdempotencyKey'))
+})
