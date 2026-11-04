@@ -622,6 +622,34 @@ test('Mainnet sponsor approval refuses a stale or insufficient sponsor funding s
   assert.equal(payload.canSubmitSponsoredTransfer, false)
 })
 
+test('principal sponsor approval requires independently verified positive TRX in the separate fee sponsor', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv,
+    store,
+    sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => {
+      const snapshot = fundedSponsorRoleSnapshot()
+      snapshot.roles.networkFeeSponsor.native.balanceSun = '0'
+      return snapshot
+    },
+  }))
+  const response = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  assert.equal(response.status, 409)
+  const payload = await response.json()
+  assert.equal(payload.error, 'mainnet-sponsor-funding-preflight-blocked')
+  assert.ok(payload.blockers.includes('mainnet-network-fee-sponsor-positive-trx-and-resources-not-verified'))
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+})
+
 test('invalid sponsor approval signatures consume the challenge and cannot be replayed', async (t) => {
   const store = makeStore()
   const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
