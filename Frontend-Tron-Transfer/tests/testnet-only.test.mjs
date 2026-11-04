@@ -82,3 +82,11 @@ test('Assets page displays the verified Fincra USDT funding wallet number withou
   assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
   assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
 })
+
+test('Sponsor funding page loads and displays read-only Fincra business wallet credits', () => {
+  assert.ok(app.includes('FINCRA BUSINESS BALANCE LEDGER'))
+  assert.ok(app.includes('Incoming sponsor credits'))
+  assert.ok(app.includes('/api/tron-transfer/sponsor-funding-history'))
+  assert.ok(app.includes('Refresh funding history'))
+  assert.ok(app.includes('Provider ledger records, not manually entered sponsor claims'))
+})
