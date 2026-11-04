@@ -1503,6 +1503,7 @@ export default function WalletVault() {
                     : 'View public treasury settings and read-only provider checks. Payout execution is unavailable in this build.'}
         </p>
         <a className="wallet-vault-secondary" href="#/testnet-sandbox">Open read-only Testnet Sandbox</a>
+        <a className="wallet-vault-secondary" href="#/sponsor-onboarding" target="_blank" rel="noopener noreferrer">Open external sponsor onboarding portal</a>
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
