@@ -751,10 +751,13 @@ export default function App() {
                   </div>
                   {fincraReadiness?.fincra && (
                     <div className="readiness-checks">
-                      <span>API key {fincraReadiness.fincra.apiKeyConfigured ? 'configured' : 'missing'}</span>
+                      <span>Tatum Mainnet {fincraReadiness.tatum?.mainnetNode?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.mainnetNode?.reason || 'not verified'}</span>
+                      <span>Tatum Testnet {fincraReadiness.tatum?.testnetConfigured ? 'configured' : 'missing'}</span>
+                      <span>Fincra API key {fincraReadiness.fincra.apiKeyConfigured ? 'configured' : 'missing'}</span>
                       <span>Business ID {fincraReadiness.fincra.businessIdConfigured ? 'configured' : 'missing'}</span>
                       <span>Webhook secret {fincraReadiness.fincra.webhookSecretConfigured ? 'configured' : 'missing'}</span>
-                      <span>Source balance {fincraReadiness.fincra.sourceBalance?.checked ? fincraReadiness.fincra.sourceBalance.availableBalance + ' ' + fincraReadiness.fincra.sourceBalance.currency : 'not verified'}</span>
+                      <span>USDT source funds {fincraReadiness.fincra.sourceBalance?.checked ? fincraReadiness.fincra.sourceBalance.availableBalance + ' ' + fincraReadiness.fincra.sourceBalance.currency : 'not verified'}</span>
+                      <span>Live payout gate {fincraReadiness.fincra.canSubmitLivePayout ? 'all configured prerequisites pass' : 'closed'}</span>
                     </div>
                   )}
                   <div className="sponsor-request-layout">
