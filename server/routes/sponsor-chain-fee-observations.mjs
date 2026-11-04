@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
-import { getSponsorTransferForSubmission } from '../database.mjs'
+import { getSponsorTransferForSubmission, transitionSponsorTransfer } from '../database.mjs'
 import {
   listSponsorChainFeeObservations,
   recordSponsorChainFeeObservation,
@@ -282,6 +282,55 @@ export function createSponsorChainFeeObservationRouter(options = {}) {
       })
     } catch {
       return fail(res, 503, 'solidified-fee-observation-unavailable')
+    }
+  })
+
+  router.post('/sponsorship/transfers/:idempotencyKey/reconcile-failed', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) return fail(res, 503, 'sponsor-admin-not-configured')
+    if (!authorized(req, env)) return fail(res, 401, 'unauthorized')
+    const key = req.params?.idempotencyKey
+    if (typeof key !== 'string' || !KEY.test(key)) return fail(res, 400, 'invalid-idempotency-key')
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length) return fail(res, 400, 'unexpected-fields')
+    try {
+      const found = await lookup(key)
+      if (found?.success !== true || !found.transfer) {
+        const reason = found?.reason || 'sponsor-transfer-unavailable'
+        return fail(res, reason === 'transfer-not-found' ? 404 : 503, reason)
+      }
+      const transfer = found.transfer
+      if (!['nile', 'shasta'].includes(transfer.network) || transfer.purpose !== 'asset-grant'
+        || !['TRX', 'USDT'].includes(transfer.asset) || !TXID.test(String(transfer.transactionHash || ''))) {
+        return fail(res, 409, 'submitted-testnet-asset-transfer-required')
+      }
+      if (transfer.status !== 'submitted') return fail(res, 409, 'submitted-transfer-required', { status: transfer.status })
+      const changed = await transitionSponsorTransfer({
+        idempotencyKey: key, nextStatus: 'failed',
+        transactionHash: transfer.transactionHash.toLowerCase(),
+      })
+      if (changed?.updated !== true) {
+        const reason = changed?.reason || 'failed-principal-reconciliation-rejected'
+        return fail(res, reason === 'finalized-failure-fee-observation-required' ? 409 : 503, reason, {
+          status: transfer.status, transactionHash: transfer.transactionHash,
+          principalReservationReleased: false,
+        })
+      }
+      return res.json({
+        success: true, status: 'failed', network: transfer.network,
+        transactionHash: transfer.transactionHash,
+        principalReservationReleased: true,
+        failureEvidence: 'matching-immutable-solidified-failed-fee-observation',
+        feeBudgetSettled: false, sponsorFeeBudgetSettled: false,
+        canSubmitSponsoredTransfer: false,
+        note: 'The stored testnet principal reservation was released only after the database matched an immutable FAILED receipt observation to this exact transfer. This does not settle any fee sponsor budget.',
+      })
+    } catch {
+      return fail(res, 503, 'failed-principal-reconciliation-unavailable', {
+        principalReservationReleased: false,
+      })
     }
   })
 
