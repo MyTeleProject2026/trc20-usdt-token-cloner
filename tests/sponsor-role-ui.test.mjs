@@ -63,3 +63,13 @@ test('sponsor console turns live preflight blockers into actionable, fail-closed
   assert.ok(sponsorConsole.includes('an allowlist does not create token balances'))
   assert.ok(sponsorConsole.includes('No approved reservation was found for that key.'))
 })
+
+test('Mainnet direct sponsor diagnostics appear as read-only status without enabling wallet submission', () => {
+  assert.ok(app.includes('/api/tron/sponsorship/mainnet-direct/readiness?refresh=1'))
+  assert.ok(app.includes('Direct sponsor → recipient readiness'))
+  assert.ok(app.includes('Positive balance verified'))
+  assert.ok(app.includes('Mainnet payouts disabled'))
+  assert.ok(app.includes('mainnetExecutionDisabled'))
+  assert.ok(app.includes('canSubmitSponsoredTransfer'))
+  assert.ok(app.includes('does not create a withdrawal, reserve funds, request a signature, or submit a transaction'))
+})
