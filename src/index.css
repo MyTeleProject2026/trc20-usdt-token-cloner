@@ -1296,3 +1296,82 @@ main .grid > button[aria-pressed] > span {
   .wallet-vault-toast { animation: none; }
   .wallet-vault-owner-app .wallet-vault-quick-action:hover { transform: none; }
 }
+
+
+/* Public external sponsor onboarding portal */
+.sponsor-onboarding-screen {
+  min-height: 100vh;
+  padding: 28px 18px 48px;
+  color: var(--color-text-primary);
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(0, 255, 170, .10), transparent 34rem),
+    radial-gradient(ellipse at 90% 8%, rgba(0, 190, 255, .10), transparent 36rem),
+    var(--color-bg-primary);
+}
+.sponsor-onboarding-shell { width: min(100%, 920px); margin: 0 auto; }
+.sponsor-onboarding-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 2px 26px; }
+.sponsor-onboarding-brand { display: inline-flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+.sponsor-onboarding-brand > span:last-child { display: grid; gap: 3px; }
+.sponsor-onboarding-brand strong { font-size: 15px; letter-spacing: .01em; }
+.sponsor-onboarding-brand small { color: var(--color-text-muted); font-size: 9px; letter-spacing: .16em; font-weight: 800; }
+.sponsor-onboarding-logo { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid rgba(0, 220, 170, .28); border-radius: 14px; color: #6ce8ca; background: rgba(0, 210, 170, .08); }
+.sponsor-onboarding-owner-link { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-secondary); font-size: 12px; text-decoration: none; }
+.sponsor-onboarding-owner-link:hover { color: var(--color-text-primary); }
+.sponsor-onboarding-hero { padding: 34px clamp(22px, 5vw, 48px); border: 1px solid var(--color-border); border-radius: 24px; background: linear-gradient(135deg, rgba(12, 31, 39, .88), rgba(10, 21, 34, .92)); box-shadow: 0 24px 64px rgba(0, 0, 0, .24); }
+.sponsor-onboarding-hero h1 { margin: 10px 0 12px; max-width: 680px; font-size: clamp(30px, 5vw, 46px); line-height: 1.08; letter-spacing: -.035em; }
+.sponsor-onboarding-hero > p:not(.studio-eyebrow) { max-width: 680px; margin: 0; color: var(--color-text-secondary); font-size: 14px; line-height: 1.75; }
+.sponsor-onboarding-trust-row { display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 24px; color: #b5d7d2; font-size: 11px; }
+.sponsor-onboarding-trust-row span { display: inline-flex; align-items: center; gap: 7px; }
+.sponsor-onboarding-card, .sponsor-onboarding-footer-card { margin-top: 18px; padding: 24px clamp(18px, 4vw, 32px); border: 1px solid var(--color-border); border-radius: 20px; background: var(--color-bg-secondary); box-shadow: 0 16px 42px rgba(0, 0, 0, .13); }
+.sponsor-onboarding-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 17px; }
+.sponsor-onboarding-card-head h2 { margin: 3px 0 0; font-size: 19px; letter-spacing: -.02em; }
+.sponsor-onboarding-step { margin: 0; color: #72d9c1; font-size: 9px; letter-spacing: .17em; font-weight: 900; }
+.sponsor-onboarding-status { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; max-width: 48%; padding: 7px 10px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-secondary); background: rgba(255,255,255,.025); font-size: 10px; font-weight: 800; text-transform: capitalize; }
+.sponsor-onboarding-copy, .sponsor-onboarding-note { color: var(--color-text-secondary); font-size: 12px; line-height: 1.7; }
+.sponsor-onboarding-connect, .sponsor-onboarding-submit { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 46px; margin-top: 8px; padding-inline: 20px; }
+.sponsor-onboarding-wallet { display: flex; align-items: center; gap: 13px; padding: 15px; border: 1px solid var(--color-border); border-radius: 14px; background: rgba(0, 210, 170, .045); }
+.sponsor-onboarding-wallet > div { display: grid; min-width: 0; flex: 1; gap: 5px; }
+.sponsor-onboarding-wallet small { color: var(--color-text-muted); font-size: 10px; }
+.sponsor-onboarding-wallet strong { overflow-wrap: anywhere; font-size: 12px; }
+.sponsor-onboarding-wallet-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 auto; border-radius: 12px; color: #70dfc3; background: rgba(0, 210, 170, .10); }
+.sponsor-onboarding-form { display: grid; gap: 22px; }
+.sponsor-onboarding-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sponsor-onboarding-form-grid > label { display: grid; gap: 7px; color: var(--color-text-secondary); font-size: 11px; font-weight: 700; }
+.sponsor-onboarding-form-grid > label span { color: var(--color-text-muted); font-weight: 500; }
+.sponsor-onboarding-form-grid input { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 11px; outline: none; color: var(--color-text-primary); background: var(--color-bg-primary); font: inherit; font-size: 13px; }
+.sponsor-onboarding-form-grid input:focus { border-color: rgba(76, 214, 184, .8); box-shadow: 0 0 0 3px rgba(76, 214, 184, .10); }
+.sponsor-onboarding-fieldset { display: grid; gap: 13px; margin: 0; padding: 17px; border: 1px solid var(--color-border); border-radius: 14px; }
+.sponsor-onboarding-fieldset legend { padding: 0 7px; color: var(--color-text-primary); font-size: 12px; font-weight: 800; }
+.sponsor-onboarding-fieldset > label { display: flex; align-items: flex-start; gap: 10px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; cursor: pointer; }
+.sponsor-onboarding-fieldset > label input { width: 16px; height: 16px; flex: 0 0 auto; margin: 2px 0 0; accent-color: #43c7a6; }
+.sponsor-onboarding-fieldset > label span { display: grid; gap: 3px; }
+.sponsor-onboarding-fieldset > label strong { color: var(--color-text-primary); font-size: 12px; }
+.sponsor-onboarding-fieldset > label small { color: var(--color-text-muted); font-size: 10px; line-height: 1.5; }
+.sponsor-onboarding-validation { margin: 0; color: #f0ad68; font-size: 11px; }
+.sponsor-onboarding-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0; }
+.sponsor-onboarding-details div { min-width: 0; padding: 12px; border: 1px solid var(--color-border); border-radius: 12px; }
+.sponsor-onboarding-details dt { margin-bottom: 6px; color: var(--color-text-muted); font-size: 10px; }
+.sponsor-onboarding-details dd { margin: 0; overflow-wrap: anywhere; color: var(--color-text-primary); font-size: 12px; font-weight: 700; }
+.sponsor-onboarding-message { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 13px 15px; border: 1px solid rgba(68, 202, 162, .26); border-radius: 13px; color: var(--color-text-secondary); background: rgba(0, 190, 150, .07); font-size: 12px; line-height: 1.55; }
+.sponsor-onboarding-message--error { border-color: rgba(232, 100, 100, .35); background: rgba(180, 45, 45, .08); }
+.sponsor-onboarding-footer-card { display: grid; gap: 8px; }
+.sponsor-onboarding-footer-card strong { display: flex; align-items: center; gap: 8px; color: var(--color-text-primary); font-size: 12px; }
+.sponsor-onboarding-footer-card strong svg { color: #6ce0bd; }
+.sponsor-onboarding-footer-card p { margin: 0; color: var(--color-text-secondary); font-size: 11px; line-height: 1.7; }
+.sponsor-onboarding-footer { display: flex; justify-content: space-between; gap: 12px; padding: 21px 3px 0; color: var(--color-text-muted); font-size: 10px; }
+.sponsor-onboarding-footer a { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-secondary); text-decoration: none; }
+@media (max-width: 640px) {
+  .sponsor-onboarding-screen { padding: 16px 12px 32px; }
+  .sponsor-onboarding-header { padding-bottom: 18px; }
+  .sponsor-onboarding-brand strong { font-size: 13px; }
+  .sponsor-onboarding-hero { padding: 26px 20px; border-radius: 18px; }
+  .sponsor-onboarding-hero h1 { font-size: 32px; }
+  .sponsor-onboarding-trust-row { display: grid; gap: 9px; }
+  .sponsor-onboarding-form-grid, .sponsor-onboarding-details { grid-template-columns: 1fr; }
+  .sponsor-onboarding-wallet { align-items: flex-start; flex-wrap: wrap; }
+  .sponsor-onboarding-wallet > div { min-width: calc(100% - 58px); }
+  .sponsor-onboarding-wallet > button { margin-left: 52px; }
+  .sponsor-onboarding-card, .sponsor-onboarding-footer-card { padding: 19px 16px; }
+  .sponsor-onboarding-status { max-width: 46%; white-space: normal; text-align: center; }
+  .sponsor-onboarding-footer { flex-direction: column; }
+}
