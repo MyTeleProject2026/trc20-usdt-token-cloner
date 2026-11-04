@@ -25,6 +25,7 @@ import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
 import sponsorRequestIntakeRoutes from './routes/sponsor-request-intake.mjs'
+import { createSponsorOrganizationOnboardingRouter } from './routes/sponsor-organization-onboarding.mjs'
 import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
 import ownerSponsorLiquidityRoutes from './routes/owner-sponsor-liquidity.mjs'
 import { credentialGuard } from './credential-guard.mjs'
@@ -156,6 +157,8 @@ app.use('/api/treasury', treasuryWithdrawalsRoutes)
 app.use('/api/treasury', fireblocksInventorySyncRoutes())
 app.use('/api/treasury', fireblocksInventoryStatusRoutes())
 app.use('/api/tron', sponsorRequestIntakeRoutes)
+// Wallet-bound sponsor organization intake and owner-only due-diligence review.
+app.use('/api', createSponsorOrganizationOnboardingRouter())
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
