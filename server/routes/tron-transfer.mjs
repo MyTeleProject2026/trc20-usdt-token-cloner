@@ -282,14 +282,14 @@ function readSolidifiedTransferEvent(log, contractBytes) {
 }
 
 /** Verifies one exact transfer from Tatum's solidified TRON transaction body and receipt. */
-async function verifySolidifiedUsdtTransfer(env, { transactionHash, from, to, amountBaseUnits }) {
+export async function verifySolidifiedUsdtTransfer(env, { transactionHash, from, to, amountBaseUnits, providerRequest = tatumGatewayRequest, tronWebFactory = async () => { const { TronWeb } = await import('tronweb'); return new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' }) } }) {
   if (!TXID_RE.test(transactionHash || '') || !isValidTronAddress(from) || !isValidTronAddress(to)
     || !/^[1-9][0-9]{0,77}$/.test(String(amountBaseUnits))) {
     return { verified: false, status: 'invalid-verification-intent' }
   }
   const [transaction, receipt] = await Promise.all([
-    tatumGatewayRequest({ env, network: 'mainnet', path: 'walletsolidity/gettransactionbyid', body: { value: transactionHash, visible: false } }),
-    tatumGatewayRequest({ env, network: 'mainnet', path: 'walletsolidity/gettransactioninfobyid', body: { value: transactionHash, visible: false } }),
+    providerRequest({ env, network: 'mainnet', path: 'walletsolidity/gettransactionbyid', body: { value: transactionHash, visible: false } }),
+    providerRequest({ env, network: 'mainnet', path: 'walletsolidity/gettransactioninfobyid', body: { value: transactionHash, visible: false } }),
   ])
   const bodyMatches = typeof transaction?.txID === 'string'
     && transaction.txID.toLowerCase() === transactionHash.toLowerCase()
@@ -301,8 +301,7 @@ async function verifySolidifiedUsdtTransfer(env, { transactionHash, from, to, am
     return { verified: false, status: 'awaiting-solidified-receipt', solidifiedReceiptPresent: false }
   }
 
-  const { TronWeb } = await import('tronweb')
-  const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
+  const tronWeb = await tronWebFactory()
   if (!tronWeb.isAddress(from) || !tronWeb.isAddress(to) || !tronWeb.isAddress(MAINNET_USDT)) {
     return { verified: false, status: 'invalid-address-checksum' }
   }
