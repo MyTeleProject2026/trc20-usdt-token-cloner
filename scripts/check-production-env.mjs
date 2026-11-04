@@ -101,72 +101,72 @@ export function inspectProductionEnvironment(env = process.env, {
 
   if (ownerPayoutSelected) {
     const treasuryOwnerValid = isValidTronAddress(env.TREASURY_OWNER_ADDRESS)
-  const ownerMatches = ownerAddressValid && treasuryOwnerValid && env.OWNER_WALLET_ADDRESS === env.TREASURY_OWNER_ADDRESS
-  add('TREASURY_OWNER_ADDRESS', !treasuryOwnerValid
-    ? check(present(env.TREASURY_OWNER_ADDRESS) ? 'invalid' : 'missing', 'Use the same owner-controlled address as OWNER_WALLET_ADDRESS.')
-    : ownerMatches
-      ? check('configured', 'Matches OWNER_WALLET_ADDRESS.')
-      : check('mismatch', 'Must exactly match OWNER_WALLET_ADDRESS.')
-  , { error: !ownerMatches })
+    const ownerMatches = ownerAddressValid && treasuryOwnerValid && env.OWNER_WALLET_ADDRESS === env.TREASURY_OWNER_ADDRESS
+    add('TREASURY_OWNER_ADDRESS', !treasuryOwnerValid
+      ? check(present(env.TREASURY_OWNER_ADDRESS) ? 'invalid' : 'missing', 'Use the same owner-controlled address as OWNER_WALLET_ADDRESS.')
+      : ownerMatches
+        ? check('configured', 'Matches OWNER_WALLET_ADDRESS.')
+        : check('mismatch', 'Must exactly match OWNER_WALLET_ADDRESS.')
+    , { error: !ownerMatches })
 
-  const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
-  add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
-    ? check('missing', 'Required for managed payouts; do not guess this address.')
-    : treasuryAddressValid
-      ? check('configured', 'Valid address syntax only; it must match the actual Fireblocks vault address.')
-      : check('invalid', 'Must be a valid TRON Base58Check address.')
-  , { error: !treasuryAddressValid })
+    const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
+    add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
+      ? check('missing', 'Required for managed payouts; do not guess this address.')
+      : treasuryAddressValid
+        ? check('configured', 'Valid address syntax only; it must match the actual Fireblocks vault address.')
+        : check('invalid', 'Must be a valid TRON Base58Check address.')
+    , { error: !treasuryAddressValid })
 
-  const positiveDecimal6 = (value) => {
-    if (typeof value !== 'string' || value.length > 86
-      || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
-    const [whole, fraction = ''] = value.split('.')
-    if (whole.length > 78) return false
-    return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
-  }
-  for (const key of ['TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX']) {
-    const valid = positiveDecimal6(env[key])
-    add(key, valid
-      ? check('configured', 'Positive decimal limit with at most six fractional digits; operator approval is not verified.')
-      : check(present(env[key]) ? 'invalid' : 'missing', 'Set a positive decimal payout/daily limit, up to six decimal places.')
-    , { error: !valid })
-  }
+    const positiveDecimal6 = (value) => {
+      if (typeof value !== 'string' || value.length > 86
+        || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
+      const [whole, fraction = ''] = value.split('.')
+      if (whole.length > 78) return false
+      return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
+    }
+    for (const key of ['TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX']) {
+      const valid = positiveDecimal6(env[key])
+      add(key, valid
+        ? check('configured', 'Positive decimal limit with at most six fractional digits; operator approval is not verified.')
+        : check(present(env[key]) ? 'invalid' : 'missing', 'Set a positive decimal payout/daily limit, up to six decimal places.')
+      , { error: !valid })
+    }
 
-  const feeLimitText = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
-  const feeLimitValid = /^[1-9][0-9]{0,9}$/.test(feeLimitText) && BigInt(feeLimitText || '0') <= 1_000_000_000n
-  add('TREASURY_FEE_LIMIT_SUN', feeLimitValid
-    ? check('configured', 'Positive integer fee-estimate threshold/reserve in SUN; Fireblocks estimates are preflight checks, not an enforceable hard cap, and actual TRX must cover the reserve.')
-    : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee-estimate threshold/reserve in SUN, no greater than 1000000000.')
-  , { error: !feeLimitValid })
+    const feeLimitText = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
+    const feeLimitValid = /^[1-9][0-9]{0,9}$/.test(feeLimitText) && BigInt(feeLimitText || '0') <= 1_000_000_000n
+    add('TREASURY_FEE_LIMIT_SUN', feeLimitValid
+      ? check('configured', 'Positive integer fee-estimate threshold/reserve in SUN; Fireblocks estimates are preflight checks, not an enforceable hard cap, and actual TRX must cover the reserve.')
+      : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee-estimate threshold/reserve in SUN, no greater than 1000000000.')
+    , { error: !feeLimitValid })
 
-  add('TREASURY_SIGNER_MODE', env.TREASURY_SIGNER_MODE === 'fireblocks'
-    ? check('configured', 'Managed Fireblocks signer selected.')
-    : check(present(env.TREASURY_SIGNER_MODE) ? 'invalid' : 'missing', 'Use fireblocks; the legacy application-held-key path is not an approved payout fallback.')
-  , { error: env.TREASURY_SIGNER_MODE !== 'fireblocks' })
+    add('TREASURY_SIGNER_MODE', env.TREASURY_SIGNER_MODE === 'fireblocks'
+      ? check('configured', 'Managed Fireblocks signer selected.')
+      : check(present(env.TREASURY_SIGNER_MODE) ? 'invalid' : 'missing', 'Use fireblocks; the legacy application-held-key path is not an approved payout fallback.')
+    , { error: env.TREASURY_SIGNER_MODE !== 'fireblocks' })
 
-  const fireblocksBase = present(env.FIREBLOCKS_API_BASE) ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : 'https://api.fireblocks.io'
-  add('FIREBLOCKS_API_BASE', FIREBLOCKS_API_BASES.has(fireblocksBase)
-    ? check('configured', 'Supported production API origin syntax.')
-    : check('invalid', 'Use the supported production origin confirmed for your Fireblocks workspace.')
-  , { error: !FIREBLOCKS_API_BASES.has(fireblocksBase) })
+    const fireblocksBase = present(env.FIREBLOCKS_API_BASE) ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : 'https://api.fireblocks.io'
+    add('FIREBLOCKS_API_BASE', FIREBLOCKS_API_BASES.has(fireblocksBase)
+      ? check('configured', 'Supported production API origin syntax.')
+      : check('invalid', 'Use the supported production origin confirmed for your Fireblocks workspace.')
+    , { error: !FIREBLOCKS_API_BASES.has(fireblocksBase) })
 
-  requiredString('FIREBLOCKS_API_KEY')
-  const secretPath = present(env.FIREBLOCKS_SECRET_KEY_PATH) ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
-  const secretFileAvailable = Boolean(secretPath && isAbsolute(secretPath) && fileExists(secretPath))
-  let secretKeyStatus = !secretPath
-    ? check('missing', 'Set an absolute Render Secret File path.')
-    : !isAbsolute(secretPath)
-      ? check('invalid', 'Must be an absolute file path.')
-      : !secretFileAvailable
-        ? check('missing-file', 'The path does not exist in this runtime; upload the provider API-user RSA key as a Render Secret File.')
-        : null
-  if (secretFileAvailable) {
-    try {
-      const privateKey = createPrivateKey(readSecretFile(secretPath))
-      if (privateKey.asymmetricKeyType !== 'rsa') {
-        secretKeyStatus = check('invalid-key-type', 'The Fireblocks API authentication key must be an RSA private key.')
-      } else if (privateKey.asymmetricKeyDetails?.modulusLength !== 4096) {
-        secretKeyStatus = check('invalid-key-size', 'The Fireblocks API authentication key must be RSA-4096; no key material is displayed.')
+    requiredString('FIREBLOCKS_API_KEY')
+    const secretPath = present(env.FIREBLOCKS_SECRET_KEY_PATH) ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
+    const secretFileAvailable = Boolean(secretPath && isAbsolute(secretPath) && fileExists(secretPath))
+    let secretKeyStatus = !secretPath
+      ? check('missing', 'Set an absolute Render Secret File path.')
+      : !isAbsolute(secretPath)
+        ? check('invalid', 'Must be an absolute file path.')
+        : !secretFileAvailable
+          ? check('missing-file', 'The path does not exist in this runtime; upload the provider API-user RSA key as a Render Secret File.')
+          : null
+    if (secretFileAvailable) {
+      try {
+        const privateKey = createPrivateKey(readSecretFile(secretPath))
+        if (privateKey.asymmetricKeyType !== 'rsa') {
+          secretKeyStatus = check('invalid-key-type', 'The Fireblocks API authentication key must be an RSA private key.')
+        } else if (privateKey.asymmetricKeyDetails?.modulusLength !== 4096) {
+          secretKeyStatus = check('invalid-key-size', 'The Fireblocks API authentication key must be RSA-4096; no key material is displayed.')
       } else {
         secretKeyStatus = check('configured', 'The mounted PEM is readable and RSA-4096; key material is never displayed.')
       }
