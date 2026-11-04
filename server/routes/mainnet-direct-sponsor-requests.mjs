@@ -4,7 +4,6 @@ import { Trx } from 'tronweb'
 import { createSponsorRoleFundingReader } from '../sponsor-roles.mjs'
 import {
   MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS,
-  OFFICIAL_MAINNET_USDT_CONTRACT as APPROVAL_USDT_CONTRACT,
   buildMainnetDirectSponsorApprovalMessage,
   mainnetDirectSponsorRequestSnapshotHash,
   resolveMainnetDirectSponsorApprovalPolicy,
@@ -528,7 +527,7 @@ export function createMainnetDirectSponsorRequestRouter({
       if (result?.success !== true || !session) return { ok: false, status: 401, error: 'invalid-or-expired-wallet-session' }
       if (session.network !== 'mainnet' || session.origin !== origin
         || !isValidTronAddress(session.address)
-        || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) {
+        || !Number.isFinite(session.expiresAt) || session.expiresAt <= now()) {
         return { ok: false, status: 403, error: 'mainnet-wallet-session-required' }
       }
       return { ok: true, session }
