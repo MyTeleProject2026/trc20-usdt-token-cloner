@@ -117,10 +117,10 @@ function validateFields(manifest, { expectedVaultAddress, expectedSponsorOrganiz
  * It authorizes one manually initiated incoming deposit only. It is not a
  * withdrawal instruction, a transfer signature, or a delegation of key control.
  */
-export function buildThirdPartyFundingAuthorizationMessage(manifest) {
+export function buildThirdPartyFundingAuthorizationMessage(manifest, { nowMs = Date.now() } = {}) {
   const validation = validateFields(manifest, {
     expectedVaultAddress: manifest?.vaultAddress,
-    nowMs: Date.now(),
+    nowMs,
   })
   if (!validation.valid) throw new TypeError(validation.reason)
   const fields = [
@@ -184,7 +184,7 @@ export async function verifyThirdPartyFundingAuthorization(manifest, {
 
   let recoveredAddress
   try {
-    recoveredAddress = await verifyMessage(buildThirdPartyFundingAuthorizationMessage(manifest), manifest.signature)
+    recoveredAddress = await verifyMessage(buildThirdPartyFundingAuthorizationMessage(manifest, { nowMs: now() }), manifest.signature)
   } catch {
     return { verified: false, reason: 'authorization-signature-verification-failed' }
   }
