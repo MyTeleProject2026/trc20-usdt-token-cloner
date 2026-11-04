@@ -208,7 +208,7 @@ export default function App() {
         sessionStorage.removeItem(OWNER_SESSION_KEY);setOwnerSession(null);return
       }
       setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:token})
-      await loadRequests(token);await refreshReadiness(token)
+      await loadRequests(token);await refreshReadiness(token);await loadSponsorFundingHistory(token)
     } catch {setOwnerSession(null)}
   }
   async function signInOwner() {
@@ -270,7 +270,7 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
       <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
-      <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>{setTab(item.id);if(ownerSession?.sessionToken&&['assets','sponsors','transactions','settings'].includes(item.id)){void loadRequests(ownerSession.sessionToken).catch(e=>setError(e.message));void refreshReadiness(ownerSession.sessionToken)}}}><item.icon size={17}/>{item.label}</button>)}</nav>
+      <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>{setTab(item.id);if(ownerSession?.sessionToken&&['assets','sponsors','transactions','settings'].includes(item.id)){void loadRequests(ownerSession.sessionToken).catch(e=>setError(e.message));void refreshReadiness(ownerSession.sessionToken)}if(ownerSession?.sessionToken&&item.id==='sponsors'){void loadSponsorFundingHistory(ownerSession.sessionToken)}}}><item.icon size={17}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>Local identity signing<br/><b>No server-held wallet keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Lock wallet</button>:<span className="muted small">Identity wallet locked</span>}</div>
     </aside>
     <main className="main-content">
@@ -360,7 +360,7 @@ export default function App() {
         </section>}
 {tab==='sponsors'&&<section className="panel sponsor-panel">
           <div className="section-heading"><div><span className="eyebrow">AUTHORIZED PRINCIPAL / LIVE PAYOUTS</span><h2>Sponsored USDT TRC20 withdrawals</h2><p>Fincra submits live payouts from an authorized funded business source. Tatum verifies the resulting Mainnet transaction.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
-          <div className="sponsor-readiness"><div><span className="eyebrow">FINCRA LIVE READINESS</span><strong>{readiness?.fincra?.canSubmitLivePayout?'Live payout prerequisites pass':'Live payouts currently gated'}</strong><small>Environment: {readiness?.fincra?.environment||'Not checked'} · Scheme: usdt_trc20</small></div><button className="secondary-button" onClick={()=>perform(()=>refreshReadiness())}><RefreshCw size={15}/> Refresh readiness</button></div>
+          <div className="sponsor-readiness"><div><span className="eyebrow">FINCRA LIVE READINESS</span><strong>{readiness?.fincra?.canSubmitLivePayout?'Live payout prerequisites pass':'Live payouts currently gated'}</strong><small>Environment: {readiness?.fincra?.environment||'Not checked'} · Scheme: usdt_trc20</small></div><button className="secondary-button" onClick={()=>perform(async()=>{await refreshReadiness();await loadSponsorFundingHistory()})}><RefreshCw size={15}/> Refresh readiness & funding</button></div>
           {readiness?.fincra?.sourceBalance?.checked&&readiness.fincra.sourceBalance.currency==='USDT'&&readiness.fincra.sourceBalance.walletNumber&&<div className="panel sponsor-funding-destination">
             <span className="eyebrow">SPONSOR FUNDING DESTINATION · FINCRA USDT BALANCE</span>
             <h3>Receive sponsor funding into the payout source</h3>
