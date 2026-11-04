@@ -110,7 +110,7 @@ test('owner Treasury opens local-wallet sponsor requests and keeps Mainnet trans
   const sponsor = await read('src/DirectSponsorPayouts.tsx')
   const approval = await read('server/routes/mainnet-direct-sponsor-approval.mjs')
   assert.ok(vault.includes("function navigatePanel(panel:"))
-  assert.ok(vault.includes("onClick={() => navigatePanel('treasury')}))
+  assert.ok(vault.includes("onClick={() => navigatePanel('treasury')}"))
   assert.ok(vault.includes('<DirectSponsorPayouts'))
   assert.ok(vault.includes('walletAddress={unlocked.record.address}'))
   assert.ok(vault.includes('privateKey={unlocked.privateKey}'))
