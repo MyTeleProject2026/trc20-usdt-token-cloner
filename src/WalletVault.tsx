@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import PlatformTreasuryPanel from './PlatformTreasuryPanel'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -1800,6 +1801,8 @@ export default function WalletVault() {
               <p className="wallet-vault-caption" hidden={activePanel !== 'wallet'}><Activity size={14} /> This is a standalone local wallet. The encrypted vault is stored on this device; the backend never receives the private key. Keep an offline backup.</p>
 
               {network === 'mainnet' && (
+                <>
+                <PlatformTreasuryPanel ownerSessionToken={ownerSessionToken} active={activePanel === 'treasury'} onOwnerIdentitySignIn={() => void refreshOwnerTreasury()} />
                 <section id="owner-treasury-funding" className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading" hidden={activePanel !== 'treasury'}>
                   <div className="wallet-vault-panel-head">
                     <span className="wallet-vault-step">OWNER</span>
@@ -1908,6 +1911,7 @@ export default function WalletVault() {
                   <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !treasuryPayoutStatus} onClick={() => void lookupServerTreasuryPayout()}>Verify receipt & look up saved status</button>
                   <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
                 </section>
+                </>
               )}
 
               <section id="wallet-vault-transfer" className="wallet-vault-transfer-section" aria-labelledby="wallet-vault-transfer-heading" hidden={activePanel !== 'send'}>
