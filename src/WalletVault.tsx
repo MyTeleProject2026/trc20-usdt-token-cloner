@@ -2168,6 +2168,7 @@ export default function WalletVault() {
         <SponsorOrganizationReviewPanel
           wallet={unlocked ? { address: unlocked.record.address, privateKey: unlocked.privateKey } : null}
           network={network}
+          active={activePanel === 'treasury'}
           onSelectMainnet={() => setNetwork('mainnet')}
           onOpenAccount={() => navigatePanel('account')}
         />
