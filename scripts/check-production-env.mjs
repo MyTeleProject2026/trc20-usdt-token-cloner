@@ -89,6 +89,11 @@ export function inspectProductionEnvironment(env = process.env, {
     : check(present(env.OWNER_WALLET_ADDRESS) ? 'invalid' : 'missing', 'Use the owner-controlled TRON address.')
   , { error: !ownerAddressValid })
 
+  add('OWNER_PASSWORD_HASH', OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '')
+    ? check('configured', 'Hash format matches the owner login scrypt format; password was not tested.')
+    : check(present(env.OWNER_PASSWORD_HASH) ? 'invalid' : 'missing', 'Generate locally with node scripts/generate-owner-password-hash.mjs.')
+  , { error: !OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '') })
+
   const ownerPayoutFlagsEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
     || env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
   const fireblocksSelected = env.TREASURY_SIGNER_MODE === 'fireblocks'
@@ -103,11 +108,6 @@ export function inspectProductionEnvironment(env = process.env, {
       ? check('configured', 'Matches OWNER_WALLET_ADDRESS.')
       : check('mismatch', 'Must exactly match OWNER_WALLET_ADDRESS.')
   , { error: !ownerMatches })
-
-  add('OWNER_PASSWORD_HASH', OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '')
-    ? check('configured', 'Hash format matches the owner login scrypt format; password was not tested.')
-    : check(present(env.OWNER_PASSWORD_HASH) ? 'invalid' : 'missing', 'Generate locally with node scripts/generate-owner-password-hash.mjs.')
-  , { error: !OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '') })
 
   const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
   add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
