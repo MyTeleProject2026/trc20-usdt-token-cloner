@@ -157,3 +157,54 @@ test('preflight rejects unreadable or malformed Fireblocks PEM material without 
   assert.ok(report.errors.includes('FIREBLOCKS_SECRET_KEY_PATH'))
   assert.equal(JSON.stringify(report).includes('not-a-private-key'), false)
 })
+
+test('provider-independent sponsor-wallet workflow does not require optional Fireblocks or owner-payout configuration', () => {
+  const env = completeSyntacticEnv({
+    TREASURY_SIGNER_MODE: undefined,
+    TREASURY_OWNER_ADDRESS: undefined,
+    TREASURY_ADDRESS: undefined,
+    TREASURY_MAX_PAYOUT_USDT: undefined,
+    TREASURY_DAILY_LIMIT_USDT: undefined,
+    TREASURY_MAX_PAYOUT_TRX: undefined,
+    TREASURY_DAILY_LIMIT_TRX: undefined,
+    TREASURY_FEE_LIMIT_SUN: undefined,
+    FIREBLOCKS_API_BASE: undefined,
+    FIREBLOCKS_API_KEY: undefined,
+    FIREBLOCKS_SECRET_KEY_PATH: undefined,
+    FIREBLOCKS_VAULT_ACCOUNT_ID: undefined,
+    FIREBLOCKS_USDT_ASSET_ID: undefined,
+    FIREBLOCKS_TRX_ASSET_ID: undefined,
+  })
+  const report = inspectProductionEnvironment(env, {
+    fileExists: () => false,
+    readSecretFile: () => { throw new Error('must-not-read-an-unselected-secret') },
+  })
+  assert.equal(report.status, 'syntactic-preflight-passed')
+  assert.deepEqual(report.errors, [])
+  assert.equal(report.checks.TREASURY_SIGNER_MODE.status, 'not-selected')
+  for (const key of [
+    'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS',
+    'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+    'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX',
+    'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_API_BASE', 'FIREBLOCKS_API_KEY',
+    'FIREBLOCKS_SECRET_KEY_PATH', 'FIREBLOCKS_VAULT_ACCOUNT_ID',
+    'FIREBLOCKS_USDT_ASSET_ID', 'FIREBLOCKS_TRX_ASSET_ID',
+  ]) {
+    assert.equal(report.checks[key].status, 'not-required', key)
+  }
+  assert.equal(report.releaseAuthorized, false)
+})
+
+test('owner Mainnet payout flags cannot be enabled without the supported Fireblocks signer mode', () => {
+  const report = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_SIGNER_MODE: undefined,
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
+  }), {
+    fileExists: () => false,
+    readSecretFile: () => { throw new Error('must-not-read-unselected-key') },
+  })
+  assert.equal(report.checks.TREASURY_SIGNER_MODE.status, 'missing')
+  assert.ok(report.errors.includes('TREASURY_SIGNER_MODE'))
+  assert.equal(report.checks.TREASURY_WITHDRAWALS_ENABLED.status, 'enabled-needs-independent-release-approval')
+  assert.equal(report.releaseAuthorized, false)
+})
