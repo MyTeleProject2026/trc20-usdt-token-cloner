@@ -8,7 +8,7 @@ const entry = await readFile(new URL('../server/index.mjs', import.meta.url), 'u
 test('Tatum RPC proxy is network fixed, method allow-listed, and server-keyed', () => {
   assert.match(route, /TATUM_MAINNET_API_KEY/)
   assert.match(route, /TATUM_TESTNET_API_KEY/)
-  assert.match(route, /x-api-key: key/)
+  assert.match(route, /['\"]x-api-key['\"]:\\s*key/)
   assert.match(route, /router\.all\('\/rpc\/:network\/\*'/)
   assert.match(route, /RPC_METHODS\.has\(method\)/)
   assert.doesNotMatch(route, /wallet\/broadcasttransaction'\s*,?\s*\n/)
