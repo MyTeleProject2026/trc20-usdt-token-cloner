@@ -34,6 +34,9 @@ test('saved sponsor request is checked before the component creates another idem
   assert.ok(sponsor.includes("if (requestKey && !requestRecord)"))
   assert.ok(sponsor.includes('existing.response.status !== 404'))
   assert.ok(sponsor.includes('No new request was submitted.'))
+  const saveKeyAt = sponsor.indexOf('window.localStorage.setItem(REQUEST_KEY_PREFIX + walletAddress, idempotencyKey)')
+  const postRequestAt = sponsor.indexOf("const result = await api<any>('/api/tron/sponsorship/mainnet-direct/requests'")
+  assert.ok(saveKeyAt >= 0 && postRequestAt > saveKeyAt, 'persist the idempotency key before the API request starts')
 })
 
 test('saved Mainnet sponsor request reference can be copied for later status lookup', async () => {
