@@ -176,7 +176,8 @@ export async function verifyThirdPartyFundingAuthorization(manifest, {
   now = () => Date.now(),
   verifyMessage = (message, signature) => Trx.verifyMessageV2(message, signature),
 } = {}) {
-  const fields = validateFields(manifest, { expectedVaultAddress, expectedSponsorOrganizationReference, expectedAgreementReference, nowMs: now() })
+  const nowMs = now()
+  const fields = validateFields(manifest, { expectedVaultAddress, expectedSponsorOrganizationReference, expectedAgreementReference, nowMs })
   if (!fields.valid) return { verified: false, reason: fields.reason }
   if (typeof manifest.signature !== 'string' || !SIGNATURE_PATTERN.test(manifest.signature)) {
     return { verified: false, reason: 'authorization-signature-invalid-format' }
@@ -184,7 +185,7 @@ export async function verifyThirdPartyFundingAuthorization(manifest, {
 
   let recoveredAddress
   try {
-    recoveredAddress = await verifyMessage(buildThirdPartyFundingAuthorizationMessage(manifest, { nowMs: now() }), manifest.signature)
+    recoveredAddress = await verifyMessage(buildThirdPartyFundingAuthorizationMessage(manifest, { nowMs }), manifest.signature)
   } catch {
     return { verified: false, reason: 'authorization-signature-verification-failed' }
   }
