@@ -347,7 +347,7 @@ test('submitted sponsor transfers cannot release reservations without finalized 
   assert.ok(start >= 0)
   const transition = source.slice(start)
   assert.match(transition, /transfer\.status === 'submitted' && nextStatus === 'failed'/)
-  assert.match(transition, /finalized-failure-evidence-and-fee-reconciliation-required/)
+  assert.match(transition, /finalized-failure-fee-observation-required/)
   assert.match(transition, /submitted: \['confirmed'\]/)
   assert.match(transition, /if \(nextStatus === 'confirmed'\)[\s\S]*finalized-transfer-evidence-not-found/)
 })
@@ -564,6 +564,8 @@ function makeSponsorTransitionPool(state) {
             state.rollbacks += 1
             return { rows: [] }
           }
+          if (normalized.includes('to_regclass')) return { rows: [{ table_name: 'trc20_token_clone.sponsor_chain_fee_observations' }] }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_chain_fee_observations')) return { rows: [] }
           if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
             return { rows: [{ ...state.transfer }] }
           }
