@@ -222,6 +222,60 @@ test('TRC-20 fee estimate requires successful live simulation and valid energy p
   }), /explicitly reported a failed execution/)
 })
 
+
+test('TRC-20 fee estimation retries only rate-limited read calls and remains read-only', async () => {
+  let simulationCalls = 0
+  let chainParameterCalls = 0
+  const { tronWeb, calls } = mockTronWeb({
+    transactionBuilder: {
+      triggerConstantContract: async (...args) => {
+        simulationCalls += 1
+        if (simulationCalls === 1) throw Object.assign(new Error('HTTP 429 too many requests'), { status: 429 })
+        return {
+          result: { result: true },
+          energy_used: 90_000,
+          transaction: { ret: [{ contractRet: 'SUCCESS' }] },
+        }
+      },
+    },
+    trx: {
+      getChainParameters: async () => {
+        chainParameterCalls += 1
+        if (chainParameterCalls === 1) throw Object.assign(new Error('rate limit exceeded'), { statusCode: 429 })
+        return [{ key: 'getEnergyFee', value: 420 }]
+      },
+    },
+  })
+  const estimate = await estimateTRC20TransferFee({
+    tronWeb, from, to, tokenContract: contract, amountBaseUnits: '1000000',
+  })
+  assert.equal(estimate.simulationSucceeded, true)
+  assert.equal(estimate.energyRequired, 90_000)
+  assert.equal(simulationCalls, 2)
+  assert.equal(chainParameterCalls, 2)
+  assert.equal(calls.signed, 0)
+  assert.equal(calls.broadcast, 0)
+})
+
+test('TRC-20 fee estimation returns a clear retryable error after bounded provider throttling', async () => {
+  let calls = 0
+  const { tronWeb, calls: walletCalls } = mockTronWeb({
+    transactionBuilder: {
+      triggerConstantContract: async () => {
+        calls += 1
+        throw Object.assign(new Error('HTTP 429'), { status: 429 })
+      },
+    },
+  })
+  await assert.rejects(
+    estimateTRC20TransferFee({ tronWeb, from, to, tokenContract: contract, amountBaseUnits: '1000000' }),
+    error => error.code === 'chain-provider-rate-limited' && /Wait briefly and retry/.test(error.message),
+  )
+  assert.equal(calls, 3)
+  assert.equal(walletCalls.signed, 0)
+  assert.equal(walletCalls.broadcast, 0)
+})
+
 test('saved TRX activity is trusted only when a live node transaction matches sender, recipient and amount', async () => {
   const valid = mockTronWeb({ trx: {
     getTransaction: async id => ({
