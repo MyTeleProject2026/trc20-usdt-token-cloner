@@ -36,6 +36,14 @@ test('saved sponsor request is checked before the component creates another idem
   assert.ok(sponsor.includes('No new request was submitted.'))
 })
 
+test('saved Mainnet sponsor request reference can be copied for later status lookup', async () => {
+  const sponsor = await read('src/DirectSponsorPayouts.tsx')
+  assert.ok(sponsor.includes('Copy reference'))
+  assert.ok(sponsor.includes('navigator.clipboard.writeText(requestKey)'))
+  assert.ok(sponsor.includes('Check saved request status'))
+  assert.ok(sponsor.includes('Saved request reference copied.'))
+})
+
 test('local send preview uses server-read balances and has no Mainnet broadcast path', async () => {
   const vault = await read('src/WalletVault.tsx')
   assert.ok(vault.includes("API_BASE + '/api/tron/native-balance?network='"))
