@@ -100,6 +100,39 @@ type OwnerTreasurySnapshot = {
   submissionEnabled?: boolean
 }
 
+type OwnerSponsorLiquiditySource = {
+  address: string
+  status: string
+  onChainBalanceVerified: boolean
+  onChainBalanceBaseUnits: string | null
+  availableBaseUnits: string
+  approvedBudgetCount: number
+  budgetCount: number
+  committedBaseUnits?: string
+  unreservedLedgerBaseUnits?: string
+  checkedAt: string | null
+  reconciliationStatus: string
+}
+
+type OwnerSponsorLiquiditySnapshot = {
+  success?: boolean
+  status?: string
+  network?: string
+  tokenContract?: string
+  decimals?: number
+  checkedAt?: string
+  sourceCount?: number
+  verifiedSourceCount?: number
+  eligibleSourceCount?: number
+  onChainBalanceBaseUnits?: string
+  availableBaseUnits?: string
+  ownerWalletExcluded?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  submissionEnabled?: boolean
+  sources?: OwnerSponsorLiquiditySource[]
+  error?: string
+}
+
 type FireblocksInventorySnapshot = {
   id?: string | null
   workflowRunId?: string | null
@@ -323,6 +356,7 @@ export default function WalletVault() {
   const [transferHistory, setTransferHistory] = useState<TransferActivity[]>(readTransferHistory)
   const [historyLoading, setHistoryLoading] = useState('')
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
+  const [ownerSponsorLiquidity, setOwnerSponsorLiquidity] = useState<OwnerSponsorLiquiditySnapshot | null>(null)
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
   const [ownerSessionToken, setOwnerSessionToken] = useState('')
@@ -473,6 +507,7 @@ export default function WalletVault() {
     setMainnetSendPhrase('')
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
+    setOwnerSponsorLiquidity(null)
     setServerTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
@@ -485,6 +520,7 @@ export default function WalletVault() {
   useEffect(() => {
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
+    setOwnerSponsorLiquidity(null)
     setServerTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
@@ -1385,6 +1421,7 @@ export default function WalletVault() {
     setOwnerSessionToken('')
     setOwnerSessionAddress('')
     setOwnerTreasurySnapshot(null)
+    setOwnerSponsorLiquidity(null)
     setServerTreasuryReadiness(null)
     setActivePanel('dashboard')
     if (sessionToken) {
