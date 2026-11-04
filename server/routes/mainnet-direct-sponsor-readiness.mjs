@@ -134,7 +134,6 @@ export function buildMainnetDirectSponsorReadiness({
         onChainBalanceRead: principal.onChainBalanceRead === true,
         officialUsdtContract: OFFICIAL_MAINNET_USDT_CONTRACT,
         officialUsdtBalanceVerified: Boolean(officialUsdt),
-        ...(officialUsdt ? { officialUsdtBalanceBaseUnits: String(officialUsdt.balanceBaseUnits) } : {}),
         agreementScopeConfigured: principalScope,
       },
       addressesDistinct: rolesDistinct,
