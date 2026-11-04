@@ -103,6 +103,8 @@ type OwnerTreasurySnapshot = {
 type OwnerSponsorLiquiditySource = {
   address: string
   status: string
+  configuredSourceRoles?: string[]
+  sponsorReferences?: string[]
   onChainBalanceVerified: boolean
   onChainBalanceBaseUnits: string | null
   availableBaseUnits: string
@@ -1567,7 +1569,7 @@ export default function WalletVault() {
                 <strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong>
               </div>
               <div>
-                <small>Verified sponsor wallets</small>
+                <small>Verified source wallets</small>
                 <strong>{ownerSponsorLiquidity.verifiedSourceCount || 0} / {ownerSponsorLiquidity.sourceCount || 0}</strong>
               </div>
             </div>
@@ -1577,7 +1579,7 @@ export default function WalletVault() {
                   <div className="wallet-vault-token-row" key={source.address}>
                     <div className="wallet-vault-token-info">
                       <strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong>
-                      <small>{source.approvedBudgetCount} allowlisted active budget(s) · {source.budgetCount} matching ledger record(s)</small>
+                      <small>{source.sponsorReferences?.length ? source.sponsorReferences.join(', ') : source.configuredSourceRoles?.join(', ') || 'Configured sponsor source'} · {source.approvedBudgetCount} allowlisted active budget(s) · {source.budgetCount} ledger record(s)</small>
                     </div>
                     <div className="wallet-vault-token-amount">
                       <strong>{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
@@ -1724,7 +1726,7 @@ export default function WalletVault() {
                   <div className="wallet-vault-token-list">
                     {ownerSponsorLiquidity.sources.map(source => (
                       <div className="wallet-vault-token-row" key={source.address}>
-                        <div className="wallet-vault-token-info"><strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong><small>{source.approvedBudgetCount} allowlisted active budget(s)</small></div>
+                        <div className="wallet-vault-token-info"><strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong><small>{source.sponsorReferences?.length ? source.sponsorReferences.join(', ') : source.configuredSourceRoles?.join(', ') || 'Configured sponsor source'} · {source.approvedBudgetCount} allowlisted active budget(s)</small></div>
                         <strong className="wallet-vault-token-amount">{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
                       </div>
                     ))}
@@ -1844,7 +1846,7 @@ export default function WalletVault() {
                             <div className="wallet-vault-token-row" key={source.address}>
                               <div className="wallet-vault-token-info">
                                 <strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong>
-                                <small>{source.approvedBudgetCount} active allowlisted budget(s)</small>
+                                <small>{source.sponsorReferences?.length ? source.sponsorReferences.join(', ') : source.configuredSourceRoles?.join(', ') || 'Configured sponsor source'} · {source.approvedBudgetCount} active allowlisted budget(s)</small>
                               </div>
                               <strong className="wallet-vault-token-amount">{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
                             </div>

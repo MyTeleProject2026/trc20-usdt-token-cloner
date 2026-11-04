@@ -156,7 +156,19 @@ export function createOwnerSponsorLiquidityRouter({
             && isApprovedScope({ consentReference: budget.approval_reference, budget }),
         }))
 
-      const addresses = [...new Set(matchingBudgets.map((budget) => budget.sponsor_address))]
+      const configuredSources = [
+        { address: env.SPONSOR_ASSET_MAINNET_ADDRESS, role: 'asset-principal-sponsor-address' },
+        { address: env.SPONSOR_MAINNET_ADDRESS, role: 'legacy-sponsor-address' },
+        { address: env.TREASURY_MAINNET_ADDRESS, role: 'treasury-watch-address' },
+      ].filter((item) => typeof item.address === 'string'
+        && ADDRESS_PATTERN.test(item.address.trim())
+        && !excludedOwnerAddresses.has(item.address.trim()))
+        .map((item) => ({ address: item.address.trim(), role: item.role }))
+
+      const addresses = [...new Set([
+        ...matchingBudgets.map((budget) => budget.sponsor_address),
+        ...configuredSources.map((source) => source.address),
+      ])]
       if (addresses.length > MAX_SOURCES) {
         return res.status(503).json({
           success: false, error: 'sponsor-source-limit-exceeded',
@@ -171,6 +183,12 @@ export function createOwnerSponsorLiquidityRouter({
         const batch = addresses.slice(offset, offset + 4)
         const rows = await Promise.all(batch.map(async (address) => {
           const sourceBudgets = matchingBudgets.filter((budget) => budget.sponsor_address === address)
+          const configuredSourceRoles = [...new Set(configuredSources
+            .filter((source) => source.address === address)
+            .map((source) => source.role))]
+          const sponsorReferences = [...new Set(sourceBudgets
+            .map((budget) => String(budget.sponsor_reference || '').trim())
+            .filter(Boolean))]
           let funding
           try {
             funding = readFunding
@@ -197,6 +215,8 @@ export function createOwnerSponsorLiquidityRouter({
             return {
               address,
               status: 'balance-unavailable',
+              configuredSourceRoles,
+              sponsorReferences,
               onChainBalanceVerified: false,
               onChainBalanceBaseUnits: null,
               availableBaseUnits: '0',
@@ -204,6 +224,22 @@ export function createOwnerSponsorLiquidityRouter({
               budgetCount: sourceBudgets.length,
               checkedAt: funding?.checkedAt || null,
               reconciliationStatus: 'balance-unavailable',
+            }
+          }
+
+          if (sourceBudgets.length === 0) {
+            return {
+              address,
+              status: 'no-allowlisted-usdt-budget',
+              configuredSourceRoles,
+              sponsorReferences: [],
+              onChainBalanceVerified: true,
+              onChainBalanceBaseUnits: token.balanceBaseUnits,
+              availableBaseUnits: '0',
+              approvedBudgetCount: 0,
+              budgetCount: 0,
+              checkedAt: funding.checkedAt,
+              reconciliationStatus: 'no-allowlisted-usdt-budget',
             }
           }
 
@@ -230,6 +266,8 @@ export function createOwnerSponsorLiquidityRouter({
             address,
             status: covered ? (activeAvailable > 0n ? 'verified-allowlisted-capacity' : 'no-unreserved-capacity')
               : reconciliation.status || 'sponsor-budget-not-covered',
+            configuredSourceRoles,
+            sponsorReferences,
             onChainBalanceVerified: true,
             onChainBalanceBaseUnits: token.balanceBaseUnits,
             availableBaseUnits: covered ? activeAvailable.toString() : '0',
@@ -270,8 +308,13 @@ export function createOwnerSponsorLiquidityRouter({
         signerAuthorizationVerified: false,
         canSubmitSponsoredTransfer: false,
         submissionEnabled: false,
+        coverage: 'sponsor-budget-ledger-and-configured-mainnet-source-addresses-only',
+        organizationAuthorizationIndependentlyVerified: false,
+        signerAuthorizationVerified: false,
         limitations: [
-          'Only non-owner sponsor addresses with exact-scope-approved active Mainnet official-USDT asset-grant budgets are counted as available capacity.',
+          'Only non-owner sponsor addresses with exact-scope-allowlisted active Mainnet official-USDT asset-grant budgets are counted as available capacity.',
+          'Existing configured sponsor/treasury addresses without an eligible asset-grant budget may be shown as observed-only sources; their balance never contributes to available capacity.',
+          'This portfolio does not discover arbitrary public wallets or every public organization. A source must be configured or represented by a sponsor budget record.',
           'Each source must have a fresh solidified on-chain balance covering all matching budget commitments; otherwise its available capacity is zero.',
           'Raw on-chain sponsor balance and approved unreserved budget capacity are reported separately.',
           'This is read-only funding aggregation. It does not prove that an authorized signer is available or enable withdrawal submission.',

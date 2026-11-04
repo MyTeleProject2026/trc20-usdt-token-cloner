@@ -64,10 +64,12 @@ function funding(address, balance, checkedAt = new Date().toISOString()) {
 }
 
 async function listen(t, options = {}) {
+  const { configuredAssetSponsorAddress, ...routerOptions } = options
   const app = express()
   app.use('/api/treasury/owner', createOwnerSponsorLiquidityRouter({
     env: {
       TREASURY_OWNER_ADDRESS: OWNER,
+      ...(configuredAssetSponsorAddress ? { SPONSOR_ASSET_MAINNET_ADDRESS: configuredAssetSponsorAddress } : {}),
       SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
         [AGREEMENT_A, 'org-a', 'mainnet', SPONSOR_A, 'asset-grant', 'USDT', OFFICIAL_USDT].join('|'),
         [AGREEMENT_B, 'org-b', 'mainnet', SPONSOR_B, 'asset-grant', 'USDT', OFFICIAL_USDT].join('|'),
@@ -82,7 +84,7 @@ async function listen(t, options = {}) {
         || (budget.sponsor_reference === 'org-b' && consentReference === AGREEMENT_B && budget.sponsor_address === SPONSOR_B)),
     listBudgets: async () => ({ success: true, budgets: [] }),
     readFunding: async () => funding(SPONSOR_A, '0'),
-    ...options,
+    ...routerOptions,
   }))
   const server = createServer(app)
   t.after(() => new Promise((resolve) => server.close(resolve)))
@@ -188,6 +190,23 @@ test('unavailable provider balance is not converted into zero or counted as veri
   assert.equal(payload.availableBaseUnits, '0')
   assert.equal(payload.sources[0].status, 'balance-unavailable')
   assert.equal(payload.sources[0].onChainBalanceBaseUnits, null)
+})
+
+test('configured external sponsor address is shown as observed-only until it has an allowlisted USDT budget', async (t) => {
+  const url = await listen(t, {
+    configuredAssetSponsorAddress: SPONSOR_A,
+    listBudgets: async () => ({ success: true, budgets: [] }),
+    readFunding: async (address) => funding(address, '3456000000'),
+  })
+  const payload = await (await fetch(url, { headers: authHeaders() })).json()
+  assert.equal(payload.success, true)
+  assert.equal(payload.sourceCount, 1)
+  assert.equal(payload.verifiedSourceCount, 1)
+  assert.equal(payload.onChainBalanceBaseUnits, '3456000000')
+  assert.equal(payload.availableBaseUnits, '0')
+  assert.equal(payload.sources[0].status, 'no-allowlisted-usdt-budget')
+  assert.deepEqual(payload.sources[0].configuredSourceRoles, ['asset-principal-sponsor-address'])
+  assert.equal(payload.sources[0].budgetCount, 0)
 })
 
 test('truncated budget ledger fails closed instead of aggregating an incomplete sponsor set', async (t) => {
