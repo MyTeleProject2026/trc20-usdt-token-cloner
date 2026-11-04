@@ -103,7 +103,15 @@ export function inspectProductionEnvironment(env = process.env, {
     : check(present(env.OWNER_PASSWORD_HASH) ? 'invalid' : 'missing', 'Generate locally with node scripts/generate-owner-password-hash.mjs.')
   , { error: !OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '') })
 
-  const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
+  // Fireblocks is an optional signer integration, not a prerequisite for the
+  // provider-independent sponsor ledger or its separate Shasta/Nile wallet flow.
+  // Validate Fireblocks only when the managed Mainnet treasury payout path is
+  // explicitly enabled. Disabled payout paths must not require credentials for
+  // a provider the operator does not use.
+  const mainnetTreasuryPayoutEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
+    || env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
+  if (mainnetTreasuryPayoutEnabled) {
+    const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
   add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
     ? check('missing', 'Required for managed payouts; do not guess this address.')
     : treasuryAddressValid
@@ -180,6 +188,20 @@ export function inspectProductionEnvironment(env = process.env, {
       ? check('configured', 'An asset ID is present; provider metadata was not checked.')
       : check(present(env[key]) ? 'invalid' : 'missing', 'Copy the exact asset ID from the authorized Fireblocks workspace.')
     , { error: !ASSET_ID_PATTERN.test(env[key] || '') })
+  }
+
+
+  } else {
+    for (const key of [
+      'TREASURY_ADDRESS',
+      'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+      'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX',
+      'TREASURY_FEE_LIMIT_SUN', 'TREASURY_SIGNER_MODE', 'FIREBLOCKS_API_BASE',
+      'FIREBLOCKS_API_KEY', 'FIREBLOCKS_SECRET_KEY_PATH', 'FIREBLOCKS_VAULT_ACCOUNT_ID',
+      'FIREBLOCKS_USDT_ASSET_ID', 'FIREBLOCKS_TRX_ASSET_ID',
+    ]) {
+      add(key, check('not-required-disabled', 'Mainnet treasury payout is disabled; no signer or treasury payout configuration is required.'))
+    }
   }
 
   for (const key of ['TREASURY_WITHDRAWALS_ENABLED', 'TREASURY_TRX_WITHDRAWALS_ENABLED', 'SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED', 'SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED']) {
