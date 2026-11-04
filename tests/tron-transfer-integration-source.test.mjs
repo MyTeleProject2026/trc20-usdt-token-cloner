@@ -121,3 +121,9 @@ test('Fincra webhook accepts payout identity and received amount from the signed
   assert.match(route, /providerRecipient && providerRecipient !== row\.recipient_address/)
   assert.match(route, /signedEventRecipient && signedEventRecipient !== row\.recipient_address/)
 })
+
+test('Fincra USDT source balance exposes the recipient wallet number for sponsor-to-business funding', () => {
+  assert.match(route, /walletNumber: cleanString\(wallet\.walletNumber \|\| wallet\.balanceNumber \|\| wallet\.wallet_number, 128\) \|\| null/)
+  assert.match(route, /router\.get\('\/readiness'/)
+  assert.match(route, /sourceBalance,/)
+})
