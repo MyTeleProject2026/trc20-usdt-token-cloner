@@ -18,8 +18,7 @@ function scrub(body) {
   // credentialValues() covers anything seeded/pushed into creds.json, but a
   // credential can also reach this process directly via the environment
   // (e.g. local dev exporting TATUM_API_KEY with no creds file mounted) —
-  // include it so that path is still redacted. Also redact TRONGrid and
-  // GasFree credentials now that those read-only provider adapters are present.
+  // include it so that path is still redacted. Also redact payout and sponsor credentials.
   const secrets = [
     ...credentialValues(),
     process.env.TATUM_API_KEY,
