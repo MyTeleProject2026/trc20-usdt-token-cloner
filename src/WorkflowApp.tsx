@@ -3033,7 +3033,7 @@ export default function WorkflowApp() {
                       <div className="studio-role-metric"><span>Network / contract</span><strong>Mainnet · Tether USDT TRC20</strong><small>{mainnetSponsorRequest.tokenContract}</small></div>
                       <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetSponsorRequest.idempotencyKey}</code></strong></div>
                     </div>
-                    <p className="studio-inline-note">Principal approval: {mainnetSponsorRequest.sponsorApproval?.status || 'pending'} · Fee sponsor approval: {mainnetSponsorRequest.feeSponsorApproval?.status || 'pending'} · Funds/resources reserved: no · Transaction signature: none · TRON broadcast: no.</p>
+                    <p className="studio-inline-note">Principal approval: {mainnetSponsorRequest.sponsorApproval?.status || 'pending'} · Fee sponsor approval: {mainnetSponsorRequest.feeSponsorApproval?.status || 'pending'} · Sponsor funds reserved: no · Fee resources reserved: no · Transaction signature: none · TRON broadcast: no.</p>
                   </div>
                 )}
                 <p className="studio-footnote">Submitting stores a request for sponsor review only. It does not debit your wallet, reserve sponsor funds, sign a payout, submit to TRON, or guarantee exchange deposit credit.</p>
@@ -3114,7 +3114,7 @@ export default function WorkflowApp() {
                       <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetSponsorChallenge.request.idempotencyKey}</code></strong></div>
                     </div>
                     <pre className="studio-readonly-value" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{mainnetSponsorChallenge.message}</pre>
-                    <p className="studio-field-hint">TronLink will sign this exact text. It is a sponsor approval statement only, not a TRON transaction. It does not authorize fees, reserve funds, create a transaction or enable payout execution.</p>
+                    <p className="studio-field-hint">TronLink will sign this exact text. This is a sponsor approval statement only, not a TRON transaction. It does not authorize fees, reserve funds, create a transaction or enable payout execution.</p>
                     <div className="studio-inline-actions">
                       <button type="button" className="studio-button studio-button--primary" onClick={() => void signMainnetSponsorApproval()} disabled={!mainnetSponsorIdentity || mainnetSponsorReviewBusy !== null || Date.parse(mainnetSponsorChallenge.expiresAt) <= Date.now()}>
                         <ShieldCheck size={15} className={mainnetSponsorReviewBusy === 'approve' ? 'studio-spin' : ''} aria-hidden="true" />
