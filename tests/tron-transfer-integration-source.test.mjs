@@ -29,6 +29,14 @@ test('recipient inspection only reads Mainnet official USDT balances and incomin
   assert.match(route, /historyProvider: 'trongrid'/)
 })
 
+test('Fincra source-balance parser accepts array and object wallet-list response shapes', () => {
+  assert.match(route, /Array\.isArray\(data\?\.results\)/)
+  assert.match(route, /Array\.isArray\(data\?\.accounts\)/)
+  assert.match(route, /Array\.isArray\(data\?\.balances\)/)
+  assert.match(route, /data\.availableBalance !== undefined/)
+  assert.match(route, /availableBaseUnits/)
+})
+
 test('Fincra live payout requires provider enablement, source funds, Tatum Mainnet and database readiness', () => {
   assert.match(route, /config\.mode !== 'live'/)
   assert.match(route, /FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED/)
