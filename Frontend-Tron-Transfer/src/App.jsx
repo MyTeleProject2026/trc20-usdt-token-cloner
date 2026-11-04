@@ -552,6 +552,7 @@ export default function App() {
     try { sessionStorage.removeItem(OWNER_SESSION_KEY) } catch {}
     setOwnerSession(null)
     setSponsorRequests([])
+    setFincraReadiness(null)
     setNotice('Owner session signed out.')
   }
   async function runOwnerSponsorAction(requestId, action) {
