@@ -1,6 +1,6 @@
 # Sponsor transfer reconciliation — implementation gates
 
-Status: partial implementation, not production-ready. Reservation and evidence-gated settlement logic exist, but sponsor execution must remain disabled until every gate below has been implemented and verified. New ledger transitions to authorized and submitted currently fail closed because wallet-signature verification and provider submission are not integrated.
+Status: partial implementation, not production-ready. Reservation/idempotency, exact successful-transfer verification, a testnet-only immutable fee-observation ledger, and evidence-gated failed-principal reconciliation are implemented. The generic ledger transition API still refuses new authorized/submitted changes. A separate Shasta/Nile signed-broadcast route exists but is disabled by default; neither route establishes production authorization, custody, fee-budget settlement, or Mainnet withdrawal readiness.
 
 ## Non-negotiable separation
 
@@ -16,9 +16,9 @@ Never label a reservation, pending grant, submitted transaction, or sponsor budg
 
 ## Implemented safeguards and remaining gaps
 
-Current source enforces reservation/idempotency and on-chain reconciliation checks. New authorized status requests are refused until a wallet signature is cryptographically verified against server-reconstructed intent and protected against nonce replay. New submitted status requests are refused until a provider adapter can prove its own accepted broadcast result. A test-only seeded submitted row is used only to exercise settlement rollback and idempotency; it is not provider or chain evidence.
+Current source enforces reservation/idempotency and on-chain reconciliation checks. The generic ledger transition API rejects new authorized/submitted status changes until its wallet-signature and provider-submission contracts are integrated. Separately, the Shasta/Nile wallet-signing/broadcast route is present behind SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false by default; it is not a production route and has not been proven by an externally witnessed end-to-end run. The failed-principal reconciler accepts only a stored submitted testnet asset-grant, and only when the immutable fee-observation ledger contains a matching solidified FAILED receipt for the exact network, transaction hash, and idempotency key. It releases the unspent principal reservation and writes the audit event atomically; it explicitly does not settle the network-fee budget. PostgreSQL tests seed a prior submitted row only as a controlled test fixture, not as provider or chain evidence.
 
-Still not complete: signed legal sponsor consent and account-ownership verification; live two-role sponsor funding verified for the actual operator-controlled wallets; a wallet-side permit flow with durable nonce-use storage; a real provider broadcast adapter and idempotency/retry contract; fee-aware finalized failure reconciliation; and an externally witnessed Nile end-to-end transfer. CI run `41820383435` and dependency audit run `41820383387` both pass on the documentation-updated branch head `cb8738750d4632f4e2df8a6036f81608dfef0d1c`; these are code-validation results, not evidence of production authorization, funding, custody, or transfer capability. Any previously reported protobuf advisory must be checked against the current full audit report before claiming it is closed. None of these should be inferred from a configured environment variable, a test fixture, or a successful Render start.
+Still not complete: signed sponsor mandate and legal/account-ownership verification; production funding verified for both sponsor roles; production custody/signing policy and authorized signer setup; a supported provider-backed transaction submission contract with replay protection and recovery; transaction-specific proof of delegated Energy/Bandwidth or provider fee debit; separate network-fee budget settlement; and an externally witnessed Shasta/Nile end-to-end transfer through recipient balance verification. A confirmed chain transfer also does not prove an exchange credited the deposit. CI and dependency-audit success validate code/tests only; they are not evidence of sponsor authorization, funding, custody, or live withdrawal capability. None of these should be inferred from a configured environment variable, a test fixture, or a successful Render start.
 
 ## Required transaction state machine
 
@@ -27,7 +27,7 @@ Use an explicit state machine with immutable evidence records:
 - `draft -> pending-review -> authorized -> submitted`
 - `pending-review -> cancelled`
 - `submitted -> confirmed` only after exact transaction evidence is verified and persisted.
-- `submitted -> failed` only after a trusted provider establishes terminal failure/finality and the reconciler accounts for any consumed network fee.
+- `submitted -> failed` only for a Shasta/Nile asset-grant with an immutable FAILED receipt observation matching the stored network, transaction hash, and idempotency key. The transaction status update, principal-reservation release, and audit event are atomic. Fee evidence is retained, but the separate network-fee budget is not settled by this transition.
 - If provider evidence is unavailable, conflicting, or non-final, retain the reservation and mark the outcome inconclusive; never release funds based only on a caller-supplied status.
 
 Reject every transition not explicitly allowed. Require idempotency keys and a unique transaction identity scoped to network, transaction hash, asset contract (where applicable), and event/log index.
@@ -39,7 +39,7 @@ Within a database transaction and appropriate row locks:
 1. Load the sponsor budget and reservation for the exact sponsor, network, asset, and request.
 2. Validate authorization, consent, expiry, recipient, amount, contract allowlist, network, and per-transfer/per-day limits.
 3. Validate persisted provider evidence; do not accept arbitrary request fields as proof.
-4. Reconcile principal and fee as separate units and separate ledger entries. TRX fees are denominated in SUN/TRX; token principal uses the allowlisted token's integer base units and verified decimals.
+4. Reconcile principal and fee as separate units and separate ledger entries. Successful asset principal is booked only after exact transfer verification. For a finalized failed testnet receipt, persist the immutable fee observation and release only the unused principal reservation; do not book principal spend or claim the separate fee budget was settled. TRX fees are denominated in SUN/TRX; token principal uses the allowlisted token's integer base units and verified decimals.
 5. Apply the state transition, ledger entries, reservation adjustments, and audit event atomically.
 6. Enforce uniqueness/idempotency so retries cannot debit twice or release a reservation twice.
 7. On any error, roll back all accounting mutations. Preserve an inconclusive reservation until evidence permits safe reconciliation.
@@ -63,7 +63,7 @@ An indexer candidate, HTTP 200, provider reachability check, submitted hash, wal
 ## Required automated tests before enabling any sponsor path
 
 - valid confirmed transfer debits principal once;
-- valid failed finalized transfer accounts for actual fee and releases only unused reservation;
+- a matching finalized FAILED testnet receipt is immutably observed and releases the principal reservation exactly once; the separate fee budget remains unchanged and unsettled;
 - pending, missing, contradictory, or non-final evidence leaves reservation intact;
 - duplicate request, duplicate webhook, repeated reconciliation, and concurrent workers are idempotent;
 - wrong network, wrong contract, wrong sender/recipient, wrong amount, and failed execution are rejected;
@@ -87,6 +87,6 @@ A provider account or API key alone does not prove funding or transfer capabilit
 
 ## Current code-review result: purpose-specific confirmation remains fail-closed
 
-The database transition layer now checks `purpose` explicitly. It refuses to confirm `network-fee` reservations with `purpose-specific-fee-evidence-and-reconciliation-required`; a fee/resource reservation cannot be settled as receiver principal. It also refuses unsupported purposes and blocks Mainnet confirmation before evidence or budget settlement queries. Regression tests cover these guards.
+The database transition layer checks `purpose` explicitly. It refuses to confirm `network-fee` reservations with `purpose-specific-fee-evidence-and-reconciliation-required`; a fee/resource reservation cannot be settled as receiver principal. Separately, a testnet-only immutable `sponsor_chain_fee_observations` ledger stores finalized SUCCESS/FAILED receipt observations. A matching FAILED observation can authorize atomic release of an asset-grant principal reservation, with an audit record containing `feeBudgetSettled=false`. PostgreSQL integration tests cover missing evidence, concurrent duplicate reconciliation, exact-once release, separate fee-budget non-interference, and audit-write rollback.
 
-This is a safety barrier, not a completed fee reconciler. For `asset-grant`, confirmation still requires persisted exact-identity on-chain verification evidence and atomically updates the matching budget and audit trail. For `network-fee`, a provider-specific finalized fee/resource evidence model, fee ledger, and reconciliation path still need implementation. Do not infer actual fee consumption from the reservation amount or invent a receiver principal transfer. Keep all sponsor submission flags disabled until that purpose-specific fee path and the other enablement gates are independently verified.
+This remains a safety barrier, not a completed network-fee reconciler. For `asset-grant`, confirmation requires persisted exact-identity on-chain verification evidence and atomically updates the matching principal budget and audit trail. Failed testnet asset-grants require the immutable matching FAILED fee observation before the principal reservation is released. For `network-fee`, the application still lacks transaction-specific proof that the distinct fee sponsor paid a TRX burn or supplied the delegated resources consumed by that transaction, and it has no separate fee-budget settlement path. Never infer fee payment from a configured sponsor address, a reservation amount, or a current delegation snapshot. Keep production/Mainnet submission disabled until the separate fee path, sponsor mandate, custody, funding, and end-to-end gates are independently verified.
