@@ -152,3 +152,44 @@ test('fee settlement history is admin-gated and bounded to testnets', async (t) 
   assert.equal(payload.count, 1)
   assert.deepEqual(requested, { network: 'nile', limit: 7 })
 })
+
+
+test('fee reservation link endpoint is admin-gated and accepts only the stored reservation key', async (t) => {
+  let linkCalls = 0
+  let linkedWith
+  const base = await listen(t, {
+    linkFeeReservation: async (value) => {
+      linkCalls += 1
+      linkedWith = value
+      return { success: true, linked: true, duplicate: false, linkId: '31', reservedFeeSun: '5000' }
+    },
+  })
+  const denied = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/link-fee-reservation', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feeReservationIdempotencyKey: 'network-fee-reservation-0001' }),
+  })
+  assert.equal(denied.status, 401)
+  assert.equal(linkCalls, 0)
+
+  const invalid = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/link-fee-reservation', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ feeReservationIdempotencyKey: 'network-fee-reservation-0001', sponsorAddress: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8' }),
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal(linkCalls, 0)
+
+  const response = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/link-fee-reservation', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ feeReservationIdempotencyKey: 'network-fee-reservation-0001' }),
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'fee-reservation-linked')
+  assert.deepEqual(linkedWith, {
+    assetTransferIdempotencyKey: idempotencyKey,
+    feeReservationIdempotencyKey: 'network-fee-reservation-0001',
+  })
+  assert.equal(payload.link.reservedFeeSun, '5000')
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(payload.delegatedResourceSettlement, false)
+})
