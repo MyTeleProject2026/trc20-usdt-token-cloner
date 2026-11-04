@@ -272,6 +272,24 @@ export function inspectProductionEnvironment(env = process.env, {
     add('DATABASE_SSL', check('invalid', 'Use true or false.'), { error: true })
   }
 
+  const mandatoryLiveChecks = ownerPayoutSelected
+    ? [
+        'Verify the selected Fireblocks organization account, vault ownership, and transaction policy.',
+        'Verify Fireblocks USDT metadata matches the official TRON USDT contract and native TRX metadata is correct.',
+        'Verify the configured treasury address matches the actual provider-returned address for both assets.',
+        'Verify provider-available and on-chain principal/fee balances and unresolved payout reservations.',
+        'Complete an authorized controlled end-to-end transfer and independently verify its solidified receipt and exact token Transfer event.',
+        'Review CI, deployment status, emergency pause, limits, and recovery/reconciliation procedures.',
+      ]
+    : [
+        'Verify the sponsor organization identity, account ownership, written spending mandate, and exact network/asset/destination scope.',
+        'Verify separate, fresh on-chain asset-principal funding and network-fee/TRX or delegated-resource coverage from sponsor-controlled accounts.',
+        'Complete supported Shasta/Nile end-to-end sponsor-wallet signing, broadcast, solidification, receiver-balance, and sponsor-cost reconciliation tests.',
+        'Implement and independently security-review the Mainnet sponsor-wallet signing, transaction-policy, broadcast, and settlement adapter before any Mainnet release.',
+        'Verify no user-funded fallback, no fabricated sponsor balances, atomic reservations, emergency pause, payout limits, audit trails, and recovery procedures.',
+        'Review CI, deployment status, monitoring, and explicit production release approval.',
+      ]
+
   const report = {
     status: errors.length ? 'configuration-needs-attention' : 'syntactic-preflight-passed',
     secretValuesDisplayed: false,
@@ -279,14 +297,7 @@ export function inspectProductionEnvironment(env = process.env, {
     checks,
     errors,
     warnings,
-    mandatoryLiveChecks: [
-      'Verify real provider account authorization, vault ownership, and transaction policy.',
-      'Verify Fireblocks USDT metadata matches the official TRON USDT contract and native TRX metadata is correct.',
-      'Verify configured treasury address matches the actual provider-returned address for both assets.',
-      'Verify provider-available and on-chain principal/fee balances and unresolved payout reservations.',
-      'Complete an authorized controlled end-to-end transfer and independently verify its solidified receipt and exact token Transfer event.',
-      'Review CI, deployment status, emergency pause, limits, and recovery/reconciliation procedures.',
-    ],
+    mandatoryLiveChecks,
   }
   return report
 }
