@@ -381,6 +381,11 @@ export default function WalletVault() {
   const ownerHeaderTrx = unlocked && network === 'mainnet' && portfolio ? portfolio.trx + ' TRX' : ownerHeaderBalance
   const officialOwnerUsdt = network === 'mainnet' ? portfolio?.tokens.find(token => token.contract === OFFICIAL_MAINNET_USDT && !token.error)?.balance : undefined
   const ownerHeaderUsdt = unlocked && network === 'mainnet' ? (officialOwnerUsdt !== undefined ? officialOwnerUsdt + ' USDT' : portfolio ? 'Not in Assets' : ownerHeaderBalance) : ownerHeaderBalance
+  const selectedPortfolioToken = portfolio?.tokens.find(token => token.contract === selectedTokenContract)
+  const mainnetOwnerReviewBlocked = network === 'mainnet' && (
+    ownerTreasurySnapshot?.ownerAccessVerified !== true
+    || ownerTreasurySnapshot.treasuryAddress !== unlocked?.record.address
+  )
 
   function pushToast(kind: WalletToast['kind'], message: string) {
     const clean = String(message || '').trim()
@@ -1953,6 +1958,34 @@ export default function WalletVault() {
                   {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this password-encrypted browser wallet has not undergone an independent wallet-security audit and is not hardware-backed. Do not keep substantial value in an unaudited browser wallet.</p>}
                   {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
                 </div>
+                {network === 'mainnet' && (
+                  <div className="wallet-vault-transfer-warning" role="status">
+                    <strong>{ownerTreasurySnapshot?.ownerAccessVerified !== true
+                      ? 'Owner verification required before Mainnet review'
+                      : ownerTreasurySnapshot.treasuryAddress !== unlocked?.record.address
+                        ? 'Unlocked wallet does not match the configured treasury'
+                        : 'Mainnet owner check verified'}</strong>
+                    {ownerTreasurySnapshot?.ownerAccessVerified !== true ? (
+                      <>
+                        <p>Mainnet transfer review requires a fresh owner identity check and a live read of the configured treasury. This check does not sign or send a payment.</p>
+                        <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Open Organization payouts to verify owner</button>
+                      </>
+                    ) : ownerTreasurySnapshot.treasuryAddress !== unlocked?.record.address ? (
+                      <>
+                        <p>The configured treasury address differs from the unlocked local wallet. This wallet cannot sign for another address or spend the organization’s vault assets.</p>
+                        <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Review treasury address and funding</button>
+                      </>
+                    ) : transferAsset === 'TRX' && portfolio && /^0(?:\.0*)?$/.test(portfolio.trx) ? (
+                      <p>This unlocked wallet currently has zero TRX. A TRX transfer cannot be made, and TRC-20 transfers also need sufficient network fees or resources.</p>
+                    ) : transferAsset === 'TRC20' && selectedPortfolioToken?.error ? (
+                      <p>The selected token balance could not be verified. Refresh Assets and retry; an unavailable balance is not the same as zero.</p>
+                    ) : transferAsset === 'TRC20' && selectedPortfolioToken && /^0(?:\.0*)?$/.test(selectedPortfolioToken.balance) ? (
+                      <p>The unlocked wallet currently has zero {selectedPortfolioToken.symbol}. Receive genuine tokens into this wallet before reviewing a transfer. A separate organization treasury does not change this wallet’s balance.</p>
+                    ) : (
+                      <p>The owner check verifies identity and reads balances only. This supervised build still cannot sign or broadcast Mainnet transfers.</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="wallet-vault-transfer-form">
                   <label htmlFor="wallet-transfer-asset">Asset</label>
@@ -1976,7 +2009,7 @@ export default function WalletVault() {
                   <input id="wallet-transfer-recipient" autoComplete="off" spellCheck={false} value={recipientInput} onChange={event => { setRecipientInput(event.target.value); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }} placeholder="T… (full Base58Check address)" />
                   <label htmlFor="wallet-transfer-amount">Amount</label>
                   <input id="wallet-transfer-amount" inputMode="decimal" autoComplete="off" value={amountInput} onChange={event => { setAmountInput(event.target.value); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }} placeholder={transferAsset === 'TRX' ? 'e.g. 1.25 TRX' : 'e.g. 12.5 tokens'} />
-                  <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || !recipientInput.trim() || !amountInput.trim() || (transferAsset === 'TRC20' && !selectedTokenContract)} onClick={() => void performWalletAction(prepareTransfer)}>
+                  <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || mainnetOwnerReviewBlocked || !recipientInput.trim() || !amountInput.trim() || (transferAsset === 'TRC20' && !selectedTokenContract)} onClick={() => void performWalletAction(prepareTransfer)}>
                     <ShieldCheck size={16} /> {busy ? 'Checking on-chain state…' : 'Review transfer'}
                   </button>
                 </div>
