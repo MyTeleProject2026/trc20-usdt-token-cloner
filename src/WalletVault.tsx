@@ -144,9 +144,9 @@ const TOKEN_WATCH_KEY = 'tron-token-studio:token-watchlist:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
 const RPC: Record<NetworkId, string> = {
-  mainnet: 'https://api.trongrid.io',
-  nile: 'https://nile.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
+  mainnet: API_BASE + '/api/tatum/rpc/mainnet',
+  nile: API_BASE + '/api/tatum/rpc/nile',
+  shasta: API_BASE + '/api/tatum/rpc/shasta',
 }
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const TOKEN_ABI = [
