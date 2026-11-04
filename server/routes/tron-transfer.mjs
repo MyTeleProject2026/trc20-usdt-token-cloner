@@ -391,6 +391,12 @@ export function createTronTransferRouter({ env = process.env } = {}) {
           ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ`)
         await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
           ADD COLUMN IF NOT EXISTS fincra_successful_at TIMESTAMPTZ`)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS fincra_amount_charged_base_units NUMERIC(78,0)`)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS fincra_amount_received_base_units NUMERIC(78,0)`)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS fincra_fee_base_units NUMERIC(78,0)`)
         await db.query(`CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_requests_created_idx
           ON ${SCHEMA}.tron_transfer_sponsor_requests (created_at DESC)`)
       })().catch((error) => { schemaPromise = null; throw error })
@@ -411,6 +417,9 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       tokenContract: row.token_contract,
       amountBaseUnits: String(row.amount_base_units),
       amount: String(row.amount_decimal),
+      fincraAmountChargedBaseUnits: row.fincra_amount_charged_base_units == null ? null : String(row.fincra_amount_charged_base_units),
+      fincraAmountReceivedBaseUnits: row.fincra_amount_received_base_units == null ? null : String(row.fincra_amount_received_base_units),
+      fincraFeeBaseUnits: row.fincra_fee_base_units == null ? null : String(row.fincra_fee_base_units),
       status: row.status,
       fincraReference: row.fincra_reference || null,
       fincraStatus: row.fincra_status || null,
