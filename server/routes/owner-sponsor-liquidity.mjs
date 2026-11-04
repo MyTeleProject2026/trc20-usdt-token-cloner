@@ -228,7 +228,7 @@ export function createOwnerSponsorLiquidityRouter({
             && sourceBudgets.some((budget) => budget.status === 'active' && budget.approvalScopeVerified === true)
           return {
             address,
-            status: covered ? (activeAvailable > 0n ? 'verified-approved-capacity' : 'no-unreserved-capacity')
+            status: covered ? (activeAvailable > 0n ? 'verified-allowlisted-capacity' : 'no-unreserved-capacity')
               : reconciliation.status || 'sponsor-budget-not-covered',
             onChainBalanceVerified: true,
             onChainBalanceBaseUnits: token.balanceBaseUnits,
@@ -248,7 +248,7 @@ export function createOwnerSponsorLiquidityRouter({
       const totalOnChain = sources.reduce((sum, source) => sum
         + (source.onChainBalanceVerified && source.onChainBalanceBaseUnits ? BigInt(source.onChainBalanceBaseUnits) : 0n), 0n)
       const verifiedSources = sources.filter((source) => source.onChainBalanceVerified).length
-      const eligibleSources = sources.filter((source) => source.status === 'verified-approved-capacity').length
+      const eligibleSources = sources.filter((source) => source.status === 'verified-allowlisted-capacity').length
       return res.status(200).json({
         success: true,
         status: sources.length === 0 ? 'no-approved-sponsor-sources'
@@ -265,6 +265,9 @@ export function createOwnerSponsorLiquidityRouter({
         availableBaseUnits: totalAvailable.toString(),
         sources,
         ownerWalletExcluded: true,
+        approvalBasis: 'operator-configured-exact-sponsor-agreement-scope-allowlist',
+        organizationAuthorizationIndependentlyVerified: false,
+        signerAuthorizationVerified: false,
         canSubmitSponsoredTransfer: false,
         submissionEnabled: false,
         limitations: [
