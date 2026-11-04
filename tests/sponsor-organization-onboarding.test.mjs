@@ -169,7 +169,7 @@ function createApp(t, overrides = {}) {
     store,
     sessionLookup: overrides.sessionLookup || makeSessionLookup(),
     now: () => Date.now(),
-    verifyMessage: async (_message, signature) => signature === '0x' + 'ab'.repeat(65) ? SPONSOR : OTHER,
+    verifyMessage: overrides.verifyMessage || (async (_message, signature) => signature === '0x' + 'ab'.repeat(65) ? SPONSOR : OTHER),
   }))
   return { store, basePromise }
 }
@@ -212,6 +212,36 @@ test('application submission requires a signature from the authenticated sponsor
   assert.equal(missing.status, 400)
   assert.equal((await missing.json()).error, 'application-wallet-signature-required')
   assert.equal(store.rows.size, 0)
+})
+
+test('wallet application signature covers normalized organization details and requested roles', async (t) => {
+  let signedMessage = ''
+  const { basePromise } = createApp(t, {
+    verifyMessage: async (message) => {
+      signedMessage = message
+      return SPONSOR
+    },
+  })
+  const base = await basePromise
+  const response = await fetch(base + '/tron/sponsorship/organizations', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(requestBody({
+      organizationName: ' Example Sponsor Foundation ',
+      businessEmail: ' Treasury@Example.org ',
+      jurisdiction: ' Singapore ',
+      website: 'https://example.org/about?campaign=1',
+      requestedRoles: ['network-fees', 'asset-principal'],
+    })),
+  })
+  assert.equal(response.status, 201)
+  assert.match(signedMessage, /Sponsor wallet: ${SPONSOR}/)
+  assert.match(signedMessage, /Organization: Example Sponsor Foundation/)
+  assert.match(signedMessage, /Business contact email: treasury@example\.org/)
+  assert.match(signedMessage, /Jurisdiction: Singapore/)
+  assert.match(signedMessage, /Website: https:\/\/example\.org$/m)
+  assert.match(signedMessage, /Requested roles: asset-principal, network-fees/)
+  assert.match(signedMessage, /This is not a transaction, transfer, or spending authorization\./)
 })
 
 test('sponsor wallet address comes only from its authenticated Mainnet wallet session', async (t) => {
