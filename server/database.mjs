@@ -423,7 +423,7 @@ export async function initializeDatabase() {
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_status_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers
         ADD CONSTRAINT sponsor_transfers_status_check
-        CHECK (status IN ('pending-review','authorized','broadcasting','submitted','confirmed','failed','cancelled'))`)
+        CHECK (status IN ('pending-review','authorized','broadcasting','submitted','confirmed','failed','cancelled','fee-settled'))`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers DROP CONSTRAINT IF EXISTS sponsor_transfers_asset_check`)
       await db.query(`ALTER TABLE ${schema}.sponsor_transfers ADD CONSTRAINT sponsor_transfers_asset_check CHECK (asset IN ('TRX','USDT','VTRC'))`)
       // The transfer ledger must preserve fee/principal separation and exact token identity too.
@@ -1486,6 +1486,28 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       return { updated: false, reason: 'transfer-not-found' }
     }
     const transfer = result.rows[0]
+    if (nextStatus === 'cancelled' && transfer.purpose === 'network-fee') {
+      const linkTable = await client.query('SELECT to_regclass($1) AS table_name', [
+        `${schema}.sponsor_fee_reservation_links`,
+      ])
+      if (linkTable.rows[0]?.table_name) {
+        const linkedAsset = await client.query(
+          `SELECT a.status
+             FROM ${schema}.sponsor_fee_reservation_links l
+             JOIN ${schema}.sponsor_transfers a
+               ON a.idempotency_key = l.asset_transfer_idempotency_key
+            WHERE l.fee_reservation_idempotency_key = $1`,
+          [idempotencyKey],
+        )
+        // A linked hold is releasable only after the asset transfer is terminally
+        // cancelled. Reading (not locking) this row avoids reversing the asset-first
+        // lock order used by fee settlement; cancelled is a terminal source state.
+        if (linkedAsset.rows.some((row) => row.status !== 'cancelled')) {
+          await client.query('ROLLBACK')
+          return { updated: false, reason: 'linked-asset-transfer-must-be-cancelled-first' }
+        }
+      }
+    }
     if (nextStatus === 'confirmed' && !['nile', 'shasta'].includes(transfer.network)) {
       await client.query('ROLLBACK')
       return { updated: false, reason: 'mainnet-sponsor-confirmation-disabled' }

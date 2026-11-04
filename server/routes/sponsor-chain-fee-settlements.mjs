@@ -2,11 +2,13 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { getSponsorTransferForSubmission } from '../database.mjs'
 import {
+  linkSponsorFeeReservation,
   listSponsorChainFeeSettlements,
   settleSponsorChainFeeObservation,
 } from '../sponsor-chain-fee-settlements.mjs'
 
 const KEY = /^[A-Za-z0-9._:-]{24,160}$/
+const LINK_KEY = /^[A-Za-z0-9._:-]{8,160}$/
 const TXID = /^[0-9a-f]{64}$/i
 const NETWORKS = new Set(['nile', 'shasta'])
 
@@ -24,6 +26,7 @@ export function createSponsorChainFeeSettlementRouter(options = {}) {
   const env = options.env ?? process.env
   const lookup = options.lookupTransfer ?? getSponsorTransferForSubmission
   const settle = options.settleFee ?? settleSponsorChainFeeObservation
+  const linkFee = options.linkFeeReservation ?? linkSponsorFeeReservation
   const list = options.listSettlements ?? listSponsorChainFeeSettlements
   const router = Router()
 
@@ -35,6 +38,70 @@ export function createSponsorChainFeeSettlementRouter(options = {}) {
     delegatedResourceSettlement: false,
     canSubmitSponsoredTransfer: false,
     ...extra,
+  })
+
+
+  router.post('/sponsorship/transfers/:idempotencyKey/link-fee-reservation', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Vary', 'Authorization')
+    if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
+      return fail(res, 503, 'sponsor-admin-not-configured')
+    }
+    if (!authorized(req, env)) return fail(res, 401, 'unauthorized')
+
+    const assetTransferIdempotencyKey = req.params?.idempotencyKey
+    if (typeof assetTransferIdempotencyKey !== 'string' || !LINK_KEY.test(assetTransferIdempotencyKey)) {
+      return fail(res, 400, 'invalid-idempotency-key')
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1
+      || typeof body.feeReservationIdempotencyKey !== 'string'
+      || !LINK_KEY.test(body.feeReservationIdempotencyKey)) {
+      return fail(res, 400, 'invalid-fee-reservation-link-request', {
+        message: 'Provide only the stored network-fee reservation idempotency key. Sponsor, wallet, amount and budget identity are loaded from the database.',
+      })
+    }
+
+    try {
+      const result = await linkFee({
+        assetTransferIdempotencyKey,
+        feeReservationIdempotencyKey: body.feeReservationIdempotencyKey,
+      })
+      if (result?.success !== true || result.linked !== true) {
+        const reason = result?.reason || 'fee-reservation-link-unavailable'
+        const conflict = [
+          'invalid-fee-reservation-link-identity',
+          'asset-grant-transfer-not-found',
+          'testnet-asset-grant-transfer-required',
+          'network-fee-reservation-not-found',
+          'network-fee-reservation-scope-mismatch',
+          'network-fee-reservation-already-consumed',
+          'fee-reservation-sponsor-wallet-mismatch',
+          'network-fee-budget-not-found-or-mismatched',
+          'network-fee-budget-approval-required',
+          'fee-reservation-budget-hold-mismatch',
+          'fee-reservation-link-conflict',
+        ].includes(reason)
+        return fail(res, conflict ? 409 : 503, reason, { canSubmitSponsoredTransfer: false })
+      }
+      return res.status(200).json({
+        success: true,
+        status: result.duplicate ? 'fee-reservation-link-already-exists' : 'fee-reservation-linked',
+        duplicate: result.duplicate === true,
+        link: {
+          id: result.linkId,
+          assetTransferIdempotencyKey,
+          feeReservationIdempotencyKey: body.feeReservationIdempotencyKey,
+          reservedFeeSun: result.reservedFeeSun,
+        },
+        canSubmitSponsoredTransfer: false,
+        delegatedResourceSettlement: false,
+        note: 'This link allocates an existing same-wallet testnet TRX fee hold to one asset transfer. It does not prove delegated Energy/Bandwidth use or enable signing, broadcast, or Mainnet.',
+      })
+    } catch {
+      return fail(res, 503, 'fee-reservation-link-unavailable')
+    }
   })
 
   router.post('/sponsorship/transfers/:idempotencyKey/settle-observed-fees', async (req, res) => {
@@ -91,6 +158,12 @@ export function createSponsorChainFeeSettlementRouter(options = {}) {
           'network-fee-budget-not-active',
           'network-fee-budget-approval-required',
           'insufficient-unreserved-network-fee-budget',
+          'linked-fee-reservation-identity-mismatch',
+          'linked-fee-reservation-budget-mismatch',
+          'linked-fee-reservation-already-consumed',
+          'linked-fee-reservation-budget-hold-mismatch',
+          'linked-fee-reservation-state-conflict',
+          'observed-fee-exceeds-linked-reservation',
           'chain-fee-settlement-conflict',
         ].includes(reason)
         return fail(res, conflict ? 409 : 503, reason, {
@@ -117,6 +190,9 @@ export function createSponsorChainFeeSettlementRouter(options = {}) {
           payerEvidence: 'immutable solidified receipt transaction owner equals the approved network-fee budget wallet',
           sameWalletAsAssetPrincipalSender: true,
           delegatedResourceSettlement: false,
+          feeReservationIdempotencyKey: result.feeReservationIdempotencyKey ?? null,
+          reservedFeeSun: result.reservedFeeSun ?? null,
+          releasedFeeReserveSun: result.releasedFeeReserveSun ?? null,
         },
         submissionEnabled: false,
         canSubmitSponsoredTransfer: false,
