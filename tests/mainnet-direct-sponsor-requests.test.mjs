@@ -538,7 +538,7 @@ test('sponsor signs one exact request message and approval never enables transac
     },
   }))
   const queue = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
-    headers: { authorization: 'Bearer ' + token },
+    headers: { ...headers(), authorization: 'Bearer ' + token },
   })
   assert.equal(queue.status, 200)
   assert.equal((await queue.json()).count, 1)
@@ -584,7 +584,7 @@ test('sponsor signs one exact request message and approval never enables transac
   assert.equal(replay.status, 409)
 
   const sponsorQueue = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
-    headers: { authorization: 'Bearer ' + token },
+    headers: { ...headers(), authorization: 'Bearer ' + token },
   })
   const queuePayload = await sponsorQueue.json()
   assert.equal(queuePayload.requests[0].sponsorApproval.status, 'approved-active')
@@ -692,7 +692,7 @@ test('Mainnet sponsor approval cannot exceed the signed sponsor cap or accept an
     env: noScopeEnv, store: makeStore(), sessionLookup: sessionLookup(sponsorAddress),
   }))
   const response = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
-    headers: { authorization: 'Bearer ' + token },
+    headers: { ...headers(), authorization: 'Bearer ' + token },
   })
   assert.equal(response.status, 503)
   assert.ok((await response.json()).requiredEnvironment.includes('SPONSOR_APPROVED_AGREEMENT_REFERENCES (exact Mainnet USDT asset-principal scope)'))
