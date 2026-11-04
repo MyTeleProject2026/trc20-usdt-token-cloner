@@ -163,10 +163,21 @@ async function fincraRequest(config, path, options = {}) {
 }
 
 function responseRows(payload) {
-  if (Array.isArray(payload?.data)) return payload.data
-  if (Array.isArray(payload?.data?.wallets)) return payload.data.wallets
+  const data = payload?.data
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.wallets)) return data.wallets
+  if (Array.isArray(data?.results)) return data.results
+  if (Array.isArray(data?.accounts)) return data.accounts
+  if (Array.isArray(data?.balances)) return data.balances
   if (Array.isArray(payload?.wallets)) return payload.wallets
   if (Array.isArray(payload?.result)) return payload.result
+  // Some Fincra account responses return one wallet object under data.
+  if (data && typeof data === 'object'
+    && (data.currency || data.sourceCurrency)
+    && (data.availableBalance !== undefined || data.available_balance !== undefined)) return [data]
+  if (payload && typeof payload === 'object'
+    && (payload.currency || payload.sourceCurrency)
+    && (payload.availableBalance !== undefined || payload.available_balance !== undefined)) return [payload]
   return []
 }
 
