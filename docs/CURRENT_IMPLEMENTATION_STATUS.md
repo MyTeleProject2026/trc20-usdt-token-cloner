@@ -2,7 +2,7 @@
 
 **Repository:** `MyTeleProject2026/trc20-usdt-token-cloner`  
 **Implementation branch:** `docs/platform-owned-treasury-architecture`  
-**Latest implementation revision verified by CI:** `3caa8150e0428300f4bc96139f54db5b707260d7`  
+**Latest implementation revision verified by CI:** `9b41e4cc5e132d984b66d7314687defa1f574321`  
 **Status:** initial self-custody source integration present; live wallet acceptance and production release remain outstanding
 
 This report describes the feature-branch source. It is not evidence of a deployed service, a funded treasury, a real testnet/Mainnet transfer, or exchange deposit credit.
@@ -21,7 +21,7 @@ This report describes the feature-branch source. It is not evidence of a deploye
 - `src/WalletVault.tsx` mounts the new panel and passes the existing owner-identity session token to it.
 - `server/index.mjs` mounts the new router.
 - `.env.example` documents the new platform treasury settings.
-- `tests/platform-treasury-withdrawals.test.mjs` covers amount parsing, numeric limit comparison, incomplete configuration, separate wallet roles, signature-weight thresholds, signed-intent matching, feature-off behavior, private-key-field rejection, and authenticated readiness when treasury settings are incomplete.
+- `tests/platform-treasury-withdrawals.test.mjs` covers amount parsing, numeric limit comparison, incomplete configuration, separate wallet roles, signature-weight thresholds, signed-intent matching, feature-off behavior, private-key-field rejection, authenticated readiness when treasury settings are incomplete, and malformed/missing idempotency request-key rejection.
 
 The new path is separate from Fireblocks. It does not require an external sponsor organization or Fireblocks vault. The platform must still control and fund the configured treasury address.
 
@@ -36,14 +36,16 @@ The new path is separate from Fireblocks. It does not require an external sponso
 
 The browser connects to TronLink through `window.tron` / TIP-6963 discovery, requests account access, checks Mainnet, and invokes the wallet's transaction-signing prompt. The browser does not send a private key to the backend. Account/network changes reset the current wallet connection and readiness; the server-side intent reference is not silently discarded, so an ambiguous or prepared request can still be reconciled.
 
-The backend checks the transaction's exact raw data and transaction ID, applies a strict signed-payload field allowlist, checks TRON signature weight against the permission threshold, and only then attempts broadcast. A broadcast acceptance is not final confirmation; only the later solidified-chain verifier can mark the transfer confirmed. Exchange deposit credit remains unverified unless the exchange itself confirms it.
+The backend checks the transaction's exact raw data and transaction ID, applies a strict signed-payload field allowlist, checks TRON signature weight against the permission threshold, and only then attempts broadcast. The frontend rechecks Mainnet and the transaction intent immediately before and after the wallet-signing prompt. Pending and ambiguous status responses remain visible instead of being treated as transport errors. Expired unsigned intents are excluded from active principal/fee reservations and rolling daily totals. A broadcast acceptance is not final confirmation; only the later solidified-chain verifier can mark the transfer confirmed. Exchange deposit credit remains unverified unless the exchange itself confirms it.
+
+Prepare requests now include a UUIDv4 request key. PostgreSQL stores it under a unique owner/request-key index; retrying the same request with the same destination and amount returns the original intent, while reusing the key with different details is rejected. This prevents duplicate intents from ordinary client retries. A database-backed replay/concurrency integration test is still required before production acceptance.
 
 ## Automated validation observed
 
-For implementation commit `3caa8150e0428300f4bc96139f54db5b707260d7`, GitHub Actions reported:
-- Full Node test suite and isolated PostgreSQL integration tests: passed.
+For implementation commit `9b41e4cc5e132d984b66d7314687defa1f574321`, GitHub Actions run `41782279950` reported:
+- Full Node test suite and isolated PostgreSQL integration tests: passed (664 tests, 0 failures).
 - Vite production build and contract compile: passed.
-- Dependency security audit: passed.
+- Dependency security audit run `41782280030`: passed.
 
 This is CI evidence for the source revision. It does not validate TronLink with a real wallet, a live Mainnet balance, a funded treasury, an actual transfer, or exchange deposit credit.
 
@@ -86,7 +88,8 @@ The existing `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` still identify 
 - [ ] Add a testnet version or isolated testnet harness for the exact wallet-provider signing lifecycle.
 - [ ] Validate TronLink account/network/signing behavior with a controlled wallet.
 - [ ] Test permission-weight verification, insufficient permissions, invalid signatures, altered transaction data, and multi-signature cases.
-- [ ] Test duplicate prepare/submit, timeout/ambiguous broadcast, process restart, and concurrent reservations.
+- [ ] Add PostgreSQL integration coverage for repeated request-key replay, changed-detail key reuse, concurrent same-key prepare requests, and restart recovery.
+- [ ] Test duplicate submit, timeout/ambiguous broadcast, process restart, and concurrent reservations.
 - [ ] Complete independent security review.
 - [ ] Only after the above and a funded platform treasury, conduct a small, explicitly owner-authorized Mainnet acceptance transfer and independently verify it.
 

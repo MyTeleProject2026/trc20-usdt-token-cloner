@@ -58,7 +58,7 @@ These are source-level integrations, not verified live service behavior. The exe
 4. The backend estimates fee, constructs an unsigned TRC-20 transfer, checks treasury balance, fee reserve, limits, and outstanding requests, then stores a short-lived prepared intent under an advisory lock.
 5. TronLink prompts the owner to sign the exact unsigned transaction.
 6. The backend checks that raw transaction data, transaction ID, recipient, amount, and contract are identical to the stored intent. It also calls TRON `getSignWeight` and requires the account permission threshold to be met before broadcast.
-7. The backend claims the prepared intent once, broadcasts the already-signed transaction, and records accepted or ambiguous broadcast status. It never blindly retries an ambiguous submission.
+7. The backend claims the prepared intent once, broadcasts the already-signed transaction, and records accepted or ambiguous broadcast status. It never blindly retries an ambiguous submission. The frontend preserves nonterminal/ambiguous status responses and exposes refresh/reconciliation rather than treating them as a generic failure.
 8. The status endpoint waits for the solidified transaction, checks the exact sender, recipient, official contract, successful receipt, and exact TRC-20 Transfer event, then records confirmed or failed.
 9. A confirmed chain transaction does not mean an exchange credited the deposit. Exchange credit remains unverified until an authorized exchange-side source reports it.
 
@@ -99,7 +99,7 @@ The existing identity settings `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRES
 
 ## 8. Remaining production work
 
-- Run the full test suite and production build on the branch.
+- Full CI on the current implementation revision passes (664 Node tests, production build, dependency audit); add database integration coverage for request-key replay/concurrency.
 - Add/test a self-custody testnet end-to-end path or an equivalent isolated signing harness.
 - Validate TronLink signing with a controlled wallet and permission thresholds.
 - Exercise replay, concurrency, expiry, insufficient funds, altered transaction, invalid signatures, broadcast timeout, and post-broadcast reconciliation.

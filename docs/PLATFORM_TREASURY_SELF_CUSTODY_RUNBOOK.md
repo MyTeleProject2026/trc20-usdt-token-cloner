@@ -51,7 +51,7 @@ An app setting cannot create USDT or TRX. A zero balance cannot fund a payout.
 6. Enter the recipient's TRON address and USDT amount.
 7. Choose **Prepare USDT withdrawal**. The backend creates an unsigned transaction and an expiring database reservation. This does not send funds.
 8. Review the source, destination, amount, contract, and fee in the panel, then choose **Sign in TronLink & submit**. TronLink displays its own transaction-signing prompt. Approve only if every detail is correct.
-9. The backend checks the signed transaction against the stored intent and checks TRON permission weight before broadcasting.
+9. The backend checks the signed transaction against the stored intent and checks TRON permission weight before broadcasting. Each prepare request uses a UUIDv4 request key; if a network retry occurs, resend the same key with the same destination and amount to retrieve the existing intent rather than create another. Reusing a key with changed details is rejected.
 10. Use **Refresh status** until the solidified-chain verifier reports confirmed or failed. A node's broadcast acceptance is not final confirmation.
 11. For exchange destinations, check the exchange's own deposit records. TRON Token Studio reports exchange credit as unverified.
 
@@ -80,7 +80,7 @@ All routes require the existing owner identity session. The submission route doe
 - [ ] Full Node test suite and Vite production build pass.
 - [ ] TronLink account/network/signing lifecycle validated with a controlled wallet.
 - [ ] Signed transaction permission threshold is checked successfully.
-- [ ] Tests cover changed recipient/amount, altered raw data, invalid signature, insufficient permission, replay, concurrent prepare, expiry, insufficient USDT/TRX, and ambiguous broadcast.
+- [ ] Tests cover changed recipient/amount, altered raw data, invalid signature, insufficient permission, request-key replay and concurrent same-key prepare, expiry, insufficient USDT/TRX, and ambiguous broadcast.
 - [ ] Database persistence, restart behavior, and reconciliation reviewed.
 - [ ] Real treasury address and official-token identity independently confirmed.
 - [ ] Treasury has enough USDT and TRX for the controlled acceptance transaction.
