@@ -27,6 +27,13 @@ test('frontend uses the shared local-signing and encrypted-keystore helpers', ()
   assert.equal(packageJson.scripts.build, 'vite build')
 })
 
+test('Fincra readiness UI reports Nile and Shasta provider probes independently', () => {
+  assert.match(app, /Tatum Nile/)
+  assert.match(app, /testnetNodes\?\.nile\?\.checked/)
+  assert.match(app, /Tatum Shasta/)
+  assert.match(app, /testnetNodes\?\.shasta\?\.checked/)
+})
+
 test('frontend never claims that a testnet transfer credits a third-party Mainnet exchange', () => {
   assert.match(app, /exchange's Mainnet deposit account is not credited by a testnet transaction/)
   assert.match(app, /This sends only from the unlocked wallet's own testnet balance/)
