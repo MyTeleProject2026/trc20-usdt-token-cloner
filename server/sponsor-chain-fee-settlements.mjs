@@ -1,5 +1,6 @@
 import pg from 'pg'
 import { TronWeb } from 'tronweb'
+import { listSponsorChainFeeObservations } from './sponsor-chain-fee-observations.mjs'
 import {
   databaseSslConfig,
   initializeDatabase,
@@ -56,6 +57,8 @@ async function initialize(db) {
   await initializeDatabase()
   if (!readyPromise) {
     readyPromise = (async () => {
+      const feeLedger = await listSponsorChainFeeObservations({ network: 'nile', limit: 1 })
+      if (feeLedger?.success !== true) throw new Error('immutable sponsor fee observation ledger unavailable')
       await db.query(
         'CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_chain_fee_settlements ('
         + 'id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,'
@@ -250,6 +253,8 @@ export async function settleSponsorChainFeeObservation(input = {}) {
           success: true, duplicate: true, settled: true,
           settlementId: existing.id, settlementReference: 'trx-fee:' + network + ':' + transactionHash,
           settledFeeSun: feeSun.toString(), feeBudgetSettled: true,
+        executionResult: observation.execution_result,
+          executionResult: observation.execution_result,
         }
       }
 
