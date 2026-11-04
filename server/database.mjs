@@ -2914,11 +2914,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
   const feeSponsorAddress = typeof input.feeSponsorAddress === 'string' ? input.feeSponsorAddress.trim() : '';
   const blockNumber = input.blockNumber;
   const amounts = ['amountBaseUnits', 'reportedFeeSun', 'energyFeeSun', 'netFeeSun',
-    'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'];
+    'energyUsageTotal', 'energyUsage', 'originEnergyUsage', 'netUsage', 'energyPenaltyTotal'];
   const integerValues = {};
   for (const key of amounts) {
     const value = input[key];
-    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
+    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'originEnergyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
       integerValues[key] = null;
     } else if (typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)) {
       integerValues[key] = value;
@@ -2928,6 +2928,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
       return { success: false, reason: 'invalid-chain-cost-observation' };
     }
   }
+  const transactionOwnerAddressHex = typeof input.transactionOwnerAddressHex === 'string'
+    ? input.transactionOwnerAddressHex.toLowerCase().replace(/^41/, '') : '';
+  const trxFeePayerAddressHex = input.trxFeePayerAddressHex == null ? null
+    : typeof input.trxFeePayerAddressHex === 'string'
+      ? input.trxFeePayerAddressHex.toLowerCase().replace(/^41/, '') : '';
   const asset = input.asset;
   const tokenContract = asset === 'TRX' ? null : (typeof input.tokenContract === 'string' ? input.tokenContract.trim() : '');
   if (!['nile', 'shasta'].includes(network)
@@ -2943,6 +2948,10 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
     || input.executionResult !== 'SUCCESS'
+    || !/^[0-9a-f]{40}$/.test(transactionOwnerAddressHex)
+    || (trxFeePayerAddressHex !== null && !/^[0-9a-f]{40}$/.test(trxFeePayerAddressHex))
+    || (BigInt(integerValues.reportedFeeSun) > 0n && trxFeePayerAddressHex !== transactionOwnerAddressHex)
+    || (BigInt(integerValues.reportedFeeSun) === 0n && trxFeePayerAddressHex !== null)
     || integerValues.amountBaseUnits === '0') {
     return { success: false, reason: 'invalid-chain-cost-observation' };
   }
@@ -3068,6 +3077,9 @@ export async function recordSponsorChainCostObservation(input = {}) {
         [idempotencyKey, JSON.stringify({
           network, transactionHash, blockNumber, reportedFeeSun: integerValues.reportedFeeSun,
           energyFeeSun: integerValues.energyFeeSun, netFeeSun: integerValues.netFeeSun,
+          originEnergyUsage: integerValues.originEnergyUsage,
+          transactionOwnerAddressHex,
+          trxFeePayerAddressHex,
           observationOnly: true, sponsorFeeBudgetSettled: false,
         })],
       );
