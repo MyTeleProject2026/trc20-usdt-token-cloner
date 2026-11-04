@@ -82,7 +82,7 @@ function makeStore() {
     async findRequest(requestKey, address) {
       const row = rows.get(requestKey)
       if (!row || row.requesterAddress !== address) return { success: false, reason: 'request-not-found' }
-      return { success: true, request: row, sponsorApproval: approvals.get(requestKey) || null }
+      return { success: true, request: row, sponsorApproval: approvals.get(requestKey) || null, feeSponsorApproval: feeApprovals.get(requestKey) || null }
     },
     async findRequestForSponsor(requestKey) {
       const row = rows.get(requestKey)
