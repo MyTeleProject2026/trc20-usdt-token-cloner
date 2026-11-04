@@ -56,8 +56,15 @@ function parseUsdtAmount(value) {
   }
   const [whole, fraction = ''] = raw.split('.')
   const baseUnits = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0') || '0')
-  if (baseUnits <= 0n || baseUnits > (1n << 256n) - 1n) throw new Error('Amount must be greater than zero and within the token limit.')
-  return { baseUnits: baseUnits.toString(), decimal: (Number(baseUnits) / 1_000_000).toFixed(6).replace(/0+$/, '').replace(/\.$/, '') }
+  // Fincra requires amount as a JSON number. Cap the amount so the six-decimal
+  // USDT value remains representable by a JavaScript number without rounding.
+  const maxFincraBaseUnits = 1_000_000_000_000_000n
+  if (baseUnits <= 0n || baseUnits > maxFincraBaseUnits) {
+    throw new Error('Amount must be greater than zero and no more than 1,000,000,000 USDT for exact six-decimal Fincra numeric submission.')
+  }
+  const normalizedFraction = fraction.padEnd(6, '0').replace(/0+$/, '')
+  const decimal = whole + (normalizedFraction ? '.' + normalizedFraction : '')
+  return { baseUnits: baseUnits.toString(), decimal }
 }
 
 function configuredApiKey(env, network) {
@@ -733,6 +740,19 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       const created = await fincraRequest(config, '/disbursements/payouts', { method: 'POST', body })
       if (!created.ok || created.payload?.success !== true || !created.payload?.data) {
         const code = cleanString(created.payload?.errorType || created.payload?.error || 'fincra-payout-rejected', 96)
+        if (code.toUpperCase() === 'DUPLICATE_CUSTOMER_REFERENCE') {
+          await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
+            SET status='fincra-outcome-unknown',fincra_status='unknown',
+                chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now()
+            WHERE id=$1`, [row.id, code])
+          return res.status(202).json({
+            success: false, status: 'fincra-outcome-unknown',
+            error: 'fincra-duplicate-customer-reference',
+            providerStatus: created.status, providerCode: code,
+            note: 'Fincra reports this customer reference already exists. No further payout will be submitted automatically; reconcile the existing payout by customer reference.',
+            transactionSubmitted: 'unknown',
+          })
+        }
         await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
           SET status='fincra-rejected',fincra_status='failed',chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now()
           WHERE id=$1`, [row.id, code])
