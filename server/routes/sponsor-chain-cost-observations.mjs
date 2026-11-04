@@ -123,6 +123,11 @@ export async function readSolidifiedSponsorChainCosts({
       return { success: false, reason: 'solidified-transaction-execution-failed' }
     }
 
+    const transactionContracts = transaction?.raw_data?.contract
+    const transactionOwnerHex = Array.isArray(transactionContracts) && transactionContracts.length === 1
+      ? normalizeHexAddress(transactionContracts[0]?.parameter?.value?.owner_address) : null
+    if (!transactionOwnerHex) return { success: false, reason: 'solidified-transaction-owner-missing' }
+
     if (transfer.asset === 'TRX') {
       const contracts = transaction?.raw_data?.contract
       const value = Array.isArray(contracts) && contracts.length === 1
@@ -157,10 +162,11 @@ export async function readSolidifiedSponsorChainCosts({
     const netFeeSun = safeIntegerString(receipt.net_fee, { allowNull: true })
     const energyUsageTotal = safeIntegerString(receipt.energy_usage_total, { allowNull: true })
     const energyUsage = safeIntegerString(receipt.energy_usage, { allowNull: true })
+    const originEnergyUsage = safeIntegerString(receipt.origin_energy_usage, { allowNull: true })
     const netUsage = safeIntegerString(receipt.net_usage, { allowNull: true })
     const energyPenaltyTotal = safeIntegerString(receipt.energy_penalty_total, { allowNull: true })
-    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.net_usage, receipt.energy_penalty_total]
-    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, netUsage, energyPenaltyTotal]
+    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.origin_energy_usage, receipt.net_usage, receipt.energy_penalty_total]
+    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, originEnergyUsage, netUsage, energyPenaltyTotal]
     if (optionalRaw.some((value, index) => value !== undefined && value !== null && optionalParsed[index] === null)) {
       return { success: false, reason: 'invalid-solidified-fee-fields' }
     }
@@ -169,6 +175,8 @@ export async function readSolidifiedSponsorChainCosts({
       status: 'solidified-chain-costs-observed',
       network,
       transactionHash: hash,
+      transactionOwnerAddressHex: transactionOwnerHex,
+      trxFeePayerAddressHex: BigInt(reportedFeeSun) > 0n ? transactionOwnerHex : null,
       blockNumber,
       executionResult: 'SUCCESS',
       reportedFeeSun,
@@ -176,6 +184,7 @@ export async function readSolidifiedSponsorChainCosts({
       netFeeSun,
       energyUsageTotal,
       energyUsage,
+      originEnergyUsage,
       netUsage,
       energyPenaltyTotal,
       evidenceSource: 'Tatum TRON SolidityNode transaction body and receipt',
@@ -273,6 +282,9 @@ export function createSponsorChainCostObservationRouter(options = {}) {
         netFeeSun: costs.netFeeSun,
         energyUsageTotal: costs.energyUsageTotal,
         energyUsage: costs.energyUsage,
+        originEnergyUsage: costs.originEnergyUsage,
+        transactionOwnerAddressHex: costs.transactionOwnerAddressHex,
+        trxFeePayerAddressHex: costs.trxFeePayerAddressHex,
         netUsage: costs.netUsage,
         energyPenaltyTotal: costs.energyPenaltyTotal,
       })
@@ -299,6 +311,9 @@ export function createSponsorChainCostObservationRouter(options = {}) {
           netFeeSun: costs.netFeeSun,
           energyUsageTotal: costs.energyUsageTotal,
           energyUsage: costs.energyUsage,
+          originEnergyUsage: costs.originEnergyUsage,
+          transactionOwnerAddressHex: costs.transactionOwnerAddressHex,
+          trxFeePayerAddressHex: costs.trxFeePayerAddressHex,
           netUsage: costs.netUsage,
           energyPenaltyTotal: costs.energyPenaltyTotal,
         },

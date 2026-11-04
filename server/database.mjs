@@ -495,6 +495,9 @@ export async function initializeDatabase() {
           net_fee_sun NUMERIC(78,0),
           energy_usage_total NUMERIC(78,0),
           energy_usage NUMERIC(78,0),
+          origin_energy_usage NUMERIC(78,0),
+          transaction_owner_address_hex CHAR(40),
+          trx_fee_payer_address_hex CHAR(40),
           net_usage NUMERIC(78,0),
           energy_penalty_total NUMERIC(78,0),
           evidence_source TEXT NOT NULL DEFAULT 'Tatum TRON SolidityNode transaction body and receipt',
@@ -503,6 +506,13 @@ export async function initializeDatabase() {
             OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)),
           UNIQUE (network, transaction_hash)
         )
+      `)
+      // Add transaction-level payer/resource fields to existing installations. Legacy
+      // observations remain nullable and are never retroactively attributed.
+      await db.query(`ALTER TABLE ${schema}.sponsor_chain_cost_observations
+        ADD COLUMN IF NOT EXISTS origin_energy_usage NUMERIC(78,0),
+        ADD COLUMN IF NOT EXISTS transaction_owner_address_hex CHAR(40),
+        ADD COLUMN IF NOT EXISTS trx_fee_payer_address_hex CHAR(40)
       `)
       // Chain-cost evidence is an immutable audit ledger: keep old VTRC observations
       // readable but reject any new observation for an unsupported asset.
@@ -1476,6 +1486,10 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       return { updated: false, reason: 'transfer-not-found' }
     }
     const transfer = result.rows[0]
+    if (nextStatus === 'confirmed' && !['nile', 'shasta'].includes(transfer.network)) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'mainnet-sponsor-confirmation-disabled' }
+    }
     if (transfer.status === nextStatus) {
       const sameHash = !['submitted', 'confirmed'].includes(nextStatus)
         || transfer.transaction_hash?.trim().toLowerCase() === transactionHash?.toLowerCase()
@@ -1488,17 +1502,45 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       return { updated: false, reason: 'transaction-hash-conflict' }
     }
     // A submitted transaction can consume chain fees even when execution fails.
-    // Do not release its reservation based only on a caller-supplied "failed" status;
-    // fee-aware finalized failure evidence and reconciliation are not implemented yet.
+    // Release its principal reservation only after the separate immutable fee ledger
+    // contains a matching finalized FAILED receipt for this exact stored transaction.
+    let failedFeeObservation = null
     if (transfer.status === 'submitted' && nextStatus === 'failed') {
-      await client.query('ROLLBACK')
-      return { updated: false, reason: 'finalized-failure-evidence-and-fee-reconciliation-required' }
+      if (!['nile', 'shasta'].includes(transfer.network)
+        || transfer.purpose !== 'asset-grant'
+        || typeof transfer.transaction_hash !== 'string'
+        || !/^[0-9a-f]{64}$/i.test(transfer.transaction_hash.trim())) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'submitted-testnet-asset-transfer-required' }
+      }
+      const feeLedger = await client.query(
+        'SELECT to_regclass($1) AS table_name',
+        [`${schema}.sponsor_chain_fee_observations`],
+      )
+      if (!feeLedger.rows[0]?.table_name) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'finalized-failure-fee-observation-required' }
+      }
+      const failureEvidence = await client.query(
+        `SELECT network, transaction_hash, idempotency_key, execution_result,
+                block_number, reported_fee_sun::text AS reported_fee_sun
+           FROM ${schema}.sponsor_chain_fee_observations
+          WHERE network = $1 AND transaction_hash = $2 AND idempotency_key = $3
+            AND execution_result = 'FAILED'
+          LIMIT 1`,
+        [transfer.network, transfer.transaction_hash.trim().toLowerCase(), idempotencyKey],
+      )
+      if (!failureEvidence.rows.length) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'finalized-failure-fee-observation-required' }
+      }
+      failedFeeObservation = failureEvidence.rows[0]
     }
     const allowed = {
       'pending-review': ['authorized', 'cancelled'],
       authorized: ['submitted', 'cancelled'],
-      // Submitted transfers remain reserved until confirmed with persisted evidence.
-      submitted: ['confirmed'],
+      // A submitted transfer can fail only with matching immutable receipt evidence.
+      submitted: ['confirmed', 'failed'],
       confirmed: [],
       failed: [],
       cancelled: [],
@@ -1623,7 +1665,17 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
     await client.query(
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
        VALUES ('sponsor-transfer-status-changed', 'sponsor-transfer', $1, $2::jsonb)`,
-      [idempotencyKey, JSON.stringify({ fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset, ...(nextStatus === 'cancelled' && cancellationReason ? { cancellationReason } : {}) })],
+      [idempotencyKey, JSON.stringify({
+        fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset,
+        ...(nextStatus === 'cancelled' && cancellationReason ? { cancellationReason } : {}),
+        ...(failedFeeObservation ? {
+          failureEvidence: 'immutable-solidified-fee-observation',
+          transactionHash: failedFeeObservation.transaction_hash.trim().toLowerCase(),
+          blockNumber: String(failedFeeObservation.block_number),
+          reportedFeeSun: failedFeeObservation.reported_fee_sun,
+          feeBudgetSettled: false,
+        } : {}),
+      })],
     )
     await client.query('COMMIT')
     return { updated: true, duplicate: false, status: nextStatus }
@@ -2910,11 +2962,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
   const feeSponsorAddress = typeof input.feeSponsorAddress === 'string' ? input.feeSponsorAddress.trim() : '';
   const blockNumber = input.blockNumber;
   const amounts = ['amountBaseUnits', 'reportedFeeSun', 'energyFeeSun', 'netFeeSun',
-    'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'];
+    'energyUsageTotal', 'energyUsage', 'originEnergyUsage', 'netUsage', 'energyPenaltyTotal'];
   const integerValues = {};
   for (const key of amounts) {
     const value = input[key];
-    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
+    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'originEnergyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
       integerValues[key] = null;
     } else if (typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)) {
       integerValues[key] = value;
@@ -2924,6 +2976,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
       return { success: false, reason: 'invalid-chain-cost-observation' };
     }
   }
+  const transactionOwnerAddressHex = typeof input.transactionOwnerAddressHex === 'string'
+    ? input.transactionOwnerAddressHex.toLowerCase().replace(/^41/, '') : '';
+  const trxFeePayerAddressHex = input.trxFeePayerAddressHex == null ? null
+    : typeof input.trxFeePayerAddressHex === 'string'
+      ? input.trxFeePayerAddressHex.toLowerCase().replace(/^41/, '') : '';
   const asset = input.asset;
   const tokenContract = asset === 'TRX' ? null : (typeof input.tokenContract === 'string' ? input.tokenContract.trim() : '');
   if (!['nile', 'shasta'].includes(network)
@@ -2939,6 +2996,10 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
     || input.executionResult !== 'SUCCESS'
+    || !/^[0-9a-f]{40}$/.test(transactionOwnerAddressHex)
+    || (trxFeePayerAddressHex !== null && !/^[0-9a-f]{40}$/.test(trxFeePayerAddressHex))
+    || (BigInt(integerValues.reportedFeeSun) > 0n && trxFeePayerAddressHex !== transactionOwnerAddressHex)
+    || (BigInt(integerValues.reportedFeeSun) === 0n && trxFeePayerAddressHex !== null)
     || integerValues.amountBaseUnits === '0') {
     return { success: false, reason: 'invalid-chain-cost-observation' };
   }
@@ -3013,6 +3074,8 @@ export async function recordSponsorChainCostObservation(input = {}) {
                 execution_result, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
                 energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+                origin_energy_usage::text AS origin_energy_usage,
+                transaction_owner_address_hex, trx_fee_payer_address_hex,
                 net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total
            FROM ${schema}.sponsor_chain_cost_observations
           WHERE network = $1 AND transaction_hash = $2
@@ -3028,6 +3091,9 @@ export async function recordSponsorChainCostObservation(input = {}) {
         reported_fee_sun: integerValues.reportedFeeSun,
         energy_fee_sun: integerValues.energyFeeSun, net_fee_sun: integerValues.netFeeSun,
         energy_usage_total: integerValues.energyUsageTotal, energy_usage: integerValues.energyUsage,
+        origin_energy_usage: integerValues.originEnergyUsage,
+        transaction_owner_address_hex: transactionOwnerAddressHex,
+        trx_fee_payer_address_hex: trxFeePayerAddressHex,
         net_usage: integerValues.netUsage, energy_penalty_total: integerValues.energyPenaltyTotal,
       };
       const same = (row) => Object.keys(incoming).every((key) => {
@@ -3049,14 +3115,16 @@ export async function recordSponsorChainCostObservation(input = {}) {
           (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
            asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
            block_number, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
-           energy_usage_total, energy_usage, net_usage, energy_penalty_total)
+           energy_usage_total, energy_usage, origin_energy_usage,
+           transaction_owner_address_hex, trx_fee_payer_address_hex, net_usage, energy_penalty_total)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13::numeric,
-                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19::numeric)`,
+                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19,$20,$21::numeric,$22::numeric)`,
         [network, transactionHash, idempotencyKey, input.sponsorReference, feeSponsorAddress,
           input.assetPrincipalAddress, input.receiverAddress, asset, tokenContract,
           integerValues.amountBaseUnits, blockNumber, 'SUCCESS', integerValues.reportedFeeSun,
           integerValues.energyFeeSun, integerValues.netFeeSun, integerValues.energyUsageTotal,
-          integerValues.energyUsage, integerValues.netUsage, integerValues.energyPenaltyTotal],
+          integerValues.energyUsage, integerValues.originEnergyUsage, transactionOwnerAddressHex,
+          trxFeePayerAddressHex, integerValues.netUsage, integerValues.energyPenaltyTotal],
       );
       await client.query(
         `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
@@ -3064,6 +3132,9 @@ export async function recordSponsorChainCostObservation(input = {}) {
         [idempotencyKey, JSON.stringify({
           network, transactionHash, blockNumber, reportedFeeSun: integerValues.reportedFeeSun,
           energyFeeSun: integerValues.energyFeeSun, netFeeSun: integerValues.netFeeSun,
+          originEnergyUsage: integerValues.originEnergyUsage,
+          transactionOwnerAddressHex,
+          trxFeePayerAddressHex,
           observationOnly: true, sponsorFeeBudgetSettled: false,
         })],
       );
@@ -3101,6 +3172,8 @@ export async function listSponsorChainCostObservations({ network = null, limit =
               execution_result, reported_fee_sun::text AS reported_fee_sun,
               energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
               energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+              origin_energy_usage::text AS origin_energy_usage,
+              transaction_owner_address_hex, trx_fee_payer_address_hex,
               net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total,
               evidence_source, observed_at
          FROM ${schema}.sponsor_chain_cost_observations
@@ -3127,6 +3200,9 @@ export async function listSponsorChainCostObservations({ network = null, limit =
       netFeeSun: row.net_fee_sun,
       energyUsageTotal: row.energy_usage_total,
       energyUsage: row.energy_usage,
+      originEnergyUsage: row.origin_energy_usage,
+      transactionOwnerAddressHex: row.transaction_owner_address_hex ? String(row.transaction_owner_address_hex).trim().toLowerCase() : null,
+      trxFeePayerAddressHex: row.trx_fee_payer_address_hex ? String(row.trx_fee_payer_address_hex).trim().toLowerCase() : null,
       netUsage: row.net_usage,
       energyPenaltyTotal: row.energy_penalty_total,
       evidenceSource: row.evidence_source,

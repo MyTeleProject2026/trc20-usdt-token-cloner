@@ -232,6 +232,44 @@ function formatUnits(value: unknown, decimals: number): string {
   }
 }
 
+async function readTokenBalance(network: NetworkId, contractAddress: string, ownerAddress: string): Promise<TokenBalance> {
+  const url = API_BASE + '/api/tron/inspect-token?network='
+    + encodeURIComponent(network) + '&contract=' + encodeURIComponent(contractAddress)
+    + '&owner=' + encodeURIComponent(ownerAddress)
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    credentials: 'omit',
+    cache: 'no-store',
+    redirect: 'error',
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || payload?.success !== true
+    || payload.network !== network
+    || payload.contractAddress !== contractAddress
+    || payload.ownerAddress !== ownerAddress) {
+    const message = payload?.error === 'chain-provider-rate-limited'
+      ? 'The chain provider is rate limiting requests. Wait 15–30 seconds and refresh.'
+      : typeof payload?.message === 'string'
+        ? payload.message
+        : 'The backend token-balance read is unavailable. Refresh to retry.'
+    throw new Error(message)
+  }
+
+  const decimals = Number(payload.tokenDecimals)
+  const symbol = String(payload.tokenSymbol || '').trim().slice(0, 32)
+  const balanceBaseUnits = String(payload.balanceBaseUnits ?? '')
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36
+    || !symbol || !/^(0|[1-9][0-9]{0,77})$/.test(balanceBaseUnits)) {
+    throw new Error('The chain provider returned incomplete token metadata or balance data.')
+  }
+  return {
+    contract: contractAddress,
+    symbol,
+    decimals,
+    balance: formatUnits(balanceBaseUnits, decimals),
+  }
+}
+
 function explorerUrl(network: NetworkId, address: string): string {
   const host = network === 'mainnet' ? 'https://tronscan.org' : network === 'nile' ? 'https://nile.tronscan.org' : 'https://shasta.tronscan.org'
   return host + '/#/address/' + encodeURIComponent(address)
@@ -343,6 +381,11 @@ export default function WalletVault() {
   const ownerHeaderTrx = unlocked && network === 'mainnet' && portfolio ? portfolio.trx + ' TRX' : ownerHeaderBalance
   const officialOwnerUsdt = network === 'mainnet' ? portfolio?.tokens.find(token => token.contract === OFFICIAL_MAINNET_USDT && !token.error)?.balance : undefined
   const ownerHeaderUsdt = unlocked && network === 'mainnet' ? (officialOwnerUsdt !== undefined ? officialOwnerUsdt + ' USDT' : portfolio ? 'Not in Assets' : ownerHeaderBalance) : ownerHeaderBalance
+  const selectedPortfolioToken = portfolio?.tokens.find(token => token.contract === selectedTokenContract)
+  const mainnetOwnerReviewBlocked = network === 'mainnet' && (
+    ownerTreasurySnapshot?.ownerAccessVerified !== true
+    || ownerTreasurySnapshot.treasuryAddress !== unlocked?.record.address
+  )
 
   function pushToast(kind: WalletToast['kind'], message: string) {
     const clean = String(message || '').trim()
@@ -605,23 +648,17 @@ export default function WalletVault() {
         const trx = formatUnits(String(sun), 6)
         const tokens = await Promise.all(tokenContracts.map(async contractAddress => {
           try {
-            if (!web.isAddress(contractAddress)) throw new Error('Invalid TRON contract address')
-            const contract = await web.contract(TOKEN_ABI, contractAddress)
-            const [rawBalance, rawDecimals, rawSymbol] = await Promise.all([
-              contract.balanceOf(unlocked.record.address).call(),
-              contract.decimals().call(),
-              contract.symbol().call().catch(() => 'TRC20'),
-            ])
-            const decimals = Number(String(rawDecimals))
-            const symbol = String(rawSymbol || 'TRC20').slice(0, 32)
+            return await readTokenBalance(network, contractAddress, unlocked.record.address)
+          } catch (caught) {
             return {
               contract: contractAddress,
-              symbol,
-              decimals,
-              balance: formatUnits(rawBalance, decimals),
+              symbol: 'Token',
+              decimals: 0,
+              balance: 'Unavailable',
+              error: caught instanceof Error
+                ? caught.message
+                : 'The backend token-balance read is unavailable. Refresh to retry.',
             } satisfies TokenBalance
-          } catch {
-            return { contract: contractAddress, symbol: 'Token', decimals: 0, balance: 'Unavailable', error: 'Balance or token metadata could not be read from this network.' } satisfies TokenBalance
           }
         }))
         if (!cancelled) setPortfolio({ trx, tokens, checkedAt: Date.now() })
@@ -1399,13 +1436,13 @@ export default function WalletVault() {
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
         <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
         <p>{activePanel === 'dashboard'
-          ? 'Overview of your authenticated owner account, verified treasury balances, and payout readiness. No TronLink connection is required to use this standalone owner wallet.'
+          ? 'Overview of your local owner wallet and the separately monitored organization treasury. No TronLink connection is required to use this standalone owner wallet. Observed balances do not grant spending permission.'
           : activePanel === 'wallet'
             ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
             : activePanel === 'send'
-              ? 'Inspect transfer details and read-only chain information. Signing and broadcast are disabled in this build.'
+              ? 'Review a transfer from your unlocked local wallet. This build does not sign or broadcast; organization-funded payouts are a separate workflow.'
               : activePanel === 'treasury'
-                ? 'Inspect the public treasury address and request organization-funded payouts only from real, funded on-chain assets.'
+                ? 'Inspect organization treasury funding and provider readiness. Payout submission is unavailable in this build.'
                 : activePanel === 'account'
                   ? 'Create, import, unlock, or recover the local owner signing wallet. Key material is processed on this device.'
                   : activePanel === 'activity'
@@ -1416,8 +1453,8 @@ export default function WalletVault() {
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
-        <strong>Owner-only funding model</strong>
-        <p>This build does not submit treasury payout requests. A future arrangement would require a treasury organization to control the genuine assets and separately authorize the service; observed balances do not grant this app spending permission.</p>
+        <strong>Two separate funding sources</strong>
+        <p>Your local wallet can spend only its own assets. Organization payouts would spend genuine assets held by an authorized, funded treasury. This build can inspect both sources but cannot submit an organization payout.</p>
       </div>
 
       <section className="wallet-vault-transfer-section" aria-labelledby="owner-dashboard-treasury-heading" hidden={activePanel !== 'dashboard'}>
@@ -1541,7 +1578,7 @@ export default function WalletVault() {
           <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
-          <h3 id="fireblocks-inventory-heading">One-click Fireblocks inventory verification</h3>
+          <h3 id="fireblocks-inventory-heading">Fireblocks inventory verification</h3>
           <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
           <p className="wallet-vault-caption">
             <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open GitHub Actions — Run Fireblocks inventory sync ↗</a>
@@ -1921,6 +1958,34 @@ export default function WalletVault() {
                   {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this password-encrypted browser wallet has not undergone an independent wallet-security audit and is not hardware-backed. Do not keep substantial value in an unaudited browser wallet.</p>}
                   {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
                 </div>
+                {network === 'mainnet' && (
+                  <div className="wallet-vault-transfer-warning" role="status">
+                    <strong>{ownerTreasurySnapshot?.ownerAccessVerified !== true
+                      ? 'Owner verification required before Mainnet review'
+                      : ownerTreasurySnapshot.treasuryAddress !== unlocked?.record.address
+                        ? 'Unlocked wallet does not match the configured treasury'
+                        : 'Mainnet owner check verified'}</strong>
+                    {ownerTreasurySnapshot?.ownerAccessVerified !== true ? (
+                      <>
+                        <p>Mainnet transfer review requires a fresh owner identity check and a live read of the configured treasury. This check does not sign or send a payment.</p>
+                        <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Open Organization payouts to verify owner</button>
+                      </>
+                    ) : ownerTreasurySnapshot.treasuryAddress !== unlocked?.record.address ? (
+                      <>
+                        <p>The configured treasury address differs from the unlocked local wallet. This wallet cannot sign for another address or spend the organization’s vault assets.</p>
+                        <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Review treasury address and funding</button>
+                      </>
+                    ) : transferAsset === 'TRX' && portfolio && /^0(?:\.0*)?$/.test(portfolio.trx) ? (
+                      <p>This unlocked wallet currently has zero TRX. A TRX transfer cannot be made, and TRC-20 transfers also need sufficient network fees or resources.</p>
+                    ) : transferAsset === 'TRC20' && selectedPortfolioToken?.error ? (
+                      <p>The selected token balance could not be verified. Refresh Assets and retry; an unavailable balance is not the same as zero.</p>
+                    ) : transferAsset === 'TRC20' && selectedPortfolioToken && /^0(?:\.0*)?$/.test(selectedPortfolioToken.balance) ? (
+                      <p>The unlocked wallet currently has zero {selectedPortfolioToken.symbol}. Receive genuine tokens into this wallet before reviewing a transfer. A separate organization treasury does not change this wallet’s balance.</p>
+                    ) : (
+                      <p>The owner check verifies identity and reads balances only. This supervised build still cannot sign or broadcast Mainnet transfers.</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="wallet-vault-transfer-form">
                   <label htmlFor="wallet-transfer-asset">Asset</label>
@@ -1944,7 +2009,7 @@ export default function WalletVault() {
                   <input id="wallet-transfer-recipient" autoComplete="off" spellCheck={false} value={recipientInput} onChange={event => { setRecipientInput(event.target.value); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }} placeholder="T… (full Base58Check address)" />
                   <label htmlFor="wallet-transfer-amount">Amount</label>
                   <input id="wallet-transfer-amount" inputMode="decimal" autoComplete="off" value={amountInput} onChange={event => { setAmountInput(event.target.value); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }} placeholder={transferAsset === 'TRX' ? 'e.g. 1.25 TRX' : 'e.g. 12.5 tokens'} />
-                  <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || !recipientInput.trim() || !amountInput.trim() || (transferAsset === 'TRC20' && !selectedTokenContract)} onClick={() => void performWalletAction(prepareTransfer)}>
+                  <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress || mainnetOwnerReviewBlocked || !recipientInput.trim() || !amountInput.trim() || (transferAsset === 'TRC20' && !selectedTokenContract)} onClick={() => void performWalletAction(prepareTransfer)}>
                     <ShieldCheck size={16} /> {busy ? 'Checking on-chain state…' : 'Review transfer'}
                   </button>
                 </div>
@@ -1986,7 +2051,7 @@ export default function WalletVault() {
               <section id="wallet-vault-history" className="wallet-vault-history-section" aria-labelledby="wallet-vault-history-heading" hidden={activePanel !== 'activity'}>
                 <div className="wallet-vault-history-header"><div><h3 id="wallet-vault-history-heading">Real transfer history</h3><p>Locally saved transaction IDs; status is re-read from the selected chain.</p></div><span>{transferHistory.length} record{transferHistory.length === 1 ? '' : 's'}</span></div>
                 {transferHistory.length === 0 ? (
-                  <div className="wallet-vault-history-empty">No transfers have been submitted from this device yet. History entries are added only after the network accepts a signed transaction.</div>
+                  <div className="wallet-vault-history-empty">No local transfer records are stored on this device. The current Wallet Vault build disables signing and broadcast, so this empty list is expected; no transaction has been submitted from this screen.</div>
                 ) : (
                   <div className="wallet-vault-history-list">
                     {transferHistory.map(item => (

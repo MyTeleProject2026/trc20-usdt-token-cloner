@@ -13,8 +13,8 @@ test('submitted sponsor reservations stay held when a provider response is missi
   assert.ok(guard >= 0, 'submitted-to-failed guard must exist')
   assert.ok(budgetLookup > guard, 'failed submitted transfers must be rejected before budget accounting')
   assert.ok(reservationRelease > budgetLookup, 'reservation updates must occur only after state and evidence checks')
-  assert.match(transition, /finalized-failure-evidence-and-fee-reconciliation-required/)
-  assert.match(transition, /submitted: \['confirmed'\]/)
+  assert.match(transition, /finalized-failure-fee-observation-required/)
+  assert.match(transition, /submitted: \['confirmed', 'failed'\]/)
 })
 
 test('sponsor confirmation cannot use a transaction hash alone as proof of delivery', async () => {
@@ -34,6 +34,6 @@ test('provider timeouts must not be mapped to terminal failure or reservation re
   const transition = source.slice(start)
   const submittedTransitions = transition.match(/submitted:\s*\[([^\]]*)\]/)
   assert.ok(submittedTransitions, 'submitted transition policy must be explicit')
-  assert.equal(submittedTransitions[1].trim(), "'confirmed'")
+  assert.equal(submittedTransitions[1].trim(), "'confirmed', 'failed'")
   assert.doesNotMatch(transition, /provider-timeout[^\n]*nextStatus\s*=\s*['"]failed['"]/i)
 })

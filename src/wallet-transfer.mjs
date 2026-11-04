@@ -2,6 +2,32 @@ const TX_ID_PATTERN = /^[0-9a-f]{64}$/i
 const TRON_ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const MAX_UINT256 = (1n << 256n) - 1n
 
+const RATE_LIMIT_RETRY_DELAYS_MS = [250, 500]
+
+function isRateLimitedReadError(error) {
+  const status = Number(error?.status ?? error?.statusCode ?? error?.response?.status)
+  return status === 429 || /\b429\b|rate.?limit|too many requests/i.test(String(error?.message || ''))
+}
+
+/** Retry only idempotent chain reads, and only when the provider explicitly rate-limits. */
+async function retryRateLimitedRead(operation) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation()
+    } catch (error) {
+      if (!isRateLimitedReadError(error) || attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) {
+        if (isRateLimitedReadError(error)) {
+          const retryable = new Error('The TRON provider is rate limiting fee-estimation reads. Wait briefly and retry; no transfer was signed or submitted.')
+          retryable.code = 'chain-provider-rate-limited'
+          throw retryable
+        }
+        throw error
+      }
+      await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_RETRY_DELAYS_MS[attempt]))
+    }
+  }
+}
+
 export function parseUnitsDecimal(value, decimals) {
   if (typeof value !== 'string' || !Number.isInteger(decimals) || decimals < 0 || decimals > 36) {
     throw new Error('Enter a valid decimal amount for this token.')
@@ -38,13 +64,13 @@ export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContrac
     { type: 'address', value: to },
     { type: 'uint256', value: amountBaseUnits },
   ]
-  const simulation = await tronWeb.transactionBuilder.triggerConstantContract(
+  const simulation = await retryRateLimitedRead(() => tronWeb.transactionBuilder.triggerConstantContract(
     tokenContract,
     'transfer(address,uint256)',
     {},
     parameters,
     from,
-  )
+  ))
   if (simulation?.result?.result !== true) {
     throw new Error('On-chain simulation did not succeed. No transfer was signed or submitted.')
   }
@@ -66,13 +92,13 @@ export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContrac
 
   let energyRequired = Number(simulation.energy_used)
   try {
-    const estimated = await tronWeb.transactionBuilder.estimateEnergy(
+    const estimated = await retryRateLimitedRead(() => tronWeb.transactionBuilder.estimateEnergy(
       tokenContract,
       'transfer(address,uint256)',
       {},
       parameters,
       from,
-    )
+    ))
     if (estimated?.result?.result === true && Number.isFinite(Number(estimated.energy_required)) && Number(estimated.energy_required) > 0) {
       energyRequired = Number(estimated.energy_required)
     }
@@ -83,7 +109,7 @@ export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContrac
     throw new Error('The network did not return a reliable energy estimate. No transfer was signed or submitted.')
   }
 
-  const chainParameters = await tronWeb.trx.getChainParameters()
+  const chainParameters = await retryRateLimitedRead(() => tronWeb.trx.getChainParameters())
   const energyParameter = Array.isArray(chainParameters)
     ? chainParameters.find((item) => item?.key === 'getEnergyFee')
     : null

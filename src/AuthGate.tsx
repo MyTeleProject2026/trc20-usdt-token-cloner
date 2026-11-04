@@ -187,7 +187,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       }
       window.sessionStorage.setItem(SESSION_KEY, payload.sessionToken)
       setSession({ address: payload.address, expiresAt: payload.expiresAt, sessionToken: payload.sessionToken })
-      showAuthToast('success', 'Owner identity verified. Your authenticated session is active for 30 minutes.')
+      showAuthToast('success', 'Owner identity verified. Your authenticated session is active for 15 minutes.')
       setPassword('')
       setAddress(payload.address)
     } catch (caught) {
@@ -267,7 +267,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         {error && <p className="studio-inline-error" role="alert">{error}</p>}
         <div className="studio-auth-points">
           <p><ShieldCheck size={16} aria-hidden="true" /><span><strong>One owner only.</strong> The server checks the configured wallet address and password hash; no public account creation exists.</span></p>
-          <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 30 minutes; sign out when finished.</span></p>
+          <p><LockKeyhole size={16} aria-hidden="true" /><span><strong>Short-lived sessions.</strong> Owner sessions expire after 15 minutes; sign out when finished.</span></p>
           <p><Activity size={16} aria-hidden="true" /><span><strong>Authentication is not funding.</strong> Login cannot create genuine USDT or bypass on-chain balance requirements.</span></p>
         </div>
         <p className="studio-auth-footnote">If login is still blocked, configure the missing backend settings listed above: OWNER_WALLET_ADDRESS, OWNER_PASSWORD_HASH, DATABASE_URL, the exact hosted FRONTEND_ORIGIN, and PACKAGED_APP_ORIGINS including https://localhost for Android. Store secrets only in the backend environment; never paste plaintext passwords, API tokens, or private keys into chat or GitHub.</p>

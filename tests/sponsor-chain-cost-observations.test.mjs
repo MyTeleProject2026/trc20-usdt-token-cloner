@@ -44,8 +44,9 @@ function createServerForTest(t, options = {}) {
     readChainCosts: async (value) => ({
       success: true, network: value.network, transactionHash: value.transactionHash,
       blockNumber: 12, executionResult: 'SUCCESS', reportedFeeSun: '4200',
+      transactionOwnerAddressHex: '11'.repeat(20), trxFeePayerAddressHex: '11'.repeat(20),
       energyFeeSun: '2000', netFeeSun: '2200', energyUsageTotal: '0',
-      energyUsage: null, netUsage: '220', energyPenaltyTotal: null,
+      energyUsage: null, originEnergyUsage: '17', netUsage: '220', energyPenaltyTotal: null,
     }),
     persistObservation: async (value) => ({ success: true, duplicate: false, observation: value }),
     listObservations: async ({ network, limit }) => ({ success: true, observations: [{ network, limit }] }),
@@ -86,12 +87,18 @@ test('cost observation uses stored confirmed transfer identity and persists only
   assert.equal(payload.status, 'solidified-chain-costs-observed-not-settled')
   assert.equal(payload.transactionHash, txid)
   assert.equal(payload.observedCosts.reportedFeeSun, '4200')
+  assert.equal(payload.observedCosts.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(payload.observedCosts.trxFeePayerAddressHex, '11'.repeat(20))
+  assert.equal(payload.observedCosts.originEnergyUsage, '17')
   assert.equal(payload.sponsorFeeBudgetSettled, false)
   assert.equal(payload.feeSponsorDebitVerified, false)
   assert.equal(payload.canSubmitSponsoredTransfer, false)
   assert.equal(persisted.feeSponsorAddress, feeSponsor)
   assert.equal(persisted.assetPrincipalAddress, principal)
   assert.equal(persisted.transactionHash, txid)
+  assert.equal(persisted.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(persisted.trxFeePayerAddressHex, '11'.repeat(20))
+  assert.equal(persisted.originEnergyUsage, '17')
 })
 
 test('cost observation rejects a non-confirmed transfer without reading costs', async (t) => {
@@ -152,7 +159,7 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   }
   const info = {
     id: txid, blockNumber: 77, fee: 4200, result: 'SUCCESS',
-    receipt: { net_fee: 2200, energy_fee: 2000, energy_usage_total: 0, net_usage: 220 },
+    receipt: { net_fee: 2200, energy_fee: 2000, energy_usage_total: 0, energy_usage: 0, origin_energy_usage: 17, net_usage: 220 },
   }
   const result = await readSolidifiedSponsorChainCosts({
     transfer: transfer().transfer,
@@ -165,11 +172,95 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   })
   assert.equal(result.success, true)
   assert.equal(result.reportedFeeSun, '4200')
+  assert.equal(result.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(result.trxFeePayerAddressHex, '11'.repeat(20))
+  assert.equal(result.originEnergyUsage, '17')
   assert.equal(result.blockNumber, 77)
   assert.equal(calls.length, 2)
   assert.ok(calls.every((call) => call.url.startsWith('https://tron-nile.gateway.tatum.io/')))
   assert.ok(calls.every((call) => call.options.headers['x-api-key'] === secret))
   assert.equal(JSON.stringify(result).includes(secret), false)
+})
+
+
+
+test('zero TRX fee does not invent a TRX fee payer while retaining resource usage', async () => {
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver].includes(value) },
+    address: { toHex(value) { return value === principal ? '41' + '11'.repeat(20) : '41' + '22'.repeat(20) } },
+  }
+  const transaction = {
+    txID: txid,
+    ret: [{ contractRet: 'SUCCESS' }],
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: '41' + '11'.repeat(20), to_address: '41' + '22'.repeat(20), amount: 2500000,
+    } } }] },
+  }
+  const info = {
+    id: txid, blockNumber: 79, fee: 0, result: 'SUCCESS',
+    receipt: { net_fee: 0, energy_fee: 0, energy_usage_total: 100, energy_usage: 100, origin_energy_usage: 0, net_usage: 220 },
+  }
+  const result = await readSolidifiedSponsorChainCosts({
+    transfer: transfer().transfer,
+    env: { TATUM_API_KEY: 'test-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({ ok: true, json: async () => url.endsWith('gettransactionbyid') ? transaction : info }),
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(result.trxFeePayerAddressHex, null)
+  assert.equal(result.originEnergyUsage, '0')
+  assert.equal(result.energyUsage, '100')
+})
+
+test('solidified cost reader rejects a finalized failed execution receipt', async () => {
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver].includes(value) },
+    address: { toHex(value) { return value === principal ? '41' + '11'.repeat(20) : '41' + '22'.repeat(20) } },
+  }
+  const transaction = {
+    txID: txid,
+    ret: [{ contractRet: 'REVERT' }],
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: '41' + '11'.repeat(20),
+      to_address: '41' + '22'.repeat(20),
+      amount: 2500000,
+    } } }] },
+  }
+  const info = {
+    id: txid, blockNumber: 78, fee: 4200, result: 'FAILED',
+    receipt: { result: 'REVERT', net_fee: 2200, energy_fee: 2000 },
+  }
+  const result = await readSolidifiedSponsorChainCosts({
+    transfer: transfer().transfer,
+    env: { TATUM_API_KEY: 'test-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('gettransactionbyid') ? transaction : info,
+    }),
+  })
+  assert.deepEqual(result, { success: false, reason: 'solidified-transaction-execution-failed' })
+})
+
+test('failed solidified execution cannot be persisted as a cost observation', async (t) => {
+  let persisted = false
+  const base = await createServerForTest(t, {
+    readChainCosts: async (value) => ({
+      success: false, reason: 'solidified-transaction-execution-failed',
+      network: value.network, transactionHash: value.transactionHash,
+    }),
+    persistObservation: async () => { persisted = true; return { success: true } },
+  })
+  const response = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/observe-chain-costs', {
+    method: 'POST', headers: headers(), body: '{}',
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'solidified-transaction-execution-failed')
+  assert.equal(payload.feeSponsorBudgetSettled, false)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(persisted, false)
 })
 
 test('chain-cost observation history is admin-gated and bounded', async (t) => {

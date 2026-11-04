@@ -303,7 +303,7 @@ test('sponsor confirmation requires persisted matching finalized chain evidence 
   assert.match(transition, /finalized-transaction-hash-required/)
   assert.match(transition, /finalized-transaction-hash-required/)
   assert.match(transition, /transaction-hash-conflict/)
-  assert.match(transition, /submitted: \['confirmed'\]/)
+  assert.match(transition, /submitted: \['confirmed', 'failed'\]/)
   assert.match(transition, /native_transfer_verifications/)
   assert.match(transition, /verification_status = 'verified-on-chain'/)
   assert.match(transition, /finalized-transfer-evidence-not-found/)
@@ -347,8 +347,8 @@ test('submitted sponsor transfers cannot release reservations without finalized 
   assert.ok(start >= 0)
   const transition = source.slice(start)
   assert.match(transition, /transfer\.status === 'submitted' && nextStatus === 'failed'/)
-  assert.match(transition, /finalized-failure-evidence-and-fee-reconciliation-required/)
-  assert.match(transition, /submitted: \['confirmed'\]/)
+  assert.match(transition, /finalized-failure-fee-observation-required/)
+  assert.match(transition, /submitted: \['confirmed', 'failed'\]/)
   assert.match(transition, /if \(nextStatus === 'confirmed'\)[\s\S]*finalized-transfer-evidence-not-found/)
 })
 
@@ -469,7 +469,7 @@ test('behavioral sponsor transition harness refuses caller-declared failure afte
 
   assert.deepEqual(result, {
     updated: false,
-    reason: 'finalized-failure-evidence-and-fee-reconciliation-required',
+    reason: 'finalized-failure-fee-observation-required',
   })
   assert.equal(state.transfer.status, 'submitted')
   assert.equal(state.budget.reserved_base_units, '25')
@@ -564,6 +564,8 @@ function makeSponsorTransitionPool(state) {
             state.rollbacks += 1
             return { rows: [] }
           }
+          if (normalized.includes('to_regclass')) return { rows: [{ table_name: 'trc20_token_clone.sponsor_chain_fee_observations' }] }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_chain_fee_observations')) return { rows: [] }
           if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
             return { rows: [{ ...state.transfer }] }
           }
