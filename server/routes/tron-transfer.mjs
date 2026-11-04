@@ -397,32 +397,55 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     if (db) {
       try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
     }
-    let mainnetNode = { checked: false, reason: mainnetConfigured ? 'not-tested' : 'tatum-mainnet-key-missing' }
-    if (mainnetConfigured) {
+    const inspectSolidifiedNode = async (network) => {
+      const configured = Boolean(configuredApiKey(env, network))
+      if (!configured) return { checked: false, reason: network === 'mainnet' ? 'tatum-mainnet-key-missing' : 'tatum-testnet-key-missing' }
       try {
-        const block = await tatumGatewayRequest({ env, network: 'mainnet', path: 'walletsolidity/getnowblock', body: {} })
+        const block = await tatumGatewayRequest({ env, network, path: 'walletsolidity/getnowblock', body: {} })
         const number = Number(block?.block_header?.raw_data?.number)
         const blockId = cleanString(block?.blockID, 96)
-        mainnetNode = Number.isSafeInteger(number) && number > 0 && TXID_RE.test(blockId)
+        return Number.isSafeInteger(number) && number > 0 && TXID_RE.test(blockId)
           ? { checked: true, status: 'solidified-node-reachable', latestSolidifiedBlockNumber: number }
           : { checked: false, reason: 'invalid-solidified-block-response' }
       } catch (error) {
-        mainnetNode = { checked: false, reason: Number.isInteger(error?.status) ? 'tatum-mainnet-provider-http-error' : 'tatum-mainnet-provider-unreachable', providerStatus: Number.isInteger(error?.status) ? error.status : null }
+        return {
+          checked: false,
+          reason: Number.isInteger(error?.status) ? 'tatum-provider-http-error' : 'tatum-provider-unreachable',
+          providerStatus: Number.isInteger(error?.status) ? error.status : null,
+        }
       }
     }
+    const [mainnetNode, nileNode, shastaNode] = await Promise.all([
+      inspectSolidifiedNode('mainnet'),
+      inspectSolidifiedNode('nile'),
+      inspectSolidifiedNode('shasta'),
+    ])
     let sourceBalance = { checked: false, reason: 'fincra-not-configured' }
     if (fincra.apiKey && fincra.businessId) {
       try { sourceBalance = await readFincraSourceBalance(fincra) } catch { sourceBalance = { checked: false, reason: 'fincra-wallets-unavailable' } }
     }
-    const canSandboxPayout = fincra.mode === 'sandbox' && fincra.payoutsEnabled && Boolean(fincra.apiKey && fincra.businessId && databaseReady)
+    const usdtSourceBalanceReady = sourceBalance.checked
+      && Number.isFinite(Number(sourceBalance.availableBalance))
+      && Number(sourceBalance.availableBalance) > 0
+      && fincra.sourceCurrency === 'USDT'
+    const canSandboxPayout = fincra.mode === 'sandbox' && fincra.payoutsEnabled
+      && Boolean(fincra.apiKey && fincra.businessId && databaseReady && sourceBalance.checked)
     const canLivePayout = fincra.mode === 'live' && fincra.payoutsEnabled && fincra.liveConfirmed
       && Boolean(fincra.apiKey && fincra.businessId && fincra.webhookConfigured && databaseReady && mainnetNode.checked)
-      && sourceBalance.checked && Number(sourceBalance.availableBalance) > 0
-      && fincra.sourceCurrency === 'USDT'
+      && usdtSourceBalanceReady
     return res.json({
       success: true,
       status: 'readiness-evaluated',
-      tatum: { mainnetConfigured, testnetConfigured, mainnetNode, networkRouting: 'server-side-tatum-gateway', testnetSignedBroadcast: true, mainnetDirectBroadcast: false },
+      tatum: {
+        mainnetConfigured,
+        testnetConfigured,
+        mainnetNode,
+        testnetNodes: { nile: nileNode, shasta: shastaNode },
+        testnetAllReachable: nileNode.checked && shastaNode.checked,
+        networkRouting: 'server-side-tatum-gateway',
+        testnetSignedBroadcast: true,
+        mainnetDirectBroadcast: false,
+      },
       fincra: {
         environment: fincra.mode,
         apiKeyConfigured: Boolean(fincra.apiKey),
