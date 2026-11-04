@@ -422,6 +422,43 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     return found.rows[0] || null
   }
 
+  function reconcileFincraPayoutIdentity(payout, row) {
+    if (!payout || typeof payout !== 'object') return { ok: false, complete: false, reason: 'provider-payout-record-missing' }
+    const status = payoutStatusFromProvider(payout.status)
+    const customerReference = cleanString(payout.customerReference || payout.customer_reference, 80)
+    const sourceCurrency = cleanString(payout.sourceCurrency, 8).toUpperCase()
+    const destinationCurrency = cleanString(payout.destinationCurrency, 8).toUpperCase()
+    const paymentScheme = cleanString(payout.paymentScheme, 32).toLowerCase()
+    const paymentDestination = cleanString(payout.paymentDestination, 32).toLowerCase()
+    const recipient = cleanString(
+      payout.beneficiary?.walletAddress || payout.recipient?.walletAddress
+        || payout.recipient?.accountNumber || payout.walletAddress
+        || payout.beneficiary?.accountNumber, 64,
+    )
+    const amountRaw = payout.amountReceived ?? payout.amount ?? payout.destinationAmount
+    const amountBaseUnits = amountRaw === undefined || amountRaw === null
+      ? null : parseUsdtBalanceBaseUnits(amountRaw)
+    const checks = [
+      ['customer-reference-mismatch', customerReference, row.customer_reference],
+      ['source-currency-mismatch', sourceCurrency, 'USDT'],
+      ['destination-currency-mismatch', destinationCurrency, 'USDT'],
+      ['payment-scheme-mismatch', paymentScheme, 'usdt_trc20'],
+      ['payment-destination-mismatch', paymentDestination, 'crypto_wallet'],
+      ['recipient-mismatch', recipient, row.recipient_address],
+    ]
+    for (const [reason, actual, expected] of checks) {
+      if (actual && actual !== expected) return { ok: false, complete: false, status, reason }
+    }
+    if (amountBaseUnits !== null && amountBaseUnits !== BigInt(row.amount_base_units)) {
+      return { ok: false, complete: false, status, reason: 'payout-amount-mismatch' }
+    }
+    const complete = checks.every(([, actual]) => Boolean(actual)) && amountBaseUnits !== null
+    if (status === 'successful' && !complete) {
+      return { ok: false, complete: false, status, reason: 'successful-payout-record-incomplete' }
+    }
+    return { ok: true, complete, status, recipient, amountBaseUnits: amountBaseUnits?.toString() || null }
+  }
+
   router.get('/readiness', async (_req, res) => {
     const auth = await requireOwnerSession(_req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
