@@ -561,7 +561,7 @@ export default function App() {
         </header>
 
         <div className="content">
-          <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Network and payout boundaries</b><p>Direct wallet sends use Nile or Shasta testnets. Separate Fincra sponsor requests are Mainnet USDT TRC20 payouts and require an authorized, funded Fincra business account.</p></div></section>
+          <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Network and payout boundaries</b><p>Direct wallet sends use Nile or Shasta testnets. They do not create official Mainnet Tether deposits or credits in third-party exchange ledgers. Separate Fincra sponsor requests are Mainnet USDT TRC20 payouts and require an authorized, funded Fincra business account.</p></div></section>
           {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
           {error && <div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
 
