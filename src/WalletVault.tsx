@@ -1706,8 +1706,36 @@ export default function WalletVault() {
       </details>
 
       <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
-        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><LockKeyhole size={16} /></span><div><h2>{activePanel === 'wallet' ? 'Unlock to view assets' : activePanel === 'send' ? 'Unlock to authorize a transfer' : 'Unlock to verify activity'}</h2><p>This is a private owner console. A public address can be monitored without its private key, but it cannot authorize spending.</p></div></div>
-        <p className="wallet-vault-caption">{activePanel === 'send' && transferAsset === 'TRC20' ? 'A genuine USDT transfer requires real USDT at the sender or a separately funded treasury payout.' : 'Open Account to unlock the local signing wallet and continue.'}</p>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><LockKeyhole size={16} /></span><div><h2>{activePanel === 'wallet' ? 'Unlock to view personal wallet assets' : activePanel === 'send' ? 'Unlock to authorize a transfer' : 'Unlock to verify activity'}</h2><p>This is a private owner console. A public address can be monitored without its private key, but it cannot authorize spending.</p></div></div>
+        {activePanel === 'wallet' && network === 'mainnet' && (
+          <div className="wallet-vault-transfer-section" aria-labelledby="locked-sponsor-liquidity-heading">
+            <div className="wallet-vault-panel-head">
+              <span className="wallet-vault-step"><Layers size={16} /></span>
+              <div><h3 id="locked-sponsor-liquidity-heading">External sponsor liquidity</h3><p>This owner-authenticated balance view does not require your local wallet to be unlocked.</p></div>
+            </div>
+            {ownerSponsorLiquidity?.success === true ? (
+              <>
+                <div className="wallet-vault-review-grid">
+                  <div className="wallet-vault-review-wide"><small>Allowlisted unreserved Mainnet USDT capacity</small><strong>{formatUnits(ownerSponsorLiquidity.availableBaseUnits || '0', 6)} USDT</strong></div>
+                  <div><small>Verified sponsor on-chain balance</small><strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong></div>
+                  <div><small>Verified source wallets</small><strong>{ownerSponsorLiquidity.verifiedSourceCount || 0} / {ownerSponsorLiquidity.sourceCount || 0}</strong></div>
+                </div>
+                {ownerSponsorLiquidity.sources?.length ? (
+                  <div className="wallet-vault-token-list">
+                    {ownerSponsorLiquidity.sources.map(source => (
+                      <div className="wallet-vault-token-row" key={source.address}>
+                        <div className="wallet-vault-token-info"><strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong><small>{source.approvedBudgetCount} allowlisted active budget(s)</small></div>
+                        <strong className="wallet-vault-token-amount">{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="wallet-vault-caption">No allowlisted external sponsor USDT budgets are registered yet.</p>}
+              </>
+            ) : <p className="wallet-vault-risk-note" role="status">{ownerSponsorLiquidityError || 'Sponsor capacity is not verified. No sponsor balance is counted.'}</p>}
+            <p className="wallet-vault-caption">Your personal wallet remains locked and is not included in this aggregate. This balance view is not transaction authorization; withdrawals remain disabled.</p>
+          </div>
+        )}
+        <p className="wallet-vault-caption">{activePanel === 'send' && transferAsset === 'TRC20' ? 'A genuine USDT transfer requires real USDT at the sender or a separately funded treasury payout.' : activePanel === 'wallet' ? 'Unlock the local wallet only to view its own assets and use device-local wallet functions.' : 'Open Account to unlock the local signing wallet and continue.'}</p>
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Go to Account</button>
         {activePanel === 'send' && <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Check organization payout funding</button>}
       </section>
