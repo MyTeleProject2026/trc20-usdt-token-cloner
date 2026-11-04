@@ -1117,20 +1117,38 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         || (signedEventRecipient && signedEventRecipient !== row.recipient_address)) {
         return res.status(409).json({ success: false, error: 'fincra-webhook-recipient-mismatch' })
       }
-      const providerAmountRaw = payout.amountReceived ?? payout.amount ?? payout.destinationAmount
-      const signedAmountRaw = eventData.amountReceived
-      const providerAmount = providerAmountRaw === undefined || providerAmountRaw === null
-        ? null : parseUsdtBalanceBaseUnits(providerAmountRaw)
-      const signedAmount = signedAmountRaw === undefined || signedAmountRaw === null
-        ? null : parseUsdtBalanceBaseUnits(signedAmountRaw)
-      if ((providerAmount !== null && providerAmount !== BigInt(row.amount_base_units))
-        || (signedAmount !== null && signedAmount !== BigInt(row.amount_base_units))) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-amount-mismatch' })
+      const parseOptionalAmount = (value) => value === undefined || value === null ? null : parseUsdtBalanceBaseUnits(value)
+      const providerReceived = parseOptionalAmount(payout.amountReceived)
+      const signedReceived = parseOptionalAmount(eventData.amountReceived)
+      const providerCharged = parseOptionalAmount(payout.amountCharged)
+      const signedCharged = parseOptionalAmount(eventData.amountCharged)
+      const providerFee = parseOptionalAmount(payout.fee)
+      const signedFee = parseOptionalAmount(eventData.fee)
+      const parsedAmountPairs = [
+        [payout.amountReceived, providerReceived], [eventData.amountReceived, signedReceived],
+        [payout.amountCharged, providerCharged], [eventData.amountCharged, signedCharged],
+        [payout.fee, providerFee], [eventData.fee, signedFee],
+      ]
+      if (parsedAmountPairs.some(([raw, parsed]) => raw !== undefined && raw !== null && parsed === null)) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-settlement-amount-invalid' })
       }
-      if (providerAmount !== null && signedAmount !== null && providerAmount !== signedAmount) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-amount-conflict' })
+      if (providerReceived !== null && signedReceived !== null && providerReceived !== signedReceived) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-received-amount-conflict' })
       }
-      const verifiedAmount = providerAmount ?? signedAmount
+      if (providerCharged !== null && signedCharged !== null && providerCharged !== signedCharged) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-charged-amount-conflict' })
+      }
+      if (providerFee !== null && signedFee !== null && providerFee !== signedFee) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-fee-conflict' })
+      }
+      const verifiedAmount = providerReceived ?? signedReceived
+      const chargedAmount = providerCharged ?? signedCharged
+      const feeAmount = providerFee ?? signedFee
+      if ((verifiedAmount !== null && verifiedAmount <= 0n) || (chargedAmount !== null && chargedAmount <= 0n)
+        || (feeAmount !== null && feeAmount < 0n) || (verifiedAmount !== null && chargedAmount !== null && chargedAmount < verifiedAmount)
+        || (feeAmount !== null && chargedAmount !== null && feeAmount > chargedAmount)) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-settlement-amount-inconsistent' })
+      }
       const signedEventHasRecipient = Boolean(signedEventRecipient)
       const providerHasRecipient = Boolean(providerRecipient)
       const providerStatus = payoutStatusFromProvider(payout.status)
@@ -1158,10 +1176,14 @@ export function createTronTransferRouter({ env = process.env } = {}) {
               WHEN fincra_status IN ('successful','failed') AND fincra_status<>$3 THEN fincra_status
               ELSE $3 END,
             fincra_reference=COALESCE($4,fincra_reference),
+            fincra_amount_received_base_units=COALESCE($6,fincra_amount_received_base_units),
+            fincra_amount_charged_base_units=COALESCE($7,fincra_amount_charged_base_units),
+            fincra_fee_base_units=COALESCE($8,fincra_fee_base_units),
             fincra_successful_at=CASE WHEN $3='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
             fincra_webhook_event=$5,fincra_webhook_received_at=now(),updated_at=now()
         WHERE id=$1 RETURNING id,fincra_status,status`,
-      [row.id, 'fincra-' + providerStatus, providerStatus, providerReference || null, cleanString(payload?.event,128) || null])
+      [row.id, 'fincra-' + providerStatus, providerStatus, providerReference || null, cleanString(payload?.event,128) || null,
+        verifiedAmount?.toString() || null, chargedAmount?.toString() || null, feeAmount?.toString() || null])
       return res.status(200).json({
         success: true, matched: saved.rowCount > 0,
         reconciledStatus: saved.rows[0]?.fincra_status || row.fincra_status || null,
