@@ -763,3 +763,12 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.035em; 
 .funding-wallet-number strong{color:var(--mint);font:600 20px 'Space Grotesk',sans-serif;letter-spacing:.06em;overflow-wrap:anywhere}
 .funding-wallet-number .icon-button{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:8px 11px;border:1px solid var(--line-strong);border-radius:9px;background:rgba(29,95,57,.36);color:var(--mint);font-size:11px}
 @media(max-width:560px){.funding-wallet-number{align-items:flex-start;flex-direction:column}.funding-wallet-number strong{font-size:17px}}
+
+.sponsor-ledger-panel{display:grid;gap:12px}
+.sponsor-ledger-list{display:grid;gap:0}
+.sponsor-ledger-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.65fr);align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--line)}
+.sponsor-ledger-row>div:first-child{display:grid;gap:5px;min-width:0}
+.sponsor-ledger-row strong{color:var(--mint);font:600 16px 'Space Grotesk',sans-serif}
+.sponsor-ledger-row span,.sponsor-ledger-row small{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.sponsor-ledger-row .ledger-reference{text-align:right;color:var(--ink-soft);font:500 10px 'DM Sans',sans-serif;overflow-wrap:anywhere}
+@media(max-width:560px){.sponsor-ledger-row{grid-template-columns:1fr}.sponsor-ledger-row .ledger-reference{text-align:left}}
