@@ -772,3 +772,10 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.035em; 
 .sponsor-ledger-row span,.sponsor-ledger-row small{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 .sponsor-ledger-row .ledger-reference{text-align:right;color:var(--ink-soft);font:500 10px 'DM Sans',sans-serif;overflow-wrap:anywhere}
 @media(max-width:560px){.sponsor-ledger-row{grid-template-columns:1fr}.sponsor-ledger-row .ledger-reference{text-align:left}}
+
+.balance-breakdown{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(3,16,10,.35)}
+.balance-breakdown>div{display:grid;gap:5px;min-width:0}
+.balance-breakdown small{color:var(--muted);font-size:10px;line-height:1.4}
+.balance-breakdown b{color:var(--ink);font:600 13px 'Space Grotesk',sans-serif;overflow-wrap:anywhere}
+.balance-breakdown>div:first-child b{color:var(--mint)}
+@media(max-width:560px){.balance-breakdown{grid-template-columns:1fr}.balance-breakdown>div{display:flex;justify-content:space-between;gap:12px}}
