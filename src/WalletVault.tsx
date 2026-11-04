@@ -45,6 +45,7 @@ type TokenEvidence = {
   officialMainnetUsdtAddressMatch?: boolean
   evidenceScope?: string
   evidenceCheckedAt?: number
+  balanceBaseUnits?: string
 }
 type TransferAsset = 'TRX' | 'TRC20'
 type TransferStatus = 'broadcast-accepted' | 'pending-or-not-indexed' | 'included-unconfirmed' | 'confirmed' | 'failed' | 'identity-mismatch'
@@ -923,6 +924,7 @@ export default function WalletVault() {
       officialMainnetUsdtAddressMatch,
       onChainContractDeployed: inspection.onChainContractDeployed === true,
       onChainMetadataReadable: inspection.onChainMetadataReadable === true,
+      balanceBaseUnits: String(inspection.balanceBaseUnits),
       tokenName: name,
       tokenSymbol: symbol,
       tokenType: 'trc20',
@@ -1485,13 +1487,28 @@ export default function WalletVault() {
     const web = createTronWeb(network, unlocked.privateKey)
     const from = String(web.defaultAddress?.base58 || '')
     if (from !== unlocked.record.address || !web.isAddress(from)) throw new Error('Unlocked signing address does not match the selected wallet record.')
-    // Mainnet sends are owner-only. Require a recent server-verified owner
-    // session and the exact configured treasury as the locally signed sender.
-    assertOwnerMainnetTransferAccess({ network, from, snapshot: ownerTreasurySnapshot })
+    // This screen creates a read-only preview only. It does not sign or
+    // broadcast; sponsor-funded Mainnet requests use the separate Sponsor page.
     const to = recipientInput.trim()
     if (!web.isAddress(to) || !ADDRESS_PATTERN.test(to)) throw new Error('Enter a valid TRON Base58Check recipient address.')
     if (to === from) throw new Error('Sender and recipient must be different addresses.')
-    const nativeBalance = BigInt(String(await web.trx.getBalance(from)))
+    const nativeBalanceResponse = await fetch(API_BASE + '/api/tron/native-balance?network='
+      + encodeURIComponent(network) + '&address=' + encodeURIComponent(from), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+    })
+    const nativeBalancePayload = await nativeBalanceResponse.json().catch(() => null)
+    if (!nativeBalanceResponse.ok || nativeBalancePayload?.success !== true
+      || nativeBalancePayload.network !== network || nativeBalancePayload.address !== from
+      || typeof nativeBalancePayload.balanceSun !== 'string'
+      || !/^(0|[1-9][0-9]*)$/.test(nativeBalancePayload.balanceSun)) {
+      throw new Error(typeof nativeBalancePayload?.message === 'string'
+        ? nativeBalancePayload.message : 'The backend could not verify the unlocked wallet native TRX balance.')
+    }
+    const nativeBalance = BigInt(nativeBalancePayload.balanceSun)
     const amount = amountInput.trim()
     if (transferAsset === 'TRX') {
       const amountBaseUnits = parseUnitsDecimal(amount, 6)
@@ -1518,8 +1535,10 @@ export default function WalletVault() {
     assertTokenTransferEvidence(evidence)
     const decimals = evidence.tokenDecimals as number
     const amountBaseUnits = parseUnitsDecimal(amount, decimals)
-    const contract = await web.contract(TOKEN_ABI, contractAddress)
-    const rawBalance = BigInt(String(await contract.balanceOf(from).call()))
+    if (typeof evidence.balanceBaseUnits !== 'string' || !/^(0|[1-9][0-9]*)$/.test(evidence.balanceBaseUnits)) {
+      throw new Error('The backend did not return a verified on-chain token balance for this wallet.')
+    }
+    const rawBalance = BigInt(evidence.balanceBaseUnits)
     if (rawBalance < BigInt(amountBaseUnits)) throw new Error('Insufficient on-chain token balance for this transfer.')
     const estimated = await estimateTRC20TransferFee({
       tronWeb: web, from, to, tokenContract: contractAddress, amountBaseUnits,
@@ -2133,7 +2152,7 @@ export default function WalletVault() {
                 <div className="wallet-vault-transfer-warning" role="note">
                   <strong>Personal wallet only — no organization funds</strong>
                   <p>The source is the unlocked personal wallet shown in Assets. The wallet must hold the real selected token and enough native TRX for any required network fee. This panel validates details and performs read-only checks only; this build cannot sign or broadcast. No sponsor balance is used here.</p>
-                  {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this password-encrypted browser wallet has not undergone an independent wallet-security audit and is not hardware-backed. Do not keep substantial value in an unaudited browser wallet.</p>}
+                  {network === 'mainnet' && <p><strong>Mainnet caution:</strong> this is a local browser wallet and has not undergone an independent wallet-security audit or hardware-backed protection. This screen is preview-only; no transfer is signed or broadcast.</p>}
                   {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
                 </div>
 
