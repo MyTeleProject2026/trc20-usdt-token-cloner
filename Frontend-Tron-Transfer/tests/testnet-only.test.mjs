@@ -34,7 +34,7 @@ test('sponsor request uses off-chain Mainnet wallet ownership verification', () 
 })
 
 test('production metadata and frontend test command are configured', () => {
-  assert.ok(html.includes('TRON Mainnet USDT TRC20'))
+  assert.ok(html.includes('Mainnet-only sponsored Tether USDT TRC20 withdrawal platform'))
   assert.ok(html.includes('Tron Transfer · Mainnet USDT Payouts'))
   assert.equal(pkg.scripts.build, 'vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
