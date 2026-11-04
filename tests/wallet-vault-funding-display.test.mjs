@@ -28,7 +28,7 @@ test('Mainnet sponsor readiness refreshes automatically and when the workspace r
   assert.ok(workflow.includes("document.addEventListener('visibilitychange', refreshWhenVisible)"))
   assert.ok(workflow.includes("window.removeEventListener('focus', refreshWhenVisible)"))
   assert.ok(workflow.includes("document.removeEventListener('visibilitychange', refreshWhenVisible)"))
-  assert.ok(workflow.includes('requestInFlight || cancelled'))
+  assert.ok(workflow.includes("if (cancelled || document.visibilityState === 'hidden' || requestInFlight) return"))
   assert.ok(workflow.includes('/api/tron/sponsorship/mainnet-direct/readiness?refresh=1'))
 })
 
