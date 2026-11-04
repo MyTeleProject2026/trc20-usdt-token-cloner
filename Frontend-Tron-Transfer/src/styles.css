@@ -754,3 +754,12 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.035em; 
  .transaction-actions{display:grid;grid-template-columns:1fr}
  .transaction-actions button{width:100%}
 }
+
+.sponsor-funding-destination{display:grid;gap:11px;border-color:rgba(101,223,161,.28);background:linear-gradient(140deg,rgba(19,69,43,.48),rgba(11,29,20,.88))}
+.sponsor-funding-destination h3{margin:0;color:var(--ink);font:600 18px 'Space Grotesk',sans-serif}
+.sponsor-funding-destination p{margin:0;color:var(--ink-soft);font-size:12px;line-height:1.65}
+.sponsor-funding-destination small{color:var(--muted);font-size:10px;line-height:1.5}
+.funding-wallet-number{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;border:1px solid var(--line-strong);border-radius:12px;background:rgba(4,17,11,.55)}
+.funding-wallet-number strong{color:var(--mint);font:600 20px 'Space Grotesk',sans-serif;letter-spacing:.06em;overflow-wrap:anywhere}
+.funding-wallet-number .icon-button{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:8px 11px;border:1px solid var(--line-strong);border-radius:9px;background:rgba(29,95,57,.36);color:var(--mint);font-size:11px}
+@media(max-width:560px){.funding-wallet-number{align-items:flex-start;flex-direction:column}.funding-wallet-number strong{font-size:17px}}
