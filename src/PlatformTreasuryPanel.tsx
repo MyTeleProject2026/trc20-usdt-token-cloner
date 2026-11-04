@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { assertTransferTransactionIntent } from './wallet-transfer.mjs'
 
 type TronProvider = {
   isTronLink?: boolean
@@ -29,6 +30,8 @@ type WithdrawalIntent = {
     treasuryAddress: string
     recipientAddress: string
     amountUsdt: string
+    amountBaseUnits: string
+    tokenContract: string
     status: string
     transactionHash?: string | null
     expiresAt: string
@@ -123,7 +126,11 @@ async function apiRequest(path: string, token: string, init: RequestInit = {}) {
     redirect: 'error',
   })
   const payload = await response.json().catch(() => null)
-  if (!response.ok || payload?.success !== true) {
+  const validNonterminalResult = Boolean(payload && (
+    payload.status === 'broadcast-unknown'
+    || (payload.intent && payload.verification)
+  ))
+  if (!response.ok || (payload?.success !== true && !validNonterminalResult)) {
     const reason = typeof payload?.error === 'string' ? payload.error : 'treasury-request-failed'
     throw new Error(reason.replaceAll('-', ' '))
   }
@@ -156,7 +163,7 @@ export default function PlatformTreasuryPanel({
     && readiness?.executionEnabled === true && recipientAddress.trim() && amountUsdt.trim() && !prepared)
 
   const statusLabel = useMemo(() => {
-    const status = lastStatus?.intent?.status || prepared?.intent?.status
+    const status = lastStatus?.intent?.status || lastStatus?.status || prepared?.intent?.status
     if (status === 'confirmed') return 'Confirmed on TRON'
     if (status === 'failed') return 'Failed on-chain'
     if (status === 'rejected') return 'Intent expired or rejected'
@@ -263,12 +270,25 @@ export default function PlatformTreasuryPanel({
     if (currentAddress !== treasuryAddress || currentAddress !== prepared.intent.treasuryAddress) {
       throw new Error('TronLink account changed after preparation. The intent cannot be signed by another wallet.')
     }
+    const chainId = await provider.request({ method: 'eth_chainId' }).catch(() => null)
+    if (typeof chainId === 'string' ? !isMainnetChainId(chainId) : !isMainnetNode(provider.tronWeb)) {
+      throw new Error('TronLink network changed after preparation. Switch back to verified TRON Mainnet before signing.')
+    }
+    const intent = {
+      from: prepared.intent.treasuryAddress,
+      to: prepared.intent.recipientAddress,
+      asset: 'TRC20' as const,
+      amountBaseUnits: prepared.intent.amountBaseUnits,
+      tokenContract: prepared.intent.tokenContract,
+    }
+    assertTransferTransactionIntent(provider.tronWeb, prepared.unsignedTransaction, intent)
     const signed = await provider.tronWeb.trx.sign(prepared.unsignedTransaction)
     if (!signed || !Array.isArray(signed.signature) || signed.signature.length < 1
       || signed.raw_data_hex !== prepared.unsignedTransaction.raw_data_hex
       || signed.txID !== prepared.unsignedTransaction.txID) {
       throw new Error('TronLink returned a signature for different transaction data. Submission was stopped.')
     }
+    assertTransferTransactionIntent(provider.tronWeb, signed, intent)
     const signedTransaction = {
       txID: signed.txID,
       raw_data: signed.raw_data,
@@ -282,6 +302,9 @@ export default function PlatformTreasuryPanel({
     })
     setLastStatus(result)
     if (result.intent) setPrepared((current) => current ? { ...current, intent: result.intent } : current)
+    else if (result.status === 'broadcast-unknown') {
+      setPrepared((current) => current ? { ...current, intent: { ...current.intent, status: 'broadcast-unknown' } } : current)
+    }
     setNotice(result.note || 'Signed transaction submitted. Check solidified chain status before treating it as paid.')
   }
 

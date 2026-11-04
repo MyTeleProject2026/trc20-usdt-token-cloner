@@ -343,7 +343,7 @@ export function createPlatformTreasuryRouter({
       const snapshot = await readTreasurySnapshot(tronWeb, auth.config.treasuryAddress)
       if (!snapshot.ok) return errorResponse(res, 503, snapshot.reason, { executionEnabled: false })
       const pending = await db.query(
-        "SELECT COALESCE(SUM(amount_base_units),0)::text AS principal_reserved, COALESCE(SUM(fee_limit_sun),0)::text AS fee_reserved FROM trc20_token_clone.platform_treasury_withdrawals WHERE treasury_address=$1 AND status IN ('prepared','broadcasting','broadcast-accepted','broadcast-unknown')",
+        "SELECT COALESCE(SUM(amount_base_units),0)::text AS principal_reserved, COALESCE(SUM(fee_limit_sun),0)::text AS fee_reserved FROM trc20_token_clone.platform_treasury_withdrawals WHERE treasury_address=$1 AND (status IN ('broadcasting','broadcast-accepted','broadcast-unknown') OR (status='prepared' AND expires_at > now()))",
         [auth.config.treasuryAddress],
       )
       const reservedPrincipal = BigInt(pending.rows[0]?.principal_reserved || '0')
@@ -465,11 +465,11 @@ export function createPlatformTreasuryRouter({
       )
       const [pending, daily] = await Promise.all([
         client.query(
-          "SELECT COALESCE(SUM(amount_base_units),0)::text AS principal_reserved, COALESCE(SUM(fee_limit_sun),0)::text AS fee_reserved FROM trc20_token_clone.platform_treasury_withdrawals WHERE treasury_address=$1 AND status IN ('prepared','broadcasting','broadcast-accepted','broadcast-unknown')",
+          "SELECT COALESCE(SUM(amount_base_units),0)::text AS principal_reserved, COALESCE(SUM(fee_limit_sun),0)::text AS fee_reserved FROM trc20_token_clone.platform_treasury_withdrawals WHERE treasury_address=$1 AND (status IN ('broadcasting','broadcast-accepted','broadcast-unknown') OR (status='prepared' AND expires_at > now()))",
           [config.treasuryAddress],
         ),
         client.query(
-          "SELECT COALESCE(SUM(amount_base_units),0)::text AS daily_total FROM trc20_token_clone.platform_treasury_withdrawals WHERE treasury_address=$1 AND created_at >= now() - INTERVAL '24 hours' AND status NOT IN ('rejected','failed')",
+          "SELECT COALESCE(SUM(amount_base_units),0)::text AS daily_total FROM trc20_token_clone.platform_treasury_withdrawals WHERE treasury_address=$1 AND created_at >= now() - INTERVAL '24 hours' AND status NOT IN ('rejected','failed') AND (status <> 'prepared' OR expires_at > now())",
           [config.treasuryAddress],
         ),
       ])
