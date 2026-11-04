@@ -37,7 +37,9 @@ test('sponsorship cannot be represented as enabled without a verified integratio
   assert.match(sponsorship, /enabled: false/)
   assert.match(sponsorship, /mainnetEnabled: false/)
   assert.match(sponsorship, /canSubmitSponsoredTransfer: false/)
-  assert.match(sponsorship, /not-integrated/)
+  assert.match(sponsorship, /testnet-wallet-signer-integrated-mainnet-disabled/)
+  assert.match(sponsorship, /fireblocksRequired: false/)
+  assert.match(sponsorship, /signingAdapterImplemented: false/)
 })
 
 test('wallet and receiver balance checks use real read-only backend endpoints', () => {
