@@ -89,78 +89,84 @@ export function inspectProductionEnvironment(env = process.env, {
     : check(present(env.OWNER_WALLET_ADDRESS) ? 'invalid' : 'missing', 'Use the owner-controlled TRON address.')
   , { error: !ownerAddressValid })
 
-  const treasuryOwnerValid = isValidTronAddress(env.TREASURY_OWNER_ADDRESS)
-  const ownerMatches = ownerAddressValid && treasuryOwnerValid && env.OWNER_WALLET_ADDRESS === env.TREASURY_OWNER_ADDRESS
-  add('TREASURY_OWNER_ADDRESS', !treasuryOwnerValid
-    ? check(present(env.TREASURY_OWNER_ADDRESS) ? 'invalid' : 'missing', 'Use the same owner-controlled address as OWNER_WALLET_ADDRESS.')
-    : ownerMatches
-      ? check('configured', 'Matches OWNER_WALLET_ADDRESS.')
-      : check('mismatch', 'Must exactly match OWNER_WALLET_ADDRESS.')
-  , { error: !ownerMatches })
-
   add('OWNER_PASSWORD_HASH', OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '')
     ? check('configured', 'Hash format matches the owner login scrypt format; password was not tested.')
     : check(present(env.OWNER_PASSWORD_HASH) ? 'invalid' : 'missing', 'Generate locally with node scripts/generate-owner-password-hash.mjs.')
   , { error: !OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '') })
 
-  const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
-  add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
-    ? check('missing', 'Required for managed payouts; do not guess this address.')
-    : treasuryAddressValid
-      ? check('configured', 'Valid address syntax only; it must match the actual Fireblocks vault address.')
-      : check('invalid', 'Must be a valid TRON Base58Check address.')
-  , { error: !treasuryAddressValid })
+  const ownerPayoutFlagsEnabled = ['TREASURY_WITHDRAWALS_ENABLED', 'TREASURY_TRX_WITHDRAWALS_ENABLED']
+    .some((key) => typeof env[key] === 'string' && env[key].trim() === 'true')
+  const fireblocksSelected = env.TREASURY_SIGNER_MODE === 'fireblocks'
+  const ownerPayoutSelected = fireblocksSelected || ownerPayoutFlagsEnabled
 
-  const positiveDecimal6 = (value) => {
-    if (typeof value !== 'string' || value.length > 86
-      || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
-    const [whole, fraction = ''] = value.split('.')
-    if (whole.length > 78) return false
-    return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
-  }
-  for (const key of ['TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX']) {
-    const valid = positiveDecimal6(env[key])
-    add(key, valid
-      ? check('configured', 'Positive decimal limit with at most six fractional digits; operator approval is not verified.')
-      : check(present(env[key]) ? 'invalid' : 'missing', 'Set a positive decimal payout/daily limit, up to six decimal places.')
-    , { error: !valid })
-  }
+  if (ownerPayoutSelected) {
+    const treasuryOwnerValid = isValidTronAddress(env.TREASURY_OWNER_ADDRESS)
+    const ownerMatches = ownerAddressValid && treasuryOwnerValid && env.OWNER_WALLET_ADDRESS === env.TREASURY_OWNER_ADDRESS
+    add('TREASURY_OWNER_ADDRESS', !treasuryOwnerValid
+      ? check(present(env.TREASURY_OWNER_ADDRESS) ? 'invalid' : 'missing', 'Use the same owner-controlled address as OWNER_WALLET_ADDRESS.')
+      : ownerMatches
+        ? check('configured', 'Matches OWNER_WALLET_ADDRESS.')
+        : check('mismatch', 'Must exactly match OWNER_WALLET_ADDRESS.')
+    , { error: !ownerMatches })
 
-  const feeLimitText = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
-  const feeLimitValid = /^[1-9][0-9]{0,9}$/.test(feeLimitText) && BigInt(feeLimitText || '0') <= 1_000_000_000n
-  add('TREASURY_FEE_LIMIT_SUN', feeLimitValid
-    ? check('configured', 'Positive integer fee-estimate threshold/reserve in SUN; Fireblocks estimates are preflight checks, not an enforceable hard cap, and actual TRX must cover the reserve.')
-    : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee-estimate threshold/reserve in SUN, no greater than 1000000000.')
-  , { error: !feeLimitValid })
+    const treasuryAddressValid = present(env.TREASURY_ADDRESS) && isValidTronAddress(env.TREASURY_ADDRESS)
+    add('TREASURY_ADDRESS', !present(env.TREASURY_ADDRESS)
+      ? check('missing', 'Required for managed payouts; do not guess this address.')
+      : treasuryAddressValid
+        ? check('configured', 'Valid address syntax only; it must match the actual Fireblocks vault address.')
+        : check('invalid', 'Must be a valid TRON Base58Check address.')
+    , { error: !treasuryAddressValid })
 
-  add('TREASURY_SIGNER_MODE', env.TREASURY_SIGNER_MODE === 'fireblocks'
-    ? check('configured', 'Managed Fireblocks signer selected.')
-    : check(present(env.TREASURY_SIGNER_MODE) ? 'invalid' : 'missing', 'Use fireblocks; the legacy application-held-key path is not an approved payout fallback.')
-  , { error: env.TREASURY_SIGNER_MODE !== 'fireblocks' })
+    const positiveDecimal6 = (value) => {
+      if (typeof value !== 'string' || value.length > 86
+        || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
+      const [whole, fraction = ''] = value.split('.')
+      if (whole.length > 78) return false
+      return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
+    }
+    for (const key of ['TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT', 'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX']) {
+      const valid = positiveDecimal6(env[key])
+      add(key, valid
+        ? check('configured', 'Positive decimal limit with at most six fractional digits; operator approval is not verified.')
+        : check(present(env[key]) ? 'invalid' : 'missing', 'Set a positive decimal payout/daily limit, up to six decimal places.')
+      , { error: !valid })
+    }
 
-  const fireblocksBase = present(env.FIREBLOCKS_API_BASE) ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : 'https://api.fireblocks.io'
-  add('FIREBLOCKS_API_BASE', FIREBLOCKS_API_BASES.has(fireblocksBase)
-    ? check('configured', 'Supported production API origin syntax.')
-    : check('invalid', 'Use the supported production origin confirmed for your Fireblocks workspace.')
-  , { error: !FIREBLOCKS_API_BASES.has(fireblocksBase) })
+    const feeLimitText = typeof env.TREASURY_FEE_LIMIT_SUN === 'string' ? env.TREASURY_FEE_LIMIT_SUN.trim() : ''
+    const feeLimitValid = /^[1-9][0-9]{0,9}$/.test(feeLimitText) && BigInt(feeLimitText || '0') <= 1_000_000_000n
+    add('TREASURY_FEE_LIMIT_SUN', feeLimitValid
+      ? check('configured', 'Positive integer fee-estimate threshold/reserve in SUN; Fireblocks estimates are preflight checks, not an enforceable hard cap, and actual TRX must cover the reserve.')
+      : check(feeLimitText ? 'invalid' : 'missing', 'Set a positive integer fee-estimate threshold/reserve in SUN, no greater than 1000000000.')
+    , { error: !feeLimitValid })
 
-  requiredString('FIREBLOCKS_API_KEY')
-  const secretPath = present(env.FIREBLOCKS_SECRET_KEY_PATH) ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
-  const secretFileAvailable = Boolean(secretPath && isAbsolute(secretPath) && fileExists(secretPath))
-  let secretKeyStatus = !secretPath
-    ? check('missing', 'Set an absolute Render Secret File path.')
-    : !isAbsolute(secretPath)
-      ? check('invalid', 'Must be an absolute file path.')
-      : !secretFileAvailable
-        ? check('missing-file', 'The path does not exist in this runtime; upload the provider API-user RSA key as a Render Secret File.')
-        : null
-  if (secretFileAvailable) {
-    try {
-      const privateKey = createPrivateKey(readSecretFile(secretPath))
-      if (privateKey.asymmetricKeyType !== 'rsa') {
-        secretKeyStatus = check('invalid-key-type', 'The Fireblocks API authentication key must be an RSA private key.')
-      } else if (privateKey.asymmetricKeyDetails?.modulusLength !== 4096) {
-        secretKeyStatus = check('invalid-key-size', 'The Fireblocks API authentication key must be RSA-4096; no key material is displayed.')
+    add('TREASURY_SIGNER_MODE', env.TREASURY_SIGNER_MODE === 'fireblocks'
+      ? check('configured', 'Managed Fireblocks signer selected.')
+      : check(present(env.TREASURY_SIGNER_MODE) ? 'invalid' : 'missing', 'Use fireblocks; the legacy application-held-key path is not an approved payout fallback.')
+    , { error: env.TREASURY_SIGNER_MODE !== 'fireblocks' })
+
+    const fireblocksBase = present(env.FIREBLOCKS_API_BASE) ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : 'https://api.fireblocks.io'
+    add('FIREBLOCKS_API_BASE', FIREBLOCKS_API_BASES.has(fireblocksBase)
+      ? check('configured', 'Supported production API origin syntax.')
+      : check('invalid', 'Use the supported production origin confirmed for your Fireblocks workspace.')
+    , { error: !FIREBLOCKS_API_BASES.has(fireblocksBase) })
+
+    requiredString('FIREBLOCKS_API_KEY')
+    const secretPath = present(env.FIREBLOCKS_SECRET_KEY_PATH) ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
+    const secretFileAvailable = Boolean(secretPath && isAbsolute(secretPath) && fileExists(secretPath))
+    let secretKeyStatus = !secretPath
+      ? check('missing', 'Set an absolute Render Secret File path.')
+      : !isAbsolute(secretPath)
+        ? check('invalid', 'Must be an absolute file path.')
+        : !secretFileAvailable
+          ? check('missing-file', 'The path does not exist in this runtime; upload the provider API-user RSA key as a Render Secret File.')
+          : null
+    if (secretFileAvailable) {
+      try {
+        const privateKey = createPrivateKey(readSecretFile(secretPath))
+        if (privateKey.asymmetricKeyType !== 'rsa') {
+          secretKeyStatus = check('invalid-key-type', 'The Fireblocks API authentication key must be an RSA private key.')
+        } else if (privateKey.asymmetricKeyDetails?.modulusLength !== 4096) {
+          secretKeyStatus = check('invalid-key-size', 'The Fireblocks API authentication key must be RSA-4096; no key material is displayed.')
       } else {
         secretKeyStatus = check('configured', 'The mounted PEM is readable and RSA-4096; key material is never displayed.')
       }
@@ -182,8 +188,27 @@ export function inspectProductionEnvironment(env = process.env, {
     , { error: !ASSET_ID_PATTERN.test(env[key] || '') })
   }
 
+  } else {
+    // Fireblocks backs a separate, optional owner-treasury feature. It is not
+    // required by the provider-independent sponsor-wallet signing workflow.
+    for (const key of [
+      'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS',
+      'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+      'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX',
+      'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_API_BASE', 'FIREBLOCKS_API_KEY',
+      'FIREBLOCKS_SECRET_KEY_PATH', 'FIREBLOCKS_VAULT_ACCOUNT_ID',
+      'FIREBLOCKS_USDT_ASSET_ID', 'FIREBLOCKS_TRX_ASSET_ID',
+    ]) {
+      add(key, check('not-required', 'The separate Fireblocks-backed owner-treasury payout feature is not selected.'))
+    }
+    add('TREASURY_SIGNER_MODE', present(env.TREASURY_SIGNER_MODE)
+      ? check('unsupported', 'Only the separately gated Fireblocks owner-treasury signer is implemented for Mainnet; sponsor-wallet signing is a different testnet-only workflow.')
+      : check('not-selected', 'No Mainnet owner-treasury signer is selected; Fireblocks is not required for the sponsor-controlled testnet wallet workflow.'),
+    { error: present(env.TREASURY_SIGNER_MODE) })
+  }
+
   for (const key of ['TREASURY_WITHDRAWALS_ENABLED', 'TREASURY_TRX_WITHDRAWALS_ENABLED', 'SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED', 'SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED']) {
-    const value = typeof env[key] === 'string' ? env[key].trim().toLowerCase() : ''
+    const value = typeof env[key] === 'string' ? env[key].trim() : ''
     const status = value === 'false' || value === ''
       ? check('disabled', 'Safe default; this script never changes flags.')
       : value === 'true'
@@ -247,6 +272,24 @@ export function inspectProductionEnvironment(env = process.env, {
     add('DATABASE_SSL', check('invalid', 'Use true or false.'), { error: true })
   }
 
+  const mandatoryLiveChecks = ownerPayoutSelected
+    ? [
+        'Verify the selected Fireblocks organization account, vault ownership, and transaction policy.',
+        'Verify Fireblocks USDT metadata matches the official TRON USDT contract and native TRX metadata is correct.',
+        'Verify the configured treasury address matches the actual provider-returned address for both assets.',
+        'Verify provider-available and on-chain principal/fee balances and unresolved payout reservations.',
+        'Complete an authorized controlled end-to-end transfer and independently verify its solidified receipt and exact token Transfer event.',
+        'Review CI, deployment status, emergency pause, limits, and recovery/reconciliation procedures.',
+      ]
+    : [
+        'Verify the sponsor organization identity, account ownership, written spending mandate, and exact network/asset/destination scope.',
+        'Verify separate, fresh on-chain asset-principal funding and network-fee/TRX or delegated-resource coverage from sponsor-controlled accounts.',
+        'Complete supported Shasta/Nile end-to-end sponsor-wallet signing, broadcast, solidification, receiver-balance, and sponsor-cost reconciliation tests.',
+        'Implement and independently security-review the Mainnet sponsor-wallet signing, transaction-policy, broadcast, and settlement adapter before any Mainnet release.',
+        'Verify no user-funded fallback, no fabricated sponsor balances, atomic reservations, emergency pause, payout limits, audit trails, and recovery procedures.',
+        'Review CI, deployment status, monitoring, and explicit production release approval.',
+      ]
+
   const report = {
     status: errors.length ? 'configuration-needs-attention' : 'syntactic-preflight-passed',
     secretValuesDisplayed: false,
@@ -254,14 +297,7 @@ export function inspectProductionEnvironment(env = process.env, {
     checks,
     errors,
     warnings,
-    mandatoryLiveChecks: [
-      'Verify real provider account authorization, vault ownership, and transaction policy.',
-      'Verify Fireblocks USDT metadata matches the official TRON USDT contract and native TRX metadata is correct.',
-      'Verify configured treasury address matches the actual provider-returned address for both assets.',
-      'Verify provider-available and on-chain principal/fee balances and unresolved payout reservations.',
-      'Complete an authorized controlled end-to-end transfer and independently verify its solidified receipt and exact token Transfer event.',
-      'Review CI, deployment status, emergency pause, limits, and recovery/reconciliation procedures.',
-    ],
+    mandatoryLiveChecks,
   }
   return report
 }

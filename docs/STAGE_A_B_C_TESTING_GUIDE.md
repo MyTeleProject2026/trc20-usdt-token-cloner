@@ -85,7 +85,9 @@ Do not send Shasta tokens to a Mainnet address expecting conversion. The same-lo
 
 ## Sponsor fees
 
-The current app reports sponsorship as `not-integrated`. Keep it disabled. First complete unsponsored Shasta tests. Then evaluate legitimate TRON Energy/Bandwidth delegation using the official docs: https://developers.tron.network/docs/bandwidth-and-energy. A sponsor covers eligible resources only; it does not provide token principal, convert testnet assets, or bypass exchange deposit checks.
+The provider-independent sponsor-controlled wallet-signing path is implemented for Shasta/Nile, but sponsored submission remains disabled by default pending independent sponsor consent, actual funding/resource coverage, and end-to-end settlement evidence. Fireblocks is not required for that workflow. Use the [provider-independent sponsor system guide](./PROVIDER_INDEPENDENT_SPONSOR_SYSTEM.md) and the sponsor operator console for controlled **testnet-only** work.
+
+A fee sponsor covers only eligible network resources; it does not supply the token principal. A separate asset-principal sponsor must hold and approve the actual test token. Testnet assets have no Mainnet redemption value and do not bypass exchange deposit checks. Mainnet sponsor signing and broadcast are not implemented.
 
 ## Troubleshooting
 

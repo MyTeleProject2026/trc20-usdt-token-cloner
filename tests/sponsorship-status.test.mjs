@@ -2,16 +2,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getSponsorshipStatus } from '../server/sponsorship-status.mjs'
 
-test('sponsorship fails closed until a provider and funding path are actually integrated', () => {
+test('provider-independent sponsor wallet signer is identified while funding and payouts remain fail-closed', () => {
   const status = getSponsorshipStatus()
   assert.equal(status.enabled, false)
-  assert.equal(status.status, 'not-integrated')
+  assert.equal(status.status, 'testnet-wallet-signer-integrated-mainnet-disabled')
+  assert.equal(status.signerArchitecture.mode, 'sponsor-controlled-wallet-signature')
+  assert.equal(status.signerArchitecture.providerIndependent, true)
+  assert.equal(status.signerArchitecture.fireblocksRequired, false)
+  assert.deepEqual(status.signerArchitecture.supportedNetworks, ['nile', 'shasta'])
+  assert.equal(status.signerArchitecture.mainnet.signingAdapterImplemented, false)
+  assert.equal(status.integrationModels.sponsorOrganization.walletSigningAdapterImplemented, true)
+  assert.equal(status.integrationModels.sponsorOrganization.fireblocksRequired, false)
   assert.equal(status.provider, null)
   assert.equal(status.canSubmitSponsoredTransfer, false)
   assert.equal(status.mainnetEnabled, false)
   assert.equal(status.receiverRestrictionsAvailable, false)
-  assert.match(status.message, /No verified sponsor provider is connected/)
-  assert.match(status.message, /cannot impose spend restrictions on the receiver wallet/)
+  assert.match(status.message, /provider-independent sponsor-wallet signing adapter is implemented/)
+  assert.match(status.message, /Fireblocks is not required/)
+  assert.match(status.message, /cannot impose app-defined restrictions after receipt/)
   assert.match(status.message, /audited escrow\/vesting contract/)
 })
 

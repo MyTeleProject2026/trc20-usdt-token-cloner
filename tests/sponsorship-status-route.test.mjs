@@ -43,11 +43,11 @@ test('sponsorship status endpoint is read-only and fails closed', async () => {
     sponsoredFeeCoverage: 'none',
     exchangeCredit: 'exchange-confirmation-required',
   })
-  assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('verified-provider-adapter-and-account'))
+  assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('verified-mainnet-sponsor-wallet-signing-and-broadcast-adapter'))
   assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('explicit-sponsor-consent-and-funded-budget'))
   assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('server-side-authorization-and-per-transfer-limits'))
   assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('testnet-end-to-end-and-security-review'))
-  assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('provider-specific-signing-authorization'))
+  assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('transaction-bound-sponsor-wallet-signature-and-replay-protection'))
   assert.ok(responseBody.sponsorship.requiredBeforeEnablement.includes('finalized-on-chain-evidence-and-idempotent-ledger-transitions'))
   assert.ok(responseBody.limitations.some((item) => item.includes('never authorizes or submits a transfer')))
 })

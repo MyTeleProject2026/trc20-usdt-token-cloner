@@ -2,13 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { getSponsorshipStatus } from '../server/sponsorship-status.mjs'
 
-test('sponsorship is fail-closed without an integrated and verified provider', () => {
+test('sponsorship is fail-closed even though the testnet wallet signer is implemented', () => {
   const status = getSponsorshipStatus()
   assert.equal(status.enabled, false)
   assert.equal(status.mainnetEnabled, false)
   assert.equal(status.canSubmitSponsoredTransfer, false)
   assert.equal(status.provider, null)
-  assert.equal(status.status, 'not-integrated')
+  assert.equal(status.status, 'testnet-wallet-signer-integrated-mainnet-disabled')
+  assert.equal(status.signerArchitecture.providerIndependent, true)
+  assert.equal(status.signerArchitecture.fireblocksRequired, false)
 })
 
 test('environment flags cannot falsely enable sponsorship', () => {
