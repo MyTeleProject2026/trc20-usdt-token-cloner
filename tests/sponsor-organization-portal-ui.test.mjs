@@ -22,6 +22,20 @@ test('public sponsor portal uses the existing Mainnet wallet challenge and signs
   assert.doesNotMatch(portal, /privateKey|seedPhrase|recoveryPhrase|sendRawTransaction|sign\(transaction/i)
 })
 
+test('sponsor application signs the exact declaration fields before submission', () => {
+  assert.match(portal, /ATTESTATION_VERSION = 'sponsor-organization-onboarding-2026-11-04-v1'/)
+  assert.match(portal, /buildSponsorApplicationMessage\(/)
+  assert.match(portal, /signMessageV2\(applicationMessage\)/)
+  assert.match(portal, /applicationSignature,/)
+  assert.match(portal, /applicationSignatureStoredAsHashOnly/)
+  assert.match(backend, /Trx\.verifyMessageV2\(message, signature\)/)
+  assert.match(backend, /applicationSignatureHash = digest\(applicationSignature\)/)
+  assert.match(backend, /applicationSignatureHash/)
+  assert.match(backend, /applicationSignatureStoredAsHashOnly: true/)
+  assert.match(portal, /This is not a transaction or permission to spend funds/)
+  assert.doesNotMatch(portal, /sendRawTransaction|transactionBuilder|signTransaction/i)
+})
+
 test('sponsor application submits only the allowlisted organization fields', () => {
   assert.match(portal, /apiJson\('\/api\/tron\/sponsorship\/organizations'/)
   assert.match(portal, /authorityToRepresentOrganization: authority/)
