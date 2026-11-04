@@ -162,6 +162,7 @@ export default function PlatformTreasuryPanel({
   const [prepared, setPrepared] = useState<WithdrawalIntent | null>(null)
   const [lastStatus, setLastStatus] = useState<any>(null)
   const [recentWithdrawals, setRecentWithdrawals] = useState<RecoveredWithdrawal[]>([])
+  const [hasOutstandingWithdrawal, setHasOutstandingWithdrawal] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -169,8 +170,6 @@ export default function PlatformTreasuryPanel({
 
   const walletConnected = Boolean(provider && treasuryAddress)
   const matchingTreasuryWallet = Boolean(readiness?.treasuryAddress && treasuryAddress === readiness.treasuryAddress)
-  const hasOutstandingWithdrawal = recentWithdrawals.some(({ intent }) =>
-    ['prepared', 'broadcasting', 'broadcast-accepted', 'broadcast-unknown'].includes(intent.status))
   const canPrepare = Boolean(ownerSessionToken && walletConnected && matchingTreasuryWallet
     && readiness?.executionEnabled === true && recipientAddress.trim() && amountUsdt.trim()
     && historyLoaded && !hasOutstandingWithdrawal && !prepared)
@@ -191,6 +190,7 @@ export default function PlatformTreasuryPanel({
     const data = await apiRequest('/api/treasury/self-custody/withdrawals?limit=20', ownerSessionToken)
     const withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals as RecoveredWithdrawal[] : []
     setRecentWithdrawals(withdrawals)
+    setHasOutstandingWithdrawal(data.hasOutstandingWithdrawal === true)
     setHistoryLoaded(true)
     return withdrawals
   }
@@ -241,6 +241,7 @@ export default function PlatformTreasuryPanel({
     setPrepared(null)
     setLastStatus(null)
     setRecentWithdrawals([])
+    setHasOutstandingWithdrawal(false)
     setHistoryLoaded(false)
     setPrepareRequestKey('')
   }, [ownerSessionToken])
@@ -253,6 +254,7 @@ export default function PlatformTreasuryPanel({
       .then((data) => {
         if (cancelled) return
         setRecentWithdrawals(Array.isArray(data.withdrawals) ? data.withdrawals as RecoveredWithdrawal[] : [])
+        setHasOutstandingWithdrawal(data.hasOutstandingWithdrawal === true)
         setHistoryLoaded(true)
       })
       .catch((caught) => {
