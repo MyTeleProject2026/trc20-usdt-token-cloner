@@ -42,7 +42,9 @@ process.chdir(root)
 const app = express()
 app.disable('x-powered-by')
 app.use(securityHeaders)
-// Preserve the exact Fincra webhook bytes for HMAC verification before JSON parsing.\napp.use('/api/tron-transfer/fincra/webhook', express.raw({ type: 'application/json', limit: '32kb' }))\napp.use(express.json({ limit: '32kb' }))
+// Preserve the exact Fincra webhook bytes for HMAC verification before JSON parsing.
+app.use('/api/tron-transfer/fincra/webhook', express.raw({ type: 'application/json', limit: '32kb' }))
+app.use(express.json({ limit: '32kb' }))
 
 // Keep the hosted frontend allowlist intact while allowing explicitly opted-in
 // packaged clients. PACKAGED_APP_ORIGINS is separate so a Render merge update
@@ -52,7 +54,8 @@ const configuredOrigins = [
   process.env.PACKAGED_APP_ORIGINS,
   // Dedicated non-secret allowlist entry for the OKX read-only status page.
   // This additive variable avoids overwriting an existing frontend allowlist.
-  process.env.OKX_UI_ORIGIN,\n  process.env.TRON_TRANSFER_UI_ORIGIN,
+  process.env.OKX_UI_ORIGIN,
+  process.env.TRON_TRANSFER_UI_ORIGIN,
 ].filter((value) => typeof value === 'string' && value.trim()).join(',')
 const { allowedOrigins, middleware: corsPolicy } = createCorsPolicy(configuredOrigins)
 app.use(corsPolicy)
@@ -161,7 +164,8 @@ app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
-app.use('/api/treasury/owner', ownerSponsorLiquidityRoutes)\napp.use('/api/tron-transfer', tronTransferRoutes)
+app.use('/api/treasury/owner', ownerSponsorLiquidityRoutes)
+app.use('/api/tron-transfer', tronTransferRoutes)
 
 if (process.env.DATABASE_URL) {
   try {
