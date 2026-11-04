@@ -13,7 +13,6 @@ const NETWORK = 'mainnet'
 const ATTESTATION_VERSION = 'sponsor-organization-onboarding-2026-11-04-v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const REVIEW_REFERENCE_PATTERN = /^[A-Za-z0-9._:-]{8,160}$/
 const ROLES = new Set(['asset-principal', 'network-fees'])
 const OPEN_STATUSES = ['pending-review', 'in-review', 'accepted-for-due-diligence']
