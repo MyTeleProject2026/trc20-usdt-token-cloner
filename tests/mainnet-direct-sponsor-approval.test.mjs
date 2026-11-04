@@ -226,7 +226,17 @@ test('fee sponsor message binds the same recipient/principal and a separate SUN 
   assert.match(feeMessage, /Exact USDT principal amount in base units \(6 decimals\): 12500000/)
   assert.match(feeMessage, /Maximum approved network-fee budget in SUN: 50000000/)
   assert.match(feeMessage, new RegExp(feeAgreementSha256))
+  assert.match(feeMessage, new RegExp(organizationReference))
+  assert.match(feeMessage, new RegExp(agreementSha256))
   assert.match(feeMessage, /does not transfer TRX, delegate Energy\/Bandwidth/)
+  assert.throws(() => buildMainnetDirectFeeSponsorApprovalMessage({
+    request: request({ amountBaseUnits: '250000001' }),
+    feePolicy,
+    assetPolicy,
+    nonce,
+    issuedAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS).toISOString(),
+  }), /amount-invalid/)
   assert.throws(() => buildMainnetDirectFeeSponsorApprovalMessage({
     request: request(),
     feePolicy,
