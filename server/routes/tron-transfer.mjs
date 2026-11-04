@@ -158,7 +158,7 @@ async function requireRequesterWalletSession(req, env) {
   const origin = requestOrigin(req)
   if (!origin || !allowedOrigins(env).includes(origin)) return { ok: false, status: 403, error: 'requester-origin-not-allowed' }
   const header = cleanString(req.headers?.authorization, 4096)
-  const match = /^Bearer\\s+([A-Za-z0-9_-]{43})$/i.exec(header)
+  const match = /^Bearer\s+([A-Za-z0-9_-]{43})$/i.exec(header)
   if (!match) return { ok: false, status: 401, error: 'requester-wallet-session-required' }
   const lookup = await getWalletAuthSession({
     tokenHash: createHash('sha256').update(match[1]).digest('hex'),
