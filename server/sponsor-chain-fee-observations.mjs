@@ -116,6 +116,23 @@ async function initialize(poolClient) {
       `)
       await poolClient.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_chain_fee_observations_created
         ON ${schema}.sponsor_chain_fee_observations (network, observed_at DESC)`)
+      await poolClient.query(`
+        CREATE OR REPLACE FUNCTION ${schema}.reject_sponsor_chain_fee_observation_mutation()
+        RETURNS trigger LANGUAGE plpgsql
+        AS 'BEGIN
+          RAISE EXCEPTION ''sponsor chain fee observations are immutable'';
+          RETURN NULL;
+        END;';
+      `)
+      await poolClient.query(`
+        DROP TRIGGER IF EXISTS sponsor_chain_fee_observations_immutable
+          ON ${schema}.sponsor_chain_fee_observations
+      `)
+      await poolClient.query(`
+        CREATE TRIGGER sponsor_chain_fee_observations_immutable
+        BEFORE UPDATE OR DELETE ON ${schema}.sponsor_chain_fee_observations
+        FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_sponsor_chain_fee_observation_mutation()
+      `)
       await poolClient.query(`COMMENT ON TABLE ${schema}.sponsor_chain_fee_observations IS
         'TRC20 Token Clone project only: immutable testnet fee observations, including failed executions. Not proof of separate sponsor debit and never settles a fee budget.'`)
     })().catch((error) => {
