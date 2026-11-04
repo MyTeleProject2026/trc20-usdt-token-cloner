@@ -52,6 +52,10 @@ test('fee observation normalizer rejects Mainnet, malformed values, and substitu
   assert.equal(normalizeSponsorChainFeeObservation(observation({ network: 'mainnet' })).success, false)
   assert.equal(normalizeSponsorChainFeeObservation(observation({ reportedFeeSun: '-1' })).success, false)
   assert.deepEqual(
+    normalizeSponsorChainFeeObservation(observation({ reportedFeeSun: '100', energyFeeSun: '101', netFeeSun: '0' })),
+    { success: false, reason: 'receipt-fee-components-exceed-total' },
+  )
+  assert.deepEqual(
     normalizeSponsorChainFeeObservation(observation({ trxFeePayerAddressHex: '22'.repeat(20) })),
     { success: false, reason: 'fee-payer-evidence-mismatch' },
   )
