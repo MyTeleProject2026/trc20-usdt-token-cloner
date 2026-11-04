@@ -437,18 +437,19 @@ export function createOwnerAuthRouter({
       ...(!passwordHashConfigured ? ['OWNER_PASSWORD_HASH (valid scrypt hash)'] : []),
       ...(!databaseConfigured ? ['DATABASE_URL'] : []),
       ...(!hostedUiOriginAllowed ? ['FRONTEND_ORIGIN must allow https://trc20-usdt-token-cloner.onrender.com'] : []),
+      ...(!tronTransferUiOriginAllowed ? ['TRON_TRANSFER_UI_ORIGIN must allow https://tron-transfer.onrender.com'] : []),
       ...(!packagedUiOriginAllowed ? ['PACKAGED_APP_ORIGINS must allow https://localhost for the Capacitor Android app'] : []),
     ]
     return res.json({
       success: true,
       ownerConsole: {
-        configured: ownerAddressConfigured && passwordHashConfigured && databaseConfigured && hostedUiOriginAllowed && packagedUiOriginAllowed,
+        configured: ownerAddressConfigured && passwordHashConfigured && databaseConfigured && hostedUiOriginAllowed && tronTransferUiOriginAllowed && packagedUiOriginAllowed,
         ownerAddressConfigured,
         passwordHashConfigured,
         databaseConfigured,
         allowedOriginConfigured,
         hostedUiOriginAllowed,
-      tronTransferUiOriginAllowed,
+        tronTransferUiOriginAllowed,
         packagedUiOriginAllowed,
         registrationEnabled: false,
         requiredEnvironment,
