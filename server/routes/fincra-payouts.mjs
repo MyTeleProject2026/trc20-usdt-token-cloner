@@ -135,6 +135,11 @@ export function verifyFincraUsdtTrc20Evidence(tronWeb, {
   if (normalizeHex(value?.contract_address) !== expectedContract) {
     return { verified: false, status: 'verification-mismatch', reason: 'non-official-token-contract' }
   }
+  const transactionOwner = normalizeHex(value?.owner_address)
+  const ownerBytes = transactionOwner.startsWith('41') ? transactionOwner.slice(2) : transactionOwner
+  if (!/^[0-9a-f]{40}$/.test(ownerBytes)) {
+    return { verified: false, status: 'verification-mismatch', reason: 'transaction-owner-address-invalid' }
+  }
   const recipientBytes = expectedRecipient.startsWith('41') ? expectedRecipient.slice(2) : expectedRecipient
   if (!/^[0-9a-f]{40}$/.test(recipientBytes)) {
     return { verified: false, status: 'verification-mismatch', reason: 'recipient-address-encoding-invalid' }
@@ -160,6 +165,7 @@ export function verifyFincraUsdtTrc20Evidence(tronWeb, {
     && normalizeHex(log.topics[0]) === TRANSFER_TOPIC)
   const exactEvents = transferLogs.filter((log) =>
     log.topics.length >= 3
+    && normalizeHex(log.topics[1]).padStart(64, '0') === ownerBytes.padStart(64, '0')
     && normalizeHex(log.topics[2]).padStart(64, '0') === toTopic
     && normalizeHex(log.data).padStart(64, '0') === expectedData)
   if (transferLogs.length !== 1 || exactEvents.length !== 1) {
@@ -516,7 +522,7 @@ export function createFincraPayoutRouter({
       await ensureSchema(db)
       const providerStatus = typeof data.status === 'string' ? data.status.slice(0, 64) : event.slice('payout.'.length)
       const updated = await db.query(
-        "UPDATE trc20_token_clone.fincra_usdt_trc20_payouts SET status=CASE WHEN status IN ('chain-confirmed','chain-failed') THEN status ELSE $2 END, provider_status=$3, provider_reference=COALESCE($4, provider_reference), provider_payout_id=COALESCE($5, provider_payout_id), transaction_hash=COALESCE($6, transaction_hash), updated_at=now() WHERE customer_reference=$1 RETURNING id",
+        "UPDATE trc20_token_clone.fincra_usdt_trc20_payouts SET status=CASE WHEN status IN ('provider-failed','chain-confirmed','chain-failed') THEN status ELSE $2 END, provider_status=$3, provider_reference=COALESCE($4, provider_reference), provider_payout_id=COALESCE($5, provider_payout_id), transaction_hash=COALESCE($6, transaction_hash), updated_at=now() WHERE customer_reference=$1 RETURNING id",
         [customerReference, mapProviderStatus(providerStatus), providerStatus,
           typeof data.reference === 'string' ? data.reference.slice(0, 128) : null,
           data.id == null ? null : String(data.id).slice(0, 128), extractTransactionHash(data)],
