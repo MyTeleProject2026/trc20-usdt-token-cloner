@@ -38,6 +38,13 @@ test('Fincra payout uses the USDT TRC20 scheme and refuses implicit live activat
   assert.match(route, /live-stablecoin-payouts-not-confirmed/)
 })
 
+test('sponsor request intake requires a one-time Mainnet wallet identity session', () => {
+  assert.match(route, /requireRequesterWalletSession\(req, env\)/)
+  assert.match(route, /const requesterAddress = walletAuth\.address/)
+  assert.match(route, /requester-address-does-not-match-wallet-session/)
+  assert.match(route, /session\.network !== 'mainnet'/)
+})
+
 test('Fincra requests are owner-session gated, idempotently rechecked, and webhook signed', () => {
   assert.match(route, /requireOwnerSession\(req, env\)/)
   assert.match(route, /customer-reference\//)
@@ -53,6 +60,11 @@ test('recipient transfer verification requires the official Mainnet USDT contrac
   assert.match(route, /item\.amountBaseUnits === String\(row\.amount_base_units\)/)
   assert.match(route, /unique-confirmed-recipient-history-match/)
   assert.match(route, /multiple-matching-incoming-transfers/)
+  assert.match(route, /export async function verifySolidifiedUsdtTransfer/)
+  assert.match(route, /walletsolidity\\/gettransactionbyid/)
+  assert.match(route, /walletsolidity\\/gettransactioninfobyid/)
+  assert.match(route, /TRANSFER_EVENT_TOPIC/)
+  assert.match(route, /chain-verification-status='solidified-recipient-transfer-verified'/)
 })
 
 test('API entrypoint mounts the route and accepts only the configured Tron Transfer origin', () => {
