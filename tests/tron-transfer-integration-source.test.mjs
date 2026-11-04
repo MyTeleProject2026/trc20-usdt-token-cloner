@@ -58,7 +58,7 @@ test('recipient transfer verification requires the official Mainnet USDT contrac
   assert.match(route, /row\.fincra_status !== 'successful'/)
   assert.match(route, /item\.tokenContract === MAINNET_USDT/)
   assert.match(route, /item\.amountBaseUnits === String\(row\.amount_base_units\)/)
-  assert.match(route, /unique-confirmed-recipient-history-match/)
+  assert.match(route, /solidified-trc20-transfer-verified/)
   assert.match(route, /multiple-matching-incoming-transfers/)
   assert.match(route, /export async function verifySolidifiedUsdtTransfer/)
   assert.match(route, /walletsolidity\\/gettransactionbyid/)
