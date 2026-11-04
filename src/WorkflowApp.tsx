@@ -3122,7 +3122,96 @@ export default function WorkflowApp() {
                 )}
                 <p className="studio-footnote">A request-specific sponsor approval does not approve network fees or authorize a transfer. Separate fee-resource approval, reservation, transaction signing, Mainnet broadcast, solidified-chain reconciliation and independent release approval remain disabled.</p>
               </section>
-              <p className="studio-footnote">Last checked: {formatTimestamp(mainnetReadCheckedAt)}. Mainnet queries work independently while TronLink is on a testnet; spending and signing still require the actual wallet owner’s authorization and the correct network.</p>
+              <section className="studio-history-panel" aria-label="Separate Mainnet fee sponsor review and approval">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3>Separate network-fee sponsor review</h3>
+                    <p>A distinct fee-sponsor organization must sign a separate maximum-fee approval after the USDT principal sponsor has approved the same request.</p>
+                  </div>
+                  <Pill tone={mainnetFeeSponsorIdentity && mainnetFeeSponsorIdentity.expiresAt > Date.now() ? 'good' : 'warning'}>
+                    {mainnetFeeSponsorIdentity && mainnetFeeSponsorIdentity.expiresAt > Date.now() ? 'Fee sponsor identity verified' : 'Fee sponsor sign-in required'}
+                  </Pill>
+                </div>
+                {mainnetFeeSponsorIdentity ? (
+                  <div className="studio-notice studio-notice--neutral">
+                    <ShieldCheck size={17} aria-hidden="true" />
+                    <div className="studio-grow">
+                      <strong>Connected fee sponsor: <code>{mainnetFeeSponsorIdentity.address}</code></strong>
+                      <p>Session expires {new Date(mainnetFeeSponsorIdentity.expiresAt).toLocaleTimeString()}. The backend requires this wallet to be the separately configured SPONSOR_FEE_MAINNET_ADDRESS.</p>
+                    </div>
+                    <button type="button" className="studio-button studio-button--secondary" onClick={() => { setMainnetFeeSponsorIdentity(null); setMainnetFeeSponsorQueue([]); setMainnetFeeSponsorChallenge(null); setMainnetFeeSponsorReviewError(''); setMainnetFeeSponsorReviewMessage('') }} disabled={mainnetFeeSponsorReviewBusy !== null}>Sign out</button>
+                  </div>
+                ) : (
+                  <div className="studio-inline-actions">
+                    <button type="button" className="studio-button studio-button--primary" onClick={() => void connectMainnetFeeSponsorIdentity()} disabled={mainnetFeeSponsorReviewBusy !== null}>
+                      <Wallet size={15} className={mainnetFeeSponsorReviewBusy === 'connect' ? 'studio-spin' : ''} aria-hidden="true" />
+                      {mainnetFeeSponsorReviewBusy === 'connect' ? 'Verifying fee sponsor…' : 'Sign in as separate Mainnet fee sponsor'}
+                    </button>
+                  </div>
+                )}
+                <div className="studio-inline-actions">
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => void loadMainnetFeeSponsorReviewQueue()} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null}>
+                    <RefreshCw size={15} className={mainnetFeeSponsorReviewBusy === 'queue' ? 'studio-spin' : ''} aria-hidden="true" />
+                    {mainnetFeeSponsorReviewBusy === 'queue' ? 'Loading fee requests…' : 'Refresh fee-sponsor queue'}
+                  </button>
+                  <span className="studio-footnote">Last checked: {formatTimestamp(mainnetFeeSponsorQueueCheckedAt)}</span>
+                </div>
+                {mainnetFeeSponsorReviewError && <p className="studio-inline-error" role="alert">{mainnetFeeSponsorReviewError}</p>}
+                {mainnetFeeSponsorReviewMessage && <p className="studio-inline-note" role="status">{mainnetFeeSponsorReviewMessage}</p>}
+                {mainnetFeeSponsorQueue.length === 0 && <p className="studio-field-hint">No fee-sponsor requests loaded. Sign in with the separate fee sponsor wallet and refresh.</p>}
+                {mainnetFeeSponsorQueue.map((request) => (
+                  <div className="studio-account-summary" key={request.idempotencyKey}>
+                    <div className="studio-account-heading">
+                      <div>
+                        <p className="studio-eyebrow">Fee approval · request {request.id}</p>
+                        <strong>{request.feeSponsorApproval?.status === 'approved-active' ? 'Fee approval recorded' : request.sponsorApproval?.status === 'approved-active' ? 'Ready for fee sponsor review' : 'Waiting for principal sponsor approval'}</strong>
+                      </div>
+                      <Pill tone={request.feeSponsorApproval?.status === 'approved-active' ? 'good' : 'warning'}>
+                        {request.feeSponsorApproval?.status === 'approved-active' ? 'Fee approval active' : request.feeSponsorApproval?.status === 'approved-expired' ? 'Fee approval expired' : 'Review required'}
+                      </Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Asset principal approval</span><strong>{request.sponsorApproval?.status || 'not-approved'}</strong></div>
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{request.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>Requested USDT</span><strong>{formatUnits(request.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{request.idempotencyKey}</code></strong></div>
+                    </div>
+                    {request.feeSponsorApproval?.status === 'approved-active' ? (
+                      <p className="studio-inline-note">Maximum approved fee: {request.feeSponsorApproval.maxFeeSun || 'unavailable'} SUN. This is not a resource reservation, delegation transaction or final fee settlement.</p>
+                    ) : request.sponsorApproval?.status === 'approved-active' ? (
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => void prepareMainnetFeeSponsorApproval(request)} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null}>
+                        {mainnetFeeSponsorReviewBusy === 'challenge' ? 'Checking fee capacity…' : 'Prepare exact fee approval message'}
+                      </button>
+                    ) : (
+                      <p className="studio-field-hint">The principal sponsor must approve this exact request first.</p>
+                    )}
+                  </div>
+                ))}
+                {mainnetFeeSponsorChallenge && (
+                  <div className="studio-account-summary">
+                    <div className="studio-account-heading">
+                      <div><p className="studio-eyebrow">One-time network-fee sponsor challenge</p><strong>Review the separate fee cap before signing</strong></div>
+                      <Pill tone="warning">Expires {new Date(mainnetFeeSponsorChallenge.expiresAt).toLocaleTimeString()}</Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{mainnetFeeSponsorChallenge.request.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>USDT principal</span><strong>{formatUnits(mainnetFeeSponsorChallenge.request.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetFeeSponsorChallenge.request.idempotencyKey}</code></strong></div>
+                    </div>
+                    <pre className="studio-readonly-value" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{mainnetFeeSponsorChallenge.message}</pre>
+                    <p className="studio-field-hint">This signs a fee-budget approval statement only. It does not transfer TRX, delegate Energy/Bandwidth, reserve resources, sign a transaction or enable payout execution.</p>
+                    <div className="studio-inline-actions">
+                      <button type="button" className="studio-button studio-button--primary" onClick={() => void signMainnetFeeSponsorApproval()} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null || Date.parse(mainnetFeeSponsorChallenge.expiresAt) <= Date.now()}>
+                        <ShieldCheck size={15} className={mainnetFeeSponsorReviewBusy === 'approve' ? 'studio-spin' : ''} aria-hidden="true" />
+                        {mainnetFeeSponsorReviewBusy === 'approve' ? 'Signing fee approval…' : 'Sign fee approval in separate sponsor wallet'}
+                      </button>
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => setMainnetFeeSponsorChallenge(null)} disabled={mainnetFeeSponsorReviewBusy !== null}>Cancel challenge</button>
+                    </div>
+                  </div>
+                )}
+                <p className="studio-footnote">Fee approval is separate from the USDT principal approval. No TRX or resources have been reserved or delegated; the exact signed transaction fee and resource capacity must still be checked before future execution.</p>
+              </section>
+                            <p className="studio-footnote">Last checked: {formatTimestamp(mainnetReadCheckedAt)}. Mainnet queries work independently while TronLink is on a testnet; spending and signing still require the actual wallet owner’s authorization and the correct network.</p>
             </section>
           )}
 
