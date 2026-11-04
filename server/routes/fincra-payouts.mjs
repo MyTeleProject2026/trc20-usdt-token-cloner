@@ -217,7 +217,15 @@ export function createFincraPayoutRouter({
   function configuration() {
     const config = fincraConfiguration(env)
     const tatumConfigured = typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim().length > 0
-    return { ...config, tatumConfigured, sourceCurrencySupported: config.sourceCurrency === 'USDT' }
+    const maxPayoutConfigured = parsePositiveUsdt(env.FINCRA_MAX_PAYOUT_USDT) !== null
+    const dailyLimitConfigured = parsePositiveUsdt(env.FINCRA_DAILY_LIMIT_USDT) !== null
+    return {
+      ...config,
+      tatumConfigured,
+      sourceCurrencySupported: config.sourceCurrency === 'USDT',
+      maxPayoutConfigured,
+      dailyLimitConfigured,
+    }
   }
 
   async function verifyOwnerSignature(tronWeb, message, signature, ownerAddress) {
@@ -255,11 +263,14 @@ export function createFincraPayoutRouter({
     if (!config.configured) blockers.push('fincra-configuration-incomplete')
     if (!config.sourceCurrencySupported) blockers.push('fincra-source-currency-must-be-usdt')
     if (!config.tatumConfigured) blockers.push('tatum-api-key-missing')
+    if (!config.maxPayoutConfigured) blockers.push('fincra-max-payout-limit-missing-or-invalid')
+    if (!config.dailyLimitConfigured) blockers.push('fincra-daily-limit-missing-or-invalid')
     if (!databaseReady) blockers.push('database-not-ready')
     if (!config.enabledFlag) blockers.push('fincra-payouts-disabled')
     if (config.environment === 'live' && REAL_VALUE_PAYOUT_EXECUTION_DISABLED) blockers.push('real-value-payout-execution-disabled-in-this-build')
     const sandboxReady = config.environment === 'sandbox' && config.configured
-      && config.sourceCurrencySupported && config.tatumConfigured && databaseReady && config.enabledFlag
+      && config.sourceCurrencySupported && config.tatumConfigured && config.maxPayoutConfigured
+      && config.dailyLimitConfigured && databaseReady && config.enabledFlag
     return res.json({
       success: true,
       network: 'mainnet',
@@ -275,6 +286,8 @@ export function createFincraPayoutRouter({
         missing: config.missing,
         sourceCurrencySupported: config.sourceCurrencySupported,
         tatumConfigured: config.tatumConfigured,
+        maxPayoutConfigured: config.maxPayoutConfigured,
+        dailyLimitConfigured: config.dailyLimitConfigured,
         featureFlagEnabled: config.enabledFlag,
       },
       databaseReady,
@@ -417,6 +430,20 @@ export function createFincraPayoutRouter({
         response = recovered
       }
       const data = response?.data || response
+      if (data?.customerReference !== body.idempotencyKey
+        || (data?.destinationCurrency && data.destinationCurrency !== 'USDT')
+        || (data?.paymentScheme && data.paymentScheme !== 'usdt_trc20')) {
+        const updated = await db.query(
+          "UPDATE trc20_token_clone.fincra_usdt_trc20_payouts SET status='submission-unknown', failure_code='provider-response-reference-or-scheme-mismatch', updated_at=now() WHERE id=$1 RETURNING *",
+          [reservation.id],
+        )
+        return res.status(202).json({
+          success: false,
+          status: 'submission-unknown',
+          payout: safeStatus(updated.rows[0] || reservation),
+          note: 'Fincra response did not echo the exact customer reference and expected payout scheme. Check the same provider reference before retrying.',
+        })
+      }
       const status = mapProviderStatus(data?.status)
       const transactionHash = extractTransactionHash(data)
       const saved = await db.query(
