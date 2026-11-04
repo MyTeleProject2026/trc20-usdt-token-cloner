@@ -148,8 +148,9 @@ export function buildMainnetDirectFeeSponsorApprovalMessage({
     throw new TypeError('mainnet-direct-fee-sponsor-approval-input-invalid')
   }
   const amount = BigIntSafe(String(request.amountBaseUnits))
+  const principalCap = BigIntSafe(String(assetPolicy.maxUsdtBaseUnits))
   const maxFee = BigIntSafe(String(feePolicy.maxFeeSun))
-  if (amount === null || maxFee === null) {
+  if (amount === null || principalCap === null || amount > principalCap || maxFee === null) {
     throw new TypeError('mainnet-direct-fee-sponsor-approval-amount-invalid')
   }
   const issuedAtMs = Date.parse(issuedAt)
@@ -172,6 +173,9 @@ export function buildMainnetDirectFeeSponsorApprovalMessage({
     'Requester identity wallet: ' + request.requesterAddress,
     'External recipient wallet: ' + request.recipientAddress,
     'Asset-principal sponsor wallet: ' + assetPolicy.sponsorAddress,
+    'Asset-principal sponsor organization reference: ' + assetPolicy.organizationReference,
+    'Asset-principal executed agreement reference: ' + assetPolicy.agreementReference,
+    'SHA-256 of asset-principal executed agreement: ' + assetPolicy.agreementDocumentSha256,
     'Fee sponsor organization reference: ' + feePolicy.organizationReference,
     'Fee sponsor wallet: ' + feePolicy.sponsorAddress,
     'Asset: Tether USDT (TRC-20)',
