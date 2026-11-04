@@ -807,13 +807,24 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       const prior = await fetchFincraPayoutByCustomerReference(config, row.customer_reference)
       if (prior.ok && prior.payload?.success !== false && prior.payload?.data) {
         const data = prior.payload.data
-        const status = payoutStatusFromProvider(data.status)
+        const reconciliation = reconcileFincraPayoutIdentity(data, row)
+        if (!reconciliation.ok) {
+          await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
+            SET status='fincra-outcome-unknown',fincra_status='unknown',chain_verification_status='not-verified',
+                chain_verification_reason=$2,updated_at=now() WHERE id=$1`,
+          [row.id, reconciliation.reason])
+          return res.status(202).json({
+            success: false, status: 'fincra-outcome-unknown', error: reconciliation.reason,
+            note: 'Fincra returned an existing payout for this reference, but its recipient, amount and USDT TRC20 identity could not all be reconciled. No second payout was submitted. Resolve the original payout with Fincra before taking further action.',
+          })
+        }
+        const status = reconciliation.status
         const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
           SET status=$2,fincra_reference=$3,fincra_status=$4,
               fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
               updated_at=now() WHERE id=$1 RETURNING *`,
         [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
-        return res.status(200).json({ success: true, duplicate: true, request: publicRequest(updated.rows[0]), note: 'Existing Fincra payout was found by customer reference; no second payout was submitted.' })
+        return res.status(200).json({ success: true, duplicate: true, request: publicRequest(updated.rows[0]), note: 'Existing Fincra payout was found by customer reference and its identity was reconciled; no second payout was submitted.' })
       }
       if (prior.status !== 404) {
         await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='fincra-outcome-unknown',updated_at=now() WHERE id=$1`, [row.id])
@@ -918,7 +929,15 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         return res.status(result.status === 404 ? 404 : 502).json({ success: false, error: 'fincra-status-requery-unavailable', providerStatus: result.status })
       }
       const data = result.payload.data
-      const status = payoutStatusFromProvider(data.status)
+      const reconciliation = reconcileFincraPayoutIdentity(data, row)
+      if (!reconciliation.ok) {
+        const statusCode = reconciliation.reason === 'successful-payout-record-incomplete' ? 202 : 409
+        return res.status(statusCode).json({
+          success: false, error: reconciliation.reason, request: publicRequest(row),
+          note: 'Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and amount. A signed, detailed Fincra webhook or complete provider record is required before marking a payout successful.',
+        })
+      }
+      const status = reconciliation.status
       const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
         SET status=$2,fincra_reference=COALESCE($3,fincra_reference),fincra_status=$4,
             fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
@@ -1016,9 +1035,17 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-amount-conflict' })
       }
       const verifiedAmount = providerAmount ?? signedAmount
+      const signedEventHasRecipient = Boolean(signedEventRecipient)
+      const providerHasRecipient = Boolean(providerRecipient)
       const providerStatus = payoutStatusFromProvider(payout.status)
       if (providerStatus === 'unknown') {
         return res.status(503).json({ success: false, error: 'fincra-webhook-provider-status-unrecognized' })
+      }
+      if (providerStatus === 'successful' && !providerHasRecipient && !signedEventHasRecipient) {
+        return res.status(503).json({
+          success: false, error: 'fincra-webhook-recipient-unverified',
+          note: 'Neither the authoritative Fincra payout record nor the signed webhook identifies the actual wallet recipient. No successful payout status was applied.',
+        })
       }
       if (providerStatus === 'successful' && verifiedAmount === null) {
         return res.status(503).json({
