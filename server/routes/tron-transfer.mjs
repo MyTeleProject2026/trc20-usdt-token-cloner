@@ -895,9 +895,12 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         const status = reconciliation.status
         const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
           SET status=$2,fincra_reference=$3,fincra_status=$4,
-              fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
+              fincra_amount_received_base_units=COALESCE($5,fincra_amount_received_base_units),
+            fincra_amount_charged_base_units=COALESCE($6,fincra_amount_charged_base_units),
+            fincra_fee_base_units=COALESCE($7,fincra_fee_base_units),
+            fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
               updated_at=now() WHERE id=$1 RETURNING *`,
-        [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
+        [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status, reconciliation.amountReceivedBaseUnits, reconciliation.amountChargedBaseUnits, reconciliation.feeBaseUnits])
         return res.status(200).json({ success: true, duplicate: true, request: publicRequest(updated.rows[0]), note: 'Existing Fincra payout was found by customer reference and its identity was reconciled; no second payout was submitted.' })
       }
       if (prior.status !== 404) {
@@ -986,9 +989,12 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       const status = immediateReconciliation.status
       const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
         SET status=$2,fincra_reference=$3,fincra_status=$4,
+            fincra_amount_received_base_units=COALESCE($5,fincra_amount_received_base_units),
+            fincra_amount_charged_base_units=COALESCE($6,fincra_amount_charged_base_units),
+            fincra_fee_base_units=COALESCE($7,fincra_fee_base_units),
             fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
             updated_at=now() WHERE id=$1 RETURNING *`,
-      [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
+      [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status, reconciliation.amountReceivedBaseUnits, reconciliation.amountChargedBaseUnits, reconciliation.feeBaseUnits])
       return res.status(202).json({
         success: true, request: publicRequest(updated.rows[0]),
         note: 'Fincra accepted the API request. Check provider status or a verified webhook; acceptance is not settlement or independent chain confirmation.',
@@ -1027,10 +1033,13 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       const status = reconciliation.status
       const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
         SET status=$2,fincra_reference=COALESCE($3,fincra_reference),fincra_status=$4,
+            fincra_amount_received_base_units=COALESCE($5,fincra_amount_received_base_units),
+            fincra_amount_charged_base_units=COALESCE($6,fincra_amount_charged_base_units),
+            fincra_fee_base_units=COALESCE($7,fincra_fee_base_units),
             fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
             updated_at=now()
         WHERE id=$1 RETURNING *`,
-      [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
+      [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status, immediateReconciliation.amountReceivedBaseUnits, immediateReconciliation.amountChargedBaseUnits, immediateReconciliation.feeBaseUnits])
       return res.json({ success: true, request: publicRequest(saved.rows[0]) })
     } catch {
       return res.status(502).json({ success: false, error: 'fincra-status-requery-failed' })
