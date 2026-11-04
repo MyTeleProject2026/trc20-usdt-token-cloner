@@ -12,6 +12,13 @@ test('frontend exposes only Nile and Shasta RPC networks', () => {
   assert.match(app, /<option value="nile">Nile Testnet<\/option><option value="shasta">Shasta Testnet<\/option>/)
 })
 
+test('recipient inspection defaults to Nile and keeps explicit Mainnet and Shasta choices', () => {
+  assert.match(app, /const \[recipientNetwork, setRecipientNetwork\] = useState\('nile'\)/)
+  assert.match(app, /<option value="mainnet">TRON Mainnet<\/option>/)
+  assert.match(app, /<option value="nile">Nile Testnet<\/option>/)
+  assert.match(app, /<option value="shasta">Shasta Testnet<\/option>/)
+})
+
 test('frontend uses the shared local-signing and encrypted-keystore helpers', () => {
   assert.match(app, /buildSignAndBroadcastTransfer/)
   assert.match(app, /encryptWalletPrivateKey/)
