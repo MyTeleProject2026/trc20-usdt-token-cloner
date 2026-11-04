@@ -27,6 +27,7 @@ const TOKEN_KEY = 'tron-transfer:testnet-tokens:v1'
 const HISTORY_KEY = 'tron-transfer:testnet-history:v1'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
+const REQUESTER_WALLET_SESSION_KEY = 'tron-transfer:requester-wallet-session:v1'
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_RE = /^[0-9a-f]{64}$/i
@@ -143,6 +144,7 @@ export default function App() {
   const [ownerAddressInput, setOwnerAddressInput] = useState('')
   const [ownerPasswordInput, setOwnerPasswordInput] = useState('')
   const [ownerSession, setOwnerSession] = useState(null)
+  const [requesterSession, setRequesterSession] = useState(null)
   const [fincraReadiness, setFincraReadiness] = useState(null)
 
   const networkTokens = tokens[network] || []
@@ -156,8 +158,10 @@ export default function App() {
     try {
       const token = sessionStorage.getItem(OWNER_SESSION_KEY)
       if (token) void restoreOwnerSession(token)
+      const requesterToken = sessionStorage.getItem(REQUESTER_WALLET_SESSION_KEY)
+      if (requesterToken) void restoreRequesterWalletSession(requesterToken)
     } catch {
-      // Owner login remains available when session storage is blocked.
+      // Owner/requester sign-in can be repeated if session storage is blocked.
     }
   }, [])
   useEffect(() => {
@@ -380,16 +384,97 @@ export default function App() {
       setRecipientBusy(false)
     }
   }
+  async function restoreRequesterWalletSession(token) {
+    try {
+      const response = await fetch(API_BASE + '/api/auth/tron/session', {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+        credentials: 'omit', cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.authenticated !== true
+        || payload.network !== 'mainnet' || !ADDRESS_RE.test(String(payload.address || ''))
+        || !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) {
+        sessionStorage.removeItem(REQUESTER_WALLET_SESSION_KEY)
+        setRequesterSession(null)
+        return
+      }
+      setRequesterSession({ address: payload.address, network: 'mainnet', expiresAt: payload.expiresAt, sessionToken: token })
+    } catch {
+      setRequesterSession(null)
+    }
+  }
+  async function verifyRequesterWalletOwnership() {
+    if (!unlocked) throw new Error('Unlock your local wallet before proving requester ownership.')
+    const signer = new TronWeb({ privateKey: unlocked.privateKey })
+    if (String(signer.defaultAddress?.base58 || '') !== unlocked.address
+      || typeof signer.trx?.signMessageV2 !== 'function') {
+      throw new Error('The unlocked local wallet cannot sign the Mainnet identity challenge.')
+    }
+    const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: unlocked.address, network: 'mainnet' }),
+      credentials: 'omit', cache: 'no-store', redirect: 'error',
+    })
+    const challenge = await challengeResponse.json().catch(() => null)
+    if (!challengeResponse.ok || challenge?.success !== true || challenge.network !== 'mainnet'
+      || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string'
+      || !Number.isFinite(challenge.expiresAt) || challenge.expiresAt <= Date.now()) {
+      throw new Error(challenge?.message || challenge?.error || 'Could not create a Mainnet wallet ownership challenge.')
+    }
+    // A message signature proves control of this address only; it is not a TRON transaction.
+    const signature = await signer.trx.signMessageV2(challenge.message)
+    if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)
+      || String(signer.defaultAddress?.base58 || '') !== unlocked.address) {
+      throw new Error('The local wallet returned an invalid signature or changed address during signing.')
+    }
+    const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: unlocked.address, network: 'mainnet', nonce: challenge.nonce, signature }),
+      credentials: 'omit', cache: 'no-store', redirect: 'error',
+    })
+    const verified = await verifyResponse.json().catch(() => null)
+    if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
+      || verified.address !== unlocked.address || verified.network !== 'mainnet'
+      || typeof verified.sessionToken !== 'string' || !Number.isFinite(verified.expiresAt)) {
+      throw new Error(verified?.message || verified?.error || 'The backend did not verify the requester wallet signature.')
+    }
+    sessionStorage.setItem(REQUESTER_WALLET_SESSION_KEY, verified.sessionToken)
+    const session = { address: verified.address, network: 'mainnet', expiresAt: verified.expiresAt, sessionToken: verified.sessionToken }
+    setRequesterSession(session)
+    setNotice('Mainnet requester wallet ownership verified. This identity session authorizes no payout or transaction.')
+  }
+  async function signOutRequesterWallet() {
+    const token = requesterSession?.sessionToken
+    try { sessionStorage.removeItem(REQUESTER_WALLET_SESSION_KEY) } catch {}
+    setRequesterSession(null)
+    if (token) {
+      void fetch(API_BASE + '/api/auth/tron/logout', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+        credentials: 'omit', cache: 'no-store',
+      }).catch(() => undefined)
+    }
+    setNotice('Requester wallet identity session signed out.')
+  }
   async function submitSponsorRequest() {
-    if (!unlocked) throw new Error('Unlock your wallet so the sponsor request can identify the requester address.')
+    if (!requesterSession?.sessionToken || requesterSession.network !== 'mainnet'
+      || !ADDRESS_RE.test(requesterSession.address)) {
+      throw new Error('Verify a Mainnet requester wallet before submitting this sponsor request.')
+    }
     if (!ADDRESS_RE.test(sponsorRecipientAddress.trim())) throw new Error('Enter a valid Mainnet TRON recipient address.')
     if (!sponsorAmount.trim() || !beneficiaryName.trim()) throw new Error('Enter the requested USDT amount and beneficiary name.')
     const response = await fetch(API_BASE + '/api/tron-transfer/sponsor-requests', {
       method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + requesterSession.sessionToken,
+      },
       credentials: 'omit', cache: 'no-store',
       body: JSON.stringify({
-        requesterAddress: unlocked.address,
+        requesterAddress: requesterSession.address,
         recipientAddress: sponsorRecipientAddress.trim(),
         beneficiaryName: beneficiaryName.trim(),
         beneficiaryEmail: beneficiaryEmail.trim(),
@@ -677,14 +762,27 @@ export default function App() {
                       <span className="eyebrow">01 / REQUEST A SPONSORED PAYOUT</span>
                       <h3>Recipient details</h3>
                       <p>USDT principal is paid by an authorized Fincra business wallet, not by this frontend or your local wallet.</p>
+                      {!requesterSession ? (
+                        <div className="owner-session-card">
+                          <strong><LockKeyhole size={15}/> Requester ownership not verified</strong>
+                          <small>{unlocked ? 'Prove control of the currently unlocked wallet using a Mainnet identity message.' : 'Unlock the wallet on this device first. The signature proves address control only; it does not authorize a payout.'}</small>
+                          <button className="secondary-button" disabled={busy || !unlocked} onClick={() => perform(verifyRequesterWalletOwnership)}><ShieldCheck size={15}/> Verify requester wallet ownership</button>
+                        </div>
+                      ) : (
+                        <div className="owner-session-card">
+                          <strong><ShieldCheck size={15}/> Mainnet requester identity verified</strong>
+                          <small>{shorten(requesterSession.address)} · expires {new Date(requesterSession.expiresAt).toLocaleTimeString()}</small>
+                          <button className="outline-button" onClick={() => void signOutRequesterWallet()}>Sign out requester identity</button>
+                        </div>
+                      )}
                       <div className="form-stack">
                         <label>Recipient Mainnet address<input value={sponsorRecipientAddress} onChange={event => setSponsorRecipientAddress(event.target.value)} placeholder="T..." autoComplete="off" spellCheck="false"/></label>
                         <label>USDT amount<input value={sponsorAmount} onChange={event => setSponsorAmount(event.target.value)} placeholder="e.g. 25.00" inputMode="decimal"/></label>
                         <label>Beneficiary full name<input value={beneficiaryName} onChange={event => setBeneficiaryName(event.target.value)} placeholder="Wallet beneficiary name"/></label>
                         <label>Beneficiary email (optional)<input value={beneficiaryEmail} onChange={event => setBeneficiaryEmail(event.target.value)} placeholder="name@example.com"/></label>
-                        <button className="primary-button" disabled={busy || !unlocked || !sponsorRecipientAddress.trim() || !sponsorAmount.trim() || !beneficiaryName.trim()} onClick={() => perform(submitSponsorRequest)}><Plus size={16}/> Submit sponsor request</button>
+                        <button className="primary-button" disabled={busy || !requesterSession?.sessionToken || !sponsorRecipientAddress.trim() || !sponsorAmount.trim() || !beneficiaryName.trim()} onClick={() => perform(submitSponsorRequest)}><Plus size={16}/> Submit sponsor request</button>
                       </div>
-                      <p className="fine-print">Requests are Mainnet USDT only and do not themselves transfer, reserve or credit funds. The requester address is supplied by the unlocked local wallet; the server does not treat it as proof of ownership.</p>
+                      <p className="fine-print">Requests require a server-verified Mainnet wallet identity session. This identity signature is not a transaction signature and does not authorize Fincra spending. Submitting a request does not transfer, reserve or credit USDT.</p>
                     </div>
                     <div className="sponsor-admin-card">
                       <span className="eyebrow">02 / ORGANIZATION REVIEW</span>
