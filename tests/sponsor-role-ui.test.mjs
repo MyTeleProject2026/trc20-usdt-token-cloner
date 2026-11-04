@@ -71,5 +71,5 @@ test('Mainnet direct sponsor diagnostics appear as read-only status without enab
   assert.ok(app.includes('Mainnet payouts disabled'))
   assert.ok(app.includes('mainnetExecutionDisabled'))
   assert.ok(app.includes('canSubmitSponsoredTransfer'))
-  assert.ok(app.includes('does not create a withdrawal, reserve funds, request a signature, or submit a transaction'))
+  assert.ok(app.includes('It will not create a withdrawal, reserve funds, request a signature, or submit a transaction'))
 })
