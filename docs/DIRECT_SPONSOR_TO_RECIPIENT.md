@@ -44,3 +44,11 @@ A separate Mainnet request intake is now available for authenticated Mainnet wal
 It accepts only the official Tether Mainnet USDT contract, six-decimal positive integer base units, a valid recipient distinct from the requester, and an idempotency key. Requests are persisted in a dedicated table, separate from the testnet intake queue. The requester can retrieve only their own request. The sponsor review queue requires the server-side admin token.
 
 The status is always `pending-sponsor-review`. This intake does not establish sponsor authority, reserve principal or fee budget, create a signing intent, sign, broadcast or settle. It deliberately has no approve/execute endpoint yet. Mainnet execution remains hard-disabled.
+
+### User interface and verification
+
+The existing Mainnet read-only panel now includes a separate requester identity and request form. It requires TronLink to be manually set to the official HTTPS TRON Mainnet node (`api.trongrid.io`), signs only the server's short-lived wallet-identity challenge, and keeps the resulting session token in component memory. The form submits recipient, USDT amount and a browser-generated idempotency key to the Mainnet request API. Editing the recipient or amount generates a new request key; retrying an unchanged request reuses the same key.
+
+The form is not connected to the testnet sender wallet or testnet transfer flow. It does not request a transaction signature, and the request receipt is labelled `No transfer sent`. A user must sign in again after a page refresh because the Mainnet requester session token is not persisted in browser storage.
+
+The sponsor queue is currently a server-token-protected operator review endpoint. It is not an external sponsor organization login, does not prove the legal sponsor mandate, and does not yet provide sponsor approval or transaction signing.
