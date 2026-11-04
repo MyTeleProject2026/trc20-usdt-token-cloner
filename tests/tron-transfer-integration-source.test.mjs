@@ -156,3 +156,9 @@ test('Fincra sponsor funding history reads owner-authenticated business wallet c
   assert.match(route, /item\.action === 'credit'/)
   assert.match(route, /item\.currency === 'USDT'/)
 })
+
+test('Fincra source balance returns available locked and ledger totals separately', () => {
+  assert.match(route, /lockedBalance: lockedBaseUnits === null \? null : String\(lockedRaw\)/)
+  assert.match(route, /ledgerBalance: ledgerBaseUnits === null \? null : String\(ledgerRaw\)/)
+  assert.match(route, /availableBalanceBaseUnits: availableBaseUnits\.toString\(\)/)
+})
