@@ -25,6 +25,9 @@ const NETWORKS = Object.freeze({
 const WALLET_KEY = 'tron-transfer:testnet-wallet:v1'
 const TOKEN_KEY = 'tron-transfer:testnet-tokens:v1'
 const HISTORY_KEY = 'tron-transfer:testnet-history:v1'
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
+const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
+const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_RE = /^[0-9a-f]{64}$/i
 const TRANSFER_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
@@ -38,7 +41,7 @@ const TOKEN_ABI = [
 function clientFor(network, privateKey) {
   const selected = NETWORKS[network]
   if (!selected) throw new Error('Only Nile and Shasta testnets are available in this application.')
-  return new TronWeb({ fullHost: selected.rpc, ...(privateKey ? { privateKey } : {}) })
+  return new TronWeb({ fullHost: `${API_BASE}/api/tron-transfer/rpc/${network}`, ...(privateKey ? { privateKey } : {}) })
 }
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback } catch { return fallback }
@@ -126,6 +129,21 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
+  const [recipientNetwork, setRecipientNetwork] = useState('mainnet')
+  const [recipientAddress, setRecipientAddress] = useState('')
+  const [recipientTokenContract, setRecipientTokenContract] = useState('')
+  const [recipientInspection, setRecipientInspection] = useState(null)
+  const [recipientBusy, setRecipientBusy] = useState(false)
+  const [sponsorRecipientAddress, setSponsorRecipientAddress] = useState('')
+  const [sponsorAmount, setSponsorAmount] = useState('')
+  const [beneficiaryName, setBeneficiaryName] = useState('')
+  const [beneficiaryEmail, setBeneficiaryEmail] = useState('')
+  const [sponsorRequests, setSponsorRequests] = useState([])
+  const [sponsorRequestBusy, setSponsorRequestBusy] = useState(false)
+  const [ownerAddressInput, setOwnerAddressInput] = useState('')
+  const [ownerPasswordInput, setOwnerPasswordInput] = useState('')
+  const [ownerSession, setOwnerSession] = useState(null)
+  const [fincraReadiness, setFincraReadiness] = useState(null)
 
   const networkTokens = tokens[network] || []
   const selectedToken = networkTokens.find(token => token.contract === tokenAddress) || networkTokens[0]
@@ -133,6 +151,15 @@ export default function App() {
 
   useEffect(() => { writeJson(HISTORY_KEY, history) }, [history])
   useEffect(() => { writeJson(TOKEN_KEY, tokens) }, [tokens])
+  useEffect(() => {
+    void refreshProviderReadiness()
+    try {
+      const token = sessionStorage.getItem(OWNER_SESSION_KEY)
+      if (token) void restoreOwnerSession(token)
+    } catch {
+      // Owner login remains available when session storage is blocked.
+    }
+  }, [])
   useEffect(() => {
     setPortfolio(null)
     setReview(null)
@@ -286,12 +313,35 @@ export default function App() {
       tronWeb: web, from: review.from, to: review.to, asset: review.asset,
       amountBaseUnits: review.amountBaseUnits, tokenContract: review.tokenContract || undefined,
       feeLimitSun: review.feeLimitSun,
+      broadcast: async (signedTransaction) => {
+        try {
+          const response = await fetch(API_BASE + '/api/tron-transfer/broadcast', {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            credentials: 'omit', cache: 'no-store',
+            body: JSON.stringify({ network, transaction: signedTransaction }),
+          })
+          const payload = await response.json().catch(() => null)
+          if (payload?.status === 'broadcast-outcome-unknown') {
+            return { result: true, txid: payload.txid || signedTransaction.txID, broadcastOutcomeUnknown: true }
+          }
+          if (!response.ok || payload?.success !== true) {
+            return { result: false, code: payload?.error || 'tatum-broadcast-rejected' }
+          }
+          return { result: true, txid: payload.txid || signedTransaction.txID }
+        } catch {
+          // Retain the locally computed txID as an unknown outcome, not as a failure.
+          return { result: true, txid: signedTransaction.txID, broadcastOutcomeUnknown: true }
+        }
+      },
     })
     const item = {
       txid: result.txid, network, from: result.source, to: result.destination, asset: review.asset,
       tokenContract: result.tokenContract, symbol: review.symbol, amountBaseUnits: review.amountBaseUnits,
-      amount: review.amount, decimals: review.decimals, status: 'broadcast-accepted',
-      verification: 'awaiting-solidification', submittedAt: Date.now(),
+      amount: review.amount, decimals: review.decimals,
+      status: result.broadcastOutcomeUnknown ? 'broadcast-outcome-unknown' : 'broadcast-accepted',
+      verification: result.broadcastOutcomeUnknown ? 'reconcile-original-txid-no-replacement' : 'awaiting-solidification',
+      submittedAt: Date.now(),
     }
     setHistory(current => [item, ...current.filter(entry => entry.txid !== item.txid)].slice(0, 40))
     setReview(null)
@@ -300,6 +350,136 @@ export default function App() {
     setAmount('')
     setNotice('The selected testnet node accepted the signed transaction. This is not yet proof of successful execution; refresh its on-chain status.')
     setActiveTab('activity')
+  }
+  async function refreshProviderReadiness() {
+    try {
+      const response = await fetch(API_BASE + '/api/tron-transfer/readiness', {
+        headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => null)
+      if (response.ok && payload?.success === true) setFincraReadiness(payload)
+      else setFincraReadiness(null)
+    } catch {
+      setFincraReadiness(null)
+    }
+  }
+  async function inspectRecipient() {
+    if (!ADDRESS_RE.test(recipientAddress.trim())) throw new Error('Enter a valid TRON recipient address.')
+    setRecipientBusy(true)
+    try {
+      const query = new URLSearchParams({ network: recipientNetwork, address: recipientAddress.trim() })
+      if (recipientTokenContract.trim()) query.set('tokenContract', recipientTokenContract.trim())
+      const response = await fetch(API_BASE + '/api/tron-transfer/recipient?' + query.toString(), {
+        headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true) throw new Error(payload?.error || 'Tatum could not inspect this recipient.')
+      setRecipientInspection(payload)
+      setNotice('Recipient balances and incoming history were retrieved through the Tatum backend.')
+    } finally {
+      setRecipientBusy(false)
+    }
+  }
+  async function submitSponsorRequest() {
+    if (!unlocked) throw new Error('Unlock your wallet so the sponsor request can identify the requester address.')
+    if (!ADDRESS_RE.test(sponsorRecipientAddress.trim())) throw new Error('Enter a valid Mainnet TRON recipient address.')
+    if (!sponsorAmount.trim() || !beneficiaryName.trim()) throw new Error('Enter the requested USDT amount and beneficiary name.')
+    const response = await fetch(API_BASE + '/api/tron-transfer/sponsor-requests', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      credentials: 'omit', cache: 'no-store',
+      body: JSON.stringify({
+        requesterAddress: unlocked.address,
+        recipientAddress: sponsorRecipientAddress.trim(),
+        beneficiaryName: beneficiaryName.trim(),
+        beneficiaryEmail: beneficiaryEmail.trim(),
+        amount: sponsorAmount.trim(),
+        customerReference: 'tt-' + crypto.randomUUID(),
+      }),
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || payload?.success !== true) throw new Error(payload?.message || payload?.error || 'Sponsor request could not be recorded.')
+    setSponsorRecipientAddress('')
+    setSponsorAmount('')
+    setBeneficiaryName('')
+    setBeneficiaryEmail('')
+    setNotice('Sponsor request recorded for organization review. No USDT payout was initiated.')
+    if (ownerSession?.sessionToken) await loadSponsorRequests(ownerSession.sessionToken)
+  }
+  async function restoreOwnerSession(token) {
+    try {
+      const response = await fetch(API_BASE + '/api/auth/owner/session', {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+        credentials: 'omit', cache: 'no-store',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.authenticated !== true
+        || !ADDRESS_RE.test(String(payload.address || '')) || payload.network !== 'mainnet'
+        || !Number.isFinite(payload.expiresAt) || payload.expiresAt <= Date.now()) {
+        sessionStorage.removeItem(OWNER_SESSION_KEY)
+        setOwnerSession(null)
+        return
+      }
+      const session = { address: payload.address, expiresAt: payload.expiresAt, sessionToken: token }
+      setOwnerSession(session)
+      await loadSponsorRequests(token)
+    } catch {
+      setOwnerSession(null)
+    }
+  }
+  async function signInSponsorOwner() {
+    if (!ADDRESS_RE.test(ownerAddressInput.trim()) || !ownerPasswordInput) throw new Error('Enter the configured owner address and password.')
+    const response = await fetch(API_BASE + '/api/auth/owner/login', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: ownerAddressInput.trim(), password: ownerPasswordInput }),
+      credentials: 'omit', cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || payload?.success !== true || payload?.authenticated !== true
+      || payload.network !== 'mainnet' || typeof payload.sessionToken !== 'string'
+      || !Number.isFinite(payload.expiresAt)) {
+      throw new Error(payload?.message || payload?.error || 'Owner sign-in failed.')
+    }
+    sessionStorage.setItem(OWNER_SESSION_KEY, payload.sessionToken)
+    setOwnerPasswordInput('')
+    setOwnerSession({ address: payload.address, expiresAt: payload.expiresAt, sessionToken: payload.sessionToken })
+    await loadSponsorRequests(payload.sessionToken)
+    await refreshProviderReadiness()
+    setNotice('Owner identity verified. Fincra payout actions are available only under this owner session and configured provider gates.')
+  }
+  async function loadSponsorRequests(token) {
+    const response = await fetch(API_BASE + '/api/tron-transfer/sponsor-requests', {
+      headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+      credentials: 'omit', cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || payload?.success !== true) throw new Error(payload?.error || 'Sponsor request list is unavailable.')
+    setSponsorRequests(Array.isArray(payload.requests) ? payload.requests : [])
+  }
+  function signOutSponsorOwner() {
+    try { sessionStorage.removeItem(OWNER_SESSION_KEY) } catch {}
+    setOwnerSession(null)
+    setSponsorRequests([])
+    setNotice('Owner session signed out.')
+  }
+  async function runOwnerSponsorAction(requestId, action) {
+    if (!ownerSession?.sessionToken) throw new Error('Sign in as the configured owner before handling sponsor payouts.')
+    const response = await fetch(API_BASE + '/api/tron-transfer/sponsor-requests/' + encodeURIComponent(requestId) + '/' + action, {
+      method: 'POST',
+      headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSession.sessionToken },
+      credentials: 'omit', cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => null)
+    if (!response.ok && response.status !== 202) throw new Error(payload?.message || payload?.error || 'Sponsor action failed.')
+    await loadSponsorRequests(ownerSession.sessionToken)
+    if (payload?.verification?.status === 'unique-confirmed-recipient-history-match') {
+      setNotice('A unique confirmed incoming USDT transfer matched the requested recipient and exact amount. Review its transaction evidence against the Fincra receipt.')
+    } else if (payload?.request?.fincraStatus) {
+      setNotice('Fincra status: ' + payload.request.fincraStatus + '. Provider status is not the same as independent chain confirmation.')
+    } else {
+      setNotice(payload?.note || payload?.error || 'Sponsor action returned an updated status.')
+    }
   }
   async function verifyHistoryItem(item) {
     const web = clientFor(item.network)
@@ -351,7 +531,9 @@ export default function App() {
   const nav = [
     { id: 'overview', label: 'Overview', icon: Wallet },
     { id: 'send', label: 'Send / Withdraw', icon: Send },
+    { id: 'recipients', label: 'Recipient check', icon: ArrowDownLeft },
     { id: 'activity', label: 'Activity', icon: Activity },
+    { id: 'sponsors', label: 'Sponsor requests', icon: ShieldCheck },
   ]
 
   return (
@@ -374,12 +556,12 @@ export default function App() {
 
       <main className="main-content">
         <header className="topbar">
-          <div><span className="eyebrow">TRON TESTNET WORKSPACE</span><h1>{activeTab === 'overview' ? 'Wallet overview' : activeTab === 'send' ? 'Send testnet assets' : 'Transaction activity'}</h1></div>
+          <div><span className="eyebrow">TRON TRANSFER · TESTNET WALLET / SPONSOR SETTLEMENT</span><h1>{activeTab === 'overview' ? 'Wallet overview' : activeTab === 'send' ? 'Send testnet assets' : activeTab === 'recipients' ? 'Recipient balance & incoming history' : activeTab === 'sponsors' ? 'Sponsor payout workspace' : 'Transaction activity'}</h1></div>
           <div className="topbar-actions"><span className="network-chip"><i/> {NETWORKS[network].label}</span>{unlocked && <button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div>
         </header>
 
         <div className="content">
-          <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Testnet assets only</b><p>Transfers are signed locally and broadcast to Nile or Shasta. They do not create official Mainnet Tether deposits or credits in third-party exchange ledgers.</p></div></section>
+          <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Network and payout boundaries</b><p>Direct wallet sends use Nile or Shasta testnets. Separate Fincra sponsor requests are Mainnet USDT TRC20 payouts and require an authorized, funded Fincra business account.</p></div></section>
           {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
           {error && <div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
 
@@ -437,6 +619,111 @@ export default function App() {
                   </div>
                   {review && <div className="review-card"><div className="review-heading"><ShieldCheck/><div><b>Review exact transaction</b><small>No transaction has been signed or broadcast yet.</small></div></div><dl><div><dt>Network</dt><dd>{NETWORKS[review.network].label}</dd></div><div><dt>From</dt><dd>{review.from}</dd></div><div><dt>To</dt><dd>{review.to}</dd></div><div><dt>Asset / amount</dt><dd>{review.amount} {review.symbol}</dd></div><div><dt>Contract</dt><dd>{review.tokenContract || 'Native TRX'}</dd></div><div><dt>Fee cap</dt><dd>{formatUnits(review.feeLimitSun, 6)} TRX</dd></div>{review.energyRequired && <div><dt>Estimated energy</dt><dd>{review.energyRequired.toLocaleString()}</dd></div>}</dl><label className="acknowledge"><input type="checkbox" checked={acknowledged} onChange={e => setAcknowledged(e.target.checked)}/> I verified the network, recipient, token contract and amount.</label><button className="primary-button send-button" disabled={busy || !acknowledged} onClick={() => perform(sendTransfer)}><Send size={17}/> Sign and broadcast testnet transaction</button></div>}
                   <p className="fine-print">This sends only from the unlocked wallet's own testnet balance. The recipient must support the same testnet and token contract. An exchange's Mainnet deposit account is not credited by a testnet transaction.</p>
+                </section>
+              )}
+
+              {activeTab === 'recipients' && (
+                <section className="panel recipient-panel">
+                  <div className="section-heading"><div><span className="eyebrow">PUBLIC-CHAIN INSPECTION</span><h2>Recipient balance & incoming activity</h2><p>Read-only Tatum lookups. No recipient wallet access or private key is required.</p></div><div className="panel-icon"><ArrowDownLeft/></div></div>
+                  <div className="transfer-form">
+                    <label>Network<select value={recipientNetwork} onChange={event => { setRecipientNetwork(event.target.value); setRecipientInspection(null) }}><option value="mainnet">TRON Mainnet</option><option value="nile">Nile Testnet</option><option value="shasta">Shasta Testnet</option></select></label>
+                    <label>Recipient TRON address<input value={recipientAddress} onChange={event => { setRecipientAddress(event.target.value); setRecipientInspection(null) }} placeholder="T..." autoComplete="off" spellCheck="false"/></label>
+                    <label className="wide-field">TRC20 contract (optional)<input value={recipientTokenContract} onChange={event => { setRecipientTokenContract(event.target.value); setRecipientInspection(null) }} placeholder={recipientNetwork === 'mainnet' ? MAINNET_USDT : 'Optional testnet token contract'}/></label>
+                    <div className="button-row wide-field"><button className="primary-button" disabled={recipientBusy || !recipientAddress.trim()} onClick={() => perform(inspectRecipient)}><RefreshCw size={16}/>{recipientBusy ? 'Checking…' : 'Inspect recipient'}</button></div>
+                  </div>
+                  {recipientInspection && (
+                    <div className="recipient-results">
+                      <div className="recipient-balance-grid">
+                        <article className="metric-card"><span>Native TRX balance</span><strong>{recipientInspection.nativeBalanceTRX ?? 'Unavailable'} <small>TRX</small></strong></article>
+                        <article className="metric-card"><span>Token balance</span><strong>{recipientInspection.tokenBalance ? formatUnits(recipientInspection.tokenBalance.balanceBaseUnits, recipientInspection.tokenBalance.decimals) : 'Not queried' } <small>{recipientInspection.tokenBalance?.symbol || ''}</small></strong></article>
+                        <article className="metric-card"><span>Network</span><strong>{String(recipientInspection.network).toUpperCase()}</strong></article>
+                      </div>
+                      <div className="section-heading"><div><span className="eyebrow">TATUM INDEXED FEED</span><h3>Incoming transaction history</h3><p>{recipientInspection.historyStatus === 'tatum-history-read' ? 'Confirmed incoming transactions returned by Tatum.' : 'Tatum history could not be loaded for this lookup.'}</p></div></div>
+                      {!recipientInspection.incomingHistory?.length ? <div className="empty-state"><ArrowDownLeft size={25}/><b>No incoming transfers found</b><p>This is a live indexer response, not proof that an address has never received funds.</p></div> : recipientInspection.incomingHistory.map((item, index) => (
+                        <article className="history-item" key={item.txid || index}>
+                          <div className="history-icon incoming"><ArrowDownLeft size={17}/></div>
+                          <div className="history-main">
+                            <b>{item.amountBaseUnits && item.decimals !== null ? formatUnits(item.amountBaseUnits, item.decimals) : 'Amount unavailable'} {item.symbol || item.asset}</b>
+                            <small>From {shorten(item.from)} · {item.timestamp ? new Date(item.timestamp).toLocaleString() : 'Timestamp unavailable'}</small>
+                            <span className="status-text good">{item.confirmed ? 'Confirmed' : 'Returned by confirmed-history query'}</span>
+                            {item.txid && <a href={(recipientNetwork === 'mainnet' ? 'https://tronscan.org' : recipientNetwork === 'nile' ? 'https://nile.tronscan.org' : 'https://shasta.tronscan.org') + '/#/transaction/' + item.txid} target="_blank" rel="noreferrer">View transaction <ExternalLink size={12}/></a>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                  <p className="fine-print">The recipient history endpoint is an indexed data feed. For payout confirmation, the sponsor dashboard performs a separate exact-token, recipient, amount and timestamp comparison against the confirmed Mainnet USDT history.</p>
+                </section>
+              )}
+
+              {activeTab === 'sponsors' && (
+                <section className="panel sponsor-panel">
+                  <div className="section-heading"><div><span className="eyebrow">AUTHORIZED THIRD-PARTY PRINCIPAL</span><h2>USDT TRC20 sponsor requests</h2><p>Requests are stored for organization review. Only the configured owner session can initiate a Fincra payout.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
+                  <div className="sponsor-readiness">
+                    <div><span className="eyebrow">FINCRA PROVIDER READINESS</span><strong>{fincraReadiness?.fincra?.canSubmitLivePayout ? 'Live payout prerequisites pass' : fincraReadiness?.fincra?.canSubmitSandboxPayout ? 'Sandbox payout prerequisites pass' : 'Payouts currently gated'}</strong><small>Environment: {fincraReadiness?.fincra?.environment || 'Not checked'} · Scheme: usdt_trc20</small></div>
+                    <button className="secondary-button" onClick={() => perform(refreshProviderReadiness)}><RefreshCw size={15}/> Refresh readiness</button>
+                  </div>
+                  {fincraReadiness?.fincra && (
+                    <div className="readiness-checks">
+                      <span>API key {fincraReadiness.fincra.apiKeyConfigured ? 'configured' : 'missing'}</span>
+                      <span>Business ID {fincraReadiness.fincra.businessIdConfigured ? 'configured' : 'missing'}</span>
+                      <span>Webhook secret {fincraReadiness.fincra.webhookSecretConfigured ? 'configured' : 'missing'}</span>
+                      <span>Source balance {fincraReadiness.fincra.sourceBalance?.checked ? fincraReadiness.fincra.sourceBalance.availableBalance + ' ' + fincraReadiness.fincra.sourceBalance.currency : 'not verified'}</span>
+                    </div>
+                  )}
+                  <div className="sponsor-request-layout">
+                    <div className="sponsor-form-card">
+                      <span className="eyebrow">01 / REQUEST A SPONSORED PAYOUT</span>
+                      <h3>Recipient details</h3>
+                      <p>USDT principal is paid by an authorized Fincra business wallet, not by this frontend or your local wallet.</p>
+                      <div className="form-stack">
+                        <label>Recipient Mainnet address<input value={sponsorRecipientAddress} onChange={event => setSponsorRecipientAddress(event.target.value)} placeholder="T..." autoComplete="off" spellCheck="false"/></label>
+                        <label>USDT amount<input value={sponsorAmount} onChange={event => setSponsorAmount(event.target.value)} placeholder="e.g. 25.00" inputMode="decimal"/></label>
+                        <label>Beneficiary full name<input value={beneficiaryName} onChange={event => setBeneficiaryName(event.target.value)} placeholder="Wallet beneficiary name"/></label>
+                        <label>Beneficiary email (optional)<input value={beneficiaryEmail} onChange={event => setBeneficiaryEmail(event.target.value)} placeholder="name@example.com"/></label>
+                        <button className="primary-button" disabled={busy || !unlocked || !sponsorRecipientAddress.trim() || !sponsorAmount.trim() || !beneficiaryName.trim()} onClick={() => perform(submitSponsorRequest)}><Plus size={16}/> Submit sponsor request</button>
+                      </div>
+                      <p className="fine-print">Requests are Mainnet USDT only and do not themselves transfer, reserve or credit funds. The requester address is supplied by the unlocked local wallet; the server does not treat it as proof of ownership.</p>
+                    </div>
+                    <div className="sponsor-admin-card">
+                      <span className="eyebrow">02 / ORGANIZATION REVIEW</span>
+                      <h3>Owner authorization</h3>
+                      {!ownerSession ? (
+                        <div className="form-stack">
+                          <label>Configured owner address<input value={ownerAddressInput} onChange={event => setOwnerAddressInput(event.target.value)} placeholder="T..." autoComplete="off"/></label>
+                          <label>Owner password<input value={ownerPasswordInput} onChange={event => setOwnerPasswordInput(event.target.value)} type="password" autoComplete="current-password"/></label>
+                          <button className="secondary-button" disabled={busy || !ownerAddressInput.trim() || !ownerPasswordInput} onClick={() => perform(signInSponsorOwner)}><LockKeyhole size={16}/> Sign in as owner</button>
+                        </div>
+                      ) : (
+                        <div className="owner-session-card">
+                          <strong><ShieldCheck size={15}/> Owner session active</strong>
+                          <small>{shorten(ownerSession.address)} · expires {new Date(ownerSession.expiresAt).toLocaleTimeString()}</small>
+                          <div className="button-row"><button className="secondary-button" onClick={() => perform(() => loadSponsorRequests(ownerSession.sessionToken))}><RefreshCw size={15}/> Refresh queue</button><button className="outline-button" onClick={signOutSponsorOwner}>Sign out</button></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {ownerSession && (
+                    <div className="sponsor-queue">
+                      <div className="section-heading"><div><span className="eyebrow">03 / PAYOUT OPERATIONS</span><h3>Organization request queue</h3><p>Fincra status and on-chain recipient evidence remain separate states.</p></div></div>
+                      {!sponsorRequests.length ? <div className="empty-state"><ShieldCheck size={25}/><b>No sponsor requests in the queue</b><p>Requests submitted from this app will appear here for owner review.</p></div> : sponsorRequests.map(request => (
+                        <article className="sponsor-request-row" key={request.id}>
+                          <div className="sponsor-request-details">
+                            <strong>{request.amount} USDT</strong>
+                            <small>To {shorten(request.recipientAddress)} · {new Date(request.createdAt).toLocaleString()}</small>
+                            <small>Requester {shorten(request.requesterAddress)} · {request.beneficiaryName}</small>
+                            <span className="status-text">{request.status} · Fincra: {request.fincraStatus || 'not submitted'} · Chain: {request.chainVerificationStatus}</span>
+                            {request.transactionHash && <a href={'https://tronscan.org/#/transaction/' + request.transactionHash} target="_blank" rel="noreferrer">View matched recipient transfer <ExternalLink size={12}/></a>}
+                          </div>
+                          <div className="sponsor-request-actions">
+                            <button className="secondary-button" disabled={busy || request.status === 'fincra-successful'} onClick={() => perform(() => runOwnerSponsorAction(request.id, 'fincra-status'))}>Requery Fincra</button>
+                            <button className="primary-button" disabled={busy || !fincraReadiness?.fincra?.canSubmitSandboxPayout && !fincraReadiness?.fincra?.canSubmitLivePayout || !['pending-organization-review','fincra-outcome-unknown','fincra-submitting'].includes(request.status)} onClick={() => perform(() => runOwnerSponsorAction(request.id, 'fincra-payout'))}>Submit / reconcile payout</button>
+                            <button className="secondary-button" disabled={busy || request.fincraStatus !== 'successful'} onClick={() => perform(() => runOwnerSponsorAction(request.id, 'verify-recipient-transfer'))}>Verify recipient on-chain</button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
                 </section>
               )}
 
