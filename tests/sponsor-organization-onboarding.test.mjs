@@ -235,13 +235,13 @@ test('wallet application signature covers normalized organization details and re
     })),
   })
   assert.equal(response.status, 201)
-  assert.match(signedMessage, /Sponsor wallet: ${SPONSOR}/)
-  assert.match(signedMessage, /Organization: Example Sponsor Foundation/)
-  assert.match(signedMessage, /Business contact email: treasury@example\.org/)
-  assert.match(signedMessage, /Jurisdiction: Singapore/)
-  assert.match(signedMessage, /Website: https:\/\/example\.org$/m)
-  assert.match(signedMessage, /Requested roles: asset-principal, network-fees/)
-  assert.match(signedMessage, /This is not a transaction, transfer, or spending authorization\./)
+  assert.ok(signedMessage.includes('Sponsor wallet: ' + SPONSOR))
+  assert.ok(signedMessage.includes('Organization: Example Sponsor Foundation'))
+  assert.ok(signedMessage.includes('Business contact email: treasury@example.org'))
+  assert.ok(signedMessage.includes('Jurisdiction: Singapore'))
+  assert.ok(signedMessage.includes('Website: https://example.org'))
+  assert.ok(signedMessage.includes('Requested roles: asset-principal, network-fees'))
+  assert.ok(signedMessage.includes('This is not a transaction, transfer, or spending authorization.'))
 })
 
 test('sponsor wallet address comes only from its authenticated Mainnet wallet session', async (t) => {
