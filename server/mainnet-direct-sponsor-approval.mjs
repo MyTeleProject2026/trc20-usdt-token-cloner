@@ -74,6 +74,123 @@ export function resolveMainnetDirectSponsorApprovalPolicy(env = process.env) {
   }
 }
 
+export function resolveMainnetDirectFeeApprovalPolicy(env = process.env) {
+  const sponsorAddress = typeof env.SPONSOR_FEE_MAINNET_ADDRESS === 'string'
+    ? env.SPONSOR_FEE_MAINNET_ADDRESS.trim() : ''
+  const organizationReference = typeof env.SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE === 'string'
+    ? env.SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE.trim() : ''
+  const agreementReference = typeof env.SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE === 'string'
+    ? env.SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE.trim() : ''
+  const agreementDocumentSha256 = typeof env.SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256 === 'string'
+    ? env.SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256.trim() : ''
+  const maxFeeSun = typeof env.SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN === 'string'
+    ? env.SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN.trim() : ''
+
+  const missing = []
+  if (!isValidTronAddress(sponsorAddress)) missing.push('SPONSOR_FEE_MAINNET_ADDRESS')
+  if (!validReference(organizationReference)) missing.push('SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE')
+  if (!validReference(agreementReference)) missing.push('SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE')
+  if (!SHA256_PATTERN.test(agreementDocumentSha256)) missing.push('SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256')
+  if (!BASE_UNITS_PATTERN.test(maxFeeSun) || BigIntSafe(maxFeeSun) === null) {
+    missing.push('SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN')
+  }
+  const scopes = String(env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+    .split(';').map((value) => value.trim()).filter(Boolean)
+  const exactScopeApproved = scopes.some((scope) => {
+    const fields = scope.split('|')
+    return fields.length === 7
+      && fields[0] === agreementReference
+      && fields[1] === organizationReference
+      && fields[2] === 'mainnet'
+      && fields[3] === sponsorAddress
+      && fields[4] === 'network-fee'
+      && fields[5] === 'TRX'
+      && fields[6] === '-'
+  })
+  if (!exactScopeApproved) missing.push('SPONSOR_APPROVED_AGREEMENT_REFERENCES (exact Mainnet network-fee TRX scope)')
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    ...(missing.length === 0 ? {
+      sponsorAddress,
+      organizationReference,
+      agreementReference,
+      agreementDocumentSha256,
+      maxFeeSun,
+      network: 'mainnet',
+      asset: 'TRX',
+      tokenContract: null,
+      purpose: 'network-fee',
+    } : {}),
+  }
+}
+
+export function buildMainnetDirectFeeSponsorApprovalMessage({
+  request,
+  feePolicy,
+  assetPolicy,
+  nonce,
+  issuedAt,
+  expiresAt,
+} = {}) {
+  if (!request || request.network !== 'mainnet' || request.asset !== 'USDT'
+    || request.tokenContract !== OFFICIAL_MAINNET_USDT_CONTRACT
+    || !isValidTronAddress(request.requesterAddress)
+    || !isValidTronAddress(request.recipientAddress)
+    || request.recipientAddress === request.requesterAddress
+    || !BASE_UNITS_PATTERN.test(String(request.amountBaseUnits))
+    || Number(request.decimals) !== 6
+    || !feePolicy?.configured || !isValidTronAddress(feePolicy.sponsorAddress)
+    || !assetPolicy?.configured || !isValidTronAddress(assetPolicy.sponsorAddress)
+    || feePolicy.sponsorAddress === assetPolicy.sponsorAddress
+    || typeof nonce !== 'string' || !NONCE_PATTERN.test(nonce)) {
+    throw new TypeError('mainnet-direct-fee-sponsor-approval-input-invalid')
+  }
+  const amount = BigIntSafe(String(request.amountBaseUnits))
+  const maxFee = BigIntSafe(String(feePolicy.maxFeeSun))
+  if (amount === null || maxFee === null) {
+    throw new TypeError('mainnet-direct-fee-sponsor-approval-amount-invalid')
+  }
+  const issuedAtMs = Date.parse(issuedAt)
+  const expiresAtMs = Date.parse(expiresAt)
+  if (!Number.isFinite(issuedAtMs) || !Number.isFinite(expiresAtMs)
+    || new Date(issuedAtMs).toISOString() !== issuedAt
+    || new Date(expiresAtMs).toISOString() !== expiresAt
+    || expiresAtMs <= issuedAtMs
+    || expiresAtMs - issuedAtMs > MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS) {
+    throw new TypeError('mainnet-direct-fee-sponsor-approval-expiry-invalid')
+  }
+
+  return [
+    'TRON Token Studio direct sponsor network-fee approval',
+    'Format: tron-token-studio/mainnet-direct-fee-sponsor-approval/v1',
+    'Purpose: approve network-fee coverage for one exact Mainnet USDT payout request only.',
+    'Network: TRON Mainnet',
+    'Request ID: ' + String(request.id),
+    'Request idempotency key: ' + request.idempotencyKey,
+    'Requester identity wallet: ' + request.requesterAddress,
+    'External recipient wallet: ' + request.recipientAddress,
+    'Asset-principal sponsor wallet: ' + assetPolicy.sponsorAddress,
+    'Fee sponsor organization reference: ' + feePolicy.organizationReference,
+    'Fee sponsor wallet: ' + feePolicy.sponsorAddress,
+    'Asset: Tether USDT (TRC-20)',
+    'Official USDT contract: ' + OFFICIAL_MAINNET_USDT_CONTRACT,
+    'Exact USDT principal amount in base units (6 decimals): ' + String(request.amountBaseUnits),
+    'Maximum approved network-fee budget in SUN: ' + feePolicy.maxFeeSun,
+    'Separate executed fee-sponsor agreement reference: ' + feePolicy.agreementReference,
+    'SHA-256 of exact executed fee-sponsor agreement file: ' + feePolicy.agreementDocumentSha256,
+    'Separate asset-principal sponsor agreement reference: ' + assetPolicy.agreementReference,
+    'Challenge nonce: ' + nonce,
+    'Issued at: ' + issuedAt,
+    'Expires at: ' + expiresAt,
+    'This is fee-sponsor approval only, not a TRON transaction signature or asset-principal approval.',
+    'It does not transfer TRX, delegate Energy/Bandwidth, reserve resources, sign or broadcast the USDT transaction.',
+    'The exact transaction fee and delegated resource capacity must be independently rechecked before any future execution.',
+    'It cannot be reused for another request, recipient, principal amount, sponsor, agreement or network.',
+  ].join('\n')
+}
+
 function BigIntSafe(value) {
   try {
     const parsed = BigInt(value)
