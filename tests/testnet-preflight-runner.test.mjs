@@ -42,10 +42,11 @@ function routePayloads(overrides = {}) {
     },
     '/api/tron/sponsorship/status': {
       enabled: false,
-      status: 'not-integrated',
+      status: 'testnet-wallet-signer-integrated-mainnet-disabled',
       mainnetEnabled: false,
       canSubmitSponsoredTransfer: false,
       receiverBalance: { displayOnlySponsorCredit: false },
+      signerArchitecture: { providerIndependent: true, fireblocksRequired: false },
       fundingPolicy: {
         externalSponsorConfirmed: false,
         sponsorFundingVerified: false,
