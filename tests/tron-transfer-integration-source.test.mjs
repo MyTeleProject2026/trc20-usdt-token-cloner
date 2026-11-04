@@ -130,3 +130,12 @@ test('Fincra USDT source balance exposes the recipient wallet number for sponsor
   assert.match(route, /router\.get\('\/readiness'/)
   assert.match(route, /sourceBalance,/)
 })
+
+test('Fincra prior-payout and manual status reconciliation cannot mark an unverified payout successful', () => {
+  assert.match(route, /function reconcileFincraPayoutIdentity\(payout, row\)/)
+  assert.match(route, /successful-payout-record-incomplete/)
+  assert.match(route, /const reconciliation = reconcileFincraPayoutIdentity\(data, row\)/)
+  assert.match(route, /Fincra returned an existing payout for this reference, but its recipient, amount and USDT TRC20 identity could not all be reconciled/)
+  assert.match(route, /Fincra status was not applied because the provider record did not reconcile/)
+  assert.match(route, /fincra-webhook-recipient-unverified/)
+})
