@@ -2,7 +2,7 @@
 
 ## Status
 
-The testnet fee-observation layer is implemented; fee-budget settlement remains design-only. The append-only `sponsor_chain_fee_observations` table records immutable Nile/Shasta receipt evidence, including finalized FAILED executions. The existing `sponsor_chain_cost_observations` table remains a successful-asset-transfer cost observation log. Neither table proves that a separate fee-sponsor organization was economically debited. This document does not enable fee-budget settlement or Mainnet withdrawals.
+The testnet fee-observation layer and a narrow direct-TRX-burn settlement path are implemented; delegated-resource settlement remains design-only. The append-only `sponsor_chain_fee_observations` table records immutable Nile/Shasta receipt evidence, including finalized FAILED executions. The new `sponsor_chain_fee_settlements` table books a positive observed TRX burn only when the approved `network-fee` budget wallet is exactly the transaction owner/observed payer. In this current transfer model that is also the asset-principal sender wallet; it does not settle a distinct external wallet's delegated Energy/Bandwidth contribution. The existing `sponsor_chain_cost_observations` table remains a successful-asset-transfer cost observation log. No Mainnet settlement or withdrawal is enabled.
 
 ## Accounting identities that must remain separate
 
@@ -50,6 +50,26 @@ Do not persist raw provider payloads, API credentials, private keys, or signing 
 
 The fee payer is not automatically the asset principal provider or the configured fee sponsor. Never infer one from another.
 
+## Implemented direct TRX-burn settlement scope
+
+The admin-gated POST `/sponsorship/transfers/:idempotencyKey/settle-observed-fees` accepts an empty body and derives the network, transaction hash, and transfer identity only from the stored asset-grant plus its immutable fee observation. The route is limited to Nile/Shasta and uses the same server-side sponsor administrator token as the observation route.
+
+Settlement succeeds only when all of the following match:
+
+- The stored transfer is a testnet asset-grant in `submitted`, `confirmed`, or `failed` state and the immutable receipt observation matches its network, transaction hash, and idempotency key.
+- The observation reports a positive TRX fee and has `transaction_owner_address_hex = trx_fee_payer_address_hex`.
+- The observed transaction owner matches the stored asset-principal sender address.
+- A distinct `network-fee` / TRX budget exists under the same sponsor reference, its wallet address exactly matches that transaction owner, its approval scope is allowlisted, and the budget is active.
+- Unreserved budget capacity (`budget - reserved - spent`) covers the exact receipt `reported_fee_sun`. Existing fee reservations are not consumed or released because the current schema does not bind a specific fee reservation to this asset transaction.
+
+The fee-budget spend, immutable `sponsor_chain_fee_settlements` row, and audit event are committed in one PostgreSQL transaction. Settlement identity is unique by (network, transaction hash) and observation ID; identical retries are idempotent. A failed execution can still settle its observed direct TRX burn. Zero-burn observations do not create a TRX debit.
+
+This is intentionally narrower than third-party resource sponsorship. If the approved fee sponsor wallet differs from the transaction owner, the request is rejected and no fee budget is debited. Aggregate Energy/Bandwidth receipt values and a current delegation snapshot do not identify which separate delegator's resources were consumed. No resource settlement is claimed or implemented.
+
+## Future delegated-resource settlement
+
+A distinct external fee sponsor needs authoritative transaction-specific evidence tying the exact transfer's consumed Energy/Bandwidth to that sponsor and its approved agreement. Until a supported provider supplies that evidence, delegated resource settlement remains disabled.
+
 ## Settlement invariants
 
 A future settlement operation must:
@@ -79,4 +99,4 @@ A future settlement operation must:
 
 ## Release boundary
 
-The current implementation is testnet-only for fee observation and failed-principal reconciliation. It records fee evidence but does not settle the separate fee/resource budget. Do not interpret `trx-burn-payer-observed` as proof that the configured fee sponsor paid; do not attribute delegated Energy/Bandwidth to a specific sponsor without transaction-specific evidence. Any future fee settlement must be a separate atomic, idempotent operation against an independently approved `network-fee` budget. Mainnet enablement additionally requires an authorized sponsor organization, production custody/signing policy, funded treasury, operational controls, and independent production validation.
+The current implementation is testnet-only for fee observation, failed-principal reconciliation, and the narrow direct-TRX-burn settlement described above. A settled row proves only that the receipt's transaction owner/observed burn payer equals the active approved network-fee budget wallet and that the exact positive burn was booked from unreserved capacity. It does not prove that a distinct external sponsor supplied delegated Energy/Bandwidth. Do not interpret `trx-burn-payer-observed` alone as proof that a separate configured fee sponsor paid. Any delegated-resource settlement still requires transaction-specific provider evidence and a separate atomic, idempotent settlement path. Mainnet enablement additionally requires an authorized sponsor organization, production custody/signing policy, funded treasury, operational controls, and independent production validation.
