@@ -215,6 +215,8 @@ export function createOwnerSponsorLiquidityRouter({
             return {
               address,
               status: 'balance-unavailable',
+              configuredSourceRoles,
+              sponsorReferences,
               onChainBalanceVerified: false,
               onChainBalanceBaseUnits: null,
               availableBaseUnits: '0',
