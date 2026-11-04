@@ -147,7 +147,7 @@ test('production readiness lists unresolved sponsor-funding, authorization and s
   assert.ok(!blockers.includes('github-actions-runner-allocation-and-full-ci-validation-not-passing'))
   assert.ok(!blockers.includes('high-severity-google-protobuf-advisory-unresolved'))
   assert.ok(blockers.includes('external-sponsor-agreement-and-funded-accounts-not-independently-verified'))
-  assert.ok(blockers.includes('provider-not-verified-to-provide-asset-principal-and-all-fees'))
+  assert.ok(blockers.includes('external-sponsor-principal-and-fee-resources-not-independently-verified'))
   assert.ok(blockers.includes('mainnet-provider-independent-sponsor-wallet-sign-submit-broadcast-adapter-not-implemented'))
   assert.ok(blockers.includes('sponsor-ownership-and-transaction-time-spending-mandate-not-independently-verified'))
   assert.ok(blockers.includes('independent-solidified-settlement-and-receiver-balance-reconciliation-not-end-to-end-verified'))
