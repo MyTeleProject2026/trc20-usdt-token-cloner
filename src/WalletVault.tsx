@@ -202,11 +202,15 @@ function readTokenWatchlist(network: NetworkId): string[] {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(TOKEN_WATCH_KEY) || '{}')
     const values = parsed?.[network]
-    return Array.isArray(values)
-      ? [...new Set(values.filter((item: unknown) => typeof item === 'string' && ADDRESS_PATTERN.test(item)))]
+    const saved = Array.isArray(values)
+      ? values.filter((item: unknown) => typeof item === 'string' && ADDRESS_PATTERN.test(item))
       : []
+    // Official Tether Mainnet USDT is a useful default watch item. It is
+    // still read from the chain and remains unavailable if provider reads fail.
+    const defaults = network === 'mainnet' ? [OFFICIAL_MAINNET_USDT] : []
+    return [...new Set([...defaults, ...saved])]
   } catch {
-    return []
+    return network === 'mainnet' ? [OFFICIAL_MAINNET_USDT] : []
   }
 }
 
@@ -310,7 +314,7 @@ export default function WalletVault() {
   const [privateKeyInput, setPrivateKeyInput] = useState('')
   const [backupText, setBackupText] = useState('')
   const [tokenInput, setTokenInput] = useState('')
-  const [tokenContracts, setTokenContracts] = useState<string[]>(() => readTokenWatchlist('nile'))
+  const [tokenContracts, setTokenContracts] = useState<string[]>(() => readTokenWatchlist('mainnet'))
   const [selectedTokenContract, setSelectedTokenContract] = useState('')
   const [tokenEvidence, setTokenEvidence] = useState<Record<string, TokenEvidence>>({})
   const [evidenceLoading, setEvidenceLoading] = useState('')
