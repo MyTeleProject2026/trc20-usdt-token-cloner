@@ -11,11 +11,7 @@ const SCHEMA = 'trc20_token_clone'
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
-const NETWORKS = Object.freeze({
-  mainnet: 'tron-mainnet',
-  nile: 'tron-nile',
-  shasta: 'tron-shasta',
-})
+const NETWORKS = Object.freeze({ mainnet: 'tron-mainnet' })
 const RPC_METHODS = new Set([
   'wallet/getaccount',
   'wallet/getaccountresource',
@@ -24,8 +20,6 @@ const RPC_METHODS = new Set([
   'walletsolidity/getaccountresource',
   'walletsolidity/getaccountnet',
   'wallet/triggerconstantcontract',
-  'wallet/createtransaction',
-  'wallet/triggersmartcontract',
   'walletsolidity/triggerconstantcontract',
   'wallet/estimateenergy',
   'walletsolidity/estimateenergy',
@@ -48,6 +42,13 @@ function cleanString(value, max = 256) {
   return typeof value === 'string' ? value.trim().slice(0, max) : ''
 }
 
+function parseUsdtBalanceBaseUnits(value) {
+  const raw = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : ''
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(raw)) return null
+  const [whole, fraction = ''] = raw.split('.')
+  try { return BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0') || '0') } catch { return null }
+}
+
 function parseUsdtAmount(value) {
   const raw = typeof value === 'string' ? value.trim() : String(value ?? '')
   if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(raw)) {
@@ -60,8 +61,7 @@ function parseUsdtAmount(value) {
 }
 
 function configuredApiKey(env, network) {
-  if (network === 'mainnet') return cleanString(env.TATUM_MAINNET_API_KEY || env.TATUM_API_KEY, 2048)
-  return cleanString(env.TATUM_TESTNET_API_KEY || env.TATUM_API_KEY, 2048)
+  return network === 'mainnet' ? cleanString(env.TATUM_MAINNET_API_KEY || env.TATUM_API_KEY, 2048) : ''
 }
 
 function requestOrigin(req) {
@@ -170,9 +170,9 @@ async function readFincraSourceBalance(config) {
   const wallet = responseRows(result.payload).find((item) => String(item?.currency || item?.sourceCurrency || '').toUpperCase() === config.sourceCurrency)
   if (!wallet) return { checked: false, reason: 'source-currency-wallet-not-found' }
   const availableRaw = wallet.availableBalance ?? wallet.available_balance ?? wallet.balance?.availableBalance
-  const available = Number(availableRaw)
-  if (!Number.isFinite(available) || available < 0) return { checked: false, reason: 'source-balance-not-readable' }
-  return { checked: true, currency: config.sourceCurrency, availableBalance: String(availableRaw), walletId: cleanString(wallet.id || wallet.walletId, 128) || null }
+  const availableBaseUnits = parseUsdtBalanceBaseUnits(availableRaw)
+  if (availableBaseUnits === null) return { checked: false, reason: 'source-balance-not-readable' }
+  return { checked: true, currency: config.sourceCurrency, availableBalance: String(availableRaw), availableBalanceBaseUnits: availableBaseUnits.toString(), walletId: cleanString(wallet.id || wallet.walletId, 128) || null }
 }
 
 function payoutStatusFromProvider(value) {
@@ -340,6 +340,8 @@ export function createTronTransferRouter({ env = process.env } = {}) {
             fincra_status TEXT,
             fincra_webhook_event TEXT,
             fincra_webhook_received_at TIMESTAMPTZ,
+            fincra_submitted_at TIMESTAMPTZ,
+            fincra_successful_at TIMESTAMPTZ,
             transaction_hash CHAR(64),
             chain_verification_status TEXT NOT NULL DEFAULT 'not-verified',
             chain_verification_reason TEXT,
@@ -347,6 +349,10 @@ export function createTronTransferRouter({ env = process.env } = {}) {
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         `)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ`)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS fincra_successful_at TIMESTAMPTZ`)
         await db.query(`CREATE INDEX IF NOT EXISTS tron_transfer_sponsor_requests_created_idx
           ON ${SCHEMA}.tron_transfer_sponsor_requests (created_at DESC)`)
       })().catch((error) => { schemaPromise = null; throw error })
@@ -392,7 +398,6 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     const db = getPool(env)
     const fincra = fincraConfig(env)
     const mainnetConfigured = Boolean(configuredApiKey(env, 'mainnet'))
-    const testnetConfigured = Boolean(configuredApiKey(env, 'nile'))
     let databaseReady = false
     if (db) {
       try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
@@ -415,22 +420,15 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         }
       }
     }
-    const [mainnetNode, nileNode, shastaNode] = await Promise.all([
-      inspectSolidifiedNode('mainnet'),
-      inspectSolidifiedNode('nile'),
-      inspectSolidifiedNode('shasta'),
-    ])
+    const mainnetNode = await inspectSolidifiedNode('mainnet')
     let sourceBalance = { checked: false, reason: 'fincra-not-configured' }
     if (fincra.apiKey && fincra.businessId) {
       try { sourceBalance = await readFincraSourceBalance(fincra) } catch { sourceBalance = { checked: false, reason: 'fincra-wallets-unavailable' } }
     }
-    const usdtSourceBalanceReady = sourceBalance.checked
-      && Number.isFinite(Number(sourceBalance.availableBalance))
-      && Number(sourceBalance.availableBalance) > 0
-      && fincra.sourceCurrency === 'USDT'
-    const canSandboxPayout = fincra.mode === 'sandbox' && fincra.payoutsEnabled
-      && Boolean(fincra.apiKey && fincra.businessId && databaseReady)
-      && usdtSourceBalanceReady
+    const sourceBalanceBaseUnits = sourceBalance.checked
+      ? parseUsdtBalanceBaseUnits(sourceBalance.availableBalance) : null
+    const usdtSourceBalanceReady = sourceBalanceBaseUnits !== null
+      && sourceBalanceBaseUnits > 0n && fincra.sourceCurrency === 'USDT'
     const canLivePayout = fincra.mode === 'live' && fincra.payoutsEnabled && fincra.liveConfirmed
       && Boolean(fincra.apiKey && fincra.businessId && fincra.webhookConfigured && databaseReady && mainnetNode.checked)
       && usdtSourceBalanceReady
@@ -439,13 +437,10 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       status: 'readiness-evaluated',
       tatum: {
         mainnetConfigured,
-        testnetConfigured,
         mainnetNode,
-        testnetNodes: { nile: nileNode, shasta: shastaNode },
-        testnetAllReachable: nileNode.checked && shastaNode.checked,
+        supportedNetwork: 'mainnet-only',
         networkRouting: 'server-side-tatum-gateway',
-        testnetSignedBroadcast: true,
-        mainnetDirectBroadcast: false,
+        directWalletBroadcast: false,
       },
       fincra: {
         environment: fincra.mode,
@@ -456,7 +451,6 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         payoutsEnabled: fincra.payoutsEnabled,
         liveStablecoinPayoutsConfirmed: fincra.liveConfirmed,
         sourceBalance,
-        canSubmitSandboxPayout: canSandboxPayout,
         canSubmitLivePayout: canLivePayout,
         requiredScheme: 'usdt_trc20',
       },
@@ -471,6 +465,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         'A Fincra API acceptance is not settlement; query status or accept a verified webhook.',
         'A successful Fincra payout is not an independently verified TRON token transfer.',
         'Live payout requires a funded Fincra USDT source wallet and explicit live stablecoin enablement by Fincra.',
+        'Tron Transfer is Mainnet-only; testnet and sandbox payouts are disabled.',
       ],
     })
   })
@@ -478,7 +473,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
   router.all('/rpc/:network/*', async (req, res) => {
     const network = req.params.network
     const method = String(req.params[0] || '').replace(/^\/+/, '').toLowerCase()
-    if (!Object.hasOwn(NETWORKS, network) || !RPC_METHODS.has(method) || req.method !== 'POST') {
+    if (network !== 'mainnet' || !RPC_METHODS.has(method) || req.method !== 'POST') {
       return res.status(404).json({ success: false, error: 'rpc-method-not-allowed' })
     }
     try {
@@ -494,61 +489,14 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     }
   })
 
-  router.post('/broadcast', async (req, res) => {
+  router.post('/broadcast', (_req, res) => {
     res.setHeader('Cache-Control', 'no-store')
-    const network = cleanString(req.body?.network, 16)
-    if (!['nile', 'shasta'].includes(network)) {
-      return res.status(400).json({ success: false, error: 'testnet-broadcast-only', message: 'The new Tron Transfer signed-broadcast endpoint is currently limited to Nile and Shasta testnets.' })
-    }
-    const transaction = req.body?.transaction
-    const txid = cleanString(transaction?.txID || transaction?.txid, 96)
-    const rawHex = cleanString(transaction?.raw_data_hex, 200000)
-    if (!TXID_RE.test(txid) || !/^(?:[0-9a-f]{2})+$/i.test(rawHex)
-      || !Array.isArray(transaction?.signature) || transaction.signature.length < 1
-      || transaction.signature.length > 5
-      || !Array.isArray(transaction?.raw_data?.contract) || transaction.raw_data.contract.length !== 1) {
-      return res.status(400).json({ success: false, error: 'invalid-signed-transaction', transactionSubmitted: false })
-    }
-    const computedId = createHash('sha256').update(Buffer.from(rawHex, 'hex')).digest('hex')
-    if (computedId.toLowerCase() !== txid.toLowerCase()) {
-      return res.status(409).json({ success: false, error: 'signed-transaction-id-mismatch', transactionSubmitted: false })
-    }
-    if (Number(transaction?.raw_data?.expiration) <= Date.now()) {
-      return res.status(409).json({ success: false, error: 'signed-transaction-expired', transactionSubmitted: false })
-    }
-    try {
-      const result = await tatumGatewayRequest({
-        env, network, path: 'wallet/broadcasttransaction', body: transaction, timeoutMs: 20000,
-      })
-      if (result?.result !== true) {
-        return res.status(409).json({
-          success: false,
-          error: 'tatum-broadcast-rejected',
-          providerCode: cleanString(result?.code, 64) || null,
-          transactionSubmitted: false,
-          txid: txid.toLowerCase(),
-        })
-      }
-      return res.status(202).json({
-        success: true,
-        status: 'broadcast-accepted',
-        txid: txid.toLowerCase(),
-        providerReportedTxid: cleanString(result?.txid || result?.txID, 96) || null,
-        note: 'Tatum accepted the signed testnet transaction for broadcast. This is not confirmation; re-read the solidified transaction and receipt.',
-      })
-    } catch (error) {
-      // The provider may have accepted the transaction before a network timeout.
-      // The caller must reconcile this same txID; never create a replacement blindly.
-      const status = Number.isInteger(error?.status) ? error.status : 502
-      return res.status(202).json({
-        success: false,
-        status: 'broadcast-outcome-unknown',
-        error: 'tatum-broadcast-outcome-unknown',
-        providerStatus: status,
-        txid: txid.toLowerCase(),
-        note: 'The outcome is ambiguous. Check this exact transaction ID on the selected chain before building a replacement.',
-      })
-    }
+    return res.status(410).json({
+      success: false,
+      error: 'direct-wallet-broadcast-disabled',
+      message: 'Tron Transfer processes official USDT TRC20 Mainnet withdrawals through an authorized live Fincra business account. Direct wallet and testnet broadcasts are disabled.',
+      transactionSubmitted: false,
+    })
   })
 
   router.get('/recipient', async (req, res) => {
@@ -556,8 +504,8 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     const network = cleanString(req.query?.network, 16)
     const address = cleanString(req.query?.address, 64)
     const tokenContract = cleanString(req.query?.tokenContract, 64)
-    if (!Object.hasOwn(NETWORKS, network) || !ADDRESS_RE.test(address) || !isValidTronAddress(address)
-      || (tokenContract && (!ADDRESS_RE.test(tokenContract) || !isValidTronAddress(tokenContract)))) {
+    if (network !== 'mainnet' || !ADDRESS_RE.test(address) || !isValidTronAddress(address)
+      || (tokenContract && tokenContract !== MAINNET_USDT)) {
       return res.status(400).json({ success: false, error: 'invalid-recipient-query' })
     }
     try {
@@ -691,13 +639,14 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     const config = fincraConfig(env)
+    if (config.mode !== 'live') return res.status(403).json({ success: false, error: 'mainnet-live-payouts-only', submissionEnabled: false })
     if (!config.payoutsEnabled || !config.apiKey || !config.businessId) {
       return res.status(503).json({ success: false, error: 'fincra-payout-not-configured', submissionEnabled: false })
     }
     if (config.sourceCurrency !== 'USDT') {
       return res.status(409).json({ success: false, error: 'fincra-source-currency-needs-quote-flow', message: 'The first release supports same-currency USDT funding only. Cross-currency payout requires a fresh Fincra quote and matching source amount.' })
     }
-    if (config.mode === 'live' && !config.liveConfirmed) {
+    if (!config.liveConfirmed) {
       return res.status(403).json({ success: false, error: 'live-stablecoin-payouts-not-confirmed', submissionEnabled: false })
     }
     try {
@@ -721,9 +670,12 @@ export function createTronTransferRouter({ env = process.env } = {}) {
           return res.status(409).json({ success: false, error: 'sponsor-request-not-submittable', status: row.status })
         } else {
           await client.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-            SET status='fincra-submitting', updated_at=now() WHERE id=$1`, [row.id])
+            SET status='fincra-submitting',
+                fincra_submitted_at=COALESCE(fincra_submitted_at, now()),
+                updated_at=now() WHERE id=$1`, [row.id])
           await client.query('COMMIT')
           row.status = 'fincra-submitting'
+          firstAttempt = true
         }
       } catch (error) {
         try { await client.query('ROLLBACK') } catch {}
@@ -739,7 +691,9 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         const data = prior.payload.data
         const status = payoutStatusFromProvider(data.status)
         const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-          SET status=$2,fincra_reference=$3,fincra_status=$4,updated_at=now() WHERE id=$1 RETURNING *`,
+          SET status=$2,fincra_reference=$3,fincra_status=$4,
+              fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
+              updated_at=now() WHERE id=$1 RETURNING *`,
         [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
         return res.status(200).json({ success: true, duplicate: true, request: publicRequest(updated.rows[0]), note: 'Existing Fincra payout was found by customer reference; no second payout was submitted.' })
       }
@@ -747,9 +701,14 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='fincra-outcome-unknown',updated_at=now() WHERE id=$1`, [row.id])
         return res.status(202).json({ success: false, status: 'fincra-outcome-unknown', error: 'fincra-prior-request-check-unavailable', note: 'The prior request could not be disproved. No duplicate payout was submitted.' })
       }
+      if (!firstAttempt) {
+        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='fincra-outcome-unknown',updated_at=now() WHERE id=$1`, [row.id])
+        return res.status(202).json({ success: false, status: 'fincra-outcome-unknown', error: 'fincra-retry-requires-manual-reconciliation', note: 'Fincra returned no customer-reference record for a previously submitted or ambiguous request. Automatic resubmission is disabled to prevent duplicate payouts; reconcile with Fincra before creating a new request.' })
+      }
 
       const balance = await readFincraSourceBalance(config)
-      if (!balance.checked || Number(balance.availableBalance) < Number(row.amount_decimal)) {
+      const availableBaseUnits = balance.checked ? parseUsdtBalanceBaseUnits(balance.availableBalance) : null
+      if (availableBaseUnits === null || availableBaseUnits < BigInt(row.amount_base_units)) {
         await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='pending-organization-review',updated_at=now() WHERE id=$1`, [row.id])
         return res.status(409).json({ success: false, error: 'fincra-source-balance-insufficient-or-unverified', sourceBalance: balance, note: 'Fincra must have sufficient available USDT to fund this principal. No payout was submitted.' })
       }
@@ -782,7 +741,9 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       const data = created.payload.data
       const status = payoutStatusFromProvider(data.status)
       const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET status=$2,fincra_reference=$3,fincra_status=$4,updated_at=now() WHERE id=$1 RETURNING *`,
+        SET status=$2,fincra_reference=$3,fincra_status=$4,
+            fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
+            updated_at=now() WHERE id=$1 RETURNING *`,
       [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
       return res.status(202).json({
         success: true, request: publicRequest(updated.rows[0]),
@@ -846,6 +807,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       await ensureSchema(db)
       const result = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
         SET status=$2,fincra_status=$3,fincra_reference=COALESCE($4,fincra_reference),
+            fincra_successful_at=CASE WHEN $3='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
             fincra_webhook_event=$5,fincra_webhook_received_at=now(),updated_at=now()
         WHERE customer_reference=$1 RETURNING id`,
       [customerReference, 'fincra-' + (providerStatus === 'unknown' ? 'processing' : providerStatus), providerStatus,
@@ -880,9 +842,12 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       if (!historyResult.tokenHistoryRead) {
         return res.status(502).json({ success: false, error: 'recipient-transfer-history-unavailable', providerErrors: historyResult.providerErrors })
       }
+      const payoutStartMs = new Date(row.fincra_submitted_at || row.created_at).getTime() - 120000
+      const payoutEndMs = new Date(row.fincra_successful_at || row.updated_at).getTime() + 10 * 60 * 1000
       const rows = historyResult.history.filter((item) => item.to === row.recipient_address
         && item.tokenContract === MAINNET_USDT && item.amountBaseUnits === String(row.amount_base_units)
-        && item.timestamp && item.timestamp >= new Date(row.created_at).getTime() - 120000)
+        && Number.isFinite(Number(item.timestamp)) && Number(item.timestamp) >= payoutStartMs
+        && Number(item.timestamp) <= payoutEndMs)
       if (rows.length === 1) {
         const chain = await verifySolidifiedUsdtTransfer(env, {
           transactionHash: rows[0].txid,

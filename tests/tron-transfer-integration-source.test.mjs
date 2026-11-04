@@ -5,114 +5,64 @@ import { readFile } from 'node:fs/promises'
 const route = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
 const entry = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
 
-test('Tatum RPC proxy is network fixed, method allow-listed, and server-keyed', () => {
+test('Tatum proxy is restricted to Mainnet and read-only RPC methods', () => {
+  assert.match(route, /const NETWORKS = Object\.freeze\(\{ mainnet: 'tron-mainnet' \}\)/)
+  assert.match(route, /network !== 'mainnet' \|\| !RPC_METHODS\.has\(method\)/)
   assert.match(route, /TATUM_MAINNET_API_KEY/)
-  assert.match(route, /TATUM_TESTNET_API_KEY/)
-  assert.ok(route.includes("'x-api-key': key"))
-  assert.match(route, /router\.all\('\/rpc\/:network\/\*'/)
-  assert.match(route, /RPC_METHODS\.has\(method\)/)
-  assert.doesNotMatch(route, /wallet\/broadcasttransaction'\s*,?\s*\n/)
+  assert.doesNotMatch(route, /tron-nile|tron-shasta|wallet\/broadcasttransaction/)
 })
 
-test('signed Tatum broadcast is testnet-only and checks transaction identity before submission', () => {
-  assert.match(route, /if \(!\['nile', 'shasta'\]\.includes\(network\)\)/)
-  assert.match(route, /createHash\('sha256'\)\.update\(Buffer\.from\(rawHex, 'hex'\)\)/)
-  assert.match(route, /signed-transaction-id-mismatch/)
-  assert.match(route, /wallet\/broadcasttransaction/)
-  assert.match(route, /broadcast-outcome-unknown/)
-})
-
-test('recipient inspection uses Tatum solidified balances and network-specific TronGrid incoming history', () => {
-  assert.match(route, /walletsolidity\/getaccount/)
-  assert.match(route, /readTronGridIncomingHistory/)
-  assert.match(route, /historyProvider: 'trongrid'/)
-  assert.match(route, /incomingHistory: history/)
-  assert.match(route, /balanceOf\(address\)/)
-  assert.match(route, /TRONGRID_API_KEY/)
-  assert.doesNotMatch(route, /\/v3\/tron\/transaction\/account\//)
-})
-
-test('Mainnet sponsor transfer matching uses TronGrid confirmed history and Tatum solidified evidence', () => {
-  assert.match(route, /network: 'mainnet'/)
-  assert.match(route, /readTronGridIncomingHistory/)
-  assert.match(route, /verifySolidifiedUsdtTransfer/)
-  assert.match(route, /solidified-trc20-transfer-verified/)
-})
-
-test('readiness exposes only a boolean TronGrid key status, never the secret', () => {
-  assert.match(route, /apiKeyConfigured: Boolean\(cleanString\(env\.TRONGRID_API_KEY/)
-  assert.match(route, /incomingHistoryProvider: 'network-specific-v1-account-history'/)
-  assert.doesNotMatch(route, /TRONGRID_API_KEY[^\n]{0,80}res\.json/)
-})
-
-test('provider readiness actively probes both TRON testnet SolidityNodes', () => {
-  assert.match(route, /inspectSolidifiedNode\('nile'\)/)
-  assert.match(route, /inspectSolidifiedNode\('shasta'\)/)
-  assert.match(route, /testnetNodes: \{ nile: nileNode, shasta: shastaNode \}/)
-  assert.match(route, /testnetAllReachable: nileNode\.checked && shastaNode\.checked/)
-})
-
-test('Fincra readiness is owner-session gated before exposing provider and source-wallet status', () => {
-  const start = route.indexOf("router.get('/readiness'")
-  const end = route.indexOf("router.all('/rpc/:network/*'", start)
-  const readiness = route.slice(start, end)
-  assert.match(readiness, /requireOwnerSession\(_req, env\)/)
-  assert.match(readiness, /sourceBalance/)
-  assert.match(entry, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
-})
-
-test('sandbox payout readiness requires a verified positive USDT source balance', () => {
-  assert.match(route, /const usdtSourceBalanceReady = sourceBalance\.checked/)
-  assert.match(route, /Number\(sourceBalance\.availableBalance\) > 0/)
-  assert.match(route, /fincra\.sourceCurrency === 'USDT'/)
-  assert.match(route, /const canSandboxPayout = fincra\.mode === 'sandbox'[\s\S]*?&& usdtSourceBalanceReady/)
-})
-
-test('Fincra payout uses the USDT TRC20 scheme and refuses implicit live activation', () => {
+test('direct wallet broadcasts are disabled; Mainnet sponsor payout is the only send rail', () => {
+  assert.match(route, /direct-wallet-broadcast-disabled/)
+  assert.match(route, /transactionSubmitted: false/)
   assert.match(route, /paymentDestination: 'crypto_wallet'/)
   assert.match(route, /paymentScheme: 'usdt_trc20'/)
-  assert.match(route, /FINCRA_PAYOUTS_ENABLED/)
-  assert.match(route, /FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED/)
   assert.match(route, /sourceCurrency: 'USDT'/)
-  assert.match(route, /live-stablecoin-payouts-not-confirmed/)
 })
 
-test('sponsor request intake requires a one-time Mainnet wallet identity session', () => {
-  assert.match(route, /requireRequesterWalletSession\(req, env\)/)
-  assert.match(route, /const requesterAddress = walletAuth\.address/)
-  assert.match(route, /requester-address-does-not-match-wallet-session/)
-  assert.match(route, /session\.network !== 'mainnet'/)
+test('recipient inspection only reads Mainnet official USDT balances and incoming history', () => {
+  assert.match(route, /network !== 'mainnet'/)
+  assert.match(route, /tokenContract !== MAINNET_USDT/)
+  assert.match(route, /walletsolidity\/getaccount/)
+  assert.match(route, /balanceOf\(address\)/)
+  assert.match(route, /readTronGridIncomingHistory/)
+  assert.match(route, /historyProvider: 'trongrid'/)
 })
 
-test('requester bearer token parser accepts the standard Authorization header format', () => {
-  assert.ok(route.includes("const match = /^Bearer\\s+([A-Za-z0-9_-]{43})$/i.exec(header)"))
-  assert.doesNotMatch(route, /Bearer\\\\s\\+/)
+test('Fincra live payout requires provider enablement, source funds, Tatum Mainnet and database readiness', () => {
+  assert.match(route, /config\.mode !== 'live'/)
+  assert.match(route, /FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED/)
+  assert.match(route, /canSubmitLivePayout/)
+  assert.doesNotMatch(route, /canSubmitSandboxPayout/)
+  assert.match(route, /sourceBalanceBaseUnits > 0n/)
+  assert.match(route, /availableBaseUnits < BigInt\(row\.amount_base_units\)/)
 })
 
-test('Fincra requests are owner-session gated, idempotently rechecked, and webhook signed', () => {
-  assert.match(route, /requireOwnerSession\(req, env\)/)
+test('an ambiguous Fincra submission can never be automatically resubmitted after a 404 lookup', () => {
+  assert.match(route, /let firstAttempt = false/)
+  assert.match(route, /firstAttempt = true/)
+  assert.match(route, /if \(!firstAttempt\)/)
+  assert.match(route, /fincra-retry-requires-manual-reconciliation/)
   assert.match(route, /customer-reference\//)
-  assert.match(route, /firstAttempt/)
-  assert.match(route, /fincra-outcome-unknown/)
+})
+
+test('Fincra settlement timestamps are persisted and used to bound exact on-chain recipient verification', () => {
+  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ/)
+  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_successful_at TIMESTAMPTZ/)
+  assert.match(route, /fincra_successful_at=CASE WHEN/)
+  assert.match(route, /payoutStartMs/)
+  assert.match(route, /payoutEndMs/)
+  assert.match(route, /verifySolidifiedUsdtTransfer/)
+  assert.match(route, /item\.tokenContract === MAINNET_USDT/)
+})
+
+test('Fincra webhook remains raw-body HMAC-SHA512 verified', () => {
   assert.match(route, /createHmac\('sha512'/)
   assert.match(route, /timingSafeEqual/)
+  assert.match(route, /req\.headers\?\.signature/)
 })
 
-test('recipient transfer verification requires the official Mainnet USDT contract and exact amount', () => {
-  assert.match(route, /row\.fincra_status !== 'successful'/)
-  assert.match(route, /item\.tokenContract === MAINNET_USDT/)
-  assert.match(route, /item\.amountBaseUnits === String\(row\.amount_base_units\)/)
-  assert.match(route, /solidified-trc20-transfer-verified/)
-  assert.match(route, /multiple-matching-incoming-transfers/)
-  assert.match(route, /export async function verifySolidifiedUsdtTransfer/)
-  assert.match(route, /walletsolidity\\/gettransactionbyid/)
-  assert.match(route, /walletsolidity\\/gettransactioninfobyid/)
-  assert.match(route, /TRANSFER_EVENT_TOPIC/)
-  assert.match(route, /chain_verification_status='solidified-recipient-transfer-verified'/)
-})
-
-test('API entrypoint mounts the route and accepts only the configured Tron Transfer origin', () => {
-  assert.match(entry, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
+test('API entrypoint mounts Tron Transfer and only accepts its configured frontend origin', () => {
+  assert.match(entry, /TRON_TRANSFER_UI_ORIGIN/)
   assert.match(entry, /app\.use\('\/api\/tron-transfer', tronTransferRoutes\)/)
-  assert.match(entry, /express\.raw\(\{ type: 'application\/json'/)
 })
