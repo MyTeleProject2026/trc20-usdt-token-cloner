@@ -16,6 +16,9 @@ test('owner application review requires a locally unlocked Mainnet wallet identi
   assert.match(panel, /wallet: \{ address: string; privateKey: string \} \| null/)
   assert.match(wallet, /<SponsorOrganizationReviewPanel/)
   assert.match(wallet, /privateKey: unlocked\.privateKey/)
+  assert.match(panel, /if \(!active \|\| !wallet \|\| wallet\.address !== session\.address \|\| network !== 'mainnet'\)/)
+  assert.match(panel, /active\]\)/)
+  assert.match(wallet, /active=\{activePanel === 'treasury'\}/)
 })
 
 test('owner review screen uses only due-diligence transitions and bounded reference', () => {
