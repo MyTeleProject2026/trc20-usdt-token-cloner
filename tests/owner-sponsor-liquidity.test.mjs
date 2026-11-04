@@ -133,6 +133,24 @@ test('aggregates only approved, funded, active non-owner Mainnet USDT capacities
   assert.equal(payload.submissionEnabled, false)
 })
 
+test('multiple approved budget records for one sponsor wallet share one chain snapshot and are not double-counted', async (t) => {
+  const budgets = [
+    budget({ sponsorAddress: SPONSOR_A, sponsorReference: 'org-a', agreement: AGREEMENT_A }),
+    budget({ sponsorAddress: SPONSOR_A, sponsorReference: 'org-a', agreement: AGREEMENT_A, cap: '20000000', reserved: '2000000', spent: '3000000' }),
+  ]
+  let reads = 0
+  const url = await listen(t, {
+    listBudgets: async () => ({ success: true, budgets }),
+    readFunding: async (address) => { reads += 1; return funding(address, '120000000') },
+  })
+  const payload = await (await fetch(url, { headers: authHeaders() })).json()
+  assert.equal(payload.sourceCount, 1)
+  assert.equal(payload.verifiedSourceCount, 1)
+  assert.equal(payload.onChainBalanceBaseUnits, '120000000')
+  assert.equal(payload.availableBaseUnits, '85000000')
+  assert.equal(reads, 1)
+})
+
 test('underfunded source contributes no available capacity', async (t) => {
   const budgets = [budget()]
   const url = await listen(t, {
