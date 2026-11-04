@@ -894,25 +894,94 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
       return res.status(401).json({ success: false, error: 'invalid-fincra-webhook-signature' })
     }
+    if (config.mode !== 'live' || !config.apiKey) {
+      return res.status(503).json({ success: false, error: 'live-fincra-reconciliation-unavailable' })
+    }
     let payload
     try { payload = JSON.parse(raw.toString('utf8')) } catch { return res.status(400).json({ success: false, error: 'invalid-webhook-json' }) }
-    const data = payload?.data || {}
-    const customerReference = cleanString(data.customerReference || data.customer_reference, 80)
-    const providerStatus = payoutStatusFromProvider(data.status || (payload?.event === 'payout.successful' ? 'successful' : payload?.event === 'payout.failed' ? 'failed' : 'processing'))
+    const eventData = payload?.data || {}
+    const customerReference = cleanString(eventData.customerReference || eventData.customer_reference, 80)
+    if (!/^[A-Za-z0-9._:-]{12,80}$/.test(customerReference)) {
+      return res.status(400).json({ success: false, error: 'invalid-payout-customer-reference' })
+    }
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
-      const result = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET status=$2,fincra_status=$3,fincra_reference=COALESCE($4,fincra_reference),
+      const found = await db.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1`, [customerReference])
+      const row = found.rows[0]
+      if (!row) return res.status(200).json({ success: true, matched: false })
+
+      // A valid signature authenticates the webhook, but status updates are
+      // reconciled against Fincra's own payout record to reject stale or
+      // mismatched notifications before changing the sponsor ledger.
+      const lookup = await fetchFincraPayoutByCustomerReference(config, customerReference)
+      const payout = lookup?.payload?.data
+      if (!lookup?.ok || lookup.payload?.success === false || !payout
+        || cleanString(payout.customerReference || payout.customer_reference, 80) !== customerReference) {
+        return res.status(503).json({
+          success: false, error: 'fincra-webhook-provider-reconciliation-failed',
+          note: 'The signed event was not applied because the authoritative payout record could not be retrieved and matched.',
+        })
+      }
+
+      const destinationCurrency = cleanString(payout.destinationCurrency, 8).toUpperCase()
+      const sourceCurrency = cleanString(payout.sourceCurrency, 8).toUpperCase()
+      const paymentScheme = cleanString(payout.paymentScheme, 32).toLowerCase()
+      const paymentDestination = cleanString(payout.paymentDestination, 32).toLowerCase()
+      const providerReference = cleanString(payout.reference, 128)
+      const webhookReference = cleanString(eventData.reference, 128)
+      if (sourceCurrency !== 'USDT' || destinationCurrency !== 'USDT'
+        || paymentScheme !== 'usdt_trc20' || paymentDestination !== 'crypto_wallet'
+        || (webhookReference && providerReference && webhookReference !== providerReference)) {
+        return res.status(409).json({
+          success: false, error: 'fincra-webhook-payout-identity-mismatch',
+          note: 'The authoritative Fincra payout does not match this request’s USDT TRC20 Mainnet settlement identity.',
+        })
+      }
+
+      const providerRecipient = cleanString(
+        payout.beneficiary?.walletAddress || payout.recipient?.walletAddress
+          || payout.recipient?.accountNumber || payout.walletAddress, 64,
+      )
+      if (providerRecipient && providerRecipient !== row.recipient_address) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-recipient-mismatch' })
+      }
+      const providerAmountRaw = payout.amountReceived ?? payout.amount ?? payout.destinationAmount
+      const providerAmount = parseUsdtBalanceBaseUnits(providerAmountRaw)
+      if (providerAmount !== null && providerAmount !== BigInt(row.amount_base_units)) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-amount-mismatch' })
+      }
+      const providerStatus = payoutStatusFromProvider(payout.status)
+      if (providerStatus === 'unknown') {
+        return res.status(503).json({ success: false, error: 'fincra-webhook-provider-status-unrecognized' })
+      }
+      if (providerStatus === 'successful' && providerAmount === null) {
+        return res.status(503).json({
+          success: false, error: 'fincra-webhook-settlement-amount-unverified',
+          note: 'Fincra did not return a verifiable received USDT amount. The platform will not record a successful payout until provider reconciliation supplies it.',
+        })
+      }
+
+      const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
+        SET status=CASE
+              WHEN fincra_status IN ('successful','failed') AND fincra_status<>$3 THEN status
+              ELSE $2 END,
+            fincra_status=CASE
+              WHEN fincra_status IN ('successful','failed') AND fincra_status<>$3 THEN fincra_status
+              ELSE $3 END,
+            fincra_reference=COALESCE($4,fincra_reference),
             fincra_successful_at=CASE WHEN $3='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
             fincra_webhook_event=$5,fincra_webhook_received_at=now(),updated_at=now()
-        WHERE customer_reference=$1 RETURNING id`,
-      [customerReference, 'fincra-' + (providerStatus === 'unknown' ? 'processing' : providerStatus), providerStatus,
-        cleanString(data.reference,128) || null, cleanString(payload?.event,128) || null])
-      return res.status(200).json({ success: true, matched: result.rowCount > 0 })
+        WHERE id=$1 RETURNING id,fincra_status,status`,
+      [row.id, 'fincra-' + providerStatus, providerStatus, providerReference || null, cleanString(payload?.event,128) || null])
+      return res.status(200).json({
+        success: true, matched: saved.rowCount > 0,
+        reconciledStatus: saved.rows[0]?.fincra_status || row.fincra_status || null,
+        note: 'Webhook signature verified and event reconciled against the authoritative Fincra payout record. On-chain recipient delivery remains a separate Tatum verification step.',
+      })
     } catch {
-      return res.status(503).json({ success: false, error: 'webhook-persistence-unavailable' })
+      return res.status(503).json({ success: false, error: 'webhook-persistence-or-provider-reconciliation-unavailable' })
     }
   })
 
