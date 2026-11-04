@@ -51,11 +51,16 @@ function executionResult(transaction, info) {
   const receiptResult = String(info?.receipt?.result || '').toUpperCase()
   const infoResult = String(info?.result || '').toUpperCase()
   const ret = Array.isArray(transaction?.ret) ? transaction.ret : []
-  if (['FAILED', 'OUT_OF_ENERGY', 'REVERT', 'ILLEGAL_OPERATION', 'OUT_OF_TIME'].includes(receiptResult)
+  const failure = ['FAILED', 'OUT_OF_ENERGY', 'REVERT', 'ILLEGAL_OPERATION', 'OUT_OF_TIME'].includes(receiptResult)
     || infoResult === 'FAILED'
-    || ret.some((item) => item?.contractRet && item.contractRet !== 'SUCCESS')) return 'FAILED'
-  if (receiptResult === 'SUCCESS' || infoResult === 'SUCCESS'
-    || ret.some((item) => item?.contractRet === 'SUCCESS')) return 'SUCCESS'
+    || ret.some((item) => item?.contractRet && item.contractRet !== 'SUCCESS')
+  const success = receiptResult === 'SUCCESS' || infoResult === 'SUCCESS'
+    || ret.some((item) => item?.contractRet === 'SUCCESS')
+  // Conflicting transaction and receipt status fields are not sufficient to
+  // release principal or to record a fee observation.
+  if (failure && success) return null
+  if (failure) return 'FAILED'
+  if (success) return 'SUCCESS'
   return null
 }
 
