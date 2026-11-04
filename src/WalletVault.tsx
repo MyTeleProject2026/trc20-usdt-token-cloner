@@ -1431,7 +1431,7 @@ export default function WalletVault() {
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
         <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
         <p>{activePanel === 'dashboard'
-          ? 'Overview of your local owner wallet and the separately monitored organization treasury. Observed balances do not grant spending permission.'
+          ? 'Overview of your local owner wallet and the separately monitored organization treasury. No TronLink connection is required to use this standalone owner wallet. Observed balances do not grant spending permission.'
           : activePanel === 'wallet'
             ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
             : activePanel === 'send'
