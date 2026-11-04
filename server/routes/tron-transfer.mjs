@@ -774,7 +774,9 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       const data = result.payload.data
       const status = payoutStatusFromProvider(data.status)
       const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET status=$2,fincra_reference=COALESCE($3,fincra_reference),fincra_status=$4,updated_at=now()
+        SET status=$2,fincra_reference=COALESCE($3,fincra_reference),fincra_status=$4,
+            fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
+            updated_at=now()
         WHERE id=$1 RETURNING *`,
       [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status])
       return res.json({ success: true, request: publicRequest(saved.rows[0]) })
