@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, CheckCircle2, RefreshCw, Send, ShieldCheck } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Copy, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 
 type MainnetRequest = {
   id: string
@@ -478,6 +478,14 @@ export default function DirectSponsorPayouts({
         {requestKey && (
           <div className="wallet-vault-review-grid">
             <div className="wallet-vault-review-wide"><small>Saved request reference</small><strong>{requestKey}</strong></div>
+            <button type="button" className="wallet-vault-secondary" onClick={() => {
+              void navigator.clipboard.writeText(requestKey)
+                .then(() => {
+                  setRequestError('')
+                  setRequestNotice('Saved request reference copied. Keep it to check this exact request later.')
+                })
+                .catch(() => setRequestError('Clipboard access is unavailable. Select the saved request reference and copy it manually.'))
+            }}><Copy size={15} /> Copy reference</button>
             <button type="button" className="wallet-vault-secondary" disabled={requestBusy} onClick={() => void lookupRequest()}><RefreshCw size={15} /> {requestBusy ? 'Checking…' : 'Check saved request status'}</button>
           </div>
         )}
