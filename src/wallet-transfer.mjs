@@ -6,7 +6,7 @@ const RATE_LIMIT_RETRY_DELAYS_MS = [250, 500]
 
 function isRateLimitedReadError(error) {
   const status = Number(error?.status ?? error?.statusCode ?? error?.response?.status)
-  return status === 429 || /\\b429\\b|rate.?limit|too many requests/i.test(String(error?.message || ''))
+  return status === 429 || /\b429\b|rate.?limit|too many requests/i.test(String(error?.message || ''))
 }
 
 /** Retry only idempotent chain reads, and only when the provider explicitly rate-limits. */
@@ -70,7 +70,7 @@ export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContrac
     {},
     parameters,
     from,
-  )
+  ))
   if (simulation?.result?.result !== true) {
     throw new Error('On-chain simulation did not succeed. No transfer was signed or submitted.')
   }
@@ -98,7 +98,7 @@ export async function estimateTRC20TransferFee({ tronWeb, from, to, tokenContrac
       {},
       parameters,
       from,
-    )
+    ))
     if (estimated?.result?.result === true && Number.isFinite(Number(estimated.energy_required)) && Number(estimated.energy_required) > 0) {
       energyRequired = Number(estimated.energy_required)
     }
