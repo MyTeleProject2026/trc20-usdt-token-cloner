@@ -810,10 +810,15 @@ export function createMainnetDirectSponsorApprovalRouter({
     const roles = roleResult?.roles || {}
     const fee = roles.networkFeeSponsor || {}
     const principal = roles.assetPrincipalSponsor || {}
+    const feeBalanceValid = typeof fee.native?.balanceSun === 'string'
+      && /^[1-9][0-9]*$/.test(fee.native.balanceSun)
     if (fee.address !== feePolicy.sponsorAddress || !isValidTronAddress(fee.address)
       || fee.onChainBalanceRead !== true || fee.native?.status !== 'verified'
-      || typeof fee.native?.balanceSun !== 'string' || !/^[1-9][0-9]*$/.test(fee.native.balanceSun)
-      || fee.resourceStatus?.resourceRead !== true) blockers.push('configured-fee-sponsor-positive-trx-and-resource-snapshot-not-verified')
+      || !feeBalanceValid || fee.resourceStatus?.resourceRead !== true) {
+      blockers.push('configured-fee-sponsor-positive-trx-and-resource-snapshot-not-verified')
+    } else if (BigInt(fee.native.balanceSun) < BigInt(feePolicy.maxFeeSun)) {
+      blockers.push('fee-sponsor-positive-trx-balance-below-approved-fee-cap')
+    }
     if (principal.address !== assetPolicy.sponsorAddress || roleResult?.configuredAddressesDistinct !== true
       || !isValidTronAddress(principal.address)) blockers.push('distinct-configured-asset-principal-sponsor-not-verified')
     const token = Array.isArray(principal.tokens) ? principal.tokens.find(item =>
