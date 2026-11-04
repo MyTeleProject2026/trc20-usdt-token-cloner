@@ -192,6 +192,14 @@ export default function PlatformTreasuryPanel({
     const withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals as RecoveredWithdrawal[] : []
     setRecentWithdrawals(withdrawals)
     setHasOutstandingWithdrawal(data.hasOutstandingWithdrawal === true)
+    setPrepared((current) => {
+      if (!current) return current
+      const saved = withdrawals.find((item) => item.intent.intentId === current.intent.intentId)
+      return saved && ['confirmed', 'failed', 'rejected'].includes(saved.intent.status) ? null : current
+    })
+    if (withdrawals.some((item) => ['confirmed', 'failed', 'rejected'].includes(item.intent.status))) {
+      setPrepareRequestKey('')
+    }
     setHistoryLoaded(true)
     return withdrawals
   }
