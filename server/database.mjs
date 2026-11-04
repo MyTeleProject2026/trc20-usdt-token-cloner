@@ -1116,9 +1116,11 @@ export async function reserveSponsorTransfer(input, {
 
   const normalizedTokenContract = SPONSORED_TOKEN_ASSETS.has(asset) ? tokenContract.trim() : null
   const { TronWeb } = await import('tronweb')
-  const tronWeb = new TronWeb({ fullHost: network === 'mainnet'
-    ? 'https://api.trongrid.io'
-    : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io' })
+  const tronWeb = new TronWeb({
+    fullHost: network === 'mainnet' ? 'https://tron-mainnet.gateway.tatum.io'
+      : network === 'shasta' ? 'https://tron-shasta.gateway.tatum.io' : 'https://tron-nile.gateway.tatum.io',
+    headers: process.env.TATUM_API_KEY ? { 'x-api-key': process.env.TATUM_API_KEY } : {},
+  })
   if (!tronWeb.isAddress(receiverAddress.trim())
     || (SPONSORED_TOKEN_ASSETS.has(asset) && !tronWeb.isAddress(normalizedTokenContract))) {
     return { reserved: false, reason: 'invalid-tron-address' }
@@ -2087,9 +2089,9 @@ export async function createSponsorBudgetDraft(input) {
   }
 
   const { TronWeb } = await import('tronweb')
-  const host = network === 'mainnet' ? 'https://api.trongrid.io'
-    : network === 'shasta' ? 'https://api.shasta.trongrid.io' : 'https://nile.trongrid.io'
-  const tronWeb = new TronWeb({ fullHost: host })
+  const host = network === 'mainnet' ? 'https://tron-mainnet.gateway.tatum.io'
+    : network === 'shasta' ? 'https://tron-shasta.gateway.tatum.io' : 'https://tron-nile.gateway.tatum.io'
+  const tronWeb = new TronWeb({ fullHost: host, headers: process.env.TATUM_API_KEY ? { 'x-api-key': process.env.TATUM_API_KEY } : {} })
   if (!tronWeb.isAddress(sponsorAddress)
     || (asset !== 'TRX' && !tronWeb.isAddress(tokenContract))) {
     return { success: false, reason: 'invalid-tron-address' }
