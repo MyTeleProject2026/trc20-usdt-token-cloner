@@ -32,3 +32,15 @@ This is a diagnostic checkpoint, not a withdrawal route. `preflightReady`, `canC
 - No private key, seed phrase, API secret, or Fireblocks signing material is accepted through these APIs.
 - No fallback to the requester's funds is allowed.
 - Do not enable Mainnet execution from an environment flag alone. The source-level gate stays closed until the implementation, independent reviews, and acceptance evidence are complete.
+
+## Mainnet request-intake checkpoint
+
+A separate Mainnet request intake is now available for authenticated Mainnet wallet identities:
+
+- `POST /api/tron/sponsorship/mainnet-direct/requests`
+- `GET /api/tron/sponsorship/mainnet-direct/requests/:idempotencyKey`
+- `GET /api/tron/sponsorship/mainnet-direct/requests?limit=50` (server-only sponsor-review token)
+
+It accepts only the official Tether Mainnet USDT contract, six-decimal positive integer base units, a valid recipient distinct from the requester, and an idempotency key. Requests are persisted in a dedicated table, separate from the testnet intake queue. The requester can retrieve only their own request. The sponsor review queue requires the server-side admin token.
+
+The status is always `pending-sponsor-review`. This intake does not establish sponsor authority, reserve principal or fee budget, create a signing intent, sign, broadcast or settle. It deliberately has no approve/execute endpoint yet. Mainnet execution remains hard-disabled.
