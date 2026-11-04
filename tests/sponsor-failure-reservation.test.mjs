@@ -14,7 +14,7 @@ test('submitted sponsor reservations stay held when a provider response is missi
   assert.ok(budgetLookup > guard, 'failed submitted transfers must be rejected before budget accounting')
   assert.ok(reservationRelease > budgetLookup, 'reservation updates must occur only after state and evidence checks')
   assert.match(transition, /finalized-failure-fee-observation-required/)
-  assert.match(transition, /submitted: \['confirmed'\]/)
+  assert.match(transition, /submitted: \['confirmed', 'failed'\]/)
 })
 
 test('sponsor confirmation cannot use a transaction hash alone as proof of delivery', async () => {
