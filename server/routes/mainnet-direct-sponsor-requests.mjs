@@ -125,12 +125,45 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
             request_id BIGINT NOT NULL REFERENCES trc20_token_clone.mainnet_direct_sponsor_requests(id),
             sponsor_address TEXT NOT NULL,
             origin TEXT NOT NULL,
-            nonce_hash CHAR(64) NOT NULL UNIQUE,
-            message_sha256 CHAR(64) NOT NULL,
-            request_snapshot_sha256 CHAR(64) NOT NULL,
+            nonce_hash CHAR(64) NOT NULL UNIQUE CHECK (nonce_hash ~ '^[0-9a-f]{64}$'),
+            message_sha256 CHAR(64) NOT NULL CHECK (message_sha256 ~ '^[0-9a-f]{64}$'),
+            request_snapshot_sha256 CHAR(64) NOT NULL CHECK (request_snapshot_sha256 ~ '^[0-9a-f]{64}$'),
             organization_reference TEXT NOT NULL,
             agreement_reference TEXT NOT NULL,
-            agreement_sha256 CHAR(64) NOT NULL CHECK (agreement_sha256 ~ '^[0-9a-f]{64}      })().catch((error) => { schemaPromise = null; throw error })
+            agreement_sha256 CHAR(64) NOT NULL CHECK (agreement_sha256 ~ '^[0-9a-f]{64}$'),
+            issued_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            consumed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CHECK (expires_at > issued_at)
+          )
+        `)
+        await db.query(`
+          CREATE INDEX IF NOT EXISTS mainnet_direct_sponsor_approval_challenges_request_idx
+          ON trc20_token_clone.mainnet_direct_sponsor_approval_challenges (request_id, expires_at DESC)
+        `)
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS trc20_token_clone.mainnet_direct_sponsor_approvals (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            request_id BIGINT NOT NULL REFERENCES trc20_token_clone.mainnet_direct_sponsor_requests(id),
+            challenge_id TEXT NOT NULL UNIQUE REFERENCES trc20_token_clone.mainnet_direct_sponsor_approval_challenges(challenge_id),
+            sponsor_address TEXT NOT NULL,
+            organization_reference TEXT NOT NULL,
+            agreement_reference TEXT NOT NULL,
+            agreement_sha256 CHAR(64) NOT NULL CHECK (agreement_sha256 ~ '^[0-9a-f]{64}$'),
+            message_sha256 CHAR(64) NOT NULL CHECK (message_sha256 ~ '^[0-9a-f]{64}$'),
+            signature TEXT NOT NULL CHECK (signature ~ '^0x[0-9a-fA-F]{130}$'),
+            approved_at TIMESTAMPTZ NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CHECK (expires_at > approved_at)
+          )
+        `)
+        await db.query(`
+          CREATE INDEX IF NOT EXISTS mainnet_direct_sponsor_approvals_request_idx
+          ON trc20_token_clone.mainnet_direct_sponsor_approvals (request_id, approved_at DESC)
+        `)
+      })().catch((error) => { schemaPromise = null; throw error })
     }
     await schemaPromise
   }
