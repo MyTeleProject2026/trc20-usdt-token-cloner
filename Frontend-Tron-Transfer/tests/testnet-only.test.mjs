@@ -39,3 +39,30 @@ test('production metadata and frontend test command are configured', () => {
   assert.equal(pkg.scripts.build, 'vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })
+
+test('production pages are separated into dedicated navigation and render sections', () => {
+  for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'sponsors', 'transactions', 'settings']) {
+    assert.ok(app.includes(`id:'${page}'`), `missing navigation item: ${page}`)
+    assert.ok(app.includes(`tab==='${page}'`), `missing dedicated page section: ${page}`)
+  }
+  assert.ok(app.includes('Request a genuine USDT withdrawal'))
+  assert.ok(app.includes('Sponsor funding & payout operations'))
+  assert.ok(app.includes('Withdrawal transaction history'))
+  assert.ok(app.includes('Tron Transfer settings'))
+})
+
+test('Assets page keeps personal wallet balances separate from Fincra sponsor liquidity', () => {
+  assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
+  assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
+  assert.ok(app.includes('This is the Fincra source-wallet availability only. Your monitored wallet balance is not included'))
+  assert.ok(app.includes('readiness.fincra.sourceBalance.availableBalance'))
+})
+
+test('new production page layouts have responsive styling', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  assert.ok(css.includes('.asset-source-grid'))
+  assert.ok(css.includes('.withdrawal-form-grid'))
+  assert.ok(css.includes('.transaction-row'))
+  assert.ok(css.includes('.settings-page'))
+  assert.ok(css.includes('@media(max-width:560px)'))
+})
