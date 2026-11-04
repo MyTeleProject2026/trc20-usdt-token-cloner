@@ -1375,3 +1375,54 @@ main .grid > button[aria-pressed] > span {
   .sponsor-onboarding-status { max-width: 46%; white-space: normal; text-align: center; }
   .sponsor-onboarding-footer { flex-direction: column; }
 }
+
+
+/* Owner-only sponsor organization due-diligence queue */
+.sponsor-review-panel { margin-top: 20px; }
+.sponsor-review-locked, .sponsor-review-connect, .sponsor-review-session, .sponsor-review-empty {
+  display: flex; align-items: center; gap: 13px; padding: 15px;
+  border: 1px solid var(--color-border); border-radius: 14px;
+  background: var(--color-bg-secondary);
+}
+.sponsor-review-locked > div { display: grid; flex: 1; gap: 4px; }
+.sponsor-review-locked strong, .sponsor-review-empty strong { color: var(--color-text-primary); font-size: 12px; }
+.sponsor-review-locked small, .sponsor-review-empty small { color: var(--color-text-muted); font-size: 10px; line-height: 1.5; }
+.sponsor-review-connect { display: grid; justify-items: start; }
+.sponsor-review-connect p { margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.65; }
+.sponsor-review-session { flex-wrap: wrap; }
+.sponsor-review-session > span { display: inline-flex; align-items: center; gap: 6px; color: #70d9b9; font-size: 11px; font-weight: 800; }
+.sponsor-review-session > strong { flex: 1; min-width: 230px; overflow-wrap: anywhere; color: var(--color-text-primary); font-size: 11px; }
+.sponsor-review-session > small { color: var(--color-text-muted); font-size: 10px; }
+.sponsor-review-session > div { display: flex; gap: 8px; margin-left: auto; }
+.sponsor-review-empty { flex-direction: column; align-items: flex-start; margin-top: 12px; color: var(--color-text-muted); }
+.sponsor-review-list { display: grid; gap: 13px; margin-top: 14px; }
+.sponsor-review-card { min-width: 0; padding: 17px; border: 1px solid var(--color-border); border-radius: 15px; background: var(--color-bg-secondary); }
+.sponsor-review-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.sponsor-review-card-head > div { min-width: 0; }
+.sponsor-review-card-head small { color: var(--color-text-muted); font-size: 9px; letter-spacing: .08em; }
+.sponsor-review-card-head h3 { margin: 5px 0 0; color: var(--color-text-primary); font-size: 15px; overflow-wrap: anywhere; }
+.sponsor-review-status { display: inline-flex; max-width: 48%; padding: 6px 9px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-secondary); font-size: 9px; font-weight: 800; text-align: center; text-transform: capitalize; }
+.sponsor-review-status--accepted-for-due-diligence { border-color: rgba(61, 190, 151, .35); color: #73d9b8; }
+.sponsor-review-status--declined { border-color: rgba(215, 95, 95, .32); color: #e89b9b; }
+.sponsor-review-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; }
+.sponsor-review-details > div { min-width: 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 10px; }
+.sponsor-review-details dt { margin-bottom: 5px; color: var(--color-text-muted); font-size: 9px; }
+.sponsor-review-details dd { margin: 0; color: var(--color-text-primary); font-size: 10px; font-weight: 700; overflow-wrap: anywhere; }
+.sponsor-review-details-wide { grid-column: 1 / -1; }
+.sponsor-review-actions { display: grid; gap: 11px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--color-border); }
+.sponsor-review-actions > label { display: grid; gap: 6px; color: var(--color-text-secondary); font-size: 10px; font-weight: 700; }
+.sponsor-review-actions input { width: 100%; min-height: 39px; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 9px; color: var(--color-text-primary); background: var(--color-bg-primary); font: inherit; font-size: 11px; }
+.sponsor-review-actions > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.wallet-vault-danger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 12px; border: 1px solid rgba(220, 91, 91, .35); border-radius: 9px; color: #edaaaa; background: rgba(170, 48, 48, .08); font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; }
+.wallet-vault-danger:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 640px) {
+  .sponsor-review-locked, .sponsor-review-session { align-items: flex-start; flex-wrap: wrap; }
+  .sponsor-review-session > strong { min-width: 100%; flex-basis: 100%; }
+  .sponsor-review-session > div { margin-left: 0; }
+  .sponsor-review-details { grid-template-columns: 1fr; }
+  .sponsor-review-details-wide { grid-column: auto; }
+  .sponsor-review-card-head { flex-direction: column; }
+  .sponsor-review-status { max-width: 100%; }
+  .sponsor-review-actions > div { display: grid; }
+  .sponsor-review-actions button { width: 100%; }
+}
