@@ -1,6 +1,7 @@
-// Sponsorship remains fail-closed until a real provider adapter is integrated,
- // sponsor consent/funding is verified, and the testnet flow passes review.
- // Environment flags alone must never make the UI claim that fees are sponsored.
+// The provider-independent sponsor-wallet signer is implemented for Shasta/Nile.
+// Sponsorship remains fail-closed until real sponsor consent/funding, fee settlement,
+// and end-to-end evidence are verified. Mainnet signing/broadcast is not implemented.
+// Environment flags alone must never make the UI claim that funds are sponsored.
  //
  // IMPORTANT: fee sponsorship and giving a receiver USDT/TRX are separate products.
  // A fee sponsor can pay eligible network fees; it does not create or transfer the
@@ -8,7 +9,7 @@
 export function getSponsorshipStatus() {
   return {
     enabled: false,
-    status: 'not-integrated',
+    status: 'testnet-wallet-signer-integrated-mainnet-disabled',
     // The selected business rule is external-sponsor-only. The user must never be
     // charged by the platform for sponsor fees or sponsor-funded asset grants.
     // Until a sponsor has actually agreed and funded the program, no such flow runs.
@@ -23,12 +24,23 @@ export function getSponsorshipStatus() {
       unpaidFallbackToUserFunds: false,
     },
 
-    // No network is active while sponsorship is not integrated.
+    // The sponsor wallet is the signer. Fireblocks is not part of this workflow.
+    // The adapter is implemented for testnet only; Mainnet remains read-only.
     network: null,
     provider: null,
-    // Both integration models are supported as design targets, but neither is
-    // connected or authorized by configuration alone. Each requires its own
-    // independently verified consent, funding, and signing path.
+    signerArchitecture: {
+      mode: 'sponsor-controlled-wallet-signature',
+      providerIndependent: true,
+      fireblocksRequired: false,
+      backendStoresSponsorPrivateKeys: false,
+      explicitWalletSignaturePerTransfer: true,
+      supportedNetworks: ['nile', 'shasta'],
+      mainnet: {
+        readOnlyDiagnosticsAvailable: true,
+        signingAdapterImplemented: false,
+        submissionEnabled: false,
+      },
+    },
     integrationModels: {
       thirdPartyProvider: {
         supportedAsDesign: true,
@@ -42,6 +54,10 @@ export function getSponsorshipStatus() {
         configured: false,
         identityVerified: false,
         spendingMandateVerified: false,
+        walletSigningAdapterImplemented: true,
+        walletSigningNetworks: ['nile', 'shasta'],
+        mainnetWalletSigningAdapterImplemented: false,
+        fireblocksRequired: false,
         submissionEnabled: false,
       },
       sharedRequirements: [
@@ -115,8 +131,8 @@ export function getSponsorshipStatus() {
     },
 
     requiredBeforeEnablement: [
-      'verified-provider-adapter-and-account',
-      'provider-specific-signing-authorization',
+      'verified-mainnet-sponsor-wallet-signing-and-broadcast-adapter',
+      'transaction-bound-sponsor-wallet-signature-and-replay-protection',
       'explicit-sponsor-consent-and-funded-budget',
       'server-side-authorization-and-per-transfer-limits',
       'idempotent-sponsor-ledger-and-reconciliation',
@@ -126,6 +142,6 @@ export function getSponsorshipStatus() {
       'mainnet-operator-approval-and-emergency-pause',
     ],
 
-    message: 'No verified sponsor provider is connected, and no funded sponsor account is verified. External-sponsor-only policy is selected. Sponsored fees and sponsor-funded TRX/USDT grants remain unavailable, and the platform must never fall back to charging the user. The app must not display sponsor budget or pending credits as receiver wallet balance. Spendable balance must come from verified on-chain assets; exchange credit requires evidence from that exchange. A normal USDT/TRX transfer cannot impose spend restrictions on the receiver wallet; restrictions require an audited escrow/vesting contract or enforcement by the receiving platform. Sender authorization and valid token funds remain required for sender-funded transfers.',
+    message: 'The provider-independent sponsor-wallet signing adapter is implemented for Shasta and Nile, but sponsored submission remains disabled until sponsor consent, funding, fee/resource coverage, reconciliation, and end-to-end review are verified. Fireblocks is not required for this sponsor-wallet workflow. Mainnet sponsor-wallet signing and broadcast are not implemented, and Mainnet remains disabled. The platform must never fall back to charging the user or display sponsor budgets/pending credits as receiver wallet balance. Spendable balance must come from verified on-chain assets; exchange credit requires evidence from the receiving exchange. A normal USDT/TRX transfer cannot impose app-defined restrictions after receipt; such restrictions require an audited escrow/vesting contract or enforcement by the receiving platform.',
   }
 }
