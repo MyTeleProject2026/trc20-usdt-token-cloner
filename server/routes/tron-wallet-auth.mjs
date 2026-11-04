@@ -52,6 +52,7 @@ function allowedOrigins(env = process.env) {
     env.FRONTEND_ORIGIN,
     env.PACKAGED_APP_ORIGINS,
     env.OKX_UI_ORIGIN,
+    env.TRON_TRANSFER_UI_ORIGIN,
   ].filter((value) => typeof value === 'string' && value.trim())
     .flatMap((value) => value.split(','))
     .map(normalizeAllowedOrigin)
@@ -429,6 +430,7 @@ export function createOwnerAuthRouter({
     const databaseConfigured = typeof env.DATABASE_URL === 'string' && env.DATABASE_URL.trim().length > 0
     const allowedOriginConfigured = origins.size > 0
     const hostedUiOriginAllowed = origins.has('https://trc20-usdt-token-cloner.onrender.com')
+    const tronTransferUiOriginAllowed = origins.has('https://tron-transfer.onrender.com')
     const packagedUiOriginAllowed = origins.has('https://localhost')
     const requiredEnvironment = [
       ...(!ownerAddressConfigured ? ['OWNER_WALLET_ADDRESS (valid TRON Mainnet address)'] : []),
@@ -446,6 +448,7 @@ export function createOwnerAuthRouter({
         databaseConfigured,
         allowedOriginConfigured,
         hostedUiOriginAllowed,
+      tronTransferUiOriginAllowed,
         packagedUiOriginAllowed,
         registrationEnabled: false,
         requiredEnvironment,
