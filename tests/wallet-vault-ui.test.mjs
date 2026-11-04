@@ -147,3 +147,14 @@ test('owner payout reference can only be inspected; this build does not create p
   assert.match(reference, /never contains a private key, signed authorization, or claim of success/)
   assert.doesNotMatch(reference, /privateKey|seedPhrase|ownerAuthorizationSignature/)
 })
+
+test('Mainnet send screen explains owner verification and local-wallet funding prerequisites before review', async () => {
+  const vault = await read('src/WalletVault.tsx')
+  assert.match(vault, /mainnetOwnerReviewBlocked/)
+  assert.match(vault, /Owner verification required before Mainnet review/)
+  assert.match(vault, /Open Organization payouts to verify owner/)
+  assert.match(vault, /Unlocked wallet does not match the configured treasury/)
+  assert.match(vault, /The selected token balance could not be verified/)
+  assert.match(vault, /Receive genuine tokens into this wallet before reviewing a transfer/)
+  assert.match(vault, /This supervised build still cannot sign or broadcast Mainnet transfers/)
+})
