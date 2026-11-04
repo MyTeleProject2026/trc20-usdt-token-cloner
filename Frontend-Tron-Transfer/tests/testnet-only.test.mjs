@@ -73,3 +73,9 @@ test('Sponsor funding page provides the Fincra USDT wallet number for authorized
   assert.ok(app.includes('readiness.fincra.sourceBalance.walletNumber'))
   assert.ok(app.includes('Fincra USDT wallet number copied.'))
 })
+
+test('Assets page displays the verified Fincra USDT funding wallet number without combining it with monitored wallet assets', () => {
+  assert.ok(app.includes('Fincra USDT funding wallet number:'))
+  assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
+  assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
+})
