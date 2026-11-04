@@ -94,8 +94,8 @@ export function inspectProductionEnvironment(env = process.env, {
     : check(present(env.OWNER_PASSWORD_HASH) ? 'invalid' : 'missing', 'Generate locally with node scripts/generate-owner-password-hash.mjs.')
   , { error: !OWNER_PASSWORD_HASH_PATTERN.test(env.OWNER_PASSWORD_HASH || '') })
 
-  const ownerPayoutFlagsEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
-    || env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
+  const ownerPayoutFlagsEnabled = ['TREASURY_WITHDRAWALS_ENABLED', 'TREASURY_TRX_WITHDRAWALS_ENABLED']
+    .some((key) => typeof env[key] === 'string' && env[key].trim() === 'true')
   const fireblocksSelected = env.TREASURY_SIGNER_MODE === 'fireblocks'
   const ownerPayoutSelected = fireblocksSelected || ownerPayoutFlagsEnabled
 
@@ -208,7 +208,7 @@ export function inspectProductionEnvironment(env = process.env, {
   }
 
   for (const key of ['TREASURY_WITHDRAWALS_ENABLED', 'TREASURY_TRX_WITHDRAWALS_ENABLED', 'SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED', 'SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED']) {
-    const value = typeof env[key] === 'string' ? env[key].trim().toLowerCase() : ''
+    const value = typeof env[key] === 'string' ? env[key].trim() : ''
     const status = value === 'false' || value === ''
       ? check('disabled', 'Safe default; this script never changes flags.')
       : value === 'true'
