@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import {
   buildMainnetDirectSponsorReadiness,
   createMainnetDirectSponsorReadinessRouter,
@@ -147,4 +148,10 @@ test('invalid refresh query is rejected before reading sponsor or database state
   await handler({ query: { refresh: 'yes' } }, response)
   assert.equal(response.statusCode, 400)
   assert.equal(calls, 0)
+})
+
+test('backend mounts the direct Mainnet sponsor diagnostic under the TRON API', async () => {
+  const source = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+  assert.match(source, /import mainnetDirectSponsorReadinessRoutes from '\.\/routes\/mainnet-direct-sponsor-readiness\.mjs'/)
+  assert.match(source, /app\.use\('\/api\/tron', mainnetDirectSponsorReadinessRoutes\)/)
 })
