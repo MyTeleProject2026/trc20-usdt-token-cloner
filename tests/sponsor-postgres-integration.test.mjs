@@ -28,7 +28,7 @@ const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
 async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = {}) {
-  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
+  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById, recordSponsorChainCostObservation, listSponsorChainCostObservations } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   const readiness = await initializeDatabase()
@@ -64,7 +64,7 @@ async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = 
       requestedNetwork, input.asset, input.tokenContract,
     ),
   })
-  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
+  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById, recordSponsorChainCostObservation, listSponsorChainCostObservations }
 }
 
 const testBudgetApprovals = new Map()
@@ -1051,6 +1051,67 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
       'DELETE FROM trc20_token_clone.transfer_verifications WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',
       [network, cases.map(item => item.hash)],
     )
+    await pool.end()
+  }
+})
+
+
+test('PostgreSQL persists transaction payer and creator Energy evidence and rejects conflicting duplicates', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
+}, async () => {
+  const { pool, reserveSponsorTransfer, transitionSponsorTransfer, recordSponsorChainCostObservation, listSponsorChainCostObservations } = await setup()
+  const suffix = randomUUID()
+  const sponsorReference = `pg-cost-evidence-${suffix}`
+  const idempotencyKey = `pg-cost-evidence:${suffix}`
+  const transactionHash = '9'.repeat(64)
+  const feeSponsorAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+  const ownerHex = '11'.repeat(20)
+  const input = {
+    network, transactionHash, idempotencyKey, sponsorReference,
+    feeSponsorAddress, assetPrincipalAddress: sponsorAddress,
+    receiverAddress, asset: 'TRX', tokenContract: null,
+    amountBaseUnits: '25', blockNumber: 65432, executionResult: 'SUCCESS',
+    reportedFeeSun: '4200', energyFeeSun: '2000', netFeeSun: '2200',
+    energyUsageTotal: '0', energyUsage: null, originEnergyUsage: '17',
+    transactionOwnerAddressHex: ownerHex, trxFeePayerAddressHex: ownerHex,
+    netUsage: '220', energyPenaltyTotal: null,
+  }
+  try {
+    await insertBudget(pool, sponsorReference, '100')
+    assert.equal((await reserveSponsorTransfer({
+      idempotencyKey, sponsorReference, network, purpose: 'asset-grant',
+      asset: 'TRX', receiverAddress, amountBaseUnits: '25',
+    })).reserved, true)
+    await seedPreviouslySubmittedTransfer(pool, idempotencyKey, transactionHash)
+    await pool.query(
+      `INSERT INTO trc20_token_clone.native_transfer_verifications
+        (network, transaction_hash, from_address, to_address, amount_sun, block_number, verification_status)
+       VALUES ($1,$2,$3,$4,25,65432,'verified-on-chain')`,
+      [network, transactionHash, sponsorAddress, receiverAddress],
+    )
+    assert.deepEqual(await transitionSponsorTransfer({ idempotencyKey, nextStatus: 'confirmed', transactionHash }),
+      { updated: true, duplicate: false, status: 'confirmed' })
+
+    const first = await recordSponsorChainCostObservation(input)
+    assert.equal(first.success, true)
+    assert.equal(first.duplicate, false)
+    const duplicate = await recordSponsorChainCostObservation(input)
+    assert.equal(duplicate.success, true)
+    assert.equal(duplicate.duplicate, true)
+    const conflict = await recordSponsorChainCostObservation({ ...input, transactionOwnerAddressHex: '22'.repeat(20), trxFeePayerAddressHex: '22'.repeat(20) })
+    assert.deepEqual(conflict, { success: false, reason: 'chain-cost-observation-conflict' })
+
+    const history = await listSponsorChainCostObservations({ network, limit: 100 })
+    const saved = history.observations.find((item) => item.transactionHash === transactionHash)
+    assert.ok(saved)
+    assert.equal(saved.originEnergyUsage, '17')
+    assert.equal(saved.transactionOwnerAddressHex, ownerHex)
+    assert.equal(saved.trxFeePayerAddressHex, ownerHex)
+    assert.equal(saved.sponsorFeeBudgetSettled, false)
+  } finally {
+    await pool.query('DELETE FROM trc20_token_clone.sponsor_chain_cost_observations WHERE network = $1 AND transaction_hash = $2', [network, transactionHash]).catch(() => {})
+    await cleanup(pool, [sponsorReference], [idempotencyKey])
+    await pool.query('DELETE FROM trc20_token_clone.native_transfer_verifications WHERE network = $1 AND transaction_hash = $2', [network, transactionHash]).catch(() => {})
     await pool.end()
   }
 })
