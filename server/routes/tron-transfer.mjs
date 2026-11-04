@@ -889,7 +889,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
           [row.id, reconciliation.reason])
           return res.status(202).json({
             success: false, status: 'fincra-outcome-unknown', error: reconciliation.reason,
-            note: 'Fincra returned an existing payout for this reference, but its recipient, amount and USDT TRC20 identity could not all be reconciled. No second payout was submitted. Resolve the original payout with Fincra before taking further action.',
+            note: 'Fincra returned an existing payout for this reference, but its recipient, route and settlement amount details could not all be reconciled. No second payout was submitted. Resolve the original payout with Fincra before taking further action.',
           })
         }
         const status = reconciliation.status
@@ -1027,7 +1027,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         const statusCode = reconciliation.reason === 'successful-payout-record-incomplete' ? 202 : 409
         return res.status(statusCode).json({
           success: false, error: reconciliation.reason, request: publicRequest(row),
-          note: 'Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and amount. A signed, detailed Fincra webhook or complete provider record is required before marking a payout successful.',
+          note: 'Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and settlement details. The net amount received is recorded separately from the requested payout amount and any fee.',
         })
       }
       const status = reconciliation.status
