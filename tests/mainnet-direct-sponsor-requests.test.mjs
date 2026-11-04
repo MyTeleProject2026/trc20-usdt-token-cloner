@@ -126,7 +126,9 @@ function makeStore() {
       }
     },
     async recordSponsorApproval(input) {
-      const old = approvals.get(input.challengeId)
+      const requestKey = [...rows.entries()].find(([, request]) => request.id === input.requestId)?.[0]
+      if (!requestKey) return { success: false, reason: 'request-no-longer-reviewable' }
+      const old = approvals.get(requestKey)
       if (old && Date.parse(old.expiresAt) > Date.parse(input.approvedAt)) {
         return { success: false, reason: 'request-already-has-active-sponsor-approval' }
       }
@@ -141,8 +143,7 @@ function makeStore() {
         approvedAt: input.approvedAt,
         expiresAt: input.expiresAt,
       }
-      approvals.set(rows.get([...rows.keys()].find(key => rows.get(key).id === input.requestId))?.idempotencyKey, approval)
-      approvals.set(input.challengeId, approval)
+      approvals.set(requestKey, approval)
       return { success: true, approval }
     },
     async listSponsorReviewQueue() {
@@ -191,6 +192,34 @@ function requestBody(overrides = {}) {
     amountBaseUnits: '12500000',
     decimals: 6,
     ...overrides,
+  }
+}
+
+function fundedSponsorRoleSnapshot() {
+  return {
+    success: true,
+    checkedAt: new Date().toISOString(),
+    configuredAddressesDistinct: true,
+    roles: {
+      networkFeeSponsor: {
+        address: feeSponsorAddress,
+        onChainBalanceRead: true,
+        native: { status: 'verified', balanceSun: '5000000' },
+        resourceStatus: { resourceRead: true },
+      },
+      assetPrincipalSponsor: {
+        address: sponsorAddress,
+        onChainBalanceRead: true,
+        tokenBalancesComplete: true,
+        tokens: [{
+          asset: 'USDT',
+          tokenContract: OFFICIAL_MAINNET_USDT_CONTRACT,
+          status: 'verified',
+          decimals: 6,
+          balanceBaseUnits: '500000000',
+        }],
+      },
+    },
   }
 }
 
@@ -335,4 +364,192 @@ test('Mainnet direct sponsor request router is mounted under the TRON API', asyn
   const source = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
   assert.match(source, /import mainnetDirectSponsorRequestRoutes from '\.\/routes\/mainnet-direct-sponsor-requests\.mjs'/)
   assert.match(source, /app\.use\('\/api\/tron', mainnetDirectSponsorRequestRoutes\)/)
+})
+
+
+test('only the configured Mainnet asset-principal sponsor wallet can open its review queue', async (t) => {
+  let roleReads = 0
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv,
+    store: makeStore(),
+    sessionLookup: sessionLookup(requester),
+    readSponsorRoles: async () => { roleReads += 1; return fundedSponsorRoleSnapshot() },
+  }))
+  const response = await fetch(base + '/sponsorship/mainnet-direct/review-queue', { headers: headers() })
+  assert.equal(response.status, 403)
+  assert.equal((await response.json()).error, 'wallet-is-not-the-configured-mainnet-asset-principal-sponsor')
+  assert.equal(roleReads, 0)
+})
+
+test('Mainnet sponsor approval requires an exact agreement scope and all organization policy references', async (t) => {
+  const store = makeStore()
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: { ...approvalEnv, SPONSOR_APPROVED_AGREEMENT_REFERENCES: '' },
+    store,
+    sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+  }))
+  const response = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
+    headers: { authorization: 'Bearer ' + token },
+  })
+  assert.equal(response.status, 503)
+  assert.equal((await response.json()).error, 'mainnet-direct-sponsor-approval-policy-not-configured')
+})
+
+test('sponsor signs one exact request message and approval never enables transaction execution', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  const created = await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  assert.equal(created.status, 201)
+
+  let verifiedMessage = ''
+  const nowMs = Date.now()
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv,
+    store,
+    sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => ({ ...fundedSponsorRoleSnapshot(), checkedAt: new Date(nowMs).toISOString() }),
+    now: () => nowMs,
+    nonceFactory: () => approvalNonce,
+    verifySponsorMessage: async (message, signature) => {
+      verifiedMessage = message
+      assert.equal(signature, approvalSignature)
+      return sponsorAddress
+    },
+  }))
+  const queue = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
+    headers: { authorization: 'Bearer ' + token },
+  })
+  assert.equal(queue.status, 200)
+  assert.equal((await queue.json()).count, 1)
+
+  const challengeResponse = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  const challenge = await challengeResponse.json()
+  assert.equal(challengeResponse.status, 201)
+  assert.equal(challenge.sponsorApprovalRecorded, false)
+  assert.equal(challenge.request.recipientAddress, recipient)
+  assert.match(challenge.message, new RegExp(sponsorAgreementRef))
+  assert.match(challenge.message, new RegExp(sponsorAddress))
+  assert.match(challenge.message, new RegExp(recipient))
+  assert.match(challenge.message, /Amount in base units \(6 decimals\): 12500000/)
+  assert.match(challenge.message, /This is a request-specific sponsor approval signature/)
+  assert.match(challenge.message, /It does not approve network fees/)
+  assert.doesNotMatch(challenge.message, /private key|seed phrase/i)
+
+  const approvedResponse = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approve', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: challenge.nonce, signature: approvalSignature }),
+  })
+  const approved = await approvedResponse.json()
+  assert.equal(approvedResponse.status, 200)
+  assert.equal(approved.status, 'sponsor-approved-principal-only')
+  assert.equal(approved.sponsorApproved, true)
+  assert.equal(approved.sponsorApproval.sponsorAddress, sponsorAddress)
+  assert.equal(approved.sponsorApproval.agreementReference, sponsorAgreementRef)
+  assert.equal(approved.feeSponsorApproval, false)
+  assert.equal(approved.budgetReserved, false)
+  assert.equal(approved.signingIntentCreated, false)
+  assert.equal(approved.canCreateSigningIntent, false)
+  assert.equal(approved.canSubmitSponsoredTransfer, false)
+  assert.equal(approved.transactionBroadcast, false)
+  assert.equal(approved.unpaidFallbackToUserFunds, false)
+  assert.equal(verifiedMessage, challenge.message)
+
+  const replay = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approve', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: challenge.nonce, signature: approvalSignature }),
+  })
+  assert.equal(replay.status, 409)
+
+  const sponsorQueue = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
+    headers: { authorization: 'Bearer ' + token },
+  })
+  const queuePayload = await sponsorQueue.json()
+  assert.equal(queuePayload.requests[0].sponsorApproval.status, 'approved-active')
+  assert.equal(queuePayload.canSubmitSponsoredTransfer, false)
+})
+
+test('Mainnet sponsor approval refuses a stale or insufficient sponsor funding snapshot', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv,
+    store,
+    sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => ({
+      ...fundedSponsorRoleSnapshot(),
+      roles: {
+        ...fundedSponsorRoleSnapshot().roles,
+        assetPrincipalSponsor: {
+          ...fundedSponsorRoleSnapshot().roles.assetPrincipalSponsor,
+          tokens: [{
+            asset: 'USDT', tokenContract: OFFICIAL_MAINNET_USDT_CONTRACT,
+            status: 'verified', decimals: 6, balanceBaseUnits: '1',
+          }],
+        },
+      },
+    }),
+  }))
+  const response = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  assert.equal(response.status, 409)
+  const payload = await response.json()
+  assert.equal(payload.error, 'mainnet-sponsor-funding-preflight-blocked')
+  assert.ok(payload.blockers.includes('official-mainnet-usdt-sponsor-balance-does-not-cover-request'))
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+})
+
+test('invalid sponsor approval signatures consume the challenge and cannot be replayed', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: approvalEnv, store, sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+    nonceFactory: () => approvalNonce,
+    verifySponsorMessage: async () => feeSponsorAddress,
+  }))
+  const challengeResponse = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  const challenge = await challengeResponse.json()
+  const denied = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approve', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: challenge.nonce, signature: approvalSignature }),
+  })
+  assert.equal(denied.status, 401)
+  assert.equal((await denied.json()).challengeConsumed, true)
+  const replay = await fetch(base + '/sponsorship/mainnet-direct/requests/' + key + '/approve', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: challenge.nonce, signature: approvalSignature }),
+  })
+  assert.equal(replay.status, 409)
+})
+
+test('Mainnet sponsor approval cannot exceed the signed sponsor cap or accept an unapproved org scope', async (t) => {
+  const noScopeEnv = { ...approvalEnv, SPONSOR_APPROVED_AGREEMENT_REFERENCES: '' }
+  const base = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: noScopeEnv, store: makeStore(), sessionLookup: sessionLookup(sponsorAddress),
+  }))
+  const response = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
+    headers: { authorization: 'Bearer ' + token },
+  })
+  assert.equal(response.status, 503)
+  assert.ok((await response.json()).requiredEnvironment.includes('SPONSOR_APPROVED_AGREEMENT_REFERENCES (exact Mainnet USDT asset-principal scope)'))
 })
