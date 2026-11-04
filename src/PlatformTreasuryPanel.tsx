@@ -128,7 +128,7 @@ async function apiRequest(path: string, token: string, init: RequestInit = {}) {
   const payload = await response.json().catch(() => null)
   const validNonterminalResult = Boolean(payload && (
     payload.status === 'broadcast-unknown'
-    || (payload.intent && payload.verification)
+    || (payload.intent && typeof payload.intent.intentId === 'string' && typeof payload.intent.status === 'string')
   ))
   if (!response.ok || (payload?.success !== true && !validNonterminalResult)) {
     const reason = typeof payload?.error === 'string' ? payload.error : 'treasury-request-failed'
