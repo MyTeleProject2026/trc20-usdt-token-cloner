@@ -18,7 +18,7 @@ import {
   isEncryptedWalletRecord,
 } from './lib/wallet-vault-crypto.mjs'
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const NETWORKS = Object.freeze({
   nile: { label: 'Nile Testnet', rpc: API_BASE + '/api/tatum/rpc/nile', explorer: 'https://nile.tronscan.org' },
   shasta: { label: 'Shasta Testnet', rpc: API_BASE + '/api/tatum/rpc/shasta', explorer: 'https://shasta.tronscan.org' },
