@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { getSponsorshipStatus } from '../server/sponsorship-status.mjs'
 
-test('sponsorship status remains fail-closed until provider and operational gates are reviewed', () => {
+test('sponsorship status remains fail-closed until sponsor wallet and operational gates are reviewed', () => {
   const status = getSponsorshipStatus()
   assert.equal(status.enabled, false)
   assert.equal(status.mainnetEnabled, false)
@@ -31,7 +31,8 @@ test('selected funding policy never charges the user or falls back to user funds
 test('sponsorship status exposes all operational gates rather than implying readiness', () => {
   const status = getSponsorshipStatus()
   for (const required of [
-    'verified-provider-adapter-and-account',
+    'verified-mainnet-sponsor-wallet-signing-and-broadcast-adapter',
+    'transaction-bound-sponsor-wallet-signature-and-replay-protection',
     'explicit-sponsor-consent-and-funded-budget',
     'server-side-authorization-and-per-transfer-limits',
     'idempotent-sponsor-ledger-and-reconciliation',
