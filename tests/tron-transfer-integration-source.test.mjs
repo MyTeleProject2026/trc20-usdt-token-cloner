@@ -50,6 +50,7 @@ test('Fincra settlement timestamps are persisted and used to bound exact on-chai
   assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ/)
   assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_successful_at TIMESTAMPTZ/)
   assert.match(route, /fincra_successful_at=CASE WHEN/)
+  assert.match(route, /fincra-status-requery/)
   assert.match(route, /payoutStartMs/)
   assert.match(route, /payoutEndMs/)
   assert.match(route, /verifySolidifiedUsdtTransfer/)
