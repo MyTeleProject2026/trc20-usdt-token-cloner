@@ -1,4 +1,5 @@
 import pg from 'pg'
+import { databaseSslConfig, normalizeDatabaseConnectionString } from './database.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
@@ -12,9 +13,10 @@ const HEX_ADDRESS_PATTERN = /^[0-9a-f]{40}$/
 
 function getPool() {
   if (pool) return pool
-  const connectionString = process.env.DATABASE_URL
-  if (!connectionString) return null
-  pool = new Pool({ connectionString, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, max: 3 })
+  const configuredConnectionString = process.env.DATABASE_URL
+  if (!configuredConnectionString) return null
+  const connectionString = normalizeDatabaseConnectionString(configuredConnectionString)
+  pool = new Pool({ connectionString, ssl: databaseSslConfig(connectionString), connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, max: 3 })
   pool.on('error', (error) => {
     console.error('Sponsor fee observation pool error:', error?.code || 'unknown')
   })
@@ -48,7 +50,7 @@ export function normalizeSponsorChainFeeObservation(input = {}) {
     || !['SUCCESS', 'FAILED'].includes(executionResult)
     || !Number.isSafeInteger(input.blockNumber) || input.blockNumber <= 0
     || !HEX_ADDRESS_PATTERN.test(transactionOwnerAddressHex)
-    || reportedFeeSun === null
+    || reportedFeeSun == null
     || Object.values(amounts).some((value) => value === undefined)) {
     return { success: false, reason: 'invalid-fee-observation' }
   }
