@@ -130,7 +130,7 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
-  const [recipientNetwork, setRecipientNetwork] = useState('mainnet')
+  const [recipientNetwork, setRecipientNetwork] = useState('nile')
   const [recipientAddress, setRecipientAddress] = useState('')
   const [recipientTokenContract, setRecipientTokenContract] = useState('')
   const [recipientInspection, setRecipientInspection] = useState(null)
