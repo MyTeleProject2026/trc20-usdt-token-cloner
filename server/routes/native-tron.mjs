@@ -16,9 +16,9 @@ import { Router } from 'express'
 const router = Router()
 const txPattern = /^[0-9a-fA-F]{64}$/
 const networks = {
-  shasta: 'https://api.shasta.trongrid.io',
-  nile: 'https://nile.trongrid.io',
-  mainnet: 'https://api.trongrid.io',
+  shasta: 'https://tron-shasta.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
+  mainnet: 'https://tron-mainnet.gateway.tatum.io',
 }
 const addressPattern = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const providerApplicationScopes = new Set(['network-fees', 'trx-grant', 'trc20-grant'])
@@ -1775,10 +1775,10 @@ router.get('/native-balance', async (req, res) => {
   }
   try {
     const { TronWeb } = await import('tronweb')
-    const tronWeb = new TronWeb({ fullHost: networks[network] })
+    const tronWeb = new TronWeb({ fullHost: networks[network], headers: { 'x-api-key': process.env.TATUM_API_KEY } })
     if (!tronWeb.isAddress(address)) return res.status(400).json({ success: false, error: 'invalid-address' })
     const headers = { 'content-type': 'application/json' }
-    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+    if (process.env.TATUM_API_KEY) headers['x-api-key'] = process.env.TATUM_API_KEY
     const response = await tatumProviderFetch(networks[network] + '/walletsolidity/getaccount', {
       method: 'POST', redirect: 'error', headers,
       body: JSON.stringify({ address: tronWeb.address.toHex(address), visible: false }),
@@ -1834,7 +1834,7 @@ router.get('/verify-native-transfer/:hash', async (req, res) => {
     const expectedFrom = hasExpectedFields ? tronWeb.address.toHex(from).replace(/^0x/i, '').toLowerCase() : null
     const expectedTo = hasExpectedFields ? tronWeb.address.toHex(to).replace(/^0x/i, '').toLowerCase() : null
     const headers = { 'content-type': 'application/json' }
-    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+    if (process.env.TATUM_API_KEY) headers['x-api-key'] = process.env.TATUM_API_KEY
 
     const query = async (path) => {
       const response = await tatumProviderFetch(networks[network] + path, {
@@ -2068,7 +2068,7 @@ router.get('/receiver-history', async (req, res) => {
     if (typeof contract === 'string' && contract) query.set('contract_address', contract)
     if (typeof fingerprint === 'string') query.set('fingerprint', fingerprint)
     const headers = { accept: 'application/json' }
-    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+    if (process.env.TATUM_API_KEY) headers['x-api-key'] = process.env.TATUM_API_KEY
     const response = await tatumProviderFetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {
       redirect: 'error',
       headers,
