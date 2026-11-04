@@ -90,3 +90,11 @@ test('Sponsor funding page loads and displays read-only Fincra business wallet c
   assert.ok(app.includes('Refresh funding history'))
   assert.ok(app.includes('Provider ledger records, not manually entered sponsor claims'))
 })
+
+test('Assets page shows available, locked and ledger total sponsor balances as separate values', () => {
+  assert.ok(app.includes('Available · payout eligible'))
+  assert.ok(app.includes('Locked'))
+  assert.ok(app.includes('Ledger · total'))
+  assert.ok(app.includes('FINCRA SPONSOR LEDGER · TOTAL SOURCE ASSETS'))
+  assert.ok(app.includes('Only the separately displayed available balance is eligible to fund a new payout'))
+})
