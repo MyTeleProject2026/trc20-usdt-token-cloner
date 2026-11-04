@@ -72,7 +72,7 @@ All routes require the existing owner identity session. The submission route doe
 
 - The self-custody API is Mainnet-only in this initial implementation.
 - PostgreSQL integration coverage for same-key replay, changed-detail rejection, concurrent same-key prepare, and refresh/restart recovery has been added to CI; check the current PR CI result before treating it as passed.
-- The feature flag defaults to false. Do not enable it just to make the UI proceed.
+- The feature flag defaults to false. Do not enable it just to make the UI proceed. The backend also permits only one outstanding withdrawal per owner/treasury at a time; reconcile or finish the existing request before creating another.
 - No self-custody testnet end-to-end path, independent security review, or real Mainnet acceptance transaction has yet been evidenced by this source change.
 - The older Fireblocks-backed route remains separate and hard-disabled in the current build.
 - A real transfer cannot be made until actual funds and an authorized treasury wallet are available.
