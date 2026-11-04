@@ -162,3 +162,9 @@ test('Fincra source balance returns available locked and ledger totals separatel
   assert.match(route, /ledgerBalance: ledgerBaseUnits === null \? null : String\(ledgerRaw\)/)
   assert.match(route, /availableBalanceBaseUnits: availableBaseUnits\.toString\(\)/)
 })
+
+test('Fincra crypto wallet payout reconciliation recognizes provider walletAddress and address aliases', () => {
+  assert.match(route, /payout\.beneficiary\?\.address/)
+  assert.match(route, /payout\.recipient\?\.address/)
+  assert.match(route, /signedRecipient\.address/)
+})
