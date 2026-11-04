@@ -98,3 +98,14 @@ test('Assets page shows available, locked and ledger total sponsor balances as s
   assert.ok(app.includes('FINCRA SPONSOR LEDGER · TOTAL SOURCE ASSETS'))
   assert.ok(app.includes('Only the separately displayed available balance is eligible to fund a new payout'))
 })
+
+test('withdrawal transaction pages distinguish requested gross amount from Fincra net recipient receipt and fees', () => {
+  assert.ok(app.includes('Recipient received:'))
+  assert.ok(app.includes('Sponsor charged:'))
+  assert.ok(app.includes('Fee:'))
+  assert.ok(app.includes('Net recipient amount:'))
+  assert.ok(app.includes('Fincra fee:'))
+  assert.ok(app.includes('fincraAmountReceivedBaseUnits'))
+  assert.ok(app.includes('fincraAmountChargedBaseUnits'))
+  assert.ok(app.includes('fincraFeeBaseUnits'))
+})
