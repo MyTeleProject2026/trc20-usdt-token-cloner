@@ -168,7 +168,7 @@ export function createSponsorOrganizationStore(env = process.env) {
             network TEXT NOT NULL CHECK (network = 'mainnet'),
             requested_roles JSONB NOT NULL CHECK (jsonb_typeof(requested_roles) = 'array'),
             attestation_version TEXT NOT NULL,
-            application_signature_hash TEXT NOT NULL UNIQUE,
+            application_signature_hash TEXT NOT NULL,
             authority_to_represent BOOLEAN NOT NULL CHECK (authority_to_represent),
             controls_sponsor_wallet BOOLEAN NOT NULL CHECK (controls_sponsor_wallet),
             lawful_source_of_funds BOOLEAN NOT NULL CHECK (lawful_source_of_funds),
@@ -274,7 +274,6 @@ export function createSponsorOrganizationStore(env = process.env) {
       return { success: true, duplicate: false, application: toPublicApplication(inserted.rows[0]) }
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {})
-      if (error?.code === '23505' && /application_signature_hash/.test(String(error.constraint || ''))) return { success: false, reason: 'application-signature-already-used' }
       if (error?.code === '23505') return { success: false, reason: 'open-application-already-exists' }
       console.error('Sponsor organization application write failed:', error?.code || 'unknown')
       return { success: false, reason: 'database-unavailable' }
@@ -507,7 +506,7 @@ export function createSponsorOrganizationOnboardingRouter({
       })
       if (result?.success !== true || !result.application) {
         const reason = result?.reason || 'application-storage-unavailable'
-        const status = ['open-application-already-exists', 'application-signature-already-used'].includes(reason) ? 409
+        const status = reason === 'open-application-already-exists' ? 409
           : reason === 'application-rate-limited' ? 429 : 503
         return res.status(status).json({
           success: false,
