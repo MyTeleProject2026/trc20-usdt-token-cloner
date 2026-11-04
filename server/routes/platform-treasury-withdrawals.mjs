@@ -690,9 +690,14 @@ export function createPlatformTreasuryRouter({
         }
         return item
       })
+      const outstanding = await db.query(
+        "SELECT EXISTS (SELECT 1 FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 AND (status IN ('broadcasting','broadcast-accepted','broadcast-unknown') OR (status='prepared' AND expires_at > now()))) AS has_outstanding_withdrawal",
+        [auth.ownerAddress],
+      )
       return res.json({
         success: true,
         withdrawals,
+        hasOutstandingWithdrawal: outstanding.rows[0]?.has_outstanding_withdrawal === true,
         checkedAt: new Date(now()).toISOString(),
         note: 'History is loaded from PostgreSQL. Prepared requests can resume with their original transaction; broadcast requests must be reconciled, never re-created.',
       })
