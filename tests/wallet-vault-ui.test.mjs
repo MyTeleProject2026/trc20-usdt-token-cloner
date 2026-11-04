@@ -158,3 +158,10 @@ test('Mainnet send screen explains owner verification and local-wallet funding p
   assert.match(vault, /Receive genuine tokens into this wallet before reviewing a transfer/)
   assert.match(vault, /This supervised build still cannot sign or broadcast Mainnet transfers/)
 })
+
+test('activity empty state explains that new Wallet Vault submissions are disabled in this build', async () => {
+  const vault = await read('src/WalletVault.tsx')
+  assert.match(vault, /No local transfer records are stored on this device/)
+  assert.match(vault, /current Wallet Vault build disables signing and broadcast/)
+  assert.doesNotMatch(vault, /No transfers have been submitted from this device yet/)
+})
