@@ -54,6 +54,9 @@ export default function App() {
   const [monitorData,setMonitorData]=useState(null)
   const [monitorError,setMonitorError]=useState('')
   const [monitorBusy,setMonitorBusy]=useState(false)
+  const [requestInspection,setRequestInspection]=useState(null)
+  const [requestInspectionBusy,setRequestInspectionBusy]=useState(false)
+  const [requestInspectionError,setRequestInspectionError]=useState('')
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
@@ -153,9 +156,31 @@ export default function App() {
     setRequesterSession(null)
     if(token) void api('/api/auth/tron/logout',{method:'POST',headers:{Authorization:'Bearer '+token}}).catch(()=>undefined)
   }
+  async function inspectRequestRecipient() {
+    const address = requestRecipient.trim()
+    if (!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet recipient address first.')
+    setRequestInspectionBusy(true)
+    setRequestInspectionError('')
+    try {
+      const query = new URLSearchParams({ network: 'mainnet', address, tokenContract: MAINNET_USDT })
+      const inspection = await api('/api/tron-transfer/recipient?' + query.toString())
+      setRequestInspection({ address, inspectedAt: Date.now(), data: inspection })
+      return inspection
+    } catch (cause) {
+      setRequestInspection(null)
+      setRequestInspectionError(cause.message || 'Recipient inspection failed.')
+      throw cause
+    } finally {
+      setRequestInspectionBusy(false)
+    }
+  }
+
   async function submitSponsorRequest() {
     if(!requesterSession?.sessionToken||requesterSession.address!==unlockedAddress) throw new Error('Verify requester wallet ownership first.')
     if(!isValidAddress(requestRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
+    if (!requestInspection || requestInspection.address !== requestRecipient.trim() || Date.now() - requestInspection.inspectedAt > 5 * 60 * 1000) {
+      throw new Error('Inspect the recipient balance and incoming history for this exact address before creating the payout request.')
+    }
     if(!beneficiaryName.trim()) throw new Error('Enter the beneficiary name.')
     const amount=requestAmount.trim()
     if(!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)) throw new Error('Enter a positive USDT amount with up to six decimal places.')
@@ -167,7 +192,7 @@ export default function App() {
       method:'POST',headers:{Authorization:'Bearer '+requesterSession.sessionToken},
       body:JSON.stringify({requesterAddress:requesterSession.address,recipientAddress:requestRecipient.trim(),beneficiaryName:beneficiaryName.trim(),beneficiaryEmail:beneficiaryEmail.trim(),amount,customerReference:reference}),
     })
-    sessionStorage.removeItem(REQUEST_REFERENCE_KEY);setRequestRecipient('');setRequestAmount('');setBeneficiaryName('');setBeneficiaryEmail('')
+    sessionStorage.removeItem(REQUEST_REFERENCE_KEY);setRequestRecipient('');setRequestInspection(null);setRequestInspectionError('');setRequestAmount('');setBeneficiaryName('');setBeneficiaryEmail('')
     setNotice('Sponsor request recorded. No payout occurs until an authorized owner submits it to live Fincra.')
     if(ownerSession?.sessionToken) await loadRequests(ownerSession.sessionToken)
     return result
@@ -291,11 +316,20 @@ export default function App() {
             <div className="sponsor-form-card"><span className="eyebrow">01 / REQUEST A SPONSORED WITHDRAWAL</span><h3>Recipient and beneficiary</h3><p>Your monitored address does not need a balance. The payout principal comes from an authorized Fincra source.</p>
               {!requesterSession?<div className="owner-session-card"><strong><LockKeyhole size={15}/> Requester ownership not verified</strong><small>{unlocked?'Sign a Mainnet identity message. This does not require TRX or authorize a payout.':'Import and unlock the Mainnet wallet you control to sign an off-chain ownership challenge.'}</small><button className="secondary-button" disabled={busy||!unlocked} onClick={()=>perform(verifyRequester)}><ShieldCheck size={15}/> Verify wallet ownership</button></div>:<div className="owner-session-card"><strong><ShieldCheck size={15}/> Mainnet requester identity verified</strong><small>{shorten(requesterSession.address)} · expires {new Date(requesterSession.expiresAt).toLocaleTimeString()}</small><button className="outline-button" onClick={signOutRequester}>Sign out requester identity</button></div>}
               <div className="form-stack">
-                <label>Recipient Mainnet address<input value={requestRecipient} onChange={e=>setRequestRecipient(e.target.value)} placeholder="External TRON Mainnet address (T…)" autoComplete="off" spellCheck="false"/></label>
+                <label>Recipient Mainnet address<input value={requestRecipient} onChange={e=>{setRequestRecipient(e.target.value);setRequestInspection(null);setRequestInspectionError('')}} placeholder="External TRON Mainnet address (T…)" autoComplete="off" spellCheck="false"/></label>
+                <button type="button" className="secondary-button" disabled={busy||requestInspectionBusy||!requestRecipient.trim()} onClick={()=>perform(inspectRequestRecipient)}><RefreshCw size={15}/>{requestInspectionBusy?'Inspecting recipient…':'Inspect recipient balance & history'}</button>
+                {requestInspectionError&&<div className="notice notice-error"><AlertTriangle size={15}/><span>{requestInspectionError}</span></div>}
+                {requestInspection&&requestInspection.address===requestRecipient.trim()&&<div className="request-inspection">
+                  <div><span>TRON Mainnet account</span><b>{requestInspection.data.accountExists?'Found':'Not activated / not found'}</b></div>
+                  <div><span>Official USDT balance</span><b>{requestInspection.data.tokenBalance?formatUnits(requestInspection.data.tokenBalance.balanceBaseUnits,requestInspection.data.tokenBalance.decimals)+' USDT':'Unavailable'}</b></div>
+                  <div><span>Native TRX balance</span><b>{requestInspection.data.nativeBalanceTRX??'Unavailable'} TRX</b></div>
+                  <div><span>Incoming history</span><b>{requestInspection.data.historyStatus||'Unavailable'}</b></div>
+                  <small>Inspected {new Date(requestInspection.inspectedAt).toLocaleTimeString()}. Recheck after five minutes or whenever the recipient address changes.</small>
+                </div>}
                 <label>USDT amount<input value={requestAmount} onChange={e=>setRequestAmount(e.target.value)} placeholder="e.g. 25.00" inputMode="decimal"/></label>
                 <label>Beneficiary full name<input value={beneficiaryName} onChange={e=>setBeneficiaryName(e.target.value)} placeholder="Wallet beneficiary name"/></label>
                 <label>Beneficiary email (optional)<input value={beneficiaryEmail} onChange={e=>setBeneficiaryEmail(e.target.value)} placeholder="name@example.com"/></label>
-                <button className="primary-button" disabled={busy||!requesterSession?.sessionToken||!requestRecipient.trim()||!requestAmount.trim()||!beneficiaryName.trim()} onClick={()=>perform(submitSponsorRequest)}><Plus size={16}/> Create sponsor withdrawal request</button>
+                <button className="primary-button" disabled={busy||!requesterSession?.sessionToken||!requestRecipient.trim()||!requestInspection||requestInspection.address!==requestRecipient.trim()||Date.now()-requestInspection.inspectedAt>5*60*1000||!requestAmount.trim()||!beneficiaryName.trim()} onClick={()=>perform(submitSponsorRequest)}><Plus size={16}/> Create sponsor withdrawal request</button>
               </div><p className="fine-print">A request is not a payout. Only the authorized owner session can submit to live Fincra after all funding, permission and readiness checks pass.</p>
             </div>
             <div className="sponsor-admin-card"><span className="eyebrow">02 / AUTHORIZED PAYOUT OPERATOR</span><h3>Owner authentication</h3>
