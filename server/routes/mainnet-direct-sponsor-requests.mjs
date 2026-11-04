@@ -896,6 +896,108 @@ export function createMainnetDirectSponsorRequestRouter({
     return { ok: true, session: auth.session, policy }
   }
 
+  async function authenticateMainnetFeeSponsor(req) {
+    const auth = await authenticateMainnetRequester(req)
+    if (!auth.ok) return auth
+    const feePolicy = resolveMainnetDirectFeeApprovalPolicy(env)
+    if (!feePolicy.configured) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'mainnet-direct-fee-sponsor-policy-not-configured',
+        requiredEnvironment: feePolicy.missing,
+      }
+    }
+    const assetPolicy = resolveMainnetDirectSponsorApprovalPolicy(env)
+    if (!assetPolicy.configured) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'mainnet-direct-asset-sponsor-policy-not-configured',
+        requiredEnvironment: assetPolicy.missing,
+      }
+    }
+    if (feePolicy.sponsorAddress === assetPolicy.sponsorAddress) {
+      return { ok: false, status: 409, error: 'fee-and-asset-sponsor-wallets-must-be-distinct' }
+    }
+    if (auth.session.address !== feePolicy.sponsorAddress) {
+      return { ok: false, status: 403, error: 'wallet-is-not-the-configured-mainnet-fee-sponsor' }
+    }
+    return { ok: true, session: auth.session, feePolicy, assetPolicy }
+  }
+
+  async function authenticateMainnetFeeSponsor(req) {
+    const auth = await authenticateMainnetRequester(req)
+    if (!auth.ok) return auth
+    const feePolicy = resolveMainnetDirectFeeApprovalPolicy(env)
+    if (!feePolicy.configured) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'mainnet-direct-fee-sponsor-policy-not-configured',
+        requiredEnvironment: feePolicy.missing,
+      }
+    }
+    const assetPolicy = resolveMainnetDirectSponsorApprovalPolicy(env)
+    if (!assetPolicy.configured) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'mainnet-direct-asset-sponsor-policy-not-configured',
+        requiredEnvironment: assetPolicy.missing,
+      }
+    }
+    if (feePolicy.sponsorAddress === assetPolicy.sponsorAddress) {
+      return { ok: false, status: 409, error: 'fee-and-asset-sponsor-wallets-must-be-distinct' }
+    }
+    if (auth.session.address !== feePolicy.sponsorAddress) {
+      return { ok: false, status: 403, error: 'wallet-is-not-the-configured-mainnet-fee-sponsor' }
+    }
+    return { ok: true, session: auth.session, feePolicy, assetPolicy }
+  }
+
+  function validateMainnetFeeSponsorFunding(roleResult, request, feePolicy, assetPolicy, nowMs) {
+    const blockers = []
+    const checkedAt = Date.parse(roleResult?.checkedAt || '')
+    if (roleResult?.success !== true || !Number.isFinite(checkedAt)
+      || checkedAt > nowMs + 5_000 || nowMs - checkedAt > 15_000) {
+      blockers.push('fresh-mainnet-sponsor-role-snapshot-required')
+    }
+    const roles = roleResult?.roles || {}
+    const fee = roles.networkFeeSponsor || {}
+    const principal = roles.assetPrincipalSponsor || {}
+    if (fee.address !== feePolicy.sponsorAddress || !isValidTronAddress(fee.address)
+      || fee.onChainBalanceRead !== true || fee.native?.status !== 'verified'
+      || typeof fee.native?.balanceSun !== 'string' || !/^[1-9][0-9]*$/.test(fee.native.balanceSun)
+      || fee.resourceStatus?.resourceRead !== true) {
+      blockers.push('configured-fee-sponsor-positive-trx-and-resource-snapshot-not-verified')
+    }
+    if (principal.address !== assetPolicy.sponsorAddress
+      || roleResult?.configuredAddressesDistinct !== true
+      || !isValidTronAddress(principal.address)) {
+      blockers.push('distinct-configured-asset-principal-sponsor-not-verified')
+    }
+    const token = Array.isArray(principal.tokens) ? principal.tokens.find((item) =>
+      item?.asset === 'USDT'
+      && item?.tokenContract === OFFICIAL_MAINNET_USDT_CONTRACT
+      && item?.status === 'verified'
+      && item?.decimals === 6
+      && /^[1-9][0-9]*$/.test(String(item?.balanceBaseUnits || ''))) : null
+    if (principal.onChainBalanceRead !== true || principal.tokenBalancesComplete !== true
+      || !token || BigInt(token.balanceBaseUnits) < BigInt(request.amountBaseUnits)) {
+      blockers.push('official-mainnet-usdt-principal-not-verified-for-exact-request')
+    }
+    const delegation = roleResult?.feeSponsorDelegationToPrincipal || {}
+    const resourceTypes = new Set(Array.isArray(delegation.auditedResourceTypes) ? delegation.auditedResourceTypes : [])
+    const delegationAudited = delegation.success === true
+      && delegation.transactionAuditVerified === true
+      && resourceTypes.has('ENERGY') && resourceTypes.has('BANDWIDTH')
+      && typeof delegation.activeEnergyStakeSun === 'string' && /^[1-9][0-9]*$/.test(delegation.activeEnergyStakeSun)
+      && typeof delegation.activeBandwidthStakeSun === 'string' && /^[1-9][0-9]*$/.test(delegation.activeBandwidthStakeSun)
+    if (!delegationAudited) blockers.push('fee-sponsor-energy-and-bandwidth-delegation-audit-not-verified')
+    return { ready: blockers.length === 0, blockers }
+  }
+
   function validateMainnetSponsorFunding(roleResult, request, policy, nowMs) {
     const blockers = []
     const checkedAt = Date.parse(roleResult?.checkedAt || '')
@@ -1169,6 +1271,240 @@ export function createMainnetDirectSponsorRequestRouter({
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-approval-verification-unavailable', canSubmitSponsoredTransfer: false })
+    }
+  })
+
+  router.get('/sponsorship/mainnet-direct/fee-review-queue', async (req, res) => {
+    noStore(res)
+    const auth = await authenticateMainnetFeeSponsor(req)
+    if (!auth.ok) return res.status(auth.status).json({
+      success: false, error: auth.error,
+      ...(auth.requiredEnvironment ? { requiredEnvironment: auth.requiredEnvironment } : {}),
+      canSubmitSponsoredTransfer: false,
+    })
+    const rawLimit = req.query?.limit === undefined ? '50' : String(req.query.limit)
+    if (!/^(?:[1-9]|[1-9][0-9]|100)$/.test(rawLimit)) {
+      return res.status(400).json({ success: false, error: 'invalid-limit', canSubmitSponsoredTransfer: false })
+    }
+    try {
+      const result = await store.listFeeSponsorReviewQueue({ limit: Number(rawLimit) })
+      if (result?.success !== true) return res.status(503).json({
+        success: false, error: result?.reason || 'fee-sponsor-review-queue-unavailable',
+        canSubmitSponsoredTransfer: false,
+      })
+      return res.json({
+        success: true,
+        status: 'fee-sponsor-review-queue-loaded',
+        feeSponsorAddress: auth.feePolicy.sponsorAddress,
+        organizationReference: auth.feePolicy.organizationReference,
+        requests: result.requests,
+        count: result.requests.length,
+        feeSponsorApprovalEnabled: true,
+        signingIntentCreated: false,
+        canSubmitSponsoredTransfer: false,
+        transactionBroadcast: false,
+        message: 'The fee sponsor may approve a bounded network-fee budget only after principal approval. This does not reserve TRX/resources or enable a payout.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'fee-sponsor-review-queue-unavailable', canSubmitSponsoredTransfer: false })
+    }
+  })
+
+  router.post('/sponsorship/mainnet-direct/requests/:idempotencyKey/fee-approval-challenge', async (req, res) => {
+    noStore(res)
+    const auth = await authenticateMainnetFeeSponsor(req)
+    if (!auth.ok) return res.status(auth.status).json({
+      success: false, error: auth.error,
+      ...(auth.requiredEnvironment ? { requiredEnvironment: auth.requiredEnvironment } : {}),
+      canSubmitSponsoredTransfer: false,
+    })
+    const key = req.params?.idempotencyKey
+    if (typeof key !== 'string' || !IDEMPOTENCY_PATTERN.test(key)) {
+      return res.status(400).json({ success: false, error: 'invalid-idempotency-key', canSubmitSponsoredTransfer: false })
+    }
+    try {
+      const requestResult = await store.findRequestForSponsor(key)
+      if (!requestResult?.success || !requestResult.request) {
+        return res.status(404).json({ success: false, error: requestResult?.reason || 'sponsor-request-not-found', canSubmitSponsoredTransfer: false })
+      }
+      const request = requestResult.request
+      if (request.status !== 'pending-sponsor-review' || request.network !== 'mainnet'
+        || request.asset !== 'USDT' || request.tokenContract !== OFFICIAL_MAINNET_USDT_CONTRACT) {
+        return res.status(409).json({ success: false, error: 'request-not-eligible-for-fee-sponsor-approval', canSubmitSponsoredTransfer: false })
+      }
+      const roleResult = await readSponsorRoles('mainnet', { refresh: true })
+      const funding = validateMainnetFeeSponsorFunding(roleResult, request, auth.feePolicy, auth.assetPolicy, now())
+      if (!funding.ready) {
+        return res.status(409).json({
+          success: false,
+          error: 'mainnet-fee-sponsor-funding-preflight-blocked',
+          blockers: funding.blockers,
+          canSubmitSponsoredTransfer: false,
+        })
+      }
+      const nonce = nonceFactory()
+      if (typeof nonce !== 'string' || !/^[0-9a-f]{48,128}$/i.test(nonce)) {
+        return res.status(503).json({ success: false, error: 'fee-approval-challenge-randomness-unavailable' })
+      }
+      const issuedAtMs = now()
+      const expiresAtMs = issuedAtMs + MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS
+      const issuedAt = new Date(issuedAtMs).toISOString()
+      const expiresAt = new Date(expiresAtMs).toISOString()
+      const message = buildMainnetDirectFeeSponsorApprovalMessage({
+        request,
+        feePolicy: auth.feePolicy,
+        assetPolicy: auth.assetPolicy,
+        nonce,
+        issuedAt,
+        expiresAt,
+      })
+      const challengeId = randomBytes(24).toString('hex')
+      const stored = await store.createFeeApprovalChallenge({
+        idempotencyKey: key,
+        sponsorAddress: auth.feePolicy.sponsorAddress,
+        origin: req.get('origin'),
+        nonceHash: sha256Hex(nonce),
+        messageSha256: sha256Hex(message),
+        requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(request),
+        challengeId,
+        feePolicy: auth.feePolicy,
+        issuedAt,
+        expiresAt,
+      })
+      if (stored?.success !== true) {
+        return res.status(409).json({
+          success: false, error: stored?.reason || 'fee-approval-challenge-not-created',
+          canSubmitSponsoredTransfer: false,
+        })
+      }
+      return res.status(201).json({
+        success: true,
+        status: 'fee-sponsor-approval-signature-required',
+        challengeId,
+        nonce,
+        message,
+        request: stored.request,
+        feeSponsorAddress: auth.feePolicy.sponsorAddress,
+        organizationReference: auth.feePolicy.organizationReference,
+        maxFeeSun: auth.feePolicy.maxFeeSun,
+        principalApprovalId: stored.principalApprovalId,
+        expiresAt,
+        feeSponsorApprovalRecorded: false,
+        resourceBudgetReserved: false,
+        signingIntentCreated: false,
+        canSubmitSponsoredTransfer: false,
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'fee-approval-challenge-unavailable', canSubmitSponsoredTransfer: false })
+    }
+  })
+
+  router.post('/sponsorship/mainnet-direct/requests/:idempotencyKey/approve-fees', async (req, res) => {
+    noStore(res)
+    const auth = await authenticateMainnetFeeSponsor(req)
+    if (!auth.ok) return res.status(auth.status).json({
+      success: false, error: auth.error,
+      ...(auth.requiredEnvironment ? { requiredEnvironment: auth.requiredEnvironment } : {}),
+      canSubmitSponsoredTransfer: false,
+    })
+    const key = req.params?.idempotencyKey
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (typeof key !== 'string' || !IDEMPOTENCY_PATTERN.test(key)
+      || Object.keys(body).some((field) => !['nonce', 'signature'].includes(field))
+      || typeof body.nonce !== 'string' || !/^[0-9a-f]{48,128}$/i.test(body.nonce)
+      || typeof body.signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-fee-sponsor-approval-signature-payload', canSubmitSponsoredTransfer: false })
+    }
+    try {
+      const consumed = await store.consumeFeeApprovalChallenge({
+        nonceHash: sha256Hex(body.nonce),
+        sponsorAddress: auth.feePolicy.sponsorAddress,
+        origin: req.get('origin'),
+        nowMs: now(),
+      })
+      if (consumed?.success !== true) {
+        return res.status(409).json({
+          success: false,
+          error: consumed?.reason || 'fee-approval-challenge-invalid-expired-or-replayed',
+          canSubmitSponsoredTransfer: false,
+        })
+      }
+      const challenge = consumed.challenge
+      const request = consumed.request
+      if (request.idempotencyKey !== key
+        || challenge.sponsorAddress !== auth.feePolicy.sponsorAddress
+        || challenge.organizationReference !== auth.feePolicy.organizationReference
+        || challenge.agreementReference !== auth.feePolicy.agreementReference
+        || challenge.agreementSha256 !== auth.feePolicy.agreementDocumentSha256
+        || challenge.maxFeeSun !== auth.feePolicy.maxFeeSun
+        || challenge.requestSnapshotSha256 !== mainnetDirectSponsorRequestSnapshotHash(request)) {
+        return res.status(409).json({ success: false, error: 'fee-approval-challenge-request-or-policy-mismatch', canSubmitSponsoredTransfer: false })
+      }
+      const message = buildMainnetDirectFeeSponsorApprovalMessage({
+        request,
+        feePolicy: auth.feePolicy,
+        assetPolicy: auth.assetPolicy,
+        nonce: body.nonce,
+        issuedAt: challenge.issuedAt,
+        expiresAt: challenge.expiresAt,
+      })
+      const messageSha256 = sha256Hex(message)
+      if (messageSha256 !== challenge.messageSha256) {
+        return res.status(409).json({ success: false, error: 'fee-approval-message-digest-mismatch', canSubmitSponsoredTransfer: false })
+      }
+      const verified = await verifyMainnetDirectSponsorApprovalSignature({
+        message,
+        signature: body.signature,
+        expectedSponsorAddress: auth.feePolicy.sponsorAddress,
+        nowMs: now(),
+        issuedAt: challenge.issuedAt,
+        expiresAt: challenge.expiresAt,
+        verifyMessage: verifySponsorMessage,
+      })
+      if (verified?.verified !== true) {
+        return res.status(401).json({
+          success: false, error: verified?.reason || 'fee-sponsor-approval-signature-invalid',
+          challengeConsumed: true, canSubmitSponsoredTransfer: false,
+        })
+      }
+      const approvedAtMs = now()
+      const approvalExpiresAt = new Date(approvedAtMs + 30 * 60 * 1000).toISOString()
+      const recorded = await store.recordFeeSponsorApproval({
+        requestId: request.id,
+        principalApprovalId: challenge.principalApprovalId,
+        challengeId: challenge.challengeId,
+        sponsorAddress: auth.feePolicy.sponsorAddress,
+        organizationReference: auth.feePolicy.organizationReference,
+        agreementReference: auth.feePolicy.agreementReference,
+        agreementSha256: auth.feePolicy.agreementDocumentSha256,
+        messageSha256,
+        signature: body.signature,
+        maxFeeSun: auth.feePolicy.maxFeeSun,
+        approvedAt: new Date(approvedAtMs).toISOString(),
+        expiresAt: approvalExpiresAt,
+      })
+      if (recorded?.success !== true) return res.status(409).json({
+        success: false, error: recorded?.reason || 'fee-sponsor-approval-not-recorded',
+        canSubmitSponsoredTransfer: false,
+      })
+      return res.json({
+        success: true,
+        status: 'fee-sponsor-approved-network-fees-only',
+        request,
+        feeSponsorApproval: recorded.approval,
+        sponsorApproved: true,
+        feeSponsorApproved: true,
+        budgetReserved: false,
+        resourceBudgetReserved: false,
+        signingIntentCreated: false,
+        canCreateSigningIntent: false,
+        canSubmitSponsoredTransfer: false,
+        transactionBroadcast: false,
+        unpaidFallbackToUserFunds: false,
+        message: 'The distinct fee sponsor signed a maximum network-fee budget approval for this exact request. No TRX or resources were reserved or delegated, no transaction was signed or broadcast, and Mainnet execution remains disabled.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'fee-sponsor-approval-verification-unavailable', canSubmitSponsoredTransfer: false })
     }
   })
 
