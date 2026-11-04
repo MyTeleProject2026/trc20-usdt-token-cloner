@@ -45,6 +45,11 @@ test('sponsor request intake requires a one-time Mainnet wallet identity session
   assert.match(route, /session\.network !== 'mainnet'/)
 })
 
+test('requester bearer token parser accepts the standard Authorization header format', () => {
+  assert.ok(route.includes("const match = /^Bearer\\s+([A-Za-z0-9_-]{43})$/i.exec(header)"))
+  assert.doesNotMatch(route, /Bearer\\\\s\\+/)
+})
+
 test('Fincra requests are owner-session gated, idempotently rechecked, and webhook signed', () => {
   assert.match(route, /requireOwnerSession\(req, env\)/)
   assert.match(route, /customer-reference\//)
