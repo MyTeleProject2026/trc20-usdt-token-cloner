@@ -230,6 +230,19 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
     }
   }
 
+  async function findRequestForSponsor(idempotencyKey) {
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    await ensureSchema(db)
+    const result = await db.query(`
+      SELECT * FROM trc20_token_clone.mainnet_direct_sponsor_requests
+      WHERE idempotency_key = $1 LIMIT 1
+    `, [idempotencyKey])
+    return result.rows[0]
+      ? { success: true, request: publicRequest(result.rows[0], { includeRequester: true }) }
+      : { success: false, reason: 'request-not-found' }
+  }
+
   async function listRequests({ limit = 50 } = {}) {
     const db = getPool()
     if (!db) return { success: false, reason: 'database-not-configured' }
@@ -488,7 +501,7 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
     await currentPool.end()
   }
 
-  return { createRequest, findRequest, listRequests, createApprovalChallenge, consumeApprovalChallenge, recordSponsorApproval, listSponsorReviewQueue, close }
+  return { createRequest, findRequest, findRequestForSponsor, listRequests, createApprovalChallenge, consumeApprovalChallenge, recordSponsorApproval, listSponsorReviewQueue, close }
 }
 
 export function createMainnetDirectSponsorRequestRouter({
@@ -573,8 +586,10 @@ export function createMainnetDirectSponsorRequestRouter({
       || roleResult?.configuredAddressesDistinct !== true) {
       blockers.push('distinct-mainnet-network-fee-sponsor-not-configured')
     }
+    const feeTrxPositive = typeof fee.native?.balanceSun === 'string'
+      && /^[1-9][0-9]*$/.test(fee.native.balanceSun)
     if (fee.onChainBalanceRead !== true || fee.native?.status !== 'verified'
-      || fee.resourceStatus?.resourceRead !== true) {
+      || !feeTrxPositive || fee.resourceStatus?.resourceRead !== true) {
       blockers.push('mainnet-network-fee-sponsor-funds-and-resources-not-verified')
     }
     return { ready: blockers.length === 0, blockers }
