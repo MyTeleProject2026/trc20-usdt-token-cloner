@@ -253,7 +253,6 @@ export async function settleSponsorChainFeeObservation(input = {}) {
           success: true, duplicate: true, settled: true,
           settlementId: existing.id, settlementReference: 'trx-fee:' + network + ':' + transactionHash,
           settledFeeSun: feeSun.toString(), feeBudgetSettled: true,
-        executionResult: observation.execution_result,
           executionResult: observation.execution_result,
         }
       }
