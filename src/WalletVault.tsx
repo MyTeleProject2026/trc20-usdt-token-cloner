@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import SponsorOrganizationReviewPanel from './SponsorOrganizationReviewPanel.tsx'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -2161,6 +2162,15 @@ export default function WalletVault() {
             </div>
           )}
         </section>
+      </div>
+
+      <div hidden={activePanel !== 'treasury'}>
+        <SponsorOrganizationReviewPanel
+          wallet={unlocked ? { address: unlocked.record.address, privateKey: unlocked.privateKey } : null}
+          network={network}
+          onSelectMainnet={() => setNetwork('mainnet')}
+          onOpenAccount={() => navigatePanel('account')}
+        />
       </div>
 
       <nav className="wallet-vault-bottom-nav" aria-label="Owner wallet sections">
