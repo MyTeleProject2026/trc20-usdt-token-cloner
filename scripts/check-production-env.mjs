@@ -89,7 +89,13 @@ export function inspectProductionEnvironment(env = process.env, {
     : check(present(env.OWNER_WALLET_ADDRESS) ? 'invalid' : 'missing', 'Use the owner-controlled TRON address.')
   , { error: !ownerAddressValid })
 
-  const treasuryOwnerValid = isValidTronAddress(env.TREASURY_OWNER_ADDRESS)
+  const ownerPayoutFlagsEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
+    || env.TREASURY_TRX_WITHDRAWALS_ENABLED === 'true'
+  const fireblocksSelected = env.TREASURY_SIGNER_MODE === 'fireblocks'
+  const ownerPayoutSelected = fireblocksSelected || ownerPayoutFlagsEnabled
+
+  if (ownerPayoutSelected) {
+    const treasuryOwnerValid = isValidTronAddress(env.TREASURY_OWNER_ADDRESS)
   const ownerMatches = ownerAddressValid && treasuryOwnerValid && env.OWNER_WALLET_ADDRESS === env.TREASURY_OWNER_ADDRESS
   add('TREASURY_OWNER_ADDRESS', !treasuryOwnerValid
     ? check(present(env.TREASURY_OWNER_ADDRESS) ? 'invalid' : 'missing', 'Use the same owner-controlled address as OWNER_WALLET_ADDRESS.')
@@ -180,6 +186,25 @@ export function inspectProductionEnvironment(env = process.env, {
       ? check('configured', 'An asset ID is present; provider metadata was not checked.')
       : check(present(env[key]) ? 'invalid' : 'missing', 'Copy the exact asset ID from the authorized Fireblocks workspace.')
     , { error: !ASSET_ID_PATTERN.test(env[key] || '') })
+  }
+
+  } else {
+    // Fireblocks backs a separate, optional owner-treasury feature. It is not
+    // required by the provider-independent sponsor-wallet signing workflow.
+    for (const key of [
+      'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS',
+      'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+      'TREASURY_MAX_PAYOUT_TRX', 'TREASURY_DAILY_LIMIT_TRX',
+      'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_API_BASE', 'FIREBLOCKS_API_KEY',
+      'FIREBLOCKS_SECRET_KEY_PATH', 'FIREBLOCKS_VAULT_ACCOUNT_ID',
+      'FIREBLOCKS_USDT_ASSET_ID', 'FIREBLOCKS_TRX_ASSET_ID',
+    ]) {
+      add(key, check('not-required', 'The separate Fireblocks-backed owner-treasury payout feature is not selected.'))
+    }
+    add('TREASURY_SIGNER_MODE', present(env.TREASURY_SIGNER_MODE)
+      ? check('unsupported', 'Only the separately gated Fireblocks owner-treasury signer is implemented for Mainnet; sponsor-wallet signing is a different testnet-only workflow.')
+      : check('not-selected', 'No Mainnet owner-treasury signer is selected; Fireblocks is not required for the sponsor-controlled testnet wallet workflow.'),
+    { error: present(env.TREASURY_SIGNER_MODE) })
   }
 
   for (const key of ['TREASURY_WITHDRAWALS_ENABLED', 'TREASURY_TRX_WITHDRAWALS_ENABLED', 'SPONSOR_MAINNET_BUDGET_ACTIVATION_ENABLED', 'SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED']) {
