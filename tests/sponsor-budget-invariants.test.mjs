@@ -442,7 +442,7 @@ test('submitted sponsor principal cannot be released without matching immutable 
     async connect() {
       return {
         async query(sql) {
-          const q = sql.replace(/\\s+/g, ' ').trim()
+          const q = sql.replace(/\s+/g, ' ').trim()
           state.queries.push(q)
           if (q === 'BEGIN') return { rows: [] }
           if (q === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
@@ -484,7 +484,7 @@ test('matching immutable FAILED fee evidence releases only the principal reserva
     async connect() {
       return {
         async query(sql, values = []) {
-          const q = sql.replace(/\\s+/g, ' ').trim()
+          const q = sql.replace(/\s+/g, ' ').trim()
           state.queries.push({ q, values })
           if (q === 'BEGIN') return { rows: [] }
           if (q === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
