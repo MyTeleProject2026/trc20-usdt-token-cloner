@@ -77,7 +77,8 @@ function matchesIntendedCall({ transaction, transfer, ownerHex, receiverHex, con
   if (!/^[0-9a-f]{136}$/.test(data) || data.slice(0, 8) !== 'a9059cbb') return false
   const encodedReceiver = data.slice(8, 72)
   const encodedAmount = data.slice(72, 136)
-  return encodedReceiver.slice(24) === receiverHex
+  return encodedReceiver.slice(0, 24) === '0'.repeat(24)
+    && encodedReceiver.slice(24) === receiverHex
     && BigInt('0x' + encodedAmount).toString() === transfer.amountBaseUnits
 }
 
