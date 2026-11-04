@@ -3181,7 +3181,7 @@ export default function WorkflowApp() {
                       <div className="studio-role-metric"><span>Request reference</span><strong><code>{request.idempotencyKey}</code></strong></div>
                     </div>
                     {request.feeSponsorApproval?.status === 'approved-active' ? (
-                      <p className="studio-inline-note">Maximum approved fee: {request.feeSponsorApproval.maxFeeSun || 'unavailable'} SUN. This is not a resource reservation, delegation transaction or final fee settlement.</p>
+                      <p className="studio-inline-note">Maximum fee: {request.feeSponsorApproval.maxFeeSun || 'unavailable'} SUN approved cap. This is not a resource reservation, delegation transaction or final fee settlement.</p>
                     ) : request.sponsorApproval?.status === 'approved-active' ? (
                       <button type="button" className="studio-button studio-button--secondary" onClick={() => void prepareMainnetFeeSponsorApproval(request)} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null}>
                         {mainnetFeeSponsorReviewBusy === 'challenge' ? 'Checking fee capacity…' : 'Prepare exact fee approval message'}
