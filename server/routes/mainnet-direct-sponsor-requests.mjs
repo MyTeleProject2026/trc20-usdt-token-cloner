@@ -42,7 +42,7 @@ function sameIntent(row, input) {
     && Number(row.decimals) === input.decimals
 }
 
-function publicRequest(row, { includeRequester = false } = {}) {
+function publicRequest(row, { includeRequester = true } = {}) {
   return {
     id: String(row.id),
     idempotencyKey: row.idempotency_key,
