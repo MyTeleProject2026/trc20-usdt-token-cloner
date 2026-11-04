@@ -759,7 +759,8 @@ export default function App() {
                   {fincraReadiness?.fincra && (
                     <div className="readiness-checks">
                       <span>Tatum Mainnet {fincraReadiness.tatum?.mainnetNode?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.mainnetNode?.reason || 'not verified'}</span>
-                      <span>Tatum Testnet {fincraReadiness.tatum?.testnetConfigured ? 'configured' : 'missing'}</span>
+                      <span>Tatum Nile {fincraReadiness.tatum?.testnetNodes?.nile?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.testnetNodes?.nile?.reason || (fincraReadiness.tatum?.testnetConfigured ? 'configured, not verified' : 'missing')}</span>
+                      <span>Tatum Shasta {fincraReadiness.tatum?.testnetNodes?.shasta?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.testnetNodes?.shasta?.reason || (fincraReadiness.tatum?.testnetConfigured ? 'configured, not verified' : 'missing')}</span>
                       <span>Fincra API key {fincraReadiness.fincra.apiKeyConfigured ? 'configured' : 'missing'}</span>
                       <span>Business ID {fincraReadiness.fincra.businessIdConfigured ? 'configured' : 'missing'}</span>
                       <span>Webhook secret {fincraReadiness.fincra.webhookSecretConfigured ? 'configured' : 'missing'}</span>
