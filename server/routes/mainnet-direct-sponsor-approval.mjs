@@ -797,7 +797,8 @@ export function createMainnetDirectSponsorApprovalRouter({
     if (!isValidTronAddress(fee.address) || fee.address === policy.sponsorAddress
       || roleResult?.configuredAddressesDistinct !== true) blockers.push('distinct-mainnet-network-fee-sponsor-not-configured')
     if (fee.onChainBalanceRead !== true || fee.native?.status !== 'verified'
-      || fee.resourceStatus?.resourceRead !== true) blockers.push('mainnet-network-fee-sponsor-funds-and-resources-not-verified')
+      || typeof fee.native?.balanceSun !== 'string' || !/^[1-9][0-9]*$/.test(fee.native.balanceSun)
+      || fee.resourceStatus?.resourceRead !== true) blockers.push('mainnet-network-fee-sponsor-positive-trx-and-resources-not-verified')
     return { ready: blockers.length === 0, blockers }
   }
 
