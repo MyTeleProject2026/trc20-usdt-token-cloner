@@ -235,9 +235,26 @@ export default function DirectSponsorPayouts({
       if (!amountBaseUnits) throw new Error('Enter a positive USDT amount with up to six decimal places.')
       if (typeof window.crypto?.randomUUID !== 'function') throw new Error('Secure request identifiers are unavailable in this browser.')
       const token = await authenticate()
-      const idempotencyKey = requestKey && requestRecord
-        && requestRecord.recipientAddress === recipient.trim()
-        && requestRecord.amountBaseUnits === amountBaseUnits
+      // A saved idempotency key may outlive the current component state. Look
+      // it up before creating anything new so a reload cannot silently orphan
+      // a pending request or cause a second sponsor review for the same input.
+      if (requestKey && !requestRecord) {
+        const existing = await api<any>(
+          '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(requestKey),
+          { token },
+        )
+        if (existing.response.ok && existing.payload?.success === true) {
+          setRequestStatus(existing.payload)
+          setRequestNotice('Recovered the existing saved request. No new sponsor request was created; review its status below.')
+          return
+        }
+        if (existing.response.status !== 404) {
+          throw new Error(errorText(existing.payload, 'Could not safely check the saved request reference. No new request was submitted.'))
+        }
+      }
+      const idempotencyKey = requestKey && (!requestRecord
+        || (requestRecord.recipientAddress === recipient.trim()
+          && requestRecord.amountBaseUnits === amountBaseUnits))
         ? requestKey : window.crypto.randomUUID()
       const result = await api<any>('/api/tron/sponsorship/mainnet-direct/requests', {
         method: 'POST',
