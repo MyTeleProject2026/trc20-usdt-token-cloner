@@ -248,7 +248,7 @@ function getPool(env) {
   return pool
 }
 
-export function createTronTransferRouter({ env = process.env, fetchImpl = tatumProviderFetch } = {}) {
+export function createTronTransferRouter({ env = process.env } = {}) {
   const router = Router()
   let schemaPromise = null
 
@@ -503,7 +503,7 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = tatumP
         success: true, network, address, nativeBalanceSun,
         nativeBalanceTRX: nativeBalanceSun === null ? null : (Number(nativeBalanceSun) / 1_000_000).toFixed(6),
         tokenBalance, incomingHistory: history,
-        historyStatus: nativeHistory || tokenHistory ? 'tatum-history-read' : 'history-unavailable',
+        accountExists: Boolean(account?.address),\n        nativeHistoryRead: nativeHistory !== null,\n        tokenHistoryRead: tokenHistory !== null,\n        historyStatus: nativeHistory && tokenHistory ? 'complete' : nativeHistory || tokenHistory ? 'partial' : 'unavailable',
         checkedAt: new Date().toISOString(),
       })
     } catch (error) {
