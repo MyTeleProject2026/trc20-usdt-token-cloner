@@ -21,6 +21,6 @@ test('frontend uses the shared local-signing and encrypted-keystore helpers', ()
 })
 
 test('frontend never claims that a testnet transfer credits a third-party Mainnet exchange', () => {
-  assert.match(app, /do not create official Mainnet Tether deposits/)
-  assert.match(app, /exchange's Mainnet deposit account is not credited/)
+  assert.match(app, /exchange's Mainnet deposit account is not credited by a testnet transaction/)
+  assert.match(app, /This sends only from the unlocked wallet's own testnet balance/)
 })
