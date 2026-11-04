@@ -92,6 +92,7 @@ test('server entrypoint uses the fail-closed CORS policy and reports valid confi
   assert.match(entrypoint, /process\.env\.FRONTEND_ORIGIN/)
   assert.match(entrypoint, /process\.env\.PACKAGED_APP_ORIGINS/)
   assert.match(entrypoint, /process\.env\.OKX_UI_ORIGIN/)
+  assert.match(entrypoint, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
   assert.match(entrypoint, /createCorsPolicy\(configuredOrigins\)/)
   assert.match(entrypoint, /app\.use\(corsPolicy\)/)
   assert.match(entrypoint, /frontendOrigin: \{ configured: allowedOrigins\.size > 0 \}/)
