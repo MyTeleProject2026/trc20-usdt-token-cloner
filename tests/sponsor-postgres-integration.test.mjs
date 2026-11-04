@@ -1118,7 +1118,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
   const idempotencyKey = 'pg-mainnet-direct-' + randomUUID()
   const input = {
     idempotencyKey,
-    requesterAddress: 'pg-requester-' + randomUUID(),
+    requesterAddress: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
     recipientAddress: receiverAddress,
     tokenContract: OFFICIAL_MAINNET_USDT_CONTRACT,
     amountBaseUnits: '1234567',
