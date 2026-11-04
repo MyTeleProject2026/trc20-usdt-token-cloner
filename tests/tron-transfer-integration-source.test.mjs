@@ -22,11 +22,21 @@ test('signed Tatum broadcast is testnet-only and checks transaction identity bef
   assert.match(route, /broadcast-outcome-unknown/)
 })
 
-test('recipient inspection uses Tatum confirmed incoming history and reports balances', () => {
+test('recipient inspection uses Tatum solidified balances and network-specific TronGrid incoming history', () => {
   assert.match(route, /walletsolidity\/getaccount/)
-  assert.match(route, /onlyTo: true, onlyConfirmed: true/)
+  assert.match(route, /readTronGridIncomingHistory/)
+  assert.match(route, /historyProvider: 'trongrid'/)
   assert.match(route, /incomingHistory: history/)
   assert.match(route, /balanceOf\(address\)/)
+  assert.match(route, /TRONGRID_API_KEY/)
+  assert.doesNotMatch(route, /\/v3\/tron\/transaction\/account\//)
+})
+
+test('Mainnet sponsor transfer matching uses TronGrid confirmed history and Tatum solidified evidence', () => {
+  assert.match(route, /network: 'mainnet'/)
+  assert.match(route, /readTronGridIncomingHistory/)
+  assert.match(route, /verifySolidifiedUsdtTransfer/)
+  assert.match(route, /solidified-trc20-transfer-verified/)
 })
 
 test('Fincra payout uses the USDT TRC20 scheme and refuses implicit live activation', () => {
