@@ -140,6 +140,7 @@ test('preflight warns when any transfer gate is enabled and never reports produc
 
 test('preflight accepts valid decimal payout limits and rejects excess fractional precision', () => {
   const valid = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
     TREASURY_MAX_PAYOUT_USDT: '0.25',
     TREASURY_DAILY_LIMIT_USDT: '100.125',
     TREASURY_MAX_PAYOUT_TRX: '1.000001',
@@ -159,6 +160,7 @@ test('preflight accepts valid decimal payout limits and rejects excess fractiona
   }
 
   const invalid = inspectProductionEnvironment(completeSyntacticEnv({
+    TREASURY_WITHDRAWALS_ENABLED: 'true',
     TREASURY_MAX_PAYOUT_USDT: '1.0000001',
   }), {
     fileExists: () => true,
