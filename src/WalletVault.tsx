@@ -3,7 +3,6 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
-import ThirdPartyFundingPanel from './ThirdPartyFundingPanel'
 import { clearTreasuryPayoutReference, readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -594,141 +593,6 @@ export default function WalletVault() {
       setTreasuryPayoutStatus(null)
     }
   }, [unlocked?.record.address])
-
-  // Load read-only Mainnet treasury status from the private owner-console login.
-  // Outgoing payouts still require a separate, request-specific signature from
-  // the owner wallet held inside this app; the console password does not mint assets.
-  useEffect(() => {
-    // Prefer the in-memory authenticated token; sessionStorage is only a
-    // convenience for page refreshes and may be unavailable in restricted contexts.
-    let token = ownerSessionToken
-    try {
-      token = token || window.sessionStorage.getItem(OWNER_CONSOLE_SESSION_KEY) || ''
-    } catch {
-      // Keep the in-memory session token when browser storage is unavailable.
-    }
-    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
-
-    let cancelled = false
-    let requestInFlight = false
-    async function loadOwnerTreasuryDashboard() {
-      if (requestInFlight || cancelled) return
-      requestInFlight = true
-      setOwnerTreasuryLoading(true)
-      setOwnerTreasuryError('')
-      try {
-        const sessionResponse = await fetch(API_BASE + '/api/auth/owner/session', {
-          headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
-          credentials: 'omit',
-          cache: 'no-store',
-          redirect: 'error',
-        })
-        const sessionPayload = await sessionResponse.json().catch(() => null)
-        if (!sessionResponse.ok || sessionPayload?.success !== true
-          || sessionPayload?.authenticated !== true || sessionPayload.network !== 'mainnet'
-          || !ADDRESS_PATTERN.test(String(sessionPayload.address || ''))
-          || !Number.isFinite(sessionPayload.expiresAt) || sessionPayload.expiresAt <= Date.now()) {
-          throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
-        }
-
-        if (!cancelled) {
-          setOwnerSessionAddress(String(sessionPayload.address))
-          setOwnerSessionToken(token)
-        }
-        const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse, inventoryResponse, discoveryResponse, outboundHistoryResponse] = await Promise.all([
-          fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
-            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
-          }),
-          fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
-            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
-          }),
-          fetch(API_BASE + '/api/treasury/fireblocks/inventory/latest', {
-            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
-          }),
-          fetch(API_BASE + '/api/treasury/fireblocks/discovery', {
-            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
-          }),
-          fetch(API_BASE + '/api/treasury/fireblocks/outbound-history/status', {
-            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
-          }),
-        ])
-        const [funding, readiness, inventory, discovery, outboundHistory] = await Promise.all([
-          fundingResponse.json().catch(() => null),
-          readinessResponse.json().catch(() => null),
-          inventoryResponse.json().catch(() => null),
-          discoveryResponse.json().catch(() => null),
-          outboundHistoryResponse.json().catch(() => null),
-        ])
-        if (cancelled) return
-        if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
-          setOwnerTreasurySnapshot(funding as OwnerTreasurySnapshot)
-        } else {
-          setOwnerTreasurySnapshot(null)
-        }
-        setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
-        if (inventoryResponse.ok && inventory?.success === true) {
-          setFireblocksInventorySnapshot(inventory.snapshot && typeof inventory.snapshot === 'object'
-            ? inventory.snapshot as FireblocksInventorySnapshot : null)
-          setFireblocksInventoryError('')
-        } else {
-          setFireblocksInventorySnapshot(null)
-          setFireblocksInventoryError('The latest saved Fireblocks inventory evidence could not be loaded.')
-        }
-        if (discoveryResponse.ok && discovery?.success === true) {
-          setFireblocksDiscoverySnapshot(discovery as FireblocksDiscoverySnapshot)
-          setFireblocksDiscoveryError('')
-        } else {
-          setFireblocksDiscoverySnapshot(null)
-          setFireblocksDiscoveryError('Live Fireblocks auto-discovery is unavailable. Check the owner session and backend API credentials status.')
-        }
-        if (outboundHistoryResponse.ok && outboundHistory?.success === true) {
-          setFireblocksOutboundHistorySnapshot(outboundHistory)
-          setFireblocksOutboundHistoryError('')
-        } else {
-          setFireblocksOutboundHistorySnapshot(outboundHistory && typeof outboundHistory === 'object' ? outboundHistory : null)
-          setFireblocksOutboundHistoryError('Fireblocks outbound history status is unavailable. Payout readiness remains blocked.')
-        }
-        if (!fundingResponse.ok || funding?.success !== true) {
-          setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
-        }
-      } catch (caught) {
-        if (cancelled) return
-        setOwnerSessionAddress('')
-        setOwnerTreasurySnapshot(null)
-        setServerTreasuryReadiness(null)
-        setFireblocksInventorySnapshot(null)
-        setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
-        setFireblocksDiscoverySnapshot(null)
-        setFireblocksDiscoveryError('The owner-only Fireblocks discovery status is unavailable.')
-        setFireblocksOutboundHistorySnapshot(null)
-        setFireblocksOutboundHistoryError('The owner-only Fireblocks outbound history status is unavailable.')
-        setOwnerTreasuryError(caught instanceof Error
-          ? caught.message
-          : 'Could not automatically load the Mainnet treasury status from the owner session.')
-      } finally {
-        requestInFlight = false
-        if (!cancelled) setOwnerTreasuryLoading(false)
-      }
-    }
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') void loadOwnerTreasuryDashboard()
-    }
-    void loadOwnerTreasuryDashboard()
-    // Refresh the backend-managed configuration/readiness snapshot on a timer,
-    // immediately when the user returns to the tab, and when the app regains
-    // focus. Never overlap requests or run background polls in a hidden tab.
-    const refreshInterval = window.setInterval(refreshWhenVisible, 30_000)
-    window.addEventListener('focus', refreshWhenVisible)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-    return () => {
-      cancelled = true
-      window.clearInterval(refreshInterval)
-      window.removeEventListener('focus', refreshWhenVisible)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
-    }
-  }, [unlocked?.record.address, network, ownerSessionToken, ownerTreasuryRefreshNonce])
-
 
   useEffect(() => {
     if (!unlocked) return
@@ -1779,12 +1643,14 @@ export default function WalletVault() {
   }
 
   function navigatePanel(panel: 'dashboard' | 'wallet' | 'treasury' | 'send' | 'activity' | 'account' | 'settings') {
+    if (panel === 'treasury') {
+      // The old vault/Fireblocks treasury page is retired. Send users to the
+      // request-specific direct-sponsor workflow without replacing their wallet.
+      window.location.hash = '#/workspace'
+      return
+    }
     setActivePanel(panel)
     scrollWorkspaceToTop()
-    if (panel === 'treasury' && network !== 'mainnet') {
-      setNetwork('mainnet')
-      setNotice('Treasury monitoring and organization payouts use TRON Mainnet. An exact owner approval is required for each payout.')
-    }
     if (panel !== 'send') {
       setTransferReview(null)
       setTransferAcknowledged(false)
@@ -1907,7 +1773,7 @@ export default function WalletVault() {
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
         <strong>Important: sponsor-funded Mainnet payouts are locked</strong>
-        <p>This application cannot create USDT or spend an observed balance. A payout requires an authorized sponsor organization’s Fireblocks vault to hold genuine official TRON USDT and enough TRX for network fees. The owner wallet signs a one-request authorization only; it does not fund the payout. Real-value execution remains hard-disabled until the sponsor, provider, custody, chain and security controls are independently approved.</p>
+        <p>This application cannot create USDT or spend an observed balance. A payout requires an authorized sponsor-controlled TRON Mainnet wallet with genuine official USDT and sufficient TRX or explicitly authorized network resources. The owner wallet signs a one-request authorization only; it does not fund the payout. Real-value execution remains hard-disabled until the sponsor, provider, custody, chain and security controls are independently approved.</p>
       </div>
 
       <section className="wallet-vault-panel wallet-vault-route-chooser" aria-labelledby="wallet-vault-route-chooser-heading" hidden={activePanel !== 'dashboard'}>
@@ -1942,7 +1808,7 @@ export default function WalletVault() {
           <span className="wallet-vault-step"><Landmark size={16} /></span>
           <div>
             <h2 id="wallet-vault-payout-guide-heading">Sponsor route · Mainnet USDT payout journey</h2>
-            <p>Use this journey only when an organization has authorized and funded the separate Fireblocks treasury. It is independent of the Personal wallet route.</p>
+            <p>Use this journey when an independent sponsor has authorized the exact request and controls the wallet that will send the genuine USDT directly to the destination.</p>
           </div>
         </div>
         <div className="wallet-vault-payout-guide-status" role="status" aria-live="polite">
@@ -1971,7 +1837,7 @@ export default function WalletVault() {
             <span className="wallet-vault-payout-guide-number">02</span>
             <Landmark size={19} aria-hidden="true" />
             <strong>Check sponsor funding</strong>
-            <small>Review Fireblocks discovery, official USDT and TRX balances, sponsor approval, budgets and complete outbound-history reconciliation.</small>
+            <small>Review the direct sponsor request, the sponsor's on-chain USDT and fee-resource coverage, and the exact approval requirements.</small>
             <span className="wallet-vault-payout-guide-action">Open Organization payouts →</span>
           </button>
           <button type="button" className="wallet-vault-payout-guide-step" onClick={() => navigatePanel('account')}>
@@ -2365,16 +2231,6 @@ export default function WalletVault() {
             <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Live Render deployment remains separately hard-locked until the reviewed PR stack and external release prerequisites are completed.</p>
           </>}
         </div>
-        <div className="wallet-vault-transfer-section" aria-label="Third-party sponsor source consent and deposit verification">
-          <ThirdPartyFundingPanel
-            apiBase={API_BASE}
-            sessionToken={ownerSessionToken}
-            inventoryVerified={fireblocksInventorySnapshot?.verificationStatus === 'verified'}
-            inventoryCheckedAt={fireblocksInventorySnapshot?.checkedAt || null}
-            expectedSponsorOrganizationReference={serverTreasuryReadiness?.sponsorPrincipalBudget?.organizationReference || ''}
-            expectedAgreementReference={serverTreasuryReadiness?.sponsorPrincipalBudget?.agreementReference || ''}
-          />
-        </div>
         <div className="wallet-vault-review-grid" aria-label="Sponsor funding target and verified payout capacity">
           <div>
             <small>Requested sponsor funding target · planning only</small>
@@ -2706,7 +2562,7 @@ export default function WalletVault() {
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Sponsor-funded Mainnet payout — never debits the personal wallet</strong>
-                    <p>The organization’s Fireblocks vault supplies the genuine USDT principal and approved fee assets. The unlocked owner wallet signs only the exact one-request authorization. The backend still rejects submission while any sponsor, custody, funding, database, policy or source-build release gate is closed.</p>
+                    <p>The authorized sponsor wallet supplies the genuine USDT principal and approved fee assets. The unlocked owner wallet signs only the exact one-request authorization. The backend still rejects submission while any sponsor, custody, funding, database, policy or source-build release gate is closed.</p>
                   </div>
                   {serverTreasuryReadiness && (
                     <div className="wallet-vault-review-grid">
@@ -2755,7 +2611,7 @@ export default function WalletVault() {
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
                     <strong>Sponsor-funded Mainnet USDT withdrawal request</strong>
-                    <p>The source is the authorized organization’s Fireblocks vault, not the personal wallet. This form remains unavailable unless the backend verifies the exact sponsor release, authenticated owner, live provider/chain preflight, database reservations, recipient policy, fee reserve and principal budget. The owner signature authorizes one request only and does not provide the USDT funds.</p>
+                    <p>The source is the authorized sponsor wallet, not the personal wallet. This form remains unavailable unless the backend verifies the exact sponsor release, authenticated owner, live provider/chain preflight, database reservations, recipient policy, fee reserve and principal budget. The owner signature authorizes one request only and does not provide the USDT funds.</p>
                   </div>
                   <div className="wallet-vault-form">
                     <label htmlFor="treasury-payout-recipient">External TRON Mainnet recipient</label>
