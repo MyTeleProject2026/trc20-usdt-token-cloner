@@ -197,6 +197,7 @@ export function createSponsorChainFeeObservationRouter(options = {}) {
     transfer, env, fetchImpl: options.fetchImpl, tronWebFactory: options.tronWebFactory,
   }))
   const persist = options.persistObservation ?? recordSponsorChainFeeObservation
+  const transition = options.transitionTransfer ?? transitionSponsorTransfer
   const list = options.listObservations ?? listSponsorChainFeeObservations
   const router = Router()
   const fail = (res, status, error, extra = {}) => res.status(status).json({
@@ -307,7 +308,7 @@ export function createSponsorChainFeeObservationRouter(options = {}) {
         return fail(res, 409, 'submitted-testnet-asset-transfer-required')
       }
       if (transfer.status !== 'submitted') return fail(res, 409, 'submitted-transfer-required', { status: transfer.status })
-      const changed = await transitionSponsorTransfer({
+      const changed = await transition({
         idempotencyKey: key, nextStatus: 'failed',
         transactionHash: transfer.transactionHash.toLowerCase(),
       })
