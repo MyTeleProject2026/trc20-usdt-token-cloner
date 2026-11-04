@@ -64,7 +64,7 @@ test('recipient transfer verification requires the official Mainnet USDT contrac
   assert.match(route, /walletsolidity\\/gettransactionbyid/)
   assert.match(route, /walletsolidity\\/gettransactioninfobyid/)
   assert.match(route, /TRANSFER_EVENT_TOPIC/)
-  assert.match(route, /chain-verification-status='solidified-recipient-transfer-verified'/)
+  assert.match(route, /chain_verification_status='solidified-recipient-transfer-verified'/)
 })
 
 test('API entrypoint mounts the route and accepts only the configured Tron Transfer origin', () => {
