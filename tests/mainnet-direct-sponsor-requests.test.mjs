@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
 import { createMainnetDirectSponsorRequestRouter, OFFICIAL_MAINNET_USDT_CONTRACT } from '../server/routes/mainnet-direct-sponsor-requests.mjs'
@@ -31,6 +32,8 @@ function makeStore() {
         idempotencyKey: input.idempotencyKey,
         requesterAddress: input.requesterAddress,
         recipientAddress: input.recipientAddress,
+        network: 'mainnet',
+        asset: 'USDT',
         tokenContract: input.tokenContract,
         amountBaseUnits: input.amountBaseUnits,
         decimals: input.decimals,
@@ -224,4 +227,10 @@ test('sponsor review queue requires server-only admin token and remains review-o
   assert.equal(payload.sponsorApprovalEnabled, false)
   assert.equal(payload.canSubmitSponsoredTransfer, false)
   assert.equal(payload.transactionBroadcast, false)
+})
+
+test('Mainnet direct sponsor request router is mounted under the TRON API', async () => {
+  const source = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+  assert.match(source, /import mainnetDirectSponsorRequestRoutes from '\.\/routes\/mainnet-direct-sponsor-requests\.mjs'/)
+  assert.match(source, /app\.use\('\/api\/tron', mainnetDirectSponsorRequestRoutes\)/)
 })
