@@ -152,7 +152,7 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   }
   const info = {
     id: txid, blockNumber: 77, fee: 4200, result: 'SUCCESS',
-    receipt: { net_fee: 2200, energy_fee: 2000, energy_usage_total: 0, net_usage: 220 },
+    receipt: { net_fee: 2200, energy_fee: 2000, energy_usage_total: 0, energy_usage: 0, origin_energy_usage: 17, net_usage: 220 },
   }
   const result = await readSolidifiedSponsorChainCosts({
     transfer: transfer().transfer,
@@ -165,6 +165,9 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   })
   assert.equal(result.success, true)
   assert.equal(result.reportedFeeSun, '4200')
+  assert.equal(result.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(result.trxFeePayerAddressHex, '11'.repeat(20))
+  assert.equal(result.originEnergyUsage, '17')
   assert.equal(result.blockNumber, 77)
   assert.equal(calls.length, 2)
   assert.ok(calls.every((call) => call.url.startsWith('https://tron-nile.gateway.tatum.io/')))
@@ -172,6 +175,36 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   assert.equal(JSON.stringify(result).includes(secret), false)
 })
 
+
+
+test('zero TRX fee does not invent a TRX fee payer while retaining resource usage', async () => {
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver].includes(value) },
+    address: { toHex(value) { return value === principal ? '41' + '11'.repeat(20) : '41' + '22'.repeat(20) } },
+  }
+  const transaction = {
+    txID: txid,
+    ret: [{ contractRet: 'SUCCESS' }],
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: '41' + '11'.repeat(20), to_address: '41' + '22'.repeat(20), amount: 2500000,
+    } } }] },
+  }
+  const info = {
+    id: txid, blockNumber: 79, fee: 0, result: 'SUCCESS',
+    receipt: { net_fee: 0, energy_fee: 0, energy_usage_total: 100, energy_usage: 100, origin_energy_usage: 0, net_usage: 220 },
+  }
+  const result = await readSolidifiedSponsorChainCosts({
+    transfer: transfer().transfer,
+    env: { TATUM_API_KEY: 'test-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({ ok: true, json: async () => url.endsWith('gettransactionbyid') ? transaction : info }),
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(result.trxFeePayerAddressHex, null)
+  assert.equal(result.originEnergyUsage, '0')
+  assert.equal(result.energyUsage, '100')
+})
 
 test('solidified cost reader rejects a finalized failed execution receipt', async () => {
   const fakeTronWeb = {
