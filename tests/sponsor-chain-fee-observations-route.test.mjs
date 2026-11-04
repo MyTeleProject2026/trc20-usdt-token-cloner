@@ -91,6 +91,57 @@ test('failed solidified execution fee evidence is read without treating the asse
   assert.ok(calls.every((call) => call.url.startsWith('https://tron-nile.gateway.tatum.io/')))
 })
 
+
+test('failed TRC20 fee evidence requires exact canonical transfer calldata', async () => {
+  const tokenAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+  const tokenHex = '33'.repeat(20)
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver, tokenAddress].includes(value) },
+    address: { toHex(value) {
+      if (value === principal) return '41' + ownerHex
+      if (value === receiver) return '41' + receiverHex
+      return '41' + tokenHex
+    } },
+  }
+  const transferIntent = transfer({
+    asset: 'USDT', tokenContract: tokenAddress,
+    amountBaseUnits: '2500000',
+  }).transfer
+  const amountHex = BigInt(2500000).toString(16).padStart(64, '0')
+  const calldata = 'a9059cbb' + '0'.repeat(24) + receiverHex + amountHex
+  const transaction = {
+    txID: txid,
+    ret: [{ contractRet: 'REVERT' }],
+    raw_data: { contract: [{ type: 'TriggerSmartContract', parameter: { value: {
+      owner_address: '41' + ownerHex, contract_address: '41' + tokenHex, data: calldata,
+    } } }] },
+  }
+  const info = {
+    id: txid, blockNumber: 90, result: 'FAILED',
+    receipt: { result: 'REVERT', fee: 5000, energy_fee: 5000, net_fee: 0 },
+  }
+  const read = (tx) => readSolidifiedSponsorChainFeeEvidence({
+    transfer: transferIntent,
+    env: { TATUM_API_KEY: 'test-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({ ok: true, json: async () => url.endsWith('gettransactionbyid') ? tx : info }),
+  })
+  const valid = await read(transaction)
+  assert.equal(valid.success, true)
+  assert.equal(valid.executionResult, 'FAILED')
+  assert.equal(valid.reportedFeeSun, '5000')
+
+  const wrongRecipient = {
+    ...transaction,
+    raw_data: { contract: [{ type: 'TriggerSmartContract', parameter: { value: {
+      owner_address: '41' + ownerHex, contract_address: '41' + tokenHex,
+      data: 'a9059cbb' + '0'.repeat(24) + '44'.repeat(20) + amountHex,
+    } } }] },
+  }
+  const invalid = await read(wrongRecipient)
+  assert.deepEqual(invalid, { success: false, reason: 'solidified-transaction-intent-mismatch' })
+})
+
 test('fee observation route requires admin authorization before lookup', async (t) => {
   let lookups = 0
   const base = await createServerForTest(t, { lookupTransfer: async () => { lookups += 1; return transfer() } })
