@@ -304,6 +304,7 @@ export async function buildSignAndBroadcastTransfer({
   amountBaseUnits,
   tokenContract,
   feeLimitSun = 50_000_000,
+  broadcast,
 }) {
   if (!tronWeb || typeof tronWeb !== 'object') throw new Error('TRON network connection is unavailable.')
   if (!canonicalBase58(tronWeb, from)) throw new Error('The unlocked sender address is invalid.')
@@ -356,7 +357,9 @@ export async function buildSignAndBroadcastTransfer({
     throw new Error('Transaction ID changed unexpectedly during signing. Broadcasting was stopped.')
   }
 
-  const result = await tronWeb.trx.sendRawTransaction(signed)
+  const result = typeof broadcast === 'function'
+    ? await broadcast(signed)
+    : await tronWeb.trx.sendRawTransaction(signed)
   if (result?.result !== true) {
     const code = typeof result?.code === 'string' ? result.code : ''
     const message = code === 'BANDWITH_ERROR' ? 'The network rejected the transfer because of insufficient bandwidth.' : 'The network did not accept the signed transfer for broadcast.'
@@ -376,7 +379,8 @@ export async function buildSignAndBroadcastTransfer({
   return {
     txid: txid.toLowerCase(),
     broadcastTxidMismatch,
-    network: 'confirmed-by-broadcast-node',
+    broadcastOutcomeUnknown: result?.broadcastOutcomeUnknown === true,
+    network: 'tatum-testnet-broadcast',
     source: from,
     destination: to,
     asset,
