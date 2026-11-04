@@ -22,7 +22,7 @@ const tronWeb = {
 function eventAddress(address) {
   return addressMap.get(address).slice(2).padStart(64, '0')
 }
-function makeFixture({ sender=OWNER, receiver=RECIPIENT, contract=CONTRACT, amount=AMOUNT, receiptResult='SUCCESS', blockNumber=123 }={}) {
+function makeFixture({ sender=OWNER, logSender=sender, receiver=RECIPIENT, contract=CONTRACT, amount=AMOUNT, receiptResult='SUCCESS', blockNumber=123 }={}) {
   const recipientBytes = addressMap.get(receiver).slice(2)
   const contractHex = addressMap.get(contract)
   const amountHex = BigInt(amount).toString(16).padStart(64,'0')
@@ -48,7 +48,7 @@ function makeFixture({ sender=OWNER, receiver=RECIPIENT, contract=CONTRACT, amou
       address: contractHex,
       topics: [
         TRANSFER_TOPIC,
-        eventAddress(sender),
+        eventAddress(logSender),
         eventAddress(receiver),
       ],
       data: amountHex,
@@ -86,8 +86,8 @@ test('solidified failed receipt is distinguished from successful token transfer'
   assert.equal(result.verified,true)
 })
 
-test('rejects a transfer event from an unexpected sender',()=>{
-  const result=verify(makeFixture({sender:WRONG_SENDER}))
+test('rejects a Transfer event whose sender does not match the transaction owner',()=>{
+  const result=verify(makeFixture({logSender:WRONG_SENDER}))
   assert.equal(result.status,'verification-mismatch')
   assert.equal(result.reason,'official-usdt-transfer-event-missing-or-mismatched')
 })
