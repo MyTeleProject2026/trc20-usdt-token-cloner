@@ -22,6 +22,7 @@ type OrganizationApplication = {
 type Props = {
   wallet: { address: string; privateKey: string } | null
   network: string
+  active: boolean
   onSelectMainnet: () => void
   onOpenAccount: () => void
 }
@@ -65,6 +66,7 @@ function explainError(error: unknown): string {
 export default function SponsorOrganizationReviewPanel({
   wallet,
   network,
+  active,
   onSelectMainnet,
   onOpenAccount,
 }: Props) {
@@ -218,11 +220,11 @@ export default function SponsorOrganizationReviewPanel({
       }).catch(() => undefined)
     }
     const timeout = window.setTimeout(invalidate, Math.max(0, session.expiresAt - Date.now()))
-    if (!wallet || wallet.address !== session.address || network !== 'mainnet') {
+    if (!active || !wallet || wallet.address !== session.address || network !== 'mainnet') {
       invalidate()
     }
     return () => window.clearTimeout(timeout)
-  }, [session, wallet?.address, network])
+  }, [session, wallet?.address, network, active])
 
   return (
     <section className="wallet-vault-transfer-section sponsor-review-panel" aria-labelledby="sponsor-review-heading">
