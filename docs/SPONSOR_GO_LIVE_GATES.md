@@ -39,3 +39,20 @@ A solidified on-chain transaction is not proof that an exchange credited a depos
 - The Tatum/TRONGrid historical scanner now independently reconstructs the TRON protobuf block-header bytes, verifies the composite block ID from SHA-256(header raw_data), recovers and checks the Super Representative ECDSA signer against `witness_address`, reconstructs each full protobuf transaction from `raw_data_hex`, signatures and supported result fields, and recomputes the java-tron transaction Merkle root against `txTrieRoot`. Unsupported transaction result fields fail closed rather than being silently omitted.
 - The scanner now fetches both providers' `/walletsolidity/listwitnesses` snapshots, requires the same 27 active SR addresses, takes the lower `latestBlockNum` for each SR across providers, and recomputes the java-tron 70% solidification threshold. The target block is rejected unless at least 19 active SRs (for the current 27-SR set) have each produced a block at or above the target.
 - This DPoS quorum result is reconstructed from provider-reported SolidityNode witness state; the witness state itself is not accompanied by an independently verified state-trie proof. Block signatures and transaction roots are verified locally, but provider state authenticity, canonical-chain selection, network governance parameter review, and independent node/operator validation remain external trust assumptions.
+
+
+## Additional Mainnet direct-sponsor approval gate
+
+The direct sponsor review path now supports a Mainnet wallet-authenticated review queue and request-specific sponsor approval signature. This is an approval record only; it does not sign a TRON transaction or open the Mainnet execution gate.
+
+- [x] One-use, short-lived approval challenge bound to request ID, idempotency key, requester, configured asset sponsor, recipient, official USDT contract, exact base-unit amount, organization reference, executed agreement reference/digest, nonce and expiry.
+- [x] Server-side signature recovery must match `SPONSOR_ASSET_MAINNET_ADDRESS`; a consumed challenge cannot be replayed.
+- [x] Fresh Mainnet role snapshot and sufficient official USDT principal are required before creating the challenge; the separate fee sponsor must also be distinct and have verified positive TRX and resource reads.
+- [x] Approval and challenge records are persisted in PostgreSQL; CI integration tests exercise the approval lifecycle in the isolated `sponsor_test` database.
+- [ ] Independently verify sponsor legal authority, wallet ownership, executed agreement and source of funds.
+- [ ] Implement separate fee sponsor approval/reservation and transaction-specific fee/resource accounting.
+- [ ] Implement request-bound unsigned TRON transaction construction, sponsor transaction signing, durable single-transaction submission claim, Mainnet broadcast and ambiguous-timeout recovery.
+- [ ] Independently verify the exact solidified USDT Transfer event, successful receipt, recipient balance delta and sponsor ledger settlement.
+- [ ] Complete a funded Mainnet acceptance transfer and independent custody/security review.
+
+Keep Mainnet transaction execution disabled. A sponsor approval signature is not a transaction signature, reservation, provider execution permission, or exchange deposit-credit evidence.
