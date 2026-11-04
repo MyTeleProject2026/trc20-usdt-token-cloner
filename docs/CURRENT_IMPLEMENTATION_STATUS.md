@@ -32,13 +32,14 @@ The new path is separate from Fireblocks. It does not require an external sponso
 | `GET /api/treasury/self-custody/readiness` | Authenticates the owner identity session. When treasury settings are incomplete, returns the missing settings without attempting a chain read; otherwise reads official Mainnet USDT/TRX balances, outstanding reservations, and readiness blockers. |
 | `POST /api/treasury/self-custody/prepare` | Requires complete configuration and the explicit feature flag; validates the recipient and amount, estimates the TRC-20 fee, constructs an unsigned official-USDT transfer, and reserves principal/fee atomically in PostgreSQL. |
 | `POST /api/treasury/self-custody/submit` | Accepts only a signed copy matching the stored unsigned transaction and intent, checks TRON permission-signature weight, claims the intent once, and broadcasts the signed transaction. |
+| `GET /api/treasury/self-custody/withdrawals` | Returns the latest owner-scoped PostgreSQL withdrawal records, flags any outstanding request (including beyond the page limit), expires stale unsigned intents, and includes the original unsigned transaction only for prepared, unexpired requests so the UI can recover after refresh. |
 | `GET /api/treasury/self-custody/withdrawals/:intentId` | Looks up the request and verifies the solidified transaction, successful receipt, exact official USDT contract, and matching Transfer event. |
 
-The browser connects to TronLink through `window.tron` / TIP-6963 discovery, requests account access, checks Mainnet, and invokes the wallet's transaction-signing prompt. The browser does not send a private key to the backend. Account/network changes reset the current wallet connection and readiness; the server-side intent reference is not silently discarded, so an ambiguous or prepared request can still be reconciled.
+The browser connects to TronLink through `window.tron` / TIP-6963 discovery, requests account access, checks Mainnet, and invokes the wallet's transaction-signing prompt. The browser does not send a private key to the backend. Owner-scoped history is reloaded from PostgreSQL after sign-in, browser refresh, or backend-router restart. An unexpired prepared request can be restored with its original unsigned transaction; broadcast states can only be reconciled against the original transaction ID. New preparation stays disabled while any owner withdrawal remains outstanding, and it fails closed if history cannot be loaded.
 
 The backend checks the transaction's exact raw data and transaction ID, applies a strict signed-payload field allowlist, checks TRON signature weight against the permission threshold, and only then attempts broadcast. The frontend rechecks Mainnet and the transaction intent immediately before and after the wallet-signing prompt. Pending and ambiguous status responses remain visible instead of being treated as transport errors. Expired unsigned intents are excluded from active principal/fee reservations and rolling daily totals. A broadcast acceptance is not final confirmation; only the later solidified-chain verifier can mark the transfer confirmed. Exchange deposit credit remains unverified unless the exchange itself confirms it.
 
-Prepare requests now include a UUIDv4 request key. PostgreSQL stores it under a unique owner/request-key index; retrying the same request with the same destination and amount returns the original intent, while reusing the key with different details is rejected. This prevents duplicate intents from ordinary client retries. A database-backed replay/concurrency integration test is still required before production acceptance.
+Prepare requests now include a UUIDv4 request key. PostgreSQL stores it under a unique owner/request-key index; retrying the same request with the same destination and amount returns the original intent, while reusing the key with different details is rejected. The new isolated PostgreSQL integration test exercises simultaneous same-key prepare calls, one-row reservation, same-detail replay, changed-detail rejection, history recovery, and recovery through a fresh router instance. Its CI result must pass on the current head before the behavior is treated as verified.
 
 ## Automated validation observed
 
@@ -79,7 +80,7 @@ The existing `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` still identify 
 | New self-custody route | `server/routes/platform-treasury-withdrawals.mjs` |
 | Existing Fireblocks route | `server/routes/treasury-withdrawals.mjs`, `server/fireblocks-client.mjs` |
 | Wallet UI | `src/WalletVault.tsx`, `src/PlatformTreasuryPanel.tsx`, `src/wallet-transfer.mjs` |
-| New tests | `tests/platform-treasury-withdrawals.test.mjs` |
+| New tests | `tests/platform-treasury-withdrawals.test.mjs`, `tests/platform-treasury-postgres-integration.test.mjs` |
 | Existing verification tests | `tests/treasury-withdrawals.test.mjs`, `tests/tron-verification.test.mjs`, `tests/trc20-verification.test.mjs` |
 
 ## Next acceptance work
@@ -88,7 +89,7 @@ The existing `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` still identify 
 - [ ] Add a testnet version or isolated testnet harness for the exact wallet-provider signing lifecycle.
 - [ ] Validate TronLink account/network/signing behavior with a controlled wallet.
 - [ ] Test permission-weight verification, insufficient permissions, invalid signatures, altered transaction data, and multi-signature cases.
-- [ ] Add PostgreSQL integration coverage for repeated request-key replay, changed-detail key reuse, concurrent same-key prepare requests, and restart recovery.
+- [ ] Verify the new PostgreSQL replay/concurrency/restart-recovery integration test passes on the current PR head.
 - [ ] Test duplicate submit, timeout/ambiguous broadcast, process restart, and concurrent reservations.
 - [ ] Complete independent security review.
 - [ ] Only after the above and a funded platform treasury, conduct a small, explicitly owner-authorized Mainnet acceptance transfer and independently verify it.
