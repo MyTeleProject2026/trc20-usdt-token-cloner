@@ -460,6 +460,10 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         canSubmitLivePayout: canLivePayout,
         requiredScheme: 'usdt_trc20',
       },
+      tronGrid: {
+        apiKeyConfigured: Boolean(cleanString(env.TRONGRID_API_KEY, 2048)),
+        incomingHistoryProvider: 'network-specific-v1-account-history',
+      },
       storage: { configured: Boolean(env.DATABASE_URL), ready: databaseReady },
       mainnetUsdtContract: MAINNET_USDT,
       limitations: [
