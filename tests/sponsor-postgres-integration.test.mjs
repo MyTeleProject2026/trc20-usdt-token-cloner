@@ -1107,6 +1107,8 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
 }, async (t) => {
   const { createMainnetDirectSponsorRequestStore, OFFICIAL_MAINNET_USDT_CONTRACT } =
     await import('../server/routes/mainnet-direct-sponsor-requests.mjs')
+  const { createMainnetDirectSponsorApprovalStore } =
+    await import('../server/routes/mainnet-direct-sponsor-approval.mjs')
   const {
     buildMainnetDirectSponsorApprovalMessage,
     buildMainnetDirectFeeSponsorApprovalMessage,
@@ -1116,6 +1118,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     sha256Hex,
   } = await import('../server/mainnet-direct-sponsor-approval.mjs')
   const store = createMainnetDirectSponsorRequestStore(process.env)
+  const approvalStore = createMainnetDirectSponsorApprovalStore(process.env)
   const cleanupPool = new Pool({ connectionString: databaseUrl })
   const idempotencyKey = 'pg-mainnet-direct-' + randomUUID()
   const input = {
@@ -1190,7 +1193,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
       issuedAt,
       expiresAt: challengeExpiresAt,
     })
-    const createdChallenge = await store.createApprovalChallenge({
+    const createdChallenge = await approvalStore.createApprovalChallenge({
       idempotencyKey,
       sponsorAddress,
       origin: 'https://sponsor-review.test',
@@ -1203,7 +1206,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
       expiresAt: challengeExpiresAt,
     })
     assert.equal(createdChallenge.success, true)
-    const duplicateChallenge = await store.createApprovalChallenge({
+    const duplicateChallenge = await approvalStore.createApprovalChallenge({
       idempotencyKey,
       sponsorAddress,
       origin: 'https://sponsor-review.test',
@@ -1218,7 +1221,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     assert.equal(duplicateChallenge.success, false)
     assert.equal(duplicateChallenge.reason, 'approval-challenge-already-open')
 
-    const consumedChallenge = await store.consumeApprovalChallenge({
+    const consumedChallenge = await approvalStore.consumeApprovalChallenge({
       nonceHash: sha256Hex(nonce),
       sponsorAddress,
       origin: 'https://sponsor-review.test',
@@ -1227,7 +1230,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     assert.equal(consumedChallenge.success, true)
     assert.equal(consumedChallenge.challenge.requestId, original.id)
     assert.equal(consumedChallenge.request.idempotencyKey, idempotencyKey)
-    const replayedChallenge = await store.consumeApprovalChallenge({
+    const replayedChallenge = await approvalStore.consumeApprovalChallenge({
       nonceHash: sha256Hex(nonce),
       sponsorAddress,
       origin: 'https://sponsor-review.test',
@@ -1238,7 +1241,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
 
     const approvedAt = new Date(issuedAtMs + 3).toISOString()
     const approvalExpiresAt = new Date(issuedAtMs + 30 * 60 * 1000).toISOString()
-    const recordedApproval = await store.recordSponsorApproval({
+    const recordedApproval = await approvalStore.recordSponsorApproval({
       requestId: original.id,
       challengeId,
       sponsorAddress,
@@ -1252,11 +1255,11 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     })
     assert.equal(recordedApproval.success, true)
     assert.equal(recordedApproval.approval.sponsorAddress, sponsorAddress)
-    const requesterApprovalView = await store.findRequest(idempotencyKey, input.requesterAddress)
+    const requesterApprovalView = await approvalStore.findApprovalsForOwner(idempotencyKey, input.requesterAddress)
     assert.equal(requesterApprovalView.success, true)
     assert.equal(requesterApprovalView.sponsorApproval.agreementReference, agreementReference)
 
-    const approvedQueue = await store.listSponsorReviewQueue({ sponsorAddress, limit: 100 })
+    const approvedQueue = await approvalStore.listSponsorReviewQueue({ sponsorAddress, limit: 100 })
     const approvedRow = approvedQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
     assert.equal(approvedRow.sponsorApproval.status, 'approved-active')
     const feeSponsorAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
@@ -1287,7 +1290,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
       issuedAt: feeIssuedAt,
       expiresAt: feeChallengeExpiresAt,
     })
-    const createdFeeChallenge = await store.createFeeApprovalChallenge({
+    const createdFeeChallenge = await approvalStore.createFeeApprovalChallenge({
       idempotencyKey,
       sponsorAddress: feeSponsorAddress,
       origin: 'https://fee-sponsor-review.test',
@@ -1301,7 +1304,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     })
     assert.equal(createdFeeChallenge.success, true)
     assert.equal(createdFeeChallenge.principalApprovalId, recordedApproval.approval.id)
-    const duplicateFeeChallenge = await store.createFeeApprovalChallenge({
+    const duplicateFeeChallenge = await approvalStore.createFeeApprovalChallenge({
       idempotencyKey,
       sponsorAddress: feeSponsorAddress,
       origin: 'https://fee-sponsor-review.test',
@@ -1316,7 +1319,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     assert.equal(duplicateFeeChallenge.success, false)
     assert.equal(duplicateFeeChallenge.reason, 'fee-approval-challenge-already-open')
 
-    const consumedFeeChallenge = await store.consumeFeeApprovalChallenge({
+    const consumedFeeChallenge = await approvalStore.consumeFeeApprovalChallenge({
       nonceHash: sha256Hex(feeNonce),
       sponsorAddress: feeSponsorAddress,
       origin: 'https://fee-sponsor-review.test',
@@ -1324,7 +1327,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     })
     assert.equal(consumedFeeChallenge.success, true)
     assert.equal(consumedFeeChallenge.challenge.principalApprovalId, recordedApproval.approval.id)
-    const replayedFeeChallenge = await store.consumeFeeApprovalChallenge({
+    const replayedFeeChallenge = await approvalStore.consumeFeeApprovalChallenge({
       nonceHash: sha256Hex(feeNonce),
       sponsorAddress: feeSponsorAddress,
       origin: 'https://fee-sponsor-review.test',
@@ -1333,7 +1336,7 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     assert.equal(replayedFeeChallenge.success, false)
     assert.equal(replayedFeeChallenge.reason, 'fee-approval-challenge-invalid-expired-or-replayed')
 
-    const recordedFeeApproval = await store.recordFeeSponsorApproval({
+    const recordedFeeApproval = await approvalStore.recordFeeSponsorApproval({
       requestId: original.id,
       principalApprovalId: recordedApproval.approval.id,
       challengeId: feeChallengeId,
@@ -1349,11 +1352,11 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     })
     assert.equal(recordedFeeApproval.success, true)
     assert.equal(recordedFeeApproval.approval.maxFeeSun, '50000000')
-    const requesterWithBothApprovals = await store.findRequest(idempotencyKey, input.requesterAddress)
+    const requesterWithBothApprovals = await approvalStore.findApprovalsForOwner(idempotencyKey, input.requesterAddress)
     assert.equal(requesterWithBothApprovals.success, true)
     assert.equal(requesterWithBothApprovals.sponsorApproval.agreementReference, agreementReference)
     assert.equal(requesterWithBothApprovals.feeSponsorApproval.agreementReference, feeAgreementReference)
-    const approvedFeeQueue = await store.listFeeSponsorReviewQueue({ limit: 100 })
+    const approvedFeeQueue = await approvalStore.listFeeSponsorReviewQueue({ limit: 100 })
     const feeQueueRow = approvedFeeQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
     assert.equal(feeQueueRow.sponsorApproval.status, 'approved-active')
     assert.equal(feeQueueRow.feeSponsorApproval.status, 'approved-active')
@@ -1386,6 +1389,6 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
       'DELETE FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1',
       [idempotencyKey],
     ).catch(() => {})
-    await Promise.all([store.close(), cleanupPool.end()])
+    await Promise.all([store.close(), approvalStore.close(), cleanupPool.end()])
   }
 })
