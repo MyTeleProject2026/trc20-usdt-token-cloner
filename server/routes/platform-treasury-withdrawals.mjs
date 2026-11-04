@@ -480,6 +480,20 @@ export function createPlatformTreasuryRouter({
         })
       }
 
+      // Enforce one live owner withdrawal at a time on the server, not just in
+      // the UI. This makes unknown broadcasts and prepared intents explicit
+      // reconciliation blockers even when callers bypass the browser controls.
+      const outstanding = await client.query(
+        "SELECT intent_id FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 AND treasury_address=$2 AND (status IN ('broadcasting','broadcast-accepted','broadcast-unknown') OR (status='prepared' AND expires_at > now())) ORDER BY created_at DESC LIMIT 1",
+        [auth.ownerAddress, config.treasuryAddress],
+      )
+      if (outstanding.rows.length) {
+        await client.query('ROLLBACK'); transactionOpen = false
+        return errorResponse(res, 409, 'withdrawal-already-outstanding', {
+          intentId: String(outstanding.rows[0].intent_id),
+        })
+      }
+
       // Re-read balances after acquiring the treasury lock. The earlier
       // preflight was useful for transaction construction, but reservations
       // must be based on the freshest available chain snapshot.
@@ -679,7 +693,7 @@ export function createPlatformTreasuryRouter({
         [auth.ownerAddress],
       )
       const found = await db.query(
-        'SELECT * FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 ORDER BY created_at DESC, id DESC LIMIT $2',
+        "SELECT * FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 AND (id IN (SELECT id FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 ORDER BY created_at DESC, id DESC LIMIT $2) OR status IN ('broadcasting','broadcast-accepted','broadcast-unknown') OR (status='prepared' AND expires_at > now())) ORDER BY created_at DESC, id DESC",
         [auth.ownerAddress, limit],
       )
       const withdrawals = found.rows.map((row) => {
