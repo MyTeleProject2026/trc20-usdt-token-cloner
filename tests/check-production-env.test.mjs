@@ -65,6 +65,7 @@ test('syntactically valid configuration reports names and statuses only, never v
   assert.equal(report.checks.OWNER_WALLET_ADDRESS.status, 'configured')
   assert.equal(report.checks.TREASURY_OWNER_ADDRESS.status, 'configured')
   assert.equal(report.checks.FIREBLOCKS_SECRET_KEY_PATH.status, 'configured')
+  assert.ok(report.mandatoryLiveChecks.some((item) => /Fireblocks/.test(item)))
   assert.equal(report.checks.TREASURY_WITHDRAWALS_ENABLED.status, 'disabled')
   for (const secret of [
     'do-not-print-db-password',
@@ -182,6 +183,9 @@ test('provider-independent sponsor-wallet workflow does not require optional Fir
   assert.equal(report.status, 'syntactic-preflight-passed')
   assert.deepEqual(report.errors, [])
   assert.equal(report.checks.TREASURY_SIGNER_MODE.status, 'not-selected')
+  assert.ok(report.mandatoryLiveChecks.some((item) => /Mainnet sponsor-wallet signing/.test(item)))
+  assert.equal(report.mandatoryLiveChecks.some((item) => /Fireblocks/i.test(item)), false)
+  assert.equal(report.checks.OWNER_PASSWORD_HASH.status, 'configured')
   for (const key of [
     'TREASURY_OWNER_ADDRESS', 'TREASURY_ADDRESS',
     'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
