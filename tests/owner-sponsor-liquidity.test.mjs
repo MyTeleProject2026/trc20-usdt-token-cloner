@@ -77,6 +77,9 @@ async function listen(t, options = {}) {
       success: true,
       session: { address: OWNER, network: 'mainnet', origin: ORIGIN, expiresAt: Date.now() + 60_000 },
     }),
+    isApprovedScope: ({ consentReference, budget }) => consentReference === budget.approval_reference
+      && ((budget.sponsor_reference === 'org-a' && consentReference === AGREEMENT_A && budget.sponsor_address === SPONSOR_A)
+        || (budget.sponsor_reference === 'org-b' && consentReference === AGREEMENT_B && budget.sponsor_address === SPONSOR_B)),
     listBudgets: async () => ({ success: true, budgets: [] }),
     readFunding: async () => funding(SPONSOR_A, '0'),
     ...options,
@@ -124,7 +127,7 @@ test('aggregates only approved, funded, active non-owner Mainnet USDT capacities
   assert.equal(payload.verifiedSourceCount, 2)
   assert.equal(payload.eligibleSourceCount, 2)
   assert.equal(payload.onChainBalanceBaseUnits, '150000000')
-  assert.equal(payload.availableBaseUnits, '125000000')
+  assert.equal(payload.availableBaseUnits, '110000000')
   assert.equal(payload.sources.some((item) => item.address === OWNER), false)
   assert.equal(payload.canSubmitSponsoredTransfer, false)
   assert.equal(payload.submissionEnabled, false)
