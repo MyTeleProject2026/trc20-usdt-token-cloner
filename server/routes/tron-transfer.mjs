@@ -447,14 +447,17 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     const destinationCurrency = cleanString(payout.destinationCurrency, 8).toUpperCase()
     const paymentScheme = cleanString(payout.paymentScheme, 32).toLowerCase()
     const paymentDestination = cleanString(payout.paymentDestination, 32).toLowerCase()
-    const recipient = cleanString(
-      payout.beneficiary?.walletAddress || payout.beneficiary?.address || payout.recipient?.walletAddress
-        || payout.recipient?.address || payout.recipient?.accountNumber || payout.walletAddress
-        || payout.beneficiary?.accountNumber, 64,
-    )
-    const amountRaw = payout.amountReceived ?? payout.amount ?? payout.destinationAmount
-    const amountBaseUnits = amountRaw === undefined || amountRaw === null
-      ? null : parseUsdtBalanceBaseUnits(amountRaw)
+    const recipient = cleanString(payout.beneficiary?.walletAddress || payout.beneficiary?.address || payout.recipient?.walletAddress || payout.recipient?.address || payout.recipient?.accountNumber || payout.walletAddress || payout.beneficiary?.accountNumber, 64)
+    const parseOptional = (value) => value === undefined || value === null ? null : parseUsdtBalanceBaseUnits(value)
+    const received = parseOptional(payout.amountReceived)
+    const charged = parseOptional(payout.amountCharged)
+    const fee = parseOptional(payout.fee)
+    if ((payout.amountReceived != null && received === null) || (payout.amountCharged != null && charged === null) || (payout.fee != null && fee === null)) {
+      return { ok: false, complete: false, status, reason: 'payout-settlement-amount-invalid' }
+    }
+    if ((received !== null && received <= 0n) || (charged !== null && charged <= 0n) || (fee !== null && fee < 0n) || (received !== null && charged !== null && charged < received) || (fee !== null && charged !== null && fee > charged)) {
+      return { ok: false, complete: false, status, reason: 'payout-settlement-amount-inconsistent' }
+    }
     const checks = [
       ['customer-reference-mismatch', customerReference, row.customer_reference],
       ['source-currency-mismatch', sourceCurrency, 'USDT'],
@@ -466,16 +469,11 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     for (const [reason, actual, expected] of checks) {
       if (actual && actual !== expected) return { ok: false, complete: false, status, reason }
     }
-    if (amountBaseUnits !== null && amountBaseUnits !== BigInt(row.amount_base_units)) {
-      return { ok: false, complete: false, status, reason: 'payout-amount-mismatch' }
-    }
-    const complete = checks.every(([, actual]) => Boolean(actual)) && amountBaseUnits !== null
-    if (status === 'successful' && !complete) {
-      return { ok: false, complete: false, status, reason: 'successful-payout-record-incomplete' }
-    }
-    return { ok: true, complete, status, recipient, amountBaseUnits: amountBaseUnits?.toString() || null }
+    // Fincra amountReceived is the net beneficiary amount after fees; it is distinct from the requested/source amount.
+    const complete = checks.every(([, actual]) => Boolean(actual)) && received !== null
+    if (status === 'successful' && !complete) return { ok: false, complete: false, status, reason: 'successful-payout-record-incomplete' }
+    return { ok: true, complete, status, recipient, amountReceivedBaseUnits: received?.toString() || null, amountChargedBaseUnits: charged?.toString() || null, feeBaseUnits: fee?.toString() || null }
   }
-
   router.get('/sponsor-funding-history', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
     const auth = await requireOwnerSession(req, env)
