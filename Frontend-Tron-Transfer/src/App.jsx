@@ -716,7 +716,7 @@ export default function App() {
 
               {activeTab === 'recipients' && (
                 <section className="panel recipient-panel">
-                  <div className="section-heading"><div><span className="eyebrow">PUBLIC-CHAIN INSPECTION</span><h2>Recipient balance & incoming activity</h2><p>Read-only Tatum lookups. No recipient wallet access or private key is required.</p></div><div className="panel-icon"><ArrowDownLeft/></div></div>
+                  <div className="section-heading"><div><span className="eyebrow">PUBLIC-CHAIN INSPECTION</span><h2>Recipient balance & incoming activity</h2><p>Read-only Tatum balance lookups and selected-network TRON transaction history. No recipient wallet access or private key is required.</p></div><div className="panel-icon"><ArrowDownLeft/></div></div>
                   <div className="transfer-form">
                     <label>Network<select value={recipientNetwork} onChange={event => { setRecipientNetwork(event.target.value); setRecipientInspection(null) }}><option value="mainnet">TRON Mainnet</option><option value="nile">Nile Testnet</option><option value="shasta">Shasta Testnet</option></select></label>
                     <label>Recipient TRON address<input value={recipientAddress} onChange={event => { setRecipientAddress(event.target.value); setRecipientInspection(null) }} placeholder="T..." autoComplete="off" spellCheck="false"/></label>
