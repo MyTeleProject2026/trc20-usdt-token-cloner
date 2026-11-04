@@ -248,13 +248,23 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
       WHERE idempotency_key = $1 AND requester_address = $2 LIMIT 1
     `, [idempotencyKey, requesterAddress])
     if (!result.rows[0]) return { success: false, reason: 'request-not-found' }
-    const latest = await db.query(`
-      SELECT sponsor_address, organization_reference, agreement_reference,
-        agreement_sha256, message_sha256, approved_at, expires_at
-      FROM trc20_token_clone.mainnet_direct_sponsor_approvals
-      WHERE request_id = $1 ORDER BY approved_at DESC LIMIT 1
-    `, [result.rows[0].id])
+    const [latest, latestFee] = await Promise.all([
+      db.query(`
+        SELECT sponsor_address, organization_reference, agreement_reference,
+          agreement_sha256, message_sha256, approved_at, expires_at
+        FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+        WHERE request_id = $1 ORDER BY approved_at DESC LIMIT 1
+      `, [result.rows[0].id]),
+      db.query(`
+        SELECT sponsor_address, organization_reference, agreement_reference,
+          agreement_sha256, message_sha256, max_fee_sun::text AS max_fee_sun,
+          approved_at, expires_at
+        FROM trc20_token_clone.mainnet_direct_fee_approvals
+        WHERE request_id = $1 ORDER BY approved_at DESC LIMIT 1
+      `, [result.rows[0].id]),
+    ])
     const approval = latest.rows[0]
+    const feeApproval = latestFee.rows[0]
     return {
       success: true,
       request: publicRequest(result.rows[0]),
@@ -267,6 +277,17 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
         messageSha256: approval.message_sha256.trim(),
         approvedAt: new Date(approval.approved_at).toISOString(),
         expiresAt: new Date(approval.expires_at).toISOString(),
+      } : null,
+      feeSponsorApproval: feeApproval ? {
+        status: new Date(feeApproval.expires_at).getTime() > Date.now() ? 'approved-active' : 'approved-expired',
+        sponsorAddress: feeApproval.sponsor_address,
+        organizationReference: feeApproval.organization_reference,
+        agreementReference: feeApproval.agreement_reference,
+        agreementSha256: feeApproval.agreement_sha256.trim(),
+        messageSha256: feeApproval.message_sha256.trim(),
+        maxFeeSun: feeApproval.max_fee_sun,
+        approvedAt: new Date(feeApproval.approved_at).toISOString(),
+        expiresAt: new Date(feeApproval.expires_at).toISOString(),
       } : null,
     }
   }
@@ -534,6 +555,281 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
     }
   }
 
+  async function createFeeApprovalChallenge(input) {
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    await ensureSchema(db)
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [input.idempotencyKey])
+      const found = await client.query(`
+        SELECT * FROM trc20_token_clone.mainnet_direct_sponsor_requests
+        WHERE idempotency_key = $1 AND status = 'pending-sponsor-review'
+        LIMIT 1 FOR UPDATE
+      `, [input.idempotencyKey])
+      const request = found.rows[0]
+      if (!request) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'request-not-found-or-not-reviewable' }
+      }
+      const principal = await client.query(`
+        SELECT id, sponsor_address, organization_reference, agreement_reference, agreement_sha256,
+          expires_at
+        FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+        WHERE request_id = $1 AND expires_at > $2
+        ORDER BY approved_at DESC LIMIT 1
+      `, [request.id, new Date(input.issuedAt)])
+      if (!principal.rows[0]) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'active-asset-principal-approval-required-before-fee-approval' }
+      }
+      const activeFee = await client.query(`
+        SELECT id FROM trc20_token_clone.mainnet_direct_fee_approvals
+        WHERE request_id = $1 AND expires_at > $2
+        ORDER BY approved_at DESC LIMIT 1
+      `, [request.id, new Date(input.issuedAt)])
+      if (activeFee.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'request-already-has-active-fee-sponsor-approval' }
+      }
+      const open = await client.query(`
+        SELECT challenge_id FROM trc20_token_clone.mainnet_direct_fee_approval_challenges
+        WHERE request_id = $1 AND sponsor_address = $2
+          AND consumed_at IS NULL AND expires_at > $3
+        LIMIT 1
+      `, [request.id, input.sponsorAddress, new Date(input.issuedAt)])
+      if (open.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'fee-approval-challenge-already-open' }
+      }
+      await client.query(`
+        INSERT INTO trc20_token_clone.mainnet_direct_fee_approval_challenges
+          (challenge_id, request_id, principal_approval_id, sponsor_address, origin,
+           nonce_hash, message_sha256, request_snapshot_sha256, organization_reference,
+           agreement_reference, agreement_sha256, max_fee_sun, issued_at, expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `, [
+        input.challengeId, request.id, principal.rows[0].id, input.sponsorAddress, input.origin,
+        input.nonceHash, input.messageSha256, input.requestSnapshotSha256,
+        input.feePolicy.organizationReference, input.feePolicy.agreementReference,
+        input.feePolicy.agreementDocumentSha256, input.feePolicy.maxFeeSun,
+        new Date(input.issuedAt), new Date(input.expiresAt),
+      ])
+      await client.query('COMMIT')
+      return {
+        success: true,
+        challengeId: input.challengeId,
+        request: publicRequest(request, { includeRequester: true }),
+        principalApprovalId: String(principal.rows[0].id),
+      }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async function consumeFeeApprovalChallenge({ nonceHash, sponsorAddress, origin, nowMs }) {
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    await ensureSchema(db)
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query(`
+        UPDATE trc20_token_clone.mainnet_direct_fee_approval_challenges
+        SET consumed_at = $4
+        WHERE nonce_hash = $1 AND sponsor_address = $2 AND origin = $3
+          AND consumed_at IS NULL AND expires_at > $4
+        RETURNING *
+      `, [nonceHash, sponsorAddress, origin, new Date(nowMs)])
+      const challenge = result.rows[0]
+      if (!challenge) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'fee-approval-challenge-invalid-expired-or-replayed' }
+      }
+      const requestResult = await client.query(`
+        SELECT * FROM trc20_token_clone.mainnet_direct_sponsor_requests
+        WHERE id = $1 AND status = 'pending-sponsor-review' LIMIT 1
+      `, [challenge.request_id])
+      const principalResult = await client.query(`
+        SELECT * FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+        WHERE id = $1 AND request_id = $2 AND expires_at > $3 LIMIT 1
+      `, [challenge.principal_approval_id, challenge.request_id, new Date(nowMs)])
+      if (!requestResult.rows[0] || !principalResult.rows[0]) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'active-asset-principal-approval-no-longer-valid' }
+      }
+      await client.query('COMMIT')
+      return {
+        success: true,
+        challenge: {
+          challengeId: challenge.challenge_id,
+          sponsorAddress: challenge.sponsor_address,
+          origin: challenge.origin,
+          messageSha256: challenge.message_sha256.trim(),
+          requestSnapshotSha256: challenge.request_snapshot_sha256.trim(),
+          organizationReference: challenge.organization_reference,
+          agreementReference: challenge.agreement_reference,
+          agreementSha256: challenge.agreement_sha256.trim(),
+          maxFeeSun: String(challenge.max_fee_sun),
+          issuedAt: new Date(challenge.issued_at).toISOString(),
+          expiresAt: new Date(challenge.expires_at).toISOString(),
+          consumedAt: new Date(challenge.consumed_at).toISOString(),
+          requestId: String(challenge.request_id),
+          principalApprovalId: String(challenge.principal_approval_id),
+        },
+        request: publicRequest(requestResult.rows[0], { includeRequester: true }),
+      }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async function recordFeeSponsorApproval(input) {
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    await ensureSchema(db)
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [input.requestId])
+      const requestResult = await client.query(`
+        SELECT * FROM trc20_token_clone.mainnet_direct_sponsor_requests
+        WHERE id = $1 AND status = 'pending-sponsor-review'
+        LIMIT 1 FOR UPDATE
+      `, [input.requestId])
+      if (!requestResult.rows[0]) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'request-no-longer-reviewable' }
+      }
+      const principalResult = await client.query(`
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+        WHERE id = $1 AND request_id = $2 AND expires_at > $3 LIMIT 1
+      `, [input.principalApprovalId, input.requestId, new Date(input.approvedAt)])
+      if (!principalResult.rows[0]) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'active-asset-principal-approval-required' }
+      }
+      const activeFee = await client.query(`
+        SELECT id FROM trc20_token_clone.mainnet_direct_fee_approvals
+        WHERE request_id = $1 AND expires_at > $2 LIMIT 1
+      `, [input.requestId, new Date(input.approvedAt)])
+      if (activeFee.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'request-already-has-active-fee-sponsor-approval' }
+      }
+      const challengeResult = await client.query(`
+        SELECT challenge_id FROM trc20_token_clone.mainnet_direct_fee_approval_challenges
+        WHERE challenge_id = $1 AND request_id = $2 AND principal_approval_id = $3
+          AND sponsor_address = $4 AND consumed_at IS NOT NULL
+      `, [input.challengeId, input.requestId, input.principalApprovalId, input.sponsorAddress])
+      if (!challengeResult.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'fee-approval-challenge-not-consumed' }
+      }
+      const inserted = await client.query(`
+        INSERT INTO trc20_token_clone.mainnet_direct_fee_approvals
+          (request_id, principal_approval_id, challenge_id, sponsor_address,
+           organization_reference, agreement_reference, agreement_sha256,
+           message_sha256, signature, max_fee_sun, approved_at, expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        RETURNING id, request_id, principal_approval_id, sponsor_address,
+          organization_reference, agreement_reference, agreement_sha256,
+          message_sha256, max_fee_sun::text AS max_fee_sun, approved_at, expires_at
+      `, [
+        input.requestId, input.principalApprovalId, input.challengeId, input.sponsorAddress,
+        input.organizationReference, input.agreementReference, input.agreementSha256,
+        input.messageSha256, input.signature, input.maxFeeSun,
+        new Date(input.approvedAt), new Date(input.expiresAt),
+      ])
+      await client.query('COMMIT')
+      const row = inserted.rows[0]
+      return {
+        success: true,
+        approval: {
+          id: String(row.id),
+          requestId: String(row.request_id),
+          principalApprovalId: String(row.principal_approval_id),
+          sponsorAddress: row.sponsor_address,
+          organizationReference: row.organization_reference,
+          agreementReference: row.agreement_reference,
+          agreementSha256: row.agreement_sha256.trim(),
+          messageSha256: row.message_sha256.trim(),
+          maxFeeSun: row.max_fee_sun,
+          approvedAt: new Date(row.approved_at).toISOString(),
+          expiresAt: new Date(row.expires_at).toISOString(),
+        },
+      }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      if (error?.code === '23505') return { success: false, reason: 'request-already-has-active-fee-approval-or-challenge-replayed' }
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async function listFeeSponsorReviewQueue({ limit = 50 } = {}) {
+    const db = getPool()
+    if (!db) return { success: false, reason: 'database-not-configured' }
+    await ensureSchema(db)
+    const result = await db.query(`
+      SELECT r.*,
+        pa.id AS principal_approval_id,
+        pa.sponsor_address AS principal_sponsor_address,
+        pa.expires_at AS principal_approval_expires_at,
+        fa.sponsor_address AS fee_sponsor_address,
+        fa.organization_reference AS fee_organization_reference,
+        fa.agreement_reference AS fee_agreement_reference,
+        fa.max_fee_sun::text AS fee_max_fee_sun,
+        fa.approved_at AS fee_approved_at,
+        fa.expires_at AS fee_approval_expires_at,
+        fa.message_sha256 AS fee_message_sha256
+      FROM trc20_token_clone.mainnet_direct_sponsor_requests r
+      LEFT JOIN LATERAL (
+        SELECT id, sponsor_address, expires_at
+        FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+        WHERE request_id = r.id ORDER BY approved_at DESC LIMIT 1
+      ) pa ON true
+      LEFT JOIN LATERAL (
+        SELECT sponsor_address, organization_reference, agreement_reference,
+          max_fee_sun, approved_at, expires_at, message_sha256
+        FROM trc20_token_clone.mainnet_direct_fee_approvals
+        WHERE request_id = r.id ORDER BY approved_at DESC LIMIT 1
+      ) fa ON true
+      WHERE r.status = 'pending-sponsor-review'
+      ORDER BY r.created_at ASC
+      LIMIT $1
+    `, [limit])
+    const nowMs = Date.now()
+    return {
+      success: true,
+      requests: result.rows.map((row) => ({
+        ...publicRequest(row, { includeRequester: true }),
+        sponsorApproval: row.principal_approval_id ? {
+          status: new Date(row.principal_approval_expires_at).getTime() > nowMs ? 'approved-active' : 'approved-expired',
+          sponsorAddress: row.principal_sponsor_address,
+        } : { status: 'not-approved' },
+        feeSponsorApproval: row.fee_sponsor_address ? {
+          status: new Date(row.fee_approval_expires_at).getTime() > nowMs ? 'approved-active' : 'approved-expired',
+          sponsorAddress: row.fee_sponsor_address,
+          organizationReference: row.fee_organization_reference,
+          agreementReference: row.fee_agreement_reference,
+          maxFeeSun: row.fee_max_fee_sun,
+          approvedAt: new Date(row.fee_approved_at).toISOString(),
+          expiresAt: new Date(row.fee_approval_expires_at).toISOString(),
+          messageSha256: row.fee_message_sha256.trim(),
+        } : { status: 'not-approved' },
+      })),
+    }
+  }
+
   async function close() {
     if (!pool) return
     const currentPool = pool
@@ -542,7 +838,7 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
     await currentPool.end()
   }
 
-  return { createRequest, findRequest, findRequestForSponsor, listRequests, createApprovalChallenge, consumeApprovalChallenge, recordSponsorApproval, listSponsorReviewQueue, close }
+  return { createRequest, findRequest, findRequestForSponsor, listRequests, createApprovalChallenge, consumeApprovalChallenge, recordSponsorApproval, listSponsorReviewQueue, createFeeApprovalChallenge, consumeFeeApprovalChallenge, recordFeeSponsorApproval, listFeeSponsorReviewQueue, close }
 }
 
 export function createMainnetDirectSponsorRequestRouter({
