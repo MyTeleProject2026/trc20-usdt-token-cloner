@@ -52,7 +52,9 @@ Example JSON:
       "privacyConsent": true
     }
 
-The wallet address is derived from the authenticated session and must not be sent in the body. Only HTTPS websites are accepted. Unexpected fields—including private keys, seed phrases, signatures, API credentials and client-supplied wallet addresses—are rejected.
+The wallet address is derived from the authenticated session and must not be sent in the body. Only HTTPS websites are accepted. Unexpected fields—including private keys, seed phrases, API credentials and client-supplied wallet addresses—are rejected.
+
+Before the application is stored, TronLink also signs a **second, separate human-readable message** that contains the exact normalized organization name, lowercased business email, jurisdiction, HTTPS website origin, requested roles, wallet address, attestation version and five declaration statements. The backend reconstructs the canonical message from validated server-side values and verifies it with `Trx.verifyMessageV2`; a signature from any other wallet is rejected. Only a SHA-256 digest of this application signature is stored for audit/idempotency. The raw signature is not persisted. This declaration signature is not a transaction, transfer authorization, legal mandate or approval to spend.
 
 A wallet may have one open application at a time. Identical resubmission is idempotent; conflicting resubmission is rejected. The database also limits a wallet to three applications in a rolling 24-hour period.
 
