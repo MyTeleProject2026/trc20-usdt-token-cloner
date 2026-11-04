@@ -256,6 +256,11 @@ export default function DirectSponsorPayouts({
         || (requestRecord.recipientAddress === recipient.trim()
           && requestRecord.amountBaseUnits === amountBaseUnits))
         ? requestKey : window.crypto.randomUUID()
+      // Persist the exact key before the request leaves the browser. If the
+      // response is lost after the API stores the row, the next attempt can
+      // look up this same key instead of creating a duplicate request.
+      setRequestKey(idempotencyKey)
+      try { window.localStorage.setItem(REQUEST_KEY_PREFIX + walletAddress, idempotencyKey) } catch {}
       const result = await api<any>('/api/tron/sponsorship/mainnet-direct/requests', {
         method: 'POST',
         token,
@@ -272,8 +277,6 @@ export default function DirectSponsorPayouts({
         || payload?.request?.idempotencyKey !== idempotencyKey) {
         throw new Error(errorText(payload, 'The sponsor review request could not be stored.'))
       }
-      setRequestKey(idempotencyKey)
-      try { window.localStorage.setItem(REQUEST_KEY_PREFIX + walletAddress, idempotencyKey) } catch {}
       setRequestStatus(payload)
       setRequestNotice(payload.duplicate === true
         ? 'The existing matching request was found. No second request or payment was created.'
