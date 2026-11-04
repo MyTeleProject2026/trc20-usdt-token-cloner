@@ -656,6 +656,51 @@ export function createPlatformTreasuryRouter({
     }
   })
 
+  // Owner-scoped recovery feed. It returns the original unsigned transaction only
+  // while an intent is still prepared and unexpired, so a browser refresh can
+  // resume the exact approved request without creating a new reservation.
+  router.get('/self-custody/withdrawals', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    res.setHeader('Pragma', 'no-cache')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return errorResponse(res, auth.status, auth.error)
+    const limit = req.query.limit === undefined ? 20 : Number(req.query.limit)
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+      return errorResponse(res, 400, 'invalid-withdrawal-history-limit')
+    }
+    const db = getDb()
+    if (!db) return errorResponse(res, 503, 'database-not-configured')
+    try {
+      await ensureReady(db)
+      // Expired unsigned intents no longer reserve principal or fees and cannot
+      // be resumed. Mark them terminal before returning the recovery feed.
+      await db.query(
+        "UPDATE trc20_token_clone.platform_treasury_withdrawals SET status='rejected', verification_reason='unsigned-intent-expired', updated_at=now() WHERE owner_address=$1 AND status='prepared' AND expires_at <= now()",
+        [auth.ownerAddress],
+      )
+      const found = await db.query(
+        'SELECT * FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 ORDER BY created_at DESC, id DESC LIMIT $2',
+        [auth.ownerAddress, limit],
+      )
+      const withdrawals = found.rows.map((row) => {
+        const item = { intent: safeIntent(row) }
+        if (row.status === 'prepared' && new Date(row.expires_at).getTime() > now()) {
+          item.unsignedTransaction = isPlainObject(row.unsigned_transaction)
+            ? row.unsigned_transaction : JSON.parse(String(row.unsigned_transaction || '{}'))
+        }
+        return item
+      })
+      return res.json({
+        success: true,
+        withdrawals,
+        checkedAt: new Date(now()).toISOString(),
+        note: 'History is loaded from PostgreSQL. Prepared requests can resume with their original transaction; broadcast requests must be reconciled, never re-created.',
+      })
+    } catch {
+      return errorResponse(res, 503, 'platform-treasury-history-unavailable')
+    }
+  })
+
   router.get('/self-custody/withdrawals/:intentId', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await authenticateOwner(req)
