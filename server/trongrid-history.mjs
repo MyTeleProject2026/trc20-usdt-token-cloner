@@ -41,6 +41,8 @@ function normalizeBlock(value) {
 
 export function normalizeTronGridNativeIncoming(payload, recipientAddress, decodeAddress) {
   return extractRows(payload).slice(0, 200).flatMap((row) => {
+    const executionResults = Array.isArray(row?.ret) ? row.ret : []
+    if (!executionResults.some((item) => item?.contractRet === 'SUCCESS')) return []
     const contracts = Array.isArray(row?.raw_data?.contract) ? row.raw_data.contract : []
     const transfer = contracts.find((entry) => entry?.type === 'TransferContract')
     const value = transfer?.parameter?.value || {}
