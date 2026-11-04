@@ -1,33 +1,19 @@
-# Owner-only treasury payout setup
+# Owner-authorized Fincra payouts
 
-This guide describes the single-owner authorization gate and points to the current managed signing integration. It is not a way to create or mint USDT.
+The owner-only Mainnet withdrawal target is Fincra USDT TRC20. The owner authenticates with the existing wallet session and signs a fresh, short-lived authorization message for every payout. The signed message binds the owner, application origin, network, official USDT contract, recipient, beneficiary name, amount and unique customer reference.
 
-## Owner identity
+Fincra business credentials are server-only. The browser must never receive the API key or webhook secret. The payout API persists the customer reference before contacting Fincra, and an unknown provider request outcome must be reconciled using that same reference. A timeout must never trigger a new payout with a replacement reference.
 
-The private console uses the existing single-owner wallet-auth challenge/session. Configure `OWNER_WALLET_ADDRESS` and `TREASURY_OWNER_ADDRESS` to the same owner-controlled Mainnet address, and configure the password hash as described in the owner-auth documentation. A wallet identity session alone does not authorize a payout: each payout request must also include a fresh owner signature tied to the exact recipient, amount, treasury, app origin and idempotency reference.
+A Fincra API acceptance/processing response is pending, not paid. A provider success status is still awaiting chain proof. Tatum must verify the exact transaction body, solidified receipt and official USDT Transfer event before the app says chain-confirmed.
 
-Never share passwords, API credentials, secret files, private keys or recovery phrases in chat, source control, APK resources, or logs.
+## Go-live gates
 
-## Managed signer
+- Fincra merchant KYB is approved and live USDT TRC20 payouts are explicitly enabled.
+- The merchant's Fincra payout account has sufficient USDT principal or a formally approved credit facility.
+- Fincra production credentials, business ID, webhook secret and allowed callback setup are installed only in backend secrets.
+- The business daily and per-payout limits are confirmed and configured.
+- Tatum Mainnet access works and verifies a small controlled payout's exact recipient and amount.
+- Webhook signature, idempotency, duplicate handling, timeout recovery, reconciliation, emergency pause and exchange-specific deposit requirements are reviewed.
+- CI and security checks pass before any controlled Mainnet release.
 
-The USDT payout route on this feature branch uses the Fireblocks production REST API. Fireblocks holds the vault transaction signing authority; Tron Token Studio sends a bounded transaction request using server-only API credentials. The Fireblocks API authentication RSA key is mounted as a backend secret file; it is not a blockchain private key, and it is never sent to the frontend.
-
-See [FIREBLOCKS_ORGANIZATION_VAULT_SETUP.md](FIREBLOCKS_ORGANIZATION_VAULT_SETUP.md) for the organization onboarding, dedicated TRON vault, USDT/TRX asset validation, RSA-4096 API-user, Render secret-file, and read-only readiness sequence.
-
-See [TREASURY_WITHDRAWALS.md](TREASURY_WITHDRAWALS.md) for the exact API endpoints, environment variables, provider policy requirements, and reconciliation rules.
-
-Required safeguards include:
-- The provider's configured vault account and asset ID must identify the actual official TRON USDT contract.
-- The provider must return exactly one configured TRON address matching `TREASURY_ADDRESS`.
-- Provider-available balance and public on-chain balance must both cover the requested amount after reservations.
-- The public chain and provider-available TRX balances must cover one maximum fee cap for each unresolved USDT/TRX payout plus the new request; no automatic fee sponsorship is presumed.
-- Provider transaction policy must enforce approved source, asset, recipient rules, and required approvals. The app does not bypass provider review.
-- Each request is owner-signed, idempotent, database-reserved and subject to per-payout and daily limits.
-- Provider-pending and ambiguous requests remain reserved. A new transfer must not be submitted just because the first request has not yet returned a chain hash.
-- A request is only labelled confirmed after independent verification of the solidified TRON transaction, exact sender/recipient/amount, official USDT contract, successful receipt and matching Transfer event.
-
-## Important setup limitations
-
-`TREASURY_WITHDRAWALS_ENABLED` and `TREASURY_TRX_WITHDRAWALS_ENABLED` must remain `false` until the provider account, API credential file, vault, asset mappings, policy, database and limits have been configured and reviewed. Both USDT and native TRX payout routes use the managed Fireblocks vault signer; neither route should load a blockchain private key into the app. `FIREBLOCKS_TRX_ASSET_ID` is required for both routes so provider-available TRX can be independently verified; its metadata must identify native TRX, and its provider address must match the configured on-chain treasury address. USDT readiness and submission reserve fee capacity across unresolved USDT and TRX payouts.
-
-The code integration does not create a Fireblocks workspace, generate provider credentials, upload Render secret files, fund the treasury, or prove a real Mainnet payout. No live provider call was performed while implementing this branch. Start with mock-based tests, then complete a small controlled payout and independently verify it on TRON before handling meaningful value. A confirmed chain transfer does not guarantee a recipient exchange credits the deposit; exchange credit must be confirmed by the exchange's own authorized records.
+The current feature branch keeps live-value execution disabled. No real payout is claimed or attempted by the source changes.
