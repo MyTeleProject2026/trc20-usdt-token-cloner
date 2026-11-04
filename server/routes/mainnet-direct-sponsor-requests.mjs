@@ -5,7 +5,7 @@ import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslCon
 import { isValidTronAddress } from '../tron-address.mjs'
 
 const { Pool } = pg
-const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+export const OFFICIAL_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._:-]{24,160}$/
 const AMOUNT_PATTERN = /^[1-9][0-9]{0,77}$/
 const MAX_UINT256 = (1n << 256n) - 1n
