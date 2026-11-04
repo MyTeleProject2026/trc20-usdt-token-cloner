@@ -448,6 +448,7 @@ test('submitted sponsor principal cannot be released without matching immutable 
           if (q === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
           if (q === 'COMMIT') { state.commits += 1; return { rows: [] } }
           if (q.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) return { rows: [transfer] }
+          if (q.includes('to_regclass')) return { rows: [{ table_name: null }] }
           if (q.includes('FROM trc20_token_clone.sponsor_chain_fee_observations')) return { rows: [] }
           throw new Error('Must stop before budget read when failed receipt evidence is absent')
         },
@@ -489,6 +490,7 @@ test('matching immutable FAILED fee evidence releases only the principal reserva
           if (q === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
           if (q === 'COMMIT') { state.commits += 1; return { rows: [] } }
           if (q.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) return { rows: [transfer] }
+          if (q.includes('to_regclass')) return { rows: [{ table_name: 'trc20_token_clone.sponsor_chain_fee_observations' }] }
           if (q.includes('FROM trc20_token_clone.sponsor_chain_fee_observations')) {
             assert.deepEqual(values, ['nile', transfer.transaction_hash, transfer.idempotency_key])
             return { rows: [{
