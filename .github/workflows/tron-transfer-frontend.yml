@@ -4,10 +4,14 @@ on:
     branches: [main]
     paths:
       - 'Frontend-Tron-Transfer/**'
+      - 'server/routes/tron-transfer.mjs'
+      - 'tests/tron-transfer-integration-source.test.mjs'
       - '.github/workflows/tron-transfer-frontend.yml'
   pull_request:
     paths:
       - 'Frontend-Tron-Transfer/**'
+      - 'server/routes/tron-transfer.mjs'
+      - 'tests/tron-transfer-integration-source.test.mjs'
       - '.github/workflows/tron-transfer-frontend.yml'
 permissions:
   contents: read
@@ -20,5 +24,6 @@ jobs:
         with:
           node-version: 22
       - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - run: node --test tests/tron-transfer-integration-source.test.mjs
       - run: npm test --prefix Frontend-Tron-Transfer
       - run: npm run build --prefix Frontend-Tron-Transfer
