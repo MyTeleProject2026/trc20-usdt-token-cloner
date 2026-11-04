@@ -761,6 +761,7 @@ export default function App() {
                       <span>Tatum Mainnet {fincraReadiness.tatum?.mainnetNode?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.mainnetNode?.reason || 'not verified'}</span>
                       <span>Tatum Nile {fincraReadiness.tatum?.testnetNodes?.nile?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.testnetNodes?.nile?.reason || (fincraReadiness.tatum?.testnetConfigured ? 'configured, not verified' : 'missing')}</span>
                       <span>Tatum Shasta {fincraReadiness.tatum?.testnetNodes?.shasta?.checked ? 'solidified node reachable' : fincraReadiness.tatum?.testnetNodes?.shasta?.reason || (fincraReadiness.tatum?.testnetConfigured ? 'configured, not verified' : 'missing')}</span>
+                      <span>TRONGrid Mainnet history key {fincraReadiness.tronGrid?.apiKeyConfigured ? 'configured' : 'not configured (public testnet history can still work)'}</span>
                       <span>Fincra API key {fincraReadiness.fincra.apiKeyConfigured ? 'configured' : 'missing'}</span>
                       <span>Business ID {fincraReadiness.fincra.businessIdConfigured ? 'configured' : 'missing'}</span>
                       <span>Webhook secret {fincraReadiness.fincra.webhookSecretConfigured ? 'configured' : 'missing'}</span>
