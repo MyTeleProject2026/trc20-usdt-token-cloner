@@ -89,7 +89,7 @@ test('fee settlement derives identity from stored transfer and never accepts cal
   const payload = await response.json()
   assert.equal(response.status, 200)
   assert.equal(payload.status, 'solidified-direct-trx-burn-fee-settled')
-  assert.equal(payload.executionResult, undefined)
+  assert.equal(payload.executionResult, 'FAILED')
   assert.equal(payload.settlement.settledFeeSun, '4200')
   assert.equal(payload.settlement.feeBudgetSettled, true)
   assert.equal(payload.settlement.sameWalletAsAssetPrincipalSender, true)
