@@ -382,9 +382,9 @@ export default function App() {
         headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store',
       })
       const payload = await response.json().catch(() => null)
-      if (!response.ok || payload?.success !== true) throw new Error(payload?.error || 'Tatum could not inspect this recipient.')
+      if (!response.ok || payload?.success !== true) throw new Error(payload?.error || 'TRON providers could not inspect this recipient.')
       setRecipientInspection(payload)
-      setNotice('Recipient balances and incoming history were retrieved through the Tatum backend.')
+      setNotice('Recipient balances were read through Tatum; incoming transaction history was read from the selected TRON network history service.')
     } finally {
       setRecipientBusy(false)
     }
@@ -731,7 +731,7 @@ export default function App() {
                         <article className="metric-card"><span>Account state</span><strong>{recipientInspection.accountExists ? 'Account found' : 'Not activated / not found'}</strong></article>
                         <article className="metric-card"><span>Network</span><strong>{String(recipientInspection.network).toUpperCase()}</strong></article>
                       </div>
-                      <div className="section-heading"><div><span className="eyebrow">TATUM INDEXED FEED</span><h3>Incoming transaction history</h3><p>{recipientInspection.historyStatus === 'complete' ? 'Both confirmed incoming TRX and TRC-20 history feeds were read through Tatum.' : recipientInspection.historyStatus === 'partial' ? 'Only one incoming history feed was available; results are partial.' : 'Tatum could not load incoming history for this lookup.'}</p></div></div>
+                      <div className="section-heading"><div><span className="eyebrow">TRON CONFIRMED ACCOUNT HISTORY</span><h3>Incoming transaction history</h3><p>{recipientInspection.historyStatus === 'complete' ? 'Both confirmed incoming TRX and TRC-20 history feeds were read from the selected TRON network history service.' : recipientInspection.historyStatus === 'partial' ? 'Only one incoming history feed was available; results are partial.' : 'The selected TRON network history service could not load incoming history for this lookup.'}</p></div></div>
                       {!recipientInspection.incomingHistory?.length ? <div className="empty-state"><ArrowDownLeft size={25}/><b>No incoming transfers found</b><p>This is a live indexer response, not proof that an address has never received funds.</p></div> : recipientInspection.incomingHistory.map((item, index) => (
                         <article className="history-item" key={item.txid || index}>
                           <div className="history-icon incoming"><ArrowDownLeft size={17}/></div>
