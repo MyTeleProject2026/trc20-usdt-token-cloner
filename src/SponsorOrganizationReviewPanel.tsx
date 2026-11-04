@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ClipboardCheck, FileSearch, RefreshCw, ShieldCheck, Wallet, XCircle } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 
@@ -199,6 +199,30 @@ export default function SponsorOrganizationReviewPanel({
       }).catch(() => undefined)
     }
   }
+
+  useEffect(() => {
+    if (!session) return
+    const invalidate = () => {
+      try {
+        window.clearTimeout(timeout)
+      } catch {}
+      setSession(null)
+      setApplications([])
+      setReviewReferences({})
+      setNotice('Owner review session cleared because the wallet or network changed, or the session expired.')
+      void fetch(API_BASE + '/api/auth/tron/logout', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + session.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+      }).catch(() => undefined)
+    }
+    const timeout = window.setTimeout(invalidate, Math.max(0, session.expiresAt - Date.now()))
+    if (!wallet || wallet.address !== session.address || network !== 'mainnet') {
+      invalidate()
+    }
+    return () => window.clearTimeout(timeout)
+  }, [session, wallet?.address, network])
 
   return (
     <section className="wallet-vault-transfer-section sponsor-review-panel" aria-labelledby="sponsor-review-heading">
