@@ -355,10 +355,15 @@ export default function App() {
     setNotice('The selected testnet node accepted the signed transaction. This is not yet proof of successful execution; refresh its on-chain status.')
     setActiveTab('activity')
   }
-  async function refreshProviderReadiness() {
+  async function refreshProviderReadiness(token = ownerSession?.sessionToken) {
+    if (!token) {
+      setFincraReadiness(null)
+      return
+    }
     try {
       const response = await fetch(API_BASE + '/api/tron-transfer/readiness', {
-        headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+        credentials: 'omit', cache: 'no-store',
       })
       const payload = await response.json().catch(() => null)
       if (response.ok && payload?.success === true) setFincraReadiness(payload)
@@ -508,6 +513,7 @@ export default function App() {
       const session = { address: payload.address, expiresAt: payload.expiresAt, sessionToken: token }
       setOwnerSession(session)
       await loadSponsorRequests(token)
+      await refreshProviderReadiness(token)
     } catch {
       setOwnerSession(null)
     }
@@ -530,7 +536,7 @@ export default function App() {
     setOwnerPasswordInput('')
     setOwnerSession({ address: payload.address, expiresAt: payload.expiresAt, sessionToken: payload.sessionToken })
     await loadSponsorRequests(payload.sessionToken)
-    await refreshProviderReadiness()
+    await refreshProviderReadiness(payload.sessionToken)
     setNotice('Owner identity verified. Fincra payout actions are available only under this owner session and configured provider gates.')
   }
   async function loadSponsorRequests(token) {
@@ -747,7 +753,7 @@ export default function App() {
                   <div className="section-heading"><div><span className="eyebrow">AUTHORIZED THIRD-PARTY PRINCIPAL</span><h2>USDT TRC20 sponsor requests</h2><p>Requests are stored for organization review. Only the configured owner session can initiate a Fincra payout.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
                   <div className="sponsor-readiness">
                     <div><span className="eyebrow">FINCRA PROVIDER READINESS</span><strong>{fincraReadiness?.fincra?.canSubmitLivePayout ? 'Live payout prerequisites pass' : fincraReadiness?.fincra?.canSubmitSandboxPayout ? 'Sandbox payout prerequisites pass' : 'Payouts currently gated'}</strong><small>Environment: {fincraReadiness?.fincra?.environment || 'Not checked'} · Scheme: usdt_trc20</small></div>
-                    <button className="secondary-button" onClick={() => perform(refreshProviderReadiness)}><RefreshCw size={15}/> Refresh readiness</button>
+                    <button className="secondary-button" onClick={() => perform(() => refreshProviderReadiness(ownerSession?.sessionToken))}><RefreshCw size={15}/> Refresh readiness</button>
                   </div>
                   {fincraReadiness?.fincra && (
                     <div className="readiness-checks">
