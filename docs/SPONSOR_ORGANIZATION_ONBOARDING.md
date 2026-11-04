@@ -66,6 +66,12 @@ On success, the response is `pending-review` and includes a generated `sponsorRe
 
 Requires the same authenticated Mainnet wallet session. The lookup is scoped to the address in that session. Contact details are shown only to the wallet that submitted the application.
 
+### Owner console review panel
+
+The owner workspace's **Organization payouts** panel includes the Sponsor organization applications queue. To open it, the owner must unlock the locally stored wallet whose address matches the configured `OWNER_WALLET_ADDRESS` and authenticate that address through the existing Mainnet wallet challenge. The owner identity token is held only in component memory, expires with the standard wallet session, and is cleared if the unlocked address or selected network changes. The private key remains local and is used only for the identity-message signature.
+
+The owner can move an application to `in-review`, mark it `accepted-for-due-diligence`, or decline it. Acceptance and decline require an internal review reference. The interface deliberately labels acceptance as **Continue due diligence**, not sponsor approval. Applications can be inspected separately by the sponsor using the wallet-bound self-status route.
+
 ### Owner-only application queue
 
 `GET /api/treasury/owner/sponsor-organizations?status=pending-review&limit=50`
