@@ -133,7 +133,7 @@ function tronWebFor(network, tronWebFactory, env = process.env) {
   const createWithTatum = tronWebFactory || ((host) => new TronWeb({ fullHost: host, headers: env.TATUM_API_KEY ? { 'x-api-key': env.TATUM_API_KEY } : {} }))
   const host = NETWORKS[network]
   if (!host) throw new Error('unsupported-testnet')
-  return { host, tronWeb: tronWebFactory(host) }
+  return { host, tronWeb: (tronWebFactory || createWithTatum)(host) }
 }
 
 function maxFeeLimitSun(env) {
