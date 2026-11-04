@@ -32,6 +32,7 @@ test('native incoming history normalizes only confirmed TRX transfers to the req
       txID: txNative,
       block_timestamp: 1730000000000,
       blockNumber: 123,
+      ret: [{ contractRet: 'SUCCESS' }],
       raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
         owner_address: '41' + '11'.repeat(20),
         to_address: '41' + '22'.repeat(20),
@@ -55,6 +56,19 @@ test('native incoming history normalizes only confirmed TRX transfers to the req
   assert.equal(rows[0].amountBaseUnits, '2500000')
   assert.equal(rows[0].asset, 'TRX')
   assert.equal(rows[0].confirmed, true)
+})
+
+test('native incoming history rejects confirmed but failed TRX transactions', () => {
+  const payload = { data: [{
+    txID: txNative,
+    ret: [{ contractRet: 'FAILED' }],
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: '41' + '11'.repeat(20),
+      to_address: '41' + '22'.repeat(20),
+      amount: 2500000,
+    } } }] },
+  }] }
+  assert.deepEqual(normalizeTronGridNativeIncoming(payload, recipient, decodeAddress), [])
 })
 
 test('TRC20 incoming history normalizes exact token contract, amount and recipient', () => {
@@ -87,6 +101,7 @@ test('recipient history requests confirmed incoming native and TRC20 data from t
       value: '1234500', token_info: { address: contract, symbol: 'tUSDT', decimals: 6 },
     }] : [{
       txID: txNative, block_timestamp: 1730000000000,
+      ret: [{ contractRet: 'SUCCESS' }],
       raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
         owner_address: '41' + '11'.repeat(20), to_address: '41' + '22'.repeat(20), amount: 2500000,
       } } }] },
