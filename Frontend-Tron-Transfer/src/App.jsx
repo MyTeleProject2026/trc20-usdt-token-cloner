@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { Activity, AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, ExternalLink, FileKey2, History, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, ExternalLink, FileKey2, History, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
 import { encryptWalletPrivateKey, decryptWalletPrivateKey, isEncryptedWalletRecord } from './lib/wallet-vault-crypto.mjs'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
@@ -356,30 +356,9 @@ export default function App() {
             <span>Live stablecoin permission {readiness.fincra.liveStablecoinPayoutsConfirmed?'confirmed':'not confirmed'}</span>
             <span>Live payout gate {readiness.fincra.canSubmitLivePayout?'open for owner review':'closed'}</span>
           </div>}
-          <div className="sponsor-request-layout">
-            <div className="sponsor-form-card"><span className="eyebrow">01 / REQUEST A SPONSORED WITHDRAWAL</span><h3>Recipient and beneficiary</h3><p>Your monitored address does not need a balance. The payout principal comes from an authorized Fincra source.</p>
-              {!requesterSession?<div className="owner-session-card"><strong><LockKeyhole size={15}/> Requester ownership not verified</strong><small>{unlocked?'Sign a Mainnet identity message. This does not require TRX or authorize a payout.':'Import and unlock the Mainnet wallet you control to sign an off-chain ownership challenge.'}</small><button className="secondary-button" disabled={busy||!unlocked} onClick={()=>perform(verifyRequester)}><ShieldCheck size={15}/> Verify wallet ownership</button></div>:<div className="owner-session-card"><strong><ShieldCheck size={15}/> Mainnet requester identity verified</strong><small>{shorten(requesterSession.address)} · expires {new Date(requesterSession.expiresAt).toLocaleTimeString()}</small><button className="outline-button" onClick={signOutRequester}>Sign out requester identity</button></div>}
-              <div className="form-stack">
-                <label>Recipient Mainnet address<input value={requestRecipient} onChange={e=>{setRequestRecipient(e.target.value);setRequestInspection(null);setRequestInspectionError('')}} placeholder="External TRON Mainnet address (T…)" autoComplete="off" spellCheck="false"/></label>
-                <button type="button" className="secondary-button" disabled={busy||requestInspectionBusy||!requestRecipient.trim()} onClick={()=>perform(inspectRequestRecipient)}><RefreshCw size={15}/>{requestInspectionBusy?'Inspecting recipient…':'Inspect recipient balance & history'}</button>
-                {requestInspectionError&&<div className="notice notice-error"><AlertTriangle size={15}/><span>{requestInspectionError}</span></div>}
-                {requestInspection&&requestInspection.address===requestRecipient.trim()&&<div className="request-inspection">
-                  <div><span>TRON Mainnet account</span><b>{requestInspection.data.accountExists?'Found':'Not activated / not found'}</b></div>
-                  <div><span>Official USDT balance</span><b>{requestInspection.data.tokenBalance?formatUnits(requestInspection.data.tokenBalance.balanceBaseUnits,requestInspection.data.tokenBalance.decimals)+' USDT':'Unavailable'}</b></div>
-                  <div><span>Native TRX balance</span><b>{requestInspection.data.nativeBalanceTRX??'Unavailable'} TRX</b></div>
-                  <div><span>Incoming history</span><b>{requestInspection.data.historyStatus||'Unavailable'}</b></div>
-                  <small>Inspected {new Date(requestInspection.inspectedAt).toLocaleTimeString()}. Recheck after five minutes or whenever the recipient address changes.</small>
-                </div>}
-                <label>USDT amount<input value={requestAmount} onChange={e=>setRequestAmount(e.target.value)} placeholder="e.g. 25.00" inputMode="decimal"/></label>
-                <label>Beneficiary full name<input value={beneficiaryName} onChange={e=>setBeneficiaryName(e.target.value)} placeholder="Wallet beneficiary name"/></label>
-                <label>Beneficiary email (optional)<input value={beneficiaryEmail} onChange={e=>setBeneficiaryEmail(e.target.value)} placeholder="name@example.com"/></label>
-                <button className="primary-button" disabled={busy||!requesterSession?.sessionToken||!requestRecipient.trim()||!requestInspection||requestInspection.address!==requestRecipient.trim()||Date.now()-requestInspection.inspectedAt>5*60*1000||!requestAmount.trim()||!beneficiaryName.trim()} onClick={()=>perform(submitSponsorRequest)}><Plus size={16}/> Create sponsor withdrawal request</button>
-              </div><p className="fine-print">A request is not a payout. Only the authorized owner session can submit to live Fincra after all funding, permission and readiness checks pass.</p>
-            </div>
-            <div className="sponsor-admin-card"><span className="eyebrow">02 / AUTHORIZED PAYOUT OPERATOR</span><h3>Owner authentication</h3>
+          <div className="sponsor-admin-card"><span className="eyebrow">02 / AUTHORIZED PAYOUT OPERATOR</span><h3>Owner authentication</h3>
               {!ownerSession?<div className="form-stack"><label>Configured owner Mainnet address<input value={ownerAddress} onChange={e=>setOwnerAddress(e.target.value)} placeholder="T..." autoComplete="off"/></label><label>Owner password<input value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} type="password" autoComplete="current-password"/></label><button className="secondary-button" disabled={busy||!ownerAddress.trim()||!ownerPassword} onClick={()=>perform(signInOwner)}><LockKeyhole size={16}/> Sign in as payout owner</button></div>:<div className="owner-session-card"><strong><ShieldCheck size={15}/> Owner session active</strong><small>{shorten(ownerSession.address)} · expires {new Date(ownerSession.expiresAt).toLocaleTimeString()}</small><div className="button-row"><button className="secondary-button" onClick={()=>perform(()=>loadRequests(ownerSession.sessionToken))}><RefreshCw size={15}/> Refresh queue</button><button className="outline-button" onClick={signOutOwner}>Sign out</button></div></div>}
             </div>
-          </div>
           {ownerSession&&<div className="sponsor-queue"><div className="section-heading"><div><span className="eyebrow">03 / PAYOUT OPERATIONS</span><h3>Mainnet withdrawal queue</h3><p>Fincra acceptance, payout settlement and chain confirmation remain separate states.</p></div></div>
             {!requests.length?<div className="empty-state"><ShieldCheck size={25}/><b>No sponsor requests in the queue</b><p>Submitted requests will appear here.</p></div>:requests.map(request=><article className="sponsor-request-row" key={request.id}>
               <div className="sponsor-request-details"><strong>{request.amount} USDT</strong><small>To {shorten(request.recipientAddress)} · {new Date(request.createdAt).toLocaleString()}</small><small>Requester {shorten(request.requesterAddress)} · {request.beneficiaryName}</small><span className="status-text">{request.status} · Fincra: {request.fincraStatus||'not submitted'} · Chain: {request.chainVerificationStatus}</span>{request.transactionHash&&<a href={'https://tronscan.org/#/transaction/'+request.transactionHash} target="_blank" rel="noreferrer">View verified transfer <ExternalLink size={12}/></a>}</div>
