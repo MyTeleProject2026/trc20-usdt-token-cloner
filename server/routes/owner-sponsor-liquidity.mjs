@@ -24,20 +24,6 @@ function validOwnerSessionToken(req) {
   return match && origin ? { tokenHash: digest(match[1]), origin } : null
 }
 
-function safeBudget(budget, env) {
-  return {
-    ...budget,
-    approvalScopeVerified: budget.status === 'active'
-      && typeof budget.review_reference === 'string'
-      && budget.review_reference.trim().length > 0
-      && budget.approved_at != null
-      && isApprovedSponsorAgreementScope({
-        consentReference: budget.approval_reference,
-        budget,
-      }),
-  }
-}
-
 function sumActiveApprovedCapacity(budgets) {
   return budgets.reduce((total, budget) => {
     if (budget.status !== 'active' || budget.approvalScopeVerified !== true) return total
@@ -81,8 +67,8 @@ export function createOwnerSponsorLiquidityRouter({
       })
     }
 
-    const ownerAddress = typeof env.TREASURY_OWNER_ADDRESS === 'string'
-      ? env.TREASURY_OWNER_ADDRESS.trim() : ''
+    const ownerAddress = [env.TREASURY_OWNER_ADDRESS, env.OWNER_WALLET_ADDRESS]
+      .find((value) => typeof value === 'string' && value.trim())?.trim() || ''
     if (!isValidTronAddress(ownerAddress)) {
       return res.status(503).json({
         success: false, error: 'treasury-owner-not-configured',
