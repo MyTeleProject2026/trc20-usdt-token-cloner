@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, ExternalLink, FileKey2, History, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, Copy, ExternalLink, FileKey2, History, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
 import { encryptWalletPrivateKey, decryptWalletPrivateKey, isEncryptedWalletRecord } from './lib/wallet-vault-crypto.mjs'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
@@ -347,6 +347,13 @@ export default function App() {
 {tab==='sponsors'&&<section className="panel sponsor-panel">
           <div className="section-heading"><div><span className="eyebrow">AUTHORIZED PRINCIPAL / LIVE PAYOUTS</span><h2>Sponsored USDT TRC20 withdrawals</h2><p>Fincra submits live payouts from an authorized funded business source. Tatum verifies the resulting Mainnet transaction.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
           <div className="sponsor-readiness"><div><span className="eyebrow">FINCRA LIVE READINESS</span><strong>{readiness?.fincra?.canSubmitLivePayout?'Live payout prerequisites pass':'Live payouts currently gated'}</strong><small>Environment: {readiness?.fincra?.environment||'Not checked'} · Scheme: usdt_trc20</small></div><button className="secondary-button" onClick={()=>perform(()=>refreshReadiness())}><RefreshCw size={15}/> Refresh readiness</button></div>
+          {readiness?.fincra?.sourceBalance?.checked&&readiness.fincra.sourceBalance.currency==='USDT'&&readiness.fincra.sourceBalance.walletNumber&&<div className="panel sponsor-funding-destination">
+            <span className="eyebrow">SPONSOR FUNDING DESTINATION · FINCRA USDT BALANCE</span>
+            <h3>Receive sponsor funding into the payout source</h3>
+            <div className="funding-wallet-number"><strong>{readiness.fincra.sourceBalance.walletNumber}</strong><button type="button" className="icon-button" onClick={()=>navigator.clipboard?.writeText(readiness.fincra.sourceBalance.walletNumber).then(()=>setNotice('Fincra USDT wallet number copied.')).catch(()=>setError('Clipboard access is unavailable.'))}><Copy size={15}/> Copy</button></div>
+            <p>Share this Fincra USDT balance number with an approved sponsor that also holds a Fincra account. The sponsor can initiate an authorized Fincra-to-Fincra wallet transfer to this USDT balance. The sponsor must use its own Fincra account and available USDT; Tron Transfer never receives the sponsor’s API key or initiates a debit from the sponsor’s account.</p>
+            <small>Fincra wallet number is a receiving account identifier, not a TRON address. Incoming funds are counted only after Fincra reflects them in the available USDT balance.</small>
+          </div>}
           {readiness?.fincra&&<div className="readiness-checks">
             <span>Tatum Mainnet {readiness.tatum?.mainnetNode?.checked?'solidified node reachable':readiness.tatum?.mainnetNode?.reason||'not verified'}</span>
             <span>Fincra API key {readiness.fincra.apiKeyConfigured?'configured':'missing'}</span>
