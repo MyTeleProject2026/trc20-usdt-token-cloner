@@ -43,12 +43,14 @@ Prepare requests now include a UUIDv4 request key. PostgreSQL stores it under a 
 
 ## Automated validation observed
 
-For implementation commit `9b41e4cc5e132d984b66d7314687defa1f574321`, GitHub Actions run `41782279950` reported:
-- Full Node test suite and isolated PostgreSQL integration tests: passed (664 tests, 0 failures).
-- Vite production build and contract compile: passed.
-- Dependency security audit run `41782280030`: passed.
+Historical baseline: implementation commit `9b41e4cc5e132d984b66d7314687defa1f574321`, CI run `41782279950`, passed 664 tests, the Vite production build/contract compile, and dependency audit `41782280030`.
 
-This is CI evidence for the source revision. It does not validate TronLink with a real wallet, a live Mainnet balance, a funded treasury, an actual transfer, or exchange deposit credit.
+Latest recovery/concurrency implementation: commit `4e7c28cc594538ea474ab4eb9a4d03c3ce147d25`.
+- GitHub Actions CI run `41787367692`: passed 666 tests, 0 failures, including the new PostgreSQL-backed idempotency, concurrency, owner-isolation, and restart-recovery integration coverage.
+- The same run compiled the contract and completed the Vite production build.
+- Dependency security audit run `41787367703`: passed.
+
+These are source/automated-test results only. They do not validate TronLink with a real wallet, a live testnet wallet session, a live Mainnet balance, a funded treasury, an actual transfer, or exchange deposit credit.
 
 ## Critical remaining limitations
 
