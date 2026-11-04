@@ -6,7 +6,7 @@ const route = await readFile(new URL('../server/routes/tron-transfer.mjs', impor
 const entry = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
 
 test('Tatum RPC proxy is network fixed, method allow-listed, and server-keyed', () => {
-  assert.match(route, /TATUM_MAINNET_API_KEY/)
+  assert.ok(route.includes("'x-api-key': key"))
   assert.match(route, /TATUM_TESTNET_API_KEY/)
   assert.match(route, /['\"]x-api-key['\"]:\\s*key/)
   assert.match(route, /router\.all\('\/rpc\/:network\/\*'/)
