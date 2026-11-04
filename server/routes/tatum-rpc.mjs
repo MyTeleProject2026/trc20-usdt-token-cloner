@@ -9,6 +9,7 @@ const NETWORKS = Object.freeze({
 })
 const ALLOWED_METHODS = new Set([
   'wallet/getaccount',
+  'wallet/getnodeinfo',
   'wallet/getaccountresource',
   'wallet/getaccountnet',
   'wallet/getnowblock',
