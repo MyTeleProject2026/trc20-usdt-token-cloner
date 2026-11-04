@@ -1844,7 +1844,7 @@ export default function WalletVault() {
             <span className="wallet-vault-route-kicker">ROUTE B · ORGANIZATION FUNDS</span>
             <Landmark size={22} aria-hidden="true" />
             <strong>Sponsor-funded payout</strong>
-            <small>Uses only an authorized, independently verified and funded organization vault. It never draws USDT principal from your personal wallet. This route is currently locked.</small>
+            <small>Submits a request for an authorized sponsor to review the exact recipient and amount. The request and approval workflow is available; payment execution remains disabled in this build. Your personal wallet is never used as payout principal.</small>
             <span className="wallet-vault-route-foot">Open Sponsor payouts →</span>
           </button>
         </div>
@@ -1953,14 +1953,14 @@ export default function WalletVault() {
         <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><Settings size={16} /></span><div><h2>Settings</h2><p>These values reflect server configuration and chain reads; controls here do not pretend to change Render settings.</p></div></div>
         <div className="wallet-vault-settings-grid">
           <article className="wallet-vault-setting-card">
-            <div className="wallet-vault-setting-card-title"><Landmark size={18} /><div><strong>Public treasury address</strong><small>Read-only monitoring</small></div></div>
-            <p>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? serverTreasuryReadiness.treasuryAddress : 'Sponsor addresses are not exposed here. Read-only diagnostics show whether configured sponsor roles and balances can be verified.'}</p>
-            <span className={'wallet-vault-state-pill ' + (ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? 'is-ready' : 'is-blocked')}>{ADDRESS_PATTERN.test(String(serverTreasuryReadiness?.treasuryAddress || '')) ? 'Address configured' : 'Not configured'}</span>
+            <div className="wallet-vault-setting-card-title"><Landmark size={18} /><div><strong>Funding model</strong><small>Direct sponsor-to-recipient</small></div></div>
+            <p>TRON Token Studio does not require or hold a platform treasury for this workflow. The authorized sponsor wallet sends directly to the approved recipient; sponsor addresses are shown only in the authorized sponsor-review context.</p>
+            <span className="wallet-vault-state-pill">No platform treasury</span>
           </article>
           <article className="wallet-vault-setting-card">
-            <div className="wallet-vault-setting-card-title"><ShieldCheck size={18} /><div><strong>Organization payout provider</strong><small>Backend-enforced readiness</small></div></div>
+            <div className="wallet-vault-setting-card-title"><ShieldCheck size={18} /><div><strong>Sponsor execution</strong><small>Current release status</small></div></div>
             <p>Mainnet sponsored execution is disabled in this build. Sponsor requests and message approvals do not reserve or transfer assets.</p>
-            <span className={'wallet-vault-state-pill ' + (serverTreasuryReadiness?.executionEnabled === true ? 'is-ready' : 'is-blocked')}>{serverTreasuryReadiness?.executionEnabled === true ? 'Release and preflight passed' : 'Sponsor release or preflight missing'}</span>
+            <span className="wallet-vault-state-pill is-blocked">Disabled in this build</span>
           </article>
           <article className="wallet-vault-setting-card">
             <div className="wallet-vault-setting-card-title"><Wallet size={18} /><div><strong>Local wallet security</strong><small>Owner-controlled keys</small></div></div>
