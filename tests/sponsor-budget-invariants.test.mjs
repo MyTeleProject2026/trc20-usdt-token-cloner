@@ -425,3 +425,99 @@ test('sponsor confirmation requests rollback when audit-event insertion fails', 
   assert.ok(state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status =')))
   assert.ok(state.queries.some((query) => query.startsWith('INSERT INTO trc20_token_clone.audit_events')))
 })
+
+
+test('submitted sponsor principal cannot be released without matching immutable FAILED fee evidence', async () => {
+  const transfer = {
+    idempotency_key: 'sponsor-failed-evidence-required-0001',
+    sponsor_reference: 'test-sponsor',
+    sponsor_address: 'T1111111111111111111111111',
+    network: 'nile', purpose: 'asset-grant', asset: 'USDT',
+    token_contract: 'T3333333333333333333333333',
+    receiver_address: 'T2222222222222222222222222',
+    amount_base_units: '2500000', status: 'submitted', transaction_hash: 'f'.repeat(64),
+  }
+  const state = { queries: [], rollbacks: 0, commits: 0, released: false }
+  const pool = {
+    async connect() {
+      return {
+        async query(sql) {
+          const q = sql.replace(/\\s+/g, ' ').trim()
+          state.queries.push(q)
+          if (q === 'BEGIN') return { rows: [] }
+          if (q === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
+          if (q === 'COMMIT') { state.commits += 1; return { rows: [] } }
+          if (q.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) return { rows: [transfer] }
+          if (q.includes('FROM trc20_token_clone.sponsor_chain_fee_observations')) return { rows: [] }
+          throw new Error('Must stop before budget read when failed receipt evidence is absent')
+        },
+        release() { state.released = true },
+      }
+    },
+  }
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: transfer.idempotency_key, nextStatus: 'failed',
+    transactionHash: transfer.transaction_hash,
+  }, pool, { initialize: false })
+  assert.deepEqual(result, { updated: false, reason: 'finalized-failure-fee-observation-required' })
+  assert.equal(state.commits, 0)
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.released, true)
+  assert.ok(!state.queries.some(q => q.includes('FROM trc20_token_clone.sponsor_budgets')))
+  assert.ok(!state.queries.some(q => q.startsWith('UPDATE trc20_token_clone.sponsor_budgets')))
+})
+
+test('matching immutable FAILED fee evidence releases only the principal reservation atomically', async () => {
+  const transfer = {
+    idempotency_key: 'sponsor-failed-evidence-match-0001',
+    sponsor_reference: 'test-sponsor',
+    sponsor_address: 'T1111111111111111111111111',
+    network: 'nile', purpose: 'asset-grant', asset: 'USDT',
+    token_contract: 'T3333333333333333333333333',
+    receiver_address: 'T2222222222222222222222222',
+    amount_base_units: '2500000', status: 'submitted', transaction_hash: '9'.repeat(64),
+  }
+  const budget = { id: 11, reserved_base_units: '2500000', spent_base_units: '0', budget_base_units: '10000000' }
+  const state = { queries: [], rollbacks: 0, commits: 0, released: false }
+  const pool = {
+    async connect() {
+      return {
+        async query(sql, values = []) {
+          const q = sql.replace(/\\s+/g, ' ').trim()
+          state.queries.push({ q, values })
+          if (q === 'BEGIN') return { rows: [] }
+          if (q === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
+          if (q === 'COMMIT') { state.commits += 1; return { rows: [] } }
+          if (q.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) return { rows: [transfer] }
+          if (q.includes('FROM trc20_token_clone.sponsor_chain_fee_observations')) {
+            assert.deepEqual(values, ['nile', transfer.transaction_hash, transfer.idempotency_key])
+            return { rows: [{
+              network: 'nile', transaction_hash: transfer.transaction_hash,
+              idempotency_key: transfer.idempotency_key, execution_result: 'FAILED',
+              block_number: '12345', reported_fee_sun: '4200',
+            }] }
+          }
+          if (q.includes('FROM trc20_token_clone.sponsor_budgets')) return { rows: [budget] }
+          if (q.startsWith('UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units -')) return { rows: [], rowCount: 1 }
+          if (q.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status =')) return { rows: [], rowCount: 1 }
+          if (q.startsWith('INSERT INTO trc20_token_clone.audit_events')) return { rows: [], rowCount: 1 }
+          throw new Error('Unexpected SQL in failed sponsor reconciliation test: ' + q)
+        },
+        release() { state.released = true },
+      }
+    },
+  }
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: transfer.idempotency_key, nextStatus: 'failed',
+    transactionHash: transfer.transaction_hash,
+  }, pool, { initialize: false })
+  assert.deepEqual(result, { updated: true, duplicate: false, status: 'failed' })
+  assert.equal(state.commits, 1)
+  assert.equal(state.rollbacks, 0)
+  assert.equal(state.released, true)
+  const release = state.queries.find(({ q }) => q.startsWith('UPDATE trc20_token_clone.sponsor_budgets SET reserved_base_units = reserved_base_units -'))
+  assert.deepEqual(release.values, ['2500000', 11])
+  const audit = state.queries.find(({ q }) => q.startsWith('INSERT INTO trc20_token_clone.audit_events'))
+  assert.match(audit.values[1], /immutable-solidified-fee-observation/)
+  assert.match(audit.values[1], /"feeBudgetSettled":false/)
+})
