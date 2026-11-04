@@ -88,10 +88,12 @@ test('fresh authenticated owner treasury snapshot matching the local signer is a
   }), true)
 })
 
-test('Wallet Vault enforces owner review policy and disables transaction execution', async () => {
+test('Wallet Vault provides read-only transfer previews and disables transaction execution', async () => {
   const ui = await readFile(new URL('../src/WalletVault.tsx', import.meta.url), 'utf8')
-  assert.ok(ui.includes("import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'"))
-  assert.match(ui, /async function prepareTransfer\(\)[\s\S]{0,800}assertOwnerMainnetTransferAccess/)
-  assert.match(ui, /async function broadcastTransfer\(\)[\s\S]{0,350}signing and broadcast are disabled/i)
-  assert.match(ui, /Signing and broadcast disabled/)
+  assert.ok(ui.includes('This screen creates a read-only preview only.'))
+  assert.ok(ui.includes("API_BASE + '/api/tron/native-balance?network='"))
+  assert.ok(ui.includes('evidence.balanceBaseUnits'))
+  assert.ok(!ui.includes('assertOwnerMainnetTransferAccess'))
+  assert.ok(ui.includes('Transaction signing and broadcast are disabled in this build.'))
+  assert.ok(ui.includes('Signing and broadcast disabled'))
 })
