@@ -51,7 +51,7 @@ The existing Mainnet read-only panel now includes a separate requester identity 
 
 The form is not connected to the testnet sender wallet or testnet transfer flow. It does not request a transaction signature, and the request receipt is labelled `No transfer sent`. A user must sign in again after a page refresh because the Mainnet requester session token is not persisted in browser storage.
 
-The sponsor queue is currently a server-token-protected operator review endpoint. It is not an external sponsor organization login, does not prove the legal sponsor mandate, and does not yet provide sponsor approval or transaction signing.
+The asset-principal sponsor and network-fee sponsor now have separate Mainnet wallet-authenticated review queues. Each must sign a separate request-bound approval from its own configured Mainnet wallet. These approvals do not prove the legal sponsor mandate by themselves, do not reserve assets/resources, and do not provide a TRON transaction signature.
 
 ## Mainnet direct sponsor approval checkpoint
 
@@ -77,3 +77,25 @@ The challenge message binds the request ID/key, requester identity, sponsor orga
 A verified approval is stored separately from the immutable request and expires after 30 minutes. It authorizes only the exact USDT principal request at the approval layer. It does not approve network fees, reserve a balance, create a transaction, provide a TRON transaction signature, broadcast, or settle. The requester identity wallet and sponsor signer identity are held in separate UI states and require separate Mainnet sign-ins.
 
 **Important:** environment references and a wallet signature do not independently prove legal authority, organizational ownership, source of funds, or the validity of the agreement. Those still require external review. A positive balance snapshot is not a reservation and may change after approval. Recheck funding and all spend controls immediately before any later signing/execution implementation.
+
+## Separate Mainnet network-fee sponsor approval
+
+The fee-sponsor workflow is separate from the asset-principal approval:
+
+- `GET /api/tron/sponsorship/mainnet-direct/fee-review-queue`
+- `POST /api/tron/sponsorship/mainnet-direct/requests/:idempotencyKey/fee-approval-challenge`
+- `POST /api/tron/sponsorship/mainnet-direct/requests/:idempotencyKey/approve-fees`
+
+It requires a different wallet from the asset-principal sponsor and a second exact `SPONSOR_APPROVED_AGREEMENT_REFERENCES` scope: `feeAgreementReference|feeOrganizationReference|mainnet|feeSponsorAddress|network-fee|TRX|-`.
+
+Backend-only fee sponsor policy settings:
+
+- `SPONSOR_FEE_MAINNET_ADDRESS`
+- `SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE`
+- `SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE`
+- `SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256`
+- `SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN`
+
+The fee sponsor can only create a challenge after an active principal approval exists for that exact request. Before challenge creation, the backend rechecks a fresh role snapshot, sufficient official USDT principal, distinct sponsor addresses, positive verified fee-sponsor TRX, resource state, and audited Energy/Bandwidth delegation from fee sponsor to principal sponsor. The fee approval message binds the same requester, recipient, USDT contract and exact principal amount as the principal approval, plus a separate fee-sponsor organization, agreement digest and maximum fee budget in SUN. The fee signer must recover to `SPONSOR_FEE_MAINNET_ADDRESS`; one-time nonces are consumed before signature recovery and approvals persist separately in PostgreSQL.
+
+**Limits:** fee approval is only a capped willingness to cover network costs. It does not transfer TRX, execute resource delegation, reserve TRX/Energy/Bandwidth, estimate the exact final fee, sign the USDT transaction, broadcast, or settle. A later execution checkpoint must reserve and recheck exact transaction fees/resources and keep principal and fee ledgers separate.
