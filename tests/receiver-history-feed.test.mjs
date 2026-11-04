@@ -1,11 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-
 const routes = await readFile(new URL('../server/routes/native-tron.mjs', import.meta.url), 'utf8')
 const activeUi = await readFile(new URL('../src/WorkflowApp.tsx', import.meta.url), 'utf8')
 const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8')
-
 test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.match(routes, /router\.get\('\/receiver-history'/)
   assert.match(routes, /onlyConfirmed: 'true'/)
@@ -13,8 +11,8 @@ test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.match(routes, /limit > 50/)
   assert.match(routes, /TATUM_API_KEY/)
   assert.match(routes, /TATUM_REST_BASE/)
-  assert.match(routes, /v3\\/tron\\/transaction\\/account/)
-  assert.match(routes, /query\\.set\\('next', fingerprint\\)/)
+  assert.ok(routes.includes('/v3/tron/transaction/account/'))
+  assert.ok(routes.includes("query.set('next', fingerprint)"))
   assert.match(routes, /nextFingerprint/)
   assert.match(routes, /invalid-fingerprint/)
   assert.match(routes, /indexed-candidate-awaiting-solidified-verification/)
@@ -26,7 +24,6 @@ test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.doesNotMatch(endpoint, /privateKey|broadcasttransaction|sendRawTransaction|wallet\/broadcasttransaction/i)
   assert.doesNotMatch(endpoint, /fetch\(req\.query|new URL\(req\.query/i)
 })
-
 test('receiver history UI distinguishes solidified receipts from indexed candidates', () => {
   assert.ok(routes.includes("receiver-history/persisted"))
   assert.match(routes, /listPersistedReceiverHistory/)
@@ -43,7 +40,6 @@ test('receiver history UI distinguishes solidified receipts from indexed candida
   assert.ok(activeUi.includes('receiverHistoryRequestGeneration'))
   assert.ok(activeUi.includes('requestGeneration !== receiverHistoryRequestGeneration.current'))
 })
-
 test('history verification ignores stale responses after the selected receiver or network changes', () => {
   const start = activeUi.indexOf('  const verifyReceiverHistoryRecord = async (record: ReceiverHistoryRecord, recordKey: string) => {')
   const end = activeUi.indexOf('  const chooseNetwork = (next: NetworkId) => {', start)
@@ -54,7 +50,6 @@ test('history verification ignores stale responses after the selected receiver o
   assert.match(handler, /if \(requestGeneration === receiverHistoryRequestGeneration\.current\)/)
   assert.match(handler, /server history was not saved/)
 })
-
 test('persistent watchlist registration is protected and does not imply monitoring is running', () => {
   assert.ok(routes.includes("router.post('/tracked-wallets'"))
   assert.match(routes, /RECEIVER_WATCHLIST_ADMIN_TOKEN/)
@@ -66,7 +61,6 @@ test('persistent watchlist registration is protected and does not imply monitori
   assert.match(routes, /A valid watchlist administrator token is required/)
   assert.doesNotMatch(routes.slice(routes.indexOf("router.post('/tracked-wallets'"), routes.indexOf("// Read-only incoming TRC-20 indexer feed.")), /privateKey|broadcasttransaction|sendRawTransaction/i)
 })
-
 test('receiver history does not start background polling or browser notifications', () => {
   assert.ok(!activeUi.includes('Notification'))
   assert.ok(!activeUi.includes('setInterval('))
