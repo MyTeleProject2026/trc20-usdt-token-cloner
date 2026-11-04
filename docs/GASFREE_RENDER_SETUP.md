@@ -23,7 +23,7 @@ Add values in the Render **backend Web Service** environment settings, then trig
 | `GASFREE_NILE_API_KEY` | Only when using signed Nile API access | GasFree testnet API key |
 | `GASFREE_NILE_API_SECRET` | Paired with the Nile key | Server-only testnet HMAC secret |
 | `TATUM_API_KEY` | Already used by existing Tatum read-only endpoints | Existing Tatum read-only API access |
-| `TRONGRID_API_KEY` | Optional, depending on rate limits | TRONGrid read-only history/balance queries |
+| `TATUM_API_KEY` | Required for Tatum-backed TRON chain reads | Backend-only key for TRON history, balance, resource and receipt queries |
 | `DATABASE_URL` | Required for persistent receiver history/ledger features | Render PostgreSQL connection string |
 | `FRONTEND_ORIGIN` | Required for browser API access | Exact allowed frontend origin(s), comma-separated |
 | `RECEIVER_WATCHLIST_ADMIN_TOKEN` | Optional; only if using protected wallet registration | Long random server-only token of at least 32 characters |
