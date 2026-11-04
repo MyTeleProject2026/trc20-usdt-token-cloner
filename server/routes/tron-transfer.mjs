@@ -334,7 +334,56 @@ export async function verifySolidifiedUsdtTransfer(env, { transactionHash, from,
   const actualSender = canonicalHexAddress(value?.owner_address)
   const actualContract = canonicalHexAddress(value?.contract_address)
   const calldata = typeof value?.data === 'string' ? value.data.replace(/^0x/i, '').toLowerCase() : ''
-  const match = new RegExp('^' + TRANSFER_SELECTOR + '([0-9a-f]{128})
+  const calldataMatch = /^a9059cbb([0-9a-f]{128})$/.exec(calldata)
+  const encodedRecipient = calldataMatch ? calldataMatch[1].slice(24, 64) : null
+  let encodedAmount = null
+  if (calldataMatch) {
+    try { encodedAmount = BigInt('0x' + calldataMatch[1].slice(64, 128)).toString() } catch {}
+  }
+  const transactionSucceeded = transaction?.ret?.some((item) => item?.contractRet === 'SUCCESS') === true
+  const receiptSucceeded = receipt?.receipt?.result === 'SUCCESS'
+  const logs = Array.isArray(receipt?.log) ? receipt.log : []
+  const matches = []
+  for (let index = 0; index < logs.length; index += 1) {
+    const event = readSolidifiedTransferEvent(logs[index], contractBytes)
+    if (event && event.fromBytes === fromBytes && event.toBytes === toBytes
+      && event.amountBaseUnits === String(amountBaseUnits)) matches.push({ logIndex: index, ...event })
+  }
+  const verified = Boolean(fromBytes && toBytes && contractBytes
+    && transactionSucceeded && receiptSucceeded
+    && contracts.length === 1 && Boolean(trigger)
+    && actualSender === fromBytes
+    && actualContract === contractBytes
+    && Boolean(calldataMatch)
+    && encodedRecipient === toBytes
+    && encodedAmount === String(amountBaseUnits)
+    && matches.length === 1)
+  if (!verified) {
+    return {
+      verified: false,
+      status: !transactionSucceeded || !receiptSucceeded ? 'solidified-transaction-failed'
+        : matches.length > 1 ? 'ambiguous-transfer-event' : 'solidified-transfer-mismatch',
+      blockNumber,
+      transactionSucceeded,
+      receiptSucceeded,
+      transferEventMatches: matches.length,
+    }
+  }
+  return {
+    verified: true,
+    status: 'solidified-trc20-transfer-verified',
+    blockNumber,
+    timestamp: Number.isSafeInteger(receipt.blockTimeStamp) ? receipt.blockTimeStamp : null,
+    logIndex: matches[0].logIndex,
+    transactionHash: transactionHash.toLowerCase(),
+    contract: MAINNET_USDT,
+    from,
+    to,
+    amountBaseUnits: String(amountBaseUnits),
+  }
+}
+
+export function createTronTransferRouter({ env = process.env } = {}) {
   const router = Router()
   let schemaPromise = null
 
