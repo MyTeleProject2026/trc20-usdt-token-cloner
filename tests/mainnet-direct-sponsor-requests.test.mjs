@@ -82,7 +82,12 @@ function makeStore() {
     async findRequest(requestKey, address) {
       const row = rows.get(requestKey)
       if (!row || row.requesterAddress !== address) return { success: false, reason: 'request-not-found' }
-      return { success: true, request: row, sponsorApproval: approvals.get(requestKey) || null, feeSponsorApproval: feeApprovals.get(requestKey) || null }
+      const principal = approvals.get(requestKey) || null
+      const fee = feeApprovals.get(requestKey) || null
+      const withStatus = (approval) => approval
+        ? { ...approval, status: Date.parse(approval.expiresAt) > Date.now() ? 'approved-active' : 'approved-expired' }
+        : { status: 'not-approved' }
+      return { success: true, request: row, sponsorApproval: withStatus(principal), feeSponsorApproval: withStatus(fee) }
     },
     async findRequestForSponsor(requestKey) {
       const row = rows.get(requestKey)
@@ -501,7 +506,7 @@ test('Mainnet sponsor approval requires an exact agreement scope and all organiz
     readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
   }))
   const response = await fetch(base + '/sponsorship/mainnet-direct/review-queue', {
-    headers: { authorization: 'Bearer ' + token },
+    headers: headers(),
   })
   assert.equal(response.status, 503)
   assert.equal((await response.json()).error, 'mainnet-direct-sponsor-approval-policy-not-configured')
