@@ -159,8 +159,6 @@ function makeStore() {
   }
 }
 
-function sessionLookup
-
 function sessionLookup(address = requester, network = 'mainnet') {
   return async ({ tokenHash, origin }) => {
     assert.match(tokenHash, /^[0-9a-f]{64}$/)
