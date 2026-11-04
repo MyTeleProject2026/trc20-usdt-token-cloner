@@ -5,8 +5,8 @@ import { isValidTronAddress } from './tron-address.mjs'
 import { isPositiveUint256 } from './base-units.mjs'
 
 const NETWORKS = Object.freeze({
-  shasta: 'https://api.shasta.trongrid.io',
-  nile: 'https://nile.trongrid.io',
+  shasta: 'https://tron-shasta.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
 })
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_TRANSACTION_LIFETIME_MS = 10 * 60 * 1000
@@ -129,7 +129,7 @@ function sponsorResourceSourceProfile(account) {
   }
 }
 
-function tronWebFor(network, tronWebFactory = (host) => new TronWeb({ fullHost: host })) {
+function tronWebFor(network, tronWebFactory = (host) => new TronWeb({ fullHost: host, headers: { 'x-api-key': env.TATUM_API_KEY } })) {
   const host = NETWORKS[network]
   if (!host) throw new Error('unsupported-testnet')
   return { host, tronWeb: tronWebFactory(host) }
@@ -351,7 +351,7 @@ export async function validateSponsorSignedTransaction({
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}),
+        ...(env.TATUM_API_KEY ? { 'x-api-key': env.TATUM_API_KEY } : {}),
       },
       body: JSON.stringify(signedTransaction),
       redirect: 'error',
@@ -434,7 +434,7 @@ export async function broadcastValidatedSponsorTransaction({
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}),
+        ...(env.TATUM_API_KEY ? { 'x-api-key': env.TATUM_API_KEY } : {}),
       },
       body: JSON.stringify(signedTransaction),
       redirect: 'error',
@@ -497,7 +497,7 @@ export async function verifySponsorFeeResourceCapacity({
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...(env.TRONGRID_API_KEY ? { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } : {}),
+        ...(env.TATUM_API_KEY ? { 'x-api-key': env.TATUM_API_KEY } : {}),
       },
       body: JSON.stringify(body),
       redirect: 'error',
