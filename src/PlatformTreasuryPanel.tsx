@@ -187,6 +187,7 @@ export default function PlatformTreasuryPanel({
 
   async function refreshWithdrawalHistory() {
     if (!ownerSessionToken) return []
+    setHistoryLoaded(false)
     const data = await apiRequest('/api/treasury/self-custody/withdrawals?limit=20', ownerSessionToken)
     const withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals as RecoveredWithdrawal[] : []
     setRecentWithdrawals(withdrawals)
