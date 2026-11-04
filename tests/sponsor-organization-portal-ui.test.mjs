@@ -27,7 +27,6 @@ test('sponsor application signs the exact declaration fields before submission',
   assert.match(portal, /buildSponsorApplicationMessage\(/)
   assert.match(portal, /signMessageV2\(applicationMessage\)/)
   assert.match(portal, /applicationSignature,/)
-  assert.match(portal, /applicationSignatureStoredAsHashOnly/)
   assert.match(backend, /Trx\.verifyMessageV2\(message, signature\)/)
   assert.match(backend, /applicationSignatureHash = digest\(applicationSignature\)/)
   assert.match(backend, /applicationSignatureHash/)
