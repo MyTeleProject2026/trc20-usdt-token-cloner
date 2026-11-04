@@ -671,6 +671,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         env, network: 'mainnet', path: 'walletsolidity/getaccount',
         body: { address, visible: true },
       })
+      if (!account?.address) return { checked: false, reason: 'recipient-mainnet-account-not-activated' }
       const ownerHex = tronWeb.address.toHex(address)
       const contractHex = tronWeb.address.toHex(MAINNET_USDT)
       const [balance, decimals] = await Promise.all([
