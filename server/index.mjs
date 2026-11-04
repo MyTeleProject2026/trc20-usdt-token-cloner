@@ -5,6 +5,7 @@ import { createServer as createHttpServer } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
+import { createTatumRpcRouter } from './routes/tatum-rpc.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
 import sponsorIntegrationReadinessRoutes from './routes/sponsor-integration-readiness.mjs'
 import sponsorTestnetPilotRoutes from './routes/sponsor-testnet-pilot.mjs'
@@ -135,6 +136,7 @@ app.get('/api/readiness', async (_req, res) => {
   })
 })
 app.use('/api', tatumRoutes)
+app.use('/api/tatum', createTatumRpcRouter())
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', sponsorFeeEstimateRoutes)
 app.use('/api/tron', nativeTronRoutes)
