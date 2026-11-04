@@ -189,9 +189,6 @@ export function createSponsorOrganizationStore(env = process.env) {
           ON trc20_token_clone.sponsor_organizations (status, created_at ASC)
         `)
         await db.query(`
-          CREATE UNIQUE INDEX IF NOT EXISTS sponsor_organizations_application_signature_idx
-          ON trc20_token_clone.sponsor_organizations (application_signature_hash)
-        `)
         await db.query(`
           CREATE UNIQUE INDEX IF NOT EXISTS sponsor_organizations_open_wallet_idx
           ON trc20_token_clone.sponsor_organizations (network, sponsor_wallet_address)
@@ -226,7 +223,6 @@ export function createSponsorOrganizationStore(env = process.env) {
           && row.jurisdiction === input.jurisdiction
           && (row.website || null) === input.website
           && rolesMatch(row.requested_roles, input.requestedRoles)
-          && row.application_signature_hash === input.applicationSignatureHash
         await client.query('COMMIT')
         return same
           ? { success: true, duplicate: true, application: toPublicApplication(row) }
@@ -278,6 +274,7 @@ export function createSponsorOrganizationStore(env = process.env) {
       return { success: true, duplicate: false, application: toPublicApplication(inserted.rows[0]) }
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {})
+      if (error?.code === '23505' && /application_signature_hash/.test(String(error.constraint || ''))) return { success: false, reason: 'application-signature-already-used' }
       if (error?.code === '23505') return { success: false, reason: 'open-application-already-exists' }
       console.error('Sponsor organization application write failed:', error?.code || 'unknown')
       return { success: false, reason: 'database-unavailable' }
