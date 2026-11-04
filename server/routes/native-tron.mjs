@@ -15,6 +15,7 @@ import { Router } from 'express'
 
 const router = Router()
 const txPattern = /^[0-9a-fA-F]{64}$/
+const TATUM_REST_BASE = 'https://api.tatum.io'
 const networks = {
   shasta: 'https://tron-shasta.gateway.tatum.io',
   nile: 'https://tron-nile.gateway.tatum.io',
@@ -2036,12 +2037,12 @@ router.get('/receiver-history', async (req, res) => {
   const { network, address, contract, fingerprint } = req.query
   const limitValue = req.query.limit === undefined ? '20' : req.query.limit
   const limit = Number(limitValue)
-  // TRONGrid supplies opaque pagination fingerprints. Bound and validate the
+  // Tatum supplies opaque pagination cursors. Bound and validate the
   // token before forwarding it; callers cannot choose an upstream URL.
   if (fingerprint !== undefined && (typeof fingerprint !== 'string'
     || fingerprint.length < 1 || fingerprint.length > 512
     || !/^[A-Za-z0-9_=-]+$/.test(fingerprint))) {
-    return res.status(400).json({ success: false, error: 'invalid-fingerprint', message: 'fingerprint must be a valid bounded TRONGrid pagination token.' })
+    return res.status(400).json({ success: false, error: 'invalid-fingerprint', message: 'fingerprint must be a valid bounded Tatum pagination cursor.' })
   }
   if (typeof network !== 'string' || !Object.hasOwn(networks, network)) {
     return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
@@ -2060,16 +2061,15 @@ router.get('/receiver-history', async (req, res) => {
       return res.status(400).json({ success: false, error: 'invalid-contract', message: 'contract must be a valid TRON Base58 token contract address.' })
     }
     const query = new URLSearchParams({
-      only_confirmed: 'true',
-      only_to: 'true',
-      limit: String(limit),
-      order_by: 'block_timestamp,desc',
+      onlyConfirmed: 'true',
+      onlyTo: 'true',
+      orderBy: 'block_timestamp,desc',
     })
-    if (typeof contract === 'string' && contract) query.set('contract_address', contract)
-    if (typeof fingerprint === 'string') query.set('fingerprint', fingerprint)
-    const headers = { accept: 'application/json' }
-    if (process.env.TATUM_API_KEY) headers['x-api-key'] = process.env.TATUM_API_KEY
-    const response = await tatumProviderFetch(`${networks[network]}/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?${query.toString()}`, {
+    if (typeof contract === 'string' && contract) query.set('contractAddress', contract)
+    if (typeof fingerprint === 'string') query.set('next', fingerprint)
+    if (!process.env.TATUM_API_KEY) return res.status(503).json({ success: false, error: 'tatum-api-key-missing' })
+    const headers = { accept: 'application/json', 'x-api-key': process.env.TATUM_API_KEY }
+    const response = await tatumProviderFetch(`${TATUM_REST_BASE}/v3/tron/transaction/account/${encodeURIComponent(address)}/trc20?${query.toString()}`, {
       redirect: 'error',
       headers,
       signal: AbortSignal.timeout(10000),
@@ -2102,9 +2102,9 @@ router.get('/receiver-history', async (req, res) => {
       address,
       contract: typeof contract === 'string' ? contract : null,
       count: records.length,
-      nextFingerprint: payload?.meta?.fingerprint || null,
+      nextFingerprint: payload?.next || null,
       records,
-      source: 'TRONGrid confirmed TRC-20 history indexer',
+      source: 'Tatum confirmed TRC-20 history API',
       note: 'These indexed incoming records are candidates, not final settlement proof. Verify each transaction against the selected network solidified transaction body, receipt, exact contract and Transfer event before displaying it as fully verified. Wallet/exchange UI and exchange credit are controlled by the receiving platform.',
     })
   } catch {
