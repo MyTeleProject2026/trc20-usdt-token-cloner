@@ -70,6 +70,9 @@ export default function App() {
   const [ownerSession,setOwnerSession]=useState(null)
   const [requests,setRequests]=useState([])
   const [readiness,setReadiness]=useState(null)
+  const [sponsorFundingHistory,setSponsorFundingHistory]=useState([])
+  const [sponsorFundingHistoryBusy,setSponsorFundingHistoryBusy]=useState(false)
+  const [sponsorFundingHistoryError,setSponsorFundingHistoryError]=useState('')
   const unlockedAddress=unlocked?.address || ''
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
 
@@ -214,7 +217,7 @@ export default function App() {
     if(p.authenticated!==true||p.network!=='mainnet'||typeof p.sessionToken!=='string'||!Number.isFinite(p.expiresAt)) throw new Error('Owner authentication failed.')
     sessionStorage.setItem(OWNER_SESSION_KEY,p.sessionToken);setOwnerPassword('')
     setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:p.sessionToken})
-    await loadRequests(p.sessionToken);await refreshReadiness(p.sessionToken)
+    await loadRequests(p.sessionToken);await refreshReadiness(p.sessionToken);await loadSponsorFundingHistory(p.sessionToken)
     setNotice('Owner session active. Live payout remains gated by Fincra authorization and available USDT.')
   }
   async function loadRequests(token) {
@@ -226,7 +229,18 @@ export default function App() {
     try{setReadiness(await api('/api/tron-transfer/readiness',{headers:{Authorization:'Bearer '+token}}))}
     catch{setReadiness(null)}
   }
-  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null);setRequests([]);setReadiness(null)}
+  async function loadSponsorFundingHistory(token=ownerSession?.sessionToken) {
+    if(!token){setSponsorFundingHistory([]);setSponsorFundingHistoryError('Owner authentication is required to read the Fincra business ledger.');return}
+    setSponsorFundingHistoryBusy(true);setSponsorFundingHistoryError('')
+    try {
+      const p=await api('/api/tron-transfer/sponsor-funding-history',{headers:{Authorization:'Bearer '+token}})
+      setSponsorFundingHistory(Array.isArray(p.rows)?p.rows:[])
+    } catch(e) {
+      setSponsorFundingHistoryError(e.message)
+      setSponsorFundingHistory([])
+    } finally {setSponsorFundingHistoryBusy(false)}
+  }
+  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null);setRequests([]);setReadiness(null);setSponsorFundingHistory([]);setSponsorFundingHistoryError('')}
   async function ownerAction(id,action) {
     if(!ownerSession?.sessionToken) throw new Error('Sign in as payout owner first.')
     const p=await api('/api/tron-transfer/sponsor-requests/'+encodeURIComponent(id)+'/'+action,{
@@ -353,7 +367,12 @@ export default function App() {
             <div className="funding-wallet-number"><strong>{readiness.fincra.sourceBalance.walletNumber}</strong><button type="button" className="icon-button" onClick={()=>navigator.clipboard?.writeText(readiness.fincra.sourceBalance.walletNumber).then(()=>setNotice('Fincra USDT wallet number copied.')).catch(()=>setError('Clipboard access is unavailable.'))}><Copy size={15}/> Copy</button></div>
             <p>Share this Fincra USDT balance number with an approved sponsor that also holds a Fincra account. The sponsor may use Fincra’s account-to-account transfer only if Fincra enables transfers between both businesses’ USDT balances. Fincra documents same-base-currency transfers; confirm USDT wallet-to-wallet eligibility with Fincra before relying on this route. The sponsor must use its own Fincra account and available funds; Tron Transfer never receives the sponsor’s API key or initiates a debit from the sponsor’s account.</p>
             <small>Fincra wallet number is a receiving account identifier, not a TRON address. Fincra documents no webhook for account-to-account transfers, so after the sponsor provides its transfer reference, use Refresh readiness to confirm the credit from the actual available USDT balance. The provider must confirm that USDT is eligible for this same-currency transfer route.</small>
-          </div>}
+          </div>}            <div className="panel sponsor-ledger-panel">
+              <div className="section-heading"><div><span className="eyebrow">FINCRA BUSINESS BALANCE LEDGER</span><h3>Incoming sponsor credits</h3><p>Read-only credits returned by Fincra’s balance-history API. These are provider ledger records, not manually entered sponsor claims.</p></div><button className="secondary-button" disabled={!ownerSession||sponsorFundingHistoryBusy} onClick={()=>perform(()=>loadSponsorFundingHistory())}><RefreshCw size={15}/>{sponsorFundingHistoryBusy?'Loading ledger…':'Refresh funding history'}</button></div>
+              {sponsorFundingHistoryError&&<div className="notice notice-error"><AlertTriangle size={15}/><span>{sponsorFundingHistoryError}</span></div>}
+              {!sponsorFundingHistoryError&&!sponsorFundingHistory.length?<div className="empty-state"><Landmark size={23}/><b>No Fincra credit records returned</b><p>Sign in as payout owner and refresh. A sponsor transfer appears only after Fincra records it in this business balance ledger.</p></div>:<div className="sponsor-ledger-list">{sponsorFundingHistory.map((item,index)=><article className="sponsor-ledger-row" key={item.id||item.reference||index}><div><strong>{item.amount||'Amount unavailable'} {item.currency||'USDT'}</strong><span>{item.sender||item.description||'Fincra business wallet credit'}</span><small>{item.createdAt?new Date(item.createdAt).toLocaleString():'Provider timestamp unavailable'} · {item.status||'status unavailable'}</small></div><div className="ledger-reference">{item.reference||item.customerReference||item.id||'No provider reference'}</div></article>)}</div>}
+            </div>
+
           {readiness?.fincra&&<div className="readiness-checks">
             <span>Tatum Mainnet {readiness.tatum?.mainnetNode?.checked?'solidified node reachable':readiness.tatum?.mainnetNode?.reason||'not verified'}</span>
             <span>Fincra API key {readiness.fincra.apiKeyConfigured?'configured':'missing'}</span>
