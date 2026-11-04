@@ -154,4 +154,5 @@ test('Fincra sponsor funding history reads owner-authenticated business wallet c
   assert.match(route, /action: 'credit'/)
   assert.match(route, /source: 'fincra-business-wallet-ledger'/)
   assert.match(route, /item\.action === 'credit'/)
+  assert.match(route, /item\.currency === 'USDT'/)
 })
