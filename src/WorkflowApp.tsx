@@ -1299,7 +1299,7 @@ export default function WorkflowApp() {
       if (!response.ok || payload?.success !== true || payload?.request?.idempotencyKey !== idempotencyKey) {
         throw new Error(payload?.message || payload?.error || ('Mainnet sponsor request failed (HTTP ' + response.status + ').'))
       }
-      setMainnetSponsorRequest(payload.request as MainnetDirectSponsorRequestRecord)
+      setMainnetSponsorRequest({ ...(payload.request as MainnetDirectSponsorRequestRecord), sponsorApproval: payload.sponsorApproval || null })
     } catch (caught) {
       setMainnetSponsorRequestError(caught instanceof Error ? caught.message : 'The Mainnet sponsor request could not be submitted.')
     } finally {
@@ -2850,7 +2850,7 @@ export default function WorkflowApp() {
                       <div className="studio-role-metric"><span>Network / contract</span><strong>Mainnet · Tether USDT TRC20</strong><small>{mainnetSponsorRequest.tokenContract}</small></div>
                       <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetSponsorRequest.idempotencyKey}</code></strong></div>
                     </div>
-                    <p className="studio-inline-note">Sponsor approval: pending · Sponsor funds reserved: no · Transaction signature: none · TRON broadcast: no.</p>
+                    <p className="studio-inline-note">Sponsor approval: {mainnetSponsorRequest.sponsorApproval?.status || 'pending'} · Sponsor funds reserved: no · Transaction signature: none · TRON broadcast: no.</p>
                   </div>
                 )}
                 <p className="studio-footnote">Submitting stores a request for sponsor review only. It does not debit your wallet, reserve sponsor funds, sign a payout, submit to TRON, or guarantee exchange deposit credit.</p>
