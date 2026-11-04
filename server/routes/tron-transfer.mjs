@@ -429,7 +429,8 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       && Number(sourceBalance.availableBalance) > 0
       && fincra.sourceCurrency === 'USDT'
     const canSandboxPayout = fincra.mode === 'sandbox' && fincra.payoutsEnabled
-      && Boolean(fincra.apiKey && fincra.businessId && databaseReady && sourceBalance.checked)
+      && Boolean(fincra.apiKey && fincra.businessId && databaseReady)
+      && usdtSourceBalanceReady
     const canLivePayout = fincra.mode === 'live' && fincra.payoutsEnabled && fincra.liveConfirmed
       && Boolean(fincra.apiKey && fincra.businessId && fincra.webhookConfigured && databaseReady && mainnetNode.checked)
       && usdtSourceBalanceReady
