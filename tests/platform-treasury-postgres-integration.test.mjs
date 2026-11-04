@@ -145,6 +145,8 @@ test('PostgreSQL persists self-custody withdrawal replay and browser-refresh rec
   assertDedicatedTestDatabase(databaseUrl)
   const pool = new Pool({ connectionString: databaseUrl, max: 4 })
   const requestKey = randomUUID()
+  const otherOwner = 'T' + 'E'.repeat(33)
+  const otherOwnerIntentId = randomUUID()
   let appServer
 
   try {
@@ -181,6 +183,11 @@ test('PostgreSQL persists self-custody withdrawal replay and browser-refresh rec
     assert.equal(persisted.rows[0].status, 'prepared')
     assert.equal(persisted.rows[0].amount_base_units, '1250000')
 
+    await pool.query(
+      "INSERT INTO trc20_token_clone.platform_treasury_withdrawals (intent_id, owner_address, treasury_address, recipient_address, token_contract, amount_base_units, fee_limit_sun, unsigned_tx_id, unsigned_raw_data_hex, unsigned_transaction, status, expires_at) VALUES ($1,$2,$3,$4,$5,10,1,$6,'01','{}'::jsonb,'prepared',now() + INTERVAL '2 minutes')",
+      [otherOwnerIntentId, otherOwner, treasury, recipient, officialUsdt, 'd'.repeat(64)],
+    )
+
     const replayResponse = await makePrepareRequest()
     const replay = await replayResponse.json()
     assert.equal(replayResponse.status, 200)
@@ -210,6 +217,7 @@ test('PostgreSQL persists self-custody withdrawal replay and browser-refresh rec
     assert.equal(history.hasOutstandingWithdrawal, true)
     const recovered = history.withdrawals.find((item) => item.intent.intentId === first.intent.intentId)
     assert.ok(recovered, 'history endpoint must return the saved intent')
+    assert.equal(history.withdrawals.some((item) => item.intent.intentId === otherOwnerIntentId), false, 'owner history must never expose another owner’s request')
     assert.equal(recovered.intent.status, 'prepared')
     assert.equal(recovered.unsignedTransaction.txID, first.unsignedTransaction.txID)
 
@@ -236,6 +244,10 @@ test('PostgreSQL persists self-custody withdrawal replay and browser-refresh rec
     await pool.query(
       'DELETE FROM trc20_token_clone.platform_treasury_withdrawals WHERE owner_address=$1 AND request_key=$2',
       [owner, requestKey],
+    ).catch(() => {})
+    await pool.query(
+      'DELETE FROM trc20_token_clone.platform_treasury_withdrawals WHERE intent_id=$1',
+      [otherOwnerIntentId],
     ).catch(() => {})
     await pool.end()
   }
