@@ -307,7 +307,7 @@ test('PostgreSQL rolls back fee-budget spend and settlement row when the audit i
     await fixture.pool.query(
       'CREATE FUNCTION ' + schema + '.' + functionName + '() RETURNS trigger LANGUAGE plpgsql AS $$ '
       + 'BEGIN IF NEW.event_type = \'sponsor-chain-fee-settled\' '
-      + 'AND NEW.entity_reference = \' ' + fixture.settlementReference + '\' '
+      + 'AND NEW.entity_reference = \'' + fixture.settlementReference + '\' '
       + "THEN RAISE EXCEPTION 'intentional fee settlement audit failure'; END IF; RETURN NEW; END; $$",
     )
     await fixture.pool.query(
