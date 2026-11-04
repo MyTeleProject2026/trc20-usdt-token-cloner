@@ -469,7 +469,7 @@ test('behavioral sponsor transition harness refuses caller-declared failure afte
 
   assert.deepEqual(result, {
     updated: false,
-    reason: 'finalized-failure-evidence-and-fee-reconciliation-required',
+    reason: 'finalized-failure-fee-observation-required',
   })
   assert.equal(state.transfer.status, 'submitted')
   assert.equal(state.budget.reserved_base_units, '25')
