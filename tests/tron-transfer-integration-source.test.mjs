@@ -55,6 +55,13 @@ test('Fincra readiness is owner-session gated before exposing provider and sourc
   assert.match(entry, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
 })
 
+test('sandbox payout readiness requires a verified positive USDT source balance', () => {
+  assert.match(route, /const usdtSourceBalanceReady = sourceBalance\.checked/)
+  assert.match(route, /Number\(sourceBalance\.availableBalance\) > 0/)
+  assert.match(route, /fincra\.sourceCurrency === 'USDT'/)
+  assert.match(route, /const canSandboxPayout = fincra\.mode === 'sandbox'[\s\S]*?&& usdtSourceBalanceReady/)
+})
+
 test('Fincra payout uses the USDT TRC20 scheme and refuses implicit live activation', () => {
   assert.match(route, /paymentDestination: 'crypto_wallet'/)
   assert.match(route, /paymentScheme: 'usdt_trc20'/)
