@@ -205,6 +205,15 @@ type MainnetDirectSponsorRequestRecord = {
     approvedAt?: string
     expiresAt?: string
   } | null
+  feeSponsorApproval?: {
+    status?: 'approved-active' | 'approved-expired' | 'not-approved'
+    sponsorAddress?: string
+    organizationReference?: string
+    agreementReference?: string
+    maxFeeSun?: string
+    approvedAt?: string
+    expiresAt?: string
+  } | null
 }
 type MainnetSponsorApprovalChallenge = {
   challengeId: string
@@ -949,6 +958,13 @@ export default function WorkflowApp() {
   const [mainnetSponsorReviewBusy, setMainnetSponsorReviewBusy] = useState<'connect' | 'queue' | 'challenge' | 'approve' | null>(null)
   const [mainnetSponsorReviewError, setMainnetSponsorReviewError] = useState('')
   const [mainnetSponsorReviewMessage, setMainnetSponsorReviewMessage] = useState('')
+  const [mainnetFeeSponsorIdentity, setMainnetFeeSponsorIdentity] = useState<MainnetRequesterIdentity | null>(null)
+  const [mainnetFeeSponsorQueue, setMainnetFeeSponsorQueue] = useState<MainnetDirectSponsorRequestRecord[]>([])
+  const [mainnetFeeSponsorQueueCheckedAt, setMainnetFeeSponsorQueueCheckedAt] = useState<number | null>(null)
+  const [mainnetFeeSponsorChallenge, setMainnetFeeSponsorChallenge] = useState<MainnetSponsorApprovalChallenge | null>(null)
+  const [mainnetFeeSponsorReviewBusy, setMainnetFeeSponsorReviewBusy] = useState<'connect' | 'queue' | 'challenge' | 'approve' | null>(null)
+  const [mainnetFeeSponsorReviewError, setMainnetFeeSponsorReviewError] = useState('')
+  const [mainnetFeeSponsorReviewMessage, setMainnetFeeSponsorReviewMessage] = useState('')
 
   // Stage 4 — recipient and amount are validated against read-only chain responses.
   const [receiverAddress, setReceiverAddress] = useState('')
@@ -1491,6 +1507,169 @@ export default function WorkflowApp() {
       setMainnetSponsorReviewError(caught instanceof Error ? caught.message : 'The request-specific sponsor approval could not be completed.')
     } finally {
       setMainnetSponsorReviewBusy(null)
+    }
+  }
+
+  const connectMainnetFeeSponsorIdentity = async () => {
+    setMainnetFeeSponsorReviewError('')
+    setMainnetFeeSponsorReviewMessage('')
+    setMainnetFeeSponsorReviewBusy('connect')
+    try {
+      const identity = await authenticateMainnetTronWallet()
+      setMainnetFeeSponsorIdentity(identity)
+      setMainnetFeeSponsorQueue([])
+      setMainnetFeeSponsorQueueCheckedAt(null)
+      setMainnetFeeSponsorChallenge(null)
+    } catch (caught) {
+      setMainnetFeeSponsorIdentity(null)
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : walletConnectionError(caught))
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const loadMainnetFeeSponsorReviewQueue = async () => {
+    const identity = mainnetFeeSponsorIdentity
+    setMainnetFeeSponsorReviewError('')
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetFeeSponsorReviewError('Sign in with the configured separate Mainnet fee-sponsor wallet first.')
+      return
+    }
+    setMainnetFeeSponsorReviewBusy('queue')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured fee-sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet no longer matches the signed-in fee-sponsor wallet. Sign in again.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/fee-review-queue?limit=50', {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || !Array.isArray(payload.requests)) {
+        const missing = Array.isArray(payload?.requiredEnvironment) ? ' Required backend settings: ' + payload.requiredEnvironment.join(', ') : ''
+        throw new Error((payload?.message || payload?.error || ('Fee-sponsor review queue failed (HTTP ' + response.status + ').')) + missing)
+      }
+      setMainnetFeeSponsorQueue(payload.requests as MainnetDirectSponsorRequestRecord[])
+      setMainnetFeeSponsorQueueCheckedAt(Date.now())
+      setMainnetFeeSponsorReviewMessage('Fee-sponsor queue refreshed. Only requests with an active principal approval can receive fee approval.')
+    } catch (caught) {
+      setMainnetFeeSponsorQueue([])
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : 'Could not load the Mainnet fee-sponsor review queue.')
+      setMainnetFeeSponsorQueueCheckedAt(Date.now())
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const prepareMainnetFeeSponsorApproval = async (request: MainnetDirectSponsorRequestRecord) => {
+    const identity = mainnetFeeSponsorIdentity
+    setMainnetFeeSponsorReviewError('')
+    setMainnetFeeSponsorReviewMessage('')
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetFeeSponsorReviewError('The fee-sponsor identity session is missing or expired.')
+      return
+    }
+    if (request.sponsorApproval?.status !== 'approved-active') {
+      setMainnetFeeSponsorReviewError('The asset-principal sponsor must approve this exact request before fee review can proceed.')
+      return
+    }
+    setMainnetFeeSponsorReviewBusy('challenge')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured fee-sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet no longer matches the configured fee sponsor signer.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(request.idempotencyKey) + '/fee-approval-challenge', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || typeof payload.nonce !== 'string'
+        || typeof payload.message !== 'string' || payload.request?.idempotencyKey !== request.idempotencyKey) {
+        const blockers = Array.isArray(payload?.blockers) ? ' Blockers: ' + payload.blockers.join(', ') : ''
+        throw new Error((payload?.message || payload?.error || ('Fee approval challenge failed (HTTP ' + response.status + ').')) + blockers)
+      }
+      setMainnetFeeSponsorChallenge({
+        challengeId: payload.challengeId,
+        nonce: payload.nonce,
+        message: payload.message,
+        expiresAt: payload.expiresAt,
+        request: payload.request as MainnetDirectSponsorRequestRecord,
+      })
+      setMainnetFeeSponsorReviewMessage('Review the fee sponsor, separate agreement and maximum SUN fee cap. TronLink will sign this message only; it is not a transaction.')
+    } catch (caught) {
+      setMainnetFeeSponsorChallenge(null)
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : 'Could not prepare the fee-sponsor approval challenge.')
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const signMainnetFeeSponsorApproval = async () => {
+    const identity = mainnetFeeSponsorIdentity
+    const challenge = mainnetFeeSponsorChallenge
+    setMainnetFeeSponsorReviewError('')
+    if (!identity || identity.expiresAt <= Date.now() || !challenge || Date.parse(challenge.expiresAt) <= Date.now()) {
+      setMainnetFeeSponsorReviewError('A valid fee-sponsor identity and unexpired fee-approval challenge are required.')
+      return
+    }
+    setMainnetFeeSponsorReviewBusy('approve')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured fee-sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active Mainnet wallet changed. Sign in again with the configured fee sponsor.')
+      }
+      if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+        throw new Error('This TronLink version cannot sign the fee-sponsor approval message.')
+      }
+      // This is a separate fee approval statement, never a TRON transaction signature.
+      const signature = await tronWeb.trx.signMessageV2(challenge.message)
+      if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+        throw new Error('TronLink returned an invalid fee-sponsor approval signature.')
+      }
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet changed during fee approval signing. No approval was submitted.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(challenge.request.idempotencyKey) + '/approve-fees', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + identity.sessionToken,
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        body: JSON.stringify({ nonce: challenge.nonce, signature }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.feeSponsorApproved !== true
+        || payload?.canSubmitSponsoredTransfer !== false || payload?.transactionBroadcast !== false) {
+        throw new Error(payload?.message || payload?.error || ('Fee-sponsor approval was not recorded (HTTP ' + response.status + ').'))
+      }
+      setMainnetFeeSponsorChallenge(null)
+      setMainnetFeeSponsorReviewMessage('The separate fee sponsor approval was recorded for this exact request. No TRX/resources were reserved or delegated, and no transaction was sent.')
+      await loadMainnetFeeSponsorReviewQueue()
+    } catch (caught) {
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : 'The fee-sponsor approval could not be completed.')
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
     }
   }
 
