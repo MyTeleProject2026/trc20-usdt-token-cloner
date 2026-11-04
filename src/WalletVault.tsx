@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, Info, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, Info, KeyRound, Landmark, Layers, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
@@ -98,6 +98,39 @@ type OwnerTreasurySnapshot = {
   officialUsdt?: { status?: string; tokenContract?: string; balanceBaseUnits?: string; decimals?: number }
   canSubmitSponsoredTransfer?: boolean
   submissionEnabled?: boolean
+}
+
+type OwnerSponsorLiquiditySource = {
+  address: string
+  status: string
+  onChainBalanceVerified: boolean
+  onChainBalanceBaseUnits: string | null
+  availableBaseUnits: string
+  approvedBudgetCount: number
+  budgetCount: number
+  committedBaseUnits?: string
+  unreservedLedgerBaseUnits?: string
+  checkedAt: string | null
+  reconciliationStatus: string
+}
+
+type OwnerSponsorLiquiditySnapshot = {
+  success?: boolean
+  status?: string
+  network?: string
+  tokenContract?: string
+  decimals?: number
+  checkedAt?: string
+  sourceCount?: number
+  verifiedSourceCount?: number
+  eligibleSourceCount?: number
+  onChainBalanceBaseUnits?: string
+  availableBaseUnits?: string
+  ownerWalletExcluded?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  submissionEnabled?: boolean
+  sources?: OwnerSponsorLiquiditySource[]
+  error?: string
 }
 
 type FireblocksInventorySnapshot = {
@@ -323,6 +356,8 @@ export default function WalletVault() {
   const [transferHistory, setTransferHistory] = useState<TransferActivity[]>(readTransferHistory)
   const [historyLoading, setHistoryLoading] = useState('')
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
+  const [ownerSponsorLiquidity, setOwnerSponsorLiquidity] = useState<OwnerSponsorLiquiditySnapshot | null>(null)
+  const [ownerSponsorLiquidityError, setOwnerSponsorLiquidityError] = useState('')
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
   const [ownerSessionToken, setOwnerSessionToken] = useState('')
@@ -473,6 +508,7 @@ export default function WalletVault() {
     setMainnetSendPhrase('')
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
+    setOwnerSponsorLiquidity(null)
     setServerTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
@@ -485,6 +521,7 @@ export default function WalletVault() {
   useEffect(() => {
     setOwnerSessionToken('')
     setOwnerTreasurySnapshot(null)
+    setOwnerSponsorLiquidity(null)
     setServerTreasuryReadiness(null)
     setTreasuryPayoutConfirm('')
     setOwnerTreasuryError('')
@@ -514,7 +551,11 @@ export default function WalletVault() {
     } catch {
       token = ''
     }
-    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      setOwnerSponsorLiquidity(null)
+      setOwnerSponsorLiquidityError('Sign in to the owner account to load verified sponsor liquidity.')
+      return
+    }
 
     let cancelled = false
     let requestInFlight = false
@@ -538,23 +579,26 @@ export default function WalletVault() {
           throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
         }
 
-        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
+        if (!cancelled) {
+          setOwnerSessionAddress(String(sessionPayload.address))
+          setOwnerSessionToken(token)
+        }
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse, inventoryResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, sponsorLiquidityResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
           fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
-          fetch(API_BASE + '/api/treasury/fireblocks/inventory/latest', {
+          fetch(API_BASE + '/api/treasury/owner/sponsor-liquidity?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
         ])
-        const [funding, readiness, inventory] = await Promise.all([
+        const [funding, readiness, sponsorLiquidity] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
-          inventoryResponse.json().catch(() => null),
+          sponsorLiquidityResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -563,14 +607,18 @@ export default function WalletVault() {
           setOwnerTreasurySnapshot(null)
         }
         setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
-        if (inventoryResponse.ok && inventory?.success === true) {
-          setFireblocksInventorySnapshot(inventory.snapshot && typeof inventory.snapshot === 'object'
-            ? inventory.snapshot as FireblocksInventorySnapshot : null)
-          setFireblocksInventoryError('')
+        if (sponsorLiquidityResponse.ok && sponsorLiquidity?.success === true) {
+          setOwnerSponsorLiquidity(sponsorLiquidity as OwnerSponsorLiquiditySnapshot)
+          setOwnerSponsorLiquidityError('')
         } else {
-          setFireblocksInventorySnapshot(null)
-          setFireblocksInventoryError('The latest Fireblocks inventory snapshot could not be loaded. Check the owner session and backend database status.')
+          setOwnerSponsorLiquidity(null)
+          setOwnerSponsorLiquidityError(typeof sponsorLiquidity?.error === 'string'
+            ? sponsorLiquidity.error.replaceAll('-', ' ')
+            : 'Verified sponsor liquidity is unavailable. No balance was assumed.')
         }
+        // Fireblocks is optional; sponsor-wallet liquidity does not depend on its inventory service.
+        setFireblocksInventorySnapshot(null)
+        setFireblocksInventoryError('')
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
         }
@@ -578,6 +626,8 @@ export default function WalletVault() {
         if (cancelled) return
         setOwnerSessionAddress('')
         setOwnerTreasurySnapshot(null)
+        setOwnerSponsorLiquidity(null)
+        setOwnerSponsorLiquidityError('Owner session could not be verified. Sponsor liquidity is not available.')
         setServerTreasuryReadiness(null)
         setFireblocksInventorySnapshot(null)
         setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
@@ -1385,6 +1435,7 @@ export default function WalletVault() {
     setOwnerSessionToken('')
     setOwnerSessionAddress('')
     setOwnerTreasurySnapshot(null)
+    setOwnerSponsorLiquidity(null)
     setServerTreasuryReadiness(null)
     setActivePanel('dashboard')
     if (sessionToken) {
@@ -1436,9 +1487,9 @@ export default function WalletVault() {
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
         <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
         <p>{activePanel === 'dashboard'
-          ? 'Overview of your local owner wallet and the separately monitored organization treasury. No TronLink connection is required to use this standalone owner wallet. Observed balances do not grant spending permission.'
+          ? 'Overview of verified external sponsor capacity and your separate local owner wallet. No TronLink connection is required to use this standalone owner wallet. Sponsor capacity is backed by active allowlisted budgets and fresh chain reads; it is not added to your personal wallet or an automatic payout authorization.'
           : activePanel === 'wallet'
-            ? 'Read genuine on-chain assets for the unlocked wallet. Wallet creation and recovery are under Account.'
+            ? 'Read genuine on-chain assets for the unlocked wallet. Verified sponsor capacity is displayed separately and never added to your personal wallet balance.'
             : activePanel === 'send'
               ? 'Review a transfer from your unlocked local wallet. This build does not sign or broadcast; organization-funded payouts are a separate workflow.'
               : activePanel === 'treasury'
@@ -1494,6 +1545,62 @@ export default function WalletVault() {
         <p className="wallet-vault-caption">This is read-only status. It never generates USDT or authorizes a payout. Real-value payout execution is disabled in this build even if the provider's informational readiness flag passes.</p>
       </section>
 
+
+      <section className="wallet-vault-transfer-section" aria-labelledby="owner-sponsor-liquidity-heading" hidden={activePanel !== 'dashboard'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Layers size={16} /></span>
+          <div>
+            <h2 id="owner-sponsor-liquidity-heading">Combined verified sponsor liquidity</h2>
+            <p>Only allowlisted, active, unreserved Mainnet USDT budget capacity backed by fresh on-chain sponsor balances is included. Your personal wallet is excluded.</p>
+          </div>
+        </div>
+        {ownerTreasuryLoading && <p className="wallet-vault-caption" role="status"><RefreshCw size={14} /> Checking approved sponsor balances…</p>}
+        {ownerSponsorLiquidity?.success === true ? (
+          <>
+            <div className="wallet-vault-review-grid">
+              <div className="wallet-vault-review-wide">
+                <small>Allowlisted unreserved sponsor capacity</small>
+                <strong>{formatUnits(ownerSponsorLiquidity.availableBaseUnits || '0', 6)} USDT</strong>
+              </div>
+              <div>
+                <small>Observed sponsor USDT (verified sources)</small>
+                <strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong>
+              </div>
+              <div>
+                <small>Verified sponsor wallets</small>
+                <strong>{ownerSponsorLiquidity.verifiedSourceCount || 0} / {ownerSponsorLiquidity.sourceCount || 0}</strong>
+              </div>
+            </div>
+            {ownerSponsorLiquidity.sources?.length ? (
+              <div className="wallet-vault-token-list">
+                {ownerSponsorLiquidity.sources.map(source => (
+                  <div className="wallet-vault-token-row" key={source.address}>
+                    <div className="wallet-vault-token-info">
+                      <strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong>
+                      <small>{source.approvedBudgetCount} allowlisted active budget(s) · {source.budgetCount} matching ledger record(s)</small>
+                    </div>
+                    <div className="wallet-vault-token-amount">
+                      <strong>{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
+                      <small>{source.onChainBalanceVerified && source.onChainBalanceBaseUnits !== null
+                        ? 'Chain: ' + formatUnits(source.onChainBalanceBaseUnits, 6) + ' USDT'
+                        : 'Chain balance unavailable'}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="wallet-vault-caption">No allowlisted external sponsor wallets are registered in the Mainnet asset-grant budget ledger yet.</p>
+            )}
+            <p className="wallet-vault-caption">Snapshot: {ownerSponsorLiquidity.checkedAt ? new Date(ownerSponsorLiquidity.checkedAt).toLocaleString() : 'time unavailable'}. Sponsor capacity is not the balance of your personal wallet and is not a payout authorization. An application allowlist match is not independent proof of a sponsor organization’s legal consent or signing authority.</p>
+          </>
+        ) : (
+          <div className="wallet-vault-transfer-warning" role="status">
+            <strong>{ownerSponsorLiquidityError || 'Sponsor liquidity has not been verified.'}</strong>
+            <p>Unknown or unapproved sponsor balances are not counted. Your personal wallet balance remains separate.</p>
+          </div>
+        )}
+        <p className="wallet-vault-caption">Application withdrawal submission remains disabled. A verified balance and approved budget do not by themselves provide an authorized transaction signer or prove a recipient exchange has credited a deposit.</p>
+      </section>
 
       <section className="wallet-vault-panel wallet-vault-quick-actions" aria-labelledby="wallet-vault-quick-actions-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
@@ -1564,141 +1671,71 @@ export default function WalletVault() {
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Review read-only owner status</button>
       </section>
 
-      <section className="wallet-vault-panel wallet-vault-fireblocks-setup" aria-labelledby="fireblocks-setup-heading" hidden={activePanel !== 'treasury'}>
-        <div className="wallet-vault-panel-head">
+      <details className="wallet-vault-panel wallet-vault-fireblocks-setup" hidden={activePanel !== 'treasury'}>
+        <summary className="wallet-vault-panel-head wallet-vault-setup-summary">
           <span className="wallet-vault-step"><Landmark size={16} /></span>
           <div>
-            <h2 id="fireblocks-setup-heading">Fireblocks treasury setup</h2>
-            <p>Organization-admin controlled setup and read-only configuration status. This page does not create or authorize a custody account.</p>
+            <h2>Optional Fireblocks managed custody</h2>
+            <p>Fireblocks is not required for the external sponsor-wallet model. Expand only if a participating organization independently chooses Fireblocks.</p>
           </div>
-        </div>
+        </summary>
         <div className="wallet-vault-transfer-warning" role="note">
-          <strong>External organization approval is required</strong>
-          <p>The actual treasury-owning organization’s authorized adult representative, treasurer, and security administrator must complete Fireblocks onboarding, approve the application in writing, create the production workspace and vault, set transaction policies, and fund the vault. A Tron Token Studio login, wallet signature, or value entered in a form is not proof of that authority.</p>
-          <p>This interface deliberately has no Fireblocks API-key, RSA-private-key, recovery-phrase, or identity-document fields. It cannot create an organization, API user, vault, approval quorum, or funding transaction.</p>
+          <strong>Current target: sponsor-owned TRON wallets</strong>
+          <p>Tron Token Studio now reads allowlisted sponsor budget capacity separately from your owner wallet. A sponsor organization may keep custody in its own TRON wallet; no Fireblocks API key, vault ID, asset ID, or RSA secret is needed to display the verified liquidity portfolio.</p>
+          <p>Important: the external sponsor wallet signing and broadcast flow is not yet integrated. This dashboard is read-only and does not submit withdrawals or imply that a sponsor has authorized a payout.</p>
         </div>
         <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
-          <h3 id="fireblocks-inventory-heading">Fireblocks inventory verification</h3>
-          <p>After you run the manual read-only workflow on <code>main</code>, this panel shows the latest saved result. It never sends funds or changes Fireblocks permissions.</p>
+          <h3 id="fireblocks-inventory-heading">Optional Fireblocks inventory diagnostics</h3>
+          <p>This section applies only to organizations that choose Fireblocks. Leaving it unconfigured does not block the sponsor-liquidity dashboard.</p>
           <p className="wallet-vault-caption">
-            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open GitHub Actions — Run Fireblocks inventory sync ↗</a>
+            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open optional Fireblocks inventory workflow ↗</a>
           </p>
-          {fireblocksInventoryError && <p className="wallet-vault-risk-note" role="alert">{fireblocksInventoryError}</p>}
-          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No saved inventory run is available yet. Run the manual workflow above; the result will appear here after it finishes and saves its database snapshot.</p>}
-          {fireblocksInventorySnapshot && <>
+          {fireblocksInventoryError && <p className="wallet-vault-caption">{fireblocksInventoryError}</p>}
+          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No optional Fireblocks inventory snapshot is available. This is not a blocker for external sponsor-wallet visibility.</p>}
+          {fireblocksInventorySnapshot && (
             <div className="wallet-vault-review-grid">
-              <div>
-                <small>Latest inventory result</small>
-                <strong>{fireblocksInventorySnapshot.verificationStatus === 'verified' ? 'All read-only inventory checks passed' : fireblocksInventorySnapshot.verificationStatus === 'blocked' ? 'Blocked — review diagnostics' : 'Status unavailable'}</strong>
-              </div>
-              <div>
-                <small>Checked at</small>
-                <strong>{fireblocksInventorySnapshot.checkedAt ? new Date(fireblocksInventorySnapshot.checkedAt).toLocaleString() : 'Not recorded'}</strong>
-              </div>
-              <div>
-                <small>GitHub workflow run</small>
-                <strong>{fireblocksInventorySnapshot.workflowRunId || 'Not recorded'}{fireblocksInventorySnapshot.workflowRunAttempt ? ' · attempt ' + fireblocksInventorySnapshot.workflowRunAttempt : ''}</strong>
-                {fireblocksInventorySnapshot.workflowRunUrl && <a href={fireblocksInventorySnapshot.workflowRunUrl} target="_blank" rel="noopener noreferrer">Open run details ↗</a>}
-              </div>
-              <div>
-                <small>Vault account ID</small>
-                <strong>{fireblocksInventorySnapshot.configuration?.vaultAccountId || 'Not configured'}</strong>
-              </div>
-              <div>
-                <small>Fireblocks USDT asset ID</small>
-                <strong>{fireblocksInventorySnapshot.configuration?.usdtAssetId || 'Not configured'}</strong>
-              </div>
-              <div>
-                <small>Fireblocks TRX asset ID</small>
-                <strong>{fireblocksInventorySnapshot.configuration?.trxAssetId || 'Not configured'}</strong>
-              </div>
-              <div className="wallet-vault-review-wide">
-                <small>Verified treasury address</small>
-                <strong>{fireblocksInventorySnapshot.configuration?.treasuryAddress || 'Not verified'}</strong>
-              </div>
-              <div>
-                <small>Fireblocks available USDT</small>
-                <strong>{fireblocksInventorySnapshot.balances?.fireblocksUsdtAvailableBaseUnits !== null && fireblocksInventorySnapshot.balances?.fireblocksUsdtAvailableBaseUnits !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.fireblocksUsdtAvailableBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong>
-              </div>
-              <div>
-                <small>TRON-chain USDT</small>
-                <strong>{fireblocksInventorySnapshot.balances?.chainUsdtBalanceBaseUnits !== null && fireblocksInventorySnapshot.balances?.chainUsdtBalanceBaseUnits !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.chainUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong>
-              </div>
-              <div>
-                <small>Fireblocks available TRX</small>
-                <strong>{fireblocksInventorySnapshot.balances?.fireblocksTrxAvailableBaseUnits !== null && fireblocksInventorySnapshot.balances?.fireblocksTrxAvailableBaseUnits !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.fireblocksTrxAvailableBaseUnits, 6) + ' TRX' : 'Unavailable'}</strong>
-              </div>
-              <div>
-                <small>TRON-chain TRX</small>
-                <strong>{fireblocksInventorySnapshot.balances?.chainTrxBalanceSun !== null && fireblocksInventorySnapshot.balances?.chainTrxBalanceSun !== undefined ? formatUnits(fireblocksInventorySnapshot.balances.chainTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong>
-              </div>
+              <div><small>Inventory result</small><strong>{fireblocksInventorySnapshot.verificationStatus || 'Unknown'}</strong></div>
+              <div><small>Checked at</small><strong>{fireblocksInventorySnapshot.checkedAt ? new Date(fireblocksInventorySnapshot.checkedAt).toLocaleString() : 'Not recorded'}</strong></div>
+              <div><small>Vault account ID</small><strong>{fireblocksInventorySnapshot.configuration?.vaultAccountId || 'Not configured'}</strong></div>
+              <div><small>USDT asset identity</small><strong>{fireblocksInventorySnapshot.configuration?.usdtAssetId || 'Not configured'}</strong></div>
+              <div><small>TRX asset identity</small><strong>{fireblocksInventorySnapshot.configuration?.trxAssetId || 'Not configured'}</strong></div>
+              <div><small>Provider-available USDT</small><strong>{fireblocksInventorySnapshot.balances?.fireblocksUsdtAvailableBaseUnits != null ? formatUnits(fireblocksInventorySnapshot.balances.fireblocksUsdtAvailableBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
             </div>
-            <h4>Inventory check results</h4>
-            <div className="wallet-vault-review-grid">
-              {Object.entries(fireblocksInventorySnapshot.checks || {}).map(([name, passed]) => (
-                <div key={name}>
-                  <small>{name.replaceAll(/([A-Z])/g, ' $1').replaceAll('-', ' ')}</small>
-                  <strong>{passed === true ? 'Passed' : passed === false ? 'Failed' : 'Not checked'}</strong>
-                </div>
-              ))}
-            </div>
-            {(fireblocksInventorySnapshot.reasons || []).length > 0 && <p className="wallet-vault-risk-note" role="status"><strong>Blockers:</strong> {fireblocksInventorySnapshot.reasons?.map((item) => item.replaceAll('-', ' ')).join('; ')}</p>}
-            <p className="wallet-vault-caption">A verified inventory run confirms read-only asset and balance checks only. It is not organization approval, payout authorization, transaction signing, or proof that an exchange credited a deposit. Real-value payout execution remains hard-disabled in this build.</p>
-          </>}
+          )}
         </div>
-        <div className="wallet-vault-review-grid">
-          <div>
-            <small>Backend configuration fields</small>
-            <strong>{serverTreasuryReadiness?.configuration?.configurationComplete === true ? 'Reported complete — not an authorization proof' : 'Not confirmed / incomplete'}</strong>
-          </div>
-          <div>
-            <small>Fireblocks USDT asset identity</small>
-            <strong>{serverTreasuryReadiness?.providerAssetIdentityVerified === true ? 'Provider metadata check passed' : 'Not verified'}</strong>
-          </div>
-          <div>
-            <small>Fireblocks native TRX identity</small>
-            <strong>{serverTreasuryReadiness?.nativeTrxAssetIdentityVerified === true ? 'Provider metadata check passed' : 'Not verified'}</strong>
-          </div>
-          <div>
-            <small>USDT and TRX vault address match</small>
-            <strong>{serverTreasuryReadiness?.providerVaultAddressVerified === true && serverTreasuryReadiness?.nativeTrxVaultAddressVerified === true ? 'Both checks passed' : 'Not verified / mismatch'}</strong>
-          </div>
-          <div>
-            <small>Organization approval</small>
-            <strong>Not independently verified by this application</strong>
-          </div>
-          <div>
-            <small>Real-value payout execution</small>
-            <strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Backend reports enabled' : 'Hard-disabled in this build'}</strong>
-          </div>
-        </div>
-        <div className="wallet-vault-transfer-section">
-          <h3>Required steps for the organization’s administrator</h3>
-          <ol>
-            <li>Obtain written treasury-owner approval and complete Fireblocks’ organization onboarding for a production Mainnet workspace.</li>
-            <li>In Fireblocks Console, create the dedicated TRON treasury vault; enable the official TRON USDT asset and native TRX, then verify their asset IDs, network metadata, and matching TRON vault address.</li>
-            <li>Create a dedicated API user through Fireblocks Developer Center with only the permissions approved for the required integration. Complete the organization’s API-user approval quorum.</li>
-            <li>Generate the RSA-4096 API-authentication key and CSR in the organization-controlled environment. Keep the private key there; upload it to Render only as a backend Secret File.</li>
-            <li>Have the organization’s treasury staff fund the vault with genuine USDT and sufficient native TRX, then independently verify provider balances and on-chain balances.</li>
-          </ol>
-          <p className="wallet-vault-caption">Useful provider references:
-            {' '}<a href="https://fireblocks.readme.io/docs/manage-api-keys" target="_blank" rel="noopener noreferrer">API user and key setup ↗</a>
-            {' '}· <a href="https://fireblocks.readme.io/reference/createvaultaccount" target="_blank" rel="noopener noreferrer">Vault-account API reference ↗</a>
-            {' '}· <a href="https://fireblocks.readme.io/docs/object-model" target="_blank" rel="noopener noreferrer">Fireblocks object model ↗</a>
-          </p>
-        </div>
-        <div className="wallet-vault-transfer-section">
-          <h3>Backend Render configuration</h3>
-          <p>Enter organization-issued identifiers and approved limits in the backend Web Service environment only. Upload the RSA private key as a Secret File named <code>fireblocks_api_private_key.pem</code>; the path below points to that file. Never add credentials to frontend <code>VITE_*</code> variables, GitHub, or this browser page.</p>
-          <p className="wallet-vault-caption">Backend service: <a href="https://dashboard.render.com/web/srv-dbanbem1egvs73bcsdkg" target="_blank" rel="noopener noreferrer">Open Render backend environment ↗</a></p>
-          <button type="button" className="wallet-vault-secondary" onClick={() => void copyFireblocksEnvTemplate()}><Copy size={15} /> Copy placeholder-only environment template</button>
-          <p className="wallet-vault-caption">The template contains placeholders, not credentials. Keep both payout flags set to <code>false</code>; populating environment variables does not authorize a production release.</p>
-        </div>
-      </section>
+      </details>
 
       <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
-        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><LockKeyhole size={16} /></span><div><h2>{activePanel === 'wallet' ? 'Unlock to view assets' : activePanel === 'send' ? 'Unlock to authorize a transfer' : 'Unlock to verify activity'}</h2><p>This is a private owner console. A public address can be monitored without its private key, but it cannot authorize spending.</p></div></div>
-        <p className="wallet-vault-caption">{activePanel === 'send' && transferAsset === 'TRC20' ? 'A genuine USDT transfer requires real USDT at the sender or a separately funded treasury payout.' : 'Open Account to unlock the local signing wallet and continue.'}</p>
+        <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><LockKeyhole size={16} /></span><div><h2>{activePanel === 'wallet' ? 'Unlock to view personal wallet assets' : activePanel === 'send' ? 'Unlock to authorize a transfer' : 'Unlock to verify activity'}</h2><p>This is a private owner console. A public address can be monitored without its private key, but it cannot authorize spending.</p></div></div>
+        {activePanel === 'wallet' && network === 'mainnet' && (
+          <div className="wallet-vault-transfer-section" aria-labelledby="locked-sponsor-liquidity-heading">
+            <div className="wallet-vault-panel-head">
+              <span className="wallet-vault-step"><Layers size={16} /></span>
+              <div><h3 id="locked-sponsor-liquidity-heading">External sponsor liquidity</h3><p>This owner-authenticated balance view does not require your local wallet to be unlocked.</p></div>
+            </div>
+            {ownerSponsorLiquidity?.success === true ? (
+              <>
+                <div className="wallet-vault-review-grid">
+                  <div className="wallet-vault-review-wide"><small>Allowlisted unreserved Mainnet USDT capacity</small><strong>{formatUnits(ownerSponsorLiquidity.availableBaseUnits || '0', 6)} USDT</strong></div>
+                  <div><small>Verified sponsor on-chain balance</small><strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong></div>
+                  <div><small>Verified source wallets</small><strong>{ownerSponsorLiquidity.verifiedSourceCount || 0} / {ownerSponsorLiquidity.sourceCount || 0}</strong></div>
+                </div>
+                {ownerSponsorLiquidity.sources?.length ? (
+                  <div className="wallet-vault-token-list">
+                    {ownerSponsorLiquidity.sources.map(source => (
+                      <div className="wallet-vault-token-row" key={source.address}>
+                        <div className="wallet-vault-token-info"><strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong><small>{source.approvedBudgetCount} allowlisted active budget(s)</small></div>
+                        <strong className="wallet-vault-token-amount">{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="wallet-vault-caption">No allowlisted external sponsor USDT budgets are registered yet.</p>}
+              </>
+            ) : <p className="wallet-vault-risk-note" role="status">{ownerSponsorLiquidityError || 'Sponsor capacity is not verified. No sponsor balance is counted.'}</p>}
+            <p className="wallet-vault-caption">Your personal wallet remains locked and is not included in this aggregate. This balance view is not transaction authorization; withdrawals remain disabled.</p>
+          </div>
+        )}
+        <p className="wallet-vault-caption">{activePanel === 'send' && transferAsset === 'TRC20' ? 'A genuine USDT transfer requires real USDT at the sender or a separately funded treasury payout.' : activePanel === 'wallet' ? 'Unlock the local wallet only to view its own assets and use device-local wallet functions.' : 'Open Account to unlock the local signing wallet and continue.'}</p>
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Go to Account</button>
         {activePanel === 'send' && <button type="button" className="wallet-vault-secondary" onClick={() => navigatePanel('treasury')}>Check organization payout funding</button>}
       </section>
@@ -1782,6 +1819,46 @@ export default function WalletVault() {
           {unlocked && (
             <div className="wallet-vault-portfolio" hidden={activePanel === 'account'}>
               <div className="wallet-vault-address-row" hidden={activePanel !== 'wallet'}><div><small>Public address</small><a href={explorerUrl(network, unlocked.record.address)} target="_blank" rel="noopener noreferrer">{shortenAddress(unlocked.record.address)} ↗</a></div><button type="button" className="wallet-vault-icon-button" aria-label="Copy public address" onClick={() => void copyAddress(unlocked.record.address)}><Copy size={17} /></button></div>
+              {network === 'mainnet' && (
+                <section className="wallet-vault-transfer-section" aria-labelledby="assets-sponsor-liquidity-heading" hidden={activePanel !== 'wallet'}>
+                  <div className="wallet-vault-panel-head">
+                    <span className="wallet-vault-step"><Layers size={16} /></span>
+                    <div>
+                      <h2 id="assets-sponsor-liquidity-heading">Sponsored withdrawal capacity</h2>
+                      <p>Combined approved sponsor liquidity is separate from assets held by your unlocked local wallet.</p>
+                    </div>
+                  </div>
+                  {ownerSponsorLiquidity?.success === true ? (
+                    <>
+                      <div className="wallet-vault-review-grid">
+                        <div className="wallet-vault-review-wide">
+                          <small>Allowlisted available sponsor capacity</small>
+                          <strong>{formatUnits(ownerSponsorLiquidity.availableBaseUnits || '0', 6)} USDT</strong>
+                        </div>
+                        <div><small>Verified on-chain sponsor balance</small><strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong></div>
+                        <div><small>Eligible sponsor wallets</small><strong>{ownerSponsorLiquidity.eligibleSourceCount || 0}</strong></div>
+                      </div>
+                      {ownerSponsorLiquidity.sources?.length ? (
+                        <div className="wallet-vault-token-list">
+                          {ownerSponsorLiquidity.sources.map(source => (
+                            <div className="wallet-vault-token-row" key={source.address}>
+                              <div className="wallet-vault-token-info">
+                                <strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong>
+                                <small>{source.approvedBudgetCount} active allowlisted budget(s)</small>
+                              </div>
+                              <strong className="wallet-vault-token-amount">{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="wallet-vault-caption">No active, allowlisted external sponsor USDT budgets are currently connected.</p>}
+                    </>
+                  ) : (
+                    <p className="wallet-vault-risk-note" role="status">{ownerSponsorLiquidityError || 'Sponsor balances are not verified. No sponsor capacity is counted.'}</p>
+                  )}
+                  <p className="wallet-vault-caption">The TRX and USDT balances shown below belong only to your local wallet. Sponsor liquidity does not get added to or impersonate your wallet balance. An allowlisted budget is not independent legal-consent or signer verification. Payout execution remains disabled until the sponsor signer and production release gates are complete.</p>
+                </section>
+              )}
+
               <div className="wallet-vault-balance" hidden={activePanel !== 'wallet'}>
                 <div className="wallet-vault-balance-icon">T</div>
                 <div><small>Native TRX balance · {network === 'mainnet' ? 'Mainnet' : network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</small><strong>{balanceLoading ? 'Reading chain…' : portfolio?.trx ?? '—'} <span>TRX</span></strong><small>Read directly from the selected network; this is not an exchange balance.</small></div>
