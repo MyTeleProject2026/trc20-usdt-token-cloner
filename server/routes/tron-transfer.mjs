@@ -867,7 +867,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
           return res.status(202).json({
             success: false,
             verification: { ...chain, historyCandidate: rows[0].txid },
-            note: 'Tatum account history found one candidate, but the solidified transaction body and successful receipt/Transfer event did not all verify. No recipient credit is claimed.',
+            note: 'TRON confirmed account history found one candidate, but the Tatum solidified transaction body and successful receipt/Transfer event did not all verify. No recipient credit is claimed.',
           })
         }
         const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
