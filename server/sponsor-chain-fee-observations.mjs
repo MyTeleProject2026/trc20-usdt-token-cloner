@@ -55,6 +55,9 @@ export function normalizeSponsorChainFeeObservation(input = {}) {
     return { success: false, reason: 'invalid-fee-observation' }
   }
 
+  const componentBurn = BigInt(amounts.energyFeeSun ?? '0') + BigInt(amounts.netFeeSun ?? '0')
+  if (componentBurn > BigInt(reportedFeeSun)) return { success: false, reason: 'receipt-fee-components-exceed-total' }
+
   const positiveBurn = BigInt(reportedFeeSun) > 0n
   const trxFeePayerAddressHex = positiveBurn ? transactionOwnerAddressHex : null
   if (input.trxFeePayerAddressHex !== undefined) {
