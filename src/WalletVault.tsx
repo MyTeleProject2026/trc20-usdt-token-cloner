@@ -357,6 +357,7 @@ export default function WalletVault() {
   const [historyLoading, setHistoryLoading] = useState('')
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
   const [ownerSponsorLiquidity, setOwnerSponsorLiquidity] = useState<OwnerSponsorLiquiditySnapshot | null>(null)
+  const [ownerSponsorLiquidityError, setOwnerSponsorLiquidityError] = useState('')
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
   const [ownerTreasuryError, setOwnerTreasuryError] = useState('')
   const [ownerSessionToken, setOwnerSessionToken] = useState('')
@@ -550,7 +551,11 @@ export default function WalletVault() {
     } catch {
       token = ''
     }
-    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      setOwnerSponsorLiquidity(null)
+      setOwnerSponsorLiquidityError('Sign in to the owner account to load verified sponsor liquidity.')
+      return
+    }
 
     let cancelled = false
     let requestInFlight = false
@@ -574,9 +579,12 @@ export default function WalletVault() {
           throw new Error('The owner-console session is no longer valid. Sign in again to load treasury status.')
         }
 
-        if (!cancelled) setOwnerSessionAddress(String(sessionPayload.address))
+        if (!cancelled) {
+          setOwnerSessionAddress(String(sessionPayload.address))
+          setOwnerSessionToken(token)
+        }
         const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
-        const [fundingResponse, readinessResponse, inventoryResponse] = await Promise.all([
+        const [fundingResponse, readinessResponse, inventoryResponse, sponsorLiquidityResponse] = await Promise.all([
           fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
@@ -586,11 +594,15 @@ export default function WalletVault() {
           fetch(API_BASE + '/api/treasury/fireblocks/inventory/latest', {
             headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
           }),
+          fetch(API_BASE + '/api/treasury/owner/sponsor-liquidity?network=mainnet', {
+            headers, credentials: 'omit', cache: 'no-store', redirect: 'error',
+          }),
         ])
-        const [funding, readiness, inventory] = await Promise.all([
+        const [funding, readiness, inventory, sponsorLiquidity] = await Promise.all([
           fundingResponse.json().catch(() => null),
           readinessResponse.json().catch(() => null),
           inventoryResponse.json().catch(() => null),
+          sponsorLiquidityResponse.json().catch(() => null),
         ])
         if (cancelled) return
         if (fundingResponse.ok && funding?.success === true && funding?.ownerAccessVerified === true) {
@@ -599,6 +611,15 @@ export default function WalletVault() {
           setOwnerTreasurySnapshot(null)
         }
         setServerTreasuryReadiness(readiness && typeof readiness === 'object' ? readiness : null)
+        if (sponsorLiquidityResponse.ok && sponsorLiquidity?.success === true) {
+          setOwnerSponsorLiquidity(sponsorLiquidity as OwnerSponsorLiquiditySnapshot)
+          setOwnerSponsorLiquidityError('')
+        } else {
+          setOwnerSponsorLiquidity(null)
+          setOwnerSponsorLiquidityError(typeof sponsorLiquidity?.error === 'string'
+            ? sponsorLiquidity.error.replaceAll('-', ' ')
+            : 'Verified sponsor liquidity is unavailable. No balance was assumed.')
+        }
         if (inventoryResponse.ok && inventory?.success === true) {
           setFireblocksInventorySnapshot(inventory.snapshot && typeof inventory.snapshot === 'object'
             ? inventory.snapshot as FireblocksInventorySnapshot : null)
@@ -614,6 +635,8 @@ export default function WalletVault() {
         if (cancelled) return
         setOwnerSessionAddress('')
         setOwnerTreasurySnapshot(null)
+        setOwnerSponsorLiquidity(null)
+        setOwnerSponsorLiquidityError('Owner session could not be verified. Sponsor liquidity is not available.')
         setServerTreasuryReadiness(null)
         setFireblocksInventorySnapshot(null)
         setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
