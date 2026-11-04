@@ -333,7 +333,6 @@ export function createFincraPayoutRouter({
         recipientAddress: body.recipientAddress,
         accountHolderName: body.accountHolderName,
         amountBaseUnits: amount.toString(),
-        businessId: config.businessId,
         customerReference: body.idempotencyKey,
         authorizationExpiresAt: body.authorizationExpiresAt,
       })
