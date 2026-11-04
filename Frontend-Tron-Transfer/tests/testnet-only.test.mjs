@@ -71,6 +71,8 @@ test('Sponsor funding page provides the Fincra USDT wallet number for authorized
   assert.ok(app.includes('SPONSOR FUNDING DESTINATION · FINCRA USDT BALANCE'))
   assert.ok(app.includes('account-to-account transfer only if Fincra enables transfers between both businesses’ USDT balances'))
   assert.ok(app.includes('confirm USDT wallet-to-wallet eligibility with Fincra before relying on this route'))
+  assert.ok(app.includes('Fincra documents no webhook for account-to-account transfers'))
+  assert.ok(app.includes('use Refresh readiness to confirm the credit from the actual available USDT balance'))
   assert.ok(app.includes('readiness.fincra.sourceBalance.walletNumber'))
   assert.ok(app.includes('Fincra USDT wallet number copied.'))
 })
