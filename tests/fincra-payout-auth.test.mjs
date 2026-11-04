@@ -11,7 +11,6 @@ const fixture = {
   recipientAddress: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
   accountHolderName: 'Test Recipient',
   amountBaseUnits: '12500000',
-  businessId: 'fincra-business-123',
   customerReference: 'tts-fincra-test-000001',
   authorizationExpiresAt: 2_000_000_000_000,
 }
