@@ -925,10 +925,11 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         })
       }
 
-      const destinationCurrency = cleanString(payout.destinationCurrency, 8).toUpperCase()
-      const sourceCurrency = cleanString(payout.sourceCurrency, 8).toUpperCase()
-      const paymentScheme = cleanString(payout.paymentScheme, 32).toLowerCase()
-      const paymentDestination = cleanString(payout.paymentDestination, 32).toLowerCase()
+      const signedRecipient = eventData.recipient || {}
+      const destinationCurrency = cleanString(payout.destinationCurrency || eventData.destinationCurrency, 8).toUpperCase()
+      const sourceCurrency = cleanString(payout.sourceCurrency || eventData.sourceCurrency, 8).toUpperCase()
+      const paymentScheme = cleanString(payout.paymentScheme || eventData.paymentScheme, 32).toLowerCase()
+      const paymentDestination = cleanString(payout.paymentDestination || eventData.paymentDestination, 32).toLowerCase()
       const providerReference = cleanString(payout.reference, 128)
       const webhookReference = cleanString(eventData.reference, 128)
       if (sourceCurrency !== 'USDT' || destinationCurrency !== 'USDT'
@@ -936,7 +937,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         || (webhookReference && providerReference && webhookReference !== providerReference)) {
         return res.status(409).json({
           success: false, error: 'fincra-webhook-payout-identity-mismatch',
-          note: 'The authoritative Fincra payout does not match this request’s USDT TRC20 Mainnet settlement identity.',
+          note: 'The signed event and authoritative Fincra payout record must identify this exact USDT TRC20 crypto-wallet settlement.',
         })
       }
 
@@ -944,19 +945,32 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         payout.beneficiary?.walletAddress || payout.recipient?.walletAddress
           || payout.recipient?.accountNumber || payout.walletAddress, 64,
       )
-      if (providerRecipient && providerRecipient !== row.recipient_address) {
+      const signedEventRecipient = cleanString(
+        signedRecipient.walletAddress || signedRecipient.accountNumber || eventData.walletAddress, 64,
+      )
+      if ((providerRecipient && providerRecipient !== row.recipient_address)
+        || (signedEventRecipient && signedEventRecipient !== row.recipient_address)) {
         return res.status(409).json({ success: false, error: 'fincra-webhook-recipient-mismatch' })
       }
       const providerAmountRaw = payout.amountReceived ?? payout.amount ?? payout.destinationAmount
-      const providerAmount = parseUsdtBalanceBaseUnits(providerAmountRaw)
-      if (providerAmount !== null && providerAmount !== BigInt(row.amount_base_units)) {
+      const signedAmountRaw = eventData.amountReceived
+      const providerAmount = providerAmountRaw === undefined || providerAmountRaw === null
+        ? null : parseUsdtBalanceBaseUnits(providerAmountRaw)
+      const signedAmount = signedAmountRaw === undefined || signedAmountRaw === null
+        ? null : parseUsdtBalanceBaseUnits(signedAmountRaw)
+      if ((providerAmount !== null && providerAmount !== BigInt(row.amount_base_units))
+        || (signedAmount !== null && signedAmount !== BigInt(row.amount_base_units))) {
         return res.status(409).json({ success: false, error: 'fincra-webhook-amount-mismatch' })
       }
+      if (providerAmount !== null && signedAmount !== null && providerAmount !== signedAmount) {
+        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-amount-conflict' })
+      }
+      const verifiedAmount = providerAmount ?? signedAmount
       const providerStatus = payoutStatusFromProvider(payout.status)
       if (providerStatus === 'unknown') {
         return res.status(503).json({ success: false, error: 'fincra-webhook-provider-status-unrecognized' })
       }
-      if (providerStatus === 'successful' && providerAmount === null) {
+      if (providerStatus === 'successful' && verifiedAmount === null) {
         return res.status(503).json({
           success: false, error: 'fincra-webhook-settlement-amount-unverified',
           note: 'Fincra did not return a verifiable received USDT amount. The platform will not record a successful payout until provider reconciliation supplies it.',
