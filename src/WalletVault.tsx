@@ -325,8 +325,6 @@ export default function WalletVault() {
   const [amountInput, setAmountInput] = useState('')
   const [feeLimitTRX, setFeeLimitTRX] = useState('50')
   const [transferReview, setTransferReview] = useState<TransferReview | null>(null)
-  const [transferAcknowledged, setTransferAcknowledged] = useState(false)
-  const [mainnetSendPhrase, setMainnetSendPhrase] = useState('')
   const [transferHistory, setTransferHistory] = useState<TransferActivity[]>(readTransferHistory)
   const [historyLoading, setHistoryLoading] = useState('')
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
@@ -2155,7 +2153,7 @@ export default function WalletVault() {
                   {network !== 'mainnet' && <p>Testnet assets have no monetary value and will not credit a Mainnet exchange deposit.</p>}
                 </div>
 
-                <p className="wallet-vault-caption">Need an organization to provide the withdrawal principal instead of using your personal wallet? Switch to <button type="button" className="wallet-vault-inline-action" onClick={() => navigatePanel('treasury')}>Sponsor payouts</button>. That separate route requires a genuine, authorized and funded sponsor vault.</p>
+                <p className="wallet-vault-caption">Need an organization to provide the withdrawal principal instead of using your personal wallet? Switch to <button type="button" className="wallet-vault-inline-action" onClick={() => navigatePanel('treasury')}>Sponsor payouts</button>. That separate route requires an independently authorized sponsor wallet with genuine, funded USDT and fee coverage.</p>
                 <div className="wallet-vault-transfer-form">
                   <label htmlFor="wallet-transfer-asset">Asset</label>
                   <select id="wallet-transfer-asset" value={transferAsset} onChange={event => { setTransferAsset(event.target.value as TransferAsset); setTransferReview(null); setTransferAcknowledged(false); setMainnetSendPhrase('') }}>
@@ -2197,16 +2195,6 @@ export default function WalletVault() {
                       {transferReview.feeEstimateSun !== null && <div><small>TRC-20 estimated fee cap</small><strong>{formatUnits(String(transferReview.feeLimitSun), 6)} TRX</strong></div>}
                       {transferReview.tokenEvidence && <div className="wallet-vault-review-wide"><small>Token evidence</small><strong>{tokenEvidenceLabel(transferReview.tokenEvidence)}</strong><small>{transferReview.tokenEvidence.evidenceScope}</small></div>}
                     </div>
-                    <label className="wallet-vault-confirm-check">
-                      <input type="checkbox" checked={transferAcknowledged} onChange={event => setTransferAcknowledged(event.target.checked)} />
-                      <span>I have checked the full recipient, exact token contract (if any), network and amount. I understand this real blockchain transaction cannot be reversed by TRON Token Studio.</span>
-                    </label>
-                    {network === 'mainnet' && (
-                      <div className="wallet-vault-form">
-                        <label htmlFor="wallet-mainnet-send-confirm">Type SEND MAINNET to confirm a real Mainnet transaction</label>
-                        <input id="wallet-mainnet-send-confirm" autoComplete="off" value={mainnetSendPhrase} onChange={event => setMainnetSendPhrase(event.target.value)} placeholder="SEND MAINNET" />
-                      </div>
-                    )}
                     <div className="wallet-vault-review-actions">
                       <button type="button" className="wallet-vault-primary" disabled={true} title="Signing and broadcast are disabled in this build">
                         <ShieldCheck size={16} /> Signing and broadcast disabled
