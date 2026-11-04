@@ -36,6 +36,13 @@ test('requester identity and payout owner sessions are separate', () => {
   assert.ok(app.includes('OWNER_SESSION_KEY'))
 })
 
+test('sponsor request requires fresh recipient inspection for the same address', () => {
+  assert.ok(app.includes('inspectRequestRecipient'))
+  assert.ok(app.includes('requestInspection.address !== requestRecipient.trim()'))
+  assert.ok(app.includes('five minutes'))
+  assert.ok(app.includes('Inspect recipient balance & history'))
+})
+
 test('forest emerald glass theme and responsive breakpoints remain', () => {
   assert.ok(css.includes('--bg: #07100d'))
   assert.ok(css.includes('--mint-bright: #65dfa1'))
