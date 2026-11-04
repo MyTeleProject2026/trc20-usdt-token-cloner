@@ -6,9 +6,9 @@ const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 
 test('frontend exposes only Nile and Shasta RPC networks', () => {
-  assert.match(app, /nile: \\{ label: 'Nile Testnet', rpc: API_BASE \\+ '\\/api\\/tatum\\/rpc\\/nile'/)
-  assert.match(app, /shasta: \\{ label: 'Shasta Testnet', rpc: API_BASE \\+ '\\/api\\/tatum\\/rpc\\/shasta'/)
-  assert.doesNotMatch(app, /trongrid\\.io/)
+  assert.ok(app.includes("nile: { label: 'Nile Testnet', rpc: API_BASE + '/api/tatum/rpc/nile'"))
+  assert.ok(app.includes("shasta: { label: 'Shasta Testnet', rpc: API_BASE + '/api/tatum/rpc/shasta'"))
+  assert.equal(app.includes('trongrid.io'), false)
   assert.match(app, /<option value="nile">Nile Testnet<\/option><option value="shasta">Shasta Testnet<\/option>/)
 })
 
