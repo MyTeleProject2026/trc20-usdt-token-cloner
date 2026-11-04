@@ -69,7 +69,7 @@ export function getSponsorIntegrationReadiness({
 
   const blockers = [
     'external-sponsor-agreement-and-funded-accounts-not-independently-verified',
-    'provider-not-verified-to-provide-asset-principal-and-all-fees',
+    'external-sponsor-principal-and-fee-resources-not-independently-verified',
     'mainnet-provider-independent-sponsor-wallet-sign-submit-broadcast-adapter-not-implemented',
     'sponsor-wallet-signing-and-transaction-policy-security-review-not-complete',
     'sponsor-ownership-and-transaction-time-spending-mandate-not-independently-verified',
