@@ -54,6 +54,7 @@ function createMemoryStore() {
         requestedRoles: input.requestedRoles,
         status: 'pending-review',
         attestationVersion: input.attestationVersion,
+        applicationSignatureHash: input.applicationSignatureHash,
         attestations: {
           authorityToRepresentOrganization: true,
           controlsSponsorWallet: true,
@@ -156,6 +157,7 @@ function requestBody(overrides = {}) {
     lawfulSourceOfFunds: true,
     acceptsSponsorTerms: true,
     privacyConsent: true,
+    applicationSignature: '0x' + 'ab'.repeat(65),
     ...overrides,
   }
 }
@@ -167,6 +169,7 @@ function createApp(t, overrides = {}) {
     store,
     sessionLookup: overrides.sessionLookup || makeSessionLookup(),
     now: () => Date.now(),
+    verifyMessage: async (_message, signature) => signature === '0x' + 'ab'.repeat(65) ? SPONSOR : OTHER,
   }))
   return { store, basePromise }
 }
@@ -189,6 +192,28 @@ test('sponsor enrollment requires an authenticated Mainnet wallet session', asyn
   assert.equal(store.rows.size, 0)
 })
 
+test('application submission requires a signature from the authenticated sponsor wallet', async (t) => {
+  const { store, basePromise } = createApp(t)
+  const base = await basePromise
+  const invalid = await fetch(base + '/tron/sponsorship/organizations', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(requestBody({ applicationSignature: '0x' + 'cd'.repeat(65) })),
+  })
+  assert.equal(invalid.status, 401)
+  assert.equal((await invalid.json()).error, 'application-signature-address-mismatch')
+  assert.equal(store.rows.size, 0)
+
+  const missing = await fetch(base + '/tron/sponsorship/organizations', {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(requestBody({ applicationSignature: undefined })),
+  })
+  assert.equal(missing.status, 400)
+  assert.equal((await missing.json()).error, 'application-wallet-signature-required')
+  assert.equal(store.rows.size, 0)
+})
+
 test('sponsor wallet address comes only from its authenticated Mainnet wallet session', async (t) => {
   const { store, basePromise } = createApp(t)
   const base = await basePromise
@@ -204,12 +229,17 @@ test('sponsor wallet address comes only from its authenticated Mainnet wallet se
   assert.equal(payload.application.sponsorWalletAddress, SPONSOR)
   assert.match(payload.application.sponsorReference, /^org-[0-9a-f]{32}$/)
   assert.equal(payload.walletControlProof, 'authenticated-mainnet-wallet-session')
+  assert.equal(payload.walletApplicationSignatureVerified, true)
+  assert.equal(payload.applicationSignatureStoredAsHashOnly, true)
   assert.equal(payload.organizationAuthorizationIndependentlyVerified, false)
   assert.equal(payload.sponsorAgreementAuthorized, false)
   assert.equal(payload.canContributeLiquidity, false)
   assert.equal(payload.payoutAuthorized, false)
   assert.equal(payload.submissionEnabled, false)
   assert.equal(store.rows.size, 1)
+  const stored = [...store.rows.values()][0]
+  assert.match(stored.applicationSignatureHash, /^[0-9a-f]{64}$/)
+  assert.equal('applicationSignature' in stored, false)
 })
 
 test('unexpected wallet or signing fields are rejected rather than stored', async (t) => {
