@@ -145,3 +145,13 @@ test('Fincra payout-create acceptance cannot be marked successful unless its res
   assert.match(route, /provider-accepted-awaiting-reconciliation/)
   assert.match(route, /Fincra accepted or returned a payout response that does not include enough matching settlement details to mark it successful/)
 })
+
+test('Fincra sponsor funding history reads owner-authenticated business wallet credits from the provider ledger', () => {
+  assert.match(route, /router\.get\('\/sponsor-funding-history'/)
+  assert.match(route, /requireOwnerSession\(req, env\)/)
+  assert.match(route, /\/wallets\/logs\?/)
+  assert.match(route, /business: config\.businessId/)
+  assert.match(route, /action: 'credit'/)
+  assert.match(route, /source: 'fincra-business-wallet-ledger'/)
+  assert.match(route, /item\.action === 'credit'/)
+})
