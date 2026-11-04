@@ -139,3 +139,9 @@ test('Fincra prior-payout and manual status reconciliation cannot mark an unveri
   assert.match(route, /Fincra status was not applied because the provider record did not reconcile/)
   assert.match(route, /fincra-webhook-recipient-unverified/)
 })
+
+test('Fincra payout-create acceptance cannot be marked successful unless its response fully matches the exact recipient and amount', () => {
+  assert.match(route, /const immediateReconciliation = reconcileFincraPayoutIdentity\(data, row\)/)
+  assert.match(route, /provider-accepted-awaiting-reconciliation/)
+  assert.match(route, /Fincra accepted or returned a payout response that does not include enough matching settlement details to mark it successful/)
+})
