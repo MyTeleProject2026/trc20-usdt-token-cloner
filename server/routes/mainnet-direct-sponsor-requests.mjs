@@ -92,7 +92,7 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
             recipient_address TEXT NOT NULL,
             network TEXT NOT NULL DEFAULT 'mainnet' CHECK (network = 'mainnet'),
             asset TEXT NOT NULL DEFAULT 'USDT' CHECK (asset = 'USDT'),
-            token_contract TEXT NOT NULL CHECK (token_contract = $1),
+            token_contract TEXT NOT NULL CHECK (token_contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'),
             amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
             decimals SMALLINT NOT NULL DEFAULT 6 CHECK (decimals = 6),
             status TEXT NOT NULL DEFAULT 'pending-sponsor-review'
@@ -100,7 +100,7 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
-        `.replace('CHECK (token_contract = $1)', `CHECK (token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}')`))
+        `)
         await db.query(`
           CREATE INDEX IF NOT EXISTS mainnet_direct_sponsor_requests_owner_idx
           ON trc20_token_clone.mainnet_direct_sponsor_requests (requester_address, created_at DESC)
@@ -121,6 +121,7 @@ export function createMainnetDirectSponsorRequestStore(env = process.env) {
     const client = await db.connect()
     try {
       await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [input.requesterAddress])
       const existing = await client.query(`
         SELECT * FROM trc20_token_clone.mainnet_direct_sponsor_requests
         WHERE idempotency_key = $1 LIMIT 1 FOR UPDATE
@@ -231,7 +232,8 @@ export function createMainnetDirectSponsorRequestRouter({
       const session = result?.session
       if (result?.success !== true || !session) return { ok: false, status: 401, error: 'invalid-or-expired-wallet-session' }
       if (session.network !== 'mainnet' || session.origin !== origin
-        || !isValidTronAddress(session.address)) {
+        || !isValidTronAddress(session.address)
+        || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) {
         return { ok: false, status: 403, error: 'mainnet-wallet-session-required' }
       }
       return { ok: true, session }
