@@ -44,8 +44,9 @@ function createServerForTest(t, options = {}) {
     readChainCosts: async (value) => ({
       success: true, network: value.network, transactionHash: value.transactionHash,
       blockNumber: 12, executionResult: 'SUCCESS', reportedFeeSun: '4200',
+      transactionOwnerAddressHex: '11'.repeat(20), trxFeePayerAddressHex: '11'.repeat(20),
       energyFeeSun: '2000', netFeeSun: '2200', energyUsageTotal: '0',
-      energyUsage: null, netUsage: '220', energyPenaltyTotal: null,
+      energyUsage: null, originEnergyUsage: '17', netUsage: '220', energyPenaltyTotal: null,
     }),
     persistObservation: async (value) => ({ success: true, duplicate: false, observation: value }),
     listObservations: async ({ network, limit }) => ({ success: true, observations: [{ network, limit }] }),
@@ -86,12 +87,18 @@ test('cost observation uses stored confirmed transfer identity and persists only
   assert.equal(payload.status, 'solidified-chain-costs-observed-not-settled')
   assert.equal(payload.transactionHash, txid)
   assert.equal(payload.observedCosts.reportedFeeSun, '4200')
+  assert.equal(payload.observedCosts.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(payload.observedCosts.trxFeePayerAddressHex, '11'.repeat(20))
+  assert.equal(payload.observedCosts.originEnergyUsage, '17')
   assert.equal(payload.sponsorFeeBudgetSettled, false)
   assert.equal(payload.feeSponsorDebitVerified, false)
   assert.equal(payload.canSubmitSponsoredTransfer, false)
   assert.equal(persisted.feeSponsorAddress, feeSponsor)
   assert.equal(persisted.assetPrincipalAddress, principal)
   assert.equal(persisted.transactionHash, txid)
+  assert.equal(persisted.transactionOwnerAddressHex, '11'.repeat(20))
+  assert.equal(persisted.trxFeePayerAddressHex, '11'.repeat(20))
+  assert.equal(persisted.originEnergyUsage, '17')
 })
 
 test('cost observation rejects a non-confirmed transfer without reading costs', async (t) => {
