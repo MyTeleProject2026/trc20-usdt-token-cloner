@@ -6,9 +6,9 @@ import { recordTransferVerification } from './database.mjs'
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
 const NETWORK_HOSTS = Object.freeze({
-  mainnet: 'https://api.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
-  nile: 'https://nile.trongrid.io',
+  mainnet: 'https://tron-mainnet.gateway.tatum.io',
+  shasta: 'https://tron-shasta.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
 })
 const MAX_WALLETS_PER_RUN = 100
 const MAX_PAGES_PER_WALLET = 5
@@ -139,7 +139,7 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
   }
 
   const headers = { accept: 'application/json' }
-  if (env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY
+  if (env.TATUM_API_KEY) headers['x-api-key'] = env.TATUM_API_KEY
   let fingerprint = null
   let seen = 0
   let inserted = 0
@@ -253,7 +253,7 @@ async function verifyPendingCandidates(db, { env, fetchImpl }) {
   for (const row of pending.rows) {
     const host = NETWORK_HOSTS[row.network]
     if (!host) continue
-    const tronWeb = new TronWeb({ fullHost: host })
+    const tronWeb = new TronWeb({ fullHost: host, headers: { 'x-api-key': env.TATUM_API_KEY } })
     let contractHex, fromHex, toHex
     try {
       contractHex = normalizeHexAddress(tronWeb.address.toHex(row.token_contract))
@@ -267,7 +267,7 @@ async function verifyPendingCandidates(db, { env, fetchImpl }) {
     if (!contractHex || !approvedContracts.has(contractHex)) continue
 
     const headers = { 'content-type': 'application/json' }
-    if (env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY
+    if (env.TATUM_API_KEY) headers['x-api-key'] = env.TATUM_API_KEY
     const query = async (path) => {
       const response = await fetchImpl(host + path, {
         method: 'POST',
