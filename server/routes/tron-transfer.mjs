@@ -22,6 +22,8 @@ const RPC_METHODS = new Set([
   'walletsolidity/getaccountresource',
   'walletsolidity/getaccountnet',
   'wallet/triggerconstantcontract',
+  'wallet/createtransaction',
+  'wallet/triggersmartcontract',
   'walletsolidity/triggerconstantcontract',
   'wallet/estimateenergy',
   'walletsolidity/estimateenergy',
@@ -326,6 +328,19 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
     if (db) {
       try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
     }
+    let mainnetNode = { checked: false, reason: mainnetConfigured ? 'not-tested' : 'tatum-mainnet-key-missing' }
+    if (mainnetConfigured) {
+      try {
+        const block = await tatumGatewayRequest({ env, network: 'mainnet', path: 'walletsolidity/getnowblock', body: {} })
+        const number = Number(block?.block_header?.raw_data?.number)
+        const blockId = cleanString(block?.blockID, 96)
+        mainnetNode = Number.isSafeInteger(number) && number > 0 && TXID_RE.test(blockId)
+          ? { checked: true, status: 'solidified-node-reachable', latestSolidifiedBlockNumber: number }
+          : { checked: false, reason: 'invalid-solidified-block-response' }
+      } catch (error) {
+        mainnetNode = { checked: false, reason: Number.isInteger(error?.status) ? 'tatum-mainnet-provider-http-error' : 'tatum-mainnet-provider-unreachable', providerStatus: Number.isInteger(error?.status) ? error.status : null }
+      }
+    }
     let sourceBalance = { checked: false, reason: 'fincra-not-configured' }
     if (fincra.apiKey && fincra.businessId) {
       try { sourceBalance = await readFincraSourceBalance(fincra) } catch { sourceBalance = { checked: false, reason: 'fincra-wallets-unavailable' } }
@@ -338,7 +353,7 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
     return res.json({
       success: true,
       status: 'readiness-evaluated',
-      tatum: { mainnetConfigured, testnetConfigured, networkRouting: 'server-side-tatum-gateway', signedBroadcast: true },
+      tatum: { mainnetConfigured, testnetConfigured, mainnetNode, networkRouting: 'server-side-tatum-gateway', signedBroadcast: true },
       fincra: {
         environment: fincra.mode,
         apiKeyConfigured: Boolean(fincra.apiKey),
@@ -481,7 +496,7 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
       const history = [
         ...normalizeHistoryRows(nativeHistory).map((row) => ({ ...row, asset: 'TRX', symbol: 'TRX', decimals: 6 })),
         ...normalizeHistoryRows(tokenHistory).map((row) => ({ ...row, asset: 'TRC20', symbol: tokenBalance?.symbol || 'TRC20', decimals: tokenBalance?.decimals ?? row.decimals })),
-      ].filter((row) => row.to === address || row.to === null)
+      ].filter((row) => row.to === address)
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 50)
       return res.json({
         success: true, network, address, nativeBalanceSun,
