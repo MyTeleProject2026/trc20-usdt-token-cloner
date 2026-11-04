@@ -459,6 +459,65 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     return { ok: true, complete, status, recipient, amountBaseUnits: amountBaseUnits?.toString() || null }
   }
 
+  router.get('/sponsor-funding-history', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const config = fincraConfig(env)
+    if (!config.apiKey || !config.businessId || config.sourceCurrency !== 'USDT') {
+      return res.status(503).json({ success: false, error: 'fincra-usdt-funding-history-not-configured' })
+    }
+    const dateFrom = cleanString(req.query?.dateFrom, 10)
+    const dateTo = cleanString(req.query?.dateTo, 10)
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/
+    if ((dateFrom && !datePattern.test(dateFrom)) || (dateTo && !datePattern.test(dateTo))) {
+      return res.status(400).json({ success: false, error: 'invalid-funding-history-date-range' })
+    }
+    const query = new URLSearchParams({
+      business: config.businessId,
+      action: 'credit',
+      page: '1',
+      perPage: '50',
+    })
+    if (dateFrom) query.set('dateFrom', dateFrom)
+    if (dateTo) query.set('dateTo', dateTo)
+    try {
+      const result = await fincraRequest(config, '/wallets/logs?' + query.toString())
+      if (!result.ok || result.payload?.success === false) {
+        return res.status(502).json({ success: false, error: 'fincra-funding-history-unavailable', providerStatus: result.status })
+      }
+      const payloadRows = result.payload?.data
+      const candidates = Array.isArray(payloadRows) ? payloadRows
+        : Array.isArray(payloadRows?.logs) ? payloadRows.logs
+          : Array.isArray(payloadRows?.transactions) ? payloadRows.transactions
+            : Array.isArray(payloadRows?.rows) ? payloadRows.rows
+              : Array.isArray(payloadRows?.items) ? payloadRows.items
+                : Array.isArray(payloadRows?.data) ? payloadRows.data : []
+      const rows = candidates.slice(0, 50).map((item) => ({
+        id: cleanString(item?.id || item?._id, 96) || null,
+        reference: cleanString(item?.reference || item?.transactionReference, 128) || null,
+        customerReference: cleanString(item?.customerReference || item?.customer_reference, 96) || null,
+        action: cleanString(item?.action || item?.type, 24).toLowerCase() || 'credit',
+        currency: cleanString(item?.currency || item?.sourceCurrency || item?.destinationCurrency, 8).toUpperCase() || null,
+        amount: cleanString(String(item?.amountReceived ?? item?.amount ?? item?.destinationAmount ?? ''), 64) || null,
+        status: cleanString(item?.status, 32).toLowerCase() || null,
+        description: cleanString(item?.description || item?.reason, 180) || null,
+        sender: cleanString(item?.customerName || item?.senderName || item?.sender?.name, 120) || null,
+        createdAt: cleanString(item?.createdAt || item?.created_at || item?.initiatedAt, 64) || null,
+      })).filter((item) => item.action === 'credit' && (!item.currency || item.currency === 'USDT'))
+      return res.json({
+        success: true,
+        source: 'fincra-business-wallet-ledger',
+        sourceCurrency: 'USDT',
+        rows,
+        hasMore: Boolean(result.payload?.data?.hasMore || result.payload?.data?.pagination?.hasNextPage),
+        note: 'These are read-only Fincra business wallet ledger credits. A credit is included only when Fincra returns it; the current available balance remains the authoritative payout liquidity check.',
+      })
+    } catch {
+      return res.status(502).json({ success: false, error: 'fincra-funding-history-request-failed' })
+    }
+  })
+
   router.get('/readiness', async (_req, res) => {
     const auth = await requireOwnerSession(_req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
