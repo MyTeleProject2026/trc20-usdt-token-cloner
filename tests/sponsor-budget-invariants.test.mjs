@@ -103,7 +103,7 @@ test('network-fee sponsor reservation cannot be confirmed as receiver principal'
     async connect() {
       return {
         async query(sql) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           state.queries.push(normalized)
           if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
@@ -154,7 +154,7 @@ test('database transition layer independently refuses Mainnet sponsor confirmati
     async connect() {
       return {
         async query(sql) {
-          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          const normalized = sql.replace(/\s+/g, ' ').trim()
           state.queries.push(normalized)
           if (normalized === 'BEGIN') return { rows: [] }
           if (normalized === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
