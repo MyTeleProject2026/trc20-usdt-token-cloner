@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Router } from 'express'
+import { Trx } from 'tronweb'
 import pg from 'pg'
 import {
   getWalletAuthSession,
@@ -58,6 +59,29 @@ function normalizeRoles(value) {
   if (value.some((item) => typeof item !== 'string' || !ROLES.has(item))) return null
   if (new Set(value).size !== value.length) return null
   return [...value].sort()
+}
+
+function buildSponsorApplicationMessage({
+  address, organizationName, businessEmail, jurisdiction, website, requestedRoles,
+}) {
+  return [
+    'TRON Token Studio sponsor organization application authorization',
+    'Purpose: confirm the exact organization details and declarations below. This is not a transaction, transfer, or spending authorization.',
+    `Attestation version: ${ATTESTATION_VERSION}`,
+    'Network: TRON Mainnet',
+    `Sponsor wallet: ${address}`,
+    `Organization: ${organizationName}`,
+    `Business contact email: ${businessEmail}`,
+    `Jurisdiction: ${jurisdiction}`,
+    `Website: ${website || 'not provided'}`,
+    `Requested roles: ${requestedRoles.join(', ')}`,
+    'Declarations:',
+    '1. I am authorized to represent this organization.',
+    '2. The authenticated wallet is controlled by the organization or an authorized signer.',
+    '3. The proposed funds are lawfully controlled and may be used for the stated sponsorship purpose.',
+    '4. I accept separate written sponsor terms, caps, and transaction approvals before funding or payouts.',
+    '5. I consent to storing these organization details for manual due diligence.',
+  ].join('\\n')
 }
 
 function rolesMatch(left, right) {
@@ -144,6 +168,7 @@ export function createSponsorOrganizationStore(env = process.env) {
             network TEXT NOT NULL CHECK (network = 'mainnet'),
             requested_roles JSONB NOT NULL CHECK (jsonb_typeof(requested_roles) = 'array'),
             attestation_version TEXT NOT NULL,
+            application_signature_hash TEXT NOT NULL UNIQUE,
             authority_to_represent BOOLEAN NOT NULL CHECK (authority_to_represent),
             controls_sponsor_wallet BOOLEAN NOT NULL CHECK (controls_sponsor_wallet),
             lawful_source_of_funds BOOLEAN NOT NULL CHECK (lawful_source_of_funds),
@@ -162,6 +187,10 @@ export function createSponsorOrganizationStore(env = process.env) {
         await db.query(`
           CREATE INDEX IF NOT EXISTS sponsor_organizations_status_created_idx
           ON trc20_token_clone.sponsor_organizations (status, created_at ASC)
+        `)
+        await db.query(`
+          CREATE UNIQUE INDEX IF NOT EXISTS sponsor_organizations_application_signature_idx
+          ON trc20_token_clone.sponsor_organizations (application_signature_hash)
         `)
         await db.query(`
           CREATE UNIQUE INDEX IF NOT EXISTS sponsor_organizations_open_wallet_idx
@@ -197,6 +226,7 @@ export function createSponsorOrganizationStore(env = process.env) {
           && row.jurisdiction === input.jurisdiction
           && (row.website || null) === input.website
           && rolesMatch(row.requested_roles, input.requestedRoles)
+          && row.application_signature_hash === input.applicationSignatureHash
         await client.query('COMMIT')
         return same
           ? { success: true, duplicate: true, application: toPublicApplication(row) }
@@ -219,14 +249,14 @@ export function createSponsorOrganizationStore(env = process.env) {
           id, sponsor_reference, organization_name, business_email, jurisdiction,
           website, sponsor_wallet_address, network, requested_roles, attestation_version,
           authority_to_represent, controls_sponsor_wallet, lawful_source_of_funds,
-          accepts_sponsor_terms, privacy_consent
+          accepts_sponsor_terms, privacy_consent, application_signature_hash
         ) VALUES (
-          $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, TRUE, TRUE, TRUE, TRUE, TRUE
+          $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, TRUE, TRUE, TRUE, TRUE, TRUE, $11
         ) RETURNING *
       `, [
         input.id, input.sponsorReference, input.organizationName, input.businessEmail,
         input.jurisdiction, input.website, input.sponsorWalletAddress, input.network,
-        JSON.stringify(input.requestedRoles), input.attestationVersion,
+        JSON.stringify(input.requestedRoles), input.attestationVersion, input.applicationSignatureHash,
       ])
       await client.query(`
         INSERT INTO trc20_token_clone.audit_events (event_type, entity_type, entity_reference, details)
@@ -240,6 +270,8 @@ export function createSponsorOrganizationStore(env = process.env) {
           requestedRoles: input.requestedRoles,
           status: 'pending-review',
           attestationVersion: input.attestationVersion,
+          applicationSignatureHash: input.applicationSignatureHash,
+          walletApplicationSignatureVerified: true,
         }),
       ])
       await client.query('COMMIT')
@@ -362,6 +394,7 @@ export function createSponsorOrganizationOnboardingRouter({
   sessionLookup = getWalletAuthSession,
   store = createSponsorOrganizationStore(env),
   now = () => Date.now(),
+  verifyMessage = async (message, signature) => Trx.verifyMessageV2(message, signature),
 } = {}) {
   const router = Router()
 
@@ -409,7 +442,7 @@ export function createSponsorOrganizationOnboardingRouter({
     const allowed = new Set([
       'organizationName', 'businessEmail', 'jurisdiction', 'website', 'requestedRoles',
       'authorityToRepresentOrganization', 'controlsSponsorWallet', 'lawfulSourceOfFunds',
-      'acceptsSponsorTerms', 'privacyConsent',
+      'acceptsSponsorTerms', 'privacyConsent', 'applicationSignature',
     ])
     if (Object.keys(body).some((key) => !allowed.has(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields', message: 'Only organization details, requested sponsorship roles and the listed attestations are accepted. Wallet secrets and signing material are never accepted.' })
@@ -436,6 +469,29 @@ export function createSponsorOrganizationOnboardingRouter({
       })
     }
 
+    const applicationSignature = typeof body.applicationSignature === 'string' ? body.applicationSignature : ''
+    if (!/^0x[0-9a-f]{130}$/i.test(applicationSignature)) {
+      return res.status(400).json({ success: false, error: 'application-wallet-signature-required', message: 'Sign the exact organization details and declarations in TronLink to submit this application.' })
+    }
+    const applicationMessage = buildSponsorApplicationMessage({
+      address: auth.address,
+      organizationName,
+      businessEmail,
+      jurisdiction,
+      website: website.value,
+      requestedRoles,
+    })
+    let recoveredApplicationSigner
+    try {
+      recoveredApplicationSigner = await verifyMessage(applicationMessage, applicationSignature)
+    } catch {
+      recoveredApplicationSigner = null
+    }
+    if (recoveredApplicationSigner !== auth.address) {
+      return res.status(401).json({ success: false, error: 'application-signature-address-mismatch', message: 'The application message signature did not match the authenticated sponsor wallet.' })
+    }
+
+    const applicationSignatureHash = digest(applicationSignature)
     const id = randomUUID()
     const sponsorReference = `org-${id.replaceAll('-', '')}`
     try {
@@ -450,6 +506,7 @@ export function createSponsorOrganizationOnboardingRouter({
         network: NETWORK,
         requestedRoles,
         attestationVersion: ATTESTATION_VERSION,
+        applicationSignatureHash,
       })
       if (result?.success !== true || !result.application) {
         const reason = result?.reason || 'application-storage-unavailable'
@@ -469,6 +526,8 @@ export function createSponsorOrganizationOnboardingRouter({
         status: result.application.status,
         application: result.application,
         walletControlProof: 'authenticated-mainnet-wallet-session',
+        walletApplicationSignatureVerified: true,
+        applicationSignatureStoredAsHashOnly: true,
         organizationAuthorizationIndependentlyVerified: false,
         sponsorAgreementAuthorized: false,
         canContributeLiquidity: false,
