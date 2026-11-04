@@ -88,6 +88,28 @@ export function createMainnetDirectSponsorApprovalStore(env = process.env) {
     if (!schemaPromise) {
       schemaPromise = (async () => {
         await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
+        // The sponsor review queue may be opened before the first user request.
+        // Ensure its referenced request table exists before creating approval foreign keys.
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS trc20_token_clone.mainnet_direct_sponsor_requests (
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            requester_address TEXT NOT NULL,
+            recipient_address TEXT NOT NULL,
+            network TEXT NOT NULL DEFAULT 'mainnet' CHECK (network = 'mainnet'),
+            asset TEXT NOT NULL DEFAULT 'USDT' CHECK (asset = 'USDT'),
+            token_contract TEXT NOT NULL CHECK (token_contract = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'),
+            amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+            decimals SMALLINT NOT NULL DEFAULT 6 CHECK (decimals = 6),
+            status TEXT NOT NULL DEFAULT 'pending-sponsor-review' CHECK (status = 'pending-sponsor-review'),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          )
+        `)
+        await db.query(`
+          CREATE INDEX IF NOT EXISTS mainnet_direct_sponsor_requests_owner_idx
+          ON trc20_token_clone.mainnet_direct_sponsor_requests (requester_address, created_at DESC)
+        `)
         await db.query(`
           CREATE TABLE IF NOT EXISTS trc20_token_clone.mainnet_direct_sponsor_approval_challenges (
             challenge_id TEXT PRIMARY KEY,
