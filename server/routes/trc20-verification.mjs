@@ -3,9 +3,9 @@ import { recordTransferVerification } from '../database.mjs'
 import { isPositiveUint256 } from '../base-units.mjs'
 
 const NETWORKS = Object.freeze({
-  mainnet: 'https://api.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
-  nile: 'https://nile.trongrid.io',
+  mainnet: 'https://tron-mainnet.gateway.tatum.io',
+  shasta: 'https://tron-shasta.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
 })
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-fA-F]{64}$/
@@ -78,7 +78,7 @@ export function createTRC20VerificationRouter({
   fetchImpl = globalThis.fetch,
   tronWebFactory = async (host) => {
     const { TronWeb } = await import('tronweb')
-    return new TronWeb({ fullHost: host })
+    return new TronWeb({ fullHost: host, headers: { 'x-api-key': env.TATUM_API_KEY } })
   },
   persistVerification = recordTransferVerification,
   timeoutMs = 8000,
@@ -142,8 +142,8 @@ export function createTRC20VerificationRouter({
       }
 
       const headers = { accept: 'application/json', 'content-type': 'application/json' }
-      if (typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()) {
-        headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY.trim()
+      if (typeof env.TATUM_API_KEY === 'string' && env.TATUM_API_KEY.trim()) {
+        headers['x-api-key'] = env.TATUM_API_KEY.trim()
       }
       const query = async (path) => {
         const response = await fetchImpl(NETWORKS[network] + path, {
