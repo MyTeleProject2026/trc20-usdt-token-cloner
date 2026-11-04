@@ -88,7 +88,7 @@ export function normalizeTronGridTrc20Incoming(payload, recipientAddress, decode
   })
 }
 
-async function requestHistory({ network, address, tokenContract, apiKey, fetchImpl, timeoutMs }) {
+async function requestHistory({ network, address, tokenContract, tokenHistory = false, apiKey, fetchImpl, timeoutMs }) {
   const origin = NETWORK_ORIGINS[network]
   if (!origin) throw new TypeError('Unsupported TRON history network.')
   const query = new URLSearchParams({
@@ -98,7 +98,7 @@ async function requestHistory({ network, address, tokenContract, apiKey, fetchIm
     order_by: 'block_timestamp,desc',
   })
   if (tokenContract) query.set('contract_address', tokenContract)
-  const path = tokenContract
+  const path = tokenHistory
     ? '/v1/accounts/' + encodeURIComponent(address) + '/transactions/trc20'
     : '/v1/accounts/' + encodeURIComponent(address) + '/transactions'
   const headers = { Accept: 'application/json' }
@@ -126,8 +126,8 @@ export async function readTronGridIncomingHistory({
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl must be a function.')
 
   const [nativeResult, tokenResult] = await Promise.allSettled([
-    requestHistory({ network, address, tokenContract: '', apiKey, fetchImpl, timeoutMs }),
-    requestHistory({ network, address, tokenContract, apiKey, fetchImpl, timeoutMs }),
+    requestHistory({ network, address, tokenHistory: false, apiKey, fetchImpl, timeoutMs }),
+    requestHistory({ network, address, tokenContract, tokenHistory: true, apiKey, fetchImpl, timeoutMs }),
   ])
   const nativeHistoryRead = nativeResult.status === 'fulfilled'
   const tokenHistoryRead = tokenResult.status === 'fulfilled'
