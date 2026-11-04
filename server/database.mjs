@@ -495,6 +495,9 @@ export async function initializeDatabase() {
           net_fee_sun NUMERIC(78,0),
           energy_usage_total NUMERIC(78,0),
           energy_usage NUMERIC(78,0),
+          origin_energy_usage NUMERIC(78,0),
+          transaction_owner_address_hex CHAR(40),
+          trx_fee_payer_address_hex CHAR(40),
           net_usage NUMERIC(78,0),
           energy_penalty_total NUMERIC(78,0),
           evidence_source TEXT NOT NULL DEFAULT 'Tatum TRON SolidityNode transaction body and receipt',
@@ -503,6 +506,13 @@ export async function initializeDatabase() {
             OR (asset IN ('USDT','VTRC') AND token_contract IS NOT NULL AND length(btrim(token_contract)) > 0)),
           UNIQUE (network, transaction_hash)
         )
+      `)
+      // Add transaction-level payer/resource fields to existing installations. Legacy
+      // observations remain nullable and are never retroactively attributed.
+      await db.query(`ALTER TABLE ${schema}.sponsor_chain_cost_observations
+        ADD COLUMN IF NOT EXISTS origin_energy_usage NUMERIC(78,0),
+        ADD COLUMN IF NOT EXISTS transaction_owner_address_hex CHAR(40),
+        ADD COLUMN IF NOT EXISTS trx_fee_payer_address_hex CHAR(40)
       `)
       // Chain-cost evidence is an immutable audit ledger: keep old VTRC observations
       // readable but reject any new observation for an unsupported asset.
@@ -3026,6 +3036,8 @@ export async function recordSponsorChainCostObservation(input = {}) {
                 execution_result, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
                 energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+                origin_energy_usage::text AS origin_energy_usage,
+                transaction_owner_address_hex, trx_fee_payer_address_hex,
                 net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total
            FROM ${schema}.sponsor_chain_cost_observations
           WHERE network = $1 AND transaction_hash = $2
@@ -3041,6 +3053,9 @@ export async function recordSponsorChainCostObservation(input = {}) {
         reported_fee_sun: integerValues.reportedFeeSun,
         energy_fee_sun: integerValues.energyFeeSun, net_fee_sun: integerValues.netFeeSun,
         energy_usage_total: integerValues.energyUsageTotal, energy_usage: integerValues.energyUsage,
+        origin_energy_usage: integerValues.originEnergyUsage,
+        transaction_owner_address_hex: transactionOwnerAddressHex,
+        trx_fee_payer_address_hex: trxFeePayerAddressHex,
         net_usage: integerValues.netUsage, energy_penalty_total: integerValues.energyPenaltyTotal,
       };
       const same = (row) => Object.keys(incoming).every((key) => {
@@ -3062,14 +3077,16 @@ export async function recordSponsorChainCostObservation(input = {}) {
           (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
            asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
            block_number, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
-           energy_usage_total, energy_usage, net_usage, energy_penalty_total)
+           energy_usage_total, energy_usage, origin_energy_usage,
+           transaction_owner_address_hex, trx_fee_payer_address_hex, net_usage, energy_penalty_total)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13::numeric,
-                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19::numeric)`,
+                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18,$19,$20::numeric,$21::numeric)`,
         [network, transactionHash, idempotencyKey, input.sponsorReference, feeSponsorAddress,
           input.assetPrincipalAddress, input.receiverAddress, asset, tokenContract,
           integerValues.amountBaseUnits, blockNumber, 'SUCCESS', integerValues.reportedFeeSun,
           integerValues.energyFeeSun, integerValues.netFeeSun, integerValues.energyUsageTotal,
-          integerValues.energyUsage, integerValues.netUsage, integerValues.energyPenaltyTotal],
+          integerValues.energyUsage, integerValues.originEnergyUsage, transactionOwnerAddressHex,
+          trxFeePayerAddressHex, integerValues.netUsage, integerValues.energyPenaltyTotal],
       );
       await client.query(
         `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
@@ -3117,6 +3134,8 @@ export async function listSponsorChainCostObservations({ network = null, limit =
               execution_result, reported_fee_sun::text AS reported_fee_sun,
               energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
               energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+              origin_energy_usage::text AS origin_energy_usage,
+              transaction_owner_address_hex, trx_fee_payer_address_hex,
               net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total,
               evidence_source, observed_at
          FROM ${schema}.sponsor_chain_cost_observations
@@ -3143,6 +3162,9 @@ export async function listSponsorChainCostObservations({ network = null, limit =
       netFeeSun: row.net_fee_sun,
       energyUsageTotal: row.energy_usage_total,
       energyUsage: row.energy_usage,
+      originEnergyUsage: row.origin_energy_usage,
+      transactionOwnerAddressHex: row.transaction_owner_address_hex ? String(row.transaction_owner_address_hex).trim().toLowerCase() : null,
+      trxFeePayerAddressHex: row.trx_fee_payer_address_hex ? String(row.trx_fee_payer_address_hex).trim().toLowerCase() : null,
       netUsage: row.net_usage,
       energyPenaltyTotal: row.energy_penalty_total,
       evidenceSource: row.evidence_source,
