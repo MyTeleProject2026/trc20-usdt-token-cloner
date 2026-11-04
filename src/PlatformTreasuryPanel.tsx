@@ -35,6 +35,8 @@ type WithdrawalIntent = {
     status: string
     transactionHash?: string | null
     expiresAt: string
+    createdAt: string
+    updatedAt: string
     feeLimitSun: string
   }
   unsignedTransaction: any
