@@ -105,7 +105,7 @@ test('owner wallet uses responsive owner navigation and separates recovery from 
   assert.ok(workflow.includes("document.addEventListener('visibilitychange', refreshWhenVisible)"))
   assert.ok(workflow.includes("window.removeEventListener('focus', refreshWhenVisible)"))
   assert.ok(workflow.includes("document.removeEventListener('visibilitychange', refreshWhenVisible)"))
-  assert.ok(workflow.includes('requestInFlight || cancelled'))
+  assert.ok(workflow.includes("if (cancelled || document.visibilityState === 'hidden' || requestInFlight) return"))
   assert.match(vault, /Monitoring is read-only and does not authorize spending/)
   assert.match(vault, /networkFeeCapCovered/)
   assert.match(vault, /Configured fee reserve \/ estimate threshold/)
