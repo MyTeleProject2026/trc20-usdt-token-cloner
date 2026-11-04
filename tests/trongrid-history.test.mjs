@@ -113,6 +113,21 @@ test('recipient history requests confirmed incoming native and TRC20 data from t
     && call.parsed.searchParams.get('contract_address') === contract))
 })
 
+test('recipient history still queries TRC20 when no contract filter is supplied', async () => {
+  const paths = []
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url)
+    paths.push(parsed.pathname)
+    return new Response(JSON.stringify({ data: [] }), { status: 200 })
+  }
+  const result = await readTronGridIncomingHistory({
+    network: 'nile', address: recipient, fetchImpl, decodeAddress,
+  })
+  assert.equal(result.historyStatus, 'complete')
+  assert.ok(paths.includes('/v1/accounts/' + recipient + '/transactions'))
+  assert.ok(paths.includes('/v1/accounts/' + recipient + '/transactions/trc20'))
+})
+
 test('recipient history reports partial provider failure without fabricating a complete result', async () => {
   const fetchImpl = async (url) => {
     const parsed = new URL(url)
