@@ -1100,3 +1100,65 @@ test('PostgreSQL delegation audit query scopes history to the exact fee sponsor 
     await pool.end()
   }
 })
+
+
+test('Mainnet direct sponsor requests persist idempotently in the isolated PostgreSQL integration database', {
+  skip: !enabled,
+}, async (t) => {
+  const { createMainnetDirectSponsorRequestStore, OFFICIAL_MAINNET_USDT_CONTRACT } =
+    await import('../server/routes/mainnet-direct-sponsor-requests.mjs')
+  const store = createMainnetDirectSponsorRequestStore(process.env)
+  const cleanupPool = new Pool({ connectionString: databaseUrl })
+  const idempotencyKey = 'pg-mainnet-direct-' + randomUUID()
+  const input = {
+    idempotencyKey,
+    requesterAddress: 'pg-requester-' + randomUUID(),
+    recipientAddress: receiverAddress,
+    tokenContract: OFFICIAL_MAINNET_USDT_CONTRACT,
+    amountBaseUnits: '1234567',
+    decimals: 6,
+  }
+
+  try {
+    const [first, concurrentReplay] = await Promise.all([
+      store.createRequest(input),
+      store.createRequest(input),
+    ])
+    assert.equal(first.success, true)
+    assert.equal(concurrentReplay.success, true)
+    assert.equal([first, concurrentReplay].filter((result) => result.duplicate === false).length, 1)
+    assert.equal([first, concurrentReplay].filter((result) => result.duplicate === true).length, 1)
+
+    const original = first.request || concurrentReplay.request
+    assert.equal(original.network, 'mainnet')
+    assert.equal(original.asset, 'USDT')
+    assert.equal(original.tokenContract, OFFICIAL_MAINNET_USDT_CONTRACT)
+    assert.equal(original.amountBaseUnits, input.amountBaseUnits)
+    assert.equal(original.status, 'pending-sponsor-review')
+
+    const replay = await store.createRequest(input)
+    assert.equal(replay.success, true)
+    assert.equal(replay.duplicate, true)
+
+    const conflict = await store.createRequest({ ...input, amountBaseUnits: '7654321' })
+    assert.equal(conflict.success, false)
+    assert.equal(conflict.reason, 'idempotency-key-conflict')
+
+    const ownerLookup = await store.findRequest(idempotencyKey, input.requesterAddress)
+    assert.equal(ownerLookup.success, true)
+    assert.equal(ownerLookup.request.idempotencyKey, idempotencyKey)
+    const wrongOwnerLookup = await store.findRequest(idempotencyKey, 'different-requester')
+    assert.equal(wrongOwnerLookup.success, false)
+    assert.equal(wrongOwnerLookup.reason, 'request-not-found')
+
+    const queue = await store.listRequests({ limit: 100 })
+    assert.equal(queue.success, true)
+    assert.ok(queue.requests.some((request) => request.idempotencyKey === idempotencyKey))
+  } finally {
+    await cleanupPool.query(
+      'DELETE FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1',
+      [idempotencyKey],
+    ).catch(() => {})
+    await Promise.all([store.close(), cleanupPool.end()])
+  }
+})
