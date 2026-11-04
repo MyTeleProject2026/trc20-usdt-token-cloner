@@ -324,6 +324,13 @@ function fundedSponsorRoleSnapshot() {
         }],
       },
     },
+    feeSponsorDelegationToPrincipal: {
+      success: true,
+      transactionAuditVerified: true,
+      auditedResourceTypes: ['ENERGY', 'BANDWIDTH'],
+      activeEnergyStakeSun: '1000000',
+      activeBandwidthStakeSun: '1000000',
+    },
   }
 }
 
@@ -656,4 +663,178 @@ test('Mainnet sponsor approval cannot exceed the signed sponsor cap or accept an
   })
   assert.equal(response.status, 503)
   assert.ok((await response.json()).requiredEnvironment.includes('SPONSOR_APPROVED_AGREEMENT_REFERENCES (exact Mainnet USDT asset-principal scope)'))
+})
+
+
+test('fee sponsor cannot approve fees before the asset-principal sponsor has an active approval', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  const feeBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv,
+    store,
+    sessionLookup: sessionLookup(feeSponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+  }))
+  const response = await fetch(feeBase + '/sponsorship/mainnet-direct/requests/' + key + '/fee-approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  assert.equal(response.status, 409)
+  assert.equal((await response.json()).error, 'active-asset-principal-approval-required-before-fee-approval')
+})
+
+test('distinct fee sponsor signs a separate request-bound network-fee approval after principal approval', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  const created = await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  assert.equal(created.status, 201)
+
+  const principalBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv,
+    store,
+    sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+    nonceFactory: () => approvalNonce,
+    verifySponsorMessage: async (_message, signature) => {
+      assert.equal(signature, approvalSignature)
+      return sponsorAddress
+    },
+  }))
+  const principalChallengeResponse = await fetch(principalBase + '/sponsorship/mainnet-direct/requests/' + key + '/approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  const principalChallenge = await principalChallengeResponse.json()
+  assert.equal(principalChallengeResponse.status, 201)
+  const principalApprovalResponse = await fetch(principalBase + '/sponsorship/mainnet-direct/requests/' + key + '/approve', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: principalChallenge.nonce, signature: approvalSignature }),
+  })
+  assert.equal(principalApprovalResponse.status, 200)
+
+  const feeNonce = 'e'.repeat(64)
+  let verifiedFeeMessage = ''
+  const feeBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv,
+    store,
+    sessionLookup: sessionLookup(feeSponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+    nonceFactory: () => feeNonce,
+    verifySponsorMessage: async (message, signature) => {
+      verifiedFeeMessage = message
+      assert.equal(signature, approvalSignature)
+      return feeSponsorAddress
+    },
+  }))
+  const feeQueueResponse = await fetch(feeBase + '/sponsorship/mainnet-direct/fee-review-queue', {
+    headers: headers(),
+  })
+  const feeQueue = await feeQueueResponse.json()
+  assert.equal(feeQueueResponse.status, 200)
+  assert.equal(feeQueue.count, 1)
+  assert.equal(feeQueue.requests[0].sponsorApproval.status, 'approved-active')
+  assert.equal(feeQueue.requests[0].feeSponsorApproval.status, 'not-approved')
+  assert.equal(feeQueue.canSubmitSponsoredTransfer, false)
+
+  const challengeResponse = await fetch(feeBase + '/sponsorship/mainnet-direct/requests/' + key + '/fee-approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  const challenge = await challengeResponse.json()
+  assert.equal(challengeResponse.status, 201)
+  assert.equal(challenge.maxFeeSun, '50000000')
+  assert.equal(challenge.resourceBudgetReserved, false)
+  assert.equal(challenge.signingIntentCreated, false)
+  assert.match(challenge.message, new RegExp(feeAgreementRef))
+  assert.match(challenge.message, new RegExp(feeSponsorAddress))
+  assert.match(challenge.message, new RegExp(sponsorAddress))
+  assert.match(challenge.message, new RegExp(recipient))
+  assert.match(challenge.message, /Maximum approved network-fee budget in SUN: 50000000/)
+  assert.match(challenge.message, /not a TRON transaction signature/)
+  assert.match(challenge.message, /does not transfer TRX, delegate Energy\/Bandwidth/)
+
+  const approvalResponse = await fetch(feeBase + '/sponsorship/mainnet-direct/requests/' + key + '/approve-fees', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: challenge.nonce, signature: approvalSignature }),
+  })
+  const approval = await approvalResponse.json()
+  assert.equal(approvalResponse.status, 200)
+  assert.equal(approval.status, 'fee-sponsor-approved-network-fees-only')
+  assert.equal(approval.feeSponsorApproved, true)
+  assert.equal(approval.feeSponsorApproval.sponsorAddress, feeSponsorAddress)
+  assert.equal(approval.feeSponsorApproval.maxFeeSun, '50000000')
+  assert.equal(approval.budgetReserved, false)
+  assert.equal(approval.resourceBudgetReserved, false)
+  assert.equal(approval.signingIntentCreated, false)
+  assert.equal(approval.canCreateSigningIntent, false)
+  assert.equal(approval.canSubmitSponsoredTransfer, false)
+  assert.equal(approval.transactionBroadcast, false)
+  assert.equal(approval.unpaidFallbackToUserFunds, false)
+  assert.equal(verifiedFeeMessage, challenge.message)
+
+  const replay = await fetch(feeBase + '/sponsorship/mainnet-direct/requests/' + key + '/approve-fees', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ nonce: challenge.nonce, signature: approvalSignature }),
+  })
+  assert.equal(replay.status, 409)
+  const statusResponse = await fetch(requesterBase + '/sponsorship/mainnet-direct/requests/' + key, {
+    headers: headers(),
+  })
+  const statusPayload = await statusResponse.json()
+  assert.equal(statusPayload.sponsorApproved, true)
+  assert.equal(statusPayload.feeSponsorApproved, true)
+  assert.equal(statusPayload.canSubmitSponsoredTransfer, false)
+})
+
+test('fee sponsor approval rejects the same wallet and missing fee-resource audit evidence', async (t) => {
+  const store = makeStore()
+  const requesterBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv, store, sessionLookup: sessionLookup(requester),
+  }))
+  await fetch(requesterBase + '/sponsorship/mainnet-direct/requests', {
+    method: 'POST', headers: headers(), body: JSON.stringify(requestBody()),
+  })
+  const principalBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv, store, sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+    nonceFactory: () => approvalNonce,
+    verifySponsorMessage: async () => sponsorAddress,
+  }))
+  const pc = await fetch(principalBase + '/sponsorship/mainnet-direct/requests/' + key + '/approval-challenge', { method: 'POST', headers: headers() })
+  const principalChallenge = await pc.json()
+  await fetch(principalBase + '/sponsorship/mainnet-direct/requests/' + key + '/approve', {
+    method: 'POST', headers: headers(), body: JSON.stringify({ nonce: principalChallenge.nonce, signature: approvalSignature }),
+  })
+  const feeBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: { ...feeApprovalEnv, SPONSOR_FEE_MAINNET_ADDRESS: sponsorAddress },
+    store,
+    sessionLookup: sessionLookup(sponsorAddress),
+    readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
+  }))
+  const sameWallet = await fetch(feeBase + '/sponsorship/mainnet-direct/fee-review-queue', { headers: headers() })
+  assert.equal(sameWallet.status, 409)
+  assert.equal((await sameWallet.json()).error, 'fee-and-asset-sponsor-wallets-must-be-distinct')
+
+  const badAuditBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv,
+    store,
+    sessionLookup: sessionLookup(feeSponsorAddress),
+    readSponsorRoles: async () => {
+      const snapshot = fundedSponsorRoleSnapshot()
+      snapshot.feeSponsorDelegationToPrincipal.transactionAuditVerified = false
+      return snapshot
+    },
+    nonceFactory: () => 'f'.repeat(64),
+  }))
+  const badAudit = await fetch(badAuditBase + '/sponsorship/mainnet-direct/requests/' + key + '/fee-approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  assert.equal(badAudit.status, 409)
+  assert.ok((await badAudit.json()).blockers.includes('fee-sponsor-energy-and-bandwidth-delegation-audit-not-verified'))
 })
