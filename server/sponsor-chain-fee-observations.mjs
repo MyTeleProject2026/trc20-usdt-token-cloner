@@ -1,5 +1,5 @@
 import pg from 'pg'
-import { databaseSslConfig, normalizeDatabaseConnectionString } from './database.mjs'
+import { databaseSslConfig, initializeDatabase, normalizeDatabaseConnectionString } from './database.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
@@ -82,6 +82,7 @@ export function normalizeSponsorChainFeeObservation(input = {}) {
 }
 
 async function initialize(poolClient) {
+  await initializeDatabase()
   if (!readyPromise) {
     readyPromise = (async () => {
       await poolClient.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
