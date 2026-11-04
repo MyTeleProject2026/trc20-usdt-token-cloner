@@ -67,8 +67,15 @@ export function createOwnerSponsorLiquidityRouter({
       })
     }
 
-    const ownerAddress = [env.TREASURY_OWNER_ADDRESS, env.OWNER_WALLET_ADDRESS]
+    // OWNER_WALLET_ADDRESS is the identity accepted by owner-console login.
+    // Also exclude TREASURY_OWNER_ADDRESS if an older deployment has it set separately.
+    const ownerAddress = [env.OWNER_WALLET_ADDRESS, env.TREASURY_OWNER_ADDRESS]
       .find((value) => typeof value === 'string' && value.trim())?.trim() || ''
+    const excludedOwnerAddresses = new Set(
+      [env.OWNER_WALLET_ADDRESS, env.TREASURY_OWNER_ADDRESS]
+        .filter((value) => typeof value === 'string' && ADDRESS_PATTERN.test(value.trim()))
+        .map((value) => value.trim()),
+    )
     if (!isValidTronAddress(ownerAddress)) {
       return res.status(503).json({
         success: false, error: 'treasury-owner-not-configured',
@@ -139,7 +146,7 @@ export function createOwnerSponsorLiquidityRouter({
           && budget.token_contract === OFFICIAL_MAINNET_USDT
           && typeof budget.sponsor_address === 'string'
           && ADDRESS_PATTERN.test(budget.sponsor_address)
-          && budget.sponsor_address !== ownerAddress)
+          && !excludedOwnerAddresses.has(budget.sponsor_address))
         .map((budget) => ({
           ...budget,
           approvalScopeVerified: budget.status === 'active'
