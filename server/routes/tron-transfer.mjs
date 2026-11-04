@@ -503,7 +503,10 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         success: true, network, address, nativeBalanceSun,
         nativeBalanceTRX: nativeBalanceSun === null ? null : (Number(nativeBalanceSun) / 1_000_000).toFixed(6),
         tokenBalance, incomingHistory: history,
-        accountExists: Boolean(account?.address),\n        nativeHistoryRead: nativeHistory !== null,\n        tokenHistoryRead: tokenHistory !== null,\n        historyStatus: nativeHistory && tokenHistory ? 'complete' : nativeHistory || tokenHistory ? 'partial' : 'unavailable',
+        accountExists: Boolean(account?.address),
+        nativeHistoryRead: nativeHistory !== null,
+        tokenHistoryRead: tokenHistory !== null,
+        historyStatus: nativeHistory && tokenHistory ? 'complete' : nativeHistory || tokenHistory ? 'partial' : 'unavailable',
         checkedAt: new Date().toISOString(),
       })
     } catch (error) {
