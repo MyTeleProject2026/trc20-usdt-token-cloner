@@ -4,6 +4,7 @@ import pg from 'pg'
 import { normalizeDatabaseConnectionString, databaseSslConfig, getWalletAuthSession } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
+import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -61,76 +62,6 @@ function parseUsdtAmount(value) {
 function configuredApiKey(env, network) {
   if (network === 'mainnet') return cleanString(env.TATUM_MAINNET_API_KEY || env.TATUM_API_KEY, 2048)
   return cleanString(env.TATUM_TESTNET_API_KEY || env.TATUM_API_KEY, 2048)
-}
-
-function apiBase(env) {
-  const base = cleanString(env.TATUM_API_BASE || 'https://api.tatum.io', 256).replace(/\/+$/, '')
-  if (base !== 'https://api.tatum.io') throw new Error('TATUM_API_BASE must use the approved Tatum API origin.')
-  return base
-}
-
-async function tatumGatewayRequest({ env, network, path, body, timeoutMs = 12000, fetchImpl = tatumProviderFetch }) {
-  const slug = NETWORKS[network]
-  const key = configuredApiKey(env, network)
-  if (!slug) throw Object.assign(new Error('Unsupported TRON network.'), { status: 400 })
-  if (!key) throw Object.assign(new Error('Tatum API key is not configured for this network.'), { status: 503 })
-  const response = await fetchImpl(`https://${slug}.gateway.tatum.io/${path.replace(/^\/+/, '')}`, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-api-key': key },
-    body: JSON.stringify(body && typeof body === 'object' ? body : {}),
-    redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) throw Object.assign(new Error('Tatum TRON RPC request failed.'), { status: response.status })
-  return payload
-}
-
-async function tatumApiRequest({ env, network, path, query = {}, timeoutMs = 12000, fetchImpl = tatumProviderFetch }) {
-  const key = configuredApiKey(env, network)
-  if (!key) throw Object.assign(new Error('Tatum API key is not configured for this network.'), { status: 503 })
-  const url = new URL(apiBase(env) + path)
-  for (const [name, value] of Object.entries(query)) {
-    if (value !== undefined && value !== null && value !== '') url.searchParams.set(name, String(value))
-  }
-  const response = await fetchImpl(url, {
-    headers: { Accept: 'application/json', 'x-api-key': key },
-    redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) throw Object.assign(new Error('Tatum transaction-history request failed.'), { status: response.status })
-  return payload
-}
-
-function normalizeHistoryRows(payload) {
-  const rows = Array.isArray(payload) ? payload
-    : Array.isArray(payload?.data) ? payload.data
-      : Array.isArray(payload?.transactions) ? payload.transactions
-        : Array.isArray(payload?.result) ? payload.result : []
-  return rows.slice(0, 200).map((row) => {
-    const txid = cleanString(row?.transaction_id || row?.txID || row?.txid || row?.transactionId || row?.hash, 96)
-    const from = cleanString(row?.from || row?.fromAddress || row?.ownerAddress, 64)
-    const to = cleanString(row?.to || row?.toAddress || row?.recipientAddress, 64)
-    const token = row?.tokenInfo || row?.token_info || {}
-    const contract = cleanString(row?.contractAddress || row?.contract_address || token?.address || token?.contractAddress, 64)
-    const amount = cleanString(row?.value || row?.amount || row?.amountBaseUnits, 96)
-    const decimalsValue = row?.tokenInfo?.decimals ?? row?.token_info?.decimals ?? row?.decimals
-    const timestamp = Number(row?.block_timestamp || row?.timestamp || row?.blockTimestamp || 0)
-    const blockNumber = Number(row?.block || row?.blockNumber || row?.block_number || 0)
-    return {
-      txid: TXID_RE.test(txid) ? txid.toLowerCase() : null,
-      from: ADDRESS_RE.test(from) ? from : null,
-      to: ADDRESS_RE.test(to) ? to : null,
-      tokenContract: ADDRESS_RE.test(contract) ? contract : null,
-      amountBaseUnits: /^(0|[1-9][0-9]*)$/.test(amount) ? amount : null,
-      decimals: Number.isInteger(Number(decimalsValue)) && Number(decimalsValue) >= 0 && Number(decimalsValue) <= 36 ? Number(decimalsValue) : null,
-      timestamp: Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null,
-      blockNumber: Number.isSafeInteger(blockNumber) && blockNumber > 0 ? blockNumber : null,
-      confirmed: row?.confirmed === true || row?.confirmed === 'true' || row?.isConfirmed === true,
-      direction: to ? 'incoming' : 'unknown',
-    }
-  }).filter((row) => row.txid)
 }
 
 function requestOrigin(req) {
@@ -600,12 +531,13 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       return res.status(400).json({ success: false, error: 'invalid-recipient-query' })
     }
     try {
+      const { TronWeb } = await import('tronweb')
+      const tronWeb = new TronWeb({ fullHost: `https://${NETWORKS[network]}.gateway.tatum.io` })
       const account = await tatumGatewayRequest({ env, network, path: 'walletsolidity/getaccount', body: { address, visible: true } })
       const nativeBalanceSun = /^(0|[1-9][0-9]*)$/.test(String(account?.balance ?? '0')) ? String(account?.balance ?? '0') : null
       const contract = tokenContract || (network === 'mainnet' ? MAINNET_USDT : '')
       let tokenBalance = null
       if (contract) {
-        const tronWeb = await import('tronweb').then(module => module.TronWeb ? new module.TronWeb({ fullHost: `https://${NETWORKS[network]}.gateway.tatum.io` }) : new module.default({ fullHost: `https://${NETWORKS[network]}.gateway.tatum.io` }))
         const ownerHex = tronWeb.address.toHex(address)
         const contractHex = tronWeb.address.toHex(contract)
         const [balanceResult, decimalsResult] = await Promise.all([
@@ -625,23 +557,24 @@ export function createTronTransferRouter({ env = process.env } = {}) {
           tokenBalance = { contract, symbol: network === 'mainnet' && contract === MAINNET_USDT ? 'USDT' : 'TRC20', decimals, balanceBaseUnits }
         }
       }
-      const [nativeHistory, tokenHistory] = await Promise.all([
-        tatumApiRequest({ env, network, path: `/v3/tron/transaction/account/${encodeURIComponent(address)}`, query: { onlyTo: true, onlyConfirmed: true, orderBy: 'block_timestamp,desc' } }).catch(() => null),
-        tatumApiRequest({ env, network, path: `/v3/tron/transaction/account/${encodeURIComponent(address)}/trc20`, query: { onlyTo: true, onlyConfirmed: true, orderBy: 'block_timestamp,desc', ...(contract ? { contractAddress: contract } : {}) } }).catch(() => null),
-      ])
-      const history = [
-        ...normalizeHistoryRows(nativeHistory).map((row) => ({ ...row, asset: 'TRX', symbol: 'TRX', decimals: 6 })),
-        ...normalizeHistoryRows(tokenHistory).map((row) => ({ ...row, asset: 'TRC20', symbol: tokenBalance?.symbol || 'TRC20', decimals: tokenBalance?.decimals ?? row.decimals })),
-      ].filter((row) => row.to === address)
-        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 50)
+      const historyResult = await readTronGridIncomingHistory({
+        network,
+        address,
+        tokenContract: contract,
+        apiKey: cleanString(env.TRONGRID_API_KEY, 2048),
+        decodeAddress: (hex) => tronWeb.address.fromHex(hex),
+      })
+      const history = historyResult.history
       return res.json({
         success: true, network, address, nativeBalanceSun,
         nativeBalanceTRX: nativeBalanceSun === null ? null : (Number(nativeBalanceSun) / 1_000_000).toFixed(6),
         tokenBalance, incomingHistory: history,
         accountExists: Boolean(account?.address),
-        nativeHistoryRead: nativeHistory !== null,
-        tokenHistoryRead: tokenHistory !== null,
-        historyStatus: nativeHistory && tokenHistory ? 'complete' : nativeHistory || tokenHistory ? 'partial' : 'unavailable',
+        nativeHistoryRead: historyResult.nativeHistoryRead,
+        tokenHistoryRead: historyResult.tokenHistoryRead,
+        historyStatus: historyResult.historyStatus,
+        historyProvider: 'trongrid',
+        historyProviderErrors: historyResult.providerErrors,
         checkedAt: new Date().toISOString(),
       })
     } catch (error) {
@@ -905,12 +838,19 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       if (row.fincra_status !== 'successful') {
         return res.status(409).json({ success: false, error: 'fincra-payout-not-successful', fincraStatus: row.fincra_status })
       }
-      const history = await tatumApiRequest({
-        env, network: 'mainnet',
-        path: `/v3/tron/transaction/account/${encodeURIComponent(row.recipient_address)}/trc20`,
-        query: { onlyTo: true, onlyConfirmed: true, orderBy: 'block_timestamp,desc', contractAddress: MAINNET_USDT },
+      const { TronWeb } = await import('tronweb')
+      const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
+      const historyResult = await readTronGridIncomingHistory({
+        network: 'mainnet',
+        address: row.recipient_address,
+        tokenContract: MAINNET_USDT,
+        apiKey: cleanString(env.TRONGRID_API_KEY, 2048),
+        decodeAddress: (hex) => tronWeb.address.fromHex(hex),
       })
-      const rows = normalizeHistoryRows(history).filter((item) => item.to === row.recipient_address
+      if (!historyResult.tokenHistoryRead) {
+        return res.status(502).json({ success: false, error: 'recipient-transfer-history-unavailable', providerErrors: historyResult.providerErrors })
+      }
+      const rows = historyResult.history.filter((item) => item.to === row.recipient_address
         && item.tokenContract === MAINNET_USDT && item.amountBaseUnits === String(row.amount_base_units)
         && item.timestamp && item.timestamp >= new Date(row.created_at).getTime() - 120000)
       if (rows.length === 1) {
