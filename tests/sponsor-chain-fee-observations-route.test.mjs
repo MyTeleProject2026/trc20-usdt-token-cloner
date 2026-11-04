@@ -120,11 +120,11 @@ test('failed TRC20 fee evidence requires exact canonical transfer calldata', asy
     id: txid, blockNumber: 90, result: 'FAILED',
     receipt: { result: 'REVERT', fee: 5000, energy_fee: 5000, net_fee: 0 },
   }
-  const read = (tx) => readSolidifiedSponsorChainFeeEvidence({
+  const read = (tx, receiptInfo = info) => readSolidifiedSponsorChainFeeEvidence({
     transfer: transferIntent,
     env: { TATUM_API_KEY: 'test-provider-key' },
     tronWebFactory: () => fakeTronWeb,
-    fetchImpl: async (url) => ({ ok: true, json: async () => url.endsWith('gettransactionbyid') ? tx : info }),
+    fetchImpl: async (url) => ({ ok: true, json: async () => url.endsWith('gettransactionbyid') ? tx : receiptInfo }),
   })
   const valid = await read(transaction)
   assert.equal(valid.success, true)
@@ -140,6 +140,10 @@ test('failed TRC20 fee evidence requires exact canonical transfer calldata', asy
   }
   const invalid = await read(wrongRecipient)
   assert.deepEqual(invalid, { success: false, reason: 'solidified-transaction-intent-mismatch' })
+  const contradictory = await read(transaction, {
+    ...info, result: 'SUCCESS', receipt: { ...info.receipt, result: 'SUCCESS' },
+  })
+  assert.deepEqual(contradictory, { success: false, reason: 'solidified-execution-outcome-unknown' })
 })
 
 test('fee observation route requires admin authorization before lookup', async (t) => {
