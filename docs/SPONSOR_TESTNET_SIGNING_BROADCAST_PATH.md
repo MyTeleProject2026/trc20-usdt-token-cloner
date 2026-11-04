@@ -28,7 +28,7 @@ In Render's backend Web Service only, use the following values as an example. Th
 
 The first variable is the route-level opt-in for this testnet-only operation. Do not enable it merely because the frontend console appears or because a balance endpoint reports a value. Before testnet operator testing, the applicable Shasta/Nile fee and asset sponsor addresses must be configured and distinct, a funded testnet budget must be approved against a real sponsor agreement scope, the sponsor must sign the exact intent, and the fee sponsor's resource delegation and recipient capacity checks must be readable. Keep the setting unset/false unless an operator intentionally authorizes a controlled testnet experiment. Never create VITE_* signing-secret variables and never paste wallet keys into Render.
 
-TRONGRID_API_KEY is optional and server-only; the endpoints use fixed Shasta/Nile hosts irrespective of browser input. A Tatum API key supports existing read-only balance/delegation checks and is not a signing key.
+TATUM_API_KEY is required for the backend Tatum Shasta/Nile gateways and is server-only. It supports TRON node reads and broadcast relay, but it is not a signing key; sponsor authorization and transaction signatures remain separate.
 
 ## Exact state machine and safe retry behavior
 
