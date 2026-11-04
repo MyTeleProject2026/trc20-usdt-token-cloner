@@ -840,7 +840,14 @@ test('fee sponsor approval rejects the same wallet and missing fee-resource audi
     method: 'POST', headers: headers(), body: JSON.stringify({ nonce: principalChallenge.nonce, signature: approvalSignature }),
   })
   const feeBase = await serve(t, createMainnetDirectSponsorRequestRouter({
-    env: { ...feeApprovalEnv, SPONSOR_FEE_MAINNET_ADDRESS: sponsorAddress },
+    env: {
+      ...feeApprovalEnv,
+      SPONSOR_FEE_MAINNET_ADDRESS: sponsorAddress,
+      SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+        [sponsorAgreementRef, sponsorOrgRef, 'mainnet', sponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT].join('|'),
+        [feeAgreementRef, feeOrgRef, 'mainnet', sponsorAddress, 'network-fee', 'TRX', '-'].join('|'),
+      ].join(';'),
+    },
     store,
     sessionLookup: sessionLookup(sponsorAddress),
     readSponsorRoles: async () => fundedSponsorRoleSnapshot(),
