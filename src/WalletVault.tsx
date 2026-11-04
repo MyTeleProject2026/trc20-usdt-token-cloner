@@ -947,25 +947,16 @@ export default function WalletVault() {
   }
 
   async function refreshOwnerTreasury() {
-    if (!unlocked) {
-      setOwnerTreasuryError('Unlock the configured owner wallet before checking treasury funding.')
-      return
-    }
-    if (network !== 'mainnet') {
-      setOwnerTreasuryError('Switch to TRON Mainnet to check the owner treasury.')
-      return
-    }
-
+    if (!unlocked) throw new Error('Unlock the owner wallet locally before verifying its session.')
+    if (network !== 'mainnet') throw new Error('Owner payout authorization is available only on TRON Mainnet.')
     setOwnerTreasuryLoading(true)
     setOwnerTreasuryError('')
-    setOwnerTreasurySnapshot(null)
     try {
       const address = unlocked.record.address
       const signer = createTronWeb('mainnet', unlocked.privateKey)
       if (String(signer.defaultAddress?.base58 || '') !== address) {
-        throw new Error('The unlocked signing address does not match the owner wallet record.')
+        throw new Error('The unlocked signing address does not match the wallet record.')
       }
-
       const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -979,7 +970,6 @@ export default function WalletVault() {
         || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string') {
         throw new Error('Could not issue an owner-signature challenge. Check the backend, database and allowed app origin.')
       }
-
       const signature = await signer.trx.signMessageV2(challenge.message)
       if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
         throw new Error('The wallet SDK did not return a valid owner identity signature.')
@@ -998,37 +988,26 @@ export default function WalletVault() {
         || typeof verified.sessionToken !== 'string') {
         throw new Error('The backend did not verify the Mainnet owner wallet signature.')
       }
-
-      const statusResponse = await fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
-        method: 'GET',
-        headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
-        credentials: 'omit',
-        cache: 'no-store',
-        redirect: 'error',
-      })
-      const status = await statusResponse.json().catch(() => null)
-      if (!statusResponse.ok || status?.success !== true || status?.ownerAccessVerified !== true) {
-        if (status?.error === 'owner-wallet-not-authorized') {
-          throw new Error('This wallet is not the configured treasury owner. Set TREASURY_OWNER_ADDRESS to the owner wallet address in the backend environment.')
-        }
-        if (status?.error === 'treasury-owner-not-configured') {
-          throw new Error('The backend needs TREASURY_OWNER_ADDRESS configured with the owner’s verified Mainnet wallet address.')
-        }
-        throw new Error('Owner-only treasury verification failed. No payout was signed or submitted.')
-      }
       setOwnerSessionToken(verified.sessionToken)
-      setOwnerTreasurySnapshot(status as OwnerTreasurySnapshot)
-      const payoutReadinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+      setOwnerSessionAddress(address)
+      setOwnerTreasurySnapshot(null)
+      const readinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
         credentials: 'omit',
         cache: 'no-store',
         redirect: 'error',
       })
-      const payoutReadiness = await payoutReadinessResponse.json().catch(() => null)
-      setServerTreasuryReadiness(payoutReadiness && typeof payoutReadiness === 'object' ? payoutReadiness : null)
+      const readiness = await readinessResponse.json().catch(() => null)
+      if (!readinessResponse.ok || readiness?.success !== true || readiness.provider !== 'fincra') {
+        throw new Error(typeof readiness?.error === 'string' ? readiness.error : 'Fincra payout readiness could not be loaded.')
+      }
+      setServerTreasuryReadiness(readiness)
+      setOwnerTreasuryError('')
+      setNotice('Owner wallet identity verified. Each Fincra payout still requires a separate signature for its exact destination and amount.')
     } catch (caught) {
-      setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
+      setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner wallet verification failed.')
+      throw caught
     } finally {
       setOwnerTreasuryLoading(false)
     }
