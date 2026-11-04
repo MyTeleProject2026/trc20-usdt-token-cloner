@@ -5,6 +5,7 @@ import express from 'express'
 import { createServer } from 'node:http'
 import {
   createFireblocksInventorySyncRouter,
+  createFireblocksInventoryTronReader,
   verifyGitHubActionsInventoryOidcToken,
 } from '../server/routes/fireblocks-inventory-sync.mjs'
 
@@ -79,12 +80,12 @@ function makeFixture({
 } = {}) {
   const calls = { fireblocks: 0, persisted: null }
   const env = {
-    FIREBLOCKS_API_KEY: 'test-api-key-not-real',
-    FIREBLOCKS_SECRET_KEY_PATH: '/tmp/fireblocks-api-test.pem',
+    FIREBLOCKS_READONLY_API_KEY: 'test-viewer-api-key-not-real',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/tmp/fireblocks-viewer-test.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
     FIREBLOCKS_VAULT_ACCOUNT_ID: '42',
     FIREBLOCKS_USDT_ASSET_ID: 'USDT_ASSET',
     FIREBLOCKS_TRX_ASSET_ID: 'TRX_ASSET',
-    FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
     TREASURY_ADDRESS: TREASURY_ADDRESS,
     DATABASE_URL: databaseUrl,
   }
@@ -151,6 +152,17 @@ async function postInventory(url, token = createOidcToken(), body = requestBody)
   })
 }
 
+test('Fireblocks inventory TRON reader bounds full-node and solidity-node HTTP requests', () => {
+  const reader = createFireblocksInventoryTronReader({
+    apiKey: '  test-trongrid-key  ',
+    timeoutMs: 2345,
+  })
+  assert.equal(reader.fullNode.timeout, 2345)
+  assert.equal(reader.solidityNode.timeout, 2345)
+  assert.equal(reader.fullNode.headers['TRON-PRO-API-KEY'], 'test-trongrid-key')
+  assert.equal(reader.solidityNode.headers['TRON-PRO-API-KEY'], 'test-trongrid-key')
+})
+
 test('GitHub OIDC verification accepts only the signed, exact manual workflow identity', async () => {
   const result = await verifyGitHubActionsInventoryOidcToken(createOidcToken(), {
     workflowRunId: requestBody.workflowRunId,
@@ -190,6 +202,28 @@ test('GitHub OIDC verification rejects a modified JWT signature', async () => {
   )
   assert.equal(result.verified, false)
   assert.equal(result.reason, 'github-oidc-signature-invalid')
+})
+
+test('inventory sync source uses the restricted Viewer client and never the payout client', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../server/routes/fireblocks-inventory-sync.mjs', import.meta.url), 'utf8')
+  const database = await readFile(new URL('../server/database.mjs', import.meta.url), 'utf8')
+  assert.ok(source.includes('createFireblocksReadOnlyClient'))
+  assert.ok(source.includes('fireblocksReadOnlyConfiguration'))
+  assert.equal(source.includes('createFireblocksClient'), false)
+  assert.equal(source.includes('fireblocksConfiguration(env)'), false)
+  assert.ok(source.includes('cfg.credentialsConfigured'))
+  assert.equal(source.includes('FIREBLOCKS_API_KEY'), false)
+  assert.equal(source.includes('secretKeyPath:'), false)
+  assert.ok(database.includes('secretKeyPath: null'))
+  assert.ok(database.includes("signerMode: 'fireblocks-read-only'"))
+  const workflow = await readFile(new URL('../.github/workflows/fireblocks-inventory-sync.yml', import.meta.url), 'utf8')
+  assert.match(workflow, /FIREBLOCKS_READONLY_API_BASE=\$\{clean\(config\.apiBase\)\}/)
+  assert.doesNotMatch(workflow, /FIREBLOCKS_API_BASE=\$\{clean\(config\.apiBase\)\}/)
+  assert.doesNotMatch(workflow, /FIREBLOCKS_SECRET_KEY_PATH=/)
+  assert.doesNotMatch(workflow, /TREASURY_SIGNER_MODE=fireblocks/)
+  assert.match(workflow, /TREASURY_REAL_VALUE_EXECUTION_ENABLED=false/)
+  assert.match(workflow, /payout API key and payout RSA file are separate/)
 })
 
 test('read-only inventory sync verifies official USDT, native TRX, addresses and saves snapshot', async () => {
@@ -269,6 +303,8 @@ test('manual inventory workflow uses OIDC and carries no shared trigger secret',
   assert.match(workflow, /id-token: write/)
   assert.match(workflow, /environment: fireblocks-readonly-sync/)
   assert.match(workflow, /audience=tron-token-studio-fireblocks-inventory/)
+  assert.match(workflow, /--connect-timeout 10/)
+  assert.match(workflow, /--max-time 150/)
   assert.doesNotMatch(workflow, /FIREBLOCKS_SYNC_TRIGGER_TOKEN/)
   assert.doesNotMatch(workflow, /secrets\.FIREBLOCKS_SYNC/)
 })

@@ -185,6 +185,68 @@ type BalanceSnapshot = {
   accountExists?: boolean
 }
 type MainnetBalanceSnapshot = Omit<BalanceSnapshot, 'network'> & { network: 'mainnet'; tokenContract?: string }
+type MainnetDirectSponsorRequestRecord = {
+  id: string
+  idempotencyKey: string
+  requesterAddress?: string
+  recipientAddress: string
+  network: 'mainnet'
+  asset: 'USDT'
+  tokenContract: string
+  amountBaseUnits: string
+  decimals: 6
+  status: 'pending-sponsor-review'
+  createdAt: string
+  sponsorApproval?: {
+    status?: 'approved-active' | 'approved-expired' | 'not-approved'
+    sponsorAddress?: string
+    organizationReference?: string
+    agreementReference?: string
+    approvedAt?: string
+    expiresAt?: string
+  } | null
+  feeSponsorApproval?: {
+    status?: 'approved-active' | 'approved-expired' | 'not-approved'
+    sponsorAddress?: string
+    organizationReference?: string
+    agreementReference?: string
+    maxFeeSun?: string
+    approvedAt?: string
+    expiresAt?: string
+  } | null
+}
+type MainnetSponsorApprovalChallenge = {
+  challengeId: string
+  nonce: string
+  message: string
+  expiresAt: string
+  request: MainnetDirectSponsorRequestRecord
+}
+type MainnetRequesterIdentity = {
+  address: string
+  sessionToken: string
+  expiresAt: number
+}
+type MainnetDirectSponsorReadiness = {
+  success?: boolean
+  status?: string
+  network?: 'mainnet'
+  readOnly?: boolean
+  checkedAt?: string
+  preflightReady?: boolean
+  mainnetExecutionDisabled?: boolean
+  canCreateSigningIntent?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  sponsorRoles?: {
+    networkFeeSponsor?: { addressConfigured?: boolean; onChainBalanceRead?: boolean; resourceRead?: boolean; agreementScopeConfigured?: boolean }
+    assetPrincipalSponsor?: { addressConfigured?: boolean; onChainBalanceRead?: boolean; officialUsdtContract?: string; officialUsdtBalanceVerified?: boolean; agreementScopeConfigured?: boolean }
+    addressesDistinct?: boolean
+    feeResourceDelegationTransactionAuditVerified?: boolean
+  }
+  database?: { configured?: boolean; ready?: boolean }
+  blockers?: string[]
+  limitations?: string[]
+}
 type DirectTestnetTransferStatus =
   | 'broadcast-outcome-unknown'
   | 'awaiting-solidification'
@@ -421,6 +483,85 @@ function amountToBaseUnits(value: string, decimals: number): string | null {
   if (fraction.length > decimals) return null
   const result = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + '0'.repeat(decimals)).slice(0, decimals) || '0')
   return result > 0n ? result.toString() : null
+}
+
+function checkedMainnetWalletNetwork(tronWeb: any) {
+  const rawHost = String(tronWeb?.fullNode?.host || tronWeb?.fullNode?.nodeUrl || '')
+  let parsed: URL
+  try { parsed = new URL(rawHost) } catch { throw new Error('TronLink Mainnet node could not be verified. Select TRON Mainnet and reconnect.') }
+  if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'api.trongrid.io'
+    || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
+    || (parsed.pathname !== '' && parsed.pathname !== '/')) {
+    throw new Error('Mainnet identity sign-in requires the official api.trongrid.io HTTPS node. No transaction was created or submitted.')
+  }
+  return true
+}
+
+async function authenticateMainnetTronWallet(): Promise<MainnetRequesterIdentity> {
+  const provider = getInjectedTronProvider()
+  if (!provider) throw new Error('TronLink was not detected. Open an unlocked TronLink wallet to sign in on Mainnet.')
+  await requestTronWalletAccess(provider)
+  const tronWeb = provider.tronWeb || (window as any).tronWeb
+  if (!tronWeb || typeof tronWeb !== 'object') throw new Error('TronLink did not expose TronWeb after connection.')
+  checkedMainnetWalletNetwork(tronWeb)
+  const address = String(tronWeb?.defaultAddress?.base58 || '')
+  if (!ADDRESS_PATTERN.test(address) || typeof tronWeb.isAddress !== 'function' || !tronWeb.isAddress(address)) {
+    throw new Error('TronLink did not provide a valid active Mainnet address.')
+  }
+
+  const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    cache: 'no-store',
+    body: JSON.stringify({ address, network: 'mainnet' }),
+  })
+  const challenge = await challengeResponse.json().catch(() => null)
+  if (!challengeResponse.ok || challenge?.success !== true || typeof challenge.message !== 'string'
+    || typeof challenge.nonce !== 'string') {
+    throw new Error(challenge?.message || challenge?.error || ('Mainnet wallet challenge failed (HTTP ' + challengeResponse.status + ').'))
+  }
+  if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+    throw new Error('This TronLink version cannot sign the required Mainnet identity message.')
+  }
+  // This is a short-lived wallet-identity challenge, not a transaction signature.
+  const signature = await tronWeb.trx.signMessageV2(challenge.message)
+  if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+    throw new Error('TronLink returned an invalid Mainnet identity signature.')
+  }
+  checkedMainnetWalletNetwork(tronWeb)
+  if (String(tronWeb?.defaultAddress?.base58 || '') !== address) {
+    throw new Error('The active wallet changed during Mainnet sign-in. Reconnect and retry.')
+  }
+
+  const verifyResponse = await fetch(API_BASE + '/api/auth/tron/verify', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    credentials: 'omit',
+    cache: 'no-store',
+    body: JSON.stringify({ address, network: 'mainnet', nonce: challenge.nonce, signature }),
+  })
+  const verified = await verifyResponse.json().catch(() => null)
+  if (!verifyResponse.ok || verified?.success !== true || verified?.authenticated !== true
+    || verified.address !== address || verified.network !== 'mainnet'
+    || typeof verified.sessionToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(verified.sessionToken)
+    || !Number.isFinite(verified.expiresAt) || verified.expiresAt <= Date.now()) {
+    throw new Error(verified?.message || verified?.error || ('Mainnet wallet identity verification failed (HTTP ' + verifyResponse.status + ').'))
+  }
+  checkedMainnetWalletNetwork(tronWeb)
+  if (String(tronWeb?.defaultAddress?.base58 || '') !== address) {
+    throw new Error('The active wallet changed while the Mainnet session was being created.')
+  }
+  return { address, sessionToken: verified.sessionToken, expiresAt: verified.expiresAt }
+}
+
+function createSponsorRequestIdempotencyKey() {
+  if (typeof window === 'undefined' || !window.crypto?.getRandomValues) {
+    throw new Error('Secure browser randomness is unavailable. Cannot create a safe request idempotency key.')
+  }
+  const bytes = new Uint8Array(24)
+  window.crypto.getRandomValues(bytes)
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
 }
 
 function checkedWalletNetwork(tronWeb: any, network: NetworkId) {
@@ -797,6 +938,33 @@ export default function WorkflowApp() {
   const [mainnetReadLoading, setMainnetReadLoading] = useState(false)
   const [mainnetReadError, setMainnetReadError] = useState('')
   const [mainnetReadCheckedAt, setMainnetReadCheckedAt] = useState<number | null>(null)
+  const [mainnetSponsorReadiness, setMainnetSponsorReadiness] = useState<MainnetDirectSponsorReadiness | null>(null)
+  const [mainnetSponsorReadinessLoading, setMainnetSponsorReadinessLoading] = useState(false)
+  const [mainnetSponsorReadinessError, setMainnetSponsorReadinessError] = useState('')
+  const [mainnetSponsorReadinessCheckedAt, setMainnetSponsorReadinessCheckedAt] = useState<number | null>(null)
+  const [mainnetRequesterIdentity, setMainnetRequesterIdentity] = useState<MainnetRequesterIdentity | null>(null)
+  const [mainnetIdentityBusy, setMainnetIdentityBusy] = useState(false)
+  const [mainnetIdentityError, setMainnetIdentityError] = useState('')
+  const [mainnetPayoutRecipient, setMainnetPayoutRecipient] = useState('')
+  const [mainnetPayoutAmount, setMainnetPayoutAmount] = useState('1.00')
+  const [mainnetSponsorRequestKey, setMainnetSponsorRequestKey] = useState('')
+  const [mainnetSponsorRequest, setMainnetSponsorRequest] = useState<MainnetDirectSponsorRequestRecord | null>(null)
+  const [mainnetSponsorRequestBusy, setMainnetSponsorRequestBusy] = useState(false)
+  const [mainnetSponsorRequestError, setMainnetSponsorRequestError] = useState('')
+  const [mainnetSponsorIdentity, setMainnetSponsorIdentity] = useState<MainnetRequesterIdentity | null>(null)
+  const [mainnetSponsorQueue, setMainnetSponsorQueue] = useState<MainnetDirectSponsorRequestRecord[]>([])
+  const [mainnetSponsorQueueCheckedAt, setMainnetSponsorQueueCheckedAt] = useState<number | null>(null)
+  const [mainnetSponsorChallenge, setMainnetSponsorChallenge] = useState<MainnetSponsorApprovalChallenge | null>(null)
+  const [mainnetSponsorReviewBusy, setMainnetSponsorReviewBusy] = useState<'connect' | 'queue' | 'challenge' | 'approve' | null>(null)
+  const [mainnetSponsorReviewError, setMainnetSponsorReviewError] = useState('')
+  const [mainnetSponsorReviewMessage, setMainnetSponsorReviewMessage] = useState('')
+  const [mainnetFeeSponsorIdentity, setMainnetFeeSponsorIdentity] = useState<MainnetRequesterIdentity | null>(null)
+  const [mainnetFeeSponsorQueue, setMainnetFeeSponsorQueue] = useState<MainnetDirectSponsorRequestRecord[]>([])
+  const [mainnetFeeSponsorQueueCheckedAt, setMainnetFeeSponsorQueueCheckedAt] = useState<number | null>(null)
+  const [mainnetFeeSponsorChallenge, setMainnetFeeSponsorChallenge] = useState<MainnetSponsorApprovalChallenge | null>(null)
+  const [mainnetFeeSponsorReviewBusy, setMainnetFeeSponsorReviewBusy] = useState<'connect' | 'queue' | 'challenge' | 'approve' | null>(null)
+  const [mainnetFeeSponsorReviewError, setMainnetFeeSponsorReviewError] = useState('')
+  const [mainnetFeeSponsorReviewMessage, setMainnetFeeSponsorReviewMessage] = useState('')
 
   // Stage 4 — recipient and amount are validated against read-only chain responses.
   const [receiverAddress, setReceiverAddress] = useState('')
@@ -848,6 +1016,7 @@ export default function WorkflowApp() {
   }, [network, assetKind, tokenContract, senderAddress, receiverAddress, amount, walletIdentity?.address])
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
+  const mainnetSponsorReadinessRequestGeneration = useRef(0)
   const senderSnapshotRequestGeneration = useRef(0)
   const receiverHistoryRequestGeneration = useRef(0)
   const feeEstimateRequestGeneration = useRef(0)
@@ -1081,6 +1250,480 @@ export default function WorkflowApp() {
       setMainnetReadLoading(false)
     }
   }
+
+  const connectMainnetRequesterIdentity = async () => {
+    setMainnetIdentityError('')
+    setMainnetIdentityBusy(true)
+    try {
+      const identity = await authenticateMainnetTronWallet()
+      setMainnetRequesterIdentity(identity)
+      setMainnetSponsorRequestKey('')
+      setMainnetSponsorRequest(null)
+      setMainnetSponsorRequestError('')
+    } catch (caught) {
+      setMainnetRequesterIdentity(null)
+      setMainnetIdentityError(caught instanceof Error ? caught.message : walletConnectionError(caught))
+    } finally {
+      setMainnetIdentityBusy(false)
+    }
+  }
+
+  const submitMainnetDirectSponsorRequest = async () => {
+    setMainnetSponsorRequestError('')
+    const identity = mainnetRequesterIdentity
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetSponsorRequestError('Sign in with a Mainnet TronLink identity before submitting a sponsor request.')
+      return
+    }
+    const provider = getInjectedTronProvider()
+    const tronWeb = provider?.tronWeb || (window as any).tronWeb
+    try {
+      if (!provider || !tronWeb) throw new Error('Reconnect TronLink on Mainnet before submitting this request.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active Mainnet wallet no longer matches the signed-in requester. Sign in again.')
+      }
+      const recipient = mainnetPayoutRecipient.trim()
+      if (!ADDRESS_PATTERN.test(recipient) || !tronWeb.isAddress(recipient) || recipient === identity.address) {
+        throw new Error('Enter a valid recipient address that is different from the requester wallet.')
+      }
+      const amountBaseUnits = amountToBaseUnits(mainnetPayoutAmount, 6)
+      if (!amountBaseUnits) throw new Error('Enter a positive USDT amount with no more than six decimal places.')
+
+      const idempotencyKey = mainnetSponsorRequestKey || createSponsorRequestIdempotencyKey()
+      if (!mainnetSponsorRequestKey) setMainnetSponsorRequestKey(idempotencyKey)
+      setMainnetSponsorRequestBusy(true)
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + identity.sessionToken,
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        body: JSON.stringify({
+          idempotencyKey,
+          recipientAddress: recipient,
+          tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+          amountBaseUnits,
+          decimals: 6,
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.request?.idempotencyKey !== idempotencyKey) {
+        throw new Error(payload?.message || payload?.error || ('Mainnet sponsor request failed (HTTP ' + response.status + ').'))
+      }
+      setMainnetSponsorRequest({
+        ...(payload.request as MainnetDirectSponsorRequestRecord),
+        sponsorApproval: payload.sponsorApproval || null,
+        feeSponsorApproval: payload.feeSponsorApproval || null,
+      })
+    } catch (caught) {
+      setMainnetSponsorRequestError(caught instanceof Error ? caught.message : 'The Mainnet sponsor request could not be submitted.')
+    } finally {
+      setMainnetSponsorRequestBusy(false)
+    }
+  }
+
+  const checkMainnetDirectSponsorRequest = async () => {
+    setMainnetSponsorRequestError('')
+    const identity = mainnetRequesterIdentity
+    const key = mainnetSponsorRequestKey
+    if (!identity || identity.expiresAt <= Date.now() || !key) {
+      setMainnetSponsorRequestError('A current Mainnet requester session and request key are required.')
+      return
+    }
+    setMainnetSponsorRequestBusy(true)
+    try {
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(key), {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.request?.idempotencyKey !== key) {
+        throw new Error(payload?.message || payload?.error || ('Request status lookup failed (HTTP ' + response.status + ').'))
+      }
+      setMainnetSponsorRequest({ ...(payload.request as MainnetDirectSponsorRequestRecord), sponsorApproval: payload.sponsorApproval || null })
+    } catch (caught) {
+      setMainnetSponsorRequestError(caught instanceof Error ? caught.message : 'Could not retrieve the Mainnet sponsor request.')
+    } finally {
+      setMainnetSponsorRequestBusy(false)
+    }
+  }
+
+  const connectMainnetSponsorIdentity = async () => {
+    setMainnetSponsorReviewError('')
+    setMainnetSponsorReviewMessage('')
+    setMainnetSponsorReviewBusy('connect')
+    try {
+      const identity = await authenticateMainnetTronWallet()
+      setMainnetSponsorIdentity(identity)
+      setMainnetSponsorQueue([])
+      setMainnetSponsorQueueCheckedAt(null)
+      setMainnetSponsorChallenge(null)
+    } catch (caught) {
+      setMainnetSponsorIdentity(null)
+      setMainnetSponsorReviewError(caught instanceof Error ? caught.message : walletConnectionError(caught))
+    } finally {
+      setMainnetSponsorReviewBusy(null)
+    }
+  }
+
+  const loadMainnetSponsorReviewQueue = async () => {
+    const identity = mainnetSponsorIdentity
+    setMainnetSponsorReviewError('')
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetSponsorReviewError('Sign in with the configured Mainnet asset-principal sponsor wallet first.')
+      return
+    }
+    setMainnetSponsorReviewBusy('queue')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet no longer matches the signed-in sponsor wallet. Sign in again.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/review-queue?limit=50', {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || !Array.isArray(payload.requests)) {
+        const missing = Array.isArray(payload?.requiredEnvironment) ? ' Required backend settings: ' + payload.requiredEnvironment.join(', ') : ''
+        throw new Error((payload?.message || payload?.error || ('Sponsor review queue failed (HTTP ' + response.status + ').')) + missing)
+      }
+      setMainnetSponsorQueue(payload.requests as MainnetDirectSponsorRequestRecord[])
+      setMainnetSponsorQueueCheckedAt(Date.now())
+      setMainnetSponsorReviewMessage('Sponsor review queue refreshed. Approval is request-specific and does not enable transfers.')
+    } catch (caught) {
+      setMainnetSponsorQueue([])
+      setMainnetSponsorReviewError(caught instanceof Error ? caught.message : 'Could not load the Mainnet sponsor review queue.')
+      setMainnetSponsorQueueCheckedAt(Date.now())
+    } finally {
+      setMainnetSponsorReviewBusy(null)
+    }
+  }
+
+  const prepareMainnetSponsorApproval = async (request: MainnetDirectSponsorRequestRecord) => {
+    const identity = mainnetSponsorIdentity
+    setMainnetSponsorReviewError('')
+    setMainnetSponsorReviewMessage('')
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetSponsorReviewError('The sponsor wallet identity session is missing or expired.')
+      return
+    }
+    setMainnetSponsorReviewBusy('challenge')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet no longer matches the configured sponsor signer.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(request.idempotencyKey) + '/approval-challenge', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || typeof payload.nonce !== 'string'
+        || typeof payload.message !== 'string' || payload.request?.idempotencyKey !== request.idempotencyKey) {
+        const blockers = Array.isArray(payload?.blockers) ? ' Blockers: ' + payload.blockers.join(', ') : ''
+        throw new Error((payload?.message || payload?.error || ('Approval challenge failed (HTTP ' + response.status + ').')) + blockers)
+      }
+      setMainnetSponsorChallenge({
+        challengeId: payload.challengeId,
+        nonce: payload.nonce,
+        message: payload.message,
+        expiresAt: payload.expiresAt,
+        request: payload.request as MainnetDirectSponsorRequestRecord,
+      })
+      setMainnetSponsorReviewMessage('Review the exact message below. TronLink will ask you to sign this text only; it is not a transaction.')
+    } catch (caught) {
+      setMainnetSponsorChallenge(null)
+      setMainnetSponsorReviewError(caught instanceof Error ? caught.message : 'Could not prepare the sponsor approval challenge.')
+    } finally {
+      setMainnetSponsorReviewBusy(null)
+    }
+  }
+
+  const signMainnetSponsorApproval = async () => {
+    const identity = mainnetSponsorIdentity
+    const challenge = mainnetSponsorChallenge
+    setMainnetSponsorReviewError('')
+    if (!identity || identity.expiresAt <= Date.now() || !challenge || Date.parse(challenge.expiresAt) <= Date.now()) {
+      setMainnetSponsorReviewError('A valid sponsor identity and unexpired request-specific challenge are required.')
+      return
+    }
+    setMainnetSponsorReviewBusy('approve')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active Mainnet wallet changed. Sign in again with the configured asset sponsor.')
+      }
+      if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+        throw new Error('This TronLink version cannot sign the request-specific approval message.')
+      }
+      // The wallet signs a canonical approval message, never an unsigned TRON transaction.
+      const signature = await tronWeb.trx.signMessageV2(challenge.message)
+      if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+        throw new Error('TronLink returned an invalid approval signature.')
+      }
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet changed during approval signing. No approval was submitted.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(challenge.request.idempotencyKey) + '/approve', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + identity.sessionToken,
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        body: JSON.stringify({ nonce: challenge.nonce, signature }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.sponsorApproved !== true
+        || payload?.canSubmitSponsoredTransfer !== false || payload?.transactionBroadcast !== false) {
+        throw new Error(payload?.message || payload?.error || ('Sponsor approval was not recorded (HTTP ' + response.status + ').'))
+      }
+      setMainnetSponsorChallenge(null)
+      setMainnetSponsorReviewMessage('The sponsor approval was verified and recorded for this exact USDT request. No fees were approved, no funds were reserved and no transaction was sent.')
+      await loadMainnetSponsorReviewQueue()
+    } catch (caught) {
+      setMainnetSponsorReviewError(caught instanceof Error ? caught.message : 'The request-specific sponsor approval could not be completed.')
+    } finally {
+      setMainnetSponsorReviewBusy(null)
+    }
+  }
+
+  const connectMainnetFeeSponsorIdentity = async () => {
+    setMainnetFeeSponsorReviewError('')
+    setMainnetFeeSponsorReviewMessage('')
+    setMainnetFeeSponsorReviewBusy('connect')
+    try {
+      const identity = await authenticateMainnetTronWallet()
+      setMainnetFeeSponsorIdentity(identity)
+      setMainnetFeeSponsorQueue([])
+      setMainnetFeeSponsorQueueCheckedAt(null)
+      setMainnetFeeSponsorChallenge(null)
+    } catch (caught) {
+      setMainnetFeeSponsorIdentity(null)
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : walletConnectionError(caught))
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const loadMainnetFeeSponsorReviewQueue = async () => {
+    const identity = mainnetFeeSponsorIdentity
+    setMainnetFeeSponsorReviewError('')
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetFeeSponsorReviewError('Sign in with the configured separate Mainnet fee-sponsor wallet first.')
+      return
+    }
+    setMainnetFeeSponsorReviewBusy('queue')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured fee-sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet no longer matches the signed-in fee-sponsor wallet. Sign in again.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/fee-review-queue?limit=50', {
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || !Array.isArray(payload.requests)) {
+        const missing = Array.isArray(payload?.requiredEnvironment) ? ' Required backend settings: ' + payload.requiredEnvironment.join(', ') : ''
+        throw new Error((payload?.message || payload?.error || ('Fee-sponsor review queue failed (HTTP ' + response.status + ').')) + missing)
+      }
+      setMainnetFeeSponsorQueue(payload.requests as MainnetDirectSponsorRequestRecord[])
+      setMainnetFeeSponsorQueueCheckedAt(Date.now())
+      setMainnetFeeSponsorReviewMessage('Fee-sponsor queue refreshed. Only requests with an active principal approval can receive fee approval.')
+    } catch (caught) {
+      setMainnetFeeSponsorQueue([])
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : 'Could not load the Mainnet fee-sponsor review queue.')
+      setMainnetFeeSponsorQueueCheckedAt(Date.now())
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const prepareMainnetFeeSponsorApproval = async (request: MainnetDirectSponsorRequestRecord) => {
+    const identity = mainnetFeeSponsorIdentity
+    setMainnetFeeSponsorReviewError('')
+    setMainnetFeeSponsorReviewMessage('')
+    if (!identity || identity.expiresAt <= Date.now()) {
+      setMainnetFeeSponsorReviewError('The fee-sponsor identity session is missing or expired.')
+      return
+    }
+    if (request.sponsorApproval?.status !== 'approved-active') {
+      setMainnetFeeSponsorReviewError('The asset-principal sponsor must approve this exact request before fee review can proceed.')
+      return
+    }
+    setMainnetFeeSponsorReviewBusy('challenge')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured fee-sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet no longer matches the configured fee sponsor signer.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(request.idempotencyKey) + '/fee-approval-challenge', {
+        method: 'POST',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + identity.sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || typeof payload.nonce !== 'string'
+        || typeof payload.message !== 'string' || payload.request?.idempotencyKey !== request.idempotencyKey) {
+        const blockers = Array.isArray(payload?.blockers) ? ' Blockers: ' + payload.blockers.join(', ') : ''
+        throw new Error((payload?.message || payload?.error || ('Fee approval challenge failed (HTTP ' + response.status + ').')) + blockers)
+      }
+      setMainnetFeeSponsorChallenge({
+        challengeId: payload.challengeId,
+        nonce: payload.nonce,
+        message: payload.message,
+        expiresAt: payload.expiresAt,
+        request: payload.request as MainnetDirectSponsorRequestRecord,
+      })
+      setMainnetFeeSponsorReviewMessage('Review the fee sponsor, separate agreement and maximum SUN fee cap. TronLink will sign this message only; it is not a transaction.')
+    } catch (caught) {
+      setMainnetFeeSponsorChallenge(null)
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : 'Could not prepare the fee-sponsor approval challenge.')
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const signMainnetFeeSponsorApproval = async () => {
+    const identity = mainnetFeeSponsorIdentity
+    const challenge = mainnetFeeSponsorChallenge
+    setMainnetFeeSponsorReviewError('')
+    if (!identity || identity.expiresAt <= Date.now() || !challenge || Date.parse(challenge.expiresAt) <= Date.now()) {
+      setMainnetFeeSponsorReviewError('A valid fee-sponsor identity and unexpired fee-approval challenge are required.')
+      return
+    }
+    setMainnetFeeSponsorReviewBusy('approve')
+    try {
+      const provider = getInjectedTronProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      if (!provider || !tronWeb) throw new Error('Reconnect the configured fee-sponsor wallet on Mainnet.')
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active Mainnet wallet changed. Sign in again with the configured fee sponsor.')
+      }
+      if (typeof tronWeb?.trx?.signMessageV2 !== 'function') {
+        throw new Error('This TronLink version cannot sign the fee-sponsor approval message.')
+      }
+      // This is a separate fee approval statement, never a TRON transaction signature.
+      const signature = await tronWeb.trx.signMessageV2(challenge.message)
+      if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
+        throw new Error('TronLink returned an invalid fee-sponsor approval signature.')
+      }
+      checkedMainnetWalletNetwork(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== identity.address) {
+        throw new Error('The active wallet changed during fee approval signing. No approval was submitted.')
+      }
+      const response = await fetch(API_BASE + '/api/tron/sponsorship/mainnet-direct/requests/' + encodeURIComponent(challenge.request.idempotencyKey) + '/approve-fees', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + identity.sessionToken,
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+        body: JSON.stringify({ nonce: challenge.nonce, signature }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.feeSponsorApproved !== true
+        || payload?.canSubmitSponsoredTransfer !== false || payload?.transactionBroadcast !== false) {
+        throw new Error(payload?.message || payload?.error || ('Fee-sponsor approval was not recorded (HTTP ' + response.status + ').'))
+      }
+      setMainnetFeeSponsorChallenge(null)
+      setMainnetFeeSponsorReviewMessage('The separate fee sponsor approval was recorded for this exact request. No TRX/resources were reserved or delegated, and no transaction was sent.')
+      await loadMainnetFeeSponsorReviewQueue()
+    } catch (caught) {
+      setMainnetFeeSponsorReviewError(caught instanceof Error ? caught.message : 'The fee-sponsor approval could not be completed.')
+    } finally {
+      setMainnetFeeSponsorReviewBusy(null)
+    }
+  }
+
+  const loadMainnetDirectSponsorReadiness = async () => {
+    const generation = ++mainnetSponsorReadinessRequestGeneration.current
+    setMainnetSponsorReadinessLoading(true)
+    setMainnetSponsorReadinessError('')
+    try {
+      const result = await requestApi('/api/tron/sponsorship/mainnet-direct/readiness?refresh=1')
+      if (generation !== mainnetSponsorReadinessRequestGeneration.current) return
+      const payload = result.payload
+      if (!result.ok || payload?.success !== true || payload?.network !== 'mainnet' || payload?.readOnly !== true) {
+        throw new Error(payload?.message || payload?.error || ('Mainnet sponsor diagnostics unavailable (HTTP ' + result.httpStatus + ').'))
+      }
+      setMainnetSponsorReadiness(payload as MainnetDirectSponsorReadiness)
+      setMainnetSponsorReadinessCheckedAt(Date.now())
+    } catch (caught) {
+      if (generation !== mainnetSponsorReadinessRequestGeneration.current) return
+      setMainnetSponsorReadiness(null)
+      setMainnetSponsorReadinessError(caught instanceof Error ? caught.message : 'Could not read Mainnet direct sponsor diagnostics.')
+      setMainnetSponsorReadinessCheckedAt(Date.now())
+    } finally {
+      if (generation === mainnetSponsorReadinessRequestGeneration.current) setMainnetSponsorReadinessLoading(false)
+    }
+  }
+
+  // Keep Mainnet sponsor configuration and live chain-read diagnostics current.
+  // This is read-only: it never reserves funds, creates signing intent, or submits a transfer.
+  useEffect(() => {
+    let cancelled = false
+    let requestInFlight = false
+    const refreshWhenVisible = () => {
+      if (cancelled || document.visibilityState === 'hidden' || requestInFlight) return
+      requestInFlight = true
+      void loadMainnetDirectSponsorReadiness().finally(() => {
+        requestInFlight = false
+      })
+    }
+    refreshWhenVisible()
+    const interval = window.setInterval(refreshWhenVisible, 30_000)
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      mainnetSponsorReadinessRequestGeneration.current += 1
+    }
+  }, [])
 
   const readSenderSnapshots = async (address: string) => {
     if (!ADDRESS_PATTERN.test(address)) throw new Error('Enter a valid TRON Base58 address.')
@@ -2319,7 +2962,285 @@ export default function WorkflowApp() {
                   <p>This is the contract’s actual on-chain balance, not a balance created by Tron Token Studio.</p>
                 </div>}
               </div>}
-              <p className="studio-footnote">Last checked: {formatTimestamp(mainnetReadCheckedAt)}. Mainnet queries work independently while TronLink is on a testnet; spending and signing still require the actual wallet owner’s authorization and the correct network.</p>
+              <section className="studio-history-panel" aria-label="Mainnet direct sponsor readiness">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3>Direct sponsor → recipient readiness</h3>
+                    <p>Read-only Mainnet checks for the organization that would send genuine USDT straight to the destination.</p>
+                  </div>
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => void loadMainnetDirectSponsorReadiness()} disabled={mainnetSponsorReadinessLoading}>
+                    <RefreshCw size={15} className={mainnetSponsorReadinessLoading ? 'studio-spin' : ''} aria-hidden="true" />
+                    {mainnetSponsorReadinessLoading ? 'Checking sponsors…' : mainnetSponsorReadiness ? 'Refresh sponsor checks' : 'Check sponsor readiness'}
+                  </button>
+                </div>
+                <p className="studio-field-hint">This independent diagnostic does not use your wallet as the funding source. It will not create a withdrawal, reserve funds, request a signature, or submit a transaction.</p>
+                {mainnetSponsorReadinessError && <p className="studio-inline-error" role="alert">{mainnetSponsorReadinessError}</p>}
+                {mainnetSponsorReadiness && (
+                  <>
+                    <div className="studio-account-heading">
+                      <div>
+                        <p className="studio-eyebrow">Mainnet direct-sponsor diagnostics</p>
+                        <strong>{mainnetSponsorReadiness.status || 'Status unavailable'}</strong>
+                      </div>
+                      <Pill tone="warning">Mainnet payouts disabled</Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Fee sponsor balance/resources read</span><strong>{mainnetSponsorReadiness.sponsorRoles?.networkFeeSponsor?.onChainBalanceRead === true && mainnetSponsorReadiness.sponsorRoles?.networkFeeSponsor?.resourceRead === true ? 'Verified read' : 'Not verified'}</strong></div>
+                      <div className="studio-role-metric"><span>Official Tether USDT principal</span><strong>{mainnetSponsorReadiness.sponsorRoles?.assetPrincipalSponsor?.officialUsdtBalanceVerified === true ? 'Positive balance verified' : 'Not verified'}</strong><small>Contract: {mainnetSponsorReadiness.sponsorRoles?.assetPrincipalSponsor?.officialUsdtContract || 'Not checked'}</small></div>
+                      <div className="studio-role-metric"><span>Sponsor wallets distinct</span><strong>{mainnetSponsorReadiness.sponsorRoles?.addressesDistinct === true ? 'Yes' : 'No / unverified'}</strong></div>
+                      <div className="studio-role-metric"><span>Energy/Bandwidth delegation audit</span><strong>{mainnetSponsorReadiness.sponsorRoles?.feeResourceDelegationTransactionAuditVerified === true ? 'Verified' : 'Not verified'}</strong></div>
+                      <div className="studio-role-metric"><span>Fee sponsor agreement scope</span><strong>{mainnetSponsorReadiness.sponsorRoles?.networkFeeSponsor?.agreementScopeConfigured === true ? 'Configured' : 'Not configured'}</strong></div>
+                      <div className="studio-role-metric"><span>USDT principal agreement scope</span><strong>{mainnetSponsorReadiness.sponsorRoles?.assetPrincipalSponsor?.agreementScopeConfigured === true ? 'Configured' : 'Not configured'}</strong></div>
+                      <div className="studio-role-metric"><span>Database</span><strong>{mainnetSponsorReadiness.database?.ready === true ? 'Ready' : 'Not ready'}</strong></div>
+                    </div>
+                    <p className="studio-inline-note" role="status">Signing intent: {mainnetSponsorReadiness.canCreateSigningIntent === true ? 'Available' : 'Disabled'} · Transfer submission: {mainnetSponsorReadiness.canSubmitSponsoredTransfer === true ? 'Available' : 'Disabled'} · Mainnet execution: {mainnetSponsorReadiness.mainnetExecutionDisabled === true ? 'Hard-disabled' : 'Not confirmed disabled'}.</p>
+                    {(mainnetSponsorReadiness.blockers ?? []).slice(0, 6).map((blocker) => <p className="studio-muted" key={blocker}>• {blocker.replace(/-/g, ' ')}</p>)}
+                    {(mainnetSponsorReadiness.blockers?.length ?? 0) > 6 && <p className="studio-muted">{mainnetSponsorReadiness.blockers?.length} blockers remain. Refresh after sponsor authorization and funding evidence changes.</p>}
+                  </>
+                )}
+                <p className="studio-footnote">Last checked: {formatTimestamp(mainnetSponsorReadinessCheckedAt)}. A positive sponsor balance is not spending authorization, transaction-specific fee coverage, a confirmed transfer, or an exchange deposit credit.</p>
+              </section>
+              <section className="studio-history-panel" aria-label="Mainnet direct sponsor payout request">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3>Request a sponsor-funded USDT payout</h3>
+                    <p>Your Mainnet wallet proves requester identity only. The external sponsor, not this wallet, would send the USDT directly to your recipient.</p>
+                  </div>
+                  <Pill tone={mainnetRequesterIdentity && mainnetRequesterIdentity.expiresAt > Date.now() ? 'good' : 'warning'}>
+                    {mainnetRequesterIdentity && mainnetRequesterIdentity.expiresAt > Date.now() ? 'Mainnet identity verified' : 'Sign-in required'}
+                  </Pill>
+                </div>
+                {mainnetRequesterIdentity ? (
+                  <div className="studio-notice studio-notice--neutral">
+                    <ShieldCheck size={17} aria-hidden="true" />
+                    <div className="studio-grow">
+                      <strong>Requester identity: <code>{mainnetRequesterIdentity.address}</code></strong>
+                      <p>Session expires {new Date(mainnetRequesterIdentity.expiresAt).toLocaleTimeString()}. This signature proves address ownership only; it does not sign or authorize a USDT transfer.</p>
+                    </div>
+                    <button type="button" className="studio-button studio-button--secondary" onClick={() => { setMainnetRequesterIdentity(null); setMainnetSponsorRequestKey(''); setMainnetSponsorRequest(null); setMainnetSponsorRequestError('') }}>Sign out</button>
+                  </div>
+                ) : (
+                  <div className="studio-inline-actions">
+                    <button type="button" className="studio-button studio-button--primary" onClick={() => void connectMainnetRequesterIdentity()} disabled={mainnetIdentityBusy}>
+                      <Wallet size={15} className={mainnetIdentityBusy ? 'studio-spin' : ''} aria-hidden="true" />
+                      {mainnetIdentityBusy ? 'Signing Mainnet identity…' : 'Sign in with TronLink on Mainnet'}
+                    </button>
+                  </div>
+                )}
+                {mainnetIdentityError && <p className="studio-inline-error" role="alert">{mainnetIdentityError}</p>}
+                <div className="studio-field-block">
+                  <label htmlFor="mainnet-sponsor-recipient">External wallet or exchange TRC20 deposit address</label>
+                  <input id="mainnet-sponsor-recipient" value={mainnetPayoutRecipient} onChange={(event) => { setMainnetPayoutRecipient(event.target.value.trim()); setMainnetSponsorRequestKey(''); setMainnetSponsorRequest(null); setMainnetSponsorRequestError('') }} placeholder="T…" autoComplete="off" spellCheck={false} />
+                </div>
+                <div className="studio-field-block">
+                  <label htmlFor="mainnet-sponsor-amount">Requested USDT amount</label>
+                  <div className="studio-amount-entry"><input id="mainnet-sponsor-amount" value={mainnetPayoutAmount} onChange={(event) => { setMainnetPayoutAmount(event.target.value); setMainnetSponsorRequestKey(''); setMainnetSponsorRequest(null); setMainnetSponsorRequestError('') }} inputMode="decimal" placeholder="1.00" /><span>USDT · TRC20</span></div>
+                  {mainnetPayoutAmount && !amountToBaseUnits(mainnetPayoutAmount, 6) && <p className="studio-inline-error">Enter a positive amount with up to six decimal places.</p>}
+                </div>
+                <p className="studio-field-hint">Confirm that an exchange accepts USDT on the TRON (TRC20) network, check its minimum deposit and any memo instructions, and verify the address carefully before submitting. The request is not a transfer.</p>
+                <div className="studio-inline-actions">
+                  <button type="button" className="studio-button studio-button--primary" onClick={() => void submitMainnetDirectSponsorRequest()} disabled={!mainnetRequesterIdentity || mainnetRequesterIdentity.expiresAt <= Date.now() || mainnetSponsorRequestBusy || !ADDRESS_PATTERN.test(mainnetPayoutRecipient.trim()) || !amountToBaseUnits(mainnetPayoutAmount, 6)}>
+                    <ShieldCheck size={15} aria-hidden="true" />
+                    {mainnetSponsorRequestBusy ? 'Submitting request…' : 'Submit sponsor review request'}
+                  </button>
+                  {mainnetSponsorRequestKey && <button type="button" className="studio-button studio-button--secondary" onClick={() => void checkMainnetDirectSponsorRequest()} disabled={!mainnetRequesterIdentity || mainnetSponsorRequestBusy}>Check request status</button>}
+                </div>
+                {mainnetSponsorRequestError && <p className="studio-inline-error" role="alert">{mainnetSponsorRequestError}</p>}
+                {mainnetSponsorRequest && (
+                  <div className="studio-account-summary" role="status">
+                    <div className="studio-account-heading">
+                      <div><p className="studio-eyebrow">Persisted Mainnet payout request</p><strong>{mainnetSponsorRequest.status.replaceAll('-', ' ')}</strong></div>
+                      <Pill tone="warning">No transfer sent</Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{mainnetSponsorRequest.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>Requested amount</span><strong>{formatUnits(mainnetSponsorRequest.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Network / contract</span><strong>Mainnet · Tether USDT TRC20</strong><small>{mainnetSponsorRequest.tokenContract}</small></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetSponsorRequest.idempotencyKey}</code></strong></div>
+                    </div>
+                    <p className="studio-inline-note">Principal approval: {mainnetSponsorRequest.sponsorApproval?.status || 'pending'} · Fee sponsor approval: {mainnetSponsorRequest.feeSponsorApproval?.status || 'pending'} · Sponsor funds reserved: no · Fee resources reserved: no · Transaction signature: none · TRON broadcast: no.</p>
+                  </div>
+                )}
+                <p className="studio-footnote">Submitting stores a request for sponsor review only. It does not debit your wallet, reserve sponsor funds, sign a payout, submit to TRON, or guarantee exchange deposit credit.</p>
+              </section>
+              <section className="studio-history-panel" aria-label="Mainnet sponsor organization review and approval">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3>Authorized sponsor organization review</h3>
+                    <p>The configured asset-principal sponsor must connect its own Mainnet wallet, inspect a request and sign an exact request-specific approval message.</p>
+                  </div>
+                  <Pill tone={mainnetSponsorIdentity && mainnetSponsorIdentity.expiresAt > Date.now() ? 'good' : 'warning'}>
+                    {mainnetSponsorIdentity && mainnetSponsorIdentity.expiresAt > Date.now() ? 'Sponsor identity verified' : 'Sponsor sign-in required'}
+                  </Pill>
+                </div>
+                {mainnetSponsorIdentity ? (
+                  <div className="studio-notice studio-notice--neutral">
+                    <ShieldCheck size={17} aria-hidden="true" />
+                    <div className="studio-grow">
+                      <strong>Connected sponsor signer: <code>{mainnetSponsorIdentity.address}</code></strong>
+                      <p>Wallet identity expires {new Date(mainnetSponsorIdentity.expiresAt).toLocaleTimeString()}. The backend independently checks this address against SPONSOR_ASSET_MAINNET_ADDRESS and the exact agreement scope.</p>
+                    </div>
+                    <button type="button" className="studio-button studio-button--secondary" onClick={() => { setMainnetSponsorIdentity(null); setMainnetSponsorQueue([]); setMainnetSponsorChallenge(null); setMainnetSponsorReviewError(''); setMainnetSponsorReviewMessage('') }} disabled={mainnetSponsorReviewBusy !== null}>Sign out</button>
+                  </div>
+                ) : (
+                  <div className="studio-inline-actions">
+                    <button type="button" className="studio-button studio-button--primary" onClick={() => void connectMainnetSponsorIdentity()} disabled={mainnetSponsorReviewBusy !== null}>
+                      <Wallet size={15} className={mainnetSponsorReviewBusy === 'connect' ? 'studio-spin' : ''} aria-hidden="true" />
+                      {mainnetSponsorReviewBusy === 'connect' ? 'Verifying sponsor wallet…' : 'Sign in as authorized Mainnet sponsor'}
+                    </button>
+                  </div>
+                )}
+                <div className="studio-inline-actions">
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => void loadMainnetSponsorReviewQueue()} disabled={!mainnetSponsorIdentity || mainnetSponsorReviewBusy !== null}>
+                    <RefreshCw size={15} className={mainnetSponsorReviewBusy === 'queue' ? 'studio-spin' : ''} aria-hidden="true" />
+                    {mainnetSponsorReviewBusy === 'queue' ? 'Loading sponsor requests…' : 'Refresh sponsor review queue'}
+                  </button>
+                  <span className="studio-footnote">Last checked: {formatTimestamp(mainnetSponsorQueueCheckedAt)}</span>
+                </div>
+                {mainnetSponsorReviewError && <p className="studio-inline-error" role="alert">{mainnetSponsorReviewError}</p>}
+                {mainnetSponsorReviewMessage && <p className="studio-inline-note" role="status">{mainnetSponsorReviewMessage}</p>}
+                {mainnetSponsorQueue.length === 0 && <p className="studio-field-hint">No sponsor review requests loaded. Sign in with the configured sponsor wallet and refresh the queue.</p>}
+                {mainnetSponsorQueue.map((request) => (
+                  <div className="studio-account-summary" key={request.idempotencyKey}>
+                    <div className="studio-account-heading">
+                      <div>
+                        <p className="studio-eyebrow">Payout request · {request.id}</p>
+                        <strong>{request.sponsorApproval?.status === 'approved-active' ? 'Sponsor approved · awaiting next safeguards' : 'Pending sponsor approval'}</strong>
+                      </div>
+                      <Pill tone={request.sponsorApproval?.status === 'approved-active' ? 'good' : 'warning'}>
+                        {request.sponsorApproval?.status === 'approved-active' ? 'Approval recorded' : request.sponsorApproval?.status === 'approved-expired' ? 'Approval expired' : 'Review required'}
+                      </Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Requester identity</span><strong><code>{request.requesterAddress || 'Unavailable'}</code></strong></div>
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{request.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>Principal amount</span><strong>{formatUnits(request.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Network and contract</span><strong>Mainnet · Official Tether USDT</strong><small>{request.tokenContract}</small></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{request.idempotencyKey}</code></strong></div>
+                    </div>
+                    {request.sponsorApproval?.status === 'approved-active' ? (
+                      <p className="studio-inline-note">This request already has a current principal approval. It still has no fee approval, budget reservation, transaction signature or broadcast.</p>
+                    ) : (
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => void prepareMainnetSponsorApproval(request)} disabled={!mainnetSponsorIdentity || mainnetSponsorReviewBusy !== null}>
+                        {mainnetSponsorReviewBusy === 'challenge' ? 'Checking funding and preparing…' : 'Prepare exact sponsor approval message'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {mainnetSponsorChallenge && (
+                  <div className="studio-account-summary">
+                    <div className="studio-account-heading">
+                      <div><p className="studio-eyebrow">One-time sponsor approval challenge</p><strong>Review every field before signing</strong></div>
+                      <Pill tone="warning">Expires {new Date(mainnetSponsorChallenge.expiresAt).toLocaleTimeString()}</Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{mainnetSponsorChallenge.request.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>Requested amount</span><strong>{formatUnits(mainnetSponsorChallenge.request.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetSponsorChallenge.request.idempotencyKey}</code></strong></div>
+                    </div>
+                    <pre className="studio-readonly-value" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{mainnetSponsorChallenge.message}</pre>
+                    <p className="studio-field-hint">TronLink will sign this exact text. This is a sponsor approval statement only, not a TRON transaction. It does not authorize fees, reserve funds, create a transaction or enable payout execution.</p>
+                    <div className="studio-inline-actions">
+                      <button type="button" className="studio-button studio-button--primary" onClick={() => void signMainnetSponsorApproval()} disabled={!mainnetSponsorIdentity || mainnetSponsorReviewBusy !== null || Date.parse(mainnetSponsorChallenge.expiresAt) <= Date.now()}>
+                        <ShieldCheck size={15} className={mainnetSponsorReviewBusy === 'approve' ? 'studio-spin' : ''} aria-hidden="true" />
+                        {mainnetSponsorReviewBusy === 'approve' ? 'Signing / verifying approval…' : 'Sign exact approval in sponsor wallet'}
+                      </button>
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => setMainnetSponsorChallenge(null)} disabled={mainnetSponsorReviewBusy !== null}>Cancel challenge</button>
+                    </div>
+                  </div>
+                )}
+                <p className="studio-footnote">A request-specific sponsor approval does not approve network fees or authorize a transfer. Separate fee-resource approval, reservation, transaction signing, Mainnet broadcast, solidified-chain reconciliation and independent release approval remain disabled.</p>
+              </section>
+              <section className="studio-history-panel" aria-label="Separate Mainnet fee sponsor review and approval">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3>Separate network-fee sponsor review</h3>
+                    <p>A distinct fee-sponsor organization must sign a separate maximum-fee approval after the USDT principal sponsor has approved the same request.</p>
+                  </div>
+                  <Pill tone={mainnetFeeSponsorIdentity && mainnetFeeSponsorIdentity.expiresAt > Date.now() ? 'good' : 'warning'}>
+                    {mainnetFeeSponsorIdentity && mainnetFeeSponsorIdentity.expiresAt > Date.now() ? 'Fee sponsor identity verified' : 'Fee sponsor sign-in required'}
+                  </Pill>
+                </div>
+                {mainnetFeeSponsorIdentity ? (
+                  <div className="studio-notice studio-notice--neutral">
+                    <ShieldCheck size={17} aria-hidden="true" />
+                    <div className="studio-grow">
+                      <strong>Connected fee sponsor: <code>{mainnetFeeSponsorIdentity.address}</code></strong>
+                      <p>Session expires {new Date(mainnetFeeSponsorIdentity.expiresAt).toLocaleTimeString()}. The backend requires this wallet to be the separately configured SPONSOR_FEE_MAINNET_ADDRESS.</p>
+                    </div>
+                    <button type="button" className="studio-button studio-button--secondary" onClick={() => { setMainnetFeeSponsorIdentity(null); setMainnetFeeSponsorQueue([]); setMainnetFeeSponsorChallenge(null); setMainnetFeeSponsorReviewError(''); setMainnetFeeSponsorReviewMessage('') }} disabled={mainnetFeeSponsorReviewBusy !== null}>Sign out</button>
+                  </div>
+                ) : (
+                  <div className="studio-inline-actions">
+                    <button type="button" className="studio-button studio-button--primary" onClick={() => void connectMainnetFeeSponsorIdentity()} disabled={mainnetFeeSponsorReviewBusy !== null}>
+                      <Wallet size={15} className={mainnetFeeSponsorReviewBusy === 'connect' ? 'studio-spin' : ''} aria-hidden="true" />
+                      {mainnetFeeSponsorReviewBusy === 'connect' ? 'Verifying fee sponsor…' : 'Sign in as separate Mainnet fee sponsor'}
+                    </button>
+                  </div>
+                )}
+                <div className="studio-inline-actions">
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => void loadMainnetFeeSponsorReviewQueue()} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null}>
+                    <RefreshCw size={15} className={mainnetFeeSponsorReviewBusy === 'queue' ? 'studio-spin' : ''} aria-hidden="true" />
+                    {mainnetFeeSponsorReviewBusy === 'queue' ? 'Loading fee requests…' : 'Refresh fee-sponsor queue'}
+                  </button>
+                  <span className="studio-footnote">Last checked: {formatTimestamp(mainnetFeeSponsorQueueCheckedAt)}</span>
+                </div>
+                {mainnetFeeSponsorReviewError && <p className="studio-inline-error" role="alert">{mainnetFeeSponsorReviewError}</p>}
+                {mainnetFeeSponsorReviewMessage && <p className="studio-inline-note" role="status">{mainnetFeeSponsorReviewMessage}</p>}
+                {mainnetFeeSponsorQueue.length === 0 && <p className="studio-field-hint">No fee-sponsor requests loaded. Sign in with the separate fee sponsor wallet and refresh.</p>}
+                {mainnetFeeSponsorQueue.map((request) => (
+                  <div className="studio-account-summary" key={request.idempotencyKey}>
+                    <div className="studio-account-heading">
+                      <div>
+                        <p className="studio-eyebrow">Fee approval · request {request.id}</p>
+                        <strong>{request.feeSponsorApproval?.status === 'approved-active' ? 'Fee approval recorded' : request.sponsorApproval?.status === 'approved-active' ? 'Ready for fee sponsor review' : 'Waiting for principal sponsor approval'}</strong>
+                      </div>
+                      <Pill tone={request.feeSponsorApproval?.status === 'approved-active' ? 'good' : 'warning'}>
+                        {request.feeSponsorApproval?.status === 'approved-active' ? 'Fee approval active' : request.feeSponsorApproval?.status === 'approved-expired' ? 'Fee approval expired' : 'Review required'}
+                      </Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Asset principal approval</span><strong>{request.sponsorApproval?.status || 'not-approved'}</strong></div>
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{request.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>Requested USDT</span><strong>{formatUnits(request.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{request.idempotencyKey}</code></strong></div>
+                    </div>
+                    {request.feeSponsorApproval?.status === 'approved-active' ? (
+                      <p className="studio-inline-note">Maximum fee: {request.feeSponsorApproval.maxFeeSun || 'unavailable'} SUN approved cap. This is not a resource reservation, delegation transaction or final fee settlement.</p>
+                    ) : request.sponsorApproval?.status === 'approved-active' ? (
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => void prepareMainnetFeeSponsorApproval(request)} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null}>
+                        {mainnetFeeSponsorReviewBusy === 'challenge' ? 'Checking fee capacity…' : 'Prepare exact fee approval message'}
+                      </button>
+                    ) : (
+                      <p className="studio-field-hint">The principal sponsor must approve this exact request first.</p>
+                    )}
+                  </div>
+                ))}
+                {mainnetFeeSponsorChallenge && (
+                  <div className="studio-account-summary">
+                    <div className="studio-account-heading">
+                      <div><p className="studio-eyebrow">One-time network-fee sponsor challenge</p><strong>Review the separate fee cap before signing</strong></div>
+                      <Pill tone="warning">Expires {new Date(mainnetFeeSponsorChallenge.expiresAt).toLocaleTimeString()}</Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Recipient</span><strong><code>{mainnetFeeSponsorChallenge.request.recipientAddress}</code></strong></div>
+                      <div className="studio-role-metric"><span>USDT principal</span><strong>{formatUnits(mainnetFeeSponsorChallenge.request.amountBaseUnits, 6)} USDT</strong></div>
+                      <div className="studio-role-metric"><span>Request reference</span><strong><code>{mainnetFeeSponsorChallenge.request.idempotencyKey}</code></strong></div>
+                    </div>
+                    <pre className="studio-readonly-value" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{mainnetFeeSponsorChallenge.message}</pre>
+                    <p className="studio-field-hint">This signs a fee-budget approval statement only. It does not transfer TRX, delegate Energy/Bandwidth, reserve resources, sign a transaction or enable payout execution.</p>
+                    <div className="studio-inline-actions">
+                      <button type="button" className="studio-button studio-button--primary" onClick={() => void signMainnetFeeSponsorApproval()} disabled={!mainnetFeeSponsorIdentity || mainnetFeeSponsorReviewBusy !== null || Date.parse(mainnetFeeSponsorChallenge.expiresAt) <= Date.now()}>
+                        <ShieldCheck size={15} className={mainnetFeeSponsorReviewBusy === 'approve' ? 'studio-spin' : ''} aria-hidden="true" />
+                        {mainnetFeeSponsorReviewBusy === 'approve' ? 'Signing fee approval…' : 'Sign fee approval in separate sponsor wallet'}
+                      </button>
+                      <button type="button" className="studio-button studio-button--secondary" onClick={() => setMainnetFeeSponsorChallenge(null)} disabled={mainnetFeeSponsorReviewBusy !== null}>Cancel challenge</button>
+                    </div>
+                  </div>
+                )}
+                <p className="studio-footnote">Fee approval is separate from the USDT principal approval. No TRX or resources have been reserved or delegated; the exact signed transaction fee and resource capacity must still be checked before future execution.</p>
+              </section>
+                            <p className="studio-footnote">Last checked: {formatTimestamp(mainnetReadCheckedAt)}. Mainnet queries work independently while TronLink is on a testnet; spending and signing still require the actual wallet owner’s authorization and the correct network.</p>
             </section>
           )}
 

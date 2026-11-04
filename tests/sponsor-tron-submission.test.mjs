@@ -6,6 +6,7 @@ import {
   buildSponsorUnsignedTransaction,
   validateSponsorSignedTransaction,
   verifySponsorFeeResourceCapacity,
+  verifySponsorFeeResourceSource,
 } from '../server/sponsor-tron-submission.mjs'
 
 const sponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
@@ -18,6 +19,13 @@ const txID = createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest(
 
 function response(status, value) {
   return { ok: status >= 200 && status < 300, status, async json() { return value } }
+}
+
+function solidifiedHead() {
+  return response(200, {
+    blockID: '0000000000000064' + 'ab'.repeat(24),
+    block_header: { raw_data: { number: 100, timestamp: now - 1000, parentHash: '00'.repeat(32) } },
+  })
 }
 
 function fakeTronWeb(host) {
@@ -296,6 +304,7 @@ test('native sponsor capacity requires active fee-sponsor delegation and does no
     env: baseEnv,
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -319,6 +328,7 @@ test('native sponsor capacity requires active fee-sponsor delegation and does no
     env: baseEnv,
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -357,6 +367,7 @@ test('sponsor capacity refuses to attribute principal self-stake to the separate
     transfer: transfer(), transaction, env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -429,6 +440,7 @@ test('TRC20 sponsor capacity fails closed when live constant-contract simulation
     env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
     tronWebFactory: fakeTronWeb,
     fetchImpl: async (url, options) => {
+      if (url.endsWith('/walletsolidity/getnowblock')) return solidifiedHead()
       if (url.endsWith('/walletsolidity/getaccount')) {
         const body = JSON.parse(options.body)
         return response(200, body.address === receiverHex ? { address: receiverHex } : account)
@@ -443,4 +455,84 @@ test('TRC20 sponsor capacity fails closed when live constant-contract simulation
   })
   assert.equal(result.success, false)
   assert.equal(result.reason, 'token-energy-estimate-unavailable')
+})
+
+
+test('post-solidification source snapshot is explicitly not historical delegation proof', async () => {
+  const principalHex = '41' + '11'.repeat(20)
+  const feeHex = '41' + '44'.repeat(20)
+  const principalAccount = {
+    address: principalHex,
+    frozenV2: [],
+    frozen: [],
+    acquired_delegated_frozenV2_balance_for_bandwidth: '1000000',
+    acquired_delegated_frozen_balance_for_bandwidth: '0',
+    account_resource: {
+      frozen_balance_for_energy: { frozen_balance: '0' },
+      acquired_delegated_frozenV2_balance_for_energy: '1000000',
+      acquired_delegated_frozen_balance_for_energy: '0',
+    },
+  }
+  const delegation = {
+    from: feeHex, to: principalHex,
+    frozen_balance_for_bandwidth: '1000000',
+    frozen_balance_for_energy: '1000000',
+    expire_time_for_bandwidth: 0,
+    expire_time_for_energy: 0,
+  }
+  const result = await verifySponsorFeeResourceSource({
+    transfer: transfer({ status: 'confirmed', asset: 'USDT', tokenContract }),
+    env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async (url) => response(200,
+      url.endsWith('/walletsolidity/getaccount') ? principalAccount
+        : { delegatedResource: [delegation] }),
+  })
+  assert.equal(result.success, true)
+  assert.equal(result.feeSponsorResourceSourceVerified, true)
+  assert.equal(result.sponsorAddress, sponsorAddress)
+  assert.equal(result.feeSponsorAddress, feeSponsorAddress)
+  assert.equal(result.bandwidthCoverageSource, 'exact-active-fee-sponsor-delegation-only')
+  assert.equal(result.energyCoverageSource, 'exact-active-fee-sponsor-delegation-only')
+  assert.equal(result.freeBandwidthUsedAsSponsorCoverage, false)
+  assert.equal(result.historicalDelegationStateVerified, false)
+  assert.equal(result.historicalDelegationProof, null)
+  assert.equal(result.historicalDelegationProofReason,
+    'solidified-node-delegation-query-does-not-read-state-at-an-arbitrary-block')
+  assert.equal(result.delegationSnapshot.bandwidthStakeSun, '1000000')
+  assert.equal(result.delegationSnapshot.energyStakeSun, '1000000')
+})
+
+test('post-solidification resource source proof rejects an additional principal resource source', async () => {
+  const principalHex = '41' + '11'.repeat(20)
+  const feeHex = '41' + '44'.repeat(20)
+  const principalAccount = {
+    address: principalHex,
+    frozenV2: [{ type: 'BANDWIDTH', amount: '1000000' }],
+    frozen: [],
+    acquired_delegated_frozenV2_balance_for_bandwidth: '1000000',
+    acquired_delegated_frozen_balance_for_bandwidth: '0',
+    account_resource: {
+      frozen_balance_for_energy: { frozen_balance: '0' },
+      acquired_delegated_frozenV2_balance_for_energy: '1000000',
+      acquired_delegated_frozen_balance_for_energy: '0',
+    },
+  }
+  const delegation = {
+    from: feeHex, to: principalHex,
+    frozen_balance_for_bandwidth: '1000000',
+    frozen_balance_for_energy: '1000000',
+    expire_time_for_bandwidth: 0,
+    expire_time_for_energy: 0,
+  }
+  const result = await verifySponsorFeeResourceSource({
+    transfer: transfer({ status: 'confirmed', asset: 'USDT', tokenContract }),
+    env: { SPONSOR_FEE_NILE_ADDRESS: feeSponsorAddress },
+    tronWebFactory: fakeTronWeb,
+    fetchImpl: async (url) => response(200,
+      url.endsWith('/walletsolidity/getaccount') ? principalAccount
+        : { delegatedResource: [delegation] }),
+  })
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'fee-sponsor-only-bandwidth-source-required')
 })

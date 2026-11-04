@@ -6,7 +6,7 @@ The sponsor operator console is available from the frontend route #/sponsor-oper
 
 The resource-delegation panel is Shasta/Nile-only. It checks the active node host and configured fee-sponsor wallet, validates a distinct asset-principal recipient and the current solidified stake-equivalent delegation ceiling, constructs an unlocked Stake-2.0 delegation draft, validates the contract type, owner, recipient, resource, amount, expiry, raw bytes and transaction ID, then requests an explicit wallet signature. It broadcasts no more than once per click and retains the exact transaction ID when the node outcome is unknown. The separate verification request is read-only until the backend independently confirms the resulting delegation in solidified chain state and persists its audit record.
 
-Resource delegation is not an asset transfer, does not supply token principal, and is not proof of zero fees for a later transfer. The separate fee-budget ledger and post-transfer expense settlement remain unfinished.
+Resource delegation is not an asset transfer and does not supply token principal. The draft implementation now includes separate Energy/Bandwidth mandates, atomic reservations, receipt-based resource accounting, and a bounded Tatum/TRONGrid historical delegation cross-check. This is not a direct TRX-debit proof or a trustless chain proof: block witness signatures and transaction Merkle inclusion are not independently verified. The source-code release gate remains hard-closed; no funded end-to-end sponsor pilot is recorded.
 
 Backend routes:
 
@@ -42,7 +42,7 @@ TRONGRID_API_KEY is optional and server-only; the endpoints use fixed Shasta/Nil
 ## Current limitations
 
 - This route does not send Mainnet transactions. The global production readiness response remains enabled=false and canSubmitSponsoredTransfer=false.
-- Resource availability and a visible delegation are preflight evidence, not final fee settlement. The separate fee-resource budget ledger and after-confirmation expense reconciliation remain unfinished.
+- Resource reservation and settlement code is implemented and covered by unit/PostgreSQL tests, but release remains blocked by the hard source-code gate. The historical scanner is a two-provider cross-check, not cryptographic block-header or transaction-Merkle proof; independent node control or cryptographic verification, protocol review, production database backup/restore rehearsal, sponsor authorization and a funded testnet pilot remain outstanding.
 - The CI workflow now includes PostgreSQL-backed integration tests, dependency severity gating, contract compilation, frontend build, pinned-action policy checks and a public API smoke check. Prior main commits have passed these checks; the current commit must independently pass all required workflows before release.
 - A complete, supported Shasta/Nile end-to-end run covering sponsor resource delegation, an asset-principal transfer, independent solidification, receiver balance, fee consumption and ledger settlement has not been recorded.
 - Independent security approval and a production sponsor agreement/funding mandate are still missing. Do not enable Mainnet or treat provider reachability and resource snapshots as authorization or final fee settlement.

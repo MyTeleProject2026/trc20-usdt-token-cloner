@@ -17,9 +17,9 @@ function makeResponse() {
   }
 }
 
-const sponsorAddress = 'T' + 'A'.repeat(33)
-const otherSponsorAddress = 'T' + 'C'.repeat(33)
-const receiverAddress = 'T' + 'B'.repeat(33)
+const sponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const otherSponsorAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const receiverAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
 const requestBody = {
   network: 'shasta',
   transactionId: 'a'.repeat(64),
@@ -82,4 +82,17 @@ test('resource-delegation verification still validates the request shape before 
   }, response)
   assert.equal(response.statusCode, 400)
   assert.equal(response.body.error, 'unexpected-fields')
+})
+
+
+test('resource-delegation verification rejects Base58-shaped addresses with an invalid checksum', async () => {
+  assert.ok(layer)
+  const response = makeResponse()
+  await layer.route.stack[0].handle({
+    body: { ...requestBody, sponsorAddress: 'T' + 'A'.repeat(33) },
+    headers: {},
+  }, response)
+  assert.equal(response.statusCode, 400)
+  assert.equal(response.body.error, 'invalid-delegation-details')
+  assert.equal(response.body.persistence, undefined)
 })

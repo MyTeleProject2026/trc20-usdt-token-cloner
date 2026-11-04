@@ -10,6 +10,8 @@ import {
   extractFireblocksAddresses,
   fireblocksAssetIdentifierMatches,
   fireblocksConfiguration,
+  fireblocksReadOnlyConfiguration,
+  createFireblocksReadOnlyClient,
   isOfficialFireblocksUsdtAsset,
   isNativeFireblocksTrxAsset,
   providerAssetAvailableBaseUnits,
@@ -65,6 +67,127 @@ test('Fireblocks accepts only an absolute mounted secret-file path and known pro
   assert.equal(fireblocksConfiguration({
     ...configuredEnv, FIREBLOCKS_API_BASE: 'https://attacker.example',
   }).configured, false)
+})
+
+test('Fireblocks read-only identity requires independent API key and RSA secret path', () => {
+  const env = {
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+    FIREBLOCKS_API_KEY: configuredEnv.FIREBLOCKS_API_KEY,
+    FIREBLOCKS_SECRET_KEY_PATH: configuredEnv.FIREBLOCKS_SECRET_KEY_PATH,
+  }
+  assert.equal(fireblocksReadOnlyConfiguration(env).configured, true)
+  assert.equal(fireblocksReadOnlyConfiguration({ ...env,
+    FIREBLOCKS_READONLY_API_KEY: configuredEnv.FIREBLOCKS_API_KEY }).configured, false)
+  assert.equal(fireblocksReadOnlyConfiguration({ ...env,
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: configuredEnv.FIREBLOCKS_SECRET_KEY_PATH }).configured, false)
+})
+
+test('read-only Fireblocks client authenticates with its own identity and exposes no transaction methods', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const env = { ...configuredEnv, FIREBLOCKS_READONLY_API_KEY: 'viewer-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io' }
+  const client = createFireblocksReadOnlyClient(env, {
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify({ assets: [] }), { status: 200 }) },
+    readSecretFile: async (path) => { assert.equal(path, env.FIREBLOCKS_READONLY_SECRET_KEY_PATH); return privateKey },
+    now: () => 1_700_000_000_000, nonceFactory: () => 'readonly-nonce',
+  })
+  assert.equal(typeof client.getAssets, 'function')
+  assert.equal(typeof client.getPagedVaultAccounts, 'function')
+  assert.equal(typeof client.getAssetAddresses, 'function')
+  assert.equal(typeof client.getVaultAccountAsset, 'function')
+  assert.equal(typeof client.getAssetMetadata, 'function')
+  assert.equal('createUsdtTransfer' in client, false)
+  assert.equal('createTrxTransfer' in client, false)
+  assert.equal('estimateUsdtTransferFee' in client, false)
+  await client.getAssets({ symbol: 'USDT', pageSize: 500 })
+  await client.getVaultAccount()
+  await client.getVaultAccountAsset('USDT_TRON')
+  await client.getAssetMetadata('USDT_TRON')
+  assert.equal(calls.length, 4)
+  assert.ok(calls.every((call) => call.init.method === 'GET'))
+  assert.ok(calls.every((call) => call.init.headers['X-API-Key'] === 'viewer-api-key'))
+  assert.ok(calls.every((call) => new URL(call.url).pathname.startsWith('/v1/')))
+  assert.ok(calls.every((call) => !String(call.init.body || '').includes('TRANSFER')))
+})
+
+test('read-only Fireblocks client fetches bounded vault transaction-history pages using the Viewer identity', async () => {
+  const { privateKey } = keyPair()
+  const calls = []
+  const env = {
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-history-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+    FIREBLOCKS_READONLY_API_BASE: 'https://api.fireblocks.io',
+    FIREBLOCKS_VAULT_ACCOUNT_ID: '0',
+    FIREBLOCKS_USDT_ASSET_ID: 'USDT_TRON',
+    FIREBLOCKS_TRX_ASSET_ID: 'TRX',
+  }
+  const client = createFireblocksReadOnlyClient(env, {
+    fetchImpl: async (url, init) => {
+      calls.push({ url: new URL(url), init })
+      return new Response(JSON.stringify({ data: [{
+        id: 'history-tx-1', operation: 'TRANSFER', assetId: 'USDT_TRON',
+      }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'next-page': 'cursor-page-2' },
+      })
+    },
+    readSecretFile: async (path) => {
+      assert.equal(path, env.FIREBLOCKS_READONLY_SECRET_KEY_PATH)
+      return privateKey
+    },
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'readonly-history-nonce',
+  })
+  const result = await client.getTransactionsPage({
+    after: '1',
+    before: '1798000000000',
+    limit: 500,
+  })
+  assert.equal(result.transactions.length, 1)
+  assert.equal(result.nextPage, 'cursor-page-2')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(calls[0].init.headers['X-API-Key'], 'viewer-history-api-key')
+  assert.equal(calls[0].url.pathname, '/v1/transactions')
+  assert.equal(calls[0].url.searchParams.get('after'), '1')
+  assert.equal(calls[0].url.searchParams.get('before'), '1798000000000')
+  assert.equal(calls[0].url.searchParams.get('limit'), '500')
+  assert.equal(calls[0].url.searchParams.get('sourceType'), 'VAULT_ACCOUNT')
+  assert.equal(calls[0].url.searchParams.get('sourceId'), '0')
+  assert.equal(calls[0].url.searchParams.get('assets'), 'USDT_TRON,TRX')
+  assert.equal(calls[0].url.searchParams.get('orderBy'), 'createdAt')
+  assert.equal(calls[0].url.searchParams.get('sort'), 'ASC')
+  assert.equal('createUsdtTransfer' in client, false)
+  assert.equal('createTrxTransfer' in client, false)
+  assert.equal('estimateUsdtTransferFee' in client, false)
+})
+
+test('Fireblocks transaction-history pagination rejects invalid ranges, excessive limits and unsafe cursors', async () => {
+  const { privateKey } = keyPair()
+  const env = {
+    ...configuredEnv,
+    FIREBLOCKS_READONLY_API_KEY: 'viewer-history-api-key',
+    FIREBLOCKS_READONLY_SECRET_KEY_PATH: '/run/secrets/fireblocks-viewer.pem',
+  }
+  const client = createFireblocksReadOnlyClient(env, {
+    fetchImpl: async () => { throw new Error('provider should not be called') },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'readonly-history-invalid',
+  })
+  await assert.rejects(client.getTransactionsPage({ after: '0', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '10', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', limit: 501 }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(client.getTransactionsPage({ after: '1', before: '10', next: 'bad' + String.fromCharCode(10) + 'page' }), /invalid-fireblocks-transaction-history-page-request/)
+  await assert.rejects(createFireblocksReadOnlyClient({
+    ...env, FIREBLOCKS_USDT_ASSET_ID: '',
+  }, { fetchImpl: async () => { throw new Error('provider should not be called') } })
+    .getTransactionsPage({ after: '1', before: '10' }), /invalid-fireblocks-transaction-history-page-request/)
 })
 
 test('Fireblocks JWT signs URI, nonce, time, API key subject and exact body hash', () => {
@@ -185,6 +308,31 @@ test('native Fireblocks TRX asset metadata must identify the configured six-deci
   assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, onchain: { symbol: 'TRX', decimals: 18 } }, 'TRX'), false)
   assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, contractAddress: officialUsdt }, 'TRX'), false)
   assert.equal(isNativeFireblocksTrxAsset({ ...nativeTrx, id: 'OTHER', legacyId: 'OTHER' }, 'TRX'), false)
+})
+
+test('Fireblocks read requests inherit a caller abort signal in addition to the per-request timeout', async () => {
+  const { privateKey } = keyPair()
+  const controller = new AbortController()
+  let providerSignal = null
+  const client = createFireblocksClient(configuredEnv, {
+    signal: controller.signal,
+    fetchImpl: async (_url, init) => {
+      providerSignal = init.signal
+      return new Response(JSON.stringify({ id: '0', assets: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'nonce-abort-signal',
+  })
+
+  await client.getVaultAccount()
+  assert.ok(providerSignal instanceof AbortSignal)
+  assert.equal(providerSignal.aborted, false)
+  controller.abort()
+  assert.equal(providerSignal.aborted, true)
 })
 
 test('native TRX transfer uses its separate Fireblocks asset ID and works without a configured USDT asset ID', async () => {
@@ -540,4 +688,52 @@ test('Fireblocks retrieves paged vault accounts with validated supported filters
     (error) => error?.code === 'invalid-fireblocks-vault-account-page-request',
   )
   assert.equal(calls.length, 1, 'invalid page filters must be rejected before any provider request')
+})
+
+
+test('Fireblocks can discover vaults and assets with authorized API credentials before a vault ID is configured', async () => {
+  const { privateKey } = keyPair()
+  const env = {
+    FIREBLOCKS_API_KEY: 'discovery-api-key',
+    FIREBLOCKS_SECRET_KEY_PATH: '/run/secrets/fireblocks-api.pem',
+    FIREBLOCKS_API_BASE: 'https://api.fireblocks.io',
+  }
+  const calls = []
+  const client = createFireblocksClient(env, {
+    fetchImpl: async (url, init) => {
+      const parsed = new URL(url)
+      calls.push({ parsed, init })
+      if (parsed.pathname === '/v1/vault/accounts_paged') {
+        return new Response(JSON.stringify({ accounts: [{ id: '7', name: 'TRON treasury', assets: [] }], paging: {} }), { status: 200 })
+      }
+      if (parsed.pathname === '/v1/assets') {
+        return new Response(JSON.stringify({ assets: [{ id: 'USDT_TRON' }] }), { status: 200 })
+      }
+      throw new Error('unexpected Fireblocks discovery URL')
+    },
+    readSecretFile: async () => privateKey,
+    now: () => 1_700_000_000_000,
+    nonceFactory: () => 'discovery-read-only-nonce',
+  })
+
+  assert.equal(client.isConfigured(), false)
+  assert.equal(client.isProviderConfigured(), false)
+  assert.equal(client.configuration().credentialsConfigured, true)
+  assert.ok(client.configuration().providerMissing.includes('FIREBLOCKS_VAULT_ACCOUNT_ID'))
+
+  const accounts = await client.getPagedVaultAccounts({ limit: 200, orderBy: 'ASC' })
+  const assets = await client.getAssets({ symbol: 'USDT', pageSize: 500 })
+  assert.equal(accounts.accounts[0].id, '7')
+  assert.equal(assets.assets[0].id, 'USDT_TRON')
+  assert.deepEqual(calls.map(({ parsed }) => parsed.pathname), [
+    '/v1/vault/accounts_paged', '/v1/assets',
+  ])
+  assert.equal(calls[0].parsed.searchParams.get('limit'), '200')
+  assert.equal(calls[1].parsed.searchParams.get('symbol'), 'USDT')
+  assert.equal(calls[1].parsed.searchParams.get('deprecated'), 'false')
+  assert.ok(calls.every(({ init }) => init.method === 'GET' && init.body === undefined))
+  assert.ok(calls.every(({ init }) => init.headers['X-API-Key'] === 'discovery-api-key'))
+
+  await assert.rejects(client.getVaultAccount(), (error) => error?.code === 'fireblocks-not-configured')
+  assert.equal(calls.length, 2, 'vault-specific operations remain blocked until an account is explicitly selected')
 })

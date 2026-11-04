@@ -3,13 +3,15 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
 import {
-  finalizeSponsorTransferBroadcast, getSponsorTransferForSubmission,
+  finalizeSponsorTransferBroadcast, getSponsorTransferForSubmission, getSponsorResourcePreflightEvidence,
   recordNativeTransferVerification, recordSponsorChainCostObservation,
-  recordTransferVerification, transitionSponsorTransfer,
+  recordSponsorResourceCostSettlementObservation, recordTransferVerification, transitionSponsorTransfer,
 } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 import { readSolidifiedSponsorChainCosts } from './sponsor-chain-cost-observations.mjs'
+import { verifySponsorFeeResourceSource } from '../sponsor-tron-submission.mjs'
+import { createSponsorDelegationHistoryVerifier } from '../sponsor-delegation-history.mjs'
 
 const HOSTS = Object.freeze({
   nile: 'https://tron-nile.gateway.tatum.io',
@@ -144,6 +146,16 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
     transfer, env, fetchImpl: options.fetchImpl, tronWebFactory: options.tronWebFactory,
   }))
   const persistCosts = options.persistCosts ?? recordSponsorChainCostObservation
+  const readPreflightEvidence = options.readPreflightEvidence ?? getSponsorResourcePreflightEvidence
+  const verifyCurrentSource = options.verifyCurrentSource
+    ?? ((transfer) => verifySponsorFeeResourceSource({ transfer, env }))
+  const persistResourceCosts = options.persistResourceCosts
+    ?? recordSponsorResourceCostSettlementObservation
+  const verifyHistory = options.verifyHistory ?? createSponsorDelegationHistoryVerifier({
+    env,
+    fetchImpl: options.fetchImpl,
+    tronWebFactory: options.tronWebFactory,
+  })
   const router = Router()
   router.post('/sponsorship/transfers/:idempotencyKey/reconcile-solidified', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -233,21 +245,67 @@ export function createSponsorSolidifiedReconciliationRouter(options = {}) {
           const observed = await readCosts(transfer)
           if (observed?.success === true && observed.network === transfer.network
             && observed.transactionHash?.toLowerCase() === transfer.transactionHash.toLowerCase()
-            && observed.executionResult === 'SUCCESS' && observed.blockNumber === evidence.blockNumber) {
+            && observed.executionResult === 'SUCCESS' && observed.blockNumber === evidence.blockNumber
+            && Number.isSafeInteger(observed.blockTimestampMs) && observed.blockTimestampMs > 0) {
             const stored = await persistCosts({
               network: transfer.network, transactionHash: transfer.transactionHash.toLowerCase(),
               idempotencyKey: key, sponsorReference: transfer.sponsorReference, feeSponsorAddress: feeAddress,
               assetPrincipalAddress: transfer.sponsorAddress, receiverAddress: transfer.receiverAddress,
               asset: transfer.asset, tokenContract: transfer.tokenContract ?? null,
               amountBaseUnits: transfer.amountBaseUnits, blockNumber: observed.blockNumber,
+              blockTimestampMs: observed.blockTimestampMs,
               executionResult: 'SUCCESS', reportedFeeSun: observed.reportedFeeSun,
               energyFeeSun: observed.energyFeeSun, netFeeSun: observed.netFeeSun,
               energyUsageTotal: observed.energyUsageTotal, energyUsage: observed.energyUsage,
-              netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
+              originEnergyUsage: observed.originEnergyUsage, netUsage: observed.netUsage, energyPenaltyTotal: observed.energyPenaltyTotal,
             })
-            costs = stored?.success === true
-              ? { status: 'solidified-costs-observed-not-settled', duplicate: stored.duplicate === true, reportedFeeSun: observed.reportedFeeSun, sponsorFeeBudgetSettled: false }
-              : { status: 'cost-observation-persistence-failed', reason: stored?.reason || 'persistence-failed', sponsorFeeBudgetSettled: false }
+            if (stored?.success === true) {
+              const currentSourceEvidence = await verifyCurrentSource(transfer)
+              const preflight = await readPreflightEvidence(key)
+              const historicalProof = preflight?.success === true
+                ? await verifyHistory({
+                    transfer,
+                    preflightEvidence: preflight.preflightEvidence,
+                    transactionHash: transfer.transactionHash.toLowerCase(),
+                    blockNumber: observed.blockNumber,
+                    blockTimestampMs: observed.blockTimestampMs,
+                  })
+                : { success: false, reason: preflight?.reason || 'resource-preflight-evidence-unavailable' }
+              const attributionEvidence = currentSourceEvidence?.success === true
+                ? {
+                    ...currentSourceEvidence,
+                    historicalDelegationStateVerified: historicalProof?.success === true,
+                    historicalDelegationProof: historicalProof?.success === true ? historicalProof : null,
+                    historicalDelegationProofReason: historicalProof?.success === true
+                      ? null : historicalProof?.reason || 'historical-delegation-proof-unavailable',
+                  }
+                : currentSourceEvidence
+              const resourceObservation = await persistResourceCosts({
+                idempotencyKey: key,
+                transactionHash: transfer.transactionHash.toLowerCase(),
+                attributionEvidence,
+              })
+              costs = {
+                status: resourceObservation?.sponsorResourceBudgetSettled === true
+                  ? 'solidified-resource-budget-settled'
+                  : resourceObservation?.status === 'manual-review'
+                    ? 'solidified-resource-cost-manual-review'
+                    : 'solidified-costs-observed-pending-resource-attribution',
+                duplicate: stored.duplicate === true,
+                reportedFeeSun: observed.reportedFeeSun,
+                resourceCostObservation: resourceObservation?.success === true
+                  ? {
+                      status: resourceObservation.status,
+                      duplicate: resourceObservation.duplicate === true,
+                      sponsorResourceBudgetSettled: resourceObservation.sponsorResourceBudgetSettled === true,
+                    }
+                  : { status: 'not-recorded', reason: resourceObservation?.reason || 'resource-observation-unavailable' },
+                sponsorResourceBudgetSettled: resourceObservation?.sponsorResourceBudgetSettled === true,
+                sponsorFeeBudgetSettled: false,
+              }
+            } else {
+              costs = { status: 'cost-observation-persistence-failed', reason: stored?.reason || 'persistence-failed', sponsorFeeBudgetSettled: false }
+            }
           } else costs = { status: 'solidified-cost-observation-unavailable', reason: observed?.reason || 'cost-evidence-mismatch', sponsorFeeBudgetSettled: false }
         } catch { costs = { status: 'solidified-cost-observation-unavailable', reason: 'observation-unavailable', sponsorFeeBudgetSettled: false } }
       }

@@ -53,6 +53,13 @@ function tokenAllowlistConfigured(env, key) {
   return contracts.length > 0 && contracts.every(isValidTronAddress)
 }
 
+function minimumDelegationStakeMet(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return false
+  const text = String(value)
+  if (!/^(0|[1-9][0-9]*)$/.test(text)) return false
+  return BigInt(text) >= 1_000_000n
+}
+
 /**
  * Read only the selected testnet's latest solidified block from a fixed Tatum
  * origin. The caller cannot supply a host, path, headers, or credentials.
@@ -155,12 +162,33 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   const delegation = roleResult?.feeSponsorDelegationToPrincipal
   const activeEnergy = delegation?.activeEnergyStakeSun
   const activeBandwidth = delegation?.activeBandwidthStakeSun
-  const delegationObserved = delegation?.success === true
-    && (positiveInteger(activeEnergy) || positiveInteger(activeBandwidth))
+  // The supported USDT pilot needs both delegated Energy and Bandwidth.
+  // A positive reading for only one resource must never be treated as a complete delegation.
+  const liveDelegationCapacityVerified = delegation?.success === true
+    && minimumDelegationStakeMet(activeEnergy) && minimumDelegationStakeMet(activeBandwidth)
+  const auditedResourceTypes = new Set(Array.isArray(delegation?.auditedResourceTypes)
+    ? delegation.auditedResourceTypes : [])
+  const delegationTransactionAuditVerified = delegation?.transactionAuditVerified === true
+    && auditedResourceTypes.has('ENERGY') && auditedResourceTypes.has('BANDWIDTH')
+  const delegationObserved = liveDelegationCapacityVerified && delegationTransactionAuditVerified
 
   const allowlists = Object.fromEntries(Object.entries(TOKEN_ALLOWLIST_ENV[network]).map(([asset, key]) => [
     asset, tokenAllowlistConfigured(env, key),
   ]))
+  const usdtAllowlistConfigured = allowlists.USDT === true
+  const usdtAllowlistKey = TOKEN_ALLOWLIST_ENV[network]?.USDT
+  const allowlistedUsdtContracts = typeof usdtAllowlistKey === 'string'
+    ? String(env[usdtAllowlistKey] || '').split(',').map(value => value.trim()).filter(Boolean)
+    : []
+  const assetPrincipalUsdtFundingVerified = assetRole?.tokenBalancesComplete === true
+    && Array.isArray(assetRole.tokens)
+    && assetRole.tokens.some(token =>
+      ['USDT', 'USDT (testnet)'].includes(token?.asset)
+      && token.status === 'verified'
+      && allowlistedUsdtContracts.includes(token.tokenContract)
+      && token.decimals === 6
+      && positiveInteger(token.balanceBaseUnits))
+
   const blockers = []
   if (head?.success !== true) blockers.push(`testnet-node-${head?.status || 'unavailable'}`)
   if (!feeConfigured) blockers.push('fee-sponsor-address-not-configured')
@@ -169,7 +197,14 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   if (!feeChainRead) blockers.push('fee-sponsor-on-chain-balance-not-verified')
   if (!assetChainRead) blockers.push('asset-principal-on-chain-balance-not-verified')
   if (!resourceRead) blockers.push('fee-sponsor-resource-capacity-not-verified')
-  if (!delegationObserved) blockers.push('active-fee-to-principal-resource-delegation-not-verified')
+  if (!liveDelegationCapacityVerified) blockers.push('active-fee-to-principal-energy-and-bandwidth-delegation-not-verified')
+  if (liveDelegationCapacityVerified && !delegationTransactionAuditVerified) {
+    blockers.push('fee-to-principal-delegation-transactions-not-independently-audited')
+  }
+  if (!usdtAllowlistConfigured) blockers.push('usdt-token-contract-allowlist-not-configured')
+  if (usdtAllowlistConfigured && !assetPrincipalUsdtFundingVerified) {
+    blockers.push('asset-principal-usdt-funding-not-verified-positive')
+  }
   if (!env.DATABASE_URL?.trim()) blockers.push('project-database-not-configured')
   if (typeof env.SPONSOR_ADMIN_API_TOKEN !== 'string' || env.SPONSOR_ADMIN_API_TOKEN.length < 32) {
     blockers.push('sponsor-admin-token-not-configured')
@@ -183,7 +218,8 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
   return {
     network,
     preflightStatus: head?.success === true && feeConfigured && assetConfigured
-      && rolesDistinct && feeChainRead && assetChainRead && resourceRead && delegationObserved
+      && rolesDistinct && feeChainRead && assetChainRead && resourceRead
+      && delegationObserved && usdtAllowlistConfigured && assetPrincipalUsdtFundingVerified
       ? 'live-chain-preflight-passed-review-required'
       : 'blocked-by-live-or-configuration-prerequisites',
     networkNode: head?.success === true
@@ -205,6 +241,7 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
       rolesDistinct,
       feeSponsorOnChainBalanceRead: feeChainRead,
       assetPrincipalSponsorOnChainBalanceRead: assetChainRead,
+      assetPrincipalUsdtFundingVerified,
     },
     sponsors: {
       networkFeeSponsor: summarizeRole(feeRole),
@@ -229,8 +266,11 @@ export function buildNetworkSummary({ network, head, roleResult, env }) {
         status: typeof delegation?.status === 'string' ? delegation.status : 'delegation-read-unavailable',
         activeEnergyStakeSun: typeof activeEnergy === 'string' ? activeEnergy : null,
         activeBandwidthStakeSun: typeof activeBandwidth === 'string' ? activeBandwidth : null,
-        activeDelegationObserved: delegationObserved,
-        transactionAuditVerified: delegation?.transactionAuditVerified === true,
+        activeDelegationObserved: liveDelegationCapacityVerified,
+        transactionAuditVerified: delegationTransactionAuditVerified,
+        transactionAuditStatus: typeof delegation?.transactionAuditStatus === 'string'
+          ? delegation.transactionAuditStatus : 'delegation-transaction-audit-unavailable',
+        auditedResourceTypes: ['ENERGY', 'BANDWIDTH'].filter(type => auditedResourceTypes.has(type)),
       },
     },
     tokenContractAllowlistConfigured: allowlists,

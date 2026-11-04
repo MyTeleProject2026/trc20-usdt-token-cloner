@@ -6,7 +6,7 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 
 - The backend sponsorship status is fail-closed.
 - The generic sponsor ledger transition API remains fail-closed for caller-supplied authorized/submitted changes. A separate Shasta/Nile-only sponsor-wallet path now persists one unsigned transaction, validates the exact signed bytes against that persisted intent, checks TRON signature permission and current resource capacity, atomically binds the transaction ID before broadcast, and only then marks the row submitted when the selected node accepts that exact ID.
-- The testnet signing/broadcast route is disabled by default via `SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED=false`. No Mainnet path is present. The path is not production-ready: resource preflight is not final fee settlement, and accepted broadcast is not proof of solidification or recipient credit.
+- The sponsor resource-accounting implementation includes reviewed-scope mandates, row-locked Energy/Bandwidth reservations, transaction-bound broadcast claims, receipt-based settlement, manual-review handling, and a block-bounded Tatum/TRONGrid delegation-history cross-check. The source-code gate in `server/routes/sponsor-fee-settlement-gate.mjs` remains hard-coded closed; the environment flag cannot override it. No Mainnet sponsor submission path is present. The two-provider history check is not cryptographic block-header or transaction-Merkle proof.
 - Settlement logic is tested separately from submission. PostgreSQL reconciliation tests seed a prior `submitted` row only as a test fixture, then check exact persisted chain evidence; that fixture is not real provider-broadcast evidence or a live Nile end-to-end test.
 - GasFree routes are read-only for capability, account and trace lookup; `POST /api/gasfree/submit` returns HTTP 503 without calling the provider.
 - Fee sponsor and asset-principal sponsor are separate roles and are read independently.
@@ -21,9 +21,9 @@ This checklist is a release gate, not a claim that sponsorship is currently enab
 - [ ] Written sponsor consent, legal/account ownership confirmation, and an actual funded sponsor account for each role.
 - [ ] Provider contract and fee model independently verified against the desired external-sponsor-only policy. Token-denominated fees paid from the transfer amount do not meet a requirement that the receiver receive the full requested amount.
 - [ ] Provider-specific signing authorization, transaction allowlists, recipient and token restrictions, maximum amount/fee limits, expiry, replay protection, and idempotency.
-- [ ] Separate fee-resource/fee budget and asset-principal budget with atomic reservation, release on failure, and reconciliation against final chain evidence. The current testnet route checks observed delegation and point-in-time capacity but does not yet settle a distinct fee-resource budget after a confirmed transaction.
-- [ ] Database migration and integration tests covering duplicate requests, concurrent reservations, insufficient funds, provider timeouts, failed transactions, chain reorg/finality, and reconciliation drift.
-- [ ] Testnet end-to-end tests prove the sender/receiver/token/amount/fee policy from independently verified chain data; no test may depend on UI-only balances. The new transaction path has unit-level adapter/route guards, but no supported live Shasta/Nile end-to-end run is yet recorded.
+- [x] Code-level separate fee-resource budget and asset-principal budget with atomic reservation, expiry/release for never-broadcast intents, receipt-based settlement and manual review are implemented and covered by isolated PostgreSQL tests. This checkbox is implementation-only; it is not proof of a funded sponsor or a live transfer.
+- [ ] Production database migration, backup and restore rehearsal, including the new resource tables. Isolated PostgreSQL CI tests cover duplicate/concurrent reservation and settlement paths, but they do not replace a production restore rehearsal.
+- [ ] A funded Nile/Shasta end-to-end pilot must prove the sender/receiver/token/amount/fee/resource policy, receiver balance delta and settlement from independently reviewed chain data. No live sponsor-funded transfer is recorded. The current two-provider history cross-check is not cryptographic proof and must not be treated as such.
 - [ ] Security review of authorization, signing, API authentication, rate limits, secret handling, audit trails, and emergency pause.
 - [ ] Browser CORS is configured with the exact deployed frontend origins; empty/invalid configuration fails closed and never reflects arbitrary browser origins. See [CORS origin policy](./CORS_ORIGIN_POLICY.md).
 - [ ] Explicit operator approval for any production launch after all prior gates pass.
@@ -35,3 +35,25 @@ Do not enable submission based solely on environment variables, a successful pro
 ## Exchange deposits
 
 A solidified on-chain transaction is not proof that an exchange credited a deposit. Exchange credit requires the receiving exchange's own confirmation/status or supported API, correct network and token contract, any required memo/tag, confirmation count, minimum deposit, and account eligibility.
+
+- The Tatum/TRONGrid historical scanner now independently reconstructs the TRON protobuf block-header bytes, verifies the composite block ID from SHA-256(header raw_data), recovers and checks the Super Representative ECDSA signer against `witness_address`, reconstructs each full protobuf transaction from `raw_data_hex`, signatures and supported result fields, and recomputes the java-tron transaction Merkle root against `txTrieRoot`. Unsupported transaction result fields fail closed rather than being silently omitted.
+- The scanner now fetches both providers' `/walletsolidity/listwitnesses` snapshots, requires the same 27 active SR addresses, takes the lower `latestBlockNum` for each SR across providers, and recomputes the java-tron 70% solidification threshold. The target block is rejected unless at least 19 active SRs (for the current 27-SR set) have each produced a block at or above the target.
+- This DPoS quorum result is reconstructed from provider-reported SolidityNode witness state; the witness state itself is not accompanied by an independently verified state-trie proof. Block signatures and transaction roots are verified locally, but provider state authenticity, canonical-chain selection, network governance parameter review, and independent node/operator validation remain external trust assumptions.
+
+
+## Additional Mainnet direct-sponsor approval gate
+
+The direct sponsor review path now supports a Mainnet wallet-authenticated review queue and request-specific sponsor approval signature. This is an approval record only; it does not sign a TRON transaction or open the Mainnet execution gate.
+
+- [x] One-use, short-lived approval challenge bound to request ID, idempotency key, requester, configured asset sponsor, recipient, official USDT contract, exact base-unit amount, organization reference, executed agreement reference/digest, nonce and expiry.
+- [x] Server-side signature recovery must match `SPONSOR_ASSET_MAINNET_ADDRESS`; a consumed challenge cannot be replayed.
+- [x] Fresh Mainnet role snapshot and sufficient official USDT principal are required before creating the challenge; the separate fee sponsor must also be distinct and have verified positive TRX and resource reads.
+- [x] Approval and challenge records are persisted in PostgreSQL; CI integration tests exercise the approval lifecycle in the isolated `sponsor_test` database.
+- [ ] Independently verify sponsor legal authority, wallet ownership, executed agreement and source of funds.
+- [x] Implement request-bound separate fee-sponsor approval signature with a maximum fee cap and durable PostgreSQL record.
+- [ ] Implement actual fee/resource reservation, fee-budget ledger and transaction-specific exact fee/resource accounting.
+- [ ] Implement request-bound unsigned TRON transaction construction, sponsor transaction signing, durable single-transaction submission claim, Mainnet broadcast and ambiguous-timeout recovery.
+- [ ] Independently verify the exact solidified USDT Transfer event, successful receipt, recipient balance delta and sponsor ledger settlement.
+- [ ] Complete a funded Mainnet acceptance transfer and independent custody/security review.
+
+Keep Mainnet transaction execution disabled. A sponsor approval signature is not a transaction signature, reservation, provider execution permission, or exchange deposit-credit evidence.

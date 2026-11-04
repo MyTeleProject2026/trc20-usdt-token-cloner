@@ -141,17 +141,21 @@ test('owner treasury endpoint returns only verified funding facts and never enab
   assert.equal(calls.length, 1)
 })
 
-test('wallet UI exposes only owner-authenticated read-only funding, not generated or fabricated balances', async () => {
+test('owner wallet uses server-backed chain reads and direct sponsor requests without generating funds', async () => {
   const ui = await readFile(new URL('../src/WalletVault.tsx', import.meta.url), 'utf8')
-  assert.ok(ui.includes('/api/treasury/owner/funding-status?network=mainnet'))
-  assert.ok(ui.includes('ownerAccessVerified'))
-  assert.ok(ui.includes('Read-only treasury funding check'))
-  assert.ok(ui.toLowerCase().includes('no usdt is generated'))
-  assert.ok(ui.includes('TREASURY_MAINNET_ADDRESS'))
-  assert.ok(ui.includes('The watched treasury address is different from the currently unlocked wallet'))
-  assert.ok(ui.includes('canSubmitSponsoredTransfer'))
+  const sponsor = await readFile(new URL('../src/DirectSponsorPayouts.tsx', import.meta.url), 'utf8')
+  assert.ok(ui.includes("API_BASE + '/api/tron/native-balance?network='"))
+  assert.ok(ui.includes("API_BASE + '/api/tron/inspect-token?network='"))
+  assert.ok(ui.includes("import DirectSponsorPayouts from './DirectSponsorPayouts.tsx'"))
+  assert.ok(ui.includes('<DirectSponsorPayouts'))
+  assert.ok(sponsor.includes('/api/auth/tron/challenge'))
+  assert.ok(sponsor.includes('/api/auth/tron/verify'))
+  assert.ok(sponsor.includes('/api/tron/sponsorship/mainnet-direct/requests'))
+  assert.ok(sponsor.includes('canSubmitSponsoredTransfer'))
+  assert.ok(sponsor.includes('Nothing is taken from your wallet'))
+  assert.ok(sponsor.includes('Mainnet withdrawal execution is disabled in this build.'))
+  assert.ok(!sponsor.includes('sendRawTransaction'))
 })
-
 
 test('treasury status fails closed for an invalid configured funding address before provider calls', async () => {
   let fundingReads = 0

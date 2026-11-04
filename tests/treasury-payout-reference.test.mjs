@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   TREASURY_PAYOUT_REFERENCE_STORAGE_KEY,
+  clearTreasuryPayoutReference,
   readTreasuryPayoutReference,
   saveTreasuryPayoutReference,
 } from '../src/treasury-payout-reference.mjs'
@@ -11,6 +12,7 @@ function storageWith(initial = {}) {
   return {
     getItem(key) { return values.has(key) ? values.get(key) : null },
     setItem(key, value) { values.set(key, String(value)) },
+    removeItem(key) { values.delete(key) },
   }
 }
 
@@ -44,4 +46,12 @@ test('treasury payout reference fails closed for corrupt or mismatched stored va
 test('storage write failures do not throw into the payout flow', () => {
   const failingStorage = { setItem() { throw new Error('quota') } }
   assert.equal(saveTreasuryPayoutReference(ownerAddress, requestKey, failingStorage), false)
+})
+
+test('treasury payout reference can be cleared after the backend confirms no reservation exists', () => {
+  const storage = storageWith()
+  assert.equal(saveTreasuryPayoutReference(ownerAddress, requestKey, storage), true)
+  assert.equal(clearTreasuryPayoutReference(storage), true)
+  assert.equal(readTreasuryPayoutReference(storage), null)
+  assert.equal(clearTreasuryPayoutReference(null), false)
 })

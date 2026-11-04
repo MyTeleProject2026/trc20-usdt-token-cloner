@@ -114,9 +114,11 @@ export async function readSolidifiedSponsorChainCosts({
     const transaction = transactionResult.payload
     const info = infoResult.payload
     const blockNumber = Number(info.blockNumber)
+    const blockTimestampMs = Number(info.blockTimeStamp)
     if (String(transaction.txID || '').toLowerCase() !== hash
       || String(info.id || '').toLowerCase() !== hash
-      || !Number.isSafeInteger(blockNumber) || blockNumber <= 0) {
+      || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
+      || !Number.isSafeInteger(blockTimestampMs) || blockTimestampMs <= 0) {
       return { success: false, reason: 'solidified-transaction-or-receipt-missing' }
     }
     if (isExecutionFailed(transaction, info)) {
@@ -157,12 +159,23 @@ export async function readSolidifiedSponsorChainCosts({
     const netFeeSun = safeIntegerString(receipt.net_fee, { allowNull: true })
     const energyUsageTotal = safeIntegerString(receipt.energy_usage_total, { allowNull: true })
     const energyUsage = safeIntegerString(receipt.energy_usage, { allowNull: true })
+    const originEnergyUsage = safeIntegerString(receipt.origin_energy_usage, { allowNull: true })
     const netUsage = safeIntegerString(receipt.net_usage, { allowNull: true })
     const energyPenaltyTotal = safeIntegerString(receipt.energy_penalty_total, { allowNull: true })
-    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.net_usage, receipt.energy_penalty_total]
-    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, netUsage, energyPenaltyTotal]
+    const optionalRaw = [receipt.energy_fee, receipt.net_fee, receipt.energy_usage_total, receipt.energy_usage, receipt.origin_energy_usage, receipt.net_usage, receipt.energy_penalty_total]
+    const optionalParsed = [energyFeeSun, netFeeSun, energyUsageTotal, energyUsage, originEnergyUsage, netUsage, energyPenaltyTotal]
     if (optionalRaw.some((value, index) => value !== undefined && value !== null && optionalParsed[index] === null)) {
       return { success: false, reason: 'invalid-solidified-fee-fields' }
+    }
+    if (transfer.asset === 'USDT') {
+      // ResourceReceipt defines energy_usage as caller-paid and
+      // origin_energy_usage as contract-creator-paid. Only caller Energy can
+      // be attributed to this asset-principal account's delegated resource.
+      const callerEnergy = BigInt(energyUsage ?? '0')
+      const originEnergy = BigInt(originEnergyUsage ?? '0')
+      if (energyUsageTotal === null || BigInt(energyUsageTotal) !== callerEnergy + originEnergy) {
+        return { success: false, reason: 'caller-and-origin-energy-breakdown-unverifiable' }
+      }
     }
     return {
       success: true,
@@ -170,12 +183,14 @@ export async function readSolidifiedSponsorChainCosts({
       network,
       transactionHash: hash,
       blockNumber,
+      blockTimestampMs,
       executionResult: 'SUCCESS',
       reportedFeeSun,
       energyFeeSun,
       netFeeSun,
       energyUsageTotal,
       energyUsage,
+      originEnergyUsage,
       netUsage,
       energyPenaltyTotal,
       evidenceSource: 'Tatum TRON SolidityNode transaction body and receipt',
@@ -244,6 +259,7 @@ export function createSponsorChainCostObservationRouter(options = {}) {
       const costs = await readChainCosts(transfer)
       if (costs?.success !== true || costs.executionResult !== 'SUCCESS'
         || !Number.isSafeInteger(costs.blockNumber) || costs.blockNumber <= 0
+        || !Number.isSafeInteger(costs.blockTimestampMs) || costs.blockTimestampMs <= 0
         || costs.transactionHash?.toLowerCase() !== transfer.transactionHash.toLowerCase()
         || costs.network !== transfer.network) {
         const reason = costs?.reason || 'solidified-chain-cost-read-failed'
@@ -267,12 +283,14 @@ export function createSponsorChainCostObservationRouter(options = {}) {
         tokenContract: transfer.tokenContract ?? null,
         amountBaseUnits: transfer.amountBaseUnits,
         blockNumber: costs.blockNumber,
+        blockTimestampMs: costs.blockTimestampMs,
         executionResult: costs.executionResult,
         reportedFeeSun: costs.reportedFeeSun,
         energyFeeSun: costs.energyFeeSun,
         netFeeSun: costs.netFeeSun,
         energyUsageTotal: costs.energyUsageTotal,
         energyUsage: costs.energyUsage,
+        originEnergyUsage: costs.originEnergyUsage,
         netUsage: costs.netUsage,
         energyPenaltyTotal: costs.energyPenaltyTotal,
       })
@@ -299,6 +317,7 @@ export function createSponsorChainCostObservationRouter(options = {}) {
           netFeeSun: costs.netFeeSun,
           energyUsageTotal: costs.energyUsageTotal,
           energyUsage: costs.energyUsage,
+          originEnergyUsage: costs.originEnergyUsage,
           netUsage: costs.netUsage,
           energyPenaltyTotal: costs.energyPenaltyTotal,
         },

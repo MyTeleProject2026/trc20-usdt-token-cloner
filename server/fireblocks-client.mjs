@@ -73,18 +73,22 @@ export function fireblocksConfiguration(env = process.env) {
   const apiBaseInput = typeof env.FIREBLOCKS_API_BASE === 'string' && env.FIREBLOCKS_API_BASE.trim()
     ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '')
     : DEFAULT_API_BASE
-  const providerMissing = []
-  if (!apiKey) providerMissing.push('FIREBLOCKS_API_KEY')
+  const credentialsMissing = []
+  if (!apiKey) credentialsMissing.push('FIREBLOCKS_API_KEY')
   // This is the Fireblocks API-user RSA credential, not a blockchain wallet key.
   // Transaction signing is performed by Fireblocks custody infrastructure.
-  if (!secretKeyPath || !isAbsolute(secretKeyPath)) providerMissing.push('FIREBLOCKS_SECRET_KEY_PATH')
+  if (!secretKeyPath || !isAbsolute(secretKeyPath)) credentialsMissing.push('FIREBLOCKS_SECRET_KEY_PATH')
+  if (!ALLOWED_API_BASES.has(apiBaseInput)) credentialsMissing.push('FIREBLOCKS_API_BASE (unsupported production URL)')
+  const providerMissing = [...credentialsMissing]
   if (!/^\d{1,32}$/.test(vaultAccountId)) providerMissing.push('FIREBLOCKS_VAULT_ACCOUNT_ID')
-  if (!ALLOWED_API_BASES.has(apiBaseInput)) providerMissing.push('FIREBLOCKS_API_BASE (unsupported production URL)')
   const missing = [...providerMissing]
   if (!IDENTIFIER_PATTERN.test(usdtAssetId)) missing.push('FIREBLOCKS_USDT_ASSET_ID')
-  const providerConfigured = providerMissing.length === 0
+  const credentialsConfigured = credentialsMissing.length === 0
+  const providerConfigured = credentialsConfigured && /^\d{1,32}$/.test(vaultAccountId)
   return {
     configured: providerConfigured && IDENTIFIER_PATTERN.test(usdtAssetId),
+    credentialsConfigured,
+    credentialsMissing,
     providerConfigured,
     providerMissing,
     missing,
@@ -96,6 +100,56 @@ export function fireblocksConfiguration(env = process.env) {
     trxAssetConfigured,
     apiBase: apiBaseInput,
   }
+}
+
+/**
+ * Read-only discovery uses a separate Fireblocks API user and RSA key file.
+ * It refuses to run if either credential is shared with the payout identity.
+ */
+export function fireblocksReadOnlyConfiguration(env = process.env) {
+  const apiKey = typeof env.FIREBLOCKS_READONLY_API_KEY === 'string' ? env.FIREBLOCKS_READONLY_API_KEY.trim() : ''
+  const secretKeyPath = typeof env.FIREBLOCKS_READONLY_SECRET_KEY_PATH === 'string' ? env.FIREBLOCKS_READONLY_SECRET_KEY_PATH.trim() : ''
+  const payoutApiKey = typeof env.FIREBLOCKS_API_KEY === 'string' ? env.FIREBLOCKS_API_KEY.trim() : ''
+  const payoutSecretKeyPath = typeof env.FIREBLOCKS_SECRET_KEY_PATH === 'string' ? env.FIREBLOCKS_SECRET_KEY_PATH.trim() : ''
+  const apiBaseInput = typeof env.FIREBLOCKS_READONLY_API_BASE === 'string' && env.FIREBLOCKS_READONLY_API_BASE.trim()
+    ? env.FIREBLOCKS_READONLY_API_BASE.trim().replace(/\/+$/, '')
+    : (typeof env.FIREBLOCKS_API_BASE === 'string' && env.FIREBLOCKS_API_BASE.trim()
+      ? env.FIREBLOCKS_API_BASE.trim().replace(/\/+$/, '') : DEFAULT_API_BASE)
+  const credentialsMissing = []
+  if (!apiKey) credentialsMissing.push('FIREBLOCKS_READONLY_API_KEY')
+  if (!secretKeyPath || !isAbsolute(secretKeyPath)) credentialsMissing.push('FIREBLOCKS_READONLY_SECRET_KEY_PATH')
+  if (!ALLOWED_API_BASES.has(apiBaseInput)) credentialsMissing.push('FIREBLOCKS_READONLY_API_BASE (unsupported production URL)')
+  if (apiKey && payoutApiKey && apiKey === payoutApiKey) credentialsMissing.push('FIREBLOCKS_READONLY_API_KEY (must differ from FIREBLOCKS_API_KEY)')
+  if (secretKeyPath && payoutSecretKeyPath && secretKeyPath === payoutSecretKeyPath) credentialsMissing.push('FIREBLOCKS_READONLY_SECRET_KEY_PATH (must differ from FIREBLOCKS_SECRET_KEY_PATH)')
+  const vaultAccountId = typeof env.FIREBLOCKS_VAULT_ACCOUNT_ID === 'string' ? env.FIREBLOCKS_VAULT_ACCOUNT_ID.trim() : ''
+  const usdtAssetId = typeof env.FIREBLOCKS_USDT_ASSET_ID === 'string' ? env.FIREBLOCKS_USDT_ASSET_ID.trim() : ''
+  const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
+  return { configured: credentialsMissing.length === 0, credentialsConfigured: credentialsMissing.length === 0,
+    credentialsMissing, apiKey, secretKeyPath, apiBase: apiBaseInput,
+    vaultAccountId, usdtAssetId, trxAssetId }
+}
+
+/** Discovery-only client: no transaction submission or fee-estimate methods are exposed. */
+export function createFireblocksReadOnlyClient(env = process.env, options = {}) {
+  const config = fireblocksReadOnlyConfiguration(env)
+  const client = createFireblocksClient({
+    ...env,
+    FIREBLOCKS_API_KEY: config.configured ? config.apiKey : '',
+    FIREBLOCKS_SECRET_KEY_PATH: config.configured ? config.secretKeyPath : '',
+    FIREBLOCKS_API_BASE: config.apiBase,
+  }, options)
+  return Object.freeze({
+    configuration: () => ({ credentialsConfigured: config.configured,
+      credentialsMissing: [...config.credentialsMissing], apiBase: config.apiBase }),
+    getVaultAccount: () => client.getVaultAccount({ credentialsOnly: true }),
+    getPagedVaultAccounts: (args) => client.getPagedVaultAccounts(args),
+    getAssets: (args) => client.getAssets(args),
+    getVaultAccountAsset: (assetId) => client.getVaultAccountAsset(assetId, { credentialsOnly: true }),
+    getAssetMetadata: (assetId) => client.getAssetMetadata(assetId, { credentialsOnly: true }),
+    getAssetAddresses: (assetId, vaultAccountId) =>
+      client.getAssetAddresses(assetId, vaultAccountId, { credentialsOnly: true }),
+    getTransactionsPage: (args) => client.getTransactionsPage(args),
+  })
 }
 
 /**
@@ -280,11 +334,14 @@ export function createFireblocksClient(env = process.env, {
   readSecretFile = readFile,
   now = () => Date.now(),
   nonceFactory = () => randomBytes(16).toString('hex'),
+  signal: parentSignal = null,
 } = {}) {
   const config = fireblocksConfiguration(env)
 
-  async function request(method, uri, payload) {
-    if (!config.providerConfigured) throw new FireblocksApiError(503, 'fireblocks-not-configured')
+  async function request(method, uri, payload, { credentialsOnly = false, preserveEnvelope = false, includeHeaders = false } = {}) {
+    if (credentialsOnly ? !config.credentialsConfigured : !config.providerConfigured) {
+      throw new FireblocksApiError(503, credentialsOnly ? 'fireblocks-credentials-not-configured' : 'fireblocks-not-configured')
+    }
     if (typeof fetchImpl !== 'function') throw new FireblocksApiError(503, 'fetch-unavailable')
     if (typeof uri !== 'string' || !uri.startsWith('/v1/') || uri.includes('://') || uri.includes('#')) {
       throw new FireblocksApiError(400, 'invalid-fireblocks-path')
@@ -321,7 +378,9 @@ export function createFireblocksClient(env = process.env, {
         },
         ...(payload === undefined ? {} : { body }),
         redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
+        signal: parentSignal
+          ? AbortSignal.any([parentSignal, AbortSignal.timeout(15_000)])
+          : AbortSignal.timeout(15_000),
       })
     } catch {
       throw new FireblocksApiError(502, 'fireblocks-provider-unreachable')
@@ -343,7 +402,12 @@ export function createFireblocksClient(env = process.env, {
       // Provider response text and policy internals are deliberately not returned.
       throw new FireblocksApiError(response.status, 'fireblocks-provider-http-error')
     }
-    return unwrapResponse(parsed)
+    const data = preserveEnvelope ? parsed : unwrapResponse(parsed)
+    if (includeHeaders) {
+      const nextPage = response.headers?.get('next-page') || response.headers?.get('Next-Page') || null
+      return { data, nextPage }
+    }
+    return data
   }
 
   return Object.freeze({
@@ -352,6 +416,8 @@ export function createFireblocksClient(env = process.env, {
     isTrxAssetConfigured: () => config.providerConfigured && config.trxAssetConfigured,
     configuration: () => ({
       configured: config.configured,
+      credentialsConfigured: config.credentialsConfigured,
+      credentialsMissing: [...config.credentialsMissing],
       providerConfigured: config.providerConfigured,
       missing: [...config.missing],
       providerMissing: [...config.providerMissing],
@@ -359,9 +425,16 @@ export function createFireblocksClient(env = process.env, {
       missingTrxAsset: config.trxAssetConfigured ? [] : ['FIREBLOCKS_TRX_ASSET_ID'],
       apiBase: config.apiBase,
     }),
-    async getVaultAccount() {
+    async getVaultAccount({ credentialsOnly = false } = {}) {
       // Verify that the configured numeric Vault Account exists in the workspace.
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId))
+      if (!credentialsOnly && !config.providerConfigured) {
+        throw new FireblocksApiError(503, 'fireblocks-not-configured')
+      }
+      if (!/^[0-9]{1,32}$/.test(String(config.vaultAccountId || ''))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-vault-account-id')
+      }
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId),
+        undefined, { credentialsOnly })
     },
     async getPagedVaultAccounts({
       limit = 200, assetId, orderBy = 'DESC', before, after,
@@ -387,24 +460,41 @@ export function createFireblocksClient(env = process.env, {
       if (namePrefix !== undefined) query.set('namePrefix', namePrefix.trim())
       if (nameSuffix !== undefined) query.set('nameSuffix', nameSuffix.trim())
       if (minAmountThreshold !== undefined) query.set('minAmountThreshold', String(minAmountThreshold))
-      return request('GET', '/v1/vault/accounts_paged?' + query.toString())
+      return request('GET', '/v1/vault/accounts_paged?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
-    async getVaultAccountAsset(assetId = config.usdtAssetId) {
-      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
-      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId))
+    async getAssets({ symbol, pageSize = 500, pageCursor, deprecated = false } = {}) {
+      if (typeof symbol !== 'string' || !/^[A-Z0-9._-]{1,24}$/.test(symbol)
+        || !Number.isInteger(pageSize) || pageSize < 100 || pageSize > 1000
+        || typeof deprecated !== 'boolean'
+        || (pageCursor !== undefined && (typeof pageCursor !== 'string' || !pageCursor.trim() || pageCursor.length > 2048))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-asset-discovery-request')
+      }
+      const query = new URLSearchParams({ symbol, pageSize: String(pageSize), deprecated: String(deprecated) })
+      if (pageCursor !== undefined) query.set('pageCursor', pageCursor)
+      return request('GET', '/v1/assets?' + query.toString(), undefined, { credentialsOnly: true, preserveEnvelope: true })
     },
-    async getAssetMetadata(assetId = config.usdtAssetId) {
+    async getVaultAccountAsset(assetId = config.usdtAssetId, { credentialsOnly = false } = {}) {
+      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))
+        || !/^[0-9]{1,32}$/.test(String(config.vaultAccountId || ''))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-asset-or-vault-id')
+      }
+      return request('GET', '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId) + '/' + encodeURIComponent(assetId),
+        undefined, { credentialsOnly })
+    },
+    async getAssetMetadata(assetId = config.usdtAssetId, { credentialsOnly = false } = {}) {
       // /v1/assets/{id} is provider metadata; vault/account asset responses are
       // separate available-balance records. Never confuse the two.
       if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
-      return request('GET', '/v1/assets/' + encodeURIComponent(assetId))
+      return request('GET', '/v1/assets/' + encodeURIComponent(assetId), undefined, { credentialsOnly })
     },
-    async getAssetAddresses(assetId = config.usdtAssetId) {
-      if (!IDENTIFIER_PATTERN.test(String(assetId || ''))) throw new FireblocksApiError(400, 'invalid-fireblocks-asset-id')
+    async getAssetAddresses(assetId = config.usdtAssetId, vaultAccountId = config.vaultAccountId, { credentialsOnly = false } = {}) {
+      if (!IDENTIFIER_PATTERN.test(String(assetId || '')) || !/^\d{1,32}$/.test(String(vaultAccountId || ''))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-asset-or-vault-id')
+      }
       // The non-paginated /addresses endpoint is deprecated and may be disabled
       // for newer workspaces. Read every page; if pagination cannot be completed,
       // throw so the payout route fails closed rather than assuming one address.
-      const basePath = '/v1/vault/accounts/' + encodeURIComponent(config.vaultAccountId)
+      const basePath = '/v1/vault/accounts/' + encodeURIComponent(vaultAccountId)
         + '/' + encodeURIComponent(assetId) + '/addresses_paginated'
       const allAddresses = []
       let after = ''
@@ -412,7 +502,7 @@ export function createFireblocksClient(env = process.env, {
       for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
         const query = new URLSearchParams({ limit: '500' })
         if (after) query.set('after', after)
-        const page = await request('GET', basePath + '?' + query.toString())
+        const page = await request('GET', basePath + '?' + query.toString(), undefined, { credentialsOnly })
         allAddresses.push(...extractFireblocksAddresses(page))
         const nextAfter = typeof page?.paging?.after === 'string' ? page.paging.after
           : typeof page?.after === 'string' ? page.after
@@ -491,6 +581,42 @@ export function createFireblocksClient(env = process.env, {
         note: typeof note === 'string' ? note.slice(0, 180) : 'TRON Token Studio treasury TRX payout',
       }
       return request('POST', '/v1/transactions', requestBody)
+    },
+    async getTransactionsPage({ after, before, next, limit = 500 } = {}) {
+      const validTimestamp = (value) => typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value)
+      const historyAssetIds = [config.usdtAssetId, config.trxAssetId]
+      if (!validTimestamp(after) || !validTimestamp(before) || BigInt(before) <= BigInt(after)
+        || !historyAssetIds.every((assetId) => IDENTIFIER_PATTERN.test(assetId || ''))
+        || !Number.isInteger(limit) || limit < 1 || limit > 500
+        || (next !== undefined && (typeof next !== 'string' || !next.trim()
+          || next.length > 8192 || /[\r\n]/.test(next)))) {
+        throw new FireblocksApiError(400, 'invalid-fireblocks-transaction-history-page-request')
+      }
+      const query = new URLSearchParams({
+        after,
+        before,
+        limit: String(limit),
+        sourceType: 'VAULT_ACCOUNT',
+        sourceId: config.vaultAccountId,
+        assets: historyAssetIds.join(','),
+        orderBy: 'createdAt',
+        sort: 'ASC',
+      })
+      if (next !== undefined) query.set('next', next)
+      const result = await request('GET', '/v1/transactions?' + query.toString(), undefined, {
+        credentialsOnly: true,
+        includeHeaders: true,
+      })
+      const rows = Array.isArray(result.data) ? result.data
+        : Array.isArray(result.data?.transactions) ? result.data.transactions
+          : Array.isArray(result.data?.data) ? result.data.data : null
+      if (!rows) throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-response')
+      const nextPage = typeof result.nextPage === 'string' && result.nextPage.trim()
+        ? result.nextPage.trim() : null
+      if (nextPage && (nextPage.length > 8192 || /[\r\n]/.test(nextPage))) {
+        throw new FireblocksApiError(502, 'fireblocks-invalid-transaction-history-cursor')
+      }
+      return { transactions: rows, nextPage }
     },
     async getTransaction(transactionId) {
       if (typeof transactionId !== 'string' || !IDENTIFIER_PATTERN.test(transactionId)) {

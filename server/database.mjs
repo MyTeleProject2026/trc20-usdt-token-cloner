@@ -4,9 +4,16 @@ import { createSponsorFundingReader } from './sponsor-funding.mjs'
 import { reconcileSponsorBudgets } from './sponsor-reconciliation.mjs'
 import { isPositiveUint256 } from './base-units.mjs'
 import { isValidTronAddress } from './tron-address.mjs'
+import {
+  SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION,
+  SPONSOR_RESOURCE_LEDGER_SCHEMA_DESCRIPTION,
+} from './sponsor-database-version.mjs'
 
 const { Pool } = pg
 const schema = 'trc20_token_clone'
+// A session-level PostgreSQL advisory lock serializes schema migrations across
+// server instances and test workers sharing the same database.
+const DATABASE_INITIALIZATION_LOCK_KEY = '7143928156321190'
 const readSponsorFundingStatusForReservation = createSponsorFundingReader()
 const SPONSOR_CHAIN_SNAPSHOT_SOURCE = 'Tatum TRON SolidityNode account and constant-contract queries'
 const SPONSORED_TOKEN_ASSETS = new Set(['USDT'])
@@ -96,7 +103,25 @@ export async function initializeDatabase() {
   if (!db) return { configured: false, ready: false }
   if (!initPromise) {
     initPromise = (async () => {
-      await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+      const migrationLockClient = await db.connect()
+      let migrationLockAcquired = false
+      try {
+        await migrationLockClient.query(
+          'SELECT pg_advisory_lock($1::bigint)',
+          [DATABASE_INITIALIZATION_LOCK_KEY],
+        )
+        migrationLockAcquired = true
+        await db.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
+
+        // The sponsor marker is written only after every initializer DDL statement succeeds.
+        // It records bootstrap completion; it does not replace independent restore rehearsal.
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS ${schema}.schema_migrations (
+            version TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          )
+        `)
 
       // Append-only, credential-free Fireblocks inventory history for the
       // manually dispatched read-only workflow. Never store API keys, JWTs,
@@ -126,6 +151,128 @@ export async function initializeDatabase() {
       `)
       await db.query(`CREATE INDEX IF NOT EXISTS fireblocks_inventory_checked_at_idx
         ON ${schema}.fireblocks_inventory_snapshots (checked_at DESC)`)
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.third_party_funding_authorizations (
+          authorization_id TEXT PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network = 'mainnet'),
+          sponsor_organization_reference TEXT NOT NULL DEFAULT 'legacy-unscoped',
+          sponsor_address TEXT NOT NULL,
+          vault_address TEXT NOT NULL,
+          usdt_contract TEXT NOT NULL CHECK (usdt_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'),
+          max_usdt_base_units NUMERIC(78,0) NOT NULL CHECK (max_usdt_base_units > 0),
+          max_trx_sun NUMERIC(78,0) NOT NULL CHECK (max_trx_sun > 0),
+          agreement_reference TEXT NOT NULL,
+          agreement_document_sha256 CHAR(64),
+          agreement_reviewed_by TEXT NOT NULL,
+          agreement_reviewed_at TIMESTAMPTZ NOT NULL,
+          withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false,
+          withdrawal_disbursement_reviewed_by TEXT,
+          withdrawal_disbursement_reviewed_at TIMESTAMPTZ,
+          signature TEXT NOT NULL,
+          signature_hash CHAR(64) NOT NULL UNIQUE,
+          message_hash CHAR(64) NOT NULL,
+          issued_at TIMESTAMPTZ NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          status TEXT NOT NULL DEFAULT 'awaiting-deposit'
+            CHECK (status IN ('awaiting-deposit','deposit-evidence-recorded','revoked','expired','cap-reached')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT third_party_funding_agreement_sha256_format_check
+            CHECK (
+              agreement_document_sha256 IS NULL
+              OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+            ),
+          CONSTRAINT third_party_funding_disbursement_review_check
+            CHECK (
+              NOT withdrawal_disbursement_acknowledged
+              OR (withdrawal_disbursement_reviewed_by IS NOT NULL
+                AND withdrawal_disbursement_reviewed_at IS NOT NULL)
+            ),
+          CHECK (sponsor_address <> vault_address),
+          CHECK (expires_at > issued_at)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.third_party_funding_deposits (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          authorization_id TEXT NOT NULL REFERENCES ${schema}.third_party_funding_authorizations(authorization_id),
+          network TEXT NOT NULL CHECK (network = 'mainnet'),
+          transaction_hash CHAR(64) NOT NULL,
+          asset TEXT NOT NULL CHECK (asset IN ('USDT','TRX')),
+          token_contract TEXT,
+          sender_address TEXT NOT NULL,
+          recipient_address TEXT NOT NULL,
+          amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          evidence_index INTEGER NOT NULL CHECK (evidence_index >= 0),
+          receipt_result TEXT NOT NULL CHECK (receipt_result = 'SUCCESS'),
+          chain_verified_at TIMESTAMPTZ NOT NULL,
+          fireblocks_verified_at TIMESTAMPTZ,
+          fireblocks_snapshot_id TEXT,
+          fireblocks_vault_account_id TEXT,
+          fireblocks_checked_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((asset = 'USDT' AND token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}')
+            OR (asset = 'TRX' AND token_contract IS NULL)),
+          UNIQUE (authorization_id, asset),
+          UNIQUE (network, transaction_hash, asset)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT NOT NULL DEFAULT 'legacy-unscoped'`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS signature TEXT`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS agreement_document_sha256 CHAR(64)`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_acknowledged BOOLEAN NOT NULL DEFAULT false`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_reviewed_by TEXT`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations ADD COLUMN IF NOT EXISTS withdrawal_disbursement_reviewed_at TIMESTAMPTZ`)
+      await db.query(`
+        DO $migration$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM pg_constraint
+             WHERE conrelid = '${schema}.third_party_funding_authorizations'::regclass
+               AND conname = 'third_party_funding_agreement_sha256_format_check'
+          ) THEN
+            ALTER TABLE ${schema}.third_party_funding_authorizations
+              ADD CONSTRAINT third_party_funding_agreement_sha256_format_check
+              CHECK (
+                agreement_document_sha256 IS NULL
+                OR agreement_document_sha256::text ~ '^[0-9a-f]{64}$'
+              ) NOT VALID;
+          END IF;
+        END;
+        $migration$;
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
+        VALIDATE CONSTRAINT third_party_funding_agreement_sha256_format_check`)
+      await db.query(`
+        DO $migration$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+              FROM pg_constraint
+             WHERE conrelid = '${schema}.third_party_funding_authorizations'::regclass
+               AND conname = 'third_party_funding_disbursement_review_check'
+          ) THEN
+            ALTER TABLE ${schema}.third_party_funding_authorizations
+              ADD CONSTRAINT third_party_funding_disbursement_review_check
+              CHECK (
+                NOT withdrawal_disbursement_acknowledged
+                OR (withdrawal_disbursement_reviewed_by IS NOT NULL
+                  AND withdrawal_disbursement_reviewed_at IS NOT NULL)
+              ) NOT VALID;
+          END IF;
+        END;
+        $migration$;
+      `)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_authorizations
+        VALIDATE CONSTRAINT third_party_funding_disbursement_review_check`)
+      await db.query(`ALTER TABLE ${schema}.third_party_funding_deposits ADD COLUMN IF NOT EXISTS fireblocks_vault_account_id TEXT`)
+      await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_deposits_auth_idx
+        ON ${schema}.third_party_funding_deposits (authorization_id, created_at DESC)`)
+      await db.query(`CREATE INDEX IF NOT EXISTS third_party_funding_auth_expiry_idx
+        ON ${schema}.third_party_funding_authorizations (status, expires_at)`)
 
       // Make the inventory history immutable through the application connection.
       await db.query(`
@@ -489,12 +636,14 @@ export async function initializeDatabase() {
           token_contract TEXT,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           block_number BIGINT NOT NULL CHECK (block_number > 0),
+          block_timestamp_ms BIGINT NOT NULL CHECK (block_timestamp_ms > 0),
           execution_result TEXT NOT NULL CHECK (execution_result = 'SUCCESS'),
           reported_fee_sun NUMERIC(78,0) NOT NULL CHECK (reported_fee_sun >= 0),
           energy_fee_sun NUMERIC(78,0),
           net_fee_sun NUMERIC(78,0),
           energy_usage_total NUMERIC(78,0),
           energy_usage NUMERIC(78,0),
+          origin_energy_usage NUMERIC(78,0),
           net_usage NUMERIC(78,0),
           energy_penalty_total NUMERIC(78,0),
           evidence_source TEXT NOT NULL DEFAULT 'Tatum TRON SolidityNode transaction body and receipt',
@@ -504,6 +653,8 @@ export async function initializeDatabase() {
           UNIQUE (network, transaction_hash)
         )
       `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_chain_cost_observations ADD COLUMN IF NOT EXISTS block_timestamp_ms BIGINT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_chain_cost_observations ADD COLUMN IF NOT EXISTS origin_energy_usage NUMERIC(78,0)`)
       // Chain-cost evidence is an immutable audit ledger: keep old VTRC observations
       // readable but reject any new observation for an unsupported asset.
       await db.query(`DO $sponsor_observation_supported_asset$ BEGIN
@@ -521,6 +672,90 @@ export async function initializeDatabase() {
         ON ${schema}.sponsor_chain_cost_observations (network, observed_at DESC)`)
       await db.query(`COMMENT ON TABLE ${schema}.sponsor_chain_cost_observations IS
         'TRC20 Token Clone project only: immutable solidified transaction cost observations. Not, by itself, proof of fee-sponsor debit or a settled fee budget.'`)
+      // Delegated Energy/Bandwidth sponsor budgets are separate from TRX principal budgets.
+      // They reserve resource units only; receipt observations alone never settle these budgets.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_budgets (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          mandate_reference TEXT NOT NULL UNIQUE,
+          sponsor_reference TEXT NOT NULL,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          fee_sponsor_address TEXT NOT NULL,
+          asset_principal_address TEXT NOT NULL,
+          energy_budget_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_budget_units >= 0),
+          bandwidth_budget_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_budget_units >= 0),
+          energy_per_transfer_limit NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_per_transfer_limit >= 0),
+          bandwidth_per_transfer_limit NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_per_transfer_limit >= 0),
+          energy_reserved_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_reserved_units >= 0),
+          bandwidth_reserved_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_reserved_units >= 0),
+          energy_spent_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (energy_spent_units >= 0),
+          bandwidth_spent_units NUMERIC(78,0) NOT NULL DEFAULT 0 CHECK (bandwidth_spent_units >= 0),
+          valid_until TIMESTAMPTZ NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending-review'
+            CHECK (status IN ('pending-review','active','paused','expired','depleted')),
+          approval_reference TEXT,
+          review_reference TEXT,
+          approved_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (fee_sponsor_address <> asset_principal_address),
+          CHECK (energy_reserved_units + energy_spent_units <= energy_budget_units),
+          CHECK (bandwidth_reserved_units + bandwidth_spent_units <= bandwidth_budget_units)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_reservations (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          idempotency_key TEXT NOT NULL UNIQUE
+            REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          budget_id BIGINT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(id) ON DELETE RESTRICT,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          transaction_hash CHAR(64),
+          energy_reserved_units NUMERIC(78,0) NOT NULL CHECK (energy_reserved_units >= 0),
+          bandwidth_reserved_units NUMERIC(78,0) NOT NULL CHECK (bandwidth_reserved_units >= 0),
+          status TEXT NOT NULL DEFAULT 'reserved'
+            CHECK (status IN ('reserved','pending-evidence','settled','manual-review','released')),
+          expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '15 minutes'),
+          preflight_evidence JSONB,
+          preflight_checked_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK (energy_reserved_units > 0 OR bandwidth_reserved_units > 0)
+        )
+      `)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${schema}.sponsor_resource_cost_settlements (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          network TEXT NOT NULL CHECK (network IN ('shasta','nile')),
+          transaction_hash CHAR(64) NOT NULL,
+          idempotency_key TEXT NOT NULL REFERENCES ${schema}.sponsor_transfers(idempotency_key) ON DELETE RESTRICT,
+          budget_id BIGINT NOT NULL REFERENCES ${schema}.sponsor_resource_budgets(id) ON DELETE RESTRICT,
+          block_number BIGINT NOT NULL CHECK (block_number > 0),
+          block_timestamp_ms BIGINT NOT NULL CHECK (block_timestamp_ms > 0),
+          energy_used_units NUMERIC(78,0),
+          bandwidth_used_units NUMERIC(78,0),
+          reported_fee_sun NUMERIC(78,0),
+          energy_fee_sun NUMERIC(78,0),
+          net_fee_sun NUMERIC(78,0),
+          evidence_source TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending-evidence','manual-review','settled','conflict')),
+          evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+          observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (network, transaction_hash, budget_id)
+        )
+      `)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_cost_settlements ADD COLUMN IF NOT EXISTS reported_fee_sun NUMERIC(78,0)`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_cost_settlements ADD COLUMN IF NOT EXISTS block_timestamp_ms BIGINT`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_evidence JSONB`)
+      await db.query(`ALTER TABLE ${schema}.sponsor_resource_reservations ADD COLUMN IF NOT EXISTS preflight_checked_at TIMESTAMPTZ`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_pair
+        ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address, status)`)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_budgets_one_active_pair
+        ON ${schema}.sponsor_resource_budgets (network, fee_sponsor_address, asset_principal_address) WHERE status = 'active'`)
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_ttc_sponsor_resource_reservations_budget
+        ON ${schema}.sponsor_resource_reservations (budget_id, status, created_at DESC)`)
+      await db.query(`COMMENT ON TABLE ${schema}.sponsor_resource_cost_settlements IS
+        'Append-only receipt resource observations. Pending/manual-review records are not sponsor-budget settlement and never enable submission.'`)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.audit_events (
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -549,6 +784,11 @@ export async function initializeDatabase() {
       await db.query(`
         CREATE INDEX IF NOT EXISTS idx_ttc_resource_delegations_created
           ON ${schema}.sponsor_resource_delegations (network, created_at DESC)
+      `)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_ttc_resource_delegations_pair_block
+          ON ${schema}.sponsor_resource_delegations
+            (network, sponsor_address, receiver_address, block_number DESC, id DESC)
       `)
       await db.query(`
         CREATE TABLE IF NOT EXISTS ${schema}.sponsor_provider_applications (
@@ -583,7 +823,22 @@ export async function initializeDatabase() {
         const literal = "'" + comment.replace(/'/g, "''") + "'"
         await db.query(`COMMENT ON TABLE ${schema}.${table} IS ${literal}`)
       }
-      return { configured: true, ready: true, schema }
+      await db.query(
+        `INSERT INTO ${schema}.schema_migrations (version, description)
+         VALUES ($1, $2)
+         ON CONFLICT (version) DO NOTHING`,
+        [SPONSOR_RESOURCE_LEDGER_SCHEMA_VERSION, SPONSOR_RESOURCE_LEDGER_SCHEMA_DESCRIPTION],
+      )
+        return { configured: true, ready: true, schema }
+      } finally {
+        if (migrationLockAcquired) {
+          await migrationLockClient.query(
+            'SELECT pg_advisory_unlock($1::bigint)',
+            [DATABASE_INITIALIZATION_LOCK_KEY],
+          ).catch(() => {})
+        }
+        migrationLockClient.release()
+      }
     })().catch((error) => {
       initPromise = undefined
       // Avoid logging connection URL or SQL parameter values.
@@ -1088,11 +1343,23 @@ export async function recordSponsorResourceDelegation(input) {
 }
 
 /** Read previously independently verified, project-persisted sponsor resource delegations. */
-export async function listSponsorResourceDelegations({ network, limit = 20 } = {}) {
+export async function listSponsorResourceDelegations({
+  network, feeSponsorAddress = null, principalSponsorAddress = null, limit = 20,
+} = {}) {
   const normalizedNetwork = normalizeVerificationNetwork(network)
   if (!normalizedNetwork) return { success: false, reason: 'invalid-network', delegations: [] }
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     return { success: false, reason: 'invalid-limit', delegations: [] }
+  }
+  const hasFeeSponsor = feeSponsorAddress !== null
+  const hasPrincipal = principalSponsorAddress !== null
+  if (hasFeeSponsor !== hasPrincipal
+    || (hasFeeSponsor && (
+      typeof feeSponsorAddress !== 'string' || !isValidTronAddress(feeSponsorAddress)
+      || typeof principalSponsorAddress !== 'string' || !isValidTronAddress(principalSponsorAddress)
+      || feeSponsorAddress === principalSponsorAddress
+    ))) {
+    return { success: false, reason: 'invalid-sponsor-pair-filter', delegations: [] }
   }
   const db = getPool()
   if (!db) return { success: false, reason: 'database-not-configured', delegations: [] }
@@ -1104,9 +1371,11 @@ export async function listSponsorResourceDelegations({ network, limit = 20 } = {
               verification_status, created_at
          FROM ${schema}.sponsor_resource_delegations
         WHERE network = $1
-        ORDER BY created_at DESC
-        LIMIT $2`,
-      [normalizedNetwork, limit],
+          AND ($2::text IS NULL OR sponsor_address = $2)
+          AND ($3::text IS NULL OR receiver_address = $3)
+        ORDER BY block_number DESC, id DESC
+        LIMIT $4`,
+      [normalizedNetwork, feeSponsorAddress, principalSponsorAddress, limit],
     )
     return {
       success: true,
@@ -1896,6 +2165,28 @@ export async function claimSponsorTransferBroadcast({
       await client.query('ROLLBACK')
       return { claimed: false, reason: 'sponsor-intent-identity-mismatch' }
     }
+    const resourceResult = await client.query(
+      `SELECT r.status AS reservation_status, r.expires_at, b.status AS budget_status,
+              b.valid_until, b.fee_sponsor_address, b.asset_principal_address
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+        WHERE r.idempotency_key = $1
+        FOR UPDATE OF r, b`,
+      [idempotencyKey],
+    )
+    const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'] === 'string'
+      ? process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'].trim() : ''
+    if (!resourceResult.rows.length
+      || resourceResult.rows[0].reservation_status !== 'reserved'
+      || resourceResult.rows[0].budget_status !== 'active'
+      || new Date(resourceResult.rows[0].expires_at).getTime() <= Date.now()
+      || new Date(resourceResult.rows[0].valid_until).getTime() <= Date.now()
+      || resourceResult.rows[0].asset_principal_address !== transfer.sponsor_address
+      || resourceResult.rows[0].fee_sponsor_address !== configuredFeeSponsorAddress
+      || resourceResult.rows[0].fee_sponsor_address === resourceResult.rows[0].asset_principal_address) {
+      await client.query('ROLLBACK')
+      return { claimed: false, reason: 'active-fee-resource-reservation-required' }
+    }
     const txId = transactionHash.toLowerCase()
     if (transfer.status === 'submitted' && transfer.transaction_hash?.trim().toLowerCase() === txId) {
       await client.query('COMMIT')
@@ -2115,8 +2406,8 @@ export async function createSponsorBudgetDraft(input) {
   }
 }
 
-function approvedSponsorAgreementScopes() {
-  return String(process.env.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
+function approvedSponsorAgreementScopes(env = process.env) {
+  return String(env?.SPONSOR_APPROVED_AGREEMENT_REFERENCES || '')
     .split(';').map((entry) => entry.trim()).filter(Boolean)
     .map((entry) => {
       const fields = entry.split('|')
@@ -2140,14 +2431,14 @@ function approvedSponsorAgreementScopes() {
     .filter(Boolean)
 }
 
-export function isSponsorAgreementReferenceConfigured(reference) {
+export function isSponsorAgreementReferenceConfigured(reference, env = process.env) {
   return typeof reference === 'string'
-    && approvedSponsorAgreementScopes().some((scope) => scope.reference === reference)
+    && approvedSponsorAgreementScopes(env).some((scope) => scope.reference === reference)
 }
 
-export function isApprovedSponsorAgreementScope({ consentReference, budget } = {}) {
+export function isApprovedSponsorAgreementScope({ consentReference, budget, env = process.env } = {}) {
   if (typeof consentReference !== 'string' || !budget || typeof budget !== 'object') return false
-  return approvedSponsorAgreementScopes().some((scope) =>
+  return approvedSponsorAgreementScopes(env).some((scope) =>
     scope.reference === consentReference
       && scope.sponsorReference === budget.sponsor_reference
       && scope.network === budget.network
@@ -2910,11 +3201,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
   const feeSponsorAddress = typeof input.feeSponsorAddress === 'string' ? input.feeSponsorAddress.trim() : '';
   const blockNumber = input.blockNumber;
   const amounts = ['amountBaseUnits', 'reportedFeeSun', 'energyFeeSun', 'netFeeSun',
-    'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'];
+    'energyUsageTotal', 'energyUsage', 'originEnergyUsage', 'netUsage', 'energyPenaltyTotal'];
   const integerValues = {};
   for (const key of amounts) {
     const value = input[key];
-    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
+    if (value === null && ['energyFeeSun', 'netFeeSun', 'energyUsageTotal', 'energyUsage', 'originEnergyUsage', 'netUsage', 'energyPenaltyTotal'].includes(key)) {
       integerValues[key] = null;
     } else if (typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)) {
       integerValues[key] = value;
@@ -2926,6 +3217,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
   }
   const asset = input.asset;
   const tokenContract = asset === 'TRX' ? null : (typeof input.tokenContract === 'string' ? input.tokenContract.trim() : '');
+  if (asset === 'USDT' && (integerValues.energyUsageTotal === null
+    || BigInt(integerValues.energyUsage ?? '0') + BigInt(integerValues.originEnergyUsage ?? '0')
+      !== BigInt(integerValues.energyUsageTotal))) {
+    return { success: false, reason: 'caller-and-origin-energy-breakdown-unverifiable' };
+  }
   if (!['nile', 'shasta'].includes(network)
     || !/^[0-9a-f]{64}$/.test(transactionHash)
     || typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
@@ -2938,6 +3234,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
     || (asset === 'TRX' && input.tokenContract != null)
     || (asset !== 'TRX' && !isValidTronAddress(tokenContract))
     || typeof blockNumber !== 'number' || !Number.isSafeInteger(blockNumber) || blockNumber <= 0
+    || typeof input.blockTimestampMs !== 'number' || !Number.isSafeInteger(input.blockTimestampMs) || input.blockTimestampMs <= 0
     || input.executionResult !== 'SUCCESS'
     || integerValues.amountBaseUnits === '0') {
     return { success: false, reason: 'invalid-chain-cost-observation' };
@@ -3010,9 +3307,10 @@ export async function recordSponsorChainCostObservation(input = {}) {
         `SELECT network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
                 asset_principal_address, receiver_address, asset, token_contract,
                 amount_base_units::text AS amount_base_units, block_number::text AS block_number,
-                execution_result, reported_fee_sun::text AS reported_fee_sun,
+                block_timestamp_ms::text AS block_timestamp_ms, execution_result, reported_fee_sun::text AS reported_fee_sun,
                 energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
                 energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+                origin_energy_usage::text AS origin_energy_usage,
                 net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total
            FROM ${schema}.sponsor_chain_cost_observations
           WHERE network = $1 AND transaction_hash = $2
@@ -3024,10 +3322,11 @@ export async function recordSponsorChainCostObservation(input = {}) {
         sponsor_reference: input.sponsorReference, fee_sponsor_address: feeSponsorAddress,
         asset_principal_address: input.assetPrincipalAddress, receiver_address: input.receiverAddress,
         asset, token_contract: tokenContract, amount_base_units: integerValues.amountBaseUnits,
-        block_number: String(blockNumber), execution_result: 'SUCCESS',
+        block_number: String(blockNumber), block_timestamp_ms: String(input.blockTimestampMs), execution_result: 'SUCCESS',
         reported_fee_sun: integerValues.reportedFeeSun,
         energy_fee_sun: integerValues.energyFeeSun, net_fee_sun: integerValues.netFeeSun,
         energy_usage_total: integerValues.energyUsageTotal, energy_usage: integerValues.energyUsage,
+        origin_energy_usage: integerValues.originEnergyUsage,
         net_usage: integerValues.netUsage, energy_penalty_total: integerValues.energyPenaltyTotal,
       };
       const same = (row) => Object.keys(incoming).every((key) => {
@@ -3048,15 +3347,15 @@ export async function recordSponsorChainCostObservation(input = {}) {
         `INSERT INTO ${schema}.sponsor_chain_cost_observations
           (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
            asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
-           block_number, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
-           energy_usage_total, energy_usage, net_usage, energy_penalty_total)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13::numeric,
-                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19::numeric)`,
+           block_number, block_timestamp_ms, execution_result, reported_fee_sun, energy_fee_sun, net_fee_sun,
+           energy_usage_total, energy_usage, origin_energy_usage, net_usage, energy_penalty_total)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13,$14,$15::numeric,
+                 $16::numeric,$17::numeric,$18::numeric,$19::numeric,$20::numeric,$21::numeric)`,
         [network, transactionHash, idempotencyKey, input.sponsorReference, feeSponsorAddress,
           input.assetPrincipalAddress, input.receiverAddress, asset, tokenContract,
-          integerValues.amountBaseUnits, blockNumber, 'SUCCESS', integerValues.reportedFeeSun,
+          integerValues.amountBaseUnits, blockNumber, input.blockTimestampMs, 'SUCCESS', integerValues.reportedFeeSun,
           integerValues.energyFeeSun, integerValues.netFeeSun, integerValues.energyUsageTotal,
-          integerValues.energyUsage, integerValues.netUsage, integerValues.energyPenaltyTotal],
+          integerValues.energyUsage, integerValues.originEnergyUsage, integerValues.netUsage, integerValues.energyPenaltyTotal],
       );
       await client.query(
         `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
@@ -3101,6 +3400,7 @@ export async function listSponsorChainCostObservations({ network = null, limit =
               execution_result, reported_fee_sun::text AS reported_fee_sun,
               energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun,
               energy_usage_total::text AS energy_usage_total, energy_usage::text AS energy_usage,
+               origin_energy_usage::text AS origin_energy_usage,
               net_usage::text AS net_usage, energy_penalty_total::text AS energy_penalty_total,
               evidence_source, observed_at
          FROM ${schema}.sponsor_chain_cost_observations
@@ -3127,6 +3427,7 @@ export async function listSponsorChainCostObservations({ network = null, limit =
       netFeeSun: row.net_fee_sun,
       energyUsageTotal: row.energy_usage_total,
       energyUsage: row.energy_usage,
+       originEnergyUsage: row.origin_energy_usage,
       netUsage: row.net_usage,
       energyPenaltyTotal: row.energy_penalty_total,
       evidenceSource: row.evidence_source,
@@ -3178,8 +3479,9 @@ export async function persistFireblocksInventorySnapshot(input = {}) {
     usdtAssetId: textValue(configuration.usdtAssetId, 128),
     trxAssetId: textValue(configuration.trxAssetId, 128),
     treasuryAddress: textValue(configuration.treasuryAddress, 64),
-    secretKeyPath: textValue(configuration.secretKeyPath, 512),
-    signerMode: 'fireblocks',
+    // Do not persist secret-file paths; the Viewer credential is process-local only.
+    secretKeyPath: null,
+    signerMode: 'fireblocks-read-only',
     network: 'mainnet',
     usdtContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     usdtDecimals: 6,
@@ -3298,3 +3600,1597 @@ export async function getLatestFireblocksInventorySnapshot() {
   }
 }
 
+
+
+/**
+ * Creates a pending delegated-resource mandate budget. Activation is a separate
+ * operator action and requires an exact server-side allowlisted mandate scope.
+ * This function never enables transaction submission.
+ */
+export async function createSponsorResourceBudgetDraft(input = {}) {
+  const {
+    mandateReference, sponsorReference, network, feeSponsorAddress, assetPrincipalAddress,
+    energyBudgetUnits = '0', bandwidthBudgetUnits = '0',
+    energyPerTransferLimit = '0', bandwidthPerTransferLimit = '0', validUntil,
+  } = input
+  const integer = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  const expiry = typeof validUntil === 'string' ? new Date(validUntil) : null
+  if (typeof mandateReference !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(mandateReference)
+    || typeof sponsorReference !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(sponsorReference)
+    || !['nile','shasta'].includes(network)
+    || !isValidTronAddress(feeSponsorAddress) || !isValidTronAddress(assetPrincipalAddress)
+    || feeSponsorAddress === assetPrincipalAddress
+    || !integer(energyBudgetUnits) || !integer(bandwidthBudgetUnits)
+    || !integer(energyPerTransferLimit) || !integer(bandwidthPerTransferLimit)
+    || (energyBudgetUnits === '0' && bandwidthBudgetUnits === '0')
+    || BigInt(energyPerTransferLimit) > BigInt(energyBudgetUnits)
+    || BigInt(bandwidthPerTransferLimit) > BigInt(bandwidthBudgetUnits)
+    || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+    return { success: false, reason: 'invalid-resource-budget-draft' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `INSERT INTO ${schema}.sponsor_resource_budgets
+        (mandate_reference, sponsor_reference, network, fee_sponsor_address, asset_principal_address,
+         energy_budget_units, bandwidth_budget_units, energy_per_transfer_limit,
+         bandwidth_per_transfer_limit, valid_until, status)
+       VALUES ($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10,'pending-review')
+       ON CONFLICT (mandate_reference) DO NOTHING
+       RETURNING id::text AS id, mandate_reference, network, status`,
+      [mandateReference, sponsorReference, network, feeSponsorAddress, assetPrincipalAddress,
+        energyBudgetUnits, bandwidthBudgetUnits, energyPerTransferLimit, bandwidthPerTransferLimit, expiry.toISOString()],
+    )
+    if (!result.rows.length) return { success: false, reason: 'resource-mandate-already-exists' }
+    return { success: true, duplicate: false, budget: result.rows[0], canSubmitSponsoredTransfer: false }
+  } catch (error) {
+    console.error('Sponsor resource budget draft failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Activates a resource mandate only when the exact scope is explicitly allowlisted
+ * in SPONSOR_APPROVED_RESOURCE_MANDATES and an approval + independent review ref
+ * are supplied. It remains accounting-only; submission is gated elsewhere.
+ */
+export async function activateSponsorResourceBudget({ budgetId, approvalReference, reviewReference } = {}) {
+  if (!/^[1-9][0-9]{0,17}$/.test(String(budgetId || ''))
+    || typeof approvalReference !== 'string' || approvalReference.length < 8 || approvalReference.length > 160
+    || typeof reviewReference !== 'string' || reviewReference.length < 8 || reviewReference.length > 160) {
+    return { success: false, reason: 'invalid-resource-budget-approval' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT id::text AS id, mandate_reference, network, fee_sponsor_address,
+                asset_principal_address, energy_budget_units::text AS energy_budget_units,
+                bandwidth_budget_units::text AS bandwidth_budget_units,
+                energy_per_transfer_limit::text AS energy_per_transfer_limit,
+                bandwidth_per_transfer_limit::text AS bandwidth_per_transfer_limit,
+                status, valid_until
+           FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
+        [String(budgetId)],
+      )
+      if (!found.rows.length) { await client.query('ROLLBACK'); return { success: false, reason: 'resource-budget-not-found' } }
+      const budget = found.rows[0]
+      const scopes = String(process.env.SPONSOR_APPROVED_RESOURCE_MANDATES || '')
+        .split(';').map((value) => value.trim()).filter(Boolean)
+      const exactScope = [
+        budget.mandate_reference, budget.network, budget.fee_sponsor_address, budget.asset_principal_address,
+        budget.energy_budget_units, budget.bandwidth_budget_units,
+        budget.energy_per_transfer_limit, budget.bandwidth_per_transfer_limit,
+        new Date(budget.valid_until).toISOString(),
+      ].join('|')
+      if (!scopes.includes(exactScope)) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-mandate-scope-not-approved' }
+      }
+      if (new Date(budget.valid_until).getTime() <= Date.now()) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-mandate-expired' }
+      }
+      if (budget.status === 'active') {
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, status: 'active', budgetId: String(budgetId) }
+      }
+      if (budget.status !== 'pending-review') {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-budget-not-reviewable' }
+      }
+      const pairLockKey = [budget.network, budget.fee_sponsor_address, budget.asset_principal_address].join('|')
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [pairLockKey])
+      const competing = await client.query(
+        `SELECT id::text AS id, status
+           FROM ${schema}.sponsor_resource_budgets
+          WHERE network = $1 AND fee_sponsor_address = $2 AND asset_principal_address = $3
+            AND id <> $4::bigint
+            AND (status = 'active' OR energy_reserved_units > 0 OR bandwidth_reserved_units > 0)
+          FOR UPDATE`,
+        [budget.network, budget.fee_sponsor_address, budget.asset_principal_address, String(budgetId)],
+      )
+      if (competing.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'another-resource-mandate-active-or-unsettled', conflictingBudgetId: competing.rows[0].id }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_budgets
+            SET status = 'active', approval_reference = $2, review_reference = $3,
+                approved_at = now(), updated_at = now()
+          WHERE id = $1::bigint`,
+        [String(budgetId), approvalReference, reviewReference],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-activated','sponsor-resource-budget',$1,$2::jsonb)`,
+        [String(budgetId), JSON.stringify({ mandateReference: budget.mandate_reference, network: budget.network, approvalReference, reviewReference })],
+      )
+      await client.query('COMMIT')
+      return { success: true, duplicate: false, status: 'active', budgetId: String(budgetId), canSubmitSponsoredTransfer: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource budget activation failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource budget activation initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/**
+ * Atomically reserves Energy/Bandwidth allowance against the exact asset-principal
+ * transfer. The caller must pass server-derived estimates, never browser values.
+ * This reservation is not proof of actual resource consumption or sponsor debit.
+ */
+export async function reserveSponsorResourceBudgetForTransfer({
+  idempotencyKey, mandateReference, energyUnits = '0', bandwidthUnits = '0', expiresAt,
+} = {}) {
+  const integer = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  const expiry = typeof expiresAt === 'string' ? new Date(expiresAt) : null
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || typeof mandateReference !== 'string' || !/^[A-Za-z0-9._:-]{16,128}$/.test(mandateReference)
+    || !integer(energyUnits) || !integer(bandwidthUnits)
+    || (energyUnits === '0' && bandwidthUnits === '0')
+    || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()
+    || expiry.getTime() > Date.now() + 15 * 60 * 1000) {
+    return { reserved: false, reason: 'invalid-resource-reservation' }
+  }
+  const db = getPool()
+  if (!db) return { reserved: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const expirySweep = await releaseExpiredSponsorResourceReservations({ limit: 100 })
+    if (expirySweep?.released !== true) return { reserved: false, reason: 'resource-reservation-expiry-sweep-unavailable' }
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const transferResult = await client.query(
+        `SELECT idempotency_key, sponsor_reference, sponsor_address, network, purpose, status
+           FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey],
+      )
+      if (!transferResult.rows.length) { await client.query('ROLLBACK'); return { reserved: false, reason: 'transfer-not-found' } }
+      const transfer = transferResult.rows[0]
+      if (transfer.purpose !== 'asset-grant' || !['nile','shasta'].includes(transfer.network)
+        || !['pending-review','authorized'].includes(transfer.status)) {
+        await client.query('ROLLBACK')
+        return { reserved: false, reason: 'transfer-not-reservable' }
+      }
+      const budgetResult = await client.query(
+        `SELECT * FROM ${schema}.sponsor_resource_budgets
+          WHERE mandate_reference = $1 AND network = $2
+            AND sponsor_reference = $4 AND asset_principal_address = $3 AND status = 'active'
+          FOR UPDATE`,
+        [mandateReference, transfer.network, transfer.sponsor_address, transfer.sponsor_reference],
+      )
+      if (!budgetResult.rows.length) { await client.query('ROLLBACK'); return { reserved: false, reason: 'active-resource-mandate-not-found' } }
+      const budget = budgetResult.rows[0]
+      if (new Date(budget.valid_until).getTime() <= Date.now()) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-mandate-expired' }
+      }
+      if (BigInt(energyUnits) > BigInt(budget.energy_per_transfer_limit)
+        || BigInt(bandwidthUnits) > BigInt(budget.bandwidth_per_transfer_limit)) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-per-transfer-limit-exceeded' }
+      }
+      const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'] === 'string'
+        ? process.env['SPONSOR_FEE_' + transfer.network.toUpperCase() + '_ADDRESS'].trim() : ''
+      if (!configuredFeeSponsorAddress || configuredFeeSponsorAddress !== budget.fee_sponsor_address) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'configured-fee-sponsor-mismatch' }
+      }
+      const existing = await client.query(
+        `SELECT id, budget_id, energy_reserved_units::text AS energy, bandwidth_reserved_units::text AS bandwidth, status
+           FROM ${schema}.sponsor_resource_reservations WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey],
+      )
+      let reopenExisting = false
+      if (existing.rows.length) {
+        const row = existing.rows[0]
+        const same = String(row.budget_id) === String(budget.id)
+          && row.energy === energyUnits && row.bandwidth === bandwidthUnits
+        if (!same) { await client.query('ROLLBACK'); return { reserved: false, reason: 'resource-reservation-conflict' } }
+        if (row.status === 'reserved') {
+          await client.query('COMMIT')
+          return { reserved: true, duplicate: true, status: row.status, idempotencyKey }
+        }
+        if (row.status !== 'released') {
+          await client.query('ROLLBACK')
+          return { reserved: false, reason: 'resource-reservation-not-active' }
+        }
+        reopenExisting = true
+      }
+      const energyAvailable = BigInt(budget.energy_budget_units) - BigInt(budget.energy_reserved_units) - BigInt(budget.energy_spent_units)
+      const bandwidthAvailable = BigInt(budget.bandwidth_budget_units) - BigInt(budget.bandwidth_reserved_units) - BigInt(budget.bandwidth_spent_units)
+      if (BigInt(energyUnits) > energyAvailable || BigInt(bandwidthUnits) > bandwidthAvailable) {
+        await client.query('ROLLBACK'); return { reserved: false, reason: 'insufficient-resource-budget' }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_budgets
+            SET energy_reserved_units = energy_reserved_units + $1::numeric,
+                bandwidth_reserved_units = bandwidth_reserved_units + $2::numeric, updated_at = now()
+          WHERE id = $3::bigint`,
+        [energyUnits, bandwidthUnits, budget.id],
+      )
+      if (reopenExisting) {
+        const reopened = await client.query(
+          `UPDATE ${schema}.sponsor_resource_reservations
+              SET status = 'reserved', transaction_hash = NULL, expires_at = $2, updated_at = now()
+            WHERE idempotency_key = $1 AND status = 'released'`,
+          [idempotencyKey, expiry.toISOString()],
+        )
+        if (reopened.rowCount !== 1) throw new Error('resource-reservation-reopen-conflict')
+      } else {
+        await client.query(
+          `INSERT INTO ${schema}.sponsor_resource_reservations
+            (idempotency_key, budget_id, network, energy_reserved_units, bandwidth_reserved_units, expires_at)
+           VALUES ($1,$2::bigint,$3,$4::numeric,$5::numeric,$6)`,
+          [idempotencyKey, budget.id, transfer.network, energyUnits, bandwidthUnits, expiry.toISOString()],
+        )
+      }
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-reserved','sponsor-resource-reservation',$1,$2::jsonb)`,
+        [idempotencyKey, JSON.stringify({ mandateReference, network: transfer.network, energyUnits, bandwidthUnits, budgetId: String(budget.id), reopened: reopenExisting })],
+      )
+      await client.query('COMMIT')
+      return { reserved: true, duplicate: false, status: 'reserved', idempotencyKey, canSubmitSponsoredTransfer: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource budget reservation failed:', error?.code || 'unknown')
+      return { reserved: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource budget reservation initialization failed:', error?.code || 'unknown')
+    return { reserved: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/**
+ * Persists receipt-level resource usage as pending evidence only. It deliberately
+ * does not convert reserved units into spent units: TRON receipt totals alone do
+ * not attribute consumption to one delegator when multiple resource sources or
+ * concurrent activity may exist.
+ */
+export async function recordSponsorResourceCostSettlementObservation({ idempotencyKey, transactionHash, attributionEvidence = null } = {}) {
+  const hash = typeof transactionHash === 'string' ? transactionHash.toLowerCase() : ''
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || !/^[0-9a-f]{64}$/.test(hash)) {
+    return { success: false, reason: 'invalid-resource-cost-observation-identity', sponsorResourceBudgetSettled: false }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', sponsorResourceBudgetSettled: false }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT r.id::text AS reservation_id, r.budget_id::text AS budget_id,
+                r.status AS reservation_status, r.energy_reserved_units::text AS energy_reserved,
+                r.bandwidth_reserved_units::text AS bandwidth_reserved, r.preflight_evidence,
+                r.preflight_checked_at::text AS preflight_checked_at, r.expires_at::text AS reservation_expires_at,
+                b.fee_sponsor_address, b.asset_principal_address,
+                b.energy_budget_units::text AS energy_budget_units, b.bandwidth_budget_units::text AS bandwidth_budget_units,
+                b.energy_reserved_units::text AS budget_energy_reserved, b.bandwidth_reserved_units::text AS budget_bandwidth_reserved,
+                b.energy_spent_units::text AS energy_spent, b.bandwidth_spent_units::text AS bandwidth_spent,
+                t.network, t.asset, t.transaction_hash, t.sponsor_address, t.status AS transfer_status,
+                o.block_number::text AS block_number, o.block_timestamp_ms::text AS block_timestamp_ms,
+                o.energy_usage::text AS energy_used,
+                o.energy_usage_total::text AS energy_usage_total,
+                o.origin_energy_usage::text AS origin_energy_used,
+                o.net_usage::text AS bandwidth_used, o.reported_fee_sun::text AS reported_fee_sun,
+                o.energy_fee_sun::text AS energy_fee_sun,
+                o.net_fee_sun::text AS net_fee_sun, o.evidence_source
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+           JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+           JOIN ${schema}.sponsor_chain_cost_observations o ON o.idempotency_key = r.idempotency_key
+          WHERE r.idempotency_key = $1 AND lower(t.transaction_hash) = $2
+            AND lower(o.transaction_hash) = $2
+          FOR UPDATE OF t`,
+        [idempotencyKey, hash],
+      )
+      if (!found.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'matching-resource-reservation-and-solidified-cost-observation-required', sponsorResourceBudgetSettled: false }
+      }
+      const row = found.rows[0]
+      // Lock order matches broadcast/expiry paths: transfer -> resource budget -> reservation.
+      await client.query(`SELECT id FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`, [row.budget_id])
+      const lockedReservation = await client.query(
+        `SELECT status FROM ${schema}.sponsor_resource_reservations WHERE idempotency_key = $1 FOR UPDATE`,
+        [idempotencyKey],
+      )
+      if (!lockedReservation.rows.length) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-reservation-not-found', sponsorResourceBudgetSettled: false }
+      }
+      row.reservation_status = lockedReservation.rows[0].status
+      if (row.transfer_status !== 'confirmed' || !['reserved','pending-evidence','manual-review','settled'].includes(row.reservation_status)
+        || !row.block_number || !row.block_timestamp_ms || row.bandwidth_used == null
+        || (row.asset !== 'TRX' && (row.energy_used == null || row.energy_usage_total == null
+          || BigInt(row.energy_used ?? '0') + BigInt(row.origin_energy_used ?? '0') !== BigInt(row.energy_usage_total)))) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-cost-evidence-incomplete', sponsorResourceBudgetSettled: false }
+      }
+      const existing = await client.query(
+        `SELECT block_number::text AS block_number, energy_used_units::text AS energy_used,
+                bandwidth_used_units::text AS bandwidth_used, block_timestamp_ms::text AS block_timestamp_ms,
+                reported_fee_sun::text AS reported_fee_sun,
+                energy_fee_sun::text AS energy_fee_sun, net_fee_sun::text AS net_fee_sun, status, evidence
+           FROM ${schema}.sponsor_resource_cost_settlements
+          WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
+          FOR UPDATE`,
+        [row.network, hash, row.budget_id],
+      )
+      const feeBurnDetected = BigInt(row.reported_fee_sun || '0') > 0n
+        || BigInt(row.energy_fee_sun || '0') > 0n || BigInt(row.net_fee_sun || '0') > 0n
+      const actualEnergyUnits = BigInt(row.energy_used ?? '0')
+      const actualBandwidthUnits = BigInt(row.bandwidth_used)
+      const reservedEnergyUnits = BigInt(row.energy_reserved)
+      const reservedBandwidthUnits = BigInt(row.bandwidth_reserved)
+      const withinReservedUnits = actualEnergyUnits <= reservedEnergyUnits
+        && actualBandwidthUnits <= reservedBandwidthUnits
+      const proof = attributionEvidence
+      const storedPreflight = row.preflight_evidence
+      const snapshotKeys = [
+        'feeSponsorAddress','assetPrincipalAddress','energyStakeSun','bandwidthStakeSun',
+        'energyExpiry','bandwidthExpiry','ownEnergySun','incomingEnergyLegacySun',
+        'incomingEnergyV2Sun','ownBandwidthSun','incomingBandwidthLegacySun','incomingBandwidthV2Sun',
+      ]
+      const snapshotMatches = Boolean(storedPreflight?.delegationSnapshot && proof?.delegationSnapshot)
+        && snapshotKeys.every(key => String(storedPreflight.delegationSnapshot[key]) === String(proof.delegationSnapshot[key]))
+      // A current Solidity-node snapshot is not historical proof. The only
+      // acceptable settlement evidence is a server-side history replay bound
+      // to this exact solidified transaction and block, with a verified anchor
+      // and a complete sequence of delegation changes through the transfer.
+      const historicalProof = proof?.historicalDelegationProof
+      const historicalProofCheckedAt = Date.parse(historicalProof?.checkedAt || '')
+      const historicalProofSnapshotMatches = Boolean(historicalProof?.delegationSnapshot && proof?.delegationSnapshot)
+        && snapshotKeys.every(key => String(historicalProof.delegationSnapshot[key]) === String(proof.delegationSnapshot[key]))
+      const historicalDelegationProofMatches = proof?.historicalDelegationStateVerified === true
+        && historicalProof?.status === 'verified'
+        && historicalProof?.verificationMethod === 'solidified-delegation-history-replay'
+        && historicalProof?.network === row.network
+        && String(historicalProof?.transactionHash || '').toLowerCase() === hash
+        && String(historicalProof?.blockNumber || '') === String(row.block_number)
+        && String(historicalProof?.blockTimestampMs || '') === String(row.block_timestamp_ms)
+        && historicalProof?.feeSponsorAddress === row.fee_sponsor_address
+        && historicalProof?.assetPrincipalAddress === row.asset_principal_address
+        && historicalProof?.historyComplete === true
+        && historicalProof?.anchorStateVerified === true
+        && historicalProof?.noInterveningDelegationChanges === true
+        && Number.isFinite(historicalProofCheckedAt)
+        && historicalProofCheckedAt >= Number(row.block_timestamp_ms)
+        && historicalProofSnapshotMatches
+      const attributionMatches = proof?.success === true
+        && proof.feeSponsorResourceSourceVerified === true
+        && proof.network === row.network && proof.sponsorAddress === row.sponsor_address
+        && proof.feeSponsorAddress === row.fee_sponsor_address
+        && row.asset_principal_address === row.sponsor_address
+        && proof.bandwidthCoverageSource === 'exact-active-fee-sponsor-delegation-only'
+        && (row.asset === 'TRX' || proof.energyCoverageSource === 'exact-active-fee-sponsor-delegation-only')
+        && proof.freeBandwidthUsedAsSponsorCoverage === false
+        && Number.isFinite(new Date(proof.checkedAt).getTime())
+        && new Date(proof.checkedAt).getTime() >= Number(row.block_timestamp_ms)
+        && Number.isFinite(new Date(row.preflight_checked_at).getTime())
+        && new Date(row.preflight_checked_at).getTime() <= Number(row.block_timestamp_ms)
+        && new Date(row.reservation_expires_at).getTime() > Number(row.block_timestamp_ms)
+        && (Number(proof.delegationSnapshot?.bandwidthExpiry) === 0 || Number(proof.delegationSnapshot?.bandwidthExpiry) > Number(row.block_timestamp_ms))
+        && (row.asset === 'TRX' || Number(proof.delegationSnapshot?.energyExpiry) === 0 || Number(proof.delegationSnapshot?.energyExpiry) > Number(row.block_timestamp_ms))
+        && snapshotMatches
+        && historicalDelegationProofMatches
+      const status = feeBurnDetected || !withinReservedUnits || (attributionEvidence != null && !attributionMatches)
+        ? 'manual-review'
+        : attributionMatches ? 'settled' : 'pending-evidence'
+      const settlementEvidence = {
+        evidenceType: 'solidified-receipt-with-historical-delegation-proof',
+        resourceAttributionVerified: status === 'settled',
+        historicalDelegationStateVerified: historicalDelegationProofMatches,
+        callerEnergyUsageUnits: actualEnergyUnits.toString(),
+        energyUsageTotalUnits: String(row.energy_usage_total ?? '0'),
+        originEnergyUsageUnits: BigInt(row.origin_energy_used ?? '0').toString(),
+        preflightEvidence: storedPreflight || null,
+        attributionEvidence: attributionMatches ? proof : null,
+        reason: feeBurnDetected ? 'transaction-fee-burn-observed'
+          : !withinReservedUnits ? 'resource-use-exceeded-reservation'
+            : !snapshotMatches ? 'exact-delegation-source-attribution-not-proven'
+              : !historicalDelegationProofMatches ? 'historical-delegation-state-proof-required'
+                : attributionMatches ? null : 'exact-delegation-source-attribution-not-proven',
+      }
+      const settleBudget = async () => {
+        const updated = await client.query(
+          `UPDATE ${schema}.sponsor_resource_budgets
+              SET energy_reserved_units = energy_reserved_units - $1::numeric,
+                  bandwidth_reserved_units = bandwidth_reserved_units - $2::numeric,
+                  energy_spent_units = energy_spent_units + $3::numeric,
+                  bandwidth_spent_units = bandwidth_spent_units + $4::numeric,
+                  updated_at = now()
+            WHERE id = $5::bigint
+              AND energy_reserved_units >= $1::numeric
+              AND bandwidth_reserved_units >= $2::numeric
+              AND energy_spent_units + $3::numeric <= energy_budget_units
+              AND bandwidth_spent_units + $4::numeric <= bandwidth_budget_units`,
+          [row.energy_reserved, row.bandwidth_reserved, actualEnergyUnits.toString(), actualBandwidthUnits.toString(), row.budget_id],
+        )
+        if (updated.rowCount !== 1) throw new Error('resource-budget-settlement-invariant-failed')
+      }
+      if (existing.rows.length) {
+        const prior = existing.rows[0]
+        const same = prior.block_number === row.block_number
+          && prior.energy_used === String(row.energy_used ?? '0') && prior.bandwidth_used === row.bandwidth_used
+          && prior.block_timestamp_ms === row.block_timestamp_ms
+          && prior.reported_fee_sun === row.reported_fee_sun
+          && prior.energy_fee_sun === row.energy_fee_sun && prior.net_fee_sun === row.net_fee_sun
+          && String(prior.evidence?.energyUsageTotalUnits ?? '') === String(row.energy_usage_total ?? '')
+          && String(prior.evidence?.originEnergyUsageUnits ?? '0') === String(row.origin_energy_used ?? '0')
+        if (!same) {
+          await client.query(
+            `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+             VALUES ('sponsor-resource-cost-evidence-conflict','sponsor-resource-reservation',$1,$2::jsonb)`,
+            [idempotencyKey, JSON.stringify({
+              network: row.network,
+              transactionHash: hash,
+              budgetId: row.budget_id,
+              priorSettlementStatus: prior.status,
+              storedCost: {
+                blockNumber: prior.block_number,
+                blockTimestampMs: prior.block_timestamp_ms,
+                energyUsedUnits: prior.energy_used,
+                callerEnergyUsageUnits: prior.energy_used,
+                energyUsageTotalUnits: prior.evidence?.energyUsageTotalUnits ?? null,
+                originEnergyUsageUnits: prior.evidence?.originEnergyUsageUnits ?? null,
+                bandwidthUsedUnits: prior.bandwidth_used,
+                reportedFeeSun: prior.reported_fee_sun,
+                energyFeeSun: prior.energy_fee_sun,
+                netFeeSun: prior.net_fee_sun,
+              },
+              observedCost: {
+                blockNumber: row.block_number,
+                blockTimestampMs: row.block_timestamp_ms,
+                energyUsedUnits: String(row.energy_used ?? '0'),
+                callerEnergyUsageUnits: String(row.energy_used ?? '0'),
+                energyUsageTotalUnits: String(row.energy_usage_total ?? '0'),
+                originEnergyUsageUnits: String(row.origin_energy_used ?? '0'),
+                bandwidthUsedUnits: row.bandwidth_used,
+                reportedFeeSun: row.reported_fee_sun,
+                energyFeeSun: row.energy_fee_sun,
+                netFeeSun: row.net_fee_sun,
+              },
+            })],
+          )
+          await client.query('COMMIT')
+          return {
+            success: false,
+            reason: 'resource-cost-evidence-conflict',
+            status: prior.status,
+            conflict: true,
+            sponsorResourceBudgetSettled: prior.status === 'settled',
+            canSubmitSponsoredTransfer: false,
+          }
+        }
+        if (prior.status === 'settled' || prior.status === 'manual-review' || status === 'pending-evidence') {
+          await client.query('COMMIT')
+          return { success: true, duplicate: true, status: prior.status, sponsorResourceBudgetSettled: prior.status === 'settled', canSubmitSponsoredTransfer: false }
+        }
+        if (status === 'settled') {
+          await settleBudget()
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_cost_settlements
+                SET status = 'settled', evidence = $4::jsonb
+              WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
+                AND status = 'pending-evidence'`,
+            [row.network, hash, row.budget_id, JSON.stringify(settlementEvidence)],
+          )
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_reservations
+                SET status = 'settled', transaction_hash = $2, updated_at = now()
+              WHERE idempotency_key = $1 AND status = 'pending-evidence'`,
+            [idempotencyKey, hash],
+          )
+          await client.query(
+            `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+             VALUES ('sponsor-resource-budget-settled','sponsor-resource-reservation',$1,$2::jsonb)`,
+            [idempotencyKey, JSON.stringify({
+              network: row.network,
+              transactionHash: hash,
+              energyUsedUnits: actualEnergyUnits.toString(),
+              callerEnergyUsageUnits: actualEnergyUnits.toString(),
+              energyUsageTotalUnits: String(row.energy_usage_total ?? '0'),
+              originEnergyUsageUnits: BigInt(row.origin_energy_used ?? '0').toString(),
+              bandwidthUsedUnits: actualBandwidthUnits.toString(),
+              resourceAttributionVerified: true,
+            })],
+          )
+          await client.query('COMMIT')
+          return { success: true, duplicate: false, status: 'settled', sponsorResourceBudgetSettled: true, canSubmitSponsoredTransfer: false }
+        }
+        if (status === 'manual-review' && prior.status === 'pending-evidence') {
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_cost_settlements
+                SET status = 'manual-review', evidence = $4::jsonb
+              WHERE network = $1 AND transaction_hash = $2 AND budget_id = $3::bigint
+                AND status = 'pending-evidence'`,
+            [row.network, hash, row.budget_id, JSON.stringify(settlementEvidence)],
+          )
+          await client.query(
+            `UPDATE ${schema}.sponsor_resource_reservations
+                SET status = 'manual-review', updated_at = now()
+              WHERE idempotency_key = $1 AND status = 'pending-evidence'`,
+            [idempotencyKey],
+          )
+          await client.query('COMMIT')
+          return { success: true, duplicate: false, status: 'manual-review', sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
+        }
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, status: prior.status, sponsorResourceBudgetSettled: false, canSubmitSponsoredTransfer: false }
+      }
+      if (status === 'settled') await settleBudget()
+      await client.query(
+        `INSERT INTO ${schema}.sponsor_resource_cost_settlements
+          (network, transaction_hash, idempotency_key, budget_id, block_number,
+           block_timestamp_ms, energy_used_units, bandwidth_used_units, reported_fee_sun, energy_fee_sun, net_fee_sun,
+           evidence_source, status, evidence)
+         VALUES ($1,$2,$3,$4::bigint,$5::bigint,$6::bigint,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::numeric,$12,$13,$14::jsonb)`,
+        [row.network, hash, idempotencyKey, row.budget_id, row.block_number, row.block_timestamp_ms,
+          row.energy_used ?? '0', row.bandwidth_used, row.reported_fee_sun, row.energy_fee_sun, row.net_fee_sun,
+          row.evidence_source, status, JSON.stringify(settlementEvidence)],
+      )
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_reservations
+            SET status = $2, transaction_hash = $3, updated_at = now()
+          WHERE idempotency_key = $1`,
+        [idempotencyKey, status, hash],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ($1,'sponsor-resource-reservation',$2,$3::jsonb)`,
+        [status === 'settled' ? 'sponsor-resource-budget-settled' : 'sponsor-resource-cost-observed',
+          idempotencyKey, JSON.stringify({ network: row.network, transactionHash: hash, blockNumber: row.block_number,
+            energyUsedUnits: actualEnergyUnits.toString(), bandwidthUsedUnits: actualBandwidthUnits.toString(),
+            status, budgetSettled: status === 'settled', resourceAttributionVerified: status === 'settled' })],
+      )
+      await client.query('COMMIT')
+      return { success: true, duplicate: false, status, sponsorResourceBudgetSettled: status === 'settled', canSubmitSponsoredTransfer: false }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource cost observation failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable', sponsorResourceBudgetSettled: false }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource cost observation initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', sponsorResourceBudgetSettled: false }
+  }
+}
+
+
+/**
+ * Releases only expired reservations whose transfer never left the pre-broadcast
+ * state. Submitted/broadcasting transactions are never released by this sweep.
+ */
+export async function releaseExpiredSponsorResourceReservations({ limit = 100 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) return { released: false, reason: 'invalid-limit' }
+  const db = getPool()
+  if (!db) return { released: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const candidates = await client.query(
+        `SELECT r.id, r.idempotency_key, r.budget_id
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+          WHERE r.status = 'reserved' AND r.expires_at <= now()
+            AND t.status IN ('pending-review','authorized')
+          ORDER BY r.expires_at ASC
+          LIMIT $1`,
+        [limit],
+      )
+      let releasedCount = 0
+      for (const candidate of candidates.rows) {
+        // Match the live reservation/broadcast lock order: transfer -> budget -> reservation.
+        // This prevents expiry cleanup racing a concurrent claim/broadcast transition.
+        const transfer = await client.query(
+          `SELECT status FROM ${schema}.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE`,
+          [candidate.idempotency_key],
+        )
+        if (!transfer.rows.length || !['pending-review','authorized'].includes(transfer.rows[0].status)) continue
+        const budget = await client.query(
+          `SELECT id FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
+          [candidate.budget_id],
+        )
+        if (!budget.rows.length) throw new Error('resource-budget-missing')
+        const reservationResult = await client.query(
+          `SELECT r.id, r.idempotency_key, r.energy_reserved_units::text AS energy,
+                  r.bandwidth_reserved_units::text AS bandwidth
+             FROM ${schema}.sponsor_resource_reservations r
+            WHERE r.id = $1 AND r.status = 'reserved' AND r.expires_at <= now()
+            FOR UPDATE`,
+          [candidate.id],
+        )
+        if (!reservationResult.rows.length) continue
+        const row = reservationResult.rows[0]
+        const budgetUpdate = await client.query(
+          `UPDATE ${schema}.sponsor_resource_budgets
+              SET energy_reserved_units = energy_reserved_units - $1::numeric,
+                  bandwidth_reserved_units = bandwidth_reserved_units - $2::numeric,
+                  updated_at = now()
+            WHERE id = $3::bigint
+              AND energy_reserved_units >= $1::numeric
+              AND bandwidth_reserved_units >= $2::numeric`,
+          [row.energy, row.bandwidth, candidate.budget_id],
+        )
+        if (budgetUpdate.rowCount !== 1) throw new Error('resource-budget-reservation-drift')
+        await client.query(
+          `UPDATE ${schema}.sponsor_resource_reservations
+              SET status = 'released', updated_at = now()
+            WHERE id = $1 AND status = 'reserved'`,
+          [row.id],
+        )
+        await client.query(
+          `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+           VALUES ('sponsor-resource-reservation-expired','sponsor-resource-reservation',$1,$2::jsonb)`,
+          [row.idempotency_key, JSON.stringify({ budgetId: String(candidate.budget_id), energyUnits: row.energy, bandwidthUnits: row.bandwidth })],
+        )
+        releasedCount += 1
+      }
+      await client.query('COMMIT')
+      return { released: true, count: releasedCount }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Expired sponsor resource reservation release failed:', error?.code || 'unknown')
+      return { released: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Expired sponsor resource reservation initialization failed:', error?.code || 'unknown')
+    return { released: false, reason: 'database-unavailable' }
+  }
+}
+
+/** Operator pause for a delegated-resource mandate; historical rows remain immutable. */
+export async function pauseSponsorResourceBudget({ budgetId, reasonCode } = {}) {
+  if (!/^[1-9][0-9]{0,17}$/.test(String(budgetId || ''))
+    || typeof reasonCode !== 'string' || !/^[a-z0-9][a-z0-9-]{2,63}$/.test(reasonCode)) {
+    return { success: false, reason: 'invalid-resource-budget-pause' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT status FROM ${schema}.sponsor_resource_budgets WHERE id = $1::bigint FOR UPDATE`,
+        [String(budgetId)],
+      )
+      if (!found.rows.length) { await client.query('ROLLBACK'); return { success: false, reason: 'resource-budget-not-found' } }
+      const previousStatus = found.rows[0].status
+      if (previousStatus === 'paused') {
+        await client.query('COMMIT')
+        return { success: true, duplicate: true, status: 'paused', budgetId: String(budgetId) }
+      }
+      if (previousStatus !== 'active' && previousStatus !== 'pending-review') {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-budget-not-pausable' }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_budgets SET status = 'paused', updated_at = now() WHERE id = $1::bigint`,
+        [String(budgetId)],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-budget-paused','sponsor-resource-budget',$1,$2::jsonb)`,
+        [String(budgetId), JSON.stringify({ reasonCode, previousStatus })],
+      )
+      await client.query('COMMIT')
+      return { success: true, duplicate: false, status: 'paused', budgetId: String(budgetId), previousStatus }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource budget pause failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource budget pause initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/** Rechecks that the exact fee-resource reservation is still active before signed submission. */
+export async function getSponsorResourceReservationForTransfer(idempotencyKey) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return { success: false, reason: 'invalid-idempotency-key' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT r.idempotency_key, r.network, r.status AS reservation_status,
+              r.energy_reserved_units::text AS energy_reserved_units,
+              r.bandwidth_reserved_units::text AS bandwidth_reserved_units,
+              r.expires_at, b.mandate_reference, b.fee_sponsor_address,
+              b.asset_principal_address, b.status AS budget_status, b.valid_until,
+              t.sponsor_address, t.sponsor_reference, t.status AS transfer_status
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+         JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+        WHERE r.idempotency_key = $1
+        LIMIT 1`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) return { success: false, reason: 'resource-reservation-not-found' }
+    const row = result.rows[0]
+    const configuredFeeSponsorAddress = typeof process.env['SPONSOR_FEE_' + row.network.toUpperCase() + '_ADDRESS'] === 'string'
+      ? process.env['SPONSOR_FEE_' + row.network.toUpperCase() + '_ADDRESS'].trim() : ''
+    if (row.reservation_status !== 'reserved' || row.budget_status !== 'active'
+      || !['pending-review','authorized','broadcasting'].includes(row.transfer_status)
+      || new Date(row.expires_at).getTime() <= Date.now()
+      || new Date(row.valid_until).getTime() <= Date.now()
+      || row.asset_principal_address !== row.sponsor_address
+      || row.fee_sponsor_address !== configuredFeeSponsorAddress
+      || row.fee_sponsor_address === row.asset_principal_address) {
+      return { success: false, reason: 'resource-reservation-or-mandate-not-active' }
+    }
+    return {
+      success: true, status: 'reserved', network: row.network,
+      mandateReference: row.mandate_reference, feeSponsorAddress: row.fee_sponsor_address,
+      assetPrincipalAddress: row.asset_principal_address,
+      energyUnits: row.energy_reserved_units, bandwidthUnits: row.bandwidth_reserved_units,
+      expiresAt: row.expires_at,
+    }
+  } catch (error) {
+    console.error('Sponsor resource reservation lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/**
+ * Loads immutable preflight evidence for the server-side solidified reconciliation
+ * path. It is read-only and does not authorize a reservation, signature or send.
+ */
+export async function getSponsorResourcePreflightEvidence(idempotencyKey) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)) {
+    return { success: false, reason: 'invalid-idempotency-key', preflightEvidence: null }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', preflightEvidence: null }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT r.preflight_evidence, r.preflight_checked_at,
+              r.network, b.fee_sponsor_address, b.asset_principal_address,
+              t.sponsor_address
+         FROM ${schema}.sponsor_resource_reservations r
+         JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+         JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+        WHERE r.idempotency_key = $1
+        LIMIT 1`,
+      [idempotencyKey],
+    )
+    if (!result.rows.length) return { success: false, reason: 'resource-reservation-not-found', preflightEvidence: null }
+    const row = result.rows[0]
+    const evidence = row.preflight_evidence
+    if (!evidence || evidence.network !== row.network
+      || evidence.feeSponsorAddress !== row.fee_sponsor_address
+      || evidence.sponsorAddress !== row.asset_principal_address
+      || evidence.sponsorAddress !== row.sponsor_address
+      || !evidence.solidifiedAnchor || !evidence.delegationSnapshot) {
+      return { success: false, reason: 'resource-preflight-evidence-not-found-or-mismatched', preflightEvidence: null }
+    }
+    return { success: true, preflightEvidence: evidence, preflightCheckedAt: row.preflight_checked_at }
+  } catch (error) {
+    console.error('Sponsor resource preflight evidence read failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', preflightEvidence: null }
+  }
+}
+
+/** Privileged read-only view of resource mandate budgets; never reports them as chain balances. */
+export async function listSponsorResourceBudgets({ network = null, limit = 50 } = {}) {
+  if (network !== null && !['nile','shasta'].includes(network)) {
+    return { success: false, reason: 'invalid-network', budgets: [] }
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', budgets: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', budgets: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT id::text AS id, mandate_reference, sponsor_reference, network,
+              fee_sponsor_address, asset_principal_address,
+              energy_budget_units::text AS energy_budget_units,
+              bandwidth_budget_units::text AS bandwidth_budget_units,
+              energy_per_transfer_limit::text AS energy_per_transfer_limit,
+              bandwidth_per_transfer_limit::text AS bandwidth_per_transfer_limit,
+              energy_reserved_units::text AS energy_reserved_units,
+              bandwidth_reserved_units::text AS bandwidth_reserved_units,
+              energy_spent_units::text AS energy_spent_units,
+              bandwidth_spent_units::text AS bandwidth_spent_units,
+              valid_until, status, approval_reference, review_reference, approved_at,
+              created_at, updated_at
+         FROM ${schema}.sponsor_resource_budgets
+        WHERE ($1::text IS NULL OR network = $1)
+        ORDER BY created_at DESC, id DESC
+        LIMIT $2`,
+      [network, limit],
+    )
+    return { success: true, budgets: result.rows }
+  } catch (error) {
+    console.error('Sponsor resource budget list failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', budgets: [] }
+  }
+}
+
+
+/**
+ * Persists the exact server-derived delegation/source snapshot used for sponsor
+ * fee coverage. A later preflight may refresh it only if the delegation identity
+ * and source profile are unchanged.
+ */
+export async function recordSponsorResourcePreflightEvidence({ idempotencyKey, evidence } = {}) {
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{24,160}$/.test(idempotencyKey)
+    || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+    || evidence.success !== true || evidence.feeSponsorResourceSourceVerified !== true
+    || !['nile','shasta'].includes(evidence.network)
+    || !isValidTronAddress(evidence.sponsorAddress) || !isValidTronAddress(evidence.feeSponsorAddress)
+    || typeof evidence.checkedAt !== 'string' || !Number.isFinite(new Date(evidence.checkedAt).getTime())
+    || !evidence.solidifiedAnchor || !Number.isSafeInteger(evidence.solidifiedAnchor.blockNumber)
+    || evidence.solidifiedAnchor.blockNumber < 1
+    || typeof evidence.solidifiedAnchor.blockId !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(evidence.solidifiedAnchor.blockId)
+    || BigInt('0x' + evidence.solidifiedAnchor.blockId.slice(0, 16)) !== BigInt(evidence.solidifiedAnchor.blockNumber)
+    || !Number.isSafeInteger(evidence.solidifiedAnchor.blockTimestampMs)
+    || evidence.solidifiedAnchor.blockTimestampMs < 1
+    || !evidence.delegationSnapshot || typeof evidence.delegationSnapshot !== 'object') {
+    return { success: false, reason: 'invalid-resource-preflight-evidence' }
+  }
+  const snapshot = evidence.delegationSnapshot
+  const uint = value => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (snapshot.feeSponsorAddress !== evidence.feeSponsorAddress
+    || snapshot.assetPrincipalAddress !== evidence.sponsorAddress
+    || !uint(snapshot.energyStakeSun) || !uint(snapshot.bandwidthStakeSun)
+    || !uint(snapshot.ownEnergySun) || !uint(snapshot.incomingEnergyLegacySun)
+    || !uint(snapshot.incomingEnergyV2Sun) || !uint(snapshot.ownBandwidthSun)
+    || !uint(snapshot.incomingBandwidthLegacySun) || !uint(snapshot.incomingBandwidthV2Sun)
+    || !Number.isSafeInteger(snapshot.energyExpiry) || snapshot.energyExpiry < 0
+    || !Number.isSafeInteger(snapshot.bandwidthExpiry) || snapshot.bandwidthExpiry < 0
+    || evidence.bandwidthCoverageSource !== 'exact-active-fee-sponsor-delegation-only'
+    || (evidence.energyCoverageSource !== undefined && evidence.energyCoverageSource !== 'exact-active-fee-sponsor-delegation-only')
+    || evidence.freeBandwidthUsedAsSponsorCoverage !== false) {
+    return { success: false, reason: 'resource-preflight-source-profile-invalid' }
+  }
+  const safeEvidence = {
+    network: evidence.network,
+    sponsorAddress: evidence.sponsorAddress,
+    feeSponsorAddress: evidence.feeSponsorAddress,
+    feeSponsorResourceSourceVerified: true,
+    bandwidthCoverageSource: evidence.bandwidthCoverageSource,
+    energyCoverageSource: evidence.energyCoverageSource || null,
+    freeBandwidthUsedAsSponsorCoverage: false,
+    delegationSnapshot: snapshot,
+    checkedAt: new Date(evidence.checkedAt).toISOString(),
+    solidifiedAnchor: {
+      blockNumber: evidence.solidifiedAnchor.blockNumber,
+      blockId: evidence.solidifiedAnchor.blockId.toLowerCase(),
+      blockTimestampMs: evidence.solidifiedAnchor.blockTimestampMs,
+      checkedAt: typeof evidence.solidifiedAnchor.checkedAt === 'string'
+        && Number.isFinite(new Date(evidence.solidifiedAnchor.checkedAt).getTime())
+        ? new Date(evidence.solidifiedAnchor.checkedAt).toISOString()
+        : new Date(evidence.checkedAt).toISOString(),
+    },
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const found = await client.query(
+        `SELECT r.status AS reservation_status, r.preflight_evidence,
+                b.status AS budget_status, b.network, b.fee_sponsor_address,
+                b.asset_principal_address, t.sponsor_address
+           FROM ${schema}.sponsor_resource_reservations r
+           JOIN ${schema}.sponsor_resource_budgets b ON b.id = r.budget_id
+           JOIN ${schema}.sponsor_transfers t ON t.idempotency_key = r.idempotency_key
+          WHERE r.idempotency_key = $1
+          FOR UPDATE OF r, b`,
+        [idempotencyKey],
+      )
+      if (!found.rows.length) { await client.query('ROLLBACK'); return { success: false, reason: 'resource-reservation-not-found' } }
+      const row = found.rows[0]
+      if (row.reservation_status !== 'reserved' || row.budget_status !== 'active'
+        || row.network !== evidence.network || row.fee_sponsor_address !== evidence.feeSponsorAddress
+        || row.asset_principal_address !== evidence.sponsorAddress || row.sponsor_address !== evidence.sponsorAddress) {
+        await client.query('ROLLBACK')
+        return { success: false, reason: 'resource-preflight-mandate-mismatch' }
+      }
+      if (row.preflight_evidence) {
+        const previous = row.preflight_evidence
+        const snapshotKeys = [
+          'feeSponsorAddress','assetPrincipalAddress','energyStakeSun','bandwidthStakeSun',
+          'energyExpiry','bandwidthExpiry','ownEnergySun','incomingEnergyLegacySun',
+          'incomingEnergyV2Sun','ownBandwidthSun','incomingBandwidthLegacySun','incomingBandwidthV2Sun',
+        ]
+        const snapshotSame = snapshotKeys.every(key => String(previous.delegationSnapshot?.[key]) === String(safeEvidence.delegationSnapshot?.[key]))
+        if (!snapshotSame
+          || previous.network !== safeEvidence.network
+          || previous.sponsorAddress !== safeEvidence.sponsorAddress
+          || previous.feeSponsorAddress !== safeEvidence.feeSponsorAddress
+          || previous.bandwidthCoverageSource !== safeEvidence.bandwidthCoverageSource
+          || previous.energyCoverageSource !== safeEvidence.energyCoverageSource) {
+          await client.query('ROLLBACK')
+          return { success: false, reason: 'resource-delegation-changed-since-reservation' }
+        }
+      }
+      await client.query(
+        `UPDATE ${schema}.sponsor_resource_reservations
+            SET preflight_evidence = $2::jsonb, preflight_checked_at = now(), updated_at = now()
+          WHERE idempotency_key = $1 AND status = 'reserved'`,
+        [idempotencyKey, JSON.stringify(safeEvidence)],
+      )
+      await client.query(
+        `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+         VALUES ('sponsor-resource-preflight-evidence-recorded','sponsor-resource-reservation',$1,$2::jsonb)`,
+        [idempotencyKey, JSON.stringify({ network: safeEvidence.network, feeSponsorAddress: safeEvidence.feeSponsorAddress, sponsorAddress: safeEvidence.sponsorAddress, checkedAt: safeEvidence.checkedAt })],
+      )
+      await client.query('COMMIT')
+      return { success: true, status: 'resource-preflight-evidence-recorded', checkedAt: safeEvidence.checkedAt }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      console.error('Sponsor resource preflight evidence persistence failed:', error?.code || 'unknown')
+      return { success: false, reason: 'database-unavailable' }
+    } finally { client.release() }
+  } catch (error) {
+    console.error('Sponsor resource preflight evidence initialization failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+
+/** Third-party sponsor funding authorization, deposit evidence and inventory reconciliation. */
+
+export async function persistThirdPartyFundingAuthorization(input = {}) {
+  const {
+    authorizationId, sponsorOrganizationReference, sponsorAddress, vaultAddress, usdtContract,
+    maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
+    agreementReviewedBy, agreementReviewedAt,
+    withdrawalDisbursementAcknowledged, withdrawalDisbursementReviewedBy, withdrawalDisbursementReviewedAt,
+    signature, signatureHash, messageHash, issuedAt, expiresAt,
+  } = input
+  const parseDate = (value) => value instanceof Date ? value : new Date(value)
+  const issued = parseDate(issuedAt)
+  const expires = parseDate(expiresAt)
+  const reviewed = parseDate(agreementReviewedAt)
+  const disbursementReviewed = parseDate(withdrawalDisbursementReviewedAt)
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || typeof sponsorOrganizationReference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(sponsorOrganizationReference)
+    || sponsorOrganizationReference === 'legacy-unscoped'
+    || !isValidTronAddress(sponsorAddress) || !isValidTronAddress(vaultAddress)
+    || sponsorAddress === vaultAddress
+    || usdtContract !== OFFICIAL_MAINNET_USDT_CONTRACT
+    || !isPositiveUint256(maxUsdtBaseUnits) || !isPositiveUint256(maxTrxSun)
+    || typeof agreementReference !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(agreementReference)
+    || typeof agreementDocumentSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(agreementDocumentSha256)
+    || !isValidTronAddress(agreementReviewedBy)
+    || withdrawalDisbursementAcknowledged !== true
+    || !isValidTronAddress(withdrawalDisbursementReviewedBy)
+    || !Number.isFinite(disbursementReviewed.getTime())
+    || !Number.isFinite(reviewed.getTime()) || !Number.isFinite(issued.getTime()) || !Number.isFinite(expires.getTime())
+    || expires <= issued || expires <= new Date()
+    || typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)
+    || typeof signatureHash !== 'string' || !/^[0-9a-f]{64}$/.test(signatureHash)
+    || createHash('sha256').update(signature, 'utf8').digest('hex') !== signatureHash
+    || typeof messageHash !== 'string' || !/^[0-9a-f]{64}$/.test(messageHash)) {
+    return { persisted: false, reason: 'invalid-third-party-funding-authorization' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
+      `INSERT INTO ${schema}.third_party_funding_authorizations
+        (authorization_id, network, sponsor_organization_reference, sponsor_address, vault_address, usdt_contract,
+         max_usdt_base_units, max_trx_sun, agreement_reference, agreement_document_sha256,
+         agreement_reviewed_by, agreement_reviewed_at,
+         withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
+         withdrawal_disbursement_reviewed_at, signature, signature_hash,
+         message_hash, issued_at, expires_at)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,$12,$13,$14,$15,$16,$17,$18)
+       ON CONFLICT DO NOTHING
+       RETURNING authorization_id`,
+      [authorizationId, sponsorOrganizationReference, sponsorAddress, vaultAddress, usdtContract,
+       maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256, agreementReviewedBy, reviewed,
+       withdrawalDisbursementReviewedBy, disbursementReviewed,
+       signature, signatureHash, messageHash, issued, expires],
+    )
+    if (!result.rows.length) {
+      const existing = await client.query(
+        `SELECT authorization_id, sponsor_organization_reference, sponsor_address, vault_address, usdt_contract,
+                max_usdt_base_units::text AS max_usdt_base_units,
+                max_trx_sun::text AS max_trx_sun, agreement_reference,
+                agreement_document_sha256, withdrawal_disbursement_acknowledged,
+                withdrawal_disbursement_reviewed_by, withdrawal_disbursement_reviewed_at,
+                signature, signature_hash, message_hash, issued_at, expires_at, status
+           FROM ${schema}.third_party_funding_authorizations
+          WHERE authorization_id = $1 OR signature_hash = $2
+          FOR UPDATE`,
+        [authorizationId, signatureHash],
+      )
+      const row = existing.rows[0]
+      const same = row && row.authorization_id === authorizationId
+        && row.sponsor_organization_reference === sponsorOrganizationReference
+        && row.sponsor_address === sponsorAddress && row.vault_address === vaultAddress
+        && row.usdt_contract === usdtContract
+        && row.max_usdt_base_units === maxUsdtBaseUnits && row.max_trx_sun === maxTrxSun
+        && row.agreement_reference === agreementReference
+        && (row.agreement_document_sha256 || '').trim() === agreementDocumentSha256
+        && row.withdrawal_disbursement_acknowledged === true
+        && row.withdrawal_disbursement_reviewed_by === withdrawalDisbursementReviewedBy
+        // Retried identical registrations preserve the original audit timestamp.
+        && row.signature === signature && row.signature_hash.trim() === signatureHash && row.message_hash === messageHash
+        && new Date(row.issued_at).getTime() === issued.getTime()
+        && new Date(row.expires_at).getTime() === expires.getTime()
+      if (!same) {
+        await client.query('ROLLBACK')
+        return { persisted: false, reason: 'authorization-id-or-signature-conflict' }
+      }
+      await client.query('COMMIT')
+      return { persisted: true, duplicate: true, authorizationId, status: row.status }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-consent-verified','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({
+        network: 'mainnet', sponsorOrganizationReference, sponsorAddress, vaultAddress, usdtContract,
+        maxUsdtBaseUnits, maxTrxSun, agreementReference, agreementDocumentSha256,
+        agreementReviewAcknowledgedBy: agreementReviewedBy,
+        withdrawalDisbursementAcknowledged: true,
+        withdrawalDisbursementReviewedBy,
+        withdrawalDisbursementReviewedAt: disbursementReviewed.toISOString(),
+        signatureHash, messageHash, issuedAt: issued.toISOString(), expiresAt: expires.toISOString(),
+        legalAuthorityIndependentlyVerified: false,
+      })],
+    )
+    await client.query('COMMIT')
+    return { persisted: true, duplicate: false, authorizationId, status: 'awaiting-deposit' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding authorization persistence failed:', error?.code || 'unknown')
+    return { persisted: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+/** Return a sanitized authorization record and its recorded deposits. */
+
+export async function getThirdPartyFundingAuthorization(authorizationId) {
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)) {
+    return { success: false, reason: 'invalid-authorization-id' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured' }
+  try {
+    await initializeDatabase()
+    const authorization = await db.query(
+      `SELECT authorization_id, network, sponsor_organization_reference, sponsor_address, vault_address, usdt_contract,
+              max_usdt_base_units::text AS max_usdt_base_units,
+              max_trx_sun::text AS max_trx_sun, agreement_reference,
+              agreement_document_sha256, agreement_reviewed_by, agreement_reviewed_at,
+              withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_by,
+              withdrawal_disbursement_reviewed_at, issued_at, expires_at,
+              status, created_at, updated_at
+         FROM ${schema}.third_party_funding_authorizations
+        WHERE authorization_id = $1 LIMIT 1`,
+      [authorizationId],
+    )
+    if (!authorization.rows.length) return { success: true, authorization: null, deposits: [] }
+    const deposits = await db.query(
+      `SELECT transaction_hash, asset, token_contract, sender_address, recipient_address,
+              amount_base_units::text AS amount_base_units, block_number, evidence_index,
+              receipt_result, chain_verified_at, fireblocks_verified_at,
+              fireblocks_snapshot_id, fireblocks_vault_account_id, fireblocks_checked_at
+         FROM ${schema}.third_party_funding_deposits
+        WHERE authorization_id = $1 ORDER BY created_at ASC`,
+      [authorizationId],
+    )
+    const row = authorization.rows[0]
+    return {
+      success: true,
+      authorization: {
+        authorizationId: row.authorization_id, network: row.network,
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAddress: row.sponsor_address, vaultAddress: row.vault_address,
+        usdtContract: row.usdt_contract, maxUsdtBaseUnits: row.max_usdt_base_units,
+        maxTrxSun: row.max_trx_sun, agreementReference: row.agreement_reference,
+        agreementDocumentSha256: row.agreement_document_sha256?.trim() || null,
+        agreementReviewedBy: row.agreement_reviewed_by,
+        agreementReviewedAt: row.agreement_reviewed_at,
+        withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
+        withdrawalDisbursementReviewedBy: row.withdrawal_disbursement_reviewed_by,
+        withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
+        issuedAt: row.issued_at, expiresAt: row.expires_at,
+        status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+      },
+      deposits: deposits.rows.map((item) => ({
+        transactionHash: item.transaction_hash.trim(), asset: item.asset,
+        tokenContract: item.token_contract, senderAddress: item.sender_address,
+        recipientAddress: item.recipient_address, amountBaseUnits: item.amount_base_units,
+        blockNumber: Number(item.block_number), evidenceIndex: Number(item.evidence_index),
+        receiptResult: item.receipt_result, chainVerifiedAt: item.chain_verified_at,
+        fireblocksVerifiedAt: item.fireblocks_verified_at,
+        fireblocksSnapshotId: item.fireblocks_snapshot_id,
+        fireblocksVaultAccountId: item.fireblocks_vault_account_id,
+        fireblocksCheckedAt: item.fireblocks_checked_at,
+      })),
+    }
+  } catch (error) {
+    console.error('Third-party funding authorization lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable' }
+  }
+}
+
+/** List recent funding authorization records without exposing signatures or secrets. */
+
+export async function listThirdPartyFundingAuthorizations({ limit = 20 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { success: false, reason: 'invalid-limit', authorizations: [] }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', authorizations: [] }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT authorization_id, sponsor_organization_reference, sponsor_address, vault_address, agreement_reference,
+              withdrawal_disbursement_acknowledged, withdrawal_disbursement_reviewed_at,
+              issued_at, expires_at, status, created_at
+         FROM ${schema}.third_party_funding_authorizations
+        ORDER BY created_at DESC LIMIT $1`,
+      [limit],
+    )
+    return {
+      success: true,
+      authorizations: result.rows.map((row) => ({
+        authorizationId: row.authorization_id, sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAddress: row.sponsor_address, vaultAddress: row.vault_address,
+        agreementReference: row.agreement_reference,
+        withdrawalDisbursementAcknowledged: row.withdrawal_disbursement_acknowledged === true,
+        withdrawalDisbursementReviewedAt: row.withdrawal_disbursement_reviewed_at,
+        issuedAt: row.issued_at, expiresAt: row.expires_at,
+        status: row.status, createdAt: row.created_at,
+      })),
+    }
+  } catch (error) {
+    console.error('Third-party funding authorization list failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', authorizations: [] }
+  }
+}
+
+/** Return verified third-party USDT principal with an explicitly reviewed disbursement mandate. */
+
+export async function getThirdPartyFundingUsdtPoolSnapshot(vaultAddress, sponsorOrganizationReference, agreementReference) {
+  const validIdentifier = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(value)
+  if (!isValidTronAddress(vaultAddress) || !validIdentifier(sponsorOrganizationReference)
+    || sponsorOrganizationReference === 'legacy-unscoped' || !validIdentifier(agreementReference)) {
+    return { success: false, reason: 'invalid-treasury-or-sponsor-scope', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', verifiedDepositCount: '0',
+    reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT COUNT(*)::text AS verified_deposit_count,
+              COUNT(DISTINCT a.authorization_id)::text AS reviewed_authorization_count,
+              COALESCE(SUM(d.amount_base_units), 0)::text AS verified_usdt_principal_base_units
+         FROM ${schema}.third_party_funding_authorizations AS a
+         JOIN ${schema}.third_party_funding_deposits AS d
+           ON d.authorization_id = a.authorization_id
+        WHERE a.network = 'mainnet'
+          AND a.vault_address = $1
+          AND a.sponsor_organization_reference = $2
+          AND a.agreement_reference = $3
+          AND a.status IN ('deposit-evidence-recorded','expired','cap-reached')
+          AND a.withdrawal_disbursement_acknowledged = true
+          AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+          AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+          AND a.agreement_document_sha256 IS NOT NULL
+          AND d.network = 'mainnet'
+          AND d.asset = 'USDT'
+          AND d.token_contract = '${OFFICIAL_MAINNET_USDT_CONTRACT}'
+          AND d.amount_base_units <= a.max_usdt_base_units
+          AND d.chain_verified_at <= a.expires_at
+          AND d.recipient_address = $1
+          AND d.receipt_result = 'SUCCESS'
+          AND d.fireblocks_verified_at IS NOT NULL
+          AND d.fireblocks_snapshot_id IS NOT NULL
+          AND d.fireblocks_vault_account_id IS NOT NULL
+          AND d.fireblocks_checked_at IS NOT NULL
+          AND d.fireblocks_checked_at >= d.chain_verified_at`,
+      [vaultAddress, sponsorOrganizationReference, agreementReference],
+    )
+    const row = result.rows[0] || {}
+    return {
+      success: true,
+      verifiedDepositCount: String(row.verified_deposit_count || '0'),
+      reviewedAuthorizationCount: String(row.reviewed_authorization_count || '0'),
+      verifiedUsdtPrincipalBaseUnits: String(row.verified_usdt_principal_base_units || '0'),
+    }
+  } catch (error) {
+    console.error('Third-party funding USDT pool lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedUsdtPrincipalBaseUnits: '0' }
+  }
+}
+
+/** Return verified third-party native TRX principal available to sponsor network fees. */
+
+export async function getThirdPartyFundingTrxPoolSnapshot(vaultAddress, sponsorOrganizationReference, agreementReference) {
+  const validIdentifier = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(value)
+  if (!isValidTronAddress(vaultAddress) || !validIdentifier(sponsorOrganizationReference)
+    || sponsorOrganizationReference === 'legacy-unscoped' || !validIdentifier(agreementReference)) {
+    return { success: false, reason: 'invalid-treasury-or-sponsor-scope', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  }
+  const db = getPool()
+  if (!db) return { success: false, reason: 'database-not-configured', verifiedDepositCount: '0',
+    reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  try {
+    await initializeDatabase()
+    const result = await db.query(
+      `SELECT COUNT(*)::text AS verified_deposit_count,
+              COUNT(DISTINCT a.authorization_id)::text AS reviewed_authorization_count,
+              COALESCE(SUM(d.amount_base_units), 0)::text AS verified_trx_principal_sun
+         FROM ${schema}.third_party_funding_authorizations AS a
+         JOIN ${schema}.third_party_funding_deposits AS d
+           ON d.authorization_id = a.authorization_id
+        WHERE a.network = 'mainnet'
+          AND a.vault_address = $1
+          AND a.sponsor_organization_reference = $2
+          AND a.agreement_reference = $3
+          AND a.status IN ('deposit-evidence-recorded','expired','cap-reached')
+          AND a.withdrawal_disbursement_acknowledged = true
+          AND a.withdrawal_disbursement_reviewed_by IS NOT NULL
+          AND a.withdrawal_disbursement_reviewed_at IS NOT NULL
+          AND a.agreement_document_sha256 IS NOT NULL
+          AND d.network = 'mainnet'
+          AND d.asset = 'TRX'
+          AND d.token_contract IS NULL
+          AND d.amount_base_units <= a.max_trx_sun
+          AND d.chain_verified_at <= a.expires_at
+          AND d.recipient_address = $1
+          AND d.receipt_result = 'SUCCESS'
+          AND d.fireblocks_verified_at IS NOT NULL
+          AND d.fireblocks_snapshot_id IS NOT NULL
+          AND d.fireblocks_vault_account_id IS NOT NULL
+          AND d.fireblocks_checked_at IS NOT NULL
+          AND d.fireblocks_checked_at >= d.chain_verified_at`,
+      [vaultAddress, sponsorOrganizationReference, agreementReference],
+    )
+    const row = result.rows[0] || {}
+    return {
+      success: true,
+      verifiedDepositCount: String(row.verified_deposit_count || '0'),
+      reviewedAuthorizationCount: String(row.reviewed_authorization_count || '0'),
+      verifiedTrxPrincipalSun: String(row.verified_trx_principal_sun || '0'),
+    }
+  } catch (error) {
+    console.error('Third-party funding TRX pool lookup failed:', error?.code || 'unknown')
+    return { success: false, reason: 'database-unavailable', verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0', verifiedTrxPrincipalSun: '0' }
+  }
+}
+
+/**
+ * Persist one exact solidified Mainnet deposit per asset for an authorization.
+ * The caller must verify the transaction on the SolidityNode before this call.
+ */
+
+export async function persistThirdPartyFundingDeposit(input = {}) {
+  const {
+    authorizationId, transactionHash, asset, tokenContract = null,
+    senderAddress, recipientAddress, amountBaseUnits, blockNumber, evidenceIndex = 0,
+  } = input
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || !['USDT','TRX'].includes(asset)
+    || (asset === 'USDT' && tokenContract !== OFFICIAL_MAINNET_USDT_CONTRACT)
+    || (asset === 'TRX' && tokenContract !== null)
+    || !isValidTronAddress(senderAddress) || !isValidTronAddress(recipientAddress)
+    || !isPositiveUint256(amountBaseUnits)
+    || !Number.isSafeInteger(blockNumber) || blockNumber < 1
+    || !Number.isSafeInteger(evidenceIndex) || evidenceIndex < 0 || evidenceIndex > 10000) {
+    return { persisted: false, reason: 'invalid-third-party-funding-deposit' }
+  }
+  const db = getPool()
+  if (!db) return { persisted: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const authResult = await client.query(
+      `SELECT authorization_id, sponsor_address, vault_address,
+              max_usdt_base_units::text AS max_usdt_base_units,
+              max_trx_sun::text AS max_trx_sun, expires_at, status
+         FROM ${schema}.third_party_funding_authorizations
+        WHERE authorization_id = $1 FOR UPDATE`,
+      [authorizationId],
+    )
+    const auth = authResult.rows[0]
+    if (!auth) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'funding-authorization-not-found' }
+    }
+    if (auth.status === 'revoked') {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'funding-authorization-revoked' }
+    }
+    if (auth.status === 'expired' || new Date(auth.expires_at).getTime() <= Date.now()) {
+      await client.query(`UPDATE ${schema}.third_party_funding_authorizations SET status='expired', updated_at=now() WHERE authorization_id=$1`, [authorizationId])
+      await client.query('COMMIT')
+      return { persisted: false, reason: 'funding-authorization-expired' }
+    }
+    if (auth.status === 'cap-reached') {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'funding-authorization-cap-reached' }
+    }
+    if (auth.sponsor_address !== senderAddress || auth.vault_address !== recipientAddress) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'deposit-source-or-vault-mismatch' }
+    }
+    const cap = asset === 'USDT' ? auth.max_usdt_base_units : auth.max_trx_sun
+    if (BigInt(amountBaseUnits) > BigInt(cap)) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'deposit-exceeds-authorized-cap' }
+    }
+    const duplicate = await client.query(
+      `SELECT transaction_hash, amount_base_units::text AS amount_base_units,
+              sender_address, recipient_address, block_number
+         FROM ${schema}.third_party_funding_deposits
+        WHERE authorization_id=$1 AND asset=$2 FOR UPDATE`,
+      [authorizationId, asset],
+    )
+    if (duplicate.rows.length) {
+      const row = duplicate.rows[0]
+      const same = row.transaction_hash.trim().toLowerCase() === transactionHash.toLowerCase()
+        && row.amount_base_units === amountBaseUnits && row.sender_address === senderAddress
+        && row.recipient_address === recipientAddress && Number(row.block_number) === blockNumber
+      await client.query('COMMIT')
+      return same
+        ? { persisted: true, duplicate: true, status: 'deposit-evidence-recorded' }
+        : { persisted: false, reason: 'deposit-for-asset-already-recorded' }
+    }
+    const usedTransaction = await client.query(
+      `SELECT authorization_id FROM ${schema}.third_party_funding_deposits
+        WHERE network='mainnet' AND transaction_hash=$1 AND asset=$2 LIMIT 1`,
+      [transactionHash.toLowerCase(), asset],
+    )
+    if (usedTransaction.rows.length) {
+      await client.query('ROLLBACK')
+      return { persisted: false, reason: 'deposit-transaction-already-used' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.third_party_funding_deposits
+        (authorization_id, network, transaction_hash, asset, token_contract,
+         sender_address, recipient_address, amount_base_units, block_number,
+         evidence_index, receipt_result, chain_verified_at)
+       VALUES ($1,'mainnet',$2,$3,$4,$5,$6,$7,$8,$9,'SUCCESS',now())`,
+      [authorizationId, transactionHash.toLowerCase(), asset, tokenContract,
+       senderAddress, recipientAddress, amountBaseUnits, blockNumber, evidenceIndex],
+    )
+    await client.query(
+      `UPDATE ${schema}.third_party_funding_authorizations
+          SET status='deposit-evidence-recorded', updated_at=now()
+        WHERE authorization_id=$1 AND status='awaiting-deposit'`,
+      [authorizationId],
+    )
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-deposit-chain-verified','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({
+        network: 'mainnet', transactionHash: transactionHash.toLowerCase(), asset,
+        tokenContract, senderAddress, recipientAddress, amountBaseUnits, blockNumber,
+        evidenceIndex, receiptResult: 'SUCCESS',
+      })],
+    )
+    await client.query('COMMIT')
+    return { persisted: true, duplicate: false, status: 'deposit-evidence-recorded' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    if (error?.code === '23505') return { persisted: false, reason: 'deposit-transaction-already-used' }
+    console.error('Third-party funding deposit persistence failed:', error?.code || 'unknown')
+    return { persisted: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+/** Mark a chain-confirmed deposit as visible in an independently verified Fireblocks inventory snapshot. */
+
+export async function markThirdPartyFundingDepositFireblocksVerified(input = {}) {
+  const { authorizationId, asset, transactionHash, snapshotId, treasuryAddress,
+    vaultAccountId, availableBalanceBaseUnits, chainBalanceBaseUnits, checkedAt } = input
+  const checked = checkedAt instanceof Date ? checkedAt : new Date(checkedAt)
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || !['USDT','TRX'].includes(asset)
+    || typeof transactionHash !== 'string' || !/^[0-9a-f]{64}$/i.test(transactionHash)
+    || typeof snapshotId !== 'string' || !/^[0-9]{1,24}$/.test(snapshotId)
+    || !isValidTronAddress(treasuryAddress)
+    || typeof vaultAccountId !== 'string' || !/^[0-9]{1,20}$/.test(vaultAccountId)
+    || !isPositiveUint256(availableBalanceBaseUnits) || !isPositiveUint256(chainBalanceBaseUnits)
+    || !Number.isFinite(checked.getTime()) || checked.getTime() > Date.now() + 60_000) {
+    return { verified: false, reason: 'invalid-fireblocks-deposit-inventory-evidence' }
+  }
+  const db = getPool()
+  if (!db) return { verified: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    const result = await client.query(
+      `UPDATE ${schema}.third_party_funding_deposits AS d
+          SET fireblocks_verified_at=now(), fireblocks_snapshot_id=$6,
+              fireblocks_vault_account_id=$7, fireblocks_checked_at=$8
+         FROM ${schema}.third_party_funding_authorizations AS a,
+              ${schema}.fireblocks_inventory_snapshots AS s
+        WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
+          AND a.authorization_id=d.authorization_id AND a.vault_address=$4
+          AND d.recipient_address=$4 AND d.amount_base_units <= $5::numeric
+          AND d.amount_base_units <= $9::numeric
+          AND d.chain_verified_at <= $8::timestamptz
+          AND d.fireblocks_verified_at IS NULL
+          AND s.id=$6::bigint
+          AND s.repository='MyTeleProject2026/trc20-usdt-token-cloner'
+          AND s.branch='main' AND s.verification_status='verified'
+          AND s.treasury_address=$4 AND s.vault_account_id=$7
+          AND s.checked_at=$8::timestamptz
+          AND s.checked_at <= now() + interval '1 minute'
+          AND s.checked_at > now() - interval '6 hours'
+          AND s.checks @> '{
+            "fireblocksApiAuthenticated": true,
+            "vaultAccountVerified": true,
+            "usdtAssetActivated": true,
+            "officialUsdtAssetVerified": true,
+            "usdtAddressMatches": true,
+            "trxAssetActivated": true,
+            "nativeTrxAssetVerified": true,
+            "trxAddressMatches": true,
+            "officialUsdtChainVerified": true,
+            "treasuryTrxChainBalanceRead": true,
+            "databaseReady": true
+          }'::jsonb
+          AND s.balances->>(CASE WHEN $2='USDT' THEN 'fireblocksUsdtAvailableBaseUnits' ELSE 'fireblocksTrxAvailableBaseUnits' END)=$5::text
+          AND s.balances->>(CASE WHEN $2='USDT' THEN 'chainUsdtBalanceBaseUnits' ELSE 'chainTrxBalanceSun' END)=$9::text
+        RETURNING d.authorization_id`,
+      [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
+       availableBalanceBaseUnits, snapshotId, vaultAccountId, checked, chainBalanceBaseUnits],
+    )
+    if (!result.rowCount) {
+      const existing = await client.query(
+        `SELECT d.fireblocks_verified_at, d.fireblocks_snapshot_id,
+                d.fireblocks_vault_account_id
+           FROM ${schema}.third_party_funding_deposits AS d
+           JOIN ${schema}.third_party_funding_authorizations AS a
+             ON a.authorization_id=d.authorization_id
+          WHERE d.authorization_id=$1 AND d.asset=$2 AND d.transaction_hash=$3
+            AND a.vault_address=$4 AND d.recipient_address=$4
+            AND d.amount_base_units <= $5::numeric
+            AND d.amount_base_units <= $6::numeric
+          FOR UPDATE`,
+        [authorizationId, asset, transactionHash.toLowerCase(), treasuryAddress,
+         availableBalanceBaseUnits, chainBalanceBaseUnits],
+      )
+      if (existing.rows.length && existing.rows[0].fireblocks_snapshot_id === snapshotId
+        && existing.rows[0].fireblocks_vault_account_id === vaultAccountId) {
+        await client.query('COMMIT')
+        return { verified: true, duplicate: true }
+      }
+      await client.query('ROLLBACK')
+      return { verified: false, reason: 'fireblocks-inventory-does-not-match-chain-deposit' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-deposit-fireblocks-verified','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({
+        asset, transactionHash: transactionHash.toLowerCase(), snapshotId,
+        treasuryAddress, vaultAccountId, availableBalanceBaseUnits,
+        chainBalanceBaseUnits, checkedAt: checked.toISOString(),
+      })],
+    )
+    await client.query('COMMIT')
+    return { verified: true, duplicate: false }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding Fireblocks inventory reconciliation failed:', error?.code || 'unknown')
+    return { verified: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}
+
+
+/** Revoke an open funding authorization while retaining all historical evidence. */
+
+export async function revokeThirdPartyFundingAuthorization({ authorizationId, revokedBy } = {}) {
+  if (typeof authorizationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{3,127}$/.test(authorizationId)
+    || !isValidTronAddress(revokedBy)) return { revoked: false, reason: 'invalid-revocation-request' }
+  const db = getPool()
+  if (!db) return { revoked: false, reason: 'database-not-configured' }
+  let client
+  try {
+    await initializeDatabase()
+    client = await db.connect()
+    await client.query('BEGIN')
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
+    const result = await client.query(
+      `UPDATE ${schema}.third_party_funding_authorizations
+          SET status='revoked', updated_at=now()
+        WHERE authorization_id=$1 AND status IN ('awaiting-deposit','deposit-evidence-recorded','expired','cap-reached')
+        RETURNING authorization_id`,
+      [authorizationId],
+    )
+    if (!result.rowCount) {
+      const existing = await client.query(
+        `SELECT status FROM ${schema}.third_party_funding_authorizations WHERE authorization_id=$1 FOR UPDATE`,
+        [authorizationId],
+      )
+      await client.query('COMMIT')
+      return existing.rows.length
+        ? { revoked: existing.rows[0].status === 'revoked', duplicate: existing.rows[0].status === 'revoked', status: existing.rows[0].status }
+        : { revoked: false, reason: 'funding-authorization-not-found' }
+    }
+    await client.query(
+      `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
+       VALUES ('third-party-funding-authorization-revoked','third-party-funding-authorization',$1,$2::jsonb)`,
+      [authorizationId, JSON.stringify({ revokedBy, revokedAt: new Date().toISOString() })],
+    )
+    await client.query('COMMIT')
+    return { revoked: true, duplicate: false, status: 'revoked' }
+  } catch (error) {
+    await client?.query('ROLLBACK').catch(() => {})
+    console.error('Third-party funding authorization revocation failed:', error?.code || 'unknown')
+    return { revoked: false, reason: 'database-unavailable' }
+  } finally {
+    client?.release()
+  }
+}

@@ -28,7 +28,7 @@ const receiverAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const network = 'shasta'
 
 async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = {}) {
-  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
+  const { initializeDatabase, reserveSponsorTransfer: reserveSponsorTransferWithFundingGate, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, listSponsorResourceDelegations, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById } =
     await import('../server/database.mjs')
   const pool = new Pool({ connectionString: databaseUrl })
   const readiness = await initializeDatabase()
@@ -64,7 +64,7 @@ async function setup({ fundingSnapshotReader: injectedFundingSnapshotReader } = 
       requestedNetwork, input.asset, input.tokenContract,
     ),
   })
-  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
+  return { pool, reserveSponsorTransfer, transitionSponsorTransfer, createSponsorBudgetDraft, listSponsorBudgets, listSponsorResourceDelegations, pauseSponsorBudget, activateSponsorBudget, getSponsorBudgetById }
 }
 
 const testBudgetApprovals = new Map()
@@ -242,8 +242,8 @@ test('PostgreSQL keeps legacy VTRC history readable but rejects new VTRC ledger 
       pool.query(`INSERT INTO trc20_token_clone.sponsor_chain_cost_observations
         (network, transaction_hash, idempotency_key, sponsor_reference, fee_sponsor_address,
          asset_principal_address, receiver_address, asset, token_contract, amount_base_units,
-         block_number, execution_result, reported_fee_sun)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,'SUCCESS',0)`,
+         block_number, block_timestamp_ms, execution_result, reported_fee_sun)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'VTRC',$8,1,54321,1700000000000,'SUCCESS',0)`,
         [network, 'a'.repeat(64), transferKey, sponsorReference, sponsorAddress, receiverAddress, receiverAddress, contractAddress]),
       (error) => error?.code === '23514' && error?.constraint === 'sponsor_chain_cost_observations_supported_asset_only',
     )
@@ -1052,5 +1052,357 @@ test('PostgreSQL rejects TRC20 sponsor confirmation when finalized evidence mism
       [network, cases.map(item => item.hash)],
     )
     await pool.end()
+  }
+})
+
+
+test('PostgreSQL delegation audit query scopes history to the exact fee sponsor and principal pair', {
+  skip: !enabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated local sponsor_test database',
+}, async () => {
+  const ctx = await setup()
+  const { pool, listSponsorResourceDelegations } = ctx
+  const otherSponsor = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+  const transactionIds = [0, 1, 2].map((index) =>
+    randomUUID().replaceAll('-', '').repeat(2).slice(0, 64))
+  try {
+    await pool.query(
+      `INSERT INTO trc20_token_clone.sponsor_resource_delegations
+        (network, transaction_hash, sponsor_address, receiver_address, resource_type,
+         stake_equivalent_sun, block_number, verification_status)
+       VALUES
+        ($1,$2,$3,$4,'ENERGY',1000000,100,'verified-on-chain'),
+        ($1,$5,$3,$4,'BANDWIDTH',2000000,101,'verified-on-chain'),
+        ($1,$6,$7,$4,'ENERGY',3000000,102,'verified-on-chain')`,
+      [network, transactionIds[0], sponsorAddress, receiverAddress,
+        transactionIds[1], transactionIds[2], otherSponsor],
+    )
+    const result = await listSponsorResourceDelegations({
+      network,
+      feeSponsorAddress: sponsorAddress,
+      principalSponsorAddress: receiverAddress,
+      limit: 100,
+    })
+    assert.equal(result.success, true)
+    assert.deepEqual(
+      result.delegations.map((row) => row.transactionId).sort(),
+      transactionIds.slice(0, 2).sort(),
+    )
+    const invalidFilter = await listSponsorResourceDelegations({
+      network, feeSponsorAddress: sponsorAddress, limit: 100,
+    })
+    assert.equal(invalidFilter.success, false)
+    assert.equal(invalidFilter.reason, 'invalid-sponsor-pair-filter')
+  } finally {
+    await pool.query(
+      'DELETE FROM trc20_token_clone.sponsor_resource_delegations WHERE network = $1 AND transaction_hash = ANY($2::char(64)[])',
+      [network, transactionIds],
+    )
+    await pool.end()
+  }
+})
+
+
+test('Mainnet direct sponsor requests persist idempotently in the isolated PostgreSQL integration database', {
+  skip: !enabled,
+}, async (t) => {
+  const { createMainnetDirectSponsorRequestStore, OFFICIAL_MAINNET_USDT_CONTRACT } =
+    await import('../server/routes/mainnet-direct-sponsor-requests.mjs')
+  const { createMainnetDirectSponsorApprovalStore } =
+    await import('../server/routes/mainnet-direct-sponsor-approval.mjs')
+  const {
+    buildMainnetDirectSponsorApprovalMessage,
+    buildMainnetDirectFeeSponsorApprovalMessage,
+    mainnetDirectSponsorRequestSnapshotHash,
+    resolveMainnetDirectSponsorApprovalPolicy,
+    resolveMainnetDirectFeeApprovalPolicy,
+    sha256Hex,
+  } = await import('../server/mainnet-direct-sponsor-approval.mjs')
+  const store = createMainnetDirectSponsorRequestStore(process.env)
+  const approvalStore = createMainnetDirectSponsorApprovalStore(process.env)
+  const cleanupPool = new Pool({ connectionString: databaseUrl })
+  const idempotencyKey = 'pg-mainnet-direct-' + randomUUID()
+  const input = {
+    idempotencyKey,
+    requesterAddress: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+    recipientAddress: receiverAddress,
+    tokenContract: OFFICIAL_MAINNET_USDT_CONTRACT,
+    amountBaseUnits: '1234567',
+    decimals: 6,
+  }
+
+  try {
+    const [first, concurrentReplay] = await Promise.all([
+      store.createRequest(input),
+      store.createRequest(input),
+    ])
+    assert.equal(first.success, true)
+    assert.equal(concurrentReplay.success, true)
+    assert.equal([first, concurrentReplay].filter((result) => result.duplicate === false).length, 1)
+    assert.equal([first, concurrentReplay].filter((result) => result.duplicate === true).length, 1)
+
+    const original = first.request || concurrentReplay.request
+    assert.equal(original.network, 'mainnet')
+    assert.equal(original.asset, 'USDT')
+    assert.equal(original.tokenContract, OFFICIAL_MAINNET_USDT_CONTRACT)
+    assert.equal(original.amountBaseUnits, input.amountBaseUnits)
+    assert.equal(original.status, 'pending-sponsor-review')
+
+    const replay = await store.createRequest(input)
+    assert.equal(replay.success, true)
+    assert.equal(replay.duplicate, true)
+
+    const conflict = await store.createRequest({ ...input, amountBaseUnits: '7654321' })
+    assert.equal(conflict.success, false)
+    assert.equal(conflict.reason, 'idempotency-key-conflict')
+
+    const ownerLookup = await store.findRequest(idempotencyKey, input.requesterAddress)
+    assert.equal(ownerLookup.success, true)
+    assert.equal(ownerLookup.request.idempotencyKey, idempotencyKey)
+    const wrongOwnerLookup = await store.findRequest(idempotencyKey, 'different-requester')
+    assert.equal(wrongOwnerLookup.success, false)
+    assert.equal(wrongOwnerLookup.reason, 'request-not-found')
+
+    const queue = await store.listRequests({ limit: 100 })
+    assert.equal(queue.success, true)
+    assert.ok(queue.requests.some((request) => request.idempotencyKey === idempotencyKey))
+
+    const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+    const organizationReference = 'PG-SPONSOR-ORG-2026'
+    const agreementReference = 'PG-SPONSOR-AGREEMENT-2026'
+    const agreementSha256 = 'a'.repeat(64)
+    const policy = resolveMainnetDirectSponsorApprovalPolicy({
+      SPONSOR_ASSET_MAINNET_ADDRESS: sponsorAddress,
+      SPONSOR_MAINNET_DIRECT_ORGANIZATION_REFERENCE: organizationReference,
+      SPONSOR_MAINNET_DIRECT_AGREEMENT_REFERENCE: agreementReference,
+      SPONSOR_MAINNET_DIRECT_AGREEMENT_SHA256: agreementSha256,
+      SPONSOR_MAINNET_DIRECT_MAX_PAYOUT_USDT_BASE_UNITS: '250000000',
+      SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+        [agreementReference, organizationReference, 'mainnet', sponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT].join('|'),
+      ].join(';'),
+    })
+    assert.equal(policy.configured, true)
+    const issuedAtMs = Date.now()
+    const issuedAt = new Date(issuedAtMs).toISOString()
+    const challengeExpiresAt = new Date(issuedAtMs + 10 * 60 * 1000).toISOString()
+    const nonce = randomUUID().replace(/-/g, '').padEnd(48, 'f').slice(0, 64)
+    const challengeId = 'pg-mainnet-approval-' + randomUUID()
+    const approvalMessage = buildMainnetDirectSponsorApprovalMessage({
+      request: original,
+      policy,
+      nonce,
+      issuedAt,
+      expiresAt: challengeExpiresAt,
+    })
+    const createdChallenge = await approvalStore.createApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nonceHash: sha256Hex(nonce),
+      messageSha256: sha256Hex(approvalMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId,
+      policy,
+      issuedAt,
+      expiresAt: challengeExpiresAt,
+    })
+    assert.equal(createdChallenge.success, true)
+    const duplicateChallenge = await approvalStore.createApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nonceHash: sha256Hex(nonce + '1'),
+      messageSha256: sha256Hex(approvalMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId: challengeId + '-duplicate',
+      policy,
+      issuedAt,
+      expiresAt: challengeExpiresAt,
+    })
+    assert.equal(duplicateChallenge.success, false)
+    assert.equal(duplicateChallenge.reason, 'approval-challenge-already-open')
+
+    const consumedChallenge = await approvalStore.consumeApprovalChallenge({
+      nonceHash: sha256Hex(nonce),
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nowMs: issuedAtMs + 1,
+    })
+    assert.equal(consumedChallenge.success, true)
+    assert.equal(consumedChallenge.challenge.requestId, original.id)
+    assert.equal(consumedChallenge.request.idempotencyKey, idempotencyKey)
+    const replayedChallenge = await approvalStore.consumeApprovalChallenge({
+      nonceHash: sha256Hex(nonce),
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nowMs: issuedAtMs + 2,
+    })
+    assert.equal(replayedChallenge.success, false)
+    assert.equal(replayedChallenge.reason, 'approval-challenge-invalid-expired-or-replayed')
+
+    const approvedAt = new Date(issuedAtMs + 3).toISOString()
+    const approvalExpiresAt = new Date(issuedAtMs + 30 * 60 * 1000).toISOString()
+    const recordedApproval = await approvalStore.recordSponsorApproval({
+      requestId: original.id,
+      challengeId,
+      sponsorAddress,
+      organizationReference,
+      agreementReference,
+      agreementSha256,
+      messageSha256: sha256Hex(approvalMessage),
+      signature: '0x' + 'b'.repeat(130),
+      approvedAt,
+      expiresAt: approvalExpiresAt,
+    })
+    assert.equal(recordedApproval.success, true)
+    assert.equal(recordedApproval.approval.sponsorAddress, sponsorAddress)
+    const requesterApprovalView = await approvalStore.findApprovalsForOwner(idempotencyKey, input.requesterAddress)
+    assert.equal(requesterApprovalView.success, true)
+    assert.equal(requesterApprovalView.sponsorApproval.agreementReference, agreementReference)
+
+    const approvedQueue = await approvalStore.listSponsorReviewQueue({ sponsorAddress, limit: 100 })
+    const approvedRow = approvedQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
+    assert.equal(approvedRow.sponsorApproval.status, 'approved-active')
+    const feeSponsorAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+    const feeOrganizationReference = 'PG-FEE-SPONSOR-ORG-2026'
+    const feeAgreementReference = 'PG-FEE-SPONSOR-AGREEMENT-2026'
+    const feeAgreementSha256 = 'd'.repeat(64)
+    const feePolicy = resolveMainnetDirectFeeApprovalPolicy({
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsorAddress,
+      SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE: feeOrganizationReference,
+      SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE: feeAgreementReference,
+      SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256: feeAgreementSha256,
+      SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN: '50000000',
+      SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+        [feeAgreementReference, feeOrganizationReference, 'mainnet', feeSponsorAddress, 'network-fee', 'TRX', '-'].join('|'),
+      ].join(';'),
+    })
+    assert.equal(feePolicy.configured, true)
+    const feeIssuedAtMs = Date.now()
+    const feeIssuedAt = new Date(feeIssuedAtMs).toISOString()
+    const feeChallengeExpiresAt = new Date(feeIssuedAtMs + 10 * 60 * 1000).toISOString()
+    const feeNonce = randomUUID().replace(/-/g, '').padEnd(48, 'e').slice(0, 64)
+    const feeChallengeId = 'pg-mainnet-fee-approval-' + randomUUID()
+    const feeMessage = buildMainnetDirectFeeSponsorApprovalMessage({
+      request: original,
+      feePolicy,
+      assetPolicy: policy,
+      nonce: feeNonce,
+      issuedAt: feeIssuedAt,
+      expiresAt: feeChallengeExpiresAt,
+    })
+    const createdFeeChallenge = await approvalStore.createFeeApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nonceHash: sha256Hex(feeNonce),
+      messageSha256: sha256Hex(feeMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId: feeChallengeId,
+      feePolicy,
+      issuedAt: feeIssuedAt,
+      expiresAt: feeChallengeExpiresAt,
+    })
+    assert.equal(createdFeeChallenge.success, true)
+    assert.equal(createdFeeChallenge.principalApprovalId, recordedApproval.approval.id)
+    const duplicateFeeChallenge = await approvalStore.createFeeApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nonceHash: sha256Hex(feeNonce + '1'),
+      messageSha256: sha256Hex(feeMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId: feeChallengeId + '-duplicate',
+      feePolicy,
+      issuedAt: feeIssuedAt,
+      expiresAt: feeChallengeExpiresAt,
+    })
+    assert.equal(duplicateFeeChallenge.success, false)
+    assert.equal(duplicateFeeChallenge.reason, 'fee-approval-challenge-already-open')
+
+    const consumedFeeChallenge = await approvalStore.consumeFeeApprovalChallenge({
+      nonceHash: sha256Hex(feeNonce),
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nowMs: feeIssuedAtMs + 1,
+    })
+    assert.equal(consumedFeeChallenge.success, true)
+    assert.equal(consumedFeeChallenge.challenge.principalApprovalId, recordedApproval.approval.id)
+    const replayedFeeChallenge = await approvalStore.consumeFeeApprovalChallenge({
+      nonceHash: sha256Hex(feeNonce),
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nowMs: feeIssuedAtMs + 2,
+    })
+    assert.equal(replayedFeeChallenge.success, false)
+    assert.equal(replayedFeeChallenge.reason, 'fee-approval-challenge-invalid-expired-or-replayed')
+
+    const recordedFeeApproval = await approvalStore.recordFeeSponsorApproval({
+      requestId: original.id,
+      principalApprovalId: recordedApproval.approval.id,
+      challengeId: feeChallengeId,
+      sponsorAddress: feeSponsorAddress,
+      organizationReference: feeOrganizationReference,
+      agreementReference: feeAgreementReference,
+      agreementSha256: feeAgreementSha256,
+      messageSha256: sha256Hex(feeMessage),
+      signature: '0x' + 'c'.repeat(130),
+      maxFeeSun: feePolicy.maxFeeSun,
+      approvedAt: new Date(feeIssuedAtMs + 3).toISOString(),
+      expiresAt: new Date(feeIssuedAtMs + 30 * 60 * 1000).toISOString(),
+    })
+    assert.equal(recordedFeeApproval.success, true)
+    assert.equal(recordedFeeApproval.approval.maxFeeSun, '50000000')
+    const requesterWithBothApprovals = await approvalStore.findApprovalsForOwner(idempotencyKey, input.requesterAddress)
+    assert.equal(requesterWithBothApprovals.success, true)
+    assert.equal(requesterWithBothApprovals.sponsorApproval.agreementReference, agreementReference)
+    assert.equal(requesterWithBothApprovals.feeSponsorApproval.agreementReference, feeAgreementReference)
+    const approvedFeeQueue = await approvalStore.listFeeSponsorReviewQueue({ limit: 100 })
+    const feeQueueRow = approvedFeeQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
+    assert.equal(feeQueueRow.sponsorApproval.status, 'approved-active')
+    assert.equal(feeQueueRow.feeSponsorApproval.status, 'approved-active')
+    // Simulate a backend restart by opening a new approval-store pool and
+    // re-reading both signed approvals from PostgreSQL.
+    const restartedApprovalStore = createMainnetDirectSponsorApprovalStore(process.env)
+    try {
+      const recovered = await restartedApprovalStore.findApprovalsForOwner(idempotencyKey, input.requesterAddress)
+      assert.equal(recovered.success, true)
+      assert.equal(recovered.sponsorApproval.status, 'approved-active')
+      assert.equal(recovered.sponsorApproval.sponsorAddress, sponsorAddress)
+      assert.equal(recovered.feeSponsorApproval.status, 'approved-active')
+      assert.equal(recovered.feeSponsorApproval.sponsorAddress, feeSponsorAddress)
+      assert.equal(recovered.feeSponsorApproval.maxFeeSun, '50000000')
+    } finally {
+      await restartedApprovalStore.close()
+    }
+  } finally {
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_fee_approvals
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_fee_approval_challenges
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_sponsor_approval_challenges
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
+    await cleanupPool.query(
+      'DELETE FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1',
+      [idempotencyKey],
+    ).catch(() => {})
+    await Promise.all([store.close(), approvalStore.close(), cleanupPool.end()])
   }
 })

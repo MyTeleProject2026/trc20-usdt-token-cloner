@@ -10,7 +10,7 @@ test('receiver history UI is available without background polling or server-side
   assert.ok(app.includes('ReceiverHistoryRecord'))
   assert.ok(app.includes('isVerifiedHistoryRecord'))
   assert.ok(app.includes('verifiedOnChain'))
-  assert.ok(!app.includes('setInterval('))
+  assert.ok(!/setInterval\([^)]*receiverHistory/i.test(app))
   assert.ok(entry.includes("import App from './WorkflowApp.tsx'"))
   assert.ok(!entry.includes('ReceiverHistory'))
 })

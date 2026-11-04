@@ -1,8 +1,8 @@
 import { createPublicKey, verify as verifySignature } from 'node:crypto'
 import { Router } from 'express'
-import { TronWeb } from 'tronweb'
+import { TronWeb, providers } from 'tronweb'
 import {
-  createFireblocksClient, fireblocksConfiguration, extractFireblocksAddresses,
+  createFireblocksReadOnlyClient, fireblocksReadOnlyConfiguration, extractFireblocksAddresses,
   providerAssetAvailableBaseUnits, fireblocksAssetIdentifierMatches,
   isOfficialFireblocksUsdtAsset, isNativeFireblocksTrxAsset,
 } from '../fireblocks-client.mjs'
@@ -163,12 +163,31 @@ export async function verifyGitHubActionsInventoryOidcToken(token, expected, {
 const digits = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
 const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 96)
 
+export function createFireblocksInventoryTronReader({ apiKey = '', timeoutMs = 12_000 } = {}) {
+  const normalizedApiKey = typeof apiKey === 'string' ? apiKey.trim() : ''
+  const headers = normalizedApiKey ? { 'TRON-PRO-API-KEY': normalizedApiKey } : {}
+  const createProvider = () => new providers.HttpProvider(
+    'https://api.trongrid.io',
+    timeoutMs,
+    '',
+    '',
+    headers,
+  )
+  return new TronWeb({
+    fullNode: createProvider(),
+    solidityNode: createProvider(),
+    disablePlugins: true,
+  })
+}
+
 export function createFireblocksInventorySyncRouter({
   env = process.env,
-  fireblocksFactory = (currentEnv) => createFireblocksClient(currentEnv),
-  tronFactory = () => new TronWeb({
-    fullHost: 'https://api.trongrid.io',
-    ...(env.TRONGRID_API_KEY ? { headers: { 'TRON-PRO-API-KEY': env.TRONGRID_API_KEY } } : {}),
+  fireblocksFactory = (currentEnv, options) => createFireblocksReadOnlyClient(currentEnv, options),
+  providerTimeoutMs = 90_000,
+  tronHttpTimeoutMs = 12_000,
+  tronFactory = () => createFireblocksInventoryTronReader({
+    apiKey: env.TRONGRID_API_KEY,
+    timeoutMs: tronHttpTimeoutMs,
   }),
   fetchImpl = globalThis.fetch,
   saveSnapshot = persistFireblocksInventorySnapshot,
@@ -198,14 +217,20 @@ export function createFireblocksInventorySyncRouter({
     }
 
     const checkedAt = now()
-    const cfg = fireblocksConfiguration(env)
+    const cfg = fireblocksReadOnlyConfiguration(env)
     const address = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+    const vaultAccountId = typeof env.FIREBLOCKS_VAULT_ACCOUNT_ID === 'string' ? env.FIREBLOCKS_VAULT_ACCOUNT_ID.trim() : ''
+    const usdtAssetId = typeof env.FIREBLOCKS_USDT_ASSET_ID === 'string' ? env.FIREBLOCKS_USDT_ASSET_ID.trim() : ''
+    const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
+    const vaultConfigured = /^[0-9]{1,32}$/.test(vaultAccountId)
+    const usdtAssetConfigured = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(usdtAssetId)
+    const trxAssetConfigured = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(trxAssetId)
     const configuration = {
-      apiBase: cfg.apiBase, vaultAccountId: cfg.vaultAccountId || null,
-      usdtAssetId: cfg.usdtAssetId || null, trxAssetId: cfg.trxAssetId || null,
+      apiBase: cfg.apiBase, vaultAccountId: vaultAccountId || null,
+      usdtAssetId: usdtAssetId || null, trxAssetId: trxAssetId || null,
       treasuryAddress: ADDRESS_PATTERN.test(address) ? address : null,
-      secretKeyPath: cfg.secretKeyPath || null, apiKeyConfigured: Boolean(cfg.apiKey),
-      rsaKeyConfigured: false, signerMode: 'fireblocks', network: 'mainnet',
+      apiKeyConfigured: Boolean(cfg.apiKey),
+      rsaKeyConfigured: false, signerMode: 'fireblocks-read-only', network: 'mainnet',
       usdtContract: USDT_MAINNET, usdtDecimals: 6, trxDecimals: 6,
     }
     const checks = {
@@ -218,14 +243,19 @@ export function createFireblocksInventorySyncRouter({
       fireblocksUsdtAvailableBaseUnits: null, chainUsdtBalanceBaseUnits: null,
       fireblocksTrxAvailableBaseUnits: null, chainTrxBalanceSun: null,
     }
-    const reasons = [...cfg.providerMissing.map(slug)]
-    if (!cfg.usdtAssetId) reasons.push('fireblocks-usdt-asset-id-missing')
-    if (!cfg.trxAssetConfigured) reasons.push('fireblocks-trx-asset-id-missing')
+    const reasons = [...cfg.credentialsMissing.map(slug)]
+    if (!vaultConfigured) reasons.push('fireblocks-vault-account-id-missing-or-invalid')
+    if (!usdtAssetConfigured) reasons.push('fireblocks-usdt-asset-id-missing-or-invalid')
+    if (!trxAssetConfigured) reasons.push('fireblocks-trx-asset-id-missing-or-invalid')
     if (!ADDRESS_PATTERN.test(address)) reasons.push('treasury-address-not-configured')
 
-    if (cfg.providerConfigured && cfg.usdtAssetId && cfg.trxAssetConfigured && ADDRESS_PATTERN.test(address)) {
+    if (cfg.credentialsConfigured && vaultConfigured && usdtAssetConfigured && trxAssetConfigured && ADDRESS_PATTERN.test(address)) {
       try {
-        const fb = fireblocksFactory(env)
+        // All Fireblocks reads in this run share one deadline. The Fireblocks
+        // client also enforces its per-request timeout, so paginated reads cannot
+        // occupy the manual workflow indefinitely.
+        const providerSignal = AbortSignal.timeout(providerTimeoutMs)
+        const fb = fireblocksFactory(env, { signal: providerSignal })
         const tron = tronFactory()
         if (!tron?.isAddress?.(address) || !tron?.address?.toHex || !tron?.trx?.getBalance || !tron?.contract) {
           reasons.push('tron-read-provider-unavailable')
@@ -233,20 +263,20 @@ export function createFireblocksInventorySyncRouter({
           const vault = await fb.getVaultAccount()
           checks.fireblocksApiAuthenticated = true
           configuration.rsaKeyConfigured = true
-          checks.vaultAccountVerified = String(vault?.id || '') === cfg.vaultAccountId
+          checks.vaultAccountVerified = String(vault?.id || '') === vaultAccountId
           const active = new Set((Array.isArray(vault?.assets) ? vault.assets : [])
             .map((item) => typeof item === 'string' ? item : String(item?.id || '')).filter(Boolean))
-          checks.usdtAssetActivated = active.has(cfg.usdtAssetId)
-          checks.trxAssetActivated = active.has(cfg.trxAssetId)
+          checks.usdtAssetActivated = active.has(usdtAssetId)
+          checks.trxAssetActivated = active.has(trxAssetId)
           const [usdtMeta, usdtVault, usdtAddr, trxMeta, trxVault, trxAddr] = await Promise.all([
-            fb.getAssetMetadata(cfg.usdtAssetId), fb.getVaultAccountAsset(cfg.usdtAssetId), fb.getAssetAddresses(cfg.usdtAssetId),
-            fb.getAssetMetadata(cfg.trxAssetId), fb.getVaultAccountAsset(cfg.trxAssetId), fb.getAssetAddresses(cfg.trxAssetId),
+            fb.getAssetMetadata(usdtAssetId), fb.getVaultAccountAsset(usdtAssetId), fb.getAssetAddresses(usdtAssetId),
+            fb.getAssetMetadata(trxAssetId), fb.getVaultAccountAsset(trxAssetId), fb.getAssetAddresses(trxAssetId),
           ])
-          checks.officialUsdtAssetVerified = fireblocksAssetIdentifierMatches(usdtMeta, cfg.usdtAssetId)
-            && (usdtVault?.id === undefined || fireblocksAssetIdentifierMatches(usdtVault, cfg.usdtAssetId))
+          checks.officialUsdtAssetVerified = fireblocksAssetIdentifierMatches(usdtMeta, usdtAssetId)
+            && (usdtVault?.id === undefined || fireblocksAssetIdentifierMatches(usdtVault, usdtAssetId))
             && isOfficialFireblocksUsdtAsset(usdtMeta, tron, USDT_MAINNET)
-          checks.nativeTrxAssetVerified = isNativeFireblocksTrxAsset(trxMeta, cfg.trxAssetId)
-            && (trxVault?.id === undefined || fireblocksAssetIdentifierMatches(trxVault, cfg.trxAssetId))
+          checks.nativeTrxAssetVerified = isNativeFireblocksTrxAsset(trxMeta, trxAssetId)
+            && (trxVault?.id === undefined || fireblocksAssetIdentifierMatches(trxVault, trxAssetId))
           const usdtAddresses = [...new Set(extractFireblocksAddresses(usdtAddr))]
           const trxAddresses = [...new Set(extractFireblocksAddresses(trxAddr))]
           checks.usdtAddressMatches = usdtAddresses.length === 1 && usdtAddresses[0] === address

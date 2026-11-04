@@ -1,10 +1,13 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import pg from 'pg'
 import { TronWeb } from 'tronweb'
+import { isValidTronAddress } from '../tron-address.mjs'
 import {
   createFireblocksClient,
+  createFireblocksReadOnlyClient,
   fireblocksConfiguration,
+  fireblocksReadOnlyConfiguration,
   extractFireblocksAddresses,
   providerAssetAvailableBaseUnits,
   fireblocksAssetIdentifierMatches,
@@ -13,7 +16,8 @@ import {
   isNativeFireblocksTrxAsset,
   maxFireblocksEstimatedFeeSun,
 } from '../fireblocks-client.mjs'
-import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
+import { getFireblocksOutboundHistoryStatus } from './fireblocks-outbound-history.mjs'
+import { getWalletAuthSession, getThirdPartyFundingUsdtPoolSnapshot, normalizeDatabaseConnectionString, databaseSslConfig, isApprovedSponsorAgreementScope } from '../database.mjs'
 import {
   buildTreasuryWithdrawalAuthorizationMessage,
   buildTreasuryTrxWithdrawalAuthorizationMessage,
@@ -22,9 +26,12 @@ import {
 
 const { Pool } = pg
 const MAINNET_RPC = 'https://api.trongrid.io'
-// This supervised application build must never submit real-value treasury payouts.
-// The hard gate is deliberately not controlled by Render environment variables.
+// Both real-value submission paths remain hard-locked until a separate reviewed
+// release change after sponsor, custody, security and funded acceptance gates.
 const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
+// Native TRX principal withdrawals are not part of the USDT sponsor-release path.
+const REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED = true
+const REAL_VALUE_RELEASE_MAX_FUTURE_MS = 30 * 24 * 60 * 60 * 1000
 const USDT_MAINNET = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_PATTERN = /^[0-9a-f]{64}$/i
@@ -33,10 +40,385 @@ const SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const OWNER_PAYOUT_SIGNATURE_PATTERN = /^0x[0-9a-f]{130}$/i
 const OWNER_PAYOUT_AUTHORIZATION_MAX_FUTURE_MS = 120_000
 const UINT256_MAX = (1n << 256n) - 1n
+
+/**
+ * Production USDT release requires a sponsor signature over the exact current
+ * treasury, Fireblocks vault, agreement, limits and recipient policy. Environment
+ * flags alone cannot authorize execution. The sponsor signature is deliberately
+ * separate from the per-transfer owner signature and Fireblocks approval policy.
+ */
+export function treasuryPayoutExecutionState(preflightChecksPassed, releaseAuthorized = false) {
+  const payoutsPreflightReady = preflightChecksPassed === true
+  const sponsorReleaseAuthorized = releaseAuthorized === true
+  const executionEnabled = payoutsPreflightReady && sponsorReleaseAuthorized
+    && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+  return {
+    payoutsPreflightReady,
+    sponsorReleaseAuthorized,
+    withdrawalsEnabled: executionEnabled,
+    executionEnabled,
+    executionBlocker: REAL_VALUE_PAYOUT_EXECUTION_DISABLED
+      ? 'real-value-payout-execution-disabled-in-this-build'
+      : !sponsorReleaseAuthorized
+        ? 'real-value-payout-release-authorization-incomplete'
+        : payoutsPreflightReady ? null : 'payout-preflight-incomplete',
+  }
+}
+
+export function treasuryTrxPayoutExecutionState(preflightChecksPassed) {
+  return {
+    payoutsPreflightReady: preflightChecksPassed === true,
+    sponsorReleaseAuthorized: false,
+    withdrawalsEnabled: false,
+    executionEnabled: false,
+    executionBlocker: REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED
+      ? 'native-trx-payout-execution-disabled-in-this-build'
+      : 'native-trx-release-authorization-required',
+  }
+}
+
+export function buildTreasuryRealValueReleaseMessage(env = process.env, {
+  now = Date.now(),
+} = {}) {
+  const config = treasuryUsdtConfiguration(env)
+  const releaseReference = typeof env.TREASURY_REAL_VALUE_RELEASE_REFERENCE === 'string'
+    ? env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim() : ''
+  const expiryRaw = typeof env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT === 'string'
+    ? env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT.trim() : ''
+  const expiresAt = /^\d{13}$/.test(expiryRaw) ? Number(expiryRaw) : NaN
+  if (!config.configurationComplete || !config.featureFlagEnabled
+    || !config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+    throw new Error('Complete Mainnet USDT sponsor, owner, Fireblocks and policy configuration is required before requesting a release signature.')
+  }
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(releaseReference)) {
+    throw new Error('A unique sponsor release reference of 8–160 safe characters is required.')
+  }
+  if (!Number.isSafeInteger(now) || !Number.isSafeInteger(expiresAt)
+    || expiresAt <= now || expiresAt > now + REAL_VALUE_RELEASE_MAX_FUTURE_MS) {
+    throw new Error('The sponsor release expiry must be in the future and no more than 30 days away.')
+  }
+  const staticRecipients = [...config.allowedRecipientAddresses].sort()
+  const sponsorApprovers = [...config.sponsorApproverAddresses].sort()
+  const recipientPolicyHash = createHash('sha256').update(JSON.stringify({
+    staticRecipients,
+    sponsorApprovers,
+  }), 'utf8').digest('hex')
+  const treasuryAddress = env.TREASURY_ADDRESS.trim()
+  const ownerAddress = env.TREASURY_OWNER_ADDRESS.trim()
+  const vaultAccountId = String(env.FIREBLOCKS_VAULT_ACCOUNT_ID || '').trim()
+  const usdtAssetId = String(env.FIREBLOCKS_USDT_ASSET_ID || '').trim()
+  const trxAssetId = String(env.FIREBLOCKS_TRX_ASSET_ID || '').trim()
+  return [
+    'TRON Token Studio Mainnet USDT real-value payout release',
+    'Version: 1',
+    'Purpose: authorize the platform to submit real Mainnet USDT withdrawals only within the exact sponsor agreement, treasury, vault, destination policy and limits below.',
+    'This does not waive Fireblocks transaction policy, owner per-transfer authorization, balance checks, idempotency, fee reserves or chain receipt verification.',
+    'Network: TRON Mainnet',
+    'Asset: genuine Tether USDT',
+    `Token contract: ${USDT_MAINNET}`,
+    `Sponsor organization reference: ${config.sponsorOrganizationReference}`,
+    `Sponsor agreement reference: ${config.sponsorAgreementReference}`,
+    `Treasury source address: ${treasuryAddress}`,
+    `Owner authorization address: ${ownerAddress}`,
+    `Fireblocks vault account ID: ${vaultAccountId}`,
+    `Fireblocks USDT asset ID: ${usdtAssetId}`,
+    `Fireblocks native TRX asset ID: ${trxAssetId}`,
+    `Maximum single payout USDT: ${env.TREASURY_MAX_PAYOUT_USDT.trim()}`,
+    `Daily USDT payout limit: ${env.TREASURY_DAILY_LIMIT_USDT.trim()}`,
+    `Total sponsor USDT principal commitment: ${env.TREASURY_SPONSOR_TOTAL_BUDGET_USDT.trim()}`,
+    `Maximum estimated network fee reserve SUN: ${env.TREASURY_FEE_LIMIT_SUN.trim()}`,
+    `Recipient policy SHA-256: ${recipientPolicyHash}`,
+    `Approved sponsor signer addresses: ${sponsorApprovers.join(',')}`,
+    `Release reference: ${releaseReference}`,
+    `Release expires at Unix milliseconds: ${expiresAt}`,
+  ].join('\n')
+}
+
+export async function verifyTreasuryRealValueReleaseAuthorization(tronWeb, env = process.env, signature, {
+  now = Date.now(),
+} = {}) {
+  if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+    return { authorized: false, reason: 'real-value-execution-switch-disabled' }
+  }
+  if (typeof signature !== 'string' || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(signature)) {
+    return { authorized: false, reason: 'sponsor-release-signature-missing-or-invalid' }
+  }
+  try {
+    const message = buildTreasuryRealValueReleaseMessage(env, { now })
+    const signerAddress = await recoverTreasurySponsorRecipientApprover(tronWeb, {
+      message,
+      signature,
+      allowedSignerAddresses: treasuryUsdtConfiguration(env).sponsorApproverAddresses,
+    })
+    if (!signerAddress) return { authorized: false, reason: 'sponsor-release-signature-not-from-authorized-signer' }
+    const expiresAt = Number(env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT)
+    return {
+      authorized: true,
+      reason: null,
+      signerAddress,
+      releaseReference: env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+      expiresAt,
+      messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+      message,
+    }
+  } catch {
+    return { authorized: false, reason: 'sponsor-release-configuration-or-signature-invalid' }
+  }
+}
+
+export function buildTreasuryRealValueReleaseRevocationMessage({
+  releaseReference,
+  messageHash,
+  sponsorOrganizationReference,
+  sponsorAgreementReference,
+  treasuryAddress,
+  requesterOrigin,
+} = {}) {
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(releaseReference || '')
+    || !/^[0-9a-f]{64}$/i.test(messageHash || '')
+    || !/^[A-Za-z0-9._:-]{8,128}$/.test(sponsorOrganizationReference || '')
+    || !/^[A-Za-z0-9._:-]{8,160}$/.test(sponsorAgreementReference || '')
+    || !isValidTronAddress(treasuryAddress)
+    || typeof requesterOrigin !== 'string' || !normalizeTreasuryApprovalOrigin(requesterOrigin)
+    || normalizeTreasuryApprovalOrigin(requesterOrigin) !== requesterOrigin) {
+    throw new Error('A valid active sponsor release record is required for revocation.')
+  }
+  return [
+    'TRON Token Studio Mainnet USDT real-value payout release revocation',
+    'Version: 1',
+    'Purpose: revoke the exact sponsor release authorization below. This does not cancel an already reserved or submitted Fireblocks transaction.',
+    'Network: TRON Mainnet',
+    'Asset: genuine Tether USDT',
+    `Token contract: ${USDT_MAINNET}`,
+    `Sponsor organization reference: ${sponsorOrganizationReference}`,
+    `Sponsor agreement reference: ${sponsorAgreementReference}`,
+    `Treasury source address: ${treasuryAddress}`,
+    `Release reference: ${releaseReference}`,
+    `Original release message SHA-256: ${messageHash.toLowerCase()}`,
+    `Application origin: ${requesterOrigin}`,
+  ].join('\n')
+}
 /**
  * Require the console's only permitted owner and the payout authorizer to be
  * the exact same TRON address. This prevents an accidental split-owner setup.
  */
+export function parseTreasuryRecipientAllowlist(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 8192) {
+    return { valid: false, addresses: [], reason: 'recipient-allowlist-not-configured' }
+  }
+  const entries = value.split(',').map((entry) => entry.trim())
+  if (entries.length < 1 || entries.length > 100
+    || entries.some((entry) => !entry || !isValidTronAddress(entry))) {
+    return { valid: false, addresses: [], reason: 'recipient-allowlist-invalid' }
+  }
+  const addresses = [...new Set(entries)]
+  if (addresses.length !== entries.length) {
+    return { valid: false, addresses: [], reason: 'recipient-allowlist-contains-duplicates' }
+  }
+  return { valid: true, addresses, reason: null }
+}
+
+export function isTreasuryRecipientAllowed(recipientAddress, allowlist) {
+  return typeof recipientAddress === 'string'
+    && Array.isArray(allowlist)
+    && allowlist.includes(recipientAddress)
+}
+
+
+const RECIPIENT_APPROVAL_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const SPONSOR_REFERENCE_PATTERN = /^[A-Za-z0-9._:-]{8,160}$/
+
+export function parseTreasurySponsorApproverAllowlist(value, { excludedAddresses = [] } = {}) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096) {
+    return { valid: false, addresses: [], reason: 'sponsor-approver-allowlist-not-configured' }
+  }
+  const entries = value.split(',').map((entry) => entry.trim())
+  if (entries.length < 1 || entries.length > 20
+    || entries.some((entry) => !isValidTronAddress(entry))) {
+    return { valid: false, addresses: [], reason: 'sponsor-approver-allowlist-invalid' }
+  }
+  const addresses = [...new Set(entries)]
+  if (addresses.length !== entries.length) {
+    return { valid: false, addresses: [], reason: 'sponsor-approver-allowlist-contains-duplicates' }
+  }
+  const excluded = new Set(excludedAddresses
+    .filter((address) => typeof address === 'string' && address.trim())
+    .map((address) => address.trim()))
+  if (addresses.some((address) => excluded.has(address))) {
+    return { valid: false, addresses: [], reason: 'sponsor-approver-must-be-independent-of-owner-and-treasury' }
+  }
+  return { valid: true, addresses, reason: null }
+}
+
+function normalizeTreasuryApprovalOrigin(value) {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const input = value.trim()
+  if (input === 'tronstudio://app') return input
+  try {
+    const parsed = new URL(input)
+    const local = parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname.toLowerCase())
+    if (!(parsed.protocol === 'https:' || local) || parsed.username || parsed.password
+      || parsed.search || parsed.hash || (parsed.pathname !== '' && parsed.pathname !== '/')) return null
+    return parsed.origin
+  } catch {
+    return null
+  }
+}
+
+function isConfiguredTreasuryApprovalOrigin(origin, env) {
+  const normalized = normalizeTreasuryApprovalOrigin(origin)
+  if (!normalized || normalized !== origin) return false
+  const allowed = [env.FRONTEND_ORIGIN, env.PACKAGED_APP_ORIGINS, env.OKX_UI_ORIGIN]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .flatMap((value) => value.split(','))
+    .map(normalizeTreasuryApprovalOrigin)
+    .filter(Boolean)
+  return allowed.includes(normalized)
+}
+
+export function buildTreasuryRecipientApprovalMessage({
+  requestId,
+  sponsorOrganizationReference,
+  sponsorAgreementReference,
+  treasuryAddress,
+  recipientAddress,
+  requesterAddress,
+  requesterOrigin,
+  reason,
+  expiresAt,
+} = {}) {
+  if (typeof requestId !== 'string' || !UUID_PATTERN.test(requestId)
+    || !SPONSOR_REFERENCE_PATTERN.test(sponsorOrganizationReference || '')
+    || !SPONSOR_REFERENCE_PATTERN.test(sponsorAgreementReference || '')) {
+    throw new Error('A valid recipient request and sponsor agreement reference are required.')
+  }
+  for (const [field, value] of Object.entries({ treasuryAddress, recipientAddress, requesterAddress })) {
+    if (typeof value !== 'string' || !isValidTronAddress(value)) {
+      throw new Error(`A valid TRON ${field} is required for sponsor recipient approval.`)
+    }
+  }
+  if (typeof requesterOrigin !== 'string' || !normalizeTreasuryApprovalOrigin(requesterOrigin)
+    || requesterOrigin !== normalizeTreasuryApprovalOrigin(requesterOrigin)) {
+    throw new Error('A configured application origin is required for sponsor recipient approval.')
+  }
+  if (typeof reason !== 'string' || !/^[\x20-\x7e]{10,500}$/.test(reason.trim())) {
+    throw new Error('A single-line recipient approval reason of at most 500 characters is required.')
+  }
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= 0) {
+    throw new Error('A valid recipient approval request expiry is required.')
+  }
+  return [
+    'TRON Token Studio sponsor recipient approval',
+    'Version: 1',
+    'Purpose: approve this exact destination for the sponsor agreement; this signature does not authorize, sign, or execute a token transfer.',
+    'Network: TRON Mainnet',
+    'Asset: USDT',
+    `Token contract: ${USDT_MAINNET}`,
+    `Sponsor organization reference: ${sponsorOrganizationReference}`,
+    `Sponsor agreement reference: ${sponsorAgreementReference}`,
+    `Treasury source address: ${treasuryAddress}`,
+    `Approved recipient: ${recipientAddress}`,
+    `Requested by owner: ${requesterAddress}`,
+    `Application origin: ${requesterOrigin}`,
+    `Request ID: ${requestId}`,
+    `Reason: ${reason.trim()}`,
+    `Approval request expires at Unix milliseconds: ${expiresAt}`,
+  ].join('\n')
+}
+
+export function buildTreasuryRecipientRevocationMessage({
+  requestId,
+  sponsorOrganizationReference,
+  sponsorAgreementReference,
+  treasuryAddress,
+  recipientAddress,
+  approvalMessageHash,
+  requesterOrigin,
+} = {}) {
+  if (typeof requestId !== 'string' || !UUID_PATTERN.test(requestId)
+    || !SPONSOR_REFERENCE_PATTERN.test(sponsorOrganizationReference || '')
+    || !SPONSOR_REFERENCE_PATTERN.test(sponsorAgreementReference || '')
+    || typeof approvalMessageHash !== 'string' || !/^[0-9a-f]{64}$/i.test(approvalMessageHash)) {
+    throw new Error('A valid approved recipient record is required for revocation.')
+  }
+  for (const [field, value] of Object.entries({ treasuryAddress, recipientAddress })) {
+    if (typeof value !== 'string' || !isValidTronAddress(value)) {
+      throw new Error(`A valid TRON ${field} is required for sponsor recipient revocation.`)
+    }
+  }
+  if (typeof requesterOrigin !== 'string' || requesterOrigin !== normalizeTreasuryApprovalOrigin(requesterOrigin)) {
+    throw new Error('A configured application origin is required for sponsor recipient revocation.')
+  }
+  return [
+    'TRON Token Studio sponsor recipient revocation',
+    'Version: 1',
+    'Purpose: revoke the prior destination approval identified below; this signature does not execute a token transfer.',
+    'Network: TRON Mainnet',
+    'Asset: USDT',
+    `Token contract: ${USDT_MAINNET}`,
+    `Sponsor organization reference: ${sponsorOrganizationReference}`,
+    `Sponsor agreement reference: ${sponsorAgreementReference}`,
+    `Treasury source address: ${treasuryAddress}`,
+    `Recipient to revoke: ${recipientAddress}`,
+    `Request ID: ${requestId}`,
+    `Application origin: ${requesterOrigin}`,
+    `Original approval message SHA-256: ${approvalMessageHash.toLowerCase()}`,
+  ].join('\n')
+}
+
+export async function recoverTreasurySponsorRecipientApprover(tronWeb, {
+  message,
+  signature,
+  allowedSignerAddresses = [],
+} = {}) {
+  if (typeof message !== 'string' || !message
+    || typeof signature !== 'string' || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(signature)
+    || !Array.isArray(allowedSignerAddresses) || allowedSignerAddresses.length === 0
+    || typeof tronWeb?.trx?.verifyMessageV2 !== 'function') return null
+  try {
+    const recoveredAddress = await tronWeb.trx.verifyMessageV2(message, signature)
+    return typeof recoveredAddress === 'string' && allowedSignerAddresses.includes(recoveredAddress)
+      ? recoveredAddress
+      : null
+  } catch {
+    return null
+  }
+}
+
+export async function verifyTreasurySponsorRecipientApproval(tronWeb, row, {
+  allowedSignerAddresses = [],
+} = {}) {
+  if (!row || typeof row !== 'object' || row.status !== 'approved'
+    || row.token_contract !== USDT_MAINNET
+    || typeof row.approver_address !== 'string'
+    || typeof row.approval_message_hash !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(row.approval_message_hash)) return false
+  try {
+    const approvalMessage = buildTreasuryRecipientApprovalMessage({
+      requestId: row.request_id,
+      sponsorOrganizationReference: row.sponsor_organization_reference,
+      sponsorAgreementReference: row.sponsor_agreement_reference,
+      treasuryAddress: row.treasury_address,
+      recipientAddress: row.recipient_address,
+      requesterAddress: row.requester_owner_address,
+      requesterOrigin: row.requester_origin,
+      reason: row.request_reason,
+      expiresAt: new Date(row.approval_expires_at).getTime(),
+    })
+    const expectedHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
+    if (expectedHash !== row.approval_message_hash.trim().toLowerCase()) return false
+    const recoveredApprover = await recoverTreasurySponsorRecipientApprover(tronWeb, {
+      message: approvalMessage,
+      signature: row.approval_signature,
+      allowedSignerAddresses,
+    })
+    return recoveredApprover === row.approver_address
+  } catch {
+    return false
+  }
+}
+
 export function isUnifiedTreasuryOwnerConfiguration(env = process.env) {
   const consoleOwner = typeof env.OWNER_WALLET_ADDRESS === 'string' ? env.OWNER_WALLET_ADDRESS.trim() : ''
   const treasuryOwner = typeof env.TREASURY_OWNER_ADDRESS === 'string' ? env.TREASURY_OWNER_ADDRESS.trim() : ''
@@ -80,6 +462,10 @@ async function ensureSchema(db) {
           treasury_address TEXT NOT NULL,
           recipient_address TEXT NOT NULL,
           token_contract TEXT NOT NULL,
+          sponsor_organization_reference TEXT,
+          sponsor_agreement_reference TEXT,
+          sponsor_agreement_budget_base_units NUMERIC(78,0),
+          recipient_approval_request_id UUID,
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           status TEXT NOT NULL CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected')),
           transaction_hash CHAR(64),
@@ -91,11 +477,90 @@ async function ensureSchema(db) {
         )
       `)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests DROP CONSTRAINT IF EXISTS treasury_withdrawal_requests_status_check`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_recipient_approval_requests (
+          request_id UUID PRIMARY KEY,
+          sponsor_organization_reference TEXT NOT NULL,
+          sponsor_agreement_reference TEXT NOT NULL,
+          treasury_address TEXT NOT NULL,
+          recipient_address TEXT NOT NULL,
+          token_contract TEXT NOT NULL CHECK (token_contract = '${USDT_MAINNET}'),
+          requester_owner_address TEXT NOT NULL,
+          requester_origin TEXT NOT NULL,
+          request_reason TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending','approved','expired','cancelled','revoked')),
+          approval_message_hash CHAR(64) NOT NULL,
+          approval_expires_at TIMESTAMPTZ NOT NULL,
+          approver_address TEXT,
+          approval_signature TEXT,
+          approved_at TIMESTAMPTZ,
+          revocation_message_hash CHAR(64),
+          revoked_by TEXT,
+          revocation_signature TEXT,
+          revoked_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((status <> 'approved') OR (approver_address IS NOT NULL AND approval_signature IS NOT NULL AND approved_at IS NOT NULL)),
+          CHECK ((status <> 'revoked') OR (revoked_by IS NOT NULL AND revocation_signature IS NOT NULL AND revoked_at IS NOT NULL))
+        )
+      `)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS treasury_recipient_approval_active_idx
+        ON trc20_token_clone.treasury_recipient_approval_requests
+          (sponsor_organization_reference, sponsor_agreement_reference, treasury_address, recipient_address)
+        WHERE status IN ('pending','approved')`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_recipient_approval_lookup_idx
+        ON trc20_token_clone.treasury_recipient_approval_requests
+          (treasury_address, sponsor_organization_reference, sponsor_agreement_reference, recipient_address, status)`)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS trc20_token_clone.treasury_real_value_release_authorizations (
+          release_authorization_id UUID PRIMARY KEY,
+          release_reference TEXT NOT NULL,
+          sponsor_organization_reference TEXT NOT NULL,
+          sponsor_agreement_reference TEXT NOT NULL,
+          treasury_address TEXT NOT NULL,
+          requester_origin TEXT NOT NULL,
+          release_message TEXT NOT NULL,
+          release_message_hash CHAR(64) NOT NULL,
+          release_expires_at TIMESTAMPTZ NOT NULL,
+          sponsor_signer_address TEXT NOT NULL,
+          sponsor_signature TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active','revoked','expired','superseded')),
+          revocation_message_hash CHAR(64),
+          revoked_by TEXT,
+          revocation_signature TEXT,
+          revoked_at TIMESTAMPTZ,
+          created_by_owner_address TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CHECK ((status <> 'revoked') OR (revoked_by IS NOT NULL AND revocation_signature IS NOT NULL AND revoked_at IS NOT NULL))
+        )
+      `)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS treasury_real_value_release_active_idx
+        ON trc20_token_clone.treasury_real_value_release_authorizations (release_reference)
+        WHERE status='active'`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_real_value_release_lookup_idx
+        ON trc20_token_clone.treasury_real_value_release_authorizations
+          (release_reference, sponsor_organization_reference, sponsor_agreement_reference, treasury_address, status)`)
+
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests
         ADD CONSTRAINT treasury_withdrawal_requests_status_check
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_organization_reference TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_reference TEXT`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS sponsor_agreement_budget_base_units NUMERIC(78,0)`)
+      await db.query(`ALTER TABLE trc20_token_clone.treasury_withdrawal_requests ADD COLUMN IF NOT EXISTS recipient_approval_request_id UUID`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_recipient_approval_idx
+        ON trc20_token_clone.treasury_withdrawal_requests (recipient_approval_request_id)
+        WHERE recipient_approval_request_id IS NOT NULL`)
+      await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
+        SET status='broadcast-unknown',
+            failure_code='fireblocks-terminal-unverified-' || COALESCE(NULLIF(provider_status, ''), 'unknown'),
+            updated_at=now()
+        WHERE status='failed' AND COALESCE(failure_code, '') LIKE 'fireblocks-terminal-%'`)
+      await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_sponsor_agreement_idx
+        ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, sponsor_organization_reference, sponsor_agreement_reference, status)`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_withdrawal_fee_reserve_idx
         ON trc20_token_clone.treasury_withdrawal_requests (treasury_address, status)`)
       await db.query(`
@@ -121,6 +586,11 @@ async function ensureSchema(db) {
         CHECK (status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown','rejected','confirmed','failed'))`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT`)
       await db.query(`ALTER TABLE trc20_token_clone.treasury_trx_withdrawal_requests ADD COLUMN IF NOT EXISTS provider_status TEXT`)
+      await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
+        SET status='broadcast-unknown',
+            failure_code='fireblocks-terminal-unverified-' || COALESCE(NULLIF(provider_status, ''), 'unknown'),
+            updated_at=now()
+        WHERE status='failed' AND COALESCE(failure_code, '') LIKE 'fireblocks-terminal-%'`)
       await db.query(`CREATE INDEX IF NOT EXISTS treasury_trx_withdrawal_fee_reserve_idx
         ON trc20_token_clone.treasury_trx_withdrawal_requests (treasury_address, status)`)
     })().catch((error) => { schemaPromise = null; throw error })
@@ -141,6 +611,42 @@ function parsePositiveDecimal(value, decimals = 6) {
 
 function readLimit(value) {
   return typeof value === 'string' ? parsePositiveDecimal(value, 6) : null
+}
+
+/**
+ * Calculate the remaining third-party USDT principal commitment using integer
+ * six-decimal base units only. Unresolved reservations and confirmed payouts
+ * consume the commitment; failed/rejected payouts are excluded by the caller.
+ */
+export function sponsorPrincipalBudgetCapMatches(totalBudgetBaseUnits, {
+  minimumStoredBudgetBaseUnits = null,
+  maximumStoredBudgetBaseUnits = null,
+  unpinnedAgreementRows = '0',
+} = {}) {
+  const valid = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (!valid(totalBudgetBaseUnits) || BigInt(totalBudgetBaseUnits) <= 0n
+    || typeof unpinnedAgreementRows !== 'string' || !/^(0|[1-9][0-9]*)$/.test(unpinnedAgreementRows)) return false
+  if (BigInt(unpinnedAgreementRows) > 0n) return false
+  if (minimumStoredBudgetBaseUnits === null && maximumStoredBudgetBaseUnits === null) return true
+  return minimumStoredBudgetBaseUnits === totalBudgetBaseUnits
+    && maximumStoredBudgetBaseUnits === totalBudgetBaseUnits
+}
+
+export function calculateSponsorPrincipalBudgetState(totalBudgetBaseUnits, usedBaseUnits, requestedBaseUnits = '0') {
+  const valid = (value) => typeof value === 'string' && /^(0|[1-9][0-9]{0,77})$/.test(value)
+  if (!valid(totalBudgetBaseUnits) || BigInt(totalBudgetBaseUnits) <= 0n
+    || !valid(usedBaseUnits) || !valid(requestedBaseUnits)) return null
+  const total = BigInt(totalBudgetBaseUnits)
+  const used = BigInt(usedBaseUnits)
+  const requested = BigInt(requestedBaseUnits)
+  const remaining = total > used ? total - used : 0n
+  return {
+    totalBudgetBaseUnits: total.toString(),
+    usedBaseUnits: used.toString(),
+    remainingBaseUnits: remaining.toString(),
+    requestedBaseUnits: requested.toString(),
+    withinBudget: used + requested <= total,
+  }
 }
 
 function formatUnitsDecimal(value, decimals = 6) {
@@ -207,12 +713,67 @@ export function unreservedTreasuryBalance(balanceBaseUnits, outstandingReservati
   return (balanceValue > reservedValue ? balanceValue - reservedValue : 0n).toString()
 }
 
+/** Remaining genuine third-party USDT principal after all committed app and external outflows. */
+export function remainingThirdPartyFundingPrincipal(verifiedPrincipalBaseUnits, committedWithdrawalBaseUnits) {
+  const verified = typeof verifiedPrincipalBaseUnits === 'string' ? verifiedPrincipalBaseUnits : ''
+  const committed = typeof committedWithdrawalBaseUnits === 'string' ? committedWithdrawalBaseUnits : ''
+  if (!/^(0|[1-9][0-9]{0,77})$/.test(verified)
+    || !/^(0|[1-9][0-9]{0,77})$/.test(committed)) return null
+  const remaining = BigInt(verified) - BigInt(committed)
+  return (remaining > 0n ? remaining : 0n).toString()
+}
+
+/** Calculate a conservative request capacity using integer USDT base units only. */
+export function calculateTreasuryPayoutCapacity({
+  verifiedSpendableBaseUnits,
+  outstandingReservationBaseUnits,
+  sponsorCommitmentRemainingBaseUnits,
+  dailyLimitBaseUnits,
+  dailyUsedBaseUnits,
+  maximumSinglePayoutBaseUnits,
+  verifiedThirdPartyPrincipalRemainingBaseUnits,
+} = {}) {
+  const parse = (value) => {
+    const text = typeof value === 'string' ? value : String(value ?? '')
+    return /^(0|[1-9][0-9]{0,77})$/.test(text) ? BigInt(text) : null
+  }
+  const funded = parse(verifiedSpendableBaseUnits)
+  const reserved = parse(outstandingReservationBaseUnits)
+  const commitment = parse(sponsorCommitmentRemainingBaseUnits)
+  const dailyLimit = parse(dailyLimitBaseUnits)
+  const dailyUsed = parse(dailyUsedBaseUnits)
+  const singlePayoutLimit = parse(maximumSinglePayoutBaseUnits)
+  const thirdPartyPrincipal = parse(verifiedThirdPartyPrincipalRemainingBaseUnits)
+  if ([funded, reserved, commitment, dailyLimit, dailyUsed, singlePayoutLimit, thirdPartyPrincipal].some((value) => value === null)) {
+    return null
+  }
+  const availableAfterReservations = funded > reserved ? funded - reserved : 0n
+  const dailyRemaining = dailyLimit > dailyUsed ? dailyLimit - dailyUsed : 0n
+  const eligible = [availableAfterReservations, commitment, dailyRemaining, singlePayoutLimit, thirdPartyPrincipal]
+    .reduce((smallest, value) => value < smallest ? value : smallest)
+  return {
+    verifiedSpendableBaseUnits: funded.toString(),
+    outstandingReservationBaseUnits: reserved.toString(),
+    availableAfterReservationsBaseUnits: availableAfterReservations.toString(),
+    sponsorCommitmentRemainingBaseUnits: commitment.toString(),
+    dailyLimitBaseUnits: dailyLimit.toString(),
+    dailyUsedBaseUnits: dailyUsed.toString(),
+    dailyRemainingBaseUnits: dailyRemaining.toString(),
+    maximumSinglePayoutBaseUnits: singlePayoutLimit.toString(),
+    verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyPrincipal.toString(),
+    eligibleCapacityBaseUnits: eligible.toString(),
+  }
+}
+
 /** Idempotency keys are bound to the original owner, recipient and amount. */
 export function matchesTreasuryWithdrawalRequest(row, {
   ownerAddress,
   treasuryAddress,
   recipientAddress,
   amountBaseUnits,
+  sponsorOrganizationReference,
+  sponsorAgreementReference,
+  sponsorAgreementBudgetBaseUnits,
 } = {}) {
   if (!row || typeof row !== 'object') return false
   try {
@@ -220,6 +781,9 @@ export function matchesTreasuryWithdrawalRequest(row, {
       && row.treasury_address === treasuryAddress
       && row.recipient_address === recipientAddress
       && row.token_contract === USDT_MAINNET
+      && row.sponsor_organization_reference === sponsorOrganizationReference
+      && row.sponsor_agreement_reference === sponsorAgreementReference
+      && BigInt(String(row.sponsor_agreement_budget_base_units)) === BigInt(String(sponsorAgreementBudgetBaseUnits))
       && BigInt(String(row.amount_base_units)) === BigInt(String(amountBaseUnits))
   } catch {
     return false
@@ -344,6 +908,10 @@ function safeStatus(row) {
     treasuryAddress: row.treasury_address,
     recipientAddress: row.recipient_address,
     amountBaseUnits: String(row.amount_base_units),
+    ...(typeof row.sponsor_organization_reference === 'string' ? { sponsorOrganizationReference: row.sponsor_organization_reference } : {}),
+    ...(typeof row.sponsor_agreement_reference === 'string' ? { sponsorAgreementReference: row.sponsor_agreement_reference } : {}),
+    ...(row.sponsor_agreement_budget_base_units !== null && row.sponsor_agreement_budget_base_units !== undefined ? { sponsorAgreementBudgetBaseUnits: String(row.sponsor_agreement_budget_base_units) } : {}),
+    ...(typeof row.recipient_approval_request_id === 'string' ? { recipientApprovalRequestId: row.recipient_approval_request_id } : {}),
     status: row.status,
     ...(row.transaction_hash ? { transactionHash: String(row.transaction_hash).trim() } : {}),
     ...(row.provider_transaction_id ? { providerTransactionId: String(row.provider_transaction_id) } : {}),
@@ -358,6 +926,23 @@ function safeStatus(row) {
  * A Fireblocks terminal state is not independent chain evidence. Only a state
  * written after the TRON solidified-receipt verifier may be reported as verified.
  */
+export function fireblocksPayoutLedgerState(state = {}) {
+  const transactionHash = typeof state.transactionHash === 'string' ? state.transactionHash.trim() : ''
+  if (state.localStatus === 'broadcast-accepted' && TXID_PATTERN.test(transactionHash)) {
+    return { status: 'broadcast-accepted', failureCode: null }
+  }
+  if (state.localStatus === 'failed' || state.terminalFailure === true) {
+    const providerStatus = typeof state.providerStatus === 'string'
+      ? state.providerStatus.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 48) || 'unknown'
+      : 'unknown'
+    return {
+      status: 'broadcast-unknown',
+      failureCode: 'fireblocks-terminal-unverified-' + providerStatus,
+    }
+  }
+  return { status: 'provider-pending', failureCode: null }
+}
+
 export function terminalTreasuryWithdrawalVerification(row) {
   if (!row || typeof row !== 'object') return { terminal: false }
 
@@ -388,15 +973,8 @@ export function terminalTreasuryWithdrawalVerification(row) {
     }
   }
 
-  return {
-    terminal: true,
-    success: false,
-    verification: {
-      verified: false,
-      status: 'provider-failed',
-      reason: 'provider-terminal-failure-not-chain-verified',
-    },
-  }
+  // Provider terminal state is not chain proof; keep the request unresolved.
+  return { terminal: false }
 }
 
 export function matchesTreasuryTrxWithdrawalRequest(row, {
@@ -441,6 +1019,8 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const required = [
     'DATABASE_URL', 'OWNER_WALLET_ADDRESS', 'TREASURY_OWNER_ADDRESS',
     'TREASURY_ADDRESS', 'TREASURY_MAX_PAYOUT_USDT', 'TREASURY_DAILY_LIMIT_USDT',
+    'TREASURY_SPONSOR_ORGANIZATION_REFERENCE', 'TREASURY_SPONSOR_AGREEMENT_REFERENCE',
+    'TREASURY_SPONSOR_TOTAL_BUDGET_USDT',
     'TREASURY_FEE_LIMIT_SUN', 'FIREBLOCKS_TRX_ASSET_ID',
   ]
   const missing = required.filter((key) => typeof env[key] !== 'string' || !env[key].trim())
@@ -448,6 +1028,46 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const ownerAddressesMatch = isUnifiedTreasuryOwnerConfiguration(env)
   const maxPayout = readLimit(env.TREASURY_MAX_PAYOUT_USDT)
   const dailyLimit = readLimit(env.TREASURY_DAILY_LIMIT_USDT)
+  const sponsorTotalBudget = readLimit(env.TREASURY_SPONSOR_TOTAL_BUDGET_USDT)
+  const recipientAllowlist = parseTreasuryRecipientAllowlist(env.TREASURY_ALLOWED_RECIPIENT_ADDRESSES)
+  const sponsorApproverAllowlist = parseTreasurySponsorApproverAllowlist(env.TREASURY_SPONSOR_APPROVER_ADDRESSES, {
+    excludedAddresses: [env.OWNER_WALLET_ADDRESS, env.TREASURY_OWNER_ADDRESS, env.TREASURY_ADDRESS],
+  })
+  const recipientPolicyConfigured = recipientAllowlist.valid || sponsorApproverAllowlist.valid
+  if (!recipientPolicyConfigured) {
+    missing.push('TREASURY_ALLOWED_RECIPIENT_ADDRESSES or TREASURY_SPONSOR_APPROVER_ADDRESSES (a valid static list or independent sponsor signer list is required)')
+  }
+  const recipientApprovalMode = recipientAllowlist.valid && sponsorApproverAllowlist.valid
+    ? 'mixed'
+    : recipientAllowlist.valid ? 'static'
+      : sponsorApproverAllowlist.valid ? 'sponsor-signed'
+        : 'unavailable'
+  const sponsorOrganizationReference = typeof env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE === 'string'
+    ? env.TREASURY_SPONSOR_ORGANIZATION_REFERENCE.trim() : ''
+  const sponsorAgreementReference = typeof env.TREASURY_SPONSOR_AGREEMENT_REFERENCE === 'string'
+    ? env.TREASURY_SPONSOR_AGREEMENT_REFERENCE.trim() : ''
+  const sponsorOrganizationPattern = /^[A-Za-z0-9._:-]{8,128}$/
+  const sponsorAgreementPattern = /^[A-Za-z0-9._:-]{8,160}$/
+  if (!sponsorOrganizationPattern.test(sponsorOrganizationReference)) missing.push('TREASURY_SPONSOR_ORGANIZATION_REFERENCE')
+  if (!sponsorAgreementPattern.test(sponsorAgreementReference)) missing.push('TREASURY_SPONSOR_AGREEMENT_REFERENCE')
+  const sponsorAgreementScopeApproved = isApprovedSponsorAgreementScope({
+    consentReference: sponsorAgreementReference,
+    budget: {
+      sponsor_reference: sponsorOrganizationReference,
+      sponsor_address: typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : '',
+      network: 'mainnet',
+      purpose: 'asset-grant',
+      asset: 'USDT',
+      token_contract: USDT_MAINNET,
+    },
+    env,
+  })
+  if (!sponsorAgreementScopeApproved) missing.push('SPONSOR_APPROVED_AGREEMENT_REFERENCES (exact Mainnet USDT sponsor scope required)')
+  if (!sponsorTotalBudget) missing.push('TREASURY_SPONSOR_TOTAL_BUDGET_USDT')
+  if (sponsorTotalBudget && ((maxPayout && maxPayout > sponsorTotalBudget)
+    || (dailyLimit && dailyLimit > sponsorTotalBudget))) {
+    missing.push('TREASURY_SPONSOR_TOTAL_BUDGET_USDT (must cover per-transfer and daily caps)')
+  }
   const feeLimitValid = /^\d+$/.test(env.TREASURY_FEE_LIMIT_SUN || '')
     && Number(env.TREASURY_FEE_LIMIT_SUN) >= 1
     && Number(env.TREASURY_FEE_LIMIT_SUN) <= 1_000_000_000
@@ -455,7 +1075,10 @@ export function treasuryUsdtConfiguration(env = process.env) {
   const configurationComplete = env.TREASURY_SIGNER_MODE === 'fireblocks'
     && missing.length === 0 && ownerAddressesMatch
     && ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '')
-    && Boolean(maxPayout) && Boolean(dailyLimit) && feeLimitValid
+    && Boolean(maxPayout) && Boolean(dailyLimit) && Boolean(sponsorTotalBudget)
+    && Boolean(maxPayout && sponsorTotalBudget && maxPayout <= sponsorTotalBudget)
+    && Boolean(dailyLimit && sponsorTotalBudget && dailyLimit <= sponsorTotalBudget)
+    && feeLimitValid
   const featureFlagEnabled = env.TREASURY_WITHDRAWALS_ENABLED === 'true'
   return {
     enabled: featureFlagEnabled && configurationComplete,
@@ -463,6 +1086,17 @@ export function treasuryUsdtConfiguration(env = process.env) {
     featureFlagEnabled,
     missing: [...new Set(missing)],
     ownerAddressesMatch,
+    sponsorOrganizationReference: sponsorOrganizationPattern.test(sponsorOrganizationReference) ? sponsorOrganizationReference : null,
+    sponsorAgreementReference: sponsorAgreementPattern.test(sponsorAgreementReference) && sponsorAgreementScopeApproved ? sponsorAgreementReference : null,
+    sponsorAgreementScopeApproved,
+    recipientAllowlistValid: recipientAllowlist.valid,
+    recipientAllowlistCount: recipientAllowlist.addresses.length,
+    allowedRecipientAddresses: recipientAllowlist.addresses,
+    sponsorApproverAddressesValid: sponsorApproverAllowlist.valid,
+    sponsorApproverCount: sponsorApproverAllowlist.addresses.length,
+    sponsorApproverAddresses: sponsorApproverAllowlist.addresses,
+    recipientApprovalMode,
+    sponsorTotalBudgetBaseUnits: sponsorTotalBudget === null ? null : sponsorTotalBudget.toString(),
     signerMode: env.TREASURY_SIGNER_MODE === 'fireblocks' ? 'fireblocks-managed' : 'not-configured',
     providerConfigured: provider.configured,
   }
@@ -591,10 +1225,79 @@ export function createTreasuryWithdrawalsRouter({
       : {}),
   }),
   fireblocksClientFactory = (currentEnv) => createFireblocksClient(currentEnv),
+  fireblocksReadOnlyClientFactory = (currentEnv) => createFireblocksReadOnlyClient(currentEnv),
   now = () => new Date(),
 } = {}) {
   const router = Router()
   const managedSigner = () => fireblocksClientFactory(env)
+  const managedReadOnlyReader = () => fireblocksReadOnlyClientFactory(env)
+  async function currentRealValueReleaseAuthorization() {
+    if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+      return { authorized: false, reason: 'real-value-execution-switch-disabled' }
+    }
+    const db = getPool(env)
+    if (!db) return { authorized: false, reason: 'release-authorization-database-not-configured' }
+    try {
+      await ensureSchema(db)
+      const clock = now()
+      const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+      const message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+      const messageHash = createHash('sha256').update(message, 'utf8').digest('hex')
+      const result = await db.query(`SELECT *
+        FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND sponsor_organization_reference=$2
+          AND sponsor_agreement_reference=$3 AND treasury_address=$4
+          AND release_message_hash=$5 AND status='active'
+          AND release_expires_at > now()
+        ORDER BY created_at DESC LIMIT 1`, [
+        env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+        configuration().sponsorOrganizationReference,
+        configuration().sponsorAgreementReference,
+        env.TREASURY_ADDRESS.trim(),
+        messageHash,
+      ])
+      const row = result.rows[0]
+      if (!row) return { authorized: false, reason: 'sponsor-release-signature-not-recorded-or-scope-changed' }
+      const verified = await verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, row.sponsor_signature, { now: nowMs })
+      if (!verified.authorized || verified.signerAddress !== row.sponsor_signer_address) {
+        return { authorized: false, reason: 'sponsor-release-record-signature-mismatch' }
+      }
+      return verified
+    } catch {
+      return { authorized: false, reason: 'sponsor-release-authorization-storage-unavailable' }
+    }
+  }
+
+  async function lockCurrentRealValueReleaseAuthorization(client) {
+    if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+      return { authorized: false, reason: 'real-value-execution-switch-disabled' }
+    }
+    const clock = now()
+    const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+    const config = configuration()
+    const message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+    const messageHash = createHash('sha256').update(message, 'utf8').digest('hex')
+    const result = await client.query(`SELECT *
+      FROM trc20_token_clone.treasury_real_value_release_authorizations
+      WHERE release_reference=$1 AND sponsor_organization_reference=$2
+        AND sponsor_agreement_reference=$3 AND treasury_address=$4
+        AND release_message_hash=$5 AND status='active'
+        AND release_expires_at > now()
+      ORDER BY created_at DESC LIMIT 1 FOR SHARE`, [
+      env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+      config.sponsorOrganizationReference,
+      config.sponsorAgreementReference,
+      env.TREASURY_ADDRESS.trim(),
+      messageHash,
+    ])
+    const row = result.rows[0]
+    if (!row) return { authorized: false, reason: 'sponsor-release-signature-not-recorded-or-scope-changed' }
+    const verified = await verifyTreasuryRealValueReleaseAuthorization(tronWebFactory(), env, row.sponsor_signature, { now: nowMs })
+    if (!verified.authorized || verified.signerAddress !== row.sponsor_signer_address) {
+      return { authorized: false, reason: 'sponsor-release-record-signature-mismatch' }
+    }
+    return verified
+  }
 
   async function authenticateOwner(req) {
     const origin = req.get('origin')
@@ -622,15 +1325,13 @@ export function createTreasuryWithdrawalsRouter({
   }
 
   async function readManagedTreasurySnapshot(treasuryAddress) {
-    const fireblocks = managedSigner()
-    if (typeof fireblocks?.isConfigured !== 'function' || fireblocks.isConfigured() !== true) {
-      return { ok: false, reason: 'fireblocks-not-configured' }
+    const readerConfig = fireblocksReadOnlyConfiguration(env)
+    if (!readerConfig.credentialsConfigured) {
+      return { ok: false, reason: 'fireblocks-readonly-credentials-not-configured' }
     }
+    const fireblocks = managedReadOnlyReader()
     const trxAssetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
-    if (typeof fireblocks?.isTrxAssetConfigured !== 'function'
-      || fireblocks.isTrxAssetConfigured() !== true || !trxAssetId) {
-      return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
-    }
+    if (!trxAssetId) return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
     try {
       const tronWeb = tronWebFactory()
       if (!tronWeb?.isAddress?.(treasuryAddress) || typeof tronWeb.contract !== 'function'
@@ -727,15 +1428,15 @@ export function createTreasuryWithdrawalsRouter({
    * amount is the lower of provider-available TRX and actual on-chain TRX.
    */
   async function readManagedTreasuryTrxSnapshot(treasuryAddress) {
-    const fireblocks = managedSigner()
-    const assetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
-    // Native TRX requires shared provider authentication and its own verified asset
-    // ID; do not require the unrelated USDT asset ID to be configured.
-    if (typeof fireblocks?.isTrxAssetConfigured !== 'function'
-      || fireblocks.isTrxAssetConfigured() !== true
-      || !assetId) {
-      return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
+    const readerConfig = fireblocksReadOnlyConfiguration(env)
+    if (!readerConfig.credentialsConfigured) {
+      return { ok: false, reason: 'fireblocks-readonly-credentials-not-configured' }
     }
+    const fireblocks = managedReadOnlyReader()
+    const assetId = typeof env.FIREBLOCKS_TRX_ASSET_ID === 'string' ? env.FIREBLOCKS_TRX_ASSET_ID.trim() : ''
+    // Read-only balance checks use the separate Viewer identity; they do not
+    // require the transaction-capable payout API credentials.
+    if (!assetId) return { ok: false, reason: 'fireblocks-trx-asset-not-configured' }
     try {
       const tronWeb = tronWebFactory()
       if (!tronWeb?.isAddress?.(treasuryAddress) || typeof tronWeb?.trx?.getBalance !== 'function') {
@@ -795,8 +1496,8 @@ export function createTreasuryWithdrawalsRouter({
           : String(row.provider_transaction_id || '')
       if (!providerId) return row
       const state = classifyFireblocksTransaction(providerTx)
-      const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(state)
+      const nextStatus = ledgerState.status
       const updated = await db.query(
         `UPDATE trc20_token_clone.treasury_withdrawal_requests
             SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
@@ -804,7 +1505,7 @@ export function createTreasuryWithdrawalsRouter({
                 failure_code=$6, updated_at=now()
           WHERE id=$1 RETURNING *`,
         [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
-          nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
+          ledgerState.failureCode],
       )
       return updated.rows[0] || row
     } catch {
@@ -830,8 +1531,8 @@ export function createTreasuryWithdrawalsRouter({
           : String(row.provider_transaction_id || '')
       if (!providerId) return row
       const state = classifyFireblocksTransaction(providerTx)
-      const nextStatus = state.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : state.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(state)
+      const nextStatus = ledgerState.status
       const updated = await db.query(
         `UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
             SET status=$2, transaction_hash=COALESCE($3, transaction_hash),
@@ -839,7 +1540,7 @@ export function createTreasuryWithdrawalsRouter({
                 failure_code=$6, updated_at=now()
           WHERE id=$1 RETURNING *`,
         [row.id, nextStatus, state.transactionHash, providerId, state.providerStatus,
-          nextStatus === 'failed' ? 'fireblocks-terminal-' + state.providerStatus.toLowerCase() : null],
+          ledgerState.failureCode],
       )
       return updated.rows[0] || row
     } catch {
@@ -847,28 +1548,659 @@ export function createTreasuryWithdrawalsRouter({
     }
   }
 
+
+  router.post('/recipient-approval-requests', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const config = configuration()
+    const origin = req.get('origin')
+    if (!isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(403).json({ success: false, error: 'recipient-approval-origin-not-allowed' })
+    }
+    if (!config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-recipient-approval-not-configured',
+        requiredEnvironment: ['TREASURY_SPONSOR_APPROVER_ADDRESSES (independent sponsor-controlled TRON signer addresses)'],
+      })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).some((key) => !['recipientAddress', 'reason'].includes(key))
+      || !isValidTronAddress(body.recipientAddress)
+      || typeof body.reason !== 'string' || !/^[\x20-\x7e]{10,500}$/.test(body.reason.trim())) {
+      return res.status(400).json({ success: false, error: 'invalid-recipient-approval-request' })
+    }
+    const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+    if (!isValidTronAddress(treasuryAddress) || body.recipientAddress === treasuryAddress) {
+      return res.status(400).json({ success: false, error: 'invalid-treasury-or-recipient' })
+    }
+    if (isTreasuryRecipientAllowed(body.recipientAddress, config.allowedRecipientAddresses)) {
+      return res.status(409).json({ success: false, error: 'recipient-already-in-static-sponsor-policy' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      await db.query(`UPDATE trc20_token_clone.treasury_recipient_approval_requests
+        SET status='expired', updated_at=now()
+        WHERE status='pending' AND approval_expires_at <= now()`)
+      const existing = await db.query(`SELECT request_id, status
+        FROM trc20_token_clone.treasury_recipient_approval_requests
+        WHERE sponsor_organization_reference=$1 AND sponsor_agreement_reference=$2
+          AND treasury_address=$3 AND recipient_address=$4
+          AND status IN ('pending','approved')
+        LIMIT 1`, [
+        config.sponsorOrganizationReference, config.sponsorAgreementReference,
+        treasuryAddress, body.recipientAddress,
+      ])
+      if (existing.rows.length) {
+        return res.status(409).json({
+          success: false,
+          error: existing.rows[0].status === 'approved' ? 'recipient-already-sponsor-approved' : 'recipient-approval-request-already-pending',
+          requestId: existing.rows[0].request_id,
+        })
+      }
+      const recentRequests = await db.query(`SELECT COUNT(*)::text AS count
+        FROM trc20_token_clone.treasury_recipient_approval_requests
+        WHERE requester_owner_address=$1 AND created_at > now() - interval '24 hours'`,
+      [auth.ownerAddress])
+      if (BigInt(recentRequests.rows[0]?.count || '0') >= 20n) {
+        return res.status(429).json({
+          success: false,
+          error: 'recipient-approval-request-rate-limited',
+          message: 'The owner may create at most 20 recipient approval requests in a rolling 24-hour window.',
+        })
+      }
+      const current = now()
+      const currentMs = current instanceof Date ? current.getTime() : Number(current)
+      if (!Number.isSafeInteger(currentMs)) return res.status(503).json({ success: false, error: 'clock-unavailable' })
+      const requestId = randomUUID()
+      const expiresAt = currentMs + RECIPIENT_APPROVAL_REQUEST_TTL_MS
+      const approvalMessage = buildTreasuryRecipientApprovalMessage({
+        requestId,
+        sponsorOrganizationReference: config.sponsorOrganizationReference,
+        sponsorAgreementReference: config.sponsorAgreementReference,
+        treasuryAddress,
+        recipientAddress: body.recipientAddress,
+        requesterAddress: auth.ownerAddress,
+        requesterOrigin: origin,
+        reason: body.reason.trim(),
+        expiresAt,
+      })
+      const approvalMessageHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
+      const inserted = await db.query(`INSERT INTO trc20_token_clone.treasury_recipient_approval_requests
+        (request_id, sponsor_organization_reference, sponsor_agreement_reference,
+         treasury_address, recipient_address, token_contract, requester_owner_address,
+         requester_origin, request_reason, status, approval_message_hash, approval_expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,to_timestamp($11 / 1000.0))
+        RETURNING request_id, status, created_at, approval_expires_at`, [
+        requestId, config.sponsorOrganizationReference, config.sponsorAgreementReference,
+        treasuryAddress, body.recipientAddress, USDT_MAINNET, auth.ownerAddress, origin,
+        body.reason.trim(), approvalMessageHash, expiresAt,
+      ])
+      return res.status(201).json({
+        success: true,
+        request: {
+          requestId: inserted.rows[0].request_id,
+          status: inserted.rows[0].status,
+          recipientAddress: body.recipientAddress,
+          sponsorOrganizationReference: config.sponsorOrganizationReference,
+          sponsorAgreementReference: config.sponsorAgreementReference,
+          treasuryAddress,
+          createdAt: inserted.rows[0].created_at,
+          expiresAt: inserted.rows[0].approval_expires_at,
+        },
+        approvalMessage,
+        requiredSponsorSignerAddresses: config.sponsorApproverAddresses,
+        limitations: ['This signature approves only the exact recipient destination. Every payout still requires the separate per-transfer owner authorization, sponsor budget checks, Fireblocks policy, and independent chain verification.'],
+      })
+    } catch (error) {
+      if (error?.code === '23505') return res.status(409).json({ success: false, error: 'recipient-approval-request-already-active' })
+      return res.status(503).json({ success: false, error: 'recipient-approval-storage-unavailable' })
+    }
+  })
+
+  router.get('/recipient-approval-requests/:requestId', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const requestId = req.params.requestId
+    const origin = req.get('origin')
+    if (!UUID_PATTERN.test(requestId || '') || !isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(400).json({ success: false, error: 'invalid-recipient-approval-reference-or-origin' })
+    }
+    const config = configuration()
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      let result = await db.query(`SELECT * FROM trc20_token_clone.treasury_recipient_approval_requests WHERE request_id=$1`, [requestId])
+      if (!result.rows.length) return res.status(404).json({ success: false, error: 'recipient-approval-request-not-found' })
+      let row = result.rows[0]
+      if (row.requester_origin !== origin) return res.status(403).json({ success: false, error: 'recipient-approval-origin-mismatch' })
+      const current = now()
+      const currentMs = current instanceof Date ? current.getTime() : Number(current)
+      if (row.status === 'pending' && new Date(row.approval_expires_at).getTime() <= currentMs) {
+        result = await db.query(`UPDATE trc20_token_clone.treasury_recipient_approval_requests
+          SET status='expired', updated_at=now()
+          WHERE request_id=$1 AND status='pending' RETURNING *`, [requestId])
+        row = result.rows[0] || row
+      }
+      const expiryMs = new Date(row.approval_expires_at).getTime()
+      const approvalMessage = row.status === 'pending' ? buildTreasuryRecipientApprovalMessage({
+        requestId: row.request_id,
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address,
+        requesterAddress: row.requester_owner_address,
+        requesterOrigin: row.requester_origin,
+        reason: row.request_reason,
+        expiresAt: expiryMs,
+      }) : null
+      const revocationMessage = row.status === 'approved' ? buildTreasuryRecipientRevocationMessage({
+        requestId: row.request_id,
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address,
+        approvalMessageHash: row.approval_message_hash,
+        requesterOrigin: row.requester_origin,
+      }) : null
+      return res.json({
+        success: true,
+        request: {
+          requestId: row.request_id,
+          status: row.status,
+          recipientAddress: row.recipient_address,
+          treasuryAddress: row.treasury_address,
+          sponsorOrganizationReference: row.sponsor_organization_reference,
+          sponsorAgreementReference: row.sponsor_agreement_reference,
+          reason: row.request_reason,
+          approverAddress: row.approver_address || null,
+          approvedAt: row.approved_at || null,
+          revokedAt: row.revoked_at || null,
+          expiresAt: row.approval_expires_at,
+        },
+        approvalMessage,
+        revocationMessage,
+        sponsorApproverAddressesValid: config.sponsorApproverAddressesValid,
+        requiredSponsorSignerAddresses: config.sponsorApproverAddresses,
+        note: 'The sponsor signer must independently inspect this exact request. The owner console cannot approve a destination on the sponsor organization behalf.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'recipient-approval-lookup-unavailable' })
+    }
+  })
+
+  router.post('/recipient-approval-requests/:requestId/approve', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const requestId = req.params.requestId
+    const origin = req.get('origin')
+    if (!UUID_PATTERN.test(requestId || '') || !isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(400).json({ success: false, error: 'invalid-recipient-approval-reference-or-origin' })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || typeof body.signature !== 'string' || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-approval-signature' })
+    }
+    const config = configuration()
+    if (!config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+      return res.status(503).json({ success: false, error: 'sponsor-recipient-approval-not-configured' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const lookup = await client.query(`SELECT * FROM trc20_token_clone.treasury_recipient_approval_requests
+        WHERE request_id=$1 FOR UPDATE`, [requestId])
+      if (!lookup.rows.length) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'recipient-approval-request-not-found' })
+      }
+      const row = lookup.rows[0]
+      const current = now()
+      const currentMs = current instanceof Date ? current.getTime() : Number(current)
+      if (row.requester_origin !== origin) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'recipient-approval-origin-mismatch' })
+      }
+      if (row.status !== 'pending') {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: row.status === 'approved' ? 'recipient-already-approved' : 'recipient-approval-request-not-pending', status: row.status })
+      }
+      if (!Number.isSafeInteger(currentMs) || new Date(row.approval_expires_at).getTime() <= currentMs) {
+        await client.query(`UPDATE trc20_token_clone.treasury_recipient_approval_requests
+          SET status='expired', updated_at=now() WHERE request_id=$1 AND status='pending'`, [requestId])
+        await client.query('COMMIT')
+        return res.status(410).json({ success: false, error: 'recipient-approval-request-expired' })
+      }
+      const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+      if (!config.sponsorAgreementScopeApproved
+        || row.sponsor_organization_reference !== config.sponsorOrganizationReference
+        || row.sponsor_agreement_reference !== config.sponsorAgreementReference
+        || row.treasury_address !== treasuryAddress
+        || row.token_contract !== USDT_MAINNET) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'recipient-approval-sponsor-scope-changed' })
+      }
+      const approvalMessage = buildTreasuryRecipientApprovalMessage({
+        requestId: row.request_id,
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address,
+        requesterAddress: row.requester_owner_address,
+        requesterOrigin: row.requester_origin,
+        reason: row.request_reason,
+        expiresAt: new Date(row.approval_expires_at).getTime(),
+      })
+      const expectedHash = createHash('sha256').update(approvalMessage, 'utf8').digest('hex')
+      if (expectedHash !== String(row.approval_message_hash).trim().toLowerCase()) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'recipient-approval-message-integrity-failed' })
+      }
+      const approverAddress = await recoverTreasurySponsorRecipientApprover(tronWebFactory(), {
+        message: approvalMessage,
+        signature: body.signature,
+        allowedSignerAddresses: config.sponsorApproverAddresses,
+      })
+      if (!approverAddress) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'sponsor-recipient-approval-signature-invalid' })
+      }
+      const updated = await client.query(`UPDATE trc20_token_clone.treasury_recipient_approval_requests
+        SET status='approved', approver_address=$2, approval_signature=$3, approved_at=now(), updated_at=now()
+        WHERE request_id=$1 AND status='pending' RETURNING request_id, status, approver_address, approved_at`,
+      [requestId, approverAddress, body.signature])
+      await client.query('COMMIT')
+      return res.json({ success: true, request: updated.rows[0], note: 'The sponsor approval is recorded for this exact destination and sponsor agreement. It does not execute a payout.' })
+    } catch {
+      try { await client?.query('ROLLBACK') } catch {}
+      return res.status(503).json({ success: false, error: 'recipient-approval-submit-unavailable' })
+    } finally {
+      client?.release()
+    }
+  })
+
+  router.post('/recipient-approval-requests/:requestId/revoke', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const requestId = req.params.requestId
+    const origin = req.get('origin')
+    if (!UUID_PATTERN.test(requestId || '') || !isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(400).json({ success: false, error: 'invalid-recipient-approval-reference-or-origin' })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || typeof body.signature !== 'string' || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-revocation-signature' })
+    }
+    const config = configuration()
+    if (!config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+      return res.status(503).json({ success: false, error: 'sponsor-recipient-approval-not-configured' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const lookup = await client.query(`SELECT * FROM trc20_token_clone.treasury_recipient_approval_requests
+        WHERE request_id=$1 FOR UPDATE`, [requestId])
+      if (!lookup.rows.length) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'recipient-approval-request-not-found' })
+      }
+      const row = lookup.rows[0]
+      if (row.requester_origin !== origin) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'recipient-approval-origin-mismatch' })
+      }
+      if (row.status !== 'approved') {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'recipient-not-currently-approved', status: row.status })
+      }
+      const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+      if (row.sponsor_organization_reference !== config.sponsorOrganizationReference
+        || row.sponsor_agreement_reference !== config.sponsorAgreementReference
+        || row.treasury_address !== treasuryAddress
+        || row.token_contract !== USDT_MAINNET) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'recipient-approval-sponsor-scope-changed' })
+      }
+      const revocationMessage = buildTreasuryRecipientRevocationMessage({
+        requestId: row.request_id,
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        recipientAddress: row.recipient_address,
+        approvalMessageHash: String(row.approval_message_hash).trim(),
+        requesterOrigin: row.requester_origin,
+      })
+      const approverAddress = await recoverTreasurySponsorRecipientApprover(tronWebFactory(), {
+        message: revocationMessage,
+        signature: body.signature,
+        allowedSignerAddresses: config.sponsorApproverAddresses,
+      })
+      if (!approverAddress) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'sponsor-recipient-revocation-signature-invalid' })
+      }
+      const revocationMessageHash = createHash('sha256').update(revocationMessage, 'utf8').digest('hex')
+      const updated = await client.query(`UPDATE trc20_token_clone.treasury_recipient_approval_requests
+        SET status='revoked', revoked_by=$2, revocation_signature=$3, revocation_message_hash=$4,
+            revoked_at=now(), updated_at=now()
+        WHERE request_id=$1 AND status='approved' RETURNING request_id, status, revoked_by, revoked_at`,
+      [requestId, approverAddress, body.signature, revocationMessageHash])
+      await client.query('COMMIT')
+      return res.json({ success: true, request: updated.rows[0], note: 'The sponsor-signed destination approval is revoked. Future withdrawals to this recipient are blocked unless the sponsor approves a new request.' })
+    } catch {
+      try { await client?.query('ROLLBACK') } catch {}
+      return res.status(503).json({ success: false, error: 'recipient-approval-revocation-unavailable' })
+    } finally {
+      client?.release()
+    }
+  })
+
+  router.get('/withdrawals/release-authorization/message', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const config = configuration()
+    if (!config.configurationComplete || !config.featureFlagEnabled) {
+      return res.status(503).json({
+        success: false,
+        error: 'treasury-release-preconditions-incomplete',
+        missing: config.missing,
+      })
+    }
+    try {
+      const clock = now()
+      const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+      const message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+      return res.json({
+        success: true,
+        message,
+        messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+        releaseReference: env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim(),
+        expiresAt: Number(env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT),
+        requiredSponsorSignerAddresses: config.sponsorApproverAddresses,
+        note: 'A configured sponsor signer must inspect this complete message and sign it in the sponsor organization’s controlled wallet. This signature enables only the exact release scope; it does not send USDT. The application never receives a private key.',
+      })
+    } catch (error) {
+      return res.status(503).json({
+        success: false,
+        error: 'treasury-release-message-unavailable',
+        reason: error instanceof Error ? error.message : 'release-configuration-invalid',
+      })
+    }
+  })
+
+  router.get('/withdrawals/release-authorization/revocation-message', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const origin = req.get('origin')
+    if (!isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(403).json({ success: false, error: 'release-approval-origin-not-allowed' })
+    }
+    const config = configuration()
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'release-authorization-database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(`SELECT *
+        FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND sponsor_organization_reference=$2
+          AND sponsor_agreement_reference=$3 AND treasury_address=$4
+          AND status='active' AND release_expires_at > now()
+        ORDER BY created_at DESC LIMIT 1`, [
+        typeof env.TREASURY_REAL_VALUE_RELEASE_REFERENCE === 'string' ? env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim() : '',
+        config.sponsorOrganizationReference,
+        config.sponsorAgreementReference,
+        typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : '',
+      ])
+      const row = result.rows[0]
+      if (!row) return res.status(404).json({ success: false, error: 'active-sponsor-release-not-found' })
+      if (row.requester_origin !== origin) {
+        return res.status(403).json({ success: false, error: 'release-approval-origin-mismatch' })
+      }
+      const message = buildTreasuryRealValueReleaseRevocationMessage({
+        releaseReference: row.release_reference,
+        messageHash: String(row.release_message_hash).trim(),
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        requesterOrigin: row.requester_origin,
+      })
+      return res.json({
+        success: true,
+        message,
+        messageHash: createHash('sha256').update(message, 'utf8').digest('hex'),
+        releaseReference: row.release_reference,
+        originalMessageHash: String(row.release_message_hash).trim(),
+        expiresAt: row.release_expires_at,
+        sponsorSignerAddress: row.sponsor_signer_address,
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-release-revocation-message-unavailable' })
+    }
+  })
+
+  router.post('/withdrawals/release-authorization/signature', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    if (env.TREASURY_REAL_VALUE_EXECUTION_ENABLED !== 'true') {
+      return res.status(403).json({ success: false, error: 'owner-release-switch-must-be-explicitly-enabled-first' })
+    }
+    const config = configuration()
+    if (!config.enabled || !config.sponsorAgreementScopeApproved || !config.sponsorApproverAddressesValid) {
+      return res.status(503).json({ success: false, error: 'treasury-release-preconditions-incomplete', missing: config.missing })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || typeof body.signature !== 'string'
+      || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-release-signature' })
+    }
+    if (!isConfiguredTreasuryApprovalOrigin(req.get('origin'), env)) {
+      return res.status(403).json({ success: false, error: 'release-approval-origin-not-allowed' })
+    }
+    const clock = now()
+    const nowMs = clock instanceof Date ? clock.getTime() : Number(clock)
+    let message
+    try {
+      message = buildTreasuryRealValueReleaseMessage(env, { now: nowMs })
+    } catch {
+      return res.status(503).json({ success: false, error: 'treasury-release-message-invalid' })
+    }
+    const sponsorSigner = await recoverTreasurySponsorRecipientApprover(tronWebFactory(), {
+      message,
+      signature: body.signature,
+      allowedSignerAddresses: config.sponsorApproverAddresses,
+    })
+    if (!sponsorSigner) {
+      return res.status(403).json({ success: false, error: 'sponsor-release-signature-not-from-authorized-signer' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'release-authorization-database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const releaseReference = env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim()
+      const messageHash = createHash('sha256').update(message, 'utf8').digest('hex')
+      const existing = await client.query(`SELECT release_authorization_id, sponsor_signer_address
+        FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND release_message_hash=$2 AND status='active'
+        FOR UPDATE`, [releaseReference, messageHash])
+      if (existing.rows.length) {
+        await client.query('COMMIT')
+        return res.json({
+          success: true,
+          alreadyAuthorized: true,
+          releaseAuthorization: {
+            releaseReference,
+            messageHash,
+            sponsorSignerAddress: existing.rows[0].sponsor_signer_address,
+            expiresAt: env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT,
+          },
+          note: 'This exact sponsor release scope was already recorded. No transfer was initiated.',
+        })
+      }
+      await client.query(`UPDATE trc20_token_clone.treasury_real_value_release_authorizations
+        SET status='superseded', updated_at=now()
+        WHERE release_reference=$1 AND status='active'`, [releaseReference])
+      const inserted = await client.query(`INSERT INTO trc20_token_clone.treasury_real_value_release_authorizations
+        (release_authorization_id, release_reference, sponsor_organization_reference,
+         sponsor_agreement_reference, treasury_address, requester_origin,
+         release_message, release_message_hash, release_expires_at,
+         sponsor_signer_address, sponsor_signature, status, created_by_owner_address)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,to_timestamp($9 / 1000.0),$10,$11,'active',$12)
+        RETURNING release_authorization_id, release_reference, release_message_hash,
+                  release_expires_at, sponsor_signer_address, status, created_at`, [
+        randomUUID(), releaseReference, config.sponsorOrganizationReference,
+        config.sponsorAgreementReference, env.TREASURY_ADDRESS.trim(), req.get('origin'),
+        message, messageHash, Number(env.TREASURY_REAL_VALUE_RELEASE_EXPIRES_AT),
+        sponsorSigner, body.signature, auth.ownerAddress,
+      ])
+      await client.query('COMMIT')
+      return res.status(201).json({
+        success: true,
+        releaseAuthorization: inserted.rows[0],
+        note: 'Sponsor release approval stored for this exact current configuration. Actual withdrawals remain subject to live readiness, owner per-transfer signature, Fireblocks policy and chain receipt verification.',
+      })
+    } catch {
+      try { await client?.query('ROLLBACK') } catch {}
+      return res.status(503).json({ success: false, error: 'sponsor-release-authorization-storage-unavailable' })
+    } finally {
+      client?.release()
+    }
+  })
+
+  router.post('/withdrawals/release-authorization/revoke', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const origin = req.get('origin')
+    if (!isConfiguredTreasuryApprovalOrigin(origin, env)) {
+      return res.status(403).json({ success: false, error: 'release-approval-origin-not-allowed' })
+    }
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).length !== 1 || typeof body.signature !== 'string'
+      || !OWNER_PAYOUT_SIGNATURE_PATTERN.test(body.signature)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-release-revocation-signature' })
+    }
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'release-authorization-database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const config = configuration()
+      const lookup = await client.query(`SELECT * FROM trc20_token_clone.treasury_real_value_release_authorizations
+        WHERE release_reference=$1 AND sponsor_organization_reference=$2
+          AND sponsor_agreement_reference=$3 AND treasury_address=$4
+          AND status='active'
+        ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [
+        typeof env.TREASURY_REAL_VALUE_RELEASE_REFERENCE === 'string' ? env.TREASURY_REAL_VALUE_RELEASE_REFERENCE.trim() : '',
+        config.sponsorOrganizationReference, config.sponsorAgreementReference,
+        typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : '',
+      ])
+      const row = lookup.rows[0]
+      if (!row) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'active-sponsor-release-not-found' })
+      }
+      const revocationMessage = buildTreasuryRealValueReleaseRevocationMessage({
+        releaseReference: row.release_reference,
+        messageHash: String(row.release_message_hash).trim(),
+        sponsorOrganizationReference: row.sponsor_organization_reference,
+        sponsorAgreementReference: row.sponsor_agreement_reference,
+        treasuryAddress: row.treasury_address,
+        requesterOrigin: row.requester_origin,
+      })
+      const sponsorSigner = await recoverTreasurySponsorRecipientApprover(tronWebFactory(), {
+        message: revocationMessage,
+        signature: body.signature,
+        allowedSignerAddresses: config.sponsorApproverAddresses,
+      })
+      if (!sponsorSigner) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'sponsor-release-revocation-signature-invalid' })
+      }
+      const revocationHash = createHash('sha256').update(revocationMessage, 'utf8').digest('hex')
+      const updated = await client.query(`UPDATE trc20_token_clone.treasury_real_value_release_authorizations
+        SET status='revoked', revocation_message_hash=$2, revoked_by=$3,
+            revocation_signature=$4, revoked_at=now(), updated_at=now()
+        WHERE release_authorization_id=$1 AND status='active'
+        RETURNING release_authorization_id, release_reference, status, revoked_by, revoked_at`,
+      [row.release_authorization_id, revocationHash, sponsorSigner, body.signature])
+      await client.query('COMMIT')
+      return res.json({
+        success: true,
+        releaseAuthorization: updated.rows[0],
+        note: 'Sponsor release authorization revoked. New USDT submissions are blocked; any request already reserved or submitted must be reconciled separately.',
+      })
+    } catch {
+      try { await client?.query('ROLLBACK') } catch {}
+      return res.status(503).json({ success: false, error: 'sponsor-release-revocation-unavailable' })
+    } finally {
+      client?.release()
+    }
+  })
+
   router.get('/withdrawals/readiness', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     res.setHeader('Pragma', 'no-cache')
     const auth = await authenticateOwner(req)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
+    const readOnlyProvider = fireblocksReadOnlyConfiguration(env)
     const db = getPool(env)
     let databaseReady = false
     if (db) { try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {} }
     const treasuryAddress = ADDRESS_PATTERN.test(env.TREASURY_ADDRESS || '') ? env.TREASURY_ADDRESS.trim() : null
-    let snapshot = { ok: false, reason: 'treasury-address-not-configured' }
-    // Read-only readiness must work while payouts are deliberately disabled.
-    // Probe Fireblocks and public Mainnet balances when provider credentials and
-    // the configured treasury address are present; this never submits a transfer.
-    if (config.providerConfigured && treasuryAddress) {
+    const outboundHistory = databaseReady && treasuryAddress
+      ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
+      : { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
+    let snapshot = {
+      ok: false,
+      reason: !treasuryAddress ? 'treasury-address-not-configured'
+        : !readOnlyProvider.credentialsConfigured ? 'fireblocks-readonly-credentials-not-configured'
+          : 'provider-funding-unverified',
+    }
+    // Read-only readiness uses only the separate Fireblocks Viewer identity and
+    // public Mainnet reads; this path never constructs the payout client.
+    if (treasuryAddress && readOnlyProvider.credentialsConfigured) {
       snapshot = await readManagedTreasurySnapshot(treasuryAddress)
     }
     const blockers = []
+    if (!outboundHistory.verified) blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     let pendingUsdtCount = '0'
     let pendingTrxCount = '0'
+    let outstandingUsdtReservationBaseUnits = null
+    let dailyUsdtUsedBaseUnits = null
     let requiredFeeReserveSun = null
     let feeReserveCovered = false
+    let sponsorPrincipalBudget = null
+    let sponsorPrincipalBudgetCapConsistent = false
+    let applicationCommittedBaseUnits = '0'
+    let externalOutboundUsdtBaseUnits = '0'
+    let thirdPartyFunding = {
+      ledgerReady: false,
+      verifiedDepositCount: '0',
+      reviewedAuthorizationCount: '0',
+      verifiedUsdtPrincipalBaseUnits: '0',
+      applicationCommittedWithdrawalBaseUnits: '0',
+      externalOutboundUsdtBaseUnits: null,
+      committedWithdrawalBaseUnits: null,
+      availablePrincipalBaseUnits: '0',
+    }
     if (!config.configurationComplete) blockers.push('managed-signer-configuration-incomplete')
     if (!config.featureFlagEnabled) blockers.push('usdt-payout-feature-disabled')
     if (!databaseReady) blockers.push('database-not-ready')
@@ -876,16 +2208,99 @@ export function createTreasuryWithdrawalsRouter({
     if (!snapshot.ok) blockers.push(snapshot.reason || 'provider-funding-unverified')
     if (databaseReady && treasuryAddress) {
       try {
-        const [pendingUsdt, pendingTrx] = await Promise.all([
+        const [pendingUsdt, pendingTrx, sponsorBudgetUsage, pendingUsdtReservations, dailyUsdtUsage, committedWithdrawals, sponsorFundingPool] = await Promise.all([
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
           db.query(`SELECT COUNT(*)::text AS count
             FROM trc20_token_clone.treasury_trx_withdrawal_requests
             WHERE treasury_address=$1 AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount,
+                   MIN(sponsor_agreement_budget_base_units)::text AS min_budget_cap,
+                   MAX(sponsor_agreement_budget_base_units)::text AS max_budget_cap,
+                   COUNT(*) FILTER (
+                     WHERE sponsor_organization_reference IS NULL
+                        OR sponsor_agreement_reference IS NULL
+                        OR sponsor_agreement_budget_base_units IS NULL
+                   )::text AS unpinned_agreement_rows
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1
+              AND (
+                (sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
+                OR sponsor_organization_reference IS NULL
+                OR sponsor_agreement_reference IS NULL
+              )
+              AND status <> 'rejected'`,
+          [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1
+              AND status IN ('broadcasting','provider-pending','broadcast-accepted','broadcast-unknown')`, [treasuryAddress]),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE created_at >= date_trunc('day', now())
+              AND status <> 'rejected'`),
+          db.query(`SELECT COALESCE(SUM(amount_base_units),0)::text AS amount
+            FROM trc20_token_clone.treasury_withdrawal_requests
+            WHERE treasury_address=$1 AND status <> 'rejected'`, [treasuryAddress]),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference),
         ])
         pendingUsdtCount = String(pendingUsdt.rows[0]?.count || '0')
         pendingTrxCount = String(pendingTrx.rows[0]?.count || '0')
+        outstandingUsdtReservationBaseUnits = String(pendingUsdtReservations.rows[0]?.amount || '0')
+        dailyUsdtUsedBaseUnits = String(dailyUsdtUsage.rows[0]?.amount || '0')
+        sponsorPrincipalBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
+          minimumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.min_budget_cap ?? null,
+          maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
+          unpinnedAgreementRows: String(sponsorBudgetUsage.rows[0]?.unpinned_agreement_rows || '0'),
+        })
+        applicationCommittedBaseUnits = String(sponsorBudgetUsage.rows[0]?.amount || '0')
+        externalOutboundUsdtBaseUnits = outboundHistory.verified
+          ? String(outboundHistory.externalUsdtBaseUnits || '0')
+          : '0'
+        const applicationCommittedWithdrawalBaseUnits = String(committedWithdrawals.rows[0]?.amount || '0')
+        const thirdPartyCommittedWithdrawalBaseUnits = outboundHistory.verified
+          ? (BigInt(applicationCommittedWithdrawalBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)).toString()
+          : null
+        const thirdPartyPrincipalRemainingBaseUnits = sponsorFundingPool?.success === true
+          && outboundHistory.verified === true
+          ? remainingThirdPartyFundingPrincipal(
+            String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0'),
+            thirdPartyCommittedWithdrawalBaseUnits,
+          )
+          : null
+        thirdPartyFunding = {
+          ledgerReady: sponsorFundingPool?.success === true && thirdPartyPrincipalRemainingBaseUnits !== null,
+          verifiedDepositCount: String(sponsorFundingPool?.verifiedDepositCount || '0'),
+          reviewedAuthorizationCount: String(sponsorFundingPool?.reviewedAuthorizationCount || '0'),
+          verifiedUsdtPrincipalBaseUnits: String(sponsorFundingPool?.verifiedUsdtPrincipalBaseUnits || '0'),
+          applicationCommittedWithdrawalBaseUnits,
+          externalOutboundUsdtBaseUnits: outboundHistory.verified ? externalOutboundUsdtBaseUnits : null,
+          committedWithdrawalBaseUnits: thirdPartyCommittedWithdrawalBaseUnits,
+          availablePrincipalBaseUnits: thirdPartyPrincipalRemainingBaseUnits || '0',
+        }
+        if (!thirdPartyFunding.ledgerReady) blockers.push('third-party-funding-ledger-or-outbound-history-unavailable')
+        else if (BigInt(thirdPartyFunding.verifiedUsdtPrincipalBaseUnits) <= 0n) {
+          blockers.push('third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required')
+        } else if (BigInt(thirdPartyFunding.availablePrincipalBaseUnits) <= 0n) {
+          blockers.push('third-party-usdt-principal-fully-committed')
+        }
+        const committedSponsorPrincipalBaseUnits = (
+          BigInt(applicationCommittedBaseUnits) + BigInt(externalOutboundUsdtBaseUnits)
+        ).toString()
+        // Never report apparent remaining sponsor principal from app rows alone.
+        // If external vault history is missing/stale, the unobserved manual outflows
+        // could consume the remaining commitment; keep this budget unverified.
+        if (outboundHistory.verified) {
+          sponsorPrincipalBudget = calculateSponsorPrincipalBudgetState(
+            config.sponsorTotalBudgetBaseUnits,
+            committedSponsorPrincipalBaseUnits,
+          )
+        }
+        if (!sponsorPrincipalBudgetCapConsistent) blockers.push('sponsor-principal-agreement-budget-cap-changed-or-legacy-rows-unpinned')
+        if (!sponsorPrincipalBudget || BigInt(sponsorPrincipalBudget.remainingBaseUnits) <= 0n) {
+          blockers.push('sponsor-principal-agreement-budget-exhausted-or-unavailable')
+        }
         requiredFeeReserveSun = requiredTreasuryFeeReserveSun(env.TREASURY_FEE_LIMIT_SUN, pendingUsdtCount, pendingTrxCount)
         feeReserveCovered = snapshot.ok && requiredFeeReserveSun !== null
           && treasuryFeeReserveCovered(snapshot.treasuryTrxBalanceSun, snapshot.providerAvailableTrxBaseUnits, requiredFeeReserveSun)
@@ -902,25 +2317,101 @@ export function createTreasuryWithdrawalsRouter({
     }
     if (!databaseReady && !blockers.includes('database-not-ready')) blockers.push('database-not-ready')
     const preflightChecksPassed = blockers.length === 0
-    const executionEnabled = preflightChecksPassed && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
-    const executionBlocker = REAL_VALUE_PAYOUT_EXECUTION_DISABLED
-      ? 'real-value-payout-execution-disabled-in-this-build'
+    const releaseAuthorization = await currentRealValueReleaseAuthorization()
+    const payoutExecution = treasuryPayoutExecutionState(preflightChecksPassed, releaseAuthorization.authorized)
+    const sponsorPayoutCapacity = snapshot.ok && databaseReady
+      && sponsorPrincipalBudget && sponsorPrincipalBudgetCapConsistent
+      && config.sponsorAgreementScopeApproved === true
+      && thirdPartyFunding.ledgerReady
+      && BigInt(thirdPartyFunding.availablePrincipalBaseUnits) > 0n
+      ? calculateTreasuryPayoutCapacity({
+        verifiedSpendableBaseUnits: snapshot.spendableUsdtBaseUnits,
+        outstandingReservationBaseUnits,
+        sponsorCommitmentRemainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
+        dailyLimitBaseUnits: readLimit(env.TREASURY_DAILY_LIMIT_USDT)?.toString(),
+        dailyUsedBaseUnits: dailyUsdtUsedBaseUnits,
+        maximumSinglePayoutBaseUnits: readLimit(env.TREASURY_MAX_PAYOUT_USDT)?.toString(),
+        verifiedThirdPartyPrincipalRemainingBaseUnits: thirdPartyFunding.availablePrincipalBaseUnits,
+      })
       : null
+    const currentlyWithdrawableBaseUnits = payoutExecution.executionEnabled && sponsorPayoutCapacity
+      ? sponsorPayoutCapacity.eligibleCapacityBaseUnits
+      : '0'
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
-      withdrawalsEnabled: preflightChecksPassed,
+      ...payoutExecution,
       preflightChecksPassed,
-      executionEnabled,
-      executionBlocker,
+      releaseAuthorization: {
+        authorized: releaseAuthorization.authorized,
+        reason: releaseAuthorization.reason,
+        signerAddress: releaseAuthorization.signerAddress || null,
+        releaseReference: releaseAuthorization.releaseReference || null,
+        expiresAt: releaseAuthorization.expiresAt || null,
+        messageHash: releaseAuthorization.messageHash || null,
+      },
       configuration: {
         enabled: config.enabled,
         configurationComplete: config.configurationComplete,
         featureFlagEnabled: config.featureFlagEnabled,
+        sponsorAgreementScopeApproved: config.sponsorAgreementScopeApproved,
+        recipientAllowlistValid: config.recipientAllowlistValid,
+        recipientAllowlistCount: config.recipientAllowlistCount,
+        sponsorApproverAddressesValid: config.sponsorApproverAddressesValid,
+        sponsorApproverCount: config.sponsorApproverCount,
+        recipientApprovalMode: config.recipientApprovalMode,
         missing: config.missing,
         signerMode: config.signerMode,
         providerConfigured: config.providerConfigured,
+        readOnlyProviderConfigured: readOnlyProvider.credentialsConfigured,
+        readOnlyProviderMissing: [...readOnlyProvider.credentialsMissing],
       },
       databaseReady, treasuryAddress,
+      outstandingUsdtReservationBaseUnits: databaseReady ? outstandingUsdtReservationBaseUnits : null,
+      dailyUsdtUsedBaseUnits: databaseReady ? dailyUsdtUsedBaseUnits : null,
+      dailyUsdtLimitBaseUnits: readLimit(env.TREASURY_DAILY_LIMIT_USDT)?.toString() ?? null,
+      dailyUsdtRemainingBaseUnits: sponsorPayoutCapacity?.dailyRemainingBaseUnits ?? null,
+      maximumSinglePayoutBaseUnits: readLimit(env.TREASURY_MAX_PAYOUT_USDT)?.toString() ?? null,
+      availableUsdtAfterReservationsBaseUnits: sponsorPayoutCapacity?.availableAfterReservationsBaseUnits ?? null,
+      estimatedEligiblePayoutCapacityBaseUnits: sponsorPayoutCapacity?.eligibleCapacityBaseUnits ?? null,
+      currentlyWithdrawableBaseUnits,
+      payoutCapacityVerified: sponsorPayoutCapacity !== null,
+      thirdPartyFunding: {
+        ...thirdPartyFunding,
+        externalOutboundHistoryVerified: outboundHistory.verified === true,
+        externalOutboundHistoryCheckedAt: outboundHistory.checkedAt || null,
+        externalOutboundHistoryAgeMs: outboundHistory.ageMs ?? null,
+        sponsorFundedOnly: true,
+        outgoingUseRequiresReviewedExecutedAgreement: true,
+        incomingConsentDoesNotAuthorizeWithdrawals: true,
+        thisStatusIsNotPayoutAuthorization: true,
+      },
+      externalOutboundHistory: {
+        verified: outboundHistory.verified === true,
+        status: outboundHistory.status || null,
+        reason: outboundHistory.reason || null,
+        checkedAt: outboundHistory.checkedAt || null,
+        ageMs: outboundHistory.ageMs ?? null,
+        transactionCount: outboundHistory.transactionCount || '0',
+        externalUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
+        externalTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.externalTrxBaseUnits || '0') : null,
+        networkFeeTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.networkFeeTrxBaseUnits || '0') : null,
+        reconciliationDigest: outboundHistory.verified ? outboundHistory.reconciliationDigest || null : null,
+      },
+      sponsorPrincipalBudget: sponsorPrincipalBudget ? {
+        organizationReference: config.sponsorOrganizationReference,
+        agreementReference: config.sponsorAgreementReference,
+        totalBaseUnits: sponsorPrincipalBudget.totalBudgetBaseUnits,
+        usedAndReservedBaseUnits: sponsorPrincipalBudget.usedBaseUnits,
+        applicationCommittedBaseUnits: typeof applicationCommittedBaseUnits === 'string' ? applicationCommittedBaseUnits : '0',
+        externalOutboundUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
+        remainingBaseUnits: sponsorPrincipalBudget.remainingBaseUnits,
+        withinBudget: sponsorPrincipalBudget.withinBudget,
+        commitmentCapConsistent: sponsorPrincipalBudgetCapConsistent,
+      } : {
+        organizationReference: config.sponsorOrganizationReference,
+        agreementReference: config.sponsorAgreementReference,
+        status: 'not-verified',
+      },
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
         providerAvailableUsdtBaseUnits: snapshot.providerAvailableBaseUnits,
@@ -942,7 +2433,7 @@ export function createTreasuryWithdrawalsRouter({
         nativeTrxAssetIdentityVerified: snapshot.nativeTrxAssetIdentityVerified,
         nativeTrxVaultAddressVerified: snapshot.nativeTrxVaultAddressVerified,
       } : {}),
-      payoutBlockers: [...new Set([...blockers, ...(executionBlocker ? [executionBlocker] : [])])],
+      payoutBlockers: [...new Set([...blockers, ...(payoutExecution.executionBlocker ? [payoutExecution.executionBlocker] : [])])],
       limitations: [
         'Transfers are initiated through the configured managed Fireblocks vault; blockchain signing keys are not loaded by the API.',
         'Provider transaction acceptance is not proof of on-chain confirmation; verify the successful solidified receipt and exact official-USDT Transfer event.',
@@ -954,6 +2445,8 @@ export function createTreasuryWithdrawalsRouter({
 
   router.post('/withdrawals', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await authenticateOwner(req)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
       return res.status(503).json({
         success: false,
@@ -961,10 +2454,25 @@ export function createTreasuryWithdrawalsRouter({
         submissionEnabled: false,
       })
     }
-    const auth = await authenticateOwner(req)
-    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const config = configuration()
     if (!config.enabled) return res.status(503).json({ success: false, error: 'treasury-withdrawals-disabled', missing: config.missing })
+    const historyGate = await getFireblocksOutboundHistoryStatus({ env })
+    if (!historyGate.verified) {
+      return res.status(409).json({
+        success: false,
+        error: 'fireblocks-vault-outbound-history-not-reconciled',
+        submissionEnabled: false,
+      })
+    }
+    const releaseAuthorization = await currentRealValueReleaseAuthorization()
+    if (!releaseAuthorization.authorized) {
+      return res.status(503).json({
+        success: false,
+        error: 'sponsor-real-value-release-authorization-required',
+        reason: releaseAuthorization.reason,
+        submissionEnabled: false,
+      })
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['recipientAddress', 'amountUsdt', 'idempotencyKey', 'ownerAuthorizationSignature', 'authorizationExpiresAt'].includes(key))
       || !ADDRESS_PATTERN.test(body.recipientAddress || '')
@@ -990,8 +2498,9 @@ export function createTreasuryWithdrawalsRouter({
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
-      const tronWeb = tronWebFactory()
       const treasuryAddress = typeof env.TREASURY_ADDRESS === 'string' ? env.TREASURY_ADDRESS.trim() : ''
+      const tronWeb = tronWebFactory()
+      const staticallyApproved = isTreasuryRecipientAllowed(body.recipientAddress, config.allowedRecipientAddresses)
       if (!tronWeb.isAddress(body.recipientAddress)
         || !ADDRESS_PATTERN.test(treasuryAddress)
         || !tronWeb.isAddress(treasuryAddress)
@@ -1023,6 +2532,7 @@ export function createTreasuryWithdrawalsRouter({
 
       const client = await db.connect()
       let reservation
+      let sponsorRecipientApprovalRequestId = null
       try {
         await client.query('BEGIN')
         await client.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-treasury-withdrawals-mainnet'))")
@@ -1035,6 +2545,9 @@ export function createTreasuryWithdrawalsRouter({
             treasuryAddress,
             recipientAddress: body.recipientAddress,
             amountBaseUnits: amount.toString(),
+            sponsorOrganizationReference: config.sponsorOrganizationReference,
+            sponsorAgreementReference: config.sponsorAgreementReference,
+            sponsorAgreementBudgetBaseUnits: config.sponsorTotalBudgetBaseUnits,
           })) {
             return res.status(409).json({
               success: false,
@@ -1043,6 +2556,52 @@ export function createTreasuryWithdrawalsRouter({
             })
           }
           return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Matching request returned; no second transfer was broadcast.' })
+        }
+
+        // Keep the sponsor release row locked through the principal reservation.
+        // Sponsor release revocation takes FOR UPDATE and therefore cannot race
+        // between release verification and reserving this new payout.
+        const transactionalRelease = await lockCurrentRealValueReleaseAuthorization(client)
+        if (!transactionalRelease.authorized) {
+          await client.query('ROLLBACK')
+          return res.status(503).json({
+            success: false,
+            error: 'sponsor-real-value-release-authorization-required',
+            reason: transactionalRelease.reason,
+            transactionSubmitted: false,
+          })
+        }
+
+        // Lock the signed recipient approval in the same transaction as the payout reservation.
+        // Sponsor recipient revocation takes FOR UPDATE on that row and therefore cannot race
+        // between destination verification and principal reservation.
+        if (!staticallyApproved) {
+          if (!config.sponsorApproverAddressesValid) {
+            await client.query('ROLLBACK')
+            return res.status(403).json({ success: false, error: 'treasury-recipient-not-allowlisted' })
+          }
+          const approved = await client.query(`SELECT *
+            FROM trc20_token_clone.treasury_recipient_approval_requests
+            WHERE sponsor_organization_reference=$1 AND sponsor_agreement_reference=$2
+              AND treasury_address=$3 AND recipient_address=$4 AND token_contract=$5
+              AND status='approved' AND approver_address = ANY($6::text[])
+            ORDER BY approved_at DESC LIMIT 1 FOR SHARE`, [
+            config.sponsorOrganizationReference, config.sponsorAgreementReference,
+            treasuryAddress, body.recipientAddress, USDT_MAINNET, config.sponsorApproverAddresses,
+          ])
+          const approvalRow = approved.rows[0]
+          const sponsorSignedApproval = await verifyTreasurySponsorRecipientApproval(tronWeb, approvalRow, {
+            allowedSignerAddresses: config.sponsorApproverAddresses,
+          })
+          if (!sponsorSignedApproval) {
+            await client.query('ROLLBACK')
+            return res.status(403).json({
+              success: false,
+              error: 'treasury-recipient-not-allowlisted',
+              message: 'The destination has no active cryptographically verified sponsor-signed approval for this exact organization, agreement, treasury and Mainnet USDT contract. No withdrawal reservation or Fireblocks transfer was created.',
+            })
+          }
+          sponsorRecipientApprovalRequestId = approvalRow.request_id
         }
 
         // Re-read the treasury's actual native TRX before reserving principal.
@@ -1126,30 +2685,148 @@ export function createTreasuryWithdrawalsRouter({
           })
         }
 
-        const spent = await client.query(`
-          SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
-            FROM trc20_token_clone.treasury_withdrawal_requests
-           WHERE created_at >= date_trunc('day', now())
-             AND status <> 'rejected'
-        `)
+        const [spent, sponsorBudgetUsage, committedThirdPartyWithdrawals, sponsorFundingPool] = await Promise.all([
+          client.query(`
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+              FROM trc20_token_clone.treasury_withdrawal_requests
+             WHERE created_at >= date_trunc('day', now())
+               AND status <> 'rejected'
+          `),
+          client.query(`
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount,
+                   MIN(sponsor_agreement_budget_base_units)::text AS min_budget_cap,
+                   MAX(sponsor_agreement_budget_base_units)::text AS max_budget_cap,
+                   COUNT(*) FILTER (
+                     WHERE sponsor_organization_reference IS NULL
+                        OR sponsor_agreement_reference IS NULL
+                        OR sponsor_agreement_budget_base_units IS NULL
+                   )::text AS unpinned_agreement_rows
+              FROM trc20_token_clone.treasury_withdrawal_requests
+             WHERE treasury_address=$1
+               AND (
+                 (sponsor_organization_reference=$2 AND sponsor_agreement_reference=$3)
+                 OR sponsor_organization_reference IS NULL
+                 OR sponsor_agreement_reference IS NULL
+               )
+               AND status NOT IN ('rejected','failed')
+          `, [treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference]),
+          client.query(`
+            SELECT COALESCE(SUM(amount_base_units), 0)::text AS amount
+              FROM trc20_token_clone.treasury_withdrawal_requests
+             WHERE treasury_address=$1 AND status <> 'rejected'
+          `, [treasuryAddress]),
+          getThirdPartyFundingUsdtPoolSnapshot(treasuryAddress, config.sponsorOrganizationReference, config.sponsorAgreementReference),
+        ])
         const alreadyReserved = BigInt(spent.rows[0]?.amount || '0')
+        const sponsorBudgetCapConsistent = sponsorPrincipalBudgetCapMatches(config.sponsorTotalBudgetBaseUnits, {
+          minimumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.min_budget_cap ?? null,
+          maximumStoredBudgetBaseUnits: sponsorBudgetUsage.rows[0]?.max_budget_cap ?? null,
+          unpinnedAgreementRows: String(sponsorBudgetUsage.rows[0]?.unpinned_agreement_rows || '0'),
+        })
+        if (!sponsorBudgetCapConsistent) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'sponsor-principal-agreement-budget-cap-mismatch',
+            transactionSubmitted: false,
+            message: 'The configured USDT commitment differs from the stored agreement cap, or prior requests lack a cap snapshot. No Fireblocks transfer was requested.',
+          })
+        }
+        const sponsorBudget = calculateSponsorPrincipalBudgetState(
+          config.sponsorTotalBudgetBaseUnits,
+          String(sponsorBudgetUsage.rows[0]?.amount || '0'),
+          amount.toString(),
+        )
+        if (!sponsorBudget || !sponsorBudget.withinBudget) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'sponsor-principal-agreement-budget-exceeded',
+            sponsorPrincipalBudget: sponsorBudget ? {
+              totalBaseUnits: sponsorBudget.totalBudgetBaseUnits,
+              usedAndReservedBaseUnits: sponsorBudget.usedBaseUnits,
+              remainingBaseUnits: sponsorBudget.remainingBaseUnits,
+              requestedBaseUnits: sponsorBudget.requestedBaseUnits,
+            } : null,
+            transactionSubmitted: false,
+            message: 'The requested USDT principal exceeds the remaining commitment recorded for this sponsor agreement. No Fireblocks transfer was requested.',
+          })
+        }
+        const committedThirdPartyPrincipalBaseUnits = (
+          BigInt(String(committedThirdPartyWithdrawals.rows[0]?.amount || '0'))
+          + BigInt(String(historyGate.externalUsdtBaseUnits || '0'))
+        ).toString()
+        const remainingVerifiedThirdPartyPrincipalBaseUnits = sponsorFundingPool?.success === true
+          ? remainingThirdPartyFundingPrincipal(
+            String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0'),
+            committedThirdPartyPrincipalBaseUnits,
+          )
+          : null
+        if (!sponsorFundingPool?.success || remainingVerifiedThirdPartyPrincipalBaseUnits === null
+          || BigInt(String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits || '0')) <= 0n) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-verified-usdt-deposit-and-reviewed-disbursement-mandate-required',
+            transactionSubmitted: false,
+            payoutExecutionAuthorized: false,
+            message: 'A reviewed source-wallet mandate, a real incoming official-USDT transfer and matching Fireblocks vault inventory evidence are required before sponsor principal can be reserved.',
+          })
+        }
+        if (amount > BigInt(remainingVerifiedThirdPartyPrincipalBaseUnits)) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'third-party-usdt-principal-insufficient-after-withdrawals',
+            verifiedThirdPartyPrincipalBaseUnits: String(sponsorFundingPool.verifiedUsdtPrincipalBaseUnits),
+            committedThirdPartyPrincipalBaseUnits,
+            availableThirdPartyPrincipalBaseUnits: remainingVerifiedThirdPartyPrincipalBaseUnits,
+            requestedAmountBaseUnits: amount.toString(),
+            transactionSubmitted: false,
+            payoutExecutionAuthorized: false,
+          })
+        }
         if (alreadyReserved + amount > dailyLimit) {
           await client.query('ROLLBACK')
           return res.status(429).json({ success: false, error: 'treasury-daily-limit-exceeded' })
         }
         const inserted = await client.query(`
           INSERT INTO trc20_token_clone.treasury_withdrawal_requests
-            (idempotency_key, owner_address, treasury_address, recipient_address, token_contract, amount_base_units, status)
-          VALUES ($1,$2,$3,$4,$5,$6,'broadcasting')
+            (idempotency_key, owner_address, treasury_address, recipient_address, token_contract,
+             sponsor_organization_reference, sponsor_agreement_reference, sponsor_agreement_budget_base_units,
+             recipient_approval_request_id, amount_base_units, status)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'broadcasting')
           RETURNING *
-        `, [body.idempotencyKey, auth.ownerAddress, treasuryAddress, body.recipientAddress, USDT_MAINNET, amount.toString()])
+        `, [
+          body.idempotencyKey, auth.ownerAddress, treasuryAddress, body.recipientAddress, USDT_MAINNET,
+          config.sponsorOrganizationReference, config.sponsorAgreementReference,
+          config.sponsorTotalBudgetBaseUnits, sponsorRecipientApprovalRequestId, amount.toString(),
+        ])
         reservation = inserted.rows[0]
         await client.query('COMMIT')
       } catch (error) {
         try { await client.query('ROLLBACK') } catch {}
         if (error?.code === '23505') {
           const existing = await db.query('SELECT * FROM trc20_token_clone.treasury_withdrawal_requests WHERE idempotency_key = $1', [body.idempotencyKey])
-          if (existing.rows.length) return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(existing.rows[0]), note: 'Existing request returned; no second transfer was broadcast.' })
+          if (existing.rows.length) {
+            const prior = existing.rows[0]
+            if (!matchesTreasuryWithdrawalRequest(prior, {
+              ownerAddress: auth.ownerAddress,
+              treasuryAddress,
+              recipientAddress: body.recipientAddress,
+              amountBaseUnits: amount.toString(),
+              sponsorOrganizationReference: config.sponsorOrganizationReference,
+              sponsorAgreementReference: config.sponsorAgreementReference,
+            sponsorAgreementBudgetBaseUnits: config.sponsorTotalBudgetBaseUnits,
+            })) {
+              return res.status(409).json({
+                success: false,
+                error: 'idempotency-key-conflict',
+                message: 'The existing request is bound to a different withdrawal intent or sponsor agreement. No second Fireblocks transfer was requested.',
+              })
+            }
+            return res.status(200).json({ success: true, duplicate: true, withdrawal: safeStatus(prior), note: 'Existing request returned; no second transfer was broadcast.' })
+          }
         }
         throw error
       } finally {
@@ -1212,20 +2889,20 @@ export function createTreasuryWithdrawalsRouter({
           providerState = classifyFireblocksTransaction(providerTransaction)
         } catch {}
       }
-      const nextStatus = providerState.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : providerState.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(providerState)
+      const nextStatus = ledgerState.status
       const saved = await db.query(`UPDATE trc20_token_clone.treasury_withdrawal_requests
         SET status=$2, transaction_hash=$3, provider_transaction_id=$4, provider_status=$5,
             failure_code=$6, updated_at=now()
         WHERE id=$1 RETURNING *`,
       [reservation.id, nextStatus, providerState.transactionHash, providerTransactionId,
-        providerState.providerStatus, nextStatus === 'failed' ? 'fireblocks-terminal-' + providerState.providerStatus.toLowerCase() : null])
+        providerState.providerStatus, ledgerState.failureCode])
       return res.status(202).json({
-        success: nextStatus !== 'failed', status: nextStatus, withdrawal: safeStatus(saved.rows[0]),
+        success: nextStatus !== 'broadcast-unknown', status: nextStatus, withdrawal: safeStatus(saved.rows[0]),
         note: nextStatus === 'broadcast-accepted'
           ? 'Provider returned a chain transaction ID. This is not confirmation; verify the solidified TRON receipt and official-USDT Transfer event.'
-          : nextStatus === 'failed'
-            ? 'Provider reported a terminal failure. No on-chain success is claimed.'
+          : nextStatus === 'broadcast-unknown'
+            ? 'Fireblocks reported a terminal state without a verified solidified TRON outcome. The USDT principal remains reserved; reconcile the same idempotency key and do not retry as a new payout.'
             : 'Provider created a request but no chain transaction ID is available yet. Funds remain reserved; poll this same idempotency key.',
       })
     } catch {
@@ -1348,6 +3025,10 @@ export function createTreasuryWithdrawalsRouter({
     if (!config.configurationComplete) blockers.push('trx-withdrawal-configuration-incomplete')
     if (!ADDRESS_PATTERN.test(treasuryAddress)) blockers.push('treasury-address-not-configured')
     if (ADDRESS_PATTERN.test(treasuryAddress)) snapshot = await readManagedTreasuryTrxSnapshot(treasuryAddress)
+    const outboundHistory = db && ADDRESS_PATTERN.test(treasuryAddress)
+      ? await getFireblocksOutboundHistoryStatus({ env, treasuryAddress })
+      : { verified: false, reason: 'fireblocks-vault-outbound-history-not-reconciled' }
+    if (!outboundHistory.verified) blockers.push('fireblocks-vault-outbound-history-not-reconciled')
     if (!snapshot.ok) blockers.push(snapshot.reason || 'fireblocks-trx-funding-unverified')
 
     try {
@@ -1396,21 +3077,15 @@ export function createTreasuryWithdrawalsRouter({
       if (databaseReady && BigInt(availableNativeSun) <= 0n) blockers.push('treasury-trx-no-unreserved-payout-balance')
     }
 
-    const withdrawalsEnabled = config.enabled && databaseReady && snapshot.ok && blockers.length === 0
-    const preflightChecksPassed = withdrawalsEnabled
-    const executionEnabled = preflightChecksPassed && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED
-    const executionBlocker = REAL_VALUE_PAYOUT_EXECUTION_DISABLED
-      ? 'real-value-payout-execution-disabled-in-this-build'
-      : null
+    const preflightChecksPassed = config.enabled && databaseReady && snapshot.ok && blockers.length === 0
+    const payoutExecution = treasuryTrxPayoutExecutionState(preflightChecksPassed)
     return res.json({
       success: true,
       network: 'mainnet',
       asset: 'TRX',
       decimals: 6,
-      withdrawalsEnabled,
+      ...payoutExecution,
       preflightChecksPassed,
-      executionEnabled,
-      executionBlocker,
       ownerAddress: authResult.ownerAddress,
       treasuryAddress: ADDRESS_PATTERN.test(treasuryAddress) ? treasuryAddress : null,
       configuration: {
@@ -1422,6 +3097,12 @@ export function createTreasuryWithdrawalsRouter({
         providerConfigured: typeof managedSigner()?.isTrxAssetConfigured === 'function' && managedSigner().isTrxAssetConfigured() === true,
       },
       databaseReady,
+      externalOutboundHistoryVerified: outboundHistory.verified === true,
+      externalOutboundHistoryCheckedAt: outboundHistory.checkedAt || null,
+      externalOutboundHistoryAgeMs: outboundHistory.ageMs ?? null,
+      externalOutboundUsdtBaseUnits: outboundHistory.verified ? String(outboundHistory.externalUsdtBaseUnits || '0') : null,
+      externalOutboundTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.externalTrxBaseUnits || '0') : null,
+      externalOutboundNetworkFeeTrxBaseUnits: outboundHistory.verified ? String(outboundHistory.networkFeeTrxBaseUnits || '0') : null,
       ...(snapshot.ok ? {
         providerAssetId: snapshot.providerAssetId,
         providerAvailableTrxBaseUnits: snapshot.providerAvailableBaseUnits,
@@ -1436,17 +3117,17 @@ export function createTreasuryWithdrawalsRouter({
       dailyReservedTrxBaseUnits: dailyReservedSun,
       maxPayoutTrx: typeof env.TREASURY_MAX_PAYOUT_TRX === 'string' ? env.TREASURY_MAX_PAYOUT_TRX : null,
       dailyLimitTrx: typeof env.TREASURY_DAILY_LIMIT_TRX === 'string' ? env.TREASURY_DAILY_LIMIT_TRX : null,
-      payoutBlockers: [...new Set([...blockers, ...(executionBlocker ? [executionBlocker] : [])])],
+      payoutBlockers: [...new Set([...blockers, ...(payoutExecution.executionBlocker ? [payoutExecution.executionBlocker] : [])])],
       note: 'Readiness is not a payout authorization. Every TRX payout requires owner authorization, a configured Fireblocks vault, real TRX covering principal and the reserved fee cap, and a verified chain receipt.',
     })
   })
 
   router.post('/trx-withdrawals', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
-    if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED) {
+    if (REAL_VALUE_TRX_PAYOUT_EXECUTION_DISABLED) {
       return res.status(503).json({
         success: false,
-        error: 'real-value-payout-execution-disabled-in-this-build',
+        error: 'native-trx-payout-execution-disabled-in-this-build',
         submissionEnabled: false,
       })
     }
@@ -1686,22 +3367,22 @@ export function createTreasuryWithdrawalsRouter({
           providerState = classifyFireblocksTransaction(providerTransaction)
         } catch {}
       }
-      const nextStatus = providerState.localStatus === 'broadcast-accepted' ? 'broadcast-accepted'
-        : providerState.localStatus === 'failed' ? 'failed' : 'provider-pending'
+      const ledgerState = fireblocksPayoutLedgerState(providerState)
+      const nextStatus = ledgerState.status
       const saved = await db.query(`UPDATE trc20_token_clone.treasury_trx_withdrawal_requests
         SET status=$2, transaction_hash=$3, provider_transaction_id=$4, provider_status=$5,
             failure_code=$6, updated_at=now()
         WHERE id=$1 RETURNING *`,
       [reservation.id, nextStatus, providerState.transactionHash, providerTransactionId,
-        providerState.providerStatus, nextStatus === 'failed' ? 'fireblocks-terminal-' + providerState.providerStatus.toLowerCase() : null])
+        providerState.providerStatus, ledgerState.failureCode])
       return res.status(202).json({
-        success: nextStatus !== 'failed',
+        success: nextStatus !== 'broadcast-unknown',
         status: nextStatus,
         withdrawal: safeTrxStatus(saved.rows[0]),
         note: nextStatus === 'broadcast-accepted'
           ? 'Fireblocks returned a TRON chain transaction ID. Verify the solidified transaction before treating the transfer as complete.'
-          : nextStatus === 'failed'
-            ? 'Fireblocks reported a terminal failure. No successful on-chain transfer is claimed.'
+          : nextStatus === 'broadcast-unknown'
+            ? 'Fireblocks reported a terminal state without a verified solidified TRON outcome. The TRX amount remains reserved; reconcile the same idempotency key and do not retry as a new payout.'
             : 'Fireblocks created a request but no chain hash is available yet. Funds remain reserved; look up this same idempotency key.',
       })
     } catch {

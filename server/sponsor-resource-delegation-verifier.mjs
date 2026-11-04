@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto'
 import { tatumProviderFetch } from './tatum-provider-fetch.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
 const NETWORKS = Object.freeze({
   mainnet: { host: 'https://tron-mainnet.gateway.tatum.io' },
   shasta: { host: 'https://tron-shasta.gateway.tatum.io' },
   nile: { host: 'https://tron-nile.gateway.tatum.io' },
 })
-const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-f]{64}$/i
 const INTEGER_PATTERN = /^(0|[1-9][0-9]{0,77})$/
 
@@ -55,8 +56,8 @@ export function createSponsorResourceDelegationVerifier({
     const { network, transactionId, sponsorAddress, receiverAddress, resourceType, stakeEquivalentSun } = input || {}
     if (typeof network !== 'string' || !Object.hasOwn(NETWORKS, network)) return fail('invalid-network', 'invalid-network')
     if (typeof transactionId !== 'string' || !TX_PATTERN.test(transactionId)
-      || typeof sponsorAddress !== 'string' || !ADDRESS_PATTERN.test(sponsorAddress)
-      || typeof receiverAddress !== 'string' || !ADDRESS_PATTERN.test(receiverAddress)
+      || !isValidTronAddress(sponsorAddress)
+      || !isValidTronAddress(receiverAddress)
       || sponsorAddress === receiverAddress
       || !['ENERGY', 'BANDWIDTH'].includes(resourceType)
       || typeof stakeEquivalentSun !== 'string' || !/^[1-9][0-9]{0,15}$/.test(stakeEquivalentSun)) {
@@ -99,13 +100,29 @@ export function createSponsorResourceDelegationVerifier({
         || !info || Object.keys(info).length === 0 || !Number.isSafeInteger(info.blockNumber) || info.blockNumber <= 0) {
         return fail('pending-solidification', 'solidified-transaction-not-found')
       }
-      const contract = transaction.raw_data?.contract?.find((entry) => entry?.type === 'DelegateResourceContract')
+      const rawDataHex = typeof transaction.raw_data_hex === 'string' ? transaction.raw_data_hex : ''
+      if (!/^(?:[0-9a-f]{2})+$/i.test(rawDataHex)
+        || createHash('sha256').update(Buffer.from(rawDataHex, 'hex')).digest('hex') !== transactionId.toLowerCase()
+        || typeof info.id !== 'string' || info.id.toLowerCase() !== transactionId.toLowerCase()) {
+        return fail('solidified-transaction-identity-mismatch', 'solidified-transaction-id-not-bound-to-raw-data')
+      }
+      const contracts = transaction.raw_data?.contract
+      const contract = Array.isArray(contracts) && contracts.length === 1
+        && contracts[0]?.type === 'DelegateResourceContract' ? contracts[0] : null
       const value = contract?.parameter?.value
       const amount = numericText(value?.balance)
       const returnedResource = normalizeResource(value?.resource)
-      const receiptFailed = String(info.result || '').toUpperCase() === 'FAILED'
-        || String(info.receipt?.result || '').toUpperCase() === 'FAILED'
-      const executionSucceeded = transaction.ret?.[0]?.contractRet === 'SUCCESS'
+      const topLevelResult = typeof info.result === 'string' ? info.result.toUpperCase() : null
+      const receiptResult = typeof info.receipt?.result === 'string' ? info.receipt.result.toUpperCase() : null
+      const receiptFailed = topLevelResult === 'FAILED' || receiptResult === 'FAILED'
+      const topLevelResultAcceptable = topLevelResult === null
+        || ['SUCCESS', 'SUCESS'].includes(topLevelResult)
+      const receiptResultAcceptable = receiptResult === null || receiptResult === 'SUCCESS'
+      const executionSucceeded = Array.isArray(transaction.ret)
+        && transaction.ret.length === 1
+        && transaction.ret[0]?.contractRet === 'SUCCESS'
+        && topLevelResultAcceptable
+        && receiptResultAcceptable
       const exactTransaction = normalizeAddress(tronWeb, value?.owner_address) === expectedOwner
         && normalizeAddress(tronWeb, value?.receiver_address) === expectedReceiver
         && amount === stakeEquivalentSun
@@ -124,13 +141,28 @@ export function createSponsorResourceDelegationVerifier({
         ? delegationPayload.delegatedResource
         : (delegationPayload.from && delegationPayload.to ? [delegationPayload] : [])
       const balanceKey = resourceType === 'ENERGY' ? 'frozen_balance_for_energy' : 'frozen_balance_for_bandwidth'
-      const actualDelegatedSun = rows
-        .filter((row) => normalizeAddress(tronWeb, row.from) === expectedOwner
-          && normalizeAddress(tronWeb, row.to) === expectedReceiver)
-        .reduce((total, row) => {
-          const amountText = numericText(row[balanceKey])
-          return amountText === null ? total : total + BigInt(amountText)
-        }, 0n)
+      const expiryKey = resourceType === 'ENERGY' ? 'expire_time_for_energy' : 'expire_time_for_bandwidth'
+      let actualDelegatedSun = 0n
+      let matchingDelegationRows = 0
+      const checkedAtMs = Date.now()
+      for (const row of rows) {
+        if (normalizeAddress(tronWeb, row?.from) !== expectedOwner
+          || normalizeAddress(tronWeb, row?.to) !== expectedReceiver) continue
+        matchingDelegationRows += 1
+        const amountText = numericText(row?.[balanceKey])
+        const expiryValue = row?.[expiryKey]
+        const expiry = typeof expiryValue === 'number' ? expiryValue
+          : typeof expiryValue === 'string' && INTEGER_PATTERN.test(expiryValue)
+            ? Number(expiryValue) : Number.NaN
+        if (amountText === null || !Number.isSafeInteger(expiry) || expiry < 0) {
+          return fail('delegation-state-unavailable', 'delegation-resource-or-expiry-invalid', {
+            transactionId: transactionId.toLowerCase(),
+            blockNumber: info.blockNumber,
+            resourceType,
+          })
+        }
+        if (expiry === 0 || expiry > checkedAtMs) actualDelegatedSun += BigInt(amountText)
+      }
       if (actualDelegatedSun < BigInt(stakeEquivalentSun)) {
         return fail('delegation-state-not-yet-confirmed', 'resulting-resource-allocation-mismatch', {
           transactionId: transactionId.toLowerCase(),
@@ -138,6 +170,7 @@ export function createSponsorResourceDelegationVerifier({
           resourceType,
           expectedStakeEquivalentSun: stakeEquivalentSun,
           observedStakeEquivalentSun: actualDelegatedSun.toString(),
+          matchingDelegationRows,
         })
       }
 
@@ -152,6 +185,7 @@ export function createSponsorResourceDelegationVerifier({
         resourceType,
         stakeEquivalentSun,
         observedStakeEquivalentSun: actualDelegatedSun.toString(),
+        matchingDelegationRows,
         blockNumber: info.blockNumber,
         checkedAt: new Date().toISOString(),
         source: 'Tatum SolidityNode solidified transaction and delegation-state queries',

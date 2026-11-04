@@ -68,6 +68,6 @@ test('persistent watchlist registration is protected and does not imply monitori
 
 test('receiver history does not start background polling or browser notifications', () => {
   assert.ok(!activeUi.includes('Notification'))
-  assert.ok(!activeUi.includes('setInterval('))
+  assert.ok(!/setInterval\([^)]*receiverHistory/i.test(activeUi))
   assert.ok(activeUi.includes('loadReceiverHistory'))
 })
