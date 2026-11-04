@@ -1555,6 +1555,62 @@ export default function WalletVault() {
       </section>
 
 
+      <section className="wallet-vault-transfer-section" aria-labelledby="owner-sponsor-liquidity-heading" hidden={activePanel !== 'dashboard'}>
+        <div className="wallet-vault-panel-head">
+          <span className="wallet-vault-step"><Layers size={16} /></span>
+          <div>
+            <h2 id="owner-sponsor-liquidity-heading">Combined verified sponsor liquidity</h2>
+            <p>Only approved, unreserved Mainnet USDT capacity backed by fresh on-chain sponsor balances is included. Your personal wallet is excluded.</p>
+          </div>
+        </div>
+        {ownerTreasuryLoading && <p className="wallet-vault-caption" role="status"><RefreshCw size={14} /> Checking approved sponsor balances…</p>}
+        {ownerSponsorLiquidity?.success === true ? (
+          <>
+            <div className="wallet-vault-review-grid">
+              <div className="wallet-vault-review-wide">
+                <small>Approved unreserved sponsor capacity</small>
+                <strong>{formatUnits(ownerSponsorLiquidity.availableBaseUnits || '0', 6)} USDT</strong>
+              </div>
+              <div>
+                <small>Observed sponsor USDT (verified sources)</small>
+                <strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong>
+              </div>
+              <div>
+                <small>Verified sponsor wallets</small>
+                <strong>{ownerSponsorLiquidity.verifiedSourceCount || 0} / {ownerSponsorLiquidity.sourceCount || 0}</strong>
+              </div>
+            </div>
+            {ownerSponsorLiquidity.sources?.length ? (
+              <div className="wallet-vault-token-list">
+                {ownerSponsorLiquidity.sources.map(source => (
+                  <div className="wallet-vault-token-row" key={source.address}>
+                    <div className="wallet-vault-token-info">
+                      <strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong>
+                      <small>{source.approvedBudgetCount} approved budget(s) · {source.budgetCount} matching ledger record(s)</small>
+                    </div>
+                    <div className="wallet-vault-token-amount">
+                      <strong>{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
+                      <small>{source.onChainBalanceVerified && source.onChainBalanceBaseUnits !== null
+                        ? 'Chain: ' + formatUnits(source.onChainBalanceBaseUnits, 6) + ' USDT'
+                        : 'Chain balance unavailable'}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="wallet-vault-caption">No approved external sponsor wallets are registered in the Mainnet asset-grant budget ledger yet.</p>
+            )}
+            <p className="wallet-vault-caption">Snapshot: {ownerSponsorLiquidity.checkedAt ? new Date(ownerSponsorLiquidity.checkedAt).toLocaleString() : 'time unavailable'}. Sponsor capacity is not the balance of your personal wallet and is not a payout authorization.</p>
+          </>
+        ) : (
+          <div className="wallet-vault-transfer-warning" role="status">
+            <strong>{ownerSponsorLiquidityError || 'Sponsor liquidity has not been verified.'}</strong>
+            <p>Unknown or unapproved sponsor balances are not counted. Your personal wallet balance remains separate.</p>
+          </div>
+        )}
+        <p className="wallet-vault-caption">Application withdrawal submission remains disabled. A verified balance and approved budget do not by themselves provide an authorized transaction signer or prove a recipient exchange has credited a deposit.</p>
+      </section>
+
       <section className="wallet-vault-panel wallet-vault-quick-actions" aria-labelledby="wallet-vault-quick-actions-heading" hidden={activePanel !== 'dashboard'}>
         <div className="wallet-vault-panel-head">
           <span className="wallet-vault-step"><Activity size={16} /></span>
@@ -1842,6 +1898,46 @@ export default function WalletVault() {
           {unlocked && (
             <div className="wallet-vault-portfolio" hidden={activePanel === 'account'}>
               <div className="wallet-vault-address-row" hidden={activePanel !== 'wallet'}><div><small>Public address</small><a href={explorerUrl(network, unlocked.record.address)} target="_blank" rel="noopener noreferrer">{shortenAddress(unlocked.record.address)} ↗</a></div><button type="button" className="wallet-vault-icon-button" aria-label="Copy public address" onClick={() => void copyAddress(unlocked.record.address)}><Copy size={17} /></button></div>
+              {network === 'mainnet' && (
+                <section className="wallet-vault-transfer-section" aria-labelledby="assets-sponsor-liquidity-heading" hidden={activePanel !== 'wallet'}>
+                  <div className="wallet-vault-panel-head">
+                    <span className="wallet-vault-step"><Layers size={16} /></span>
+                    <div>
+                      <h2 id="assets-sponsor-liquidity-heading">Sponsored withdrawal capacity</h2>
+                      <p>Combined approved sponsor liquidity is separate from assets held by your unlocked local wallet.</p>
+                    </div>
+                  </div>
+                  {ownerSponsorLiquidity?.success === true ? (
+                    <>
+                      <div className="wallet-vault-review-grid">
+                        <div className="wallet-vault-review-wide">
+                          <small>Verified available sponsor capacity</small>
+                          <strong>{formatUnits(ownerSponsorLiquidity.availableBaseUnits || '0', 6)} USDT</strong>
+                        </div>
+                        <div><small>Verified on-chain sponsor balance</small><strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong></div>
+                        <div><small>Eligible sponsor wallets</small><strong>{ownerSponsorLiquidity.eligibleSourceCount || 0}</strong></div>
+                      </div>
+                      {ownerSponsorLiquidity.sources?.length ? (
+                        <div className="wallet-vault-token-list">
+                          {ownerSponsorLiquidity.sources.map(source => (
+                            <div className="wallet-vault-token-row" key={source.address}>
+                              <div className="wallet-vault-token-info">
+                                <strong>{shortenAddress(source.address)} <span>· {source.status.replaceAll('-', ' ')}</span></strong>
+                                <small>{source.approvedBudgetCount} active approved budget(s)</small>
+                              </div>
+                              <strong className="wallet-vault-token-amount">{formatUnits(source.availableBaseUnits || '0', 6)} USDT</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="wallet-vault-caption">No active, approved external sponsor USDT budgets are currently connected.</p>}
+                    </>
+                  ) : (
+                    <p className="wallet-vault-risk-note" role="status">{ownerSponsorLiquidityError || 'Sponsor balances are not verified. No sponsor capacity is counted.'}</p>
+                  )}
+                  <p className="wallet-vault-caption">The TRX and USDT balances shown below belong only to your local wallet. Sponsor liquidity does not get added to or impersonate your wallet balance. Payout execution remains disabled until the sponsor signer and production release gates are complete.</p>
+                </section>
+              )}
+
               <div className="wallet-vault-balance" hidden={activePanel !== 'wallet'}>
                 <div className="wallet-vault-balance-icon">T</div>
                 <div><small>Native TRX balance · {network === 'mainnet' ? 'Mainnet' : network === 'nile' ? 'Nile testnet' : 'Shasta testnet'}</small><strong>{balanceLoading ? 'Reading chain…' : portfolio?.trx ?? '—'} <span>TRX</span></strong><small>Read directly from the selected network; this is not an exchange balance.</small></div>
