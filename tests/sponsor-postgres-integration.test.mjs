@@ -1072,7 +1072,7 @@ test('PostgreSQL persists transaction payer and creator Energy evidence and reje
     receiverAddress, asset: 'TRX', tokenContract: null,
     amountBaseUnits: '25', blockNumber: 65432, executionResult: 'SUCCESS',
     reportedFeeSun: '4200', energyFeeSun: '2000', netFeeSun: '2200',
-    energyUsageTotal: '0', energyUsage: null, originEnergyUsage: '17',
+    energyUsageTotal: '117', energyUsage: '100', originEnergyUsage: '17',
     transactionOwnerAddressHex: ownerHex, trxFeePayerAddressHex: ownerHex,
     netUsage: '220', energyPenaltyTotal: null,
   }
