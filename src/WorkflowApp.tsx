@@ -185,6 +185,26 @@ type BalanceSnapshot = {
   accountExists?: boolean
 }
 type MainnetBalanceSnapshot = Omit<BalanceSnapshot, 'network'> & { network: 'mainnet'; tokenContract?: string }
+type MainnetDirectSponsorReadiness = {
+  success?: boolean
+  status?: string
+  network?: 'mainnet'
+  readOnly?: boolean
+  checkedAt?: string
+  preflightReady?: boolean
+  mainnetExecutionDisabled?: boolean
+  canCreateSigningIntent?: boolean
+  canSubmitSponsoredTransfer?: boolean
+  sponsorRoles?: {
+    networkFeeSponsor?: { addressConfigured?: boolean; onChainBalanceRead?: boolean; resourceRead?: boolean; agreementScopeConfigured?: boolean }
+    assetPrincipalSponsor?: { addressConfigured?: boolean; onChainBalanceRead?: boolean; officialUsdtContract?: string; officialUsdtBalanceVerified?: boolean; agreementScopeConfigured?: boolean }
+    addressesDistinct?: boolean
+    feeResourceDelegationTransactionAuditVerified?: boolean
+  }
+  database?: { configured?: boolean; ready?: boolean }
+  blockers?: string[]
+  limitations?: string[]
+}
 type DirectTestnetTransferStatus =
   | 'broadcast-outcome-unknown'
   | 'awaiting-solidification'
@@ -797,6 +817,10 @@ export default function WorkflowApp() {
   const [mainnetReadLoading, setMainnetReadLoading] = useState(false)
   const [mainnetReadError, setMainnetReadError] = useState('')
   const [mainnetReadCheckedAt, setMainnetReadCheckedAt] = useState<number | null>(null)
+  const [mainnetSponsorReadiness, setMainnetSponsorReadiness] = useState<MainnetDirectSponsorReadiness | null>(null)
+  const [mainnetSponsorReadinessLoading, setMainnetSponsorReadinessLoading] = useState(false)
+  const [mainnetSponsorReadinessError, setMainnetSponsorReadinessError] = useState('')
+  const [mainnetSponsorReadinessCheckedAt, setMainnetSponsorReadinessCheckedAt] = useState<number | null>(null)
 
   // Stage 4 — recipient and amount are validated against read-only chain responses.
   const [receiverAddress, setReceiverAddress] = useState('')
@@ -848,6 +872,7 @@ export default function WorkflowApp() {
   }, [network, assetKind, tokenContract, senderAddress, receiverAddress, amount, walletIdentity?.address])
   // Prevent late reads for an old network/request from overwriting current sponsor diagnostics.
   const sponsorRequestGeneration = useRef(0)
+  const mainnetSponsorReadinessRequestGeneration = useRef(0)
   const senderSnapshotRequestGeneration = useRef(0)
   const receiverHistoryRequestGeneration = useRef(0)
   const feeEstimateRequestGeneration = useRef(0)
@@ -1079,6 +1104,29 @@ export default function WorkflowApp() {
       setMainnetReadCheckedAt(Date.now())
     } finally {
       setMainnetReadLoading(false)
+    }
+  }
+
+  const loadMainnetDirectSponsorReadiness = async () => {
+    const generation = ++mainnetSponsorReadinessRequestGeneration.current
+    setMainnetSponsorReadinessLoading(true)
+    setMainnetSponsorReadinessError('')
+    try {
+      const result = await requestApi('/api/tron/sponsorship/mainnet-direct/readiness?refresh=1')
+      if (generation !== mainnetSponsorReadinessRequestGeneration.current) return
+      const payload = result.payload
+      if (!result.ok || payload?.success !== true || payload?.network !== 'mainnet' || payload?.readOnly !== true) {
+        throw new Error(payload?.message || payload?.error || ('Mainnet sponsor diagnostics unavailable (HTTP ' + result.httpStatus + ').'))
+      }
+      setMainnetSponsorReadiness(payload as MainnetDirectSponsorReadiness)
+      setMainnetSponsorReadinessCheckedAt(Date.now())
+    } catch (caught) {
+      if (generation !== mainnetSponsorReadinessRequestGeneration.current) return
+      setMainnetSponsorReadiness(null)
+      setMainnetSponsorReadinessError(caught instanceof Error ? caught.message : 'Could not read Mainnet direct sponsor diagnostics.')
+      setMainnetSponsorReadinessCheckedAt(Date.now())
+    } finally {
+      if (generation === mainnetSponsorReadinessRequestGeneration.current) setMainnetSponsorReadinessLoading(false)
     }
   }
 
@@ -2319,6 +2367,44 @@ export default function WorkflowApp() {
                   <p>This is the contract’s actual on-chain balance, not a balance created by Tron Token Studio.</p>
                 </div>}
               </div>}
+              <section className="studio-history-panel" aria-label="Mainnet direct sponsor readiness">
+                <div className="studio-snapshot-heading">
+                  <div>
+                    <h3>Direct sponsor → recipient readiness</h3>
+                    <p>Read-only Mainnet checks for the organization that would send genuine USDT straight to the destination.</p>
+                  </div>
+                  <button type="button" className="studio-button studio-button--secondary" onClick={() => void loadMainnetDirectSponsorReadiness()} disabled={mainnetSponsorReadinessLoading}>
+                    <RefreshCw size={15} className={mainnetSponsorReadinessLoading ? 'studio-spin' : ''} aria-hidden="true" />
+                    {mainnetSponsorReadinessLoading ? 'Checking sponsors…' : mainnetSponsorReadiness ? 'Refresh sponsor checks' : 'Check sponsor readiness'}
+                  </button>
+                </div>
+                <p className="studio-field-hint">This independent diagnostic does not use your wallet as the funding source. It will not create a withdrawal, reserve funds, request a signature, or submit a transaction.</p>
+                {mainnetSponsorReadinessError && <p className="studio-inline-error" role="alert">{mainnetSponsorReadinessError}</p>}
+                {mainnetSponsorReadiness && (
+                  <>
+                    <div className="studio-account-heading">
+                      <div>
+                        <p className="studio-eyebrow">Mainnet direct-sponsor diagnostics</p>
+                        <strong>{mainnetSponsorReadiness.status || 'Status unavailable'}</strong>
+                      </div>
+                      <Pill tone="warning">Mainnet payouts disabled</Pill>
+                    </div>
+                    <div className="studio-role-resource-grid">
+                      <div className="studio-role-metric"><span>Fee sponsor balance/resources read</span><strong>{mainnetSponsorReadiness.sponsorRoles?.networkFeeSponsor?.onChainBalanceRead === true && mainnetSponsorReadiness.sponsorRoles?.networkFeeSponsor?.resourceRead === true ? 'Verified read' : 'Not verified'}</strong></div>
+                      <div className="studio-role-metric"><span>Official Tether USDT principal</span><strong>{mainnetSponsorReadiness.sponsorRoles?.assetPrincipalSponsor?.officialUsdtBalanceVerified === true ? 'Positive balance verified' : 'Not verified'}</strong><small>Contract: {mainnetSponsorReadiness.sponsorRoles?.assetPrincipalSponsor?.officialUsdtContract || 'Not checked'}</small></div>
+                      <div className="studio-role-metric"><span>Sponsor wallets distinct</span><strong>{mainnetSponsorReadiness.sponsorRoles?.addressesDistinct === true ? 'Yes' : 'No / unverified'}</strong></div>
+                      <div className="studio-role-metric"><span>Energy/Bandwidth delegation audit</span><strong>{mainnetSponsorReadiness.sponsorRoles?.feeResourceDelegationTransactionAuditVerified === true ? 'Verified' : 'Not verified'}</strong></div>
+                      <div className="studio-role-metric"><span>Fee sponsor agreement scope</span><strong>{mainnetSponsorReadiness.sponsorRoles?.networkFeeSponsor?.agreementScopeConfigured === true ? 'Configured' : 'Not configured'}</strong></div>
+                      <div className="studio-role-metric"><span>USDT principal agreement scope</span><strong>{mainnetSponsorReadiness.sponsorRoles?.assetPrincipalSponsor?.agreementScopeConfigured === true ? 'Configured' : 'Not configured'}</strong></div>
+                      <div className="studio-role-metric"><span>Database</span><strong>{mainnetSponsorReadiness.database?.ready === true ? 'Ready' : 'Not ready'}</strong></div>
+                    </div>
+                    <p className="studio-inline-note" role="status">Signing intent: {mainnetSponsorReadiness.canCreateSigningIntent === true ? 'Available' : 'Disabled'} · Transfer submission: {mainnetSponsorReadiness.canSubmitSponsoredTransfer === true ? 'Available' : 'Disabled'} · Mainnet execution: {mainnetSponsorReadiness.mainnetExecutionDisabled === true ? 'Hard-disabled' : 'Not confirmed disabled'}.</p>
+                    {(mainnetSponsorReadiness.blockers ?? []).slice(0, 6).map((blocker) => <p className="studio-muted" key={blocker}>• {blocker.replace(/-/g, ' ')}</p>)}
+                    {(mainnetSponsorReadiness.blockers?.length ?? 0) > 6 && <p className="studio-muted">{mainnetSponsorReadiness.blockers?.length} blockers remain. Refresh after sponsor authorization and funding evidence changes.</p>}
+                  </>
+                )}
+                <p className="studio-footnote">Last checked: {formatTimestamp(mainnetSponsorReadinessCheckedAt)}. A positive sponsor balance is not spending authorization, transaction-specific fee coverage, a confirmed transfer, or an exchange deposit credit.</p>
+              </section>
               <p className="studio-footnote">Last checked: {formatTimestamp(mainnetReadCheckedAt)}. Mainnet queries work independently while TronLink is on a testnet; spending and signing still require the actual wallet owner’s authorization and the correct network.</p>
             </section>
           )}
