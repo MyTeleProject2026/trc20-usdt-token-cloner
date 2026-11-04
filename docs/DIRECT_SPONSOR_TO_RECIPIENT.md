@@ -52,3 +52,28 @@ The existing Mainnet read-only panel now includes a separate requester identity 
 The form is not connected to the testnet sender wallet or testnet transfer flow. It does not request a transaction signature, and the request receipt is labelled `No transfer sent`. A user must sign in again after a page refresh because the Mainnet requester session token is not persisted in browser storage.
 
 The sponsor queue is currently a server-token-protected operator review endpoint. It is not an external sponsor organization login, does not prove the legal sponsor mandate, and does not yet provide sponsor approval or transaction signing.
+
+## Mainnet direct sponsor approval checkpoint
+
+The sponsor-side workflow now includes these additional endpoints:
+
+- `GET /api/tron/sponsorship/mainnet-direct/review-queue` — authenticated by a short-lived TRON Mainnet wallet identity session. The session address must exactly match `SPONSOR_ASSET_MAINNET_ADDRESS`.
+- `POST /api/tron/sponsorship/mainnet-direct/requests/:idempotencyKey/approval-challenge` — creates a one-use, 10-minute challenge for one persisted request.
+- `POST /api/tron/sponsorship/mainnet-direct/requests/:idempotencyKey/approve` — consumes the challenge and verifies the signature recovered from the configured sponsor wallet.
+
+The approval policy requires all of the following backend-only values:
+
+- `SPONSOR_ASSET_MAINNET_ADDRESS`
+- `SPONSOR_MAINNET_DIRECT_ORGANIZATION_REFERENCE`
+- `SPONSOR_MAINNET_DIRECT_AGREEMENT_REFERENCE`
+- `SPONSOR_MAINNET_DIRECT_AGREEMENT_SHA256`
+- `SPONSOR_MAINNET_DIRECT_MAX_PAYOUT_USDT_BASE_UNITS`
+- An exact matching `SPONSOR_APPROVED_AGREEMENT_REFERENCES` scope: `agreementReference|organizationReference|mainnet|assetPrincipalAddress|asset-grant|USDT|TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`
+
+Before issuing a signing challenge, the backend also requires a fresh Mainnet sponsor snapshot, sufficient verified official USDT principal for the exact request, and a distinct, read-verified network-fee sponsor with positive TRX and a resource snapshot.
+
+The challenge message binds the request ID/key, requester identity, sponsor organization and wallet, recipient, official contract, exact six-decimal base-unit amount, executed-agreement reference and SHA-256 digest, one-time nonce, and expiry. The API stores only the nonce hash and message/request digests; the raw nonce is returned once to the sponsor UI. The challenge is consumed before signature recovery, so invalid or replayed signatures cannot reuse it. The sponsor signature must recover to the configured asset-principal sponsor wallet.
+
+A verified approval is stored separately from the immutable request and expires after 30 minutes. It authorizes only the exact USDT principal request at the approval layer. It does not approve network fees, reserve a balance, create a transaction, provide a TRON transaction signature, broadcast, or settle. The requester identity wallet and sponsor signer identity are held in separate UI states and require separate Mainnet sign-ins.
+
+**Important:** environment references and a wallet signature do not independently prove legal authority, organizational ownership, source of funds, or the validity of the agreement. Those still require external review. A positive balance snapshot is not a reservation and may change after approval. Recheck funding and all spend controls immediately before any later signing/execution implementation.
