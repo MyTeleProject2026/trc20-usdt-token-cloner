@@ -1360,6 +1360,20 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     const feeQueueRow = approvedFeeQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
     assert.equal(feeQueueRow.sponsorApproval.status, 'approved-active')
     assert.equal(feeQueueRow.feeSponsorApproval.status, 'approved-active')
+    // Simulate a backend restart by opening a new approval-store pool and
+    // re-reading both signed approvals from PostgreSQL.
+    const restartedApprovalStore = createMainnetDirectSponsorApprovalStore(process.env)
+    try {
+      const recovered = await restartedApprovalStore.findApprovalsForOwner(idempotencyKey, input.requesterAddress)
+      assert.equal(recovered.success, true)
+      assert.equal(recovered.sponsorApproval.status, 'approved-active')
+      assert.equal(recovered.sponsorApproval.sponsorAddress, sponsorAddress)
+      assert.equal(recovered.feeSponsorApproval.status, 'approved-active')
+      assert.equal(recovered.feeSponsorApproval.sponsorAddress, feeSponsorAddress)
+      assert.equal(recovered.feeSponsorApproval.maxFeeSun, '50000000')
+    } finally {
+      await restartedApprovalStore.close()
+    }
   } finally {
     await cleanupPool.query(`
       DELETE FROM trc20_token_clone.mainnet_direct_fee_approvals
