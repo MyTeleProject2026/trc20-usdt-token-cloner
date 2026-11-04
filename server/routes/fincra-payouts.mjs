@@ -313,6 +313,10 @@ export function createFincraPayoutRouter({
     }
     const amount = parsePositiveUsdt(body.amountUsdt)
     if (!amount) return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
+    const maxPayout = parsePositiveUsdt(env.FINCRA_MAX_PAYOUT_USDT)
+    const dailyLimit = parsePositiveUsdt(env.FINCRA_DAILY_LIMIT_USDT)
+    if (!maxPayout || !dailyLimit) return res.status(503).json({ success: false, error: 'fincra-payout-limits-not-configured' })
+    if (amount > maxPayout || amount > dailyLimit) return res.status(400).json({ success: false, error: 'amount-outside-configured-limits' })
     const nowValue = Number(now())
     if (!isFincraPayoutAuthorizationExpiryValid(body.authorizationExpiresAt, nowValue, AUTHORIZATION_MAX_FUTURE_MS)) {
       return res.status(401).json({ success: false, error: 'owner-payout-authorization-expired-or-outside-window' })
@@ -336,25 +340,49 @@ export function createFincraPayoutRouter({
       const authorized = await verifyOwnerSignature(tronWeb, message, body.ownerAuthorizationSignature, auth.ownerAddress)
       if (!authorized) return res.status(403).json({ success: false, error: 'owner-payout-signature-invalid' })
 
-      const inserted = await db.query(
-        "INSERT INTO trc20_token_clone.fincra_usdt_trc20_payouts (customer_reference, owner_address, recipient_address, beneficiary_name, token_contract, amount_base_units, source_currency, status) VALUES ($1,$2,$3,$4,$5,$6,'USDT','reserved') ON CONFLICT (customer_reference) DO NOTHING RETURNING *",
-        [body.idempotencyKey, auth.ownerAddress, body.recipientAddress, body.accountHolderName.trim(), OFFICIAL_TRON_MAINNET_USDT, amount.toString()],
-      )
-      let reservation = inserted.rows[0]
-      if (!reservation) {
-        const existing = await db.query('SELECT * FROM trc20_token_clone.fincra_usdt_trc20_payouts WHERE customer_reference=$1 AND owner_address=$2', [body.idempotencyKey, auth.ownerAddress])
-        if (!existing.rows.length) return res.status(409).json({ success: false, error: 'customer-reference-already-used' })
-        const prior = existing.rows[0]
-        if (prior.recipient_address !== body.recipientAddress || String(prior.amount_base_units) !== amount.toString()
-          || prior.beneficiary_name !== body.accountHolderName.trim()) {
-          return res.status(409).json({ success: false, error: 'idempotency-key-conflict' })
+      const ledgerClient = await db.connect()
+      let reservation
+      try {
+        await ledgerClient.query('BEGIN')
+        await ledgerClient.query("SELECT pg_advisory_xact_lock(hashtext('tron-token-studio-fincra-usdt-trc20-payouts'))")
+        const existing = await ledgerClient.query(
+          'SELECT * FROM trc20_token_clone.fincra_usdt_trc20_payouts WHERE customer_reference=$1 FOR UPDATE',
+          [body.idempotencyKey],
+        )
+        if (existing.rows.length) {
+          const prior = existing.rows[0]
+          await ledgerClient.query('COMMIT')
+          if (prior.owner_address !== auth.ownerAddress) return res.status(409).json({ success: false, error: 'customer-reference-already-used' })
+          if (prior.recipient_address !== body.recipientAddress || String(prior.amount_base_units) !== amount.toString()
+            || prior.beneficiary_name !== body.accountHolderName.trim()) {
+            return res.status(409).json({ success: false, error: 'idempotency-key-conflict' })
+          }
+          return res.status(200).json({
+            success: true,
+            duplicate: true,
+            payout: safeStatus(await refreshProviderStatus(db, prior)),
+            note: 'Existing Fincra request returned. No second payout was created.',
+          })
         }
-        return res.status(200).json({
-          success: true,
-          duplicate: true,
-          payout: safeStatus(await refreshProviderStatus(db, prior)),
-          note: 'Existing Fincra request returned. No second payout was created.',
-        })
+        const daily = await ledgerClient.query(
+          "SELECT COALESCE(SUM(amount_base_units),0)::text AS amount FROM trc20_token_clone.fincra_usdt_trc20_payouts WHERE created_at >= date_trunc('day', now()) AND status NOT IN ('provider-failed','chain-failed')",
+        )
+        const dailyReserved = BigInt(daily.rows[0]?.amount || '0')
+        if (dailyReserved + amount > dailyLimit) {
+          await ledgerClient.query('ROLLBACK')
+          return res.status(429).json({ success: false, error: 'fincra-daily-payout-limit-exceeded' })
+        }
+        const inserted = await ledgerClient.query(
+          "INSERT INTO trc20_token_clone.fincra_usdt_trc20_payouts (customer_reference, owner_address, recipient_address, beneficiary_name, token_contract, amount_base_units, source_currency, status) VALUES ($1,$2,$3,$4,$5,$6,'USDT','reserved') RETURNING *",
+          [body.idempotencyKey, auth.ownerAddress, body.recipientAddress, body.accountHolderName.trim(), OFFICIAL_TRON_MAINNET_USDT, amount.toString()],
+        )
+        reservation = inserted.rows[0]
+        await ledgerClient.query('COMMIT')
+      } catch (error) {
+        try { await ledgerClient.query('ROLLBACK') } catch {}
+        throw error
+      } finally {
+        ledgerClient.release()
       }
 
       let response
