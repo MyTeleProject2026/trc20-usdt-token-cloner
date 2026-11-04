@@ -133,10 +133,12 @@ test('PostgreSQL stores finalized failed fee observations separately and idempot
     assert.equal(history.settled, false)
     assert.ok(history.observations.some((item) => item.transaction_hash.trim() === hash))
   } finally {
+    await pool.query('ALTER TABLE trc20_token_clone.sponsor_chain_fee_observations DISABLE TRIGGER sponsor_chain_fee_observations_immutable').catch(() => {})
     await pool.query(
       'DELETE FROM trc20_token_clone.sponsor_chain_fee_observations WHERE network = $1 AND transaction_hash = $2',
       ['nile', hash],
     ).catch(() => {})
+    await pool.query('ALTER TABLE trc20_token_clone.sponsor_chain_fee_observations ENABLE TRIGGER sponsor_chain_fee_observations_immutable').catch(() => {})
     await pool.query(
       'DELETE FROM trc20_token_clone.audit_events WHERE entity_reference = $1',
       [`nile:${hash}`],
