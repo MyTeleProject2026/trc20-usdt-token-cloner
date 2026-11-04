@@ -28,6 +28,15 @@ test('recipient balance/history and sponsor/Fincra owner workspace are navigable
   assert.match(app, /verify-recipient-transfer/)
 })
 
+test('sponsor requester must prove wallet ownership with a server challenge before request intake', () => {
+  assert.match(app, /verifyRequesterWalletOwnership/)
+  assert.match(app, /\/api\/auth\/tron\/challenge/)
+  assert.match(app, /signMessageV2\(challenge\.message\)/)
+  assert.match(app, /\/api\/auth\/tron\/verify/)
+  assert.match(app, /Authorization: 'Bearer ' \+ requesterSession\.sessionToken/)
+  assert.match(app, /REQUESTER_WALLET_SESSION_KEY/)
+})
+
 test('frontend never presents sponsor request acceptance as settled payout', () => {
   assert.match(app, /No USDT payout was initiated/)
   assert.match(app, /Provider status is not the same as independent chain confirmation/)
