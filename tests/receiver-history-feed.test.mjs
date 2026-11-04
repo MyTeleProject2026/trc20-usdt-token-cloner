@@ -8,11 +8,11 @@ const entry = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8'
 
 test('receiver history API is bounded, read-only, and network-scoped', () => {
   assert.match(routes, /router\.get\('\/receiver-history'/)
-  assert.match(routes, /only_confirmed: 'true'/)
-  assert.match(routes, /only_to: 'true'/)
+  assert.match(routes, /onlyConfirmed: 'true'/)
+  assert.match(routes, /onlyTo: 'true'/)
   assert.match(routes, /limit > 50/)
   assert.match(routes, /networks\[network\].*transactions\/trc20/)
-  assert.match(routes, /TRONGRID_API_KEY/)
+  assert.match(routes, /TATUM_API_KEY/)
   assert.match(routes, /nextFingerprint/)
   assert.match(routes, /invalid-fingerprint/)
   assert.match(routes, /query\.set\('fingerprint', fingerprint\)/)
