@@ -1502,17 +1502,37 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       return { updated: false, reason: 'transaction-hash-conflict' }
     }
     // A submitted transaction can consume chain fees even when execution fails.
-    // Do not release its reservation based only on a caller-supplied "failed" status;
-    // fee-aware finalized failure evidence and reconciliation are not implemented yet.
+    // Release its principal reservation only after the separate immutable fee ledger
+    // contains a matching finalized FAILED receipt for this exact stored transaction.
+    let failedFeeObservation = null
     if (transfer.status === 'submitted' && nextStatus === 'failed') {
-      await client.query('ROLLBACK')
-      return { updated: false, reason: 'finalized-failure-evidence-and-fee-reconciliation-required' }
+      if (!['nile', 'shasta'].includes(transfer.network)
+        || transfer.purpose !== 'asset-grant'
+        || typeof transfer.transaction_hash !== 'string'
+        || !/^[0-9a-f]{64}$/i.test(transfer.transaction_hash.trim())) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'submitted-testnet-asset-transfer-required' }
+      }
+      const failureEvidence = await client.query(
+        `SELECT network, transaction_hash, idempotency_key, execution_result,
+                block_number, reported_fee_sun::text AS reported_fee_sun
+           FROM ${schema}.sponsor_chain_fee_observations
+          WHERE network = $1 AND transaction_hash = $2 AND idempotency_key = $3
+            AND execution_result = 'FAILED'
+          LIMIT 1`,
+        [transfer.network, transfer.transaction_hash.trim().toLowerCase(), idempotencyKey],
+      )
+      if (!failureEvidence.rows.length) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'finalized-failure-fee-observation-required' }
+      }
+      failedFeeObservation = failureEvidence.rows[0]
     }
     const allowed = {
       'pending-review': ['authorized', 'cancelled'],
       authorized: ['submitted', 'cancelled'],
-      // Submitted transfers remain reserved until confirmed with persisted evidence.
-      submitted: ['confirmed'],
+      // A submitted transfer can fail only with matching immutable receipt evidence.
+      submitted: ['confirmed', 'failed'],
       confirmed: [],
       failed: [],
       cancelled: [],
@@ -1637,7 +1657,17 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
     await client.query(
       `INSERT INTO ${schema}.audit_events (event_type, entity_type, entity_reference, details)
        VALUES ('sponsor-transfer-status-changed', 'sponsor-transfer', $1, $2::jsonb)`,
-      [idempotencyKey, JSON.stringify({ fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset, ...(nextStatus === 'cancelled' && cancellationReason ? { cancellationReason } : {}) })],
+      [idempotencyKey, JSON.stringify({
+        fromStatus: transfer.status, toStatus: nextStatus, network: transfer.network, asset: transfer.asset,
+        ...(nextStatus === 'cancelled' && cancellationReason ? { cancellationReason } : {}),
+        ...(failedFeeObservation ? {
+          failureEvidence: 'immutable-solidified-fee-observation',
+          transactionHash: failedFeeObservation.transaction_hash.trim().toLowerCase(),
+          blockNumber: String(failedFeeObservation.block_number),
+          reportedFeeSun: failedFeeObservation.reported_fee_sun,
+          feeBudgetSettled: false,
+        } : {}),
+      })],
     )
     await client.query('COMMIT')
     return { updated: true, duplicate: false, status: nextStatus }
