@@ -19,7 +19,7 @@ function assertIsolatedDatabaseUrl(value) {
   } catch {
     throw new Error('SPONSOR_PG_INTEGRATION requires a valid DATABASE_URL')
   }
-  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\\//, ''))
+  const databaseName = decodeURIComponent(parsed.pathname.startsWith('/') ? parsed.pathname.slice(1) : parsed.pathname)
   if (!['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) || databaseName !== 'sponsor_test') {
     throw new Error('Refusing reconciliation integration tests unless DATABASE_URL targets the local dedicated sponsor_test database')
   }
