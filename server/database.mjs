@@ -3080,7 +3080,7 @@ export async function recordSponsorChainCostObservation(input = {}) {
            energy_usage_total, energy_usage, origin_energy_usage,
            transaction_owner_address_hex, trx_fee_payer_address_hex, net_usage, energy_penalty_total)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::numeric,$11,$12,$13::numeric,
-                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18,$19,$20::numeric,$21::numeric)`,
+                 $14::numeric,$15::numeric,$16::numeric,$17::numeric,$18::numeric,$19,$20,$21::numeric,$22::numeric)`,
         [network, transactionHash, idempotencyKey, input.sponsorReference, feeSponsorAddress,
           input.assetPrincipalAddress, input.receiverAddress, asset, tokenContract,
           integerValues.amountBaseUnits, blockNumber, 'SUCCESS', integerValues.reportedFeeSun,
