@@ -3,6 +3,7 @@ import { Router } from 'express'
 import pg from 'pg'
 import { normalizeDatabaseConnectionString, databaseSslConfig, getWalletAuthSession } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
+import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -68,12 +69,12 @@ function apiBase(env) {
   return base
 }
 
-async function tatumGatewayRequest({ env, network, path, body, timeoutMs = 12000 }) {
+async function tatumGatewayRequest({ env, network, path, body, timeoutMs = 12000, fetchImpl = tatumProviderFetch }) {
   const slug = NETWORKS[network]
   const key = configuredApiKey(env, network)
   if (!slug) throw Object.assign(new Error('Unsupported TRON network.'), { status: 400 })
   if (!key) throw Object.assign(new Error('Tatum API key is not configured for this network.'), { status: 503 })
-  const response = await fetch(`https://${slug}.gateway.tatum.io/${path.replace(/^\/+/, '')}`, {
+  const response = await fetchImpl(`https://${slug}.gateway.tatum.io/${path.replace(/^\/+/, '')}`, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'x-api-key': key },
     body: JSON.stringify(body && typeof body === 'object' ? body : {}),
@@ -85,14 +86,14 @@ async function tatumGatewayRequest({ env, network, path, body, timeoutMs = 12000
   return payload
 }
 
-async function tatumApiRequest({ env, network, path, query = {}, timeoutMs = 12000 }) {
+async function tatumApiRequest({ env, network, path, query = {}, timeoutMs = 12000, fetchImpl = tatumProviderFetch }) {
   const key = configuredApiKey(env, network)
   if (!key) throw Object.assign(new Error('Tatum API key is not configured for this network.'), { status: 503 })
   const url = new URL(apiBase(env) + path)
   for (const [name, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(name, String(value))
   }
-  const response = await fetch(url, {
+  const response = await fetchImpl(url, {
     headers: { Accept: 'application/json', 'x-api-key': key },
     redirect: 'error',
     signal: AbortSignal.timeout(timeoutMs),
@@ -247,7 +248,7 @@ function getPool(env) {
   return pool
 }
 
-export function createTronTransferRouter({ env = process.env, fetchImpl = fetch } = {}) {
+export function createTronTransferRouter({ env = process.env, fetchImpl = tatumProviderFetch } = {}) {
   const router = Router()
   let schemaPromise = null
 
