@@ -2,6 +2,18 @@
 
 This flow adds a durable, wallet-bound organization application to TRON Token Studio. It is the next due-diligence stage after the read-only sponsor-liquidity aggregation. It does not enable transfers.
 
+## Frontend sponsor portal
+
+The hosted frontend includes a public external-sponsor portal at:
+
+`https://trc20-usdt-token-cloner.onrender.com/#/sponsor-onboarding`
+
+The owner workspace links to this page so the owner can share it with an organization. Only this intake route is public; the owner dashboard, assets, activity, send, treasury review and account pages remain behind the existing owner authentication gate.
+
+The portal connects to TronLink, requests the existing Mainnet one-time wallet challenge, and asks the sponsor to sign the human-readable identity message with `signMessageV2`. It checks the official Mainnet TronGrid endpoint and active account before and after signing. It stores the returned short-lived wallet-session token in tab-scoped `sessionStorage`, clears the session if the account/network changes, and rechecks the server session and active wallet before submitting an application. This identity signature is not a transaction signature.
+
+A connected sponsor can submit the organization form and later inspect only the application tied to that wallet. The UI does not ask for a private key, seed phrase, recovery phrase, or API credential. It does not expose the owner application queue or owner review controls.
+
 ## What the application proves
 
 A sponsor applicant must first complete the existing TRON Token Studio wallet sign-in flow on **TRON Mainnet**. That flow verifies a one-use message signature and creates a short-lived wallet session bound to the configured frontend origin. The organization application takes its sponsor wallet address from that authenticated session; the client cannot choose a different address.
