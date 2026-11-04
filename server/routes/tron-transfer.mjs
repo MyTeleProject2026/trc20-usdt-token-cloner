@@ -154,6 +154,26 @@ function allowedOrigins(env) {
     .map((value) => value.trim()).filter(Boolean)
 }
 
+async function requireRequesterWalletSession(req, env) {
+  const origin = requestOrigin(req)
+  if (!origin || !allowedOrigins(env).includes(origin)) return { ok: false, status: 403, error: 'requester-origin-not-allowed' }
+  const header = cleanString(req.headers?.authorization, 4096)
+  const match = /^Bearer\\s+([A-Za-z0-9_-]{43})$/i.exec(header)
+  if (!match) return { ok: false, status: 401, error: 'requester-wallet-session-required' }
+  const lookup = await getWalletAuthSession({
+    tokenHash: createHash('sha256').update(match[1]).digest('hex'),
+    origin,
+    nowMs: Date.now(),
+  })
+  if (lookup?.success !== true) return { ok: false, status: 503, error: 'requester-wallet-session-storage-unavailable' }
+  const session = lookup.session
+  if (!session || session.network !== 'mainnet' || session.origin !== origin
+    || !isValidTronAddress(session.address)) {
+    return { ok: false, status: 401, error: 'requester-wallet-session-invalid-or-expired' }
+  }
+  return { ok: true, address: session.address }
+}
+
 async function requireOwnerSession(req, env) {
   const origin = requestOrigin(req)
   if (!origin || !allowedOrigins(env).includes(origin)) return { ok: false, status: 403, error: 'owner-origin-not-allowed' }
@@ -586,7 +606,13 @@ export async function verifySolidifiedUsdtTransfer(env, { transactionHash, from,
 
   router.post('/sponsor-requests', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
-    const requesterAddress = cleanString(req.body?.requesterAddress, 64)
+    const walletAuth = await requireRequesterWalletSession(req, env)
+    if (!walletAuth.ok) return res.status(walletAuth.status).json({ success: false, error: walletAuth.error })
+    const requesterAddress = walletAuth.address
+    const assertedRequester = cleanString(req.body?.requesterAddress, 64)
+    if (assertedRequester && assertedRequester !== requesterAddress) {
+      return res.status(403).json({ success: false, error: 'requester-address-does-not-match-wallet-session' })
+    }
     const recipientAddress = cleanString(req.body?.recipientAddress, 64)
     const beneficiaryName = cleanString(req.body?.beneficiaryName, 120)
     const beneficiaryEmail = cleanString(req.body?.beneficiaryEmail, 254)
