@@ -39,6 +39,12 @@ test('Mainnet sponsor transfer matching uses TronGrid confirmed history and Tatu
   assert.match(route, /solidified-trc20-transfer-verified/)
 })
 
+test('readiness exposes only a boolean TronGrid key status, never the secret', () => {
+  assert.match(route, /apiKeyConfigured: Boolean\(cleanString\(env\.TRONGRID_API_KEY/)
+  assert.match(route, /incomingHistoryProvider: 'network-specific-v1-account-history'/)
+  assert.doesNotMatch(route, /TRONGRID_API_KEY[^\n]{0,80}res\.json/)
+})
+
 test('provider readiness actively probes both TRON testnet SolidityNodes', () => {
   assert.match(route, /inspectSolidifiedNode\('nile'\)/)
   assert.match(route, /inspectSolidifiedNode\('shasta'\)/)
