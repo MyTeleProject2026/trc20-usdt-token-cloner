@@ -10,7 +10,6 @@ export function buildFincraPayoutAuthorizationMessage({
   recipientAddress,
   accountHolderName,
   amountBaseUnits,
-  businessId,
   customerReference,
   authorizationExpiresAt,
 } = {}) {
@@ -19,7 +18,6 @@ export function buildFincraPayoutAuthorizationMessage({
   if (typeof recipientAddress !== 'string' || !TRON_ADDRESS_PATTERN.test(recipientAddress)) throw new Error('A valid TRON recipient address is required.')
   if (typeof accountHolderName !== 'string' || !accountHolderName.trim() || accountHolderName.trim().length > 120) throw new Error('A beneficiary account holder name is required.')
   if (typeof amountBaseUnits !== 'string' || !BASE_UNIT_PATTERN.test(amountBaseUnits)) throw new Error('A positive six-decimal USDT amount is required.')
-  if (typeof businessId !== 'string' || !businessId.trim() || businessId.length > 128) throw new Error('The Fincra business identifier is required.')
   if (typeof customerReference !== 'string' || !CUSTOMER_REFERENCE_PATTERN.test(customerReference)) throw new Error('A unique payout reference is required.')
   if (!Number.isSafeInteger(authorizationExpiresAt) || authorizationExpiresAt <= 0) throw new Error('A valid payout authorization expiry is required.')
   return [
@@ -31,7 +29,6 @@ export function buildFincraPayoutAuthorizationMessage({
     'Payout scheme: usdt_trc20',
     'Origin: ' + origin,
     'Owner: ' + ownerAddress,
-    'Fincra business: ' + businessId,
     'Token contract: ' + OFFICIAL_TRON_MAINNET_USDT,
     'Token decimals: 6',
     'Recipient: ' + recipientAddress,
