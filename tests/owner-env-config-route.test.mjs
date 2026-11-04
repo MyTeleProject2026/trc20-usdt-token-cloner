@@ -26,6 +26,7 @@ function validEnvironment() {
     OWNER_WALLET_ADDRESS: ownerAddress,
     DATABASE_URL: databaseMarker,
     FRONTEND_ORIGIN: 'https://trc20-usdt-token-cloner.onrender.com',
+    TRON_TRANSFER_UI_ORIGIN: 'https://tron-transfer.onrender.com',
     PACKAGED_APP_ORIGINS: 'https://localhost,tronstudio://app',
     // These values are deliberately present as tripwires: a public
     // pre-login endpoint must not report any treasury signer or secret posture.
@@ -49,6 +50,7 @@ test('owner console config reports readiness booleans and missing variable names
   assert.equal(data.ownerConsole.databaseConfigured, true)
   assert.equal(data.ownerConsole.allowedOriginConfigured, true)
   assert.equal(data.ownerConsole.hostedUiOriginAllowed, true)
+  assert.equal(data.ownerConsole.tronTransferUiOriginAllowed, true)
   assert.equal(data.ownerConsole.packagedUiOriginAllowed, true)
   assert.equal(data.ownerConsole.registrationEnabled, false)
   assert.deepEqual(data.ownerConsole.requiredEnvironment, [])
