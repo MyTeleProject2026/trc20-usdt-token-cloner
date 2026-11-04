@@ -896,7 +896,20 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         return res.status(400).json({ success: false, error: 'fincra-payout-rejected', providerStatus: created.status, providerCode: code, transactionSubmitted: false })
       }
       const data = created.payload.data
-      const status = payoutStatusFromProvider(data.status)
+      const immediateReconciliation = reconcileFincraPayoutIdentity(data, row)
+      if (!immediateReconciliation.ok) {
+        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
+          SET status='fincra-outcome-unknown',fincra_status='unknown',
+              chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now()
+          WHERE id=$1`, [row.id, immediateReconciliation.reason])
+        return res.status(202).json({
+          success: false, status: 'fincra-outcome-unknown',
+          error: immediateReconciliation.reason,
+          note: 'Fincra accepted or returned a payout response that does not include enough matching settlement details to mark it successful. Requery the same customer reference or process the verified webhook; do not submit a second payout.',
+          transactionSubmitted: 'provider-accepted-awaiting-reconciliation',
+        })
+      }
+      const status = immediateReconciliation.status
       const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
         SET status=$2,fincra_reference=$3,fincra_status=$4,
             fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
