@@ -9,6 +9,7 @@ import nativeTronRoutes from './routes/native-tron.mjs'
 import sponsorIntegrationReadinessRoutes from './routes/sponsor-integration-readiness.mjs'
 import sponsorTestnetPilotRoutes from './routes/sponsor-testnet-pilot.mjs'
 import mainnetDirectSponsorReadinessRoutes from './routes/mainnet-direct-sponsor-readiness.mjs'
+import mainnetDirectSponsorRequestRoutes from './routes/mainnet-direct-sponsor-requests.mjs'
 import sponsorSettlementRoutes from './routes/sponsor-settlement.mjs'
 import sponsorChainCostObservationRoutes from './routes/sponsor-chain-cost-observations.mjs'
 import sponsorSolidifiedReconciliationRoutes from './routes/sponsor-solidified-reconciliation.mjs'
@@ -145,6 +146,7 @@ app.use('/api/tron', nativeTronRoutes)
 app.use('/api/tron', sponsorIntegrationReadinessRoutes)
 app.use('/api/tron', sponsorTestnetPilotRoutes)
 app.use('/api/tron', mainnetDirectSponsorReadinessRoutes)
+app.use('/api/tron', mainnetDirectSponsorRequestRoutes)
 app.use('/api/tron', sponsorSettlementRoutes)
 app.use('/api/tron', sponsorChainCostObservationRoutes)
 app.use('/api/tron', sponsorSolidifiedReconciliationRoutes)
