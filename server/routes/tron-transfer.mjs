@@ -347,13 +347,13 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
     }
     const canSandboxPayout = fincra.mode === 'sandbox' && fincra.payoutsEnabled && Boolean(fincra.apiKey && fincra.businessId && databaseReady)
     const canLivePayout = fincra.mode === 'live' && fincra.payoutsEnabled && fincra.liveConfirmed
-      && Boolean(fincra.apiKey && fincra.businessId && fincra.webhookConfigured && databaseReady)
+      && Boolean(fincra.apiKey && fincra.businessId && fincra.webhookConfigured && databaseReady && mainnetNode.checked)
       && sourceBalance.checked && Number(sourceBalance.availableBalance) > 0
       && fincra.sourceCurrency === 'USDT'
     return res.json({
       success: true,
       status: 'readiness-evaluated',
-      tatum: { mainnetConfigured, testnetConfigured, mainnetNode, networkRouting: 'server-side-tatum-gateway', signedBroadcast: true },
+      tatum: { mainnetConfigured, testnetConfigured, mainnetNode, networkRouting: 'server-side-tatum-gateway', testnetSignedBroadcast: true, mainnetDirectBroadcast: false },
       fincra: {
         environment: fincra.mode,
         apiKeyConfigured: Boolean(fincra.apiKey),
