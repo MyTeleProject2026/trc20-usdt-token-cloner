@@ -210,3 +210,48 @@ test('fee observation history is admin-gated and bounded', async (t) => {
   assert.equal(payload.status, 'sponsor-chain-fee-observations-read')
   assert.equal(payload.sponsorFeeBudgetSettled, false)
 })
+
+test('failed principal reconciliation uses only stored transaction identity and database evidence gate', async (t) => {
+  let transitionInput
+  const base = await createServerForTest(t, {
+    transitionTransfer: async (value) => { transitionInput = value; return { updated: true, duplicate: false, status: 'failed' } },
+  })
+  const response = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/reconcile-failed', {
+    method: 'POST', headers: headers(), body: '{}',
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.status, 'failed')
+  assert.equal(payload.principalReservationReleased, true)
+  assert.equal(payload.feeBudgetSettled, false)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.deepEqual(transitionInput, {
+    idempotencyKey, nextStatus: 'failed', transactionHash: txid,
+  })
+})
+
+test('failed principal reconciliation rejects caller-supplied transaction identity', async (t) => {
+  let called = false
+  const base = await createServerForTest(t, {
+    transitionTransfer: async () => { called = true; return { updated: true } },
+  })
+  const response = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/reconcile-failed', {
+    method: 'POST', headers: headers(), body: JSON.stringify({ transactionHash: 'e'.repeat(64) }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).error, 'unexpected-fields')
+  assert.equal(called, false)
+})
+
+test('failed principal reconciliation refuses absent persisted FAILED fee evidence', async (t) => {
+  const base = await createServerForTest(t, {
+    transitionTransfer: async () => ({ updated: false, reason: 'finalized-failure-fee-observation-required' }),
+  })
+  const response = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/reconcile-failed', {
+    method: 'POST', headers: headers(), body: '{}',
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 409)
+  assert.equal(payload.principalReservationReleased, false)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+})
