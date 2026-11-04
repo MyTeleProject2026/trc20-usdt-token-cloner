@@ -1591,7 +1591,7 @@ export default function WalletVault() {
             ) : (
               <p className="wallet-vault-caption">No allowlisted external sponsor wallets are registered in the Mainnet asset-grant budget ledger yet.</p>
             )}
-            <p className="wallet-vault-caption">Snapshot: {ownerSponsorLiquidity.checkedAt ? new Date(ownerSponsorLiquidity.checkedAt).toLocaleString() : 'time unavailable'}. Sponsor capacity is not the balance of your personal wallet and is not a payout authorization.</p>
+            <p className="wallet-vault-caption">Snapshot: {ownerSponsorLiquidity.checkedAt ? new Date(ownerSponsorLiquidity.checkedAt).toLocaleString() : 'time unavailable'}. Sponsor capacity is not the balance of your personal wallet and is not a payout authorization. An application allowlist match is not independent proof of a sponsor organization’s legal consent or signing authority.</p>
           </>
         ) : (
           <div className="wallet-vault-transfer-warning" role="status">
@@ -1827,7 +1827,7 @@ export default function WalletVault() {
                   ) : (
                     <p className="wallet-vault-risk-note" role="status">{ownerSponsorLiquidityError || 'Sponsor balances are not verified. No sponsor capacity is counted.'}</p>
                   )}
-                  <p className="wallet-vault-caption">The TRX and USDT balances shown below belong only to your local wallet. Sponsor liquidity does not get added to or impersonate your wallet balance. Payout execution remains disabled until the sponsor signer and production release gates are complete.</p>
+                  <p className="wallet-vault-caption">The TRX and USDT balances shown below belong only to your local wallet. Sponsor liquidity does not get added to or impersonate your wallet balance. An allowlisted budget is not independent legal-consent or signer verification. Payout execution remains disabled until the sponsor signer and production release gates are complete.</p>
                 </section>
               )}
 
