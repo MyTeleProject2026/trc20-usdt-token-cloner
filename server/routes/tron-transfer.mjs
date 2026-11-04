@@ -1218,10 +1218,17 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       if (!historyResult.tokenHistoryRead) {
         return res.status(502).json({ success: false, error: 'recipient-transfer-history-unavailable', providerErrors: historyResult.providerErrors })
       }
+      const receivedAmountBaseUnits = row.fincra_amount_received_base_units == null ? null : String(row.fincra_amount_received_base_units)
+      if (!receivedAmountBaseUnits) {
+        return res.status(202).json({
+          success: false, error: 'fincra-recipient-amount-not-recorded',
+          note: 'Fincra settlement is marked successful, but its actual net recipient amount has not been reconciled. Refresh the authoritative Fincra status or webhook before checking the exact on-chain transfer amount.',
+        })
+      }
       const payoutStartMs = new Date(row.fincra_submitted_at || row.created_at).getTime() - 120000
       const payoutEndMs = new Date(row.fincra_successful_at || row.updated_at).getTime() + 10 * 60 * 1000
       const rows = historyResult.history.filter((item) => item.to === row.recipient_address
-        && item.tokenContract === MAINNET_USDT && item.amountBaseUnits === String(row.amount_base_units)
+        && item.tokenContract === MAINNET_USDT && item.amountBaseUnits === receivedAmountBaseUnits
         && Number.isFinite(Number(item.timestamp)) && Number(item.timestamp) >= payoutStartMs
         && Number(item.timestamp) <= payoutEndMs)
       if (rows.length === 1) {
@@ -1229,7 +1236,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
           transactionHash: rows[0].txid,
           from: rows[0].from,
           to: row.recipient_address,
-          amountBaseUnits: String(row.amount_base_units),
+          amountBaseUnits: receivedAmountBaseUnits,
         })
         if (chain.verified !== true) {
           await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
