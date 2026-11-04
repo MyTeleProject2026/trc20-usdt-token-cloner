@@ -8,12 +8,31 @@ import { createMainnetDirectSponsorRequestRouter, OFFICIAL_MAINNET_USDT_CONTRACT
 const requester = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
 const otherRequester = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const recipient = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
+const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+const feeSponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const sponsorOrgRef = 'SPONSOR-ORG-DIRECT-2026'
+const sponsorAgreementRef = 'SPONSOR-AGREEMENT-DIRECT-2026'
+const sponsorAgreementSha256 = 'a'.repeat(64)
+const approvalNonce = 'c'.repeat(64)
+const approvalSignature = '0x' + 'b'.repeat(130)
+const approvalEnv = {
+  SPONSOR_ASSET_MAINNET_ADDRESS: sponsorAddress,
+  SPONSOR_MAINNET_DIRECT_ORGANIZATION_REFERENCE: sponsorOrgRef,
+  SPONSOR_MAINNET_DIRECT_AGREEMENT_REFERENCE: sponsorAgreementRef,
+  SPONSOR_MAINNET_DIRECT_AGREEMENT_SHA256: sponsorAgreementSha256,
+  SPONSOR_MAINNET_DIRECT_MAX_PAYOUT_USDT_BASE_UNITS: '250000000',
+  SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+    [sponsorAgreementRef, sponsorOrgRef, 'mainnet', sponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT].join('|'),
+  ].join(';'),
+}
 const token = 'A'.repeat(43)
 const adminToken = 'admin-token-for-mainnet-sponsor-review-only-012345'
 const key = 'mainnet-direct-usdt-request-000001'
 
 function makeStore() {
   const rows = new Map()
+  const challenges = new Map()
+  const approvals = new Map()
   return {
     rows,
     async createRequest(input) {
@@ -46,7 +65,11 @@ function makeStore() {
     async findRequest(requestKey, address) {
       const row = rows.get(requestKey)
       if (!row || row.requesterAddress !== address) return { success: false, reason: 'request-not-found' }
-      return { success: true, request: row }
+      return { success: true, request: row, sponsorApproval: approvals.get(requestKey) || null }
+    },
+    async findRequestForSponsor(requestKey) {
+      const row = rows.get(requestKey)
+      return row ? { success: true, request: row } : { success: false, reason: 'request-not-found' }
     },
     async listRequests() {
       return {
@@ -54,8 +77,89 @@ function makeStore() {
         requests: [...rows.values()].map(({ requesterAddress, ...row }) => ({ ...row, requesterAddress })),
       }
     },
+    async createApprovalChallenge(input) {
+      const request = rows.get(input.idempotencyKey)
+      if (!request) return { success: false, reason: 'request-not-found-or-not-reviewable' }
+      const active = approvals.get(input.idempotencyKey)
+      if (active && Date.parse(active.expiresAt) > Date.parse(input.issuedAt)) {
+        return { success: false, reason: 'request-already-has-active-sponsor-approval' }
+      }
+      const opened = [...challenges.values()].some(item =>
+        item.idempotencyKey === input.idempotencyKey && !item.consumed
+        && Date.parse(item.expiresAt) > Date.parse(input.issuedAt))
+      if (opened) return { success: false, reason: 'approval-challenge-already-open' }
+      const challenge = {
+        ...input,
+        requestId: request.id,
+        issuedAt: input.issuedAt,
+        expiresAt: input.expiresAt,
+        consumed: false,
+      }
+      challenges.set(input.nonceHash, challenge)
+      return { success: true, challengeId: input.challengeId, request }
+    },
+    async consumeApprovalChallenge({ nonceHash, sponsorAddress: signer, origin, nowMs }) {
+      const challenge = challenges.get(nonceHash)
+      if (!challenge || challenge.consumed || challenge.sponsorAddress !== signer
+        || challenge.origin !== origin || Date.parse(challenge.expiresAt) <= nowMs) {
+        return { success: false, reason: 'approval-challenge-invalid-expired-or-replayed' }
+      }
+      challenge.consumed = true
+      const request = rows.get(challenge.idempotencyKey)
+      return {
+        success: true,
+        challenge: {
+          challengeId: challenge.challengeId,
+          sponsorAddress: challenge.sponsorAddress,
+          origin: challenge.origin,
+          messageSha256: challenge.messageSha256,
+          requestSnapshotSha256: challenge.requestSnapshotSha256,
+          organizationReference: challenge.policy.organizationReference,
+          agreementReference: challenge.policy.agreementReference,
+          agreementSha256: challenge.policy.agreementDocumentSha256,
+          issuedAt: challenge.issuedAt,
+          expiresAt: challenge.expiresAt,
+          consumedAt: new Date(nowMs).toISOString(),
+          requestId: challenge.requestId,
+        },
+        request,
+      }
+    },
+    async recordSponsorApproval(input) {
+      const old = approvals.get(input.challengeId)
+      if (old && Date.parse(old.expiresAt) > Date.parse(input.approvedAt)) {
+        return { success: false, reason: 'request-already-has-active-sponsor-approval' }
+      }
+      const approval = {
+        id: String(approvals.size + 1),
+        requestId: input.requestId,
+        sponsorAddress: input.sponsorAddress,
+        organizationReference: input.organizationReference,
+        agreementReference: input.agreementReference,
+        agreementSha256: input.agreementSha256,
+        messageSha256: input.messageSha256,
+        approvedAt: input.approvedAt,
+        expiresAt: input.expiresAt,
+      }
+      approvals.set(rows.get([...rows.keys()].find(key => rows.get(key).id === input.requestId))?.idempotencyKey, approval)
+      approvals.set(input.challengeId, approval)
+      return { success: true, approval }
+    },
+    async listSponsorReviewQueue() {
+      return {
+        success: true,
+        requests: [...rows.entries()].map(([key, request]) => ({
+          ...request,
+          sponsorApproval: approvals.get(key)
+            ? { status: Date.parse(approvals.get(key).expiresAt) > Date.now() ? 'approved-active' : 'approved-expired', ...approvals.get(key) }
+            : { status: 'not-approved' },
+        })),
+      }
+    },
   }
 }
+
+function sessionLookup
 
 function sessionLookup(address = requester, network = 'mainnet') {
   return async ({ tokenHash, origin }) => {
