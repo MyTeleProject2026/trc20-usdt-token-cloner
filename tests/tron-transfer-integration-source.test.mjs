@@ -24,6 +24,7 @@ test('recipient inspection only reads Mainnet official USDT balances and incomin
   assert.match(route, /network !== 'mainnet'/)
   assert.match(route, /tokenContract !== MAINNET_USDT/)
   assert.match(route, /walletsolidity\/getaccount/)
+  assert.match(route, /recipient-mainnet-account-not-activated/)
   assert.match(route, /balanceOf\(address\)/)
   assert.match(route, /readTronGridIncomingHistory/)
   assert.match(route, /historyProvider: 'trongrid'/)
