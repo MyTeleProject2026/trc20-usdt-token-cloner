@@ -136,8 +136,8 @@ test('Fincra prior-payout and manual status reconciliation cannot mark an unveri
   assert.match(route, /function reconcileFincraPayoutIdentity\(payout, row\)/)
   assert.match(route, /successful-payout-record-incomplete/)
   assert.match(route, /const reconciliation = reconcileFincraPayoutIdentity\(data, row\)/)
-  assert.match(route, /Fincra returned an existing payout for this reference, but its recipient, amount and USDT TRC20 identity could not all be reconciled/)
-  assert.match(route, /Fincra status was not applied because the provider record did not reconcile/)
+  assert.match(route, /Fincra returned an existing payout for this reference, but its recipient, route and settlement amount details could not all be reconciled/)
+  assert.match(route, /Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and settlement details/)
   assert.match(route, /fincra-webhook-recipient-unverified/)
 })
 
