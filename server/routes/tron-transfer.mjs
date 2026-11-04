@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import express, { Router } from 'express'
+import { Router } from 'express'
 import pg from 'pg'
 import { normalizeDatabaseConnectionString, databaseSslConfig, getWalletAuthSession } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
@@ -9,7 +9,6 @@ const SCHEMA = 'trc20_token_clone'
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
-const REQUEST_REF_RE = /^tt-[a-f0-9-]{36}$/
 const NETWORKS = Object.freeze({
   mainnet: 'tron-mainnet',
   nile: 'tron-nile',
@@ -581,8 +580,7 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
     try {
       await ensureSchema(db)
       const client = await db.connect()
-      let row
-      try {
+      let row\n      let firstAttempt = false\n      try {
         await client.query('BEGIN')
         const found = await client.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE id=$1 FOR UPDATE`, [req.params.id])
         if (!found.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, error: 'sponsor-request-not-found' }) }
@@ -699,7 +697,7 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
     }
   })
 
-  router.post('/fincra/webhook', express.raw({ type: 'application/json', limit: '32kb' }), async (req, res) => {
+  router.post('/fincra/webhook', async (req, res) => {
     const config = fincraConfig(env)
     const secret = cleanString(env.FINCRA_WEBHOOK_SECRET, 4096)
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
