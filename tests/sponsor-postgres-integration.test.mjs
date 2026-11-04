@@ -1109,8 +1109,10 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     await import('../server/routes/mainnet-direct-sponsor-requests.mjs')
   const {
     buildMainnetDirectSponsorApprovalMessage,
+    buildMainnetDirectFeeSponsorApprovalMessage,
     mainnetDirectSponsorRequestSnapshotHash,
     resolveMainnetDirectSponsorApprovalPolicy,
+    resolveMainnetDirectFeeApprovalPolicy,
     sha256Hex,
   } = await import('../server/mainnet-direct-sponsor-approval.mjs')
   const store = createMainnetDirectSponsorRequestStore(process.env)
@@ -1257,7 +1259,117 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     const approvedQueue = await store.listSponsorReviewQueue({ sponsorAddress, limit: 100 })
     const approvedRow = approvedQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
     assert.equal(approvedRow.sponsorApproval.status, 'approved-active')
+    const feeSponsorAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+    const feeOrganizationReference = 'PG-FEE-SPONSOR-ORG-2026'
+    const feeAgreementReference = 'PG-FEE-SPONSOR-AGREEMENT-2026'
+    const feeAgreementSha256 = 'd'.repeat(64)
+    const feePolicy = resolveMainnetDirectFeeApprovalPolicy({
+      SPONSOR_FEE_MAINNET_ADDRESS: feeSponsorAddress,
+      SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE: feeOrganizationReference,
+      SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE: feeAgreementReference,
+      SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256: feeAgreementSha256,
+      SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN: '50000000',
+      SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+        [feeAgreementReference, feeOrganizationReference, 'mainnet', feeSponsorAddress, 'network-fee', 'TRX', '-'].join('|'),
+      ].join(';'),
+    })
+    assert.equal(feePolicy.configured, true)
+    const feeIssuedAtMs = Date.now()
+    const feeIssuedAt = new Date(feeIssuedAtMs).toISOString()
+    const feeChallengeExpiresAt = new Date(feeIssuedAtMs + 10 * 60 * 1000).toISOString()
+    const feeNonce = randomUUID().replace(/-/g, '').padEnd(48, 'e').slice(0, 64)
+    const feeChallengeId = 'pg-mainnet-fee-approval-' + randomUUID()
+    const feeMessage = buildMainnetDirectFeeSponsorApprovalMessage({
+      request: original,
+      feePolicy,
+      assetPolicy: policy,
+      nonce: feeNonce,
+      issuedAt: feeIssuedAt,
+      expiresAt: feeChallengeExpiresAt,
+    })
+    const createdFeeChallenge = await store.createFeeApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nonceHash: sha256Hex(feeNonce),
+      messageSha256: sha256Hex(feeMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId: feeChallengeId,
+      feePolicy,
+      issuedAt: feeIssuedAt,
+      expiresAt: feeChallengeExpiresAt,
+    })
+    assert.equal(createdFeeChallenge.success, true)
+    assert.equal(createdFeeChallenge.principalApprovalId, recordedApproval.approval.id)
+    const duplicateFeeChallenge = await store.createFeeApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nonceHash: sha256Hex(feeNonce + '1'),
+      messageSha256: sha256Hex(feeMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId: feeChallengeId + '-duplicate',
+      feePolicy,
+      issuedAt: feeIssuedAt,
+      expiresAt: feeChallengeExpiresAt,
+    })
+    assert.equal(duplicateFeeChallenge.success, false)
+    assert.equal(duplicateFeeChallenge.reason, 'fee-approval-challenge-already-open')
+
+    const consumedFeeChallenge = await store.consumeFeeApprovalChallenge({
+      nonceHash: sha256Hex(feeNonce),
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nowMs: feeIssuedAtMs + 1,
+    })
+    assert.equal(consumedFeeChallenge.success, true)
+    assert.equal(consumedFeeChallenge.challenge.principalApprovalId, recordedApproval.approval.id)
+    const replayedFeeChallenge = await store.consumeFeeApprovalChallenge({
+      nonceHash: sha256Hex(feeNonce),
+      sponsorAddress: feeSponsorAddress,
+      origin: 'https://fee-sponsor-review.test',
+      nowMs: feeIssuedAtMs + 2,
+    })
+    assert.equal(replayedFeeChallenge.success, false)
+    assert.equal(replayedFeeChallenge.reason, 'fee-approval-challenge-invalid-expired-or-replayed')
+
+    const recordedFeeApproval = await store.recordFeeSponsorApproval({
+      requestId: original.id,
+      principalApprovalId: recordedApproval.approval.id,
+      challengeId: feeChallengeId,
+      sponsorAddress: feeSponsorAddress,
+      organizationReference: feeOrganizationReference,
+      agreementReference: feeAgreementReference,
+      agreementSha256: feeAgreementSha256,
+      messageSha256: sha256Hex(feeMessage),
+      signature: '0x' + 'c'.repeat(130),
+      maxFeeSun: feePolicy.maxFeeSun,
+      approvedAt: new Date(feeIssuedAtMs + 3).toISOString(),
+      expiresAt: new Date(feeIssuedAtMs + 30 * 60 * 1000).toISOString(),
+    })
+    assert.equal(recordedFeeApproval.success, true)
+    assert.equal(recordedFeeApproval.approval.maxFeeSun, '50000000')
+    const requesterWithBothApprovals = await store.findRequest(idempotencyKey, input.requesterAddress)
+    assert.equal(requesterWithBothApprovals.success, true)
+    assert.equal(requesterWithBothApprovals.sponsorApproval.agreementReference, agreementReference)
+    assert.equal(requesterWithBothApprovals.feeSponsorApproval.agreementReference, feeAgreementReference)
+    const approvedFeeQueue = await store.listFeeSponsorReviewQueue({ limit: 100 })
+    const feeQueueRow = approvedFeeQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
+    assert.equal(feeQueueRow.sponsorApproval.status, 'approved-active')
+    assert.equal(feeQueueRow.feeSponsorApproval.status, 'approved-active')
   } finally {
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_fee_approvals
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_fee_approval_challenges
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
     await cleanupPool.query(`
       DELETE FROM trc20_token_clone.mainnet_direct_sponsor_approvals
       WHERE request_id IN (
