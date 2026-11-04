@@ -439,8 +439,8 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     const paymentScheme = cleanString(payout.paymentScheme, 32).toLowerCase()
     const paymentDestination = cleanString(payout.paymentDestination, 32).toLowerCase()
     const recipient = cleanString(
-      payout.beneficiary?.walletAddress || payout.recipient?.walletAddress
-        || payout.recipient?.accountNumber || payout.walletAddress
+      payout.beneficiary?.walletAddress || payout.beneficiary?.address || payout.recipient?.walletAddress
+        || payout.recipient?.address || payout.recipient?.accountNumber || payout.walletAddress
         || payout.beneficiary?.accountNumber, 64,
     )
     const amountRaw = payout.amountReceived ?? payout.amount ?? payout.destinationAmount
@@ -1091,11 +1091,11 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       }
 
       const providerRecipient = cleanString(
-        payout.beneficiary?.walletAddress || payout.recipient?.walletAddress
-          || payout.recipient?.accountNumber || payout.walletAddress, 64,
+        payout.beneficiary?.walletAddress || payout.beneficiary?.address || payout.recipient?.walletAddress
+          || payout.recipient?.address || payout.recipient?.accountNumber || payout.walletAddress, 64,
       )
       const signedEventRecipient = cleanString(
-        signedRecipient.walletAddress || signedRecipient.accountNumber || eventData.walletAddress, 64,
+        signedRecipient.walletAddress || signedRecipient.address || signedRecipient.accountNumber || eventData.walletAddress, 64,
       )
       if ((providerRecipient && providerRecipient !== row.recipient_address)
         || (signedEventRecipient && signedEventRecipient !== row.recipient_address)) {
