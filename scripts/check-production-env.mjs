@@ -93,7 +93,7 @@ export function inspectProductionEnvironment(env = process.env) {
 
   const fincraPayoutEnabled = env.FINCRA_PAYOUTS_ENABLED === 'true'
   if (fincraPayoutEnabled) {
-    const apiBase = present(env.FINCRA_API_BASE) ? env.FINCRA_API_BASE.trim().replace(/\\/+$/, '') : 'https://sandboxapi.fincra.com'
+    const apiBase = present(env.FINCRA_API_BASE) ? env.FINCRA_API_BASE.trim().replace(/\/+$/, '') : 'https://sandboxapi.fincra.com'
     const approvedFincraBases = new Set(['https://sandboxapi.fincra.com', 'https://api.fincra.com'])
     add('FINCRA_API_BASE', approvedFincraBases.has(apiBase)
       ? check('configured', 'Approved Fincra sandbox or production origin syntax.')
@@ -109,7 +109,7 @@ export function inspectProductionEnvironment(env = process.env) {
     , { error: sourceCurrency !== 'USDT' })
     const positiveDecimal6 = (value) => {
       if (typeof value !== 'string' || value.length > 86
-        || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(value)) return false
+        || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return false
       const [whole, fraction = ''] = value.split('.')
       if (whole.length > 78) return false
       return BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6)) > 0n
