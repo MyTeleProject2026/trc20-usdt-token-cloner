@@ -77,16 +77,15 @@ function walletError(error: unknown): string {
 }
 
 async function apiJson(path: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers)
+  headers.set('Accept', 'application/json')
+  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const response = await fetch(API_BASE + path, {
     ...options,
     credentials: 'omit',
     cache: 'no-store',
     redirect: 'error',
-    headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
-    },
+    headers,
   })
   const payload = await response.json().catch(() => null)
   return { response, payload }
