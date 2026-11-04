@@ -2,8 +2,8 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
 import { TronWeb } from 'tronweb'
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
+import { getSponsorTransferForSubmission } from '../database.mjs'
 import {
-  getSponsorTransferForSubmission,
   listSponsorChainFeeObservations,
   recordSponsorChainFeeObservation,
 } from '../sponsor-chain-fee-observations.mjs'
