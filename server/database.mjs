@@ -1513,6 +1513,14 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
         await client.query('ROLLBACK')
         return { updated: false, reason: 'submitted-testnet-asset-transfer-required' }
       }
+      const feeLedger = await client.query(
+        'SELECT to_regclass($1) AS table_name',
+        [`${schema}.sponsor_chain_fee_observations`],
+      )
+      if (!feeLedger.rows[0]?.table_name) {
+        await client.query('ROLLBACK')
+        return { updated: false, reason: 'finalized-failure-fee-observation-required' }
+      }
       const failureEvidence = await client.query(
         `SELECT network, transaction_hash, idempotency_key, execution_result,
                 block_number, reported_fee_sun::text AS reported_fee_sun
