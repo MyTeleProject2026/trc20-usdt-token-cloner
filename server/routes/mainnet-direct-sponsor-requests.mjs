@@ -911,7 +911,7 @@ export function createMainnetDirectSponsorRequestRouter({
       return res.json({
         success: true,
         request: result.request,
-        sponsorApproved: result.sponsorApproval?.status === 'approved-active',
+        sponsorApproved: Boolean(result.sponsorApproval && new Date(result.sponsorApproval.expiresAt).getTime() > Date.now()),
         sponsorApproval: result.sponsorApproval,
         feeSponsorApproved: false,
         canCreateSigningIntent: false,
