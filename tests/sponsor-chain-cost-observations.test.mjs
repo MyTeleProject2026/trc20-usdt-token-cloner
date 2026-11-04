@@ -172,6 +172,57 @@ test('solidified cost reader uses fixed Nile host and does not leak provider cre
   assert.equal(JSON.stringify(result).includes(secret), false)
 })
 
+
+test('solidified cost reader rejects a finalized failed execution receipt', async () => {
+  const fakeTronWeb = {
+    isAddress(value) { return [principal, receiver].includes(value) },
+    address: { toHex(value) { return value === principal ? '41' + '11'.repeat(20) : '41' + '22'.repeat(20) } },
+  }
+  const transaction = {
+    txID: txid,
+    ret: [{ contractRet: 'REVERT' }],
+    raw_data: { contract: [{ type: 'TransferContract', parameter: { value: {
+      owner_address: '41' + '11'.repeat(20),
+      to_address: '41' + '22'.repeat(20),
+      amount: 2500000,
+    } } }] },
+  }
+  const info = {
+    id: txid, blockNumber: 78, fee: 4200, result: 'FAILED',
+    receipt: { result: 'REVERT', net_fee: 2200, energy_fee: 2000 },
+  }
+  const result = await readSolidifiedSponsorChainCosts({
+    transfer: transfer().transfer,
+    env: { TATUM_API_KEY: 'test-provider-key' },
+    tronWebFactory: () => fakeTronWeb,
+    fetchImpl: async (url) => ({
+      ok: true,
+      json: async () => url.endsWith('gettransactionbyid') ? transaction : info,
+    }),
+  })
+  assert.deepEqual(result, { success: false, reason: 'solidified-transaction-execution-failed' })
+})
+
+test('failed solidified execution cannot be persisted as a cost observation', async (t) => {
+  let persisted = false
+  const base = await createServerForTest(t, {
+    readChainCosts: async (value) => ({
+      success: false, reason: 'solidified-transaction-execution-failed',
+      network: value.network, transactionHash: value.transactionHash,
+    }),
+    persistObservation: async () => { persisted = true; return { success: true } },
+  })
+  const response = await fetch(base + '/sponsorship/transfers/' + idempotencyKey + '/observe-chain-costs', {
+    method: 'POST', headers: headers(), body: '{}',
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'solidified-transaction-execution-failed')
+  assert.equal(payload.feeSponsorBudgetSettled, false)
+  assert.equal(payload.canSubmitSponsoredTransfer, false)
+  assert.equal(persisted, false)
+})
+
 test('chain-cost observation history is admin-gated and bounded', async (t) => {
   const base = await createServerForTest(t)
   const denied = await fetch(base + '/sponsorship/chain-cost-observations')
