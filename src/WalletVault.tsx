@@ -1487,7 +1487,7 @@ export default function WalletVault() {
         <p className="wallet-vault-eyebrow"><ShieldCheck size={15} aria-hidden="true" /> OWNER-ONLY ACCESS · REAL ON-CHAIN ASSETS</p>
         <h1>{activePanel === 'dashboard' ? 'Home' : activePanel === 'wallet' ? 'Assets' : activePanel === 'send' ? (transferAsset === 'TRC20' ? 'Send USDT' : 'Send TRX') : activePanel === 'treasury' ? 'Organization payouts' : activePanel === 'account' ? 'Account' : activePanel === 'activity' ? 'Activity' : 'Settings'}</h1>
         <p>{activePanel === 'dashboard'
-          ? 'Overview of verified external sponsor capacity and your separate local owner wallet. Sponsor capacity is backed by active allowlisted budgets and fresh chain reads; it is not added to your personal wallet or an automatic payout authorization.'
+          ? 'Overview of verified external sponsor capacity and your separate local owner wallet. No TronLink connection is required to use this standalone owner wallet. Sponsor capacity is backed by active allowlisted budgets and fresh chain reads; it is not added to your personal wallet or an automatic payout authorization.'
           : activePanel === 'wallet'
             ? 'Read genuine on-chain assets for the unlocked wallet. Verified sponsor capacity is displayed separately and never added to your personal wallet balance.'
             : activePanel === 'send'
