@@ -821,6 +821,9 @@ export function createMainnetDirectSponsorApprovalRouter({
     }
     if (principal.address !== assetPolicy.sponsorAddress || roleResult?.configuredAddressesDistinct !== true
       || !isValidTronAddress(principal.address)) blockers.push('distinct-configured-asset-principal-sponsor-not-verified')
+    if (BigInt(request.amountBaseUnits) > BigInt(assetPolicy.maxUsdtBaseUnits)) {
+      blockers.push('request-exceeds-current-asset-principal-sponsor-cap')
+    }
     const token = Array.isArray(principal.tokens) ? principal.tokens.find(item =>
       item?.asset === 'USDT' && item?.tokenContract === OFFICIAL_MAINNET_USDT_CONTRACT
       && item?.status === 'verified' && item?.decimals === 6
