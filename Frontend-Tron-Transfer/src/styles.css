@@ -704,3 +704,11 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.035em; 
   .balance-number { font-size: 40px; }
   .app-footer { font-size: 8px; }
 }
+
+/* Mainnet recipient preflight inside sponsor withdrawal form */
+.request-inspection{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:14px;border:1px solid rgba(101,223,161,.22);border-radius:14px;background:rgba(18,48,36,.34)}
+.request-inspection div{display:flex;flex-direction:column;gap:5px;min-width:0}
+.request-inspection span{color:var(--muted);font-size:12px}
+.request-inspection b{color:var(--text);font-size:13px;overflow-wrap:anywhere}
+.request-inspection small{grid-column:1/-1;color:var(--muted);font-size:11px;line-height:1.5}
+@media(max-width:560px){.request-inspection{grid-template-columns:1fr}}
