@@ -87,3 +87,14 @@ test('API entrypoint mounts Tron Transfer and only accepts its configured fronte
   assert.match(entry, /TRON_TRANSFER_UI_ORIGIN/)
   assert.match(entry, /app\.use\('\/api\/tron-transfer', tronTransferRoutes\)/)
 })
+
+test('live Fincra payout performs server-side official Mainnet USDT recipient preflight before submission', () => {
+  assert.match(route, /async function preflightMainnetUsdtRecipient\(address\)/)
+  assert.match(route, /walletsolidity\/getaccount/)
+  assert.match(route, /function_selector: 'balanceOf\(address\)'/)
+  assert.match(route, /function_selector: 'decimals\(\)'/)
+  assert.match(route, /Number\(BigInt\('0x' \+ decimalsHex\)\) === 6/)
+  assert.match(route, /const recipientPreflight = await preflightMainnetUsdtRecipient\(row\.recipient_address\)/)
+  assert.match(route, /recipient-mainnet-preflight-failed/)
+  assert.ok(route.indexOf('const recipientPreflight = await preflightMainnetUsdtRecipient(row.recipient_address)') < route.indexOf('const created = await fincraRequest(config, \'/disbursements/payouts\''))
+})
