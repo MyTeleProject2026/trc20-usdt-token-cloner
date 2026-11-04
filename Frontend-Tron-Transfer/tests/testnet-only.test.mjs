@@ -66,3 +66,10 @@ test('new production page layouts have responsive styling', async () => {
   assert.ok(css.includes('.settings-page'))
   assert.ok(css.includes('@media(max-width:560px)'))
 })
+
+test('Sponsor funding page provides the Fincra USDT wallet number for authorized incoming sponsor transfers', () => {
+  assert.ok(app.includes('SPONSOR FUNDING DESTINATION · FINCRA USDT BALANCE'))
+  assert.ok(app.includes('Fincra-to-Fincra wallet transfer'))
+  assert.ok(app.includes('readiness.fincra.sourceBalance.walletNumber'))
+  assert.ok(app.includes('Fincra USDT wallet number copied.'))
+})
