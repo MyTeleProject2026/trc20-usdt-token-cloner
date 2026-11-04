@@ -103,7 +103,7 @@ test('approval message binds the exact requester, sponsor, recipient, amount, of
   assert.match(first, /not a TRON transaction signature/)
   assert.match(first, /does not approve network fees/)
   assert.notEqual(message({ request: request({ amountBaseUnits: '12500001' }) }), first)
-  assert.notEqual(message({ request: request({ recipientAddress: requesterAddress }) }).length, first.length)
+  assert.notEqual(message({ request: request({ recipientAddress: sponsorAddress }) }).length, first.length)
 })
 
 test('request snapshot digest changes for recipient or amount edits', () => {
