@@ -4,8 +4,10 @@ import {
   MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS,
   OFFICIAL_MAINNET_USDT_CONTRACT,
   buildMainnetDirectSponsorApprovalMessage,
+  buildMainnetDirectFeeSponsorApprovalMessage,
   mainnetDirectSponsorRequestSnapshotHash,
   resolveMainnetDirectSponsorApprovalPolicy,
+  resolveMainnetDirectFeeApprovalPolicy,
   verifyMainnetDirectSponsorApprovalSignature,
 } from '../server/mainnet-direct-sponsor-approval.mjs'
 
@@ -15,6 +17,11 @@ const recipientAddress = 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e'
 const organizationReference = 'SPONSOR-ORG-DIRECT-2026'
 const agreementReference = 'SPONSOR-AGREEMENT-DIRECT-2026'
 const agreementSha256 = 'a'.repeat(64)
+
+const feeSponsorAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const feeOrganizationReference = 'FEE-SPONSOR-ORG-2026'
+const feeAgreementReference = 'FEE-SPONSOR-AGREEMENT-2026'
+const feeAgreementSha256 = 'd'.repeat(64)
 const nowMs = Date.parse('2026-11-04T12:00:00.000Z')
 const nonce = 'c'.repeat(64)
 
@@ -27,6 +34,22 @@ function env(overrides = {}) {
     SPONSOR_MAINNET_DIRECT_MAX_PAYOUT_USDT_BASE_UNITS: '250000000',
     SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
       [agreementReference, organizationReference, 'mainnet', sponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT].join('|'),
+    ].join(';'),
+    ...overrides,
+  }
+}
+
+function feeEnv(overrides = {}) {
+  return {
+    ...env(),
+    SPONSOR_FEE_MAINNET_ADDRESS: feeSponsorAddress,
+    SPONSOR_MAINNET_DIRECT_FEE_ORGANIZATION_REFERENCE: feeOrganizationReference,
+    SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_REFERENCE: feeAgreementReference,
+    SPONSOR_MAINNET_DIRECT_FEE_AGREEMENT_SHA256: feeAgreementSha256,
+    SPONSOR_MAINNET_DIRECT_MAX_FEE_SUN: '50000000',
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+      [agreementReference, organizationReference, 'mainnet', sponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT].join('|'),
+      [feeAgreementReference, feeOrganizationReference, 'mainnet', feeSponsorAddress, 'network-fee', 'TRX', '-'].join('|'),
     ].join(';'),
     ...overrides,
   }
@@ -161,4 +184,55 @@ test('signature recovery errors fail closed and never claim sponsor approval', a
     verifyMessage: async () => { throw new Error('wallet signature cannot be recovered') },
   })
   assert.deepEqual(result, { verified: false, reason: 'approval-signature-verification-failed' })
+})
+
+
+test('fee sponsor policy requires a distinct wallet and exact Mainnet network-fee TRX agreement scope', () => {
+  const policy = resolveMainnetDirectFeeApprovalPolicy(feeEnv())
+  assert.equal(policy.configured, true)
+  assert.equal(policy.sponsorAddress, feeSponsorAddress)
+  assert.equal(policy.organizationReference, feeOrganizationReference)
+  assert.equal(policy.agreementReference, feeAgreementReference)
+  assert.equal(policy.maxFeeSun, '50000000')
+
+  const sameWallet = resolveMainnetDirectFeeApprovalPolicy(feeEnv({
+    SPONSOR_FEE_MAINNET_ADDRESS: sponsorAddress,
+  }))
+  assert.equal(sameWallet.configured, false)
+
+  const wrongScope = resolveMainnetDirectFeeApprovalPolicy(feeEnv({
+    SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+      feeAgreementReference, feeOrganizationReference, 'mainnet', feeSponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT,
+    ].join('|'),
+  }))
+  assert.equal(wrongScope.configured, false)
+})
+
+test('fee sponsor message binds the same recipient/principal and a separate SUN fee cap', () => {
+  const feePolicy = resolveMainnetDirectFeeApprovalPolicy(feeEnv())
+  const assetPolicy = resolveMainnetDirectSponsorApprovalPolicy(feeEnv())
+  const feeMessage = buildMainnetDirectFeeSponsorApprovalMessage({
+    request: request(),
+    feePolicy,
+    assetPolicy,
+    nonce,
+    issuedAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS).toISOString(),
+  })
+  assert.match(feeMessage, /network-fee approval/)
+  assert.match(feeMessage, new RegExp(feeSponsorAddress))
+  assert.match(feeMessage, new RegExp(sponsorAddress))
+  assert.match(feeMessage, new RegExp(recipientAddress))
+  assert.match(feeMessage, /Exact USDT principal amount in base units \(6 decimals\): 12500000/)
+  assert.match(feeMessage, /Maximum approved network-fee budget in SUN: 50000000/)
+  assert.match(feeMessage, new RegExp(feeAgreementSha256))
+  assert.match(feeMessage, /does not transfer TRX, delegate Energy\/Bandwidth/)
+  assert.throws(() => buildMainnetDirectFeeSponsorApprovalMessage({
+    request: request(),
+    feePolicy,
+    assetPolicy: { ...assetPolicy, sponsorAddress: feeSponsorAddress },
+    nonce,
+    issuedAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + MAINNET_DIRECT_SPONSOR_APPROVAL_TTL_MS).toISOString(),
+  }), /input-invalid/)
 })
