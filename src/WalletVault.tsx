@@ -1569,7 +1569,7 @@ export default function WalletVault() {
                 <strong>{formatUnits(ownerSponsorLiquidity.onChainBalanceBaseUnits || '0', 6)} USDT</strong>
               </div>
               <div>
-                <small>Verified sponsor wallets</small>
+                <small>Verified source wallets</small>
                 <strong>{ownerSponsorLiquidity.verifiedSourceCount || 0} / {ownerSponsorLiquidity.sourceCount || 0}</strong>
               </div>
             </div>
