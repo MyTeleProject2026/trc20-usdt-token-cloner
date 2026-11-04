@@ -17,23 +17,22 @@ This document records the organizational approvals that must exist before anyone
 
 All gates below are external prerequisites. A software change, API key, or successful deployment does not satisfy them.
 
-### 1. Organization and provider onboarding
+### 1. Organization and custody arrangement
 
-The treasury organization's authorized adult representative should contact Fireblocks through its official business channels and obtain written confirmation of:
+The treasury organization's authorized representative chooses and controls the custody/signing arrangement. Fireblocks is optional and is not a prerequisite for the provider-independent sponsor-wallet design. Possible arrangements include an organization's existing custodian/provider, an organization-controlled wallet that can approve each transaction, or a separately reviewed institutional signing service.
 
-- whether the organization and its proposed business model are eligible for onboarding;
-- the jurisdictions and services available to that organization;
-- the KYB documents and beneficial-owner / authorized-representative information required;
-- whether the specific TRON and TRC-20 asset use case is supported for the intended product and account;
-- the applicable commercial terms, service scope, and support process.
+The current connected-wallet signing adapter in TRON Token Studio is limited to Shasta/Nile testnets. It does not provide a Mainnet signing or broadcast path and does not make any sponsor account available without that organization's express approval. A Mainnet integration must be separately designed, tested, and reviewed against the sponsor's custody policy before any production use.
 
-Fireblocks states that its KYB/onboarding may involve company registration or incorporation documents, beneficial ownership information, and identity/contact details for directors, beneficial owners, authorized signatories, or other business representatives. The organization's representative must submit such information directly through the provider's approved process. A minor must not collect or submit other people's identity documents.
+The organization must independently confirm:
+- that it owns or lawfully controls the exact TRON account and assets it proposes to sponsor;
+- that its selected custody arrangement supports the exact TRON network and asset;
+- who may approve/sign transfers and what limits or destination policies apply;
+- any required KYB/KYC, commercial, provider, and operational terms.
 
-Reference: https://www.fireblocks.com/privacy-policy/
-
+If the organization chooses Fireblocks, its authorized representative must complete Fireblocks onboarding and account administration directly. No API key, vault ID, asset ID, signer credential, wallet key, or legal authority is created by this application. Those details must never be guessed or fabricated.
 ### 2. Separate agreement with the treasury organization
 
-Fireblocks onboarding alone does not mean that the treasury agrees to fund TRON Token Studio payouts. The organization must separately approve and document:
+Custody-provider onboarding or a connected wallet alone does not mean that the treasury agrees to fund TRON Token Studio payouts. The organization must separately approve and document:
 
 - the legal entity responsible for each payout;
 - the business purpose and eligible beneficiaries;
@@ -56,9 +55,7 @@ The treasury organization—not the app user—must decide and administer custod
 
 The organization's authorized custody administrators must retain control of credentials and signing authority. Never place seed phrases, private keys, recovery material, or signing secrets in frontend code, source control, chat, screenshots, or ordinary application settings. Do not ask a minor to handle custody credentials.
 
-Fireblocks describes policy controls with designated approvers and approval groups. The treasury's own administrators and advisers must determine the appropriate controls for its organization.
-
-Reference: https://developers.fireblocks.com/
+Any selected custodian or wallet-signing mechanism must preserve the treasury organization's own approval policy and separation of duties. A connected wallet signature is a cryptographic authorization for the exact testnet intent only; it does not replace the organization's written mandate or Mainnet security review.
 
 ### 5. Technical and security acceptance
 
