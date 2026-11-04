@@ -159,7 +159,7 @@ async function requireOwnerSession(req, env) {
   const header = cleanString(req.headers?.authorization, 4096)
   const match = /^Bearer\s+([A-Za-z0-9_-]{32,256})$/i.exec(header)
   if (!match) return { ok: false, status: 401, error: 'owner-session-required' }
-  const configuredOwner = cleanString(env.OWNER_LOGIN_ADDRESS || env.TREASURY_OWNER_ADDRESS || env.OWNER_WALLET_ADDRESS, 64)
+  const configuredOwner = cleanString(env.OWNER_WALLET_ADDRESS || env.TREASURY_OWNER_ADDRESS, 64)
   if (!configuredOwner || !isValidTronAddress(configuredOwner)) return { ok: false, status: 503, error: 'owner-login-not-configured' }
   const tokenHash = createHash('sha256').update(match[1]).digest('hex')
   const lookup = await getWalletAuthSession({ tokenHash, origin, nowMs: Date.now() })
