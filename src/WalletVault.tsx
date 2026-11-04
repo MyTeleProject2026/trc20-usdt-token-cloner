@@ -4,7 +4,6 @@ import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
 import { clearTreasuryPayoutReference, readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
-import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import DirectSponsorPayouts from './DirectSponsorPayouts.tsx'
 import {
   decryptWalletPrivateKey,
