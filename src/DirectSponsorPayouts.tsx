@@ -288,6 +288,18 @@ export default function DirectSponsorPayouts({
     }
   }
 
+  async function copyRequestReference() {
+    if (!requestKey) return
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.')
+      await navigator.clipboard.writeText(requestKey)
+      setRequestError('')
+      setRequestNotice('Saved request reference copied. Keep it to check this exact request later.')
+    } catch {
+      setRequestError('Clipboard access is unavailable. Select the saved request reference and copy it manually.')
+    }
+  }
+
   async function lookupRequest() {
     if (!requestKey || !KEY_PATTERN.test(requestKey)) {
       setRequestError('There is no valid saved sponsor request reference for this wallet.')
@@ -481,14 +493,7 @@ export default function DirectSponsorPayouts({
         {requestKey && (
           <div className="wallet-vault-review-grid">
             <div className="wallet-vault-review-wide"><small>Saved request reference</small><strong>{requestKey}</strong></div>
-            <button type="button" className="wallet-vault-secondary" onClick={() => {
-              void navigator.clipboard.writeText(requestKey)
-                .then(() => {
-                  setRequestError('')
-                  setRequestNotice('Saved request reference copied. Keep it to check this exact request later.')
-                })
-                .catch(() => setRequestError('Clipboard access is unavailable. Select the saved request reference and copy it manually.'))
-            }}><Copy size={15} /> Copy reference</button>
+            <button type="button" className="wallet-vault-secondary" disabled={requestBusy} onClick={() => void copyRequestReference()}><Copy size={15} /> Copy reference</button>
             <button type="button" className="wallet-vault-secondary" disabled={requestBusy} onClick={() => void lookupRequest()}><RefreshCw size={15} /> {requestBusy ? 'Checking…' : 'Check saved request status'}</button>
           </div>
         )}
