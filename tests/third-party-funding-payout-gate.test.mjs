@@ -4,20 +4,19 @@ import { readFile } from 'node:fs/promises'
 
 const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8')
 
-test('third-party source consent and deposit endpoints are mounted under the owner treasury API', async () => {
+test('the deployed API mounts direct Mainnet sponsor requests and leaves legacy custody routes unmounted', async () => {
   const index = await read('server/index.mjs')
-  const route = await read('server/routes/third-party-funding.mjs')
-  assert.match(index, /createThirdPartyFundingRouter/)
-  assert.match(index, /app\.use\('\/api\/treasury', createThirdPartyFundingRouter\(\)\)/)
-  assert.match(route, /router\.post\('\/third-party-funding\/authorizations'/)
-  assert.match(route, /router\.post\('\/third-party-funding\/authorizations\/:authorizationId\/deposits'/)
-  assert.match(route, /router\.post\('\/third-party-funding\/authorizations\/:authorizationId\/deposits\/fireblocks-reconcile'/)
-  assert.match(route, /agreementReviewAcknowledged !== true/)
-  assert.match(route, /body\.manifest\.sponsorOrganizationReference !== sponsorOrganizationReference/)
-  assert.match(route, /body\.manifest\.agreementReference !== agreementReference/)
-  assert.match(route, /expectedSponsorOrganizationReference: sponsorOrganizationReference, expectedAgreementReference: agreementReference/)
-  assert.match(route, /withdrawalDisbursementAcknowledged !== true/)
-  assert.match(route, /verifyAuthorization\(body\.manifest, \{ expectedVaultAddress: vaultAddress, expectedSponsorOrganizationReference: sponsorOrganizationReference, expectedAgreementReference: agreementReference, now \}\)/)
+  const requests = await read('server/routes/mainnet-direct-sponsor-requests.mjs')
+  const approval = await read('server/routes/mainnet-direct-sponsor-approval.mjs')
+  assert.match(index, /mainnetDirectSponsorRequestRoutes/)
+  assert.match(index, /app\\.use\\('\/api\/tron', mainnetDirectSponsorRequestRoutes\\)/)
+  assert.match(index, /mainnetDirectSponsorReadinessRoutes/)
+  assert.doesNotMatch(index, /createThirdPartyFundingRouter|fireblocks.*Routes|treasury-withdrawals/)
+  assert.match(requests, /router\\.post\\('\/sponsorship\/mainnet-direct\/requests'/)
+  assert.match(approval, /authenticateMainnetIdentity/)
+  assert.match(approval, /if \\(!token \\|\\| !origin\\)/)
+  assert.match(approval, /canSubmitSponsoredTransfer: false/)
+  assert.match(approval, /transactionBroadcast: false/)
 })
 
 test('incoming USDT deposit is proven by solidified receipt, exact transaction call and official Transfer event', async () => {
