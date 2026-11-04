@@ -190,6 +190,10 @@ async function readFincraSourceBalance(config) {
   const availableRaw = wallet.availableBalance ?? wallet.available_balance ?? wallet.balance?.availableBalance
   const availableBaseUnits = parseUsdtBalanceBaseUnits(availableRaw)
   if (availableBaseUnits === null) return { checked: false, reason: 'source-balance-not-readable' }
+  const lockedRaw = wallet.lockedBalance ?? wallet.locked_balance ?? wallet.balance?.lockedBalance
+  const ledgerRaw = wallet.ledgerBalance ?? wallet.ledger_balance ?? wallet.balance?.ledgerBalance
+  const lockedBaseUnits = lockedRaw === undefined || lockedRaw === null ? null : parseUsdtBalanceBaseUnits(lockedRaw)
+  const ledgerBaseUnits = ledgerRaw === undefined || ledgerRaw === null ? null : parseUsdtBalanceBaseUnits(ledgerRaw)
   const walletNumberRaw = wallet.walletNumber ?? wallet.balanceNumber ?? wallet.wallet_number
   const walletNumber = typeof walletNumberRaw === 'string'
     ? cleanString(walletNumberRaw, 128)
@@ -200,6 +204,10 @@ async function readFincraSourceBalance(config) {
     currency: config.sourceCurrency,
     availableBalance: String(availableRaw),
     availableBalanceBaseUnits: availableBaseUnits.toString(),
+    lockedBalance: lockedBaseUnits === null ? null : String(lockedRaw),
+    lockedBalanceBaseUnits: lockedBaseUnits === null ? null : lockedBaseUnits.toString(),
+    ledgerBalance: ledgerBaseUnits === null ? null : String(ledgerRaw),
+    ledgerBalanceBaseUnits: ledgerBaseUnits === null ? null : ledgerBaseUnits.toString(),
     walletId: cleanString(wallet.id || wallet.walletId, 128) || null,
     walletNumber: walletNumber || null,
   }
