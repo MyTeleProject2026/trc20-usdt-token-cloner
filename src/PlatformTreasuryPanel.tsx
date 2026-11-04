@@ -47,6 +47,11 @@ type WithdrawalIntent = {
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
+type RecoveredWithdrawal = {
+  intent: WithdrawalIntent['intent']
+  unsignedTransaction?: any
+}
+
 const MAINNET_CHAIN_ID = '0x2b6653dc'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
@@ -154,14 +159,19 @@ export default function PlatformTreasuryPanel({
   const [prepareRequestKey, setPrepareRequestKey] = useState('')
   const [prepared, setPrepared] = useState<WithdrawalIntent | null>(null)
   const [lastStatus, setLastStatus] = useState<any>(null)
+  const [recentWithdrawals, setRecentWithdrawals] = useState<RecoveredWithdrawal[]>([])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   const walletConnected = Boolean(provider && treasuryAddress)
   const matchingTreasuryWallet = Boolean(readiness?.treasuryAddress && treasuryAddress === readiness.treasuryAddress)
+  const hasOutstandingWithdrawal = recentWithdrawals.some(({ intent }) =>
+    ['prepared', 'broadcasting', 'broadcast-accepted', 'broadcast-unknown'].includes(intent.status))
   const canPrepare = Boolean(ownerSessionToken && walletConnected && matchingTreasuryWallet
-    && readiness?.executionEnabled === true && recipientAddress.trim() && amountUsdt.trim() && !prepared)
+    && readiness?.executionEnabled === true && recipientAddress.trim() && amountUsdt.trim()
+    && historyLoaded && !hasOutstandingWithdrawal && !prepared)
 
   const statusLabel = useMemo(() => {
     const status = lastStatus?.intent?.status || lastStatus?.status || prepared?.intent?.status
@@ -173,6 +183,15 @@ export default function PlatformTreasuryPanel({
     if (status === 'prepared') return 'Prepared · awaiting treasury-wallet signature'
     return 'No withdrawal submitted'
   }, [lastStatus, prepared])
+
+  async function refreshWithdrawalHistory() {
+    if (!ownerSessionToken) return []
+    const data = await apiRequest('/api/treasury/self-custody/withdrawals?limit=20', ownerSessionToken)
+    const withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals as RecoveredWithdrawal[] : []
+    setRecentWithdrawals(withdrawals)
+    setHistoryLoaded(true)
+    return withdrawals
+  }
 
   async function refreshReadiness(activeProvider = provider, activeAddress = treasuryAddress) {
     if (!ownerSessionToken) throw new Error('Sign in with the owner identity wallet first. This wallet can have zero funds.')
@@ -219,7 +238,29 @@ export default function PlatformTreasuryPanel({
     setReadiness(null)
     setPrepared(null)
     setLastStatus(null)
+    setRecentWithdrawals([])
+    setHistoryLoaded(false)
     setPrepareRequestKey('')
+  }, [ownerSessionToken])
+
+  useEffect(() => {
+    if (!ownerSessionToken) return
+    let cancelled = false
+    setHistoryLoaded(false)
+    apiRequest('/api/treasury/self-custody/withdrawals?limit=20', ownerSessionToken)
+      .then((data) => {
+        if (cancelled) return
+        setRecentWithdrawals(Array.isArray(data.withdrawals) ? data.withdrawals as RecoveredWithdrawal[] : [])
+        setHistoryLoaded(true)
+      })
+      .catch((caught) => {
+        if (cancelled) return
+        setError(caught instanceof Error ? caught.message : 'Withdrawal history could not be loaded.')
+        // Fail closed: do not let the form create a new request until the
+        // server-side history has been read successfully.
+        setHistoryLoaded(false)
+      })
+    return () => { cancelled = true }
   }, [ownerSessionToken])
 
   useEffect(() => {
@@ -265,6 +306,7 @@ export default function PlatformTreasuryPanel({
     }
     setPrepared(payload as WithdrawalIntent)
     setLastStatus(null)
+    await refreshWithdrawalHistory()
     setNotice('Withdrawal intent prepared and funds reserved. No transaction has been signed or sent.')
   }
 
@@ -309,24 +351,37 @@ export default function PlatformTreasuryPanel({
     else if (result.status === 'broadcast-unknown') {
       setPrepared((current) => current ? { ...current, intent: { ...current.intent, status: 'broadcast-unknown' } } : current)
     }
+    await refreshWithdrawalHistory()
     setNotice(result.note || 'Signed transaction submitted. Check solidified chain status before treating it as paid.')
   }
 
-  async function refreshStatus() {
-    if (!prepared?.intent?.intentId) throw new Error('There is no prepared withdrawal to reconcile.')
+  async function refreshStatus(intentId: string) {
     const result = await apiRequest(
-      '/api/treasury/self-custody/withdrawals/' + encodeURIComponent(prepared.intent.intentId),
+      '/api/treasury/self-custody/withdrawals/' + encodeURIComponent(intentId),
       ownerSessionToken,
     )
     setLastStatus(result)
-    if (result.intent) setPrepared((current) => current ? { ...current, intent: result.intent } : current)
-    setNotice(result.note || 'Withdrawal status refreshed from the TRON chain.')
-    if (result.intent?.status === 'confirmed' || result.intent?.status === 'failed' || result.intent?.status === 'rejected') {
-      setPrepared(null)
-      setPrepareRequestKey('')
-      const next = await refreshReadiness().catch(() => null)
-      if (next) setReadiness(next)
+    if (result.intent) {
+      setPrepared((current) => current?.intent.intentId === intentId
+        ? { ...current, intent: result.intent } : current)
     }
+    await refreshWithdrawalHistory()
+    setNotice(result.note || 'Withdrawal status refreshed from the TRON chain.')
+    if (['confirmed', 'failed', 'rejected'].includes(result.intent?.status)) {
+      setPrepared((current) => current?.intent.intentId === intentId ? null : current)
+      setPrepareRequestKey('')
+      if (walletConnected) {
+        const next = await refreshReadiness().catch(() => null)
+        if (next) setReadiness(next)
+      }
+    }
+  }
+
+  function resumeStoredWithdrawal(withdrawal: RecoveredWithdrawal) {
+    if (withdrawal.intent.status !== 'prepared' || !withdrawal.unsignedTransaction) return
+    setPrepared({ intent: withdrawal.intent, unsignedTransaction: withdrawal.unsignedTransaction })
+    setLastStatus(null)
+    setNotice('Restored the original unexpired intent from PostgreSQL. Review it again; no new reservation was created.')
   }
 
   async function run(action: () => Promise<void>) {
@@ -403,6 +458,36 @@ export default function PlatformTreasuryPanel({
           const data = await refreshReadiness()
           setNotice(data.executionEnabled ? 'Treasury readiness passed.' : 'Readiness refreshed; review the blockers below.')
         })}>Refresh treasury balances</button>
+        <button type="button" className="wallet-vault-secondary" disabled={busy || !ownerSessionToken} onClick={() => void run(async () => {
+          await refreshWithdrawalHistory()
+          setNotice('Recent withdrawal history reloaded from PostgreSQL.')
+        })}>Refresh withdrawal history</button>
+      </div>
+
+      <div className="wallet-vault-transfer-review" aria-live="polite">
+        <div className="wallet-vault-review-header">
+          <strong>Recent withdrawals</strong>
+          <small>{historyLoaded ? `${recentWithdrawals.length} record(s) loaded` : 'History not yet verified'}</small>
+        </div>
+        {!historyLoaded && <p className="wallet-vault-risk-note">Withdrawal history is unavailable. New requests stay disabled until server-side recovery data can be loaded.</p>}
+        {historyLoaded && recentWithdrawals.length === 0 && <p className="wallet-vault-caption">No saved withdrawals were found for this owner account.</p>}
+        {recentWithdrawals.map((withdrawal) => (
+          <div className="wallet-vault-review-grid" key={withdrawal.intent.intentId}>
+            <div><small>{withdrawal.intent.amountUsdt} USDT · {withdrawal.intent.status}</small><strong>{withdrawal.intent.recipientAddress}</strong></div>
+            <div><small>Created</small><strong>{new Date(withdrawal.intent.createdAt).toLocaleString()}</strong></div>
+            {withdrawal.intent.transactionHash && (
+              <div className="wallet-vault-review-wide"><small>Transaction ID</small><strong>{withdrawal.intent.transactionHash}</strong></div>
+            )}
+            <div className="wallet-vault-review-wide wallet-vault-review-actions">
+              {withdrawal.intent.status === 'prepared' && withdrawal.unsignedTransaction && (
+                <button type="button" className="wallet-vault-primary" disabled={busy} onClick={() => resumeStoredWithdrawal(withdrawal)}>Resume prepared request</button>
+              )}
+              {['broadcasting', 'broadcast-accepted', 'broadcast-unknown'].includes(withdrawal.intent.status) && (
+                <button type="button" className="wallet-vault-secondary" disabled={busy} onClick={() => void run(() => refreshStatus(withdrawal.intent.intentId))}>Reconcile original transfer</button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {readiness?.missing && readiness.missing.length > 0 && (
@@ -439,10 +524,10 @@ export default function PlatformTreasuryPanel({
             <div className="wallet-vault-review-wide"><small>Intent ID</small><strong>{prepared.intent.intentId}</strong></div>
           </div>
           <div className="wallet-vault-review-actions">
-            <button type="button" className="wallet-vault-primary" disabled={busy || prepared.intent.status !== 'prepared'} onClick={() => void run(signAndSubmit)}>
+            <button type="button" className="wallet-vault-primary" disabled={busy || !walletConnected || !matchingTreasuryWallet || prepared.intent.status !== 'prepared'} onClick={() => void run(signAndSubmit)}>
               {busy ? 'Waiting for wallet…' : 'Sign in TronLink & submit'}
             </button>
-            <button type="button" className="wallet-vault-secondary" disabled={busy} onClick={() => void run(refreshStatus)}>Refresh status</button>
+            <button type="button" className="wallet-vault-secondary" disabled={busy} onClick={() => void run(() => refreshStatus(prepared.intent.intentId))}>Refresh status</button>
             <button type="button" className="wallet-vault-secondary" disabled={busy} onClick={clearPreparedIntent}>Clear local view</button>
           </div>
         </div>
