@@ -650,6 +650,56 @@ export function createTronTransferRouter({ env = process.env } = {}) {
     return fincraRequest(config, path)
   }
 
+  async function preflightMainnetUsdtRecipient(address) {
+    if (!isValidTronAddress(address)) return { checked: false, reason: 'invalid-recipient-address' }
+    try {
+      const { TronWeb } = await import('tronweb')
+      const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
+      const account = await tatumGatewayRequest({
+        env, network: 'mainnet', path: 'walletsolidity/getaccount',
+        body: { address, visible: true },
+      })
+      const ownerHex = tronWeb.address.toHex(address)
+      const contractHex = tronWeb.address.toHex(MAINNET_USDT)
+      const [balance, decimals] = await Promise.all([
+        tatumGatewayRequest({
+          env, network: 'mainnet', path: 'walletsolidity/triggerconstantcontract',
+          body: {
+            owner_address: ownerHex, contract_address: contractHex,
+            function_selector: 'balanceOf(address)',
+            parameter: ownerHex.replace(/^41/i, '').padStart(64, '0'), visible: false,
+          },
+        }),
+        tatumGatewayRequest({
+          env, network: 'mainnet', path: 'walletsolidity/triggerconstantcontract',
+          body: {
+            owner_address: ownerHex, contract_address: contractHex,
+            function_selector: 'decimals()', parameter: '', visible: false,
+          },
+        }),
+      ])
+      const balanceHex = balance?.constant_result?.[0]
+      const decimalsHex = decimals?.constant_result?.[0]
+      const validBalance = balance?.result?.result === true
+        && typeof balanceHex === 'string' && /^[0-9a-f]+$/i.test(balanceHex)
+      const validDecimals = decimals?.result?.result === true
+        && typeof decimalsHex === 'string' && /^[0-9a-f]+$/i.test(decimalsHex)
+        && Number(BigInt('0x' + decimalsHex)) === 6
+      if (!validBalance || !validDecimals) {
+        return { checked: false, reason: 'official-mainnet-usdt-contract-preflight-failed' }
+      }
+      return {
+        checked: true,
+        accountExists: Boolean(account?.address),
+        contract: MAINNET_USDT,
+        decimals: 6,
+        balanceBaseUnits: BigInt('0x' + balanceHex).toString(),
+      }
+    } catch {
+      return { checked: false, reason: 'tatum-recipient-preflight-unavailable' }
+    }
+  }
+
   router.post('/sponsor-requests/:id/fincra-payout', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
     const auth = await requireOwnerSession(req, env)
@@ -722,6 +772,21 @@ export function createTronTransferRouter({ env = process.env } = {}) {
       if (!firstAttempt) {
         await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='fincra-outcome-unknown',updated_at=now() WHERE id=$1`, [row.id])
         return res.status(202).json({ success: false, status: 'fincra-outcome-unknown', error: 'fincra-retry-requires-manual-reconciliation', note: 'Fincra returned no customer-reference record for a previously submitted or ambiguous request. Automatic resubmission is disabled to prevent duplicate payouts; reconcile with Fincra before creating a new request.' })
+      }
+
+      // Enforce recipient preflight on the server immediately before any live payout.
+      // Frontend inspection is advisory and can be bypassed by direct API callers.
+      const recipientPreflight = await preflightMainnetUsdtRecipient(row.recipient_address)
+      if (!recipientPreflight.checked) {
+        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
+          SET status='pending-organization-review',chain_verification_status='not-verified',
+              chain_verification_reason=$2,updated_at=now() WHERE id=$1`,
+        [row.id, recipientPreflight.reason])
+        return res.status(409).json({
+          success: false, error: 'recipient-mainnet-preflight-failed',
+          recipientPreflight, transactionSubmitted: false,
+          note: 'Tatum could not verify the official Mainnet USDT contract for this recipient. No Fincra payout was submitted.',
+        })
       }
 
       const balance = await readFincraSourceBalance(config)
