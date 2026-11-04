@@ -190,7 +190,14 @@ async function readFincraSourceBalance(config) {
   const availableRaw = wallet.availableBalance ?? wallet.available_balance ?? wallet.balance?.availableBalance
   const availableBaseUnits = parseUsdtBalanceBaseUnits(availableRaw)
   if (availableBaseUnits === null) return { checked: false, reason: 'source-balance-not-readable' }
-  return { checked: true, currency: config.sourceCurrency, availableBalance: String(availableRaw), availableBalanceBaseUnits: availableBaseUnits.toString(), walletId: cleanString(wallet.id || wallet.walletId, 128) || null }
+  return {
+    checked: true,
+    currency: config.sourceCurrency,
+    availableBalance: String(availableRaw),
+    availableBalanceBaseUnits: availableBaseUnits.toString(),
+    walletId: cleanString(wallet.id || wallet.walletId, 128) || null,
+    walletNumber: cleanString(wallet.walletNumber || wallet.balanceNumber || wallet.wallet_number, 128) || null,
+  }
 }
 
 function payoutStatusFromProvider(value) {
