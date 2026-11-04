@@ -50,7 +50,8 @@ The direct sponsor review path now supports a Mainnet wallet-authenticated revie
 - [x] Fresh Mainnet role snapshot and sufficient official USDT principal are required before creating the challenge; the separate fee sponsor must also be distinct and have verified positive TRX and resource reads.
 - [x] Approval and challenge records are persisted in PostgreSQL; CI integration tests exercise the approval lifecycle in the isolated `sponsor_test` database.
 - [ ] Independently verify sponsor legal authority, wallet ownership, executed agreement and source of funds.
-- [ ] Implement separate fee sponsor approval/reservation and transaction-specific fee/resource accounting.
+- [x] Implement request-bound separate fee-sponsor approval signature with a maximum fee cap and durable PostgreSQL record.
+- [ ] Implement actual fee/resource reservation, fee-budget ledger and transaction-specific exact fee/resource accounting.
 - [ ] Implement request-bound unsigned TRON transaction construction, sponsor transaction signing, durable single-transaction submission claim, Mainnet broadcast and ambiguous-timeout recovery.
 - [ ] Independently verify the exact solidified USDT Transfer event, successful receipt, recipient balance delta and sponsor ledger settlement.
 - [ ] Complete a funded Mainnet acceptance transfer and independent custody/security review.
