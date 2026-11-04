@@ -129,7 +129,8 @@ function sponsorResourceSourceProfile(account) {
   }
 }
 
-function tronWebFor(network, tronWebFactory = (host) => new TronWeb({ fullHost: host, headers: { 'x-api-key': env.TATUM_API_KEY } })) {
+function tronWebFor(network, tronWebFactory, env = process.env) {
+  const createWithTatum = tronWebFactory || ((host) => new TronWeb({ fullHost: host, headers: env.TATUM_API_KEY ? { 'x-api-key': env.TATUM_API_KEY } : {} }))
   const host = NETWORKS[network]
   if (!host) throw new Error('unsupported-testnet')
   return { host, tronWeb: tronWebFactory(host) }
@@ -156,7 +157,7 @@ export async function buildSponsorUnsignedTransaction({
   if (transfer.status !== 'pending-review') return fail('transfer-not-pending-review')
 
   const amountBaseUnits = safeBaseUnits(transfer.amountBaseUnits)
-  const { tronWeb } = tronWebFor(transfer.network, tronWebFactory)
+  const { tronWeb } = tronWebFor(transfer.network, tronWebFactory, env)
   try {
     const senderHex = addressHex(tronWeb, transfer.sponsorAddress)
     addressHex(tronWeb, transfer.receiverAddress)
