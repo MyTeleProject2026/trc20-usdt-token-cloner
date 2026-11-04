@@ -1780,7 +1780,7 @@ export default function WorkflowApp() {
         const key = recordKey(record)
         let current = merged.get(key)
         let targetKey = key
-        // TRONGrid event_index and SolidityNode receipt-log index are not
+        // Indexed event APIs and SolidityNode receipt-log indexes are not
         // guaranteed to share the same numbering. Match a verified receipt to
         // its exact transaction/contract/sender/receiver/amount before adding a
         // second row for the same transfer.
