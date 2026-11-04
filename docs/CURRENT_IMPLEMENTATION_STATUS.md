@@ -55,7 +55,7 @@ These are source/automated-test results only. They do not validate TronLink with
 ## Critical remaining limitations
 
 1. **Execution is off by default.** `PLATFORM_TREASURY_SELF_CUSTODY_ENABLED=false` is the documented default. Do not enable it for production before the remaining code review, wallet-provider acceptance, security review, and operational approval.
-2. **The new route is Mainnet-only.** A dedicated self-custody testnet end-to-end route/test-token fixture has not been added.
+2. **The new owner-treasury API is Mainnet-only.** The repository's existing WorkflowApp has a separate direct Nile/Shasta test-wallet transfer path, but it does not exercise the new PostgreSQL-backed owner-treasury reservation, recovery, and permission-check flow. A dedicated self-custody testnet acceptance exercise is still required.
 3. **No environment values have been configured or checked.** No Render variables, treasury address, database settings, limits, or secret files were changed.
 4. **No funds are created by code.** The configured platform treasury must already hold real official TRON USDT and sufficient TRX for network fees. An empty identity wallet cannot provide either.
 5. **No live signer test was performed.** TronLink connection/signing, permission-weight response, real broadcast, solidification, and exchange deposit handling still require controlled validation.
