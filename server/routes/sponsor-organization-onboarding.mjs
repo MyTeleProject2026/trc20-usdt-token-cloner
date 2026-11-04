@@ -81,7 +81,7 @@ function buildSponsorApplicationMessage({
     '3. The proposed funds are lawfully controlled and may be used for the stated sponsorship purpose.',
     '4. I accept separate written sponsor terms, caps, and transaction approvals before funding or payouts.',
     '5. I consent to storing these organization details for manual due diligence.',
-  ].join('\\n')
+  ].join('\n')
 }
 
 function rolesMatch(left, right) {
