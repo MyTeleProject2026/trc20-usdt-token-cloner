@@ -229,6 +229,34 @@ export default function SponsorOrganizationPortal() {
     return () => window.clearTimeout(timeout)
   }, [session])
 
+  useEffect(() => {
+    if (!session) return
+    const provider = getProvider()
+    if (!provider || typeof provider.on !== 'function') return
+    const invalidate = (message: string) => {
+      try { window.sessionStorage.removeItem(SESSION_KEY) } catch {}
+      setSession(null)
+      setApplication(null)
+      setNotice(message)
+    }
+    const onAccountsChanged = (accounts: unknown) => {
+      const active = Array.isArray(accounts) ? String(accounts[0] || '') : ''
+      if (active !== session.address) invalidate('TronLink account changed. Reconnect and sign in with the sponsor wallet again.')
+    }
+    const onChainChanged = () => {
+      const current = provider.tronWeb || (window as any).tronWeb
+      try { checkMainnet(current) } catch {
+        invalidate('TronLink network changed away from verified Mainnet. Reconnect to continue.')
+      }
+    }
+    provider.on('accountsChanged', onAccountsChanged)
+    provider.on('chainChanged', onChainChanged)
+    return () => {
+      provider.removeListener?.('accountsChanged', onAccountsChanged)
+      provider.removeListener?.('chainChanged', onChainChanged)
+    }
+  }, [session])
+
   async function connectWallet() {
     if (connecting) return
     setConnecting(true)
@@ -265,6 +293,23 @@ export default function SponsorOrganizationPortal() {
     setError('')
     setNotice('')
     try {
+      const provider = getProvider()
+      const tronWeb = provider?.tronWeb || (window as any).tronWeb
+      checkMainnet(tronWeb)
+      if (String(tronWeb?.defaultAddress?.base58 || '') !== session.address) {
+        throw new Error('The currently selected TronLink account does not match the authenticated sponsor wallet. Reconnect and sign in again.')
+      }
+      const sessionCheck = await apiJson('/api/auth/tron/session', {
+        headers: { Authorization: 'Bearer ' + session.sessionToken },
+      })
+      if (!sessionCheck.response.ok || sessionCheck.payload?.success !== true
+        || sessionCheck.payload?.authenticated !== true
+        || sessionCheck.payload.address !== session.address
+        || sessionCheck.payload.network !== 'mainnet'
+        || !Number.isFinite(sessionCheck.payload.expiresAt)
+        || sessionCheck.payload.expiresAt <= Date.now()) {
+        throw new Error('The sponsor wallet session is no longer valid. Reconnect and sign in again.')
+      }
       const requestedRoles = [
         ...(assetPrincipal ? ['asset-principal'] : []),
         ...(networkFees ? ['network-fees'] : []),
