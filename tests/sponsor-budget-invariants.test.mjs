@@ -78,6 +78,108 @@ test('sponsor confirmation fails closed when reserved budget is below the transf
   assert.ok(!state.queries.some((query) => query.startsWith('UPDATE trc20_token_clone.sponsor_transfers SET status')))
 })
 
+
+test('network-fee sponsor reservation cannot be confirmed as receiver principal', async () => {
+  const state = {
+    transfer: {
+      idempotency_key: 'sponsor-fee-purpose-guard-0001',
+      sponsor_reference: 'test-sponsor',
+      sponsor_address: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+      network: 'shasta',
+      purpose: 'network-fee',
+      asset: 'TRX',
+      token_contract: null,
+      receiver_address: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
+      amount_base_units: '2500000',
+      status: 'submitted',
+      transaction_hash: 'd'.repeat(64),
+    },
+    queries: [],
+    commits: 0,
+    rollbacks: 0,
+    released: false,
+  }
+  const pool = {
+    async connect() {
+      return {
+        async query(sql) {
+          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          state.queries.push(normalized)
+          if (normalized === 'BEGIN') return { rows: [] }
+          if (normalized === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
+          if (normalized === 'COMMIT') { state.commits += 1; return { rows: [] } }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
+            return { rows: [{ ...state.transfer }] }
+          }
+          throw new Error('Network-fee confirmation must stop before principal evidence or budget settlement')
+        },
+        release() { state.released = true },
+      }
+    },
+  }
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+  assert.deepEqual(result, { updated: false, reason: 'purpose-specific-fee-evidence-and-reconciliation-required' })
+  assert.equal(state.commits, 0)
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.released, true)
+  assert.ok(!state.queries.some(query => query.includes('native_transfer_verifications')))
+  assert.ok(!state.queries.some(query => query.includes('sponsor_budgets')))
+})
+
+test('database transition layer independently refuses Mainnet sponsor confirmation', async () => {
+  const state = {
+    transfer: {
+      idempotency_key: 'sponsor-mainnet-confirm-guard-0001',
+      sponsor_reference: 'test-sponsor',
+      sponsor_address: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8',
+      network: 'mainnet',
+      purpose: 'asset-grant',
+      asset: 'TRX',
+      token_contract: null,
+      receiver_address: 'TTGhREx2pDSxFX555NWz1YwGpiBVPvQA7e',
+      amount_base_units: '2500000',
+      status: 'submitted',
+      transaction_hash: 'e'.repeat(64),
+    },
+    queries: [],
+    commits: 0,
+    rollbacks: 0,
+    released: false,
+  }
+  const pool = {
+    async connect() {
+      return {
+        async query(sql) {
+          const normalized = sql.replace(/\\s+/g, ' ').trim()
+          state.queries.push(normalized)
+          if (normalized === 'BEGIN') return { rows: [] }
+          if (normalized === 'ROLLBACK') { state.rollbacks += 1; return { rows: [] } }
+          if (normalized.includes('FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1 FOR UPDATE')) {
+            return { rows: [{ ...state.transfer }] }
+          }
+          throw new Error('Mainnet confirmation must stop before evidence or budget reads')
+        },
+        release() { state.released = true },
+      }
+    },
+  }
+  const result = await transitionSponsorTransferWithPool({
+    idempotencyKey: state.transfer.idempotency_key,
+    nextStatus: 'confirmed',
+    transactionHash: state.transfer.transaction_hash,
+  }, pool, { initialize: false })
+  assert.deepEqual(result, { updated: false, reason: 'mainnet-sponsor-confirmation-disabled' })
+  assert.equal(state.commits, 0)
+  assert.equal(state.rollbacks, 1)
+  assert.equal(state.released, true)
+  assert.ok(!state.queries.some(query => query.includes('native_transfer_verifications')))
+  assert.ok(!state.queries.some(query => query.includes('sponsor_budgets')))
+})
+
 // TRC20 confirmation must match the complete event identity, not merely a transaction hash.
 test('TRC20 sponsor confirmation rejects evidence that does not match contract, parties, and amount', async () => {
   const state = {
