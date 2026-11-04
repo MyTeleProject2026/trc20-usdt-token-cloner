@@ -1700,6 +1700,31 @@ export default function WorkflowApp() {
     }
   }
 
+  // Keep Mainnet sponsor configuration and live chain-read diagnostics current.
+  // This is read-only: it never reserves funds, creates signing intent, or submits a transfer.
+  useEffect(() => {
+    let cancelled = false
+    let requestInFlight = false
+    const refreshWhenVisible = () => {
+      if (cancelled || document.visibilityState === 'hidden' || requestInFlight) return
+      requestInFlight = true
+      void loadMainnetDirectSponsorReadiness().finally(() => {
+        requestInFlight = false
+      })
+    }
+    refreshWhenVisible()
+    const interval = window.setInterval(refreshWhenVisible, 30_000)
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      mainnetSponsorReadinessRequestGeneration.current += 1
+    }
+  }, [])
+
   const readSenderSnapshots = async (address: string) => {
     if (!ADDRESS_PATTERN.test(address)) throw new Error('Enter a valid TRON Base58 address.')
     const requestGeneration = ++senderSnapshotRequestGeneration.current
