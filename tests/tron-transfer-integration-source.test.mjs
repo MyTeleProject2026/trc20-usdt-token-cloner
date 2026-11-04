@@ -39,6 +39,15 @@ test('Mainnet sponsor transfer matching uses TronGrid confirmed history and Tatu
   assert.match(route, /solidified-trc20-transfer-verified/)
 })
 
+test('Fincra readiness is owner-session gated before exposing provider and source-wallet status', () => {
+  const start = route.indexOf("router.get('/readiness'")
+  const end = route.indexOf("router.all('/rpc/:network/*'", start)
+  const readiness = route.slice(start, end)
+  assert.match(readiness, /requireOwnerSession\(_req, env\)/)
+  assert.match(readiness, /sourceBalance/)
+  assert.match(entry, /process\.env\.TRON_TRANSFER_UI_ORIGIN/)
+})
+
 test('Fincra payout uses the USDT TRC20 scheme and refuses implicit live activation', () => {
   assert.match(route, /paymentDestination: 'crypto_wallet'/)
   assert.match(route, /paymentScheme: 'usdt_trc20'/)
