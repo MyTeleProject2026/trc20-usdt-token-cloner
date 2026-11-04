@@ -237,6 +237,7 @@ test('TRC-20 fee estimation retries only rate-limited read calls and remains rea
           transaction: { ret: [{ contractRet: 'SUCCESS' }] },
         }
       },
+      estimateEnergy: async () => ({ result: { result: true }, energy_required: 90_000 }),
     },
     trx: {
       getChainParameters: async () => {
