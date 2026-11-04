@@ -110,3 +110,14 @@ test('Fincra signed webhooks are reconciled against the authoritative payout rec
   assert.match(route, /fincra-webhook-settlement-amount-unverified/)
   assert.match(route, /fincra_status IN \('successful','failed'\)/)
 })
+
+test('Fincra webhook accepts payout identity and received amount from the signed event when the status lookup omits those fields', () => {
+  assert.match(route, /payout\.destinationCurrency \|\| eventData\.destinationCurrency/)
+  assert.match(route, /payout\.sourceCurrency \|\| eventData\.sourceCurrency/)
+  assert.match(route, /payout\.paymentScheme \|\| eventData\.paymentScheme/)
+  assert.match(route, /payout\.paymentDestination \|\| eventData\.paymentDestination/)
+  assert.match(route, /const verifiedAmount = providerAmount \?\? signedAmount/)
+  assert.match(route, /provider-event-amount-conflict/)
+  assert.match(route, /providerRecipient && providerRecipient !== row\.recipient_address/)
+  assert.match(route, /signedEventRecipient && signedEventRecipient !== row\.recipient_address/)
+})
