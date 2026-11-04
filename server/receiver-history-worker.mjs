@@ -5,15 +5,16 @@ import { recordTransferVerification } from './database.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
+const TATUM_REST_BASE = 'https://api.tatum.io'
 const NETWORK_HOSTS = Object.freeze({
-  mainnet: 'https://api.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
-  nile: 'https://nile.trongrid.io',
+  mainnet: 'https://tron-mainnet.gateway.tatum.io',
+  shasta: 'https://tron-shasta.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
 })
 const MAX_WALLETS_PER_RUN = 100
 const MAX_PAGES_PER_WALLET = 5
 const MAX_VERIFICATIONS_PER_RUN = 25
-const PAGE_SIZE = 50
+const PAGE_SIZE = 200
 const REQUEST_TIMEOUT_MS = 10000
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
@@ -138,8 +139,7 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
     return { seen: 0, inserted: 0, error: 'invalid-watch-record' }
   }
 
-  const headers = { accept: 'application/json' }
-  if (env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY
+  const headers = { accept: 'application/json', 'x-api-key': env.TATUM_API_KEY }
   let fingerprint = null
   let seen = 0
   let inserted = 0
@@ -147,13 +147,12 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
   try {
     for (let page = 0; page < MAX_PAGES_PER_WALLET; page += 1) {
       const params = new URLSearchParams({
-        only_confirmed: 'true',
-        only_to: 'true',
-        limit: String(PAGE_SIZE),
-        order_by: 'block_timestamp,desc',
+        onlyConfirmed: 'true',
+        onlyTo: 'true',
+        orderBy: 'block_timestamp,desc',
       })
-      if (fingerprint) params.set('fingerprint', fingerprint)
-      const response = await fetchImpl(`${host}/v1/accounts/${encodeURIComponent(walletAddress)}/transactions/trc20?${params.toString()}`, {
+      if (fingerprint) params.set('next', fingerprint)
+      const response = await fetchImpl(`${TATUM_REST_BASE}/v3/tron/transaction/account/${encodeURIComponent(walletAddress)}/trc20?${params.toString()}`, {
         redirect: 'error',
         headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -188,7 +187,7 @@ async function scanWallet(db, wallet, { fetchImpl = fetch, env = process.env } =
           )
         }
       }
-      const next = boundedFingerprint(payload?.meta?.fingerprint)
+      const next = boundedFingerprint(payload?.next)
       if (!next || next === fingerprint || payload.data.length < PAGE_SIZE) break
       fingerprint = next
     }
@@ -253,7 +252,7 @@ async function verifyPendingCandidates(db, { env, fetchImpl }) {
   for (const row of pending.rows) {
     const host = NETWORK_HOSTS[row.network]
     if (!host) continue
-    const tronWeb = new TronWeb({ fullHost: host })
+    const tronWeb = new TronWeb({ fullHost: host, headers: { 'x-api-key': env.TATUM_API_KEY } })
     let contractHex, fromHex, toHex
     try {
       contractHex = normalizeHexAddress(tronWeb.address.toHex(row.token_contract))
@@ -267,7 +266,7 @@ async function verifyPendingCandidates(db, { env, fetchImpl }) {
     if (!contractHex || !approvedContracts.has(contractHex)) continue
 
     const headers = { 'content-type': 'application/json' }
-    if (env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY
+    if (env.TATUM_API_KEY) headers['x-api-key'] = env.TATUM_API_KEY
     const query = async (path) => {
       const response = await fetchImpl(host + path, {
         method: 'POST',

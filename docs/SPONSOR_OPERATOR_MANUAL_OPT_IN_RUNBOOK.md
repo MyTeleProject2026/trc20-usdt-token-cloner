@@ -59,16 +59,16 @@ Open the backend service, not the frontend Static Site:
 - Select **Environment**. Add/update individual variables; do not choose a replace-all operation.
 
 Keep existing working values for `DATABASE_URL`, `TATUM_API_KEY`, and `FRONTEND_ORIGIN`.
-Do not paste them into messages or overwrite them without a reason. `TRONGRID_API_KEY` is an optional
+Do not paste them into messages or overwrite them without a reason. `TATUM_API_KEY` is an optional
 backend-only key for read-only TRON resource diagnostics. When both provider keys are configured,
-the reader prefers TRONGrid and retries an individual failed resource query through Tatum; it does not
+the reader prefers Tatum and retries an individual failed resource query through Tatum; it does not
 switch providers for transaction submission because this reader has no submission capability.
 
 Set the following testnet values only after the sponsor owners authorized monitoring:
 
 | Variable | Value |
 | --- | --- |
-| `TRONGRID_API_KEY` | Optional server-only TRONGrid API key for resource preflight; never create a `VITE_*` frontend copy |
+| `TATUM_API_KEY` | Optional server-only Tatum API key for resource preflight; never create a `VITE_*` frontend copy |
 | `SPONSOR_FEE_NILE_ADDRESS` | Public Nile address owned by the network-fee/resource sponsor |
 | `SPONSOR_ASSET_NILE_ADDRESS` | Public Nile address owned by the asset-principal sponsor; must differ from the fee sponsor |
 | `SPONSOR_USDT_NILE_CONTRACTS` | Comma-separated exact Nile token contract addresses reviewed for this pilot; omit if no approved token is used |
@@ -294,19 +294,15 @@ The backend now paces requests to approved Tatum REST and TRON gateway origins t
 If Nile continues returning HTTP 429, inspect the Tatum dashboard for the API-key type, plan limits, and recent request usage, and wait for the relevant limit window to clear before retrying. Do not repeatedly force refreshes during a throttle window. A 429 remains a testnet preflight blocker; do not enable signing/broadcast or switch to a sender-funded fallback to work around it.
 
 
-## 12. TRONGrid resource-read provider selection
+## 12. Tatum-only resource-read provider
 
-The sponsor resource reader supports the official TRON node API through TRONGrid for the configured network:
+The sponsor resource reader uses the Tatum TRON gateway for Mainnet, Shasta and Nile. It does not retry failed calls through a public node or another provider.
 
-- Mainnet: `https://api.trongrid.io`
-- Shasta: `https://api.shasta.trongrid.io`
-- Nile: `https://nile.trongrid.io`
+- Mainnet: `https://tron-mainnet.gateway.tatum.io`
+- Shasta: `https://tron-shasta.gateway.tatum.io`
+- Nile: `https://tron-nile.gateway.tatum.io`
 
-When `TRONGRID_API_KEY` is configured on the **backend Render Web Service**, resource-read requests try authenticated TRONGrid first with the `TRON-PRO-API-KEY` header, then the configured Tatum provider per endpoint if needed. If the TRONGrid key is absent, the reader tries configured Tatum first and then falls back to public TRONGrid read-only endpoints; if neither key is present, it can attempt public TRONGrid directly. Public requests may be severely rate-limited or rejected, so configure a server-only `TRONGRID_API_KEY` for reliable operation. `TATUM_API_KEY` and `TRONGRID_API_KEY` belong only in backend Render environment variables and must never be exposed in frontend `VITE_*` variables. This is only a read-path provider choice; it does not change transaction submission, signing, sponsor consent, or budget activation. Keep provider keys private and rotate them through provider consoles if exposed.
-
-For a controlled diagnostic, query the Nile and Shasta pilot preflight endpoints in section 4 with `refresh=1`. Confirm the reported resource read succeeds and inspect only the sanitized status fields. TRON's `getaccountresource` reports aggregate resource limits and usage; it does not by itself prove that a specific sponsor has delegated resources to the intended recipient. A delegation check and solidified on-chain evidence are still required. See the [official TRON GetAccountResource reference](https://developers.tron.network/reference/getaccountresource) and [Account Resources overview](https://developers.tron.network/reference/account-resources).
-
-If resource diagnostics still fail, record the network, HTTP status/category, and failure stage without logging request headers, API keys, full environment values, or sponsor addresses. Do not treat provider reachability as proof of sufficient resources or as permission to submit a transaction.
+Configure `TATUM_API_KEY` only on the backend Render Web Service. The key is sent to Tatum in the `x-api-key` header and is never exposed to the browser. If the key is missing, Tatum rejects the request or the gateway is unavailable, resource preflight reports an unavailable state and does not use a public fallback. Tatum reads are read-only; they do not authorize a sponsor delegation, move TRX, or send USDT.
 
 
 ## 13. Frontend wallet sign-in and token contract selection

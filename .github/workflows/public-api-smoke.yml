@@ -200,7 +200,7 @@ jobs:
             throw new Error('Readiness provider fields have unexpected shape')
           }
           const serialized = JSON.stringify(data)
-          if (/TATUM_API_KEY|TRONGRID_API_KEY|Bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key\s*[:=]\s*["'][^"']+/i.test(serialized)) {
+          if (/TATUM_API_KEY|FINCRA_API_KEY|FINCRA_WEBHOOK_SECRET|Bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key\s*[:=]\s*["'][^"']+/i.test(serialized)) {
             throw new Error('Readiness response may expose sensitive material')
           }
           const summary = {
@@ -209,7 +209,6 @@ jobs:
             database: { configured: data.database.configured, ready: data.database.ready },
             providers: {
               tatum: { configured: tatum.configured, reachable: tatum.reachable, status: tatum.status, httpStatus: tatum.httpStatus ?? null },
-              tronGridApiKey: { configured: data.providers.tronGridApiKey?.configured ?? false },
               frontendOrigin: { configured: data.providers.frontendOrigin?.configured ?? false }
             }
           }
@@ -364,7 +363,7 @@ jobs:
             }
           }
           const serialized = JSON.stringify(data)
-          if (/TATUM_API_KEY|TRONGRID_API_KEY|postgres(ql)?:\/\/|Bearer\s+[A-Za-z0-9._~-]{12,}/i.test(serialized)
+          if (/TATUM_API_KEY|FINCRA_API_KEY|FINCRA_WEBHOOK_SECRET|postgres(ql)?:\/\/|Bearer\s+[A-Za-z0-9._~-]{12,}/i.test(serialized)
             || /"address"\s*:\s*"T[1-9A-HJ-NP-Za-km-z]{33}"/i.test(serialized)) {
             throw new Error('Pilot preflight exposed a provider secret, database URL, bearer token or sponsor address')
           }

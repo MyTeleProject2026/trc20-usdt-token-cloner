@@ -10,9 +10,9 @@
 
 - Adds `GET /api/tron/receiver-history?network=mainnet|shasta|nile&address=T...&limit=20`.
 - Supports an optional exact TRC-20 `contract` filter and bounds `limit` to 1–50.
-- Supports TRONGrid cursor pagination with a validated, bounded fingerprint token; the UI can load older pages and deduplicates repeated rows during refresh.
-- Queries only the known TRONGrid host for the selected network; callers cannot provide an arbitrary upstream URL.
-- Uses the optional server-side `TRONGRID_API_KEY` without returning it to clients.
+- Supports Tatum cursor pagination with a validated, bounded cursor token; the UI can load older pages and deduplicates repeated rows during refresh.
+- Queries only the known Tatum gateway host for the selected network; callers cannot provide an arbitrary upstream URL.
+- Uses the optional server-side `TATUM_API_KEY` without returning it to clients.
 - Adds an incoming history panel to the Interact tab. While that tab is open, it refreshes every 30 seconds and also has a manual refresh button.
 - Labels every result as an indexed candidate awaiting solidified verification. It does not treat an indexer row as a completed transfer or create/credit a balance.
 
@@ -53,7 +53,7 @@ The worker is a one-shot process intended for a scheduled Render Cron Job. This 
 3. Use build command `npm ci` and start command `npm run worker:receiver-history`.
 4. Set `RECEIVER_HISTORY_WORKER_ENABLED=true` only on the Cron Job, never on the public web service unless a separately reviewed deployment design requires it.
 5. Link the existing database using Render's private connection string as `DATABASE_URL`. Never paste database URLs or provider keys into Git, client code, issues, or logs.
-6. Configure `TRONGRID_API_KEY` as a server-only secret if available. Do not set `TRON_VERIFIED_TOKEN_CONTRACTS` until exact token contracts have been independently reviewed and converted to the expected hexadecimal form; the worker normalizes optional `41` prefixes.
+6. Configure `TATUM_API_KEY` as a server-only secret if available. Do not set `TRON_VERIFIED_TOKEN_CONTRACTS` until exact token contracts have been independently reviewed and converted to the expected hexadecimal form; the worker normalizes optional `41` prefixes.
 7. Start conservatively with a low-frequency schedule such as `*/15 * * * *` (UTC), then inspect run duration, provider rate limits, database load, and error checkpoints before considering a faster cadence. Cron runs can incur separate charges; check current Render pricing before creating the service.
 8. Register only authorized addresses with the protected administrative endpoint after a server-only `RECEIVER_WATCHLIST_ADMIN_TOKEN` (minimum 32 characters) has been securely provisioned. Never expose this token in browser code.
 9. Verify the first run reports bounded scan counts, then query the persisted endpoint and compare any `verified-on-chain` record against the solidified transaction receipt. An indexed candidate is not proof of a successful transfer; neither state proves an exchange credited a deposit.

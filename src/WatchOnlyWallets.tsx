@@ -15,13 +15,14 @@ type WatchSnapshot = {
   note: string
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const STORAGE_KEY = 'tron-token-studio:watch-only-addresses:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const RPC: Record<NetworkId, string> = {
-  mainnet: 'https://api.trongrid.io',
-  nile: 'https://nile.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
+  mainnet: API_BASE + '/api/tatum/rpc/mainnet',
+  nile: API_BASE + '/api/tatum/rpc/nile',
+  shasta: API_BASE + '/api/tatum/rpc/shasta',
 }
 const TOKEN_ABI = [
   { constant: true, inputs: [{ name: 'owner', type: 'address' }], name: 'balanceOf', outputs: [{ name: 'balance', type: 'uint256' }], stateMutability: 'view', type: 'function' },

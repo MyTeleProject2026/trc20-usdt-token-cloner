@@ -1,8 +1,8 @@
 import { verifySolidifiedTrc20Transfer } from './tron-verification.mjs'
 
 const SOLIDIFIED_HOSTS = Object.freeze({
-  mainnet: 'https://api.trongrid.io',
-  nile: 'https://nile.trongrid.io',
+  mainnet: 'https://tron-mainnet.gateway.tatum.io',
+  nile: 'https://tron-nile.gateway.tatum.io',
 })
 const TX_ID = /^[0-9a-f]{64}$/i
 const POSITIVE_INTEGER = /^[1-9][0-9]{0,77}$/
@@ -22,7 +22,7 @@ export function createGasFreeChainVerifier({
   env = process.env,
   tronWebFactory = async (host) => {
     const { TronWeb } = await import('tronweb')
-    return new TronWeb({ fullHost: host })
+    return new TronWeb({ fullHost: host, headers: { 'x-api-key': env.TATUM_API_KEY } })
   },
 } = {}) {
   return async function verifyGasFreeTraceOnChain({ network, trace } = {}) {
@@ -30,7 +30,7 @@ export function createGasFreeChainVerifier({
       verified: false,
       status,
       reason,
-      source: 'TRON SolidityNode transaction body and receipt',
+      source: 'Tatum TRON SolidityNode transaction body and receipt',
     })
 
     const host = SOLIDIFIED_HOSTS[network]
@@ -64,10 +64,10 @@ export function createGasFreeChainVerifier({
         return hex.length === 42 && /^41/i.test(hex) ? hex.slice(2).toLowerCase() : hex.toLowerCase()
       }
       const [tokenContractAddress, fromAddress, toAddress] = addresses.map(toVerificationHex)
-      const headers = { 'content-type': 'application/json' }
-      if (typeof env.TRONGRID_API_KEY === 'string' && env.TRONGRID_API_KEY.trim()) {
-        headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY.trim()
+      if (typeof env.TATUM_API_KEY !== 'string' || !env.TATUM_API_KEY.trim()) {
+        return notVerified('provider-credentials-missing', 'tatum-api-key-missing')
       }
+      const headers = { 'content-type': 'application/json', 'x-api-key': env.TATUM_API_KEY.trim() }
 
       async function querySolidified(path) {
         const response = await fetchImpl(host + path, {

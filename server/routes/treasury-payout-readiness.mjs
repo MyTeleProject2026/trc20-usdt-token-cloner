@@ -38,8 +38,8 @@ export function createTreasuryPayoutReadinessRouter({
   env = process.env,
   tronWebFactory = async (apiKey) => {
     const { TronWeb } = await import('tronweb')
-    const headers = apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {}
-    return new TronWeb({ fullHost: 'https://api.trongrid.io', headers })
+    const headers = apiKey ? { 'x-api-key': apiKey } : {}
+    return new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io', headers })
   },
 } = {}) {
   const router = Router()
@@ -69,7 +69,7 @@ export function createTreasuryPayoutReadinessRouter({
     }
 
     try {
-      const tronWeb = await tronWebFactory(env.TRONGRID_API_KEY)
+      const tronWeb = await tronWebFactory(env.TATUM_API_KEY)
       if (!tronWeb?.isAddress?.(address) || typeof tronWeb?.trx?.getBalance !== 'function'
         || typeof tronWeb?.contract !== 'function') {
         throw new Error('provider-unavailable')

@@ -5,6 +5,7 @@ import { createServer as createHttpServer } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
+import { createTatumRpcRouter } from './routes/tatum-rpc.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
 import sponsorIntegrationReadinessRoutes from './routes/sponsor-integration-readiness.mjs'
 import sponsorTestnetPilotRoutes from './routes/sponsor-testnet-pilot.mjs'
@@ -18,9 +19,7 @@ import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
-import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
-import fireblocksInventorySyncRoutes from './routes/fireblocks-inventory-sync.mjs'
-import fireblocksInventoryStatusRoutes from './routes/fireblocks-inventory-status.mjs'
+import { createFincraPayoutRouter } from './routes/fincra-payouts.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
@@ -121,7 +120,6 @@ app.get('/api/readiness', async (_req, res) => {
   }
   const providers = {
     tatum,
-    tronGridApiKey: { configured: Boolean(process.env.TRONGRID_API_KEY) },
     frontendOrigin: { configured: allowedOrigins.size > 0 },
   }
   const ready = isReadOnlyServiceReady({ database, providers })
@@ -138,6 +136,7 @@ app.get('/api/readiness', async (_req, res) => {
   })
 })
 app.use('/api', tatumRoutes)
+app.use('/api/tatum', createTatumRpcRouter())
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', sponsorFeeEstimateRoutes)
 app.use('/api/tron', nativeTronRoutes)
@@ -152,9 +151,7 @@ app.use('/api/gasfree', gasFreeRoutes)
 app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/auth/owner', createOwnerAuthRouter())
 app.use('/api/okx', okxDepositStatusRoutes)
-app.use('/api/treasury', treasuryWithdrawalsRoutes)
-app.use('/api/treasury', fireblocksInventorySyncRoutes())
-app.use('/api/treasury', fireblocksInventoryStatusRoutes())
+app.use('/api/treasury', createFincraPayoutRouter())
 app.use('/api/tron', sponsorRequestIntakeRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())

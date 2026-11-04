@@ -121,7 +121,7 @@ router.get('/tron/token-balance', async (req, res) => {
   }
   try {
     const { TronWeb } = await import('tronweb');
-    const tronWeb = new TronWeb({ fullHost: networkHosts[network] });
+    const tronWeb = new TronWeb({ fullHost: networkHosts[network], headers: { 'x-api-key': process.env.TATUM_API_KEY } });
     if (!tronWeb.isAddress(contract) || !tronWeb.isAddress(address)) {
       return res.status(400).json({ success: false, error: 'invalid-address', message: 'Token contract and receiver must be valid TRON addresses.' });
     }
@@ -202,7 +202,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   const hash = req.params.hash
   const { contract, from, to, amountSun, network = 'mainnet' } = req.query
   if (!txPattern.test(hash)) return res.status(400).json({ success: false, error: 'invalid-transaction-id' })
-  const networkHosts = { mainnet: 'https://api.trongrid.io', shasta: 'https://api.shasta.trongrid.io', nile: 'https://nile.trongrid.io' }
+  const networkHosts = { mainnet: 'https://tron-mainnet.gateway.tatum.io', shasta: 'https://tron-shasta.gateway.tatum.io', nile: 'https://tron-nile.gateway.tatum.io' }
   if (typeof network !== 'string' || !Object.hasOwn(networkHosts, network)) return res.status(400).json({ success: false, error: 'invalid-network', message: 'network must be mainnet, shasta, or nile.' })
   const hexAddress = /^(?:41)?[0-9a-fA-F]{40}$/
   if (![contract, from, to].every((value) => typeof value === 'string' && hexAddress.test(value))) {
@@ -229,7 +229,7 @@ router.get('/tron/verify-transfer/:hash', async (req, res) => {
   }
   const base = networkHosts[network]
   const headers = { 'content-type': 'application/json' }
-  if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY
+  if (process.env.TATUM_API_KEY) headers['x-api-key'] = process.env.TATUM_API_KEY
   const querySolidified = async (path) => {
     const response = await tatumProviderFetch(base + path, {
       method: 'POST',

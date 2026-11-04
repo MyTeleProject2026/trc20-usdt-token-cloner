@@ -1780,7 +1780,7 @@ export default function WorkflowApp() {
         const key = recordKey(record)
         let current = merged.get(key)
         let targetKey = key
-        // TRONGrid event_index and SolidityNode receipt-log index are not
+        // Indexed event APIs and SolidityNode receipt-log indexes are not
         // guaranteed to share the same numbering. Match a verified receipt to
         // its exact transaction/contract/sender/receiver/amount before adding a
         // second row for the same transfer.
@@ -2749,7 +2749,7 @@ export default function WorkflowApp() {
                 <div><strong>Real transfer execution remains unavailable</strong><p>The application cannot sign or broadcast a sponsored transfer in this build. Only the sponsor-review request above is available on testnet.</p></div>
                 <button type="button" className="studio-button studio-button--disabled" disabled aria-disabled="true"><LockKeyhole size={16} aria-hidden="true" /> Sponsored transfer unavailable</button>
               </div>
-              <p className="studio-footnote">This route is testnet-only. It does not use your wallet balance, create a reservation, call Fireblocks, sign, submit or broadcast a transaction. Testnet assets cannot be withdrawn as real Mainnet USDT or credited as an exchange deposit.</p>
+              <p className="studio-footnote">This route is testnet-only. It does not use your wallet balance, create a reservation, sign, submit or broadcast a transaction. Testnet assets cannot be withdrawn as real Mainnet USDT or credited as an exchange deposit.</p>
             </section>
           )}
 

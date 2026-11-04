@@ -18,9 +18,10 @@ import {
   isEncryptedWalletRecord,
 } from './lib/wallet-vault-crypto.mjs'
 
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const NETWORKS = Object.freeze({
-  nile: { label: 'Nile Testnet', rpc: 'https://nile.trongrid.io', explorer: 'https://nile.tronscan.org' },
-  shasta: { label: 'Shasta Testnet', rpc: 'https://api.shasta.trongrid.io', explorer: 'https://shasta.tronscan.org' },
+  nile: { label: 'Nile Testnet', rpc: API_BASE + '/api/tatum/rpc/nile', explorer: 'https://nile.tronscan.org' },
+  shasta: { label: 'Shasta Testnet', rpc: API_BASE + '/api/tatum/rpc/shasta', explorer: 'https://shasta.tronscan.org' },
 })
 const WALLET_KEY = 'tron-transfer:testnet-wallet:v1'
 const TOKEN_KEY = 'tron-transfer:testnet-tokens:v1'

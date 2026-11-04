@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeOff, FileKey2, Home, Info, KeyRound, Landmark, Layers, LockKeyhole, LogOut, Plus, RefreshCw, Send, Settings, ShieldCheck, UserRound, Wallet, X } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
-import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import { buildFincraPayoutAuthorizationMessage } from './fincra-payout-auth.mjs'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -135,32 +135,6 @@ type OwnerSponsorLiquiditySnapshot = {
   error?: string
 }
 
-type FireblocksInventorySnapshot = {
-  id?: string | null
-  workflowRunId?: string | null
-  workflowRunAttempt?: number | null
-  commitSha?: string | null
-  verificationStatus?: 'verified' | 'blocked' | 'unknown'
-  checkedAt?: string | null
-  workflowRunUrl?: string | null
-  configuration?: {
-    apiBase?: string | null
-    vaultAccountId?: string | null
-    usdtAssetId?: string | null
-    trxAssetId?: string | null
-    treasuryAddress?: string | null
-    usdtContract?: string | null
-  } | null
-  checks?: Record<string, boolean | null>
-  balances?: {
-    fireblocksUsdtAvailableBaseUnits?: string | null
-    chainUsdtBalanceBaseUnits?: string | null
-    fireblocksTrxAvailableBaseUnits?: string | null
-    chainTrxBalanceSun?: string | null
-  } | null
-  reasons?: string[]
-}
-
 const TRANSFER_HISTORY_KEY = 'tron-token-studio:real-transfer-history:v1'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -170,9 +144,9 @@ const TOKEN_WATCH_KEY = 'tron-token-studio:token-watchlist:v1'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const PRIVATE_KEY_PATTERN = /^(?:0x)?[0-9a-f]{64}$/i
 const RPC: Record<NetworkId, string> = {
-  mainnet: 'https://api.trongrid.io',
-  nile: 'https://nile.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
+  mainnet: API_BASE + '/api/tatum/rpc/mainnet',
+  nile: API_BASE + '/api/tatum/rpc/nile',
+  shasta: API_BASE + '/api/tatum/rpc/shasta',
 }
 const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const TOKEN_ABI = [
@@ -365,10 +339,9 @@ export default function WalletVault() {
   const [ownerSessionToken, setOwnerSessionToken] = useState('')
   const [ownerSessionAddress, setOwnerSessionAddress] = useState('')
   const [serverTreasuryReadiness, setServerTreasuryReadiness] = useState<any>(null)
-  const [fireblocksInventorySnapshot, setFireblocksInventorySnapshot] = useState<FireblocksInventorySnapshot | null>(null)
-  const [fireblocksInventoryError, setFireblocksInventoryError] = useState('')
   const [treasuryPayoutRecipient, setTreasuryPayoutRecipient] = useState('')
   const [treasuryPayoutAmount, setTreasuryPayoutAmount] = useState('')
+  const [treasuryPayoutBeneficiary, setTreasuryPayoutBeneficiary] = useState('')
   const [treasuryPayoutConfirm, setTreasuryPayoutConfirm] = useState('')
   const [treasuryPayoutBusy, setTreasuryPayoutBusy] = useState(false)
   const [treasuryPayoutStatus, setTreasuryPayoutStatus] = useState<any>(null)
@@ -618,9 +591,6 @@ export default function WalletVault() {
             ? sponsorLiquidity.error.replaceAll('-', ' ')
             : 'Verified sponsor liquidity is unavailable. No balance was assumed.')
         }
-        // Fireblocks is optional; sponsor-wallet liquidity does not depend on its inventory service.
-        setFireblocksInventorySnapshot(null)
-        setFireblocksInventoryError('')
         if (!fundingResponse.ok || funding?.success !== true) {
           setOwnerTreasuryError('Owner login is valid, but a verified treasury funding snapshot is unavailable. Check the configured owner and treasury addresses and backend provider status.')
         }
@@ -631,8 +601,6 @@ export default function WalletVault() {
         setOwnerSponsorLiquidity(null)
         setOwnerSponsorLiquidityError('Owner session could not be verified. Sponsor liquidity is not available.')
         setServerTreasuryReadiness(null)
-        setFireblocksInventorySnapshot(null)
-        setFireblocksInventoryError('The owner-only Fireblocks inventory status is unavailable.')
         setOwnerTreasuryError(caught instanceof Error
           ? caught.message
           : 'Could not automatically load the Mainnet treasury status from the owner session.')
@@ -979,25 +947,16 @@ export default function WalletVault() {
   }
 
   async function refreshOwnerTreasury() {
-    if (!unlocked) {
-      setOwnerTreasuryError('Unlock the configured owner wallet before checking treasury funding.')
-      return
-    }
-    if (network !== 'mainnet') {
-      setOwnerTreasuryError('Switch to TRON Mainnet to check the owner treasury.')
-      return
-    }
-
+    if (!unlocked) throw new Error('Unlock the owner wallet locally before verifying its session.')
+    if (network !== 'mainnet') throw new Error('Owner payout authorization is available only on TRON Mainnet.')
     setOwnerTreasuryLoading(true)
     setOwnerTreasuryError('')
-    setOwnerTreasurySnapshot(null)
     try {
       const address = unlocked.record.address
       const signer = createTronWeb('mainnet', unlocked.privateKey)
       if (String(signer.defaultAddress?.base58 || '') !== address) {
-        throw new Error('The unlocked signing address does not match the owner wallet record.')
+        throw new Error('The unlocked signing address does not match the wallet record.')
       }
-
       const challengeResponse = await fetch(API_BASE + '/api/auth/tron/challenge', {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -1011,7 +970,6 @@ export default function WalletVault() {
         || typeof challenge.message !== 'string' || typeof challenge.nonce !== 'string') {
         throw new Error('Could not issue an owner-signature challenge. Check the backend, database and allowed app origin.')
       }
-
       const signature = await signer.trx.signMessageV2(challenge.message)
       if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(signature)) {
         throw new Error('The wallet SDK did not return a valid owner identity signature.')
@@ -1030,66 +988,117 @@ export default function WalletVault() {
         || typeof verified.sessionToken !== 'string') {
         throw new Error('The backend did not verify the Mainnet owner wallet signature.')
       }
-
-      const statusResponse = await fetch(API_BASE + '/api/treasury/owner/funding-status?network=mainnet', {
-        method: 'GET',
-        headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
-        credentials: 'omit',
-        cache: 'no-store',
-        redirect: 'error',
-      })
-      const status = await statusResponse.json().catch(() => null)
-      if (!statusResponse.ok || status?.success !== true || status?.ownerAccessVerified !== true) {
-        if (status?.error === 'owner-wallet-not-authorized') {
-          throw new Error('This wallet is not the configured treasury owner. Set TREASURY_OWNER_ADDRESS to the owner wallet address in the backend environment.')
-        }
-        if (status?.error === 'treasury-owner-not-configured') {
-          throw new Error('The backend needs TREASURY_OWNER_ADDRESS configured with the owner’s verified Mainnet wallet address.')
-        }
-        throw new Error('Owner-only treasury verification failed. No payout was signed or submitted.')
-      }
       setOwnerSessionToken(verified.sessionToken)
-      setOwnerTreasurySnapshot(status as OwnerTreasurySnapshot)
-      const payoutReadinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
+      setOwnerSessionAddress(address)
+      setOwnerTreasurySnapshot(null)
+      const readinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
         credentials: 'omit',
         cache: 'no-store',
         redirect: 'error',
       })
-      const payoutReadiness = await payoutReadinessResponse.json().catch(() => null)
-      setServerTreasuryReadiness(payoutReadiness && typeof payoutReadiness === 'object' ? payoutReadiness : null)
+      const readiness = await readinessResponse.json().catch(() => null)
+      if (!readinessResponse.ok || readiness?.success !== true || readiness.provider !== 'fincra') {
+        throw new Error(typeof readiness?.error === 'string' ? readiness.error : 'Fincra payout readiness could not be loaded.')
+      }
+      setServerTreasuryReadiness(readiness)
+      setOwnerTreasuryError('')
+      setNotice('Owner wallet identity verified. Each Fincra payout still requires a separate signature for its exact destination and amount.')
     } catch (caught) {
-      setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
+      setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner wallet verification failed.')
+      throw caught
     } finally {
       setOwnerTreasuryLoading(false)
     }
   }
 
   async function submitServerTreasuryPayout() {
-    throw new Error('Server-funded payout submission is disabled in this supervised development build. Read-only status checks remain available.')
+    if (!unlocked) throw new Error('Unlock the local owner wallet before authorizing a Fincra payout.')
+    if (network !== 'mainnet') throw new Error('Fincra payouts are only available for TRON Mainnet USDT.')
+    if (!ownerSessionToken || ownerSessionAddress !== unlocked.record.address) {
+      throw new Error('Verify the owner session with this exact unlocked Mainnet wallet first.')
+    }
+    if (treasuryPayoutConfirm !== 'SEND') throw new Error('Type SEND to confirm this exact payout request.')
+    if (serverTreasuryReadiness?.sandboxSubmissionEnabled !== true) {
+      throw new Error('Fincra sandbox submission is not ready. Review the backend readiness blockers; live-value payouts are disabled in this build.')
+    }
+    if (!ADDRESS_PATTERN.test(treasuryPayoutRecipient)) throw new Error('Enter a valid TRON recipient address.')
+    if (!treasuryPayoutBeneficiary.trim()) throw new Error('Enter the beneficiary account-holder name.')
+    const amountBaseUnits = parseUnitsDecimal(treasuryPayoutAmount, 6)
+    const customerReference = 'tts-fincra-' + Date.now().toString(36) + '-' + crypto.randomUUID().replaceAll('-', '')
+    const authorizationExpiresAt = Date.now() + 90_000
+    setTreasuryPayoutBusy(true)
+    setTreasuryPayoutError('')
+    try {
+      const signer = createTronWeb('mainnet', unlocked.privateKey)
+      if (String(signer.defaultAddress?.base58 || '') !== unlocked.record.address) {
+        throw new Error('The signing address does not match the unlocked owner wallet.')
+      }
+      const message = buildFincraPayoutAuthorizationMessage({
+        origin: window.location.origin,
+        ownerAddress: unlocked.record.address,
+        recipientAddress: treasuryPayoutRecipient,
+        accountHolderName: treasuryPayoutBeneficiary.trim(),
+        amountBaseUnits,
+        customerReference,
+        authorizationExpiresAt,
+      })
+      const ownerAuthorizationSignature = await signer.trx.signMessageV2(message)
+      if (typeof ownerAuthorizationSignature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(ownerAuthorizationSignature)) {
+        throw new Error('The wallet did not return a valid owner payout signature.')
+      }
+      saveTreasuryPayoutReference(unlocked.record.address, customerReference)
+      const response = await fetch(API_BASE + '/api/treasury/withdrawals', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({
+          recipientAddress: treasuryPayoutRecipient,
+          accountHolderName: treasuryPayoutBeneficiary.trim(),
+          amountUsdt: treasuryPayoutAmount.trim(),
+          idempotencyKey: customerReference,
+          ownerAuthorizationSignature,
+          authorizationExpiresAt,
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (payload && typeof payload === 'object') setTreasuryPayoutStatus(payload)
+      if (!response.ok && response.status !== 202) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error.replaceAll('-', ' ') : 'Fincra payout request failed.')
+      }
+      setTreasuryPayoutConfirm('')
+      if (payload?.payout?.status === 'provider-successful-awaiting-chain') {
+        setNotice('Fincra reports a successful payout. The app has not marked it confirmed until Tatum verifies the exact solidified USDT transfer.')
+      } else if (payload?.status === 'submission-unknown') {
+        setTreasuryPayoutError('Fincra submission outcome is unknown. Refresh this same customer reference; do not submit another payout.')
+      } else {
+        setNotice('Fincra payout request recorded. It is not a completed transfer until provider status and Tatum chain verification are complete.')
+      }
+    } catch (caught) {
+      setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Could not prepare the Fincra payout request.')
+    } finally {
+      setTreasuryPayoutBusy(false)
+    }
   }
 
   async function lookupServerTreasuryPayout() {
-    const key = treasuryPayoutStatus?.withdrawal?.idempotencyKey || treasuryPayoutStatus?.idempotencyKey
+    const key = treasuryPayoutStatus?.payout?.customerReference
+      || treasuryPayoutStatus?.customerReference
+      || readTreasuryPayoutReference()?.idempotencyKey
     if (!ownerSessionToken || typeof key !== 'string') {
-      setTreasuryPayoutError('There is no stored withdrawal key to look up.')
+      setTreasuryPayoutError('There is no saved Fincra customer reference to look up.')
       return
     }
     setTreasuryPayoutBusy(true)
     setTreasuryPayoutError('')
     try {
-      const verifyResponse = await fetch(API_BASE + '/api/treasury/withdrawals/' + encodeURIComponent(key) + '/verify', {
-        method: 'POST',
-        headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
-        credentials: 'omit',
-        cache: 'no-store',
-        redirect: 'error',
-      })
-      const verification = await verifyResponse.json().catch(() => null)
-      if (verifyResponse.status >= 500) {
-        throw new Error(typeof verification?.error === 'string' ? verification.error : 'On-chain receipt verification is temporarily unavailable.')
-      }
       const response = await fetch(API_BASE + '/api/treasury/withdrawals/' + encodeURIComponent(key), {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
@@ -1098,20 +1107,36 @@ export default function WalletVault() {
         redirect: 'error',
       })
       const payload = await response.json().catch(() => null)
-      if (!response.ok || payload?.success !== true) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Withdrawal status lookup failed.')
-      const combined = { ...payload, verification: verification?.verification || null }
+      if (!response.ok || payload?.success !== true) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error.replaceAll('-', ' ') : 'Fincra payout status lookup failed.')
+      }
+      let combined = payload
+      if (payload.payout?.status === 'provider-successful-awaiting-chain') {
+        const verifyResponse = await fetch(API_BASE + '/api/treasury/withdrawals/' + encodeURIComponent(key) + '/verify', {
+          method: 'POST',
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + ownerSessionToken },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        })
+        const verification = await verifyResponse.json().catch(() => null)
+        if (verification && typeof verification === 'object') combined = { ...payload, verification: verification.verification || verification }
+        if (!verifyResponse.ok && verifyResponse.status >= 500) {
+          throw new Error(typeof verification?.error === 'string' ? verification.error : 'Tatum chain verification is temporarily unavailable.')
+        }
+      }
       setTreasuryPayoutStatus(combined)
-      if (verification?.verification?.status === 'confirmed') {
-        setNotice('The exact treasury sender, official USDT contract, recipient, amount, successful solidified receipt, and matching official Transfer event were verified on TRON.')
-      } else if (verification?.verification?.status === 'failed') {
-        setTreasuryPayoutError('The transaction is confirmed on-chain but its contract execution failed. No successful USDT transfer was verified.')
-      } else if (verification?.verification?.status === 'verification-mismatch') {
-        setTreasuryPayoutError('On-chain transaction details did not match this withdrawal. Treat it as unverified and investigate before any retry.')
+      if (combined.payout?.status === 'chain-confirmed') {
+        setNotice('Tatum verified the exact official USDT TRC20 transfer in solidified Mainnet state.')
+      } else if (combined.payout?.status === 'chain-failed') {
+        setTreasuryPayoutError('The TRON receipt is solidified but reports failed contract execution. No successful USDT transfer is confirmed.')
+      } else if (combined.payout?.status === 'provider-failed') {
+        setTreasuryPayoutError('Fincra reports that this payout failed. Check its provider record before considering any new request.')
       } else {
-        setNotice('Withdrawal record loaded. The confirmed receipt is still pending or unavailable; do not treat a broadcast-accepted status as confirmed.')
+        setNotice('Fincra payout status refreshed. Chain confirmation is not yet established.')
       }
     } catch (caught) {
-      setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Withdrawal status lookup failed.')
+      setTreasuryPayoutError(caught instanceof Error ? caught.message : 'Fincra payout status lookup failed.')
     } finally {
       setTreasuryPayoutBusy(false)
     }
@@ -1361,34 +1386,6 @@ export default function WalletVault() {
       setTransferReview(null)
       setTransferAcknowledged(false)
       setMainnetSendPhrase('')
-    }
-  }
-
-  async function copyFireblocksEnvTemplate() {
-    const template = [
-      'TREASURY_SIGNER_MODE=fireblocks',
-      'FIREBLOCKS_API_BASE=<verified-production-region-api-base>',
-      'FIREBLOCKS_API_KEY=<organization-issued-api-user-id>',
-      'FIREBLOCKS_SECRET_KEY_PATH=/etc/secrets/fireblocks_api_private_key.pem',
-      'FIREBLOCKS_VAULT_ACCOUNT_ID=<verified-vault-account-id>',
-      'FIREBLOCKS_USDT_ASSET_ID=<verified-official-tron-usdt-asset-id>',
-      'FIREBLOCKS_TRX_ASSET_ID=<verified-native-trx-asset-id>',
-      'TREASURY_ADDRESS=<verified-tron-vault-address>',
-      'OWNER_WALLET_ADDRESS=<organization-approved-owner-address>',
-      'TREASURY_OWNER_ADDRESS=<same-organization-approved-owner-address>',
-      'TREASURY_MAX_PAYOUT_USDT=<organization-approved-per-payout-limit>',
-      'TREASURY_DAILY_LIMIT_USDT=<organization-approved-daily-limit>',
-      'TREASURY_FEE_LIMIT_SUN=<organization-approved-fee-reserve-in-sun>',
-      'TREASURY_WITHDRAWALS_ENABLED=false',
-      'TREASURY_TRX_WITHDRAWALS_ENABLED=false',
-    ].join('\n')
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
-      await navigator.clipboard.writeText(template)
-      setError('')
-      setNotice('Copied a placeholder-only template. Replace placeholders in the backend Render service only; never enter credentials in this wallet UI.')
-    } catch {
-      setError('Clipboard access is unavailable. Use the documented backend Render setup steps instead; do not paste Fireblocks secrets into this page.')
     }
   }
 
@@ -1673,40 +1670,6 @@ export default function WalletVault() {
         <button type="button" className="wallet-vault-primary" onClick={() => navigatePanel('account')}><UserRound size={16} /> Review read-only owner status</button>
       </section>
 
-      <details className="wallet-vault-panel wallet-vault-fireblocks-setup" hidden={activePanel !== 'treasury'}>
-        <summary className="wallet-vault-panel-head wallet-vault-setup-summary">
-          <span className="wallet-vault-step"><Landmark size={16} /></span>
-          <div>
-            <h2>Optional Fireblocks managed custody</h2>
-            <p>Fireblocks is not required for the external sponsor-wallet model. Expand only if a participating organization independently chooses Fireblocks.</p>
-          </div>
-        </summary>
-        <div className="wallet-vault-transfer-warning" role="note">
-          <strong>Current target: sponsor-owned TRON wallets</strong>
-          <p>Tron Token Studio now reads allowlisted sponsor budget capacity separately from your owner wallet. A sponsor organization may keep custody in its own TRON wallet; no Fireblocks API key, vault ID, asset ID, or RSA secret is needed to display the verified liquidity portfolio.</p>
-          <p>Important: the external sponsor wallet signing and broadcast flow is not yet integrated. This dashboard is read-only and does not submit withdrawals or imply that a sponsor has authorized a payout.</p>
-        </div>
-        <div className="wallet-vault-transfer-section" aria-labelledby="fireblocks-inventory-heading">
-          <h3 id="fireblocks-inventory-heading">Optional Fireblocks inventory diagnostics</h3>
-          <p>This section applies only to organizations that choose Fireblocks. Leaving it unconfigured does not block the sponsor-liquidity dashboard.</p>
-          <p className="wallet-vault-caption">
-            <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/actions/workflows/fireblocks-inventory-sync.yml" target="_blank" rel="noopener noreferrer">Open optional Fireblocks inventory workflow ↗</a>
-          </p>
-          {fireblocksInventoryError && <p className="wallet-vault-caption">{fireblocksInventoryError}</p>}
-          {!fireblocksInventorySnapshot && <p className="wallet-vault-caption">No optional Fireblocks inventory snapshot is available. This is not a blocker for external sponsor-wallet visibility.</p>}
-          {fireblocksInventorySnapshot && (
-            <div className="wallet-vault-review-grid">
-              <div><small>Inventory result</small><strong>{fireblocksInventorySnapshot.verificationStatus || 'Unknown'}</strong></div>
-              <div><small>Checked at</small><strong>{fireblocksInventorySnapshot.checkedAt ? new Date(fireblocksInventorySnapshot.checkedAt).toLocaleString() : 'Not recorded'}</strong></div>
-              <div><small>Vault account ID</small><strong>{fireblocksInventorySnapshot.configuration?.vaultAccountId || 'Not configured'}</strong></div>
-              <div><small>USDT asset identity</small><strong>{fireblocksInventorySnapshot.configuration?.usdtAssetId || 'Not configured'}</strong></div>
-              <div><small>TRX asset identity</small><strong>{fireblocksInventorySnapshot.configuration?.trxAssetId || 'Not configured'}</strong></div>
-              <div><small>Provider-available USDT</small><strong>{fireblocksInventorySnapshot.balances?.fireblocksUsdtAvailableBaseUnits != null ? formatUnits(fireblocksInventorySnapshot.balances.fireblocksUsdtAvailableBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
-            </div>
-          )}
-        </div>
-      </details>
-
       <section className="wallet-vault-panel wallet-vault-locked-action" hidden={Boolean(unlocked) || (activePanel !== 'wallet' && activePanel !== 'send' && activePanel !== 'activity')}>
         <div className="wallet-vault-panel-head"><span className="wallet-vault-step"><LockKeyhole size={16} /></span><div><h2>{activePanel === 'wallet' ? 'Unlock to view personal wallet assets' : activePanel === 'send' ? 'Unlock to authorize a transfer' : 'Unlock to verify activity'}</h2><p>This is a private owner console. A public address can be monitored without its private key, but it cannot authorize spending.</p></div></div>
         {activePanel === 'wallet' && network === 'mainnet' && (
@@ -1918,111 +1881,85 @@ export default function WalletVault() {
               {network === 'mainnet' && (
                 <section id="owner-treasury-funding" className="wallet-vault-transfer-section" aria-labelledby="owner-treasury-funding-heading" hidden={activePanel !== 'treasury'}>
                   <div className="wallet-vault-panel-head">
-                    <span className="wallet-vault-step">OWNER</span>
-                    <div><h2 id="owner-treasury-funding-heading">Owner treasury funding check</h2><p>Verify actual funds held by the server-configured treasury.</p></div>
+                    <span className="wallet-vault-step">F</span>
+                    <div><h2 id="owner-treasury-funding-heading">Fincra USDT TRC20 payouts</h2><p>Fincra supplies the payout settlement account; Tatum verifies the final TRON Mainnet transfer.</p></div>
                   </div>
                   <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>Read-only treasury funding check</strong>
-                    <p>The overview above loads read-only treasury status from your private owner-console session. This optional verification signs a short identity message locally with the owner wallet; the backend checks it against TREASURY_OWNER_ADDRESS. The balance query reads real Mainnet TRX and official Tether USDT from TREASURY_MAINNET_ADDRESS (falling back to SPONSOR_MAINNET_ADDRESS, then TREASURY_OWNER_ADDRESS). It does not mint USDT or broadcast a transfer; no USDT is generated by this read-only check.</p>
+                    <strong>Fincra-funded payout · official USDT only</strong>
+                    <p>The payout amount is paid from the authorized Fincra business account, not from your local wallet. The account must be funded with USDT or have a separately approved credit arrangement. This application cannot create principal or guarantee an exchange deposit credit.</p>
+                    <p>Each payout is bound to your owner wallet signature, exact TRON recipient, beneficiary name, amount and one-time reference. Live-value execution remains blocked in this build.</p>
                   </div>
-                  <button type="button" className="wallet-vault-primary" disabled={ownerTreasuryLoading} onClick={() => void refreshOwnerTreasury()}>
-                    <RefreshCw size={16} /> {ownerTreasuryLoading ? 'Verifying owner and reading chain…' : 'Sign owner check & read treasury'}
-                  </button>
-                  {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
-                  {ownerTreasurySnapshot?.ownerAccessVerified === true && (
-                    <>
-                      <div className="wallet-vault-review-grid">
-                        <div className="wallet-vault-review-wide"><small>Configured treasury address</small><a href={explorerUrl('mainnet', ownerTreasurySnapshot.treasuryAddress || '')} target="_blank" rel="noopener noreferrer">{ownerTreasurySnapshot.treasuryAddress || 'Unavailable'} ↗</a></div>
-                        <div><small>Verified on-chain TRX</small><strong>{ownerTreasurySnapshot.native?.status === 'verified' ? (ownerTreasurySnapshot.native.balanceTRX || '0') + ' TRX' : 'Unavailable'}</strong></div>
-                        <div><small>Official Mainnet USDT</small><strong>{ownerTreasurySnapshot.officialUsdt?.status === 'verified' && typeof ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === 'string' ? formatUnits(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits, 6) + ' USDT' : 'Unavailable — not verified'}</strong></div>
-                        <div className="wallet-vault-review-wide"><small>Snapshot checked</small><strong>{ownerTreasurySnapshot.checkedAt || 'Time unavailable'}</strong></div>
-                      </div>
-                      <p className="wallet-vault-caption">This is an observed chain balance, not an accounting balance or a payout authorization. The balance is not increased by this app. An actual outgoing transfer still requires genuine treasury assets and a separately reviewed signer/approval process.</p>
-                      {ownerTreasurySnapshot.officialUsdt?.status === 'verified'
-                        && ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === '0' && (
-                        <p className="wallet-vault-risk-note" role="note">The treasury currently holds zero genuine USDT. No USDT payout can be made until real USDT arrives at this treasury address.</p>
-                      )}
-                      {ownerTreasurySnapshot.treasuryAddress === unlocked.record.address
-                        && ownerTreasurySnapshot.officialUsdt?.status === 'verified'
-                        && ownerTreasurySnapshot.officialUsdt.tokenContract === OFFICIAL_MAINNET_USDT
-                        && ownerTreasurySnapshot.officialUsdt.decimals === 6
-                        && typeof ownerTreasurySnapshot.officialUsdt.balanceBaseUnits === 'string'
-                        && /^(0|[1-9][0-9]*)$/.test(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits)
-                        && BigInt(ownerTreasurySnapshot.officialUsdt.balanceBaseUnits) > 0n && (
-                        <button type="button" className="wallet-vault-primary" disabled={busy || transferInProgress} onClick={() => void performWalletAction(selectTreasuryUsdtSender)}>
-                          <ShieldCheck size={16} /> View treasury status (read-only)
-                        </button>
-                      )}
-                      {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
-                        <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
-                      )}
-                    </>
-                  )}
-                  <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>Server treasury payout — disabled in this build</strong>
-                    <p>This panel is read-only in the current supervised development build. It does not sign or submit a payout. Any future production treasury workflow requires separate review and authorization by the responsible organization.</p>
+                  <div className="wallet-vault-review-grid">
+                    <div><small>Provider</small><strong>Fincra</strong></div>
+                    <div><small>Payout scheme</small><strong>USDT · TRC20</strong></div>
+                    <div><small>Chain verification</small><strong>Tatum · SolidityNode</strong></div>
+                    <div><small>Provider environment</small><strong>{serverTreasuryReadiness?.providerEnvironment || 'Not configured'}</strong></div>
+                    <div><small>Fincra configuration</small><strong>{serverTreasuryReadiness?.configuration?.configured === true ? 'Configured' : 'Incomplete'}</strong></div>
+                    <div><small>Tatum API access</small><strong>{serverTreasuryReadiness?.configuration?.tatumConfigured === true ? 'Configured' : 'Missing'}</strong></div>
+                    <div><small>Fincra payout flag</small><strong>{serverTreasuryReadiness?.configuration?.featureFlagEnabled === true ? 'Enabled for sandbox checks' : 'Disabled (safe default)'}</strong></div>
+                    <div><small>Live-value execution</small><strong>{serverTreasuryReadiness?.livePayoutExecutionEnabled === true ? 'Enabled' : 'Disabled by build safety gate'}</strong></div>
+                    <div><small>Provider funding verification</small><strong>{serverTreasuryReadiness?.fundingVerified === true ? 'Verified' : 'Not verified by this app'}</strong></div>
                   </div>
-                  {serverTreasuryReadiness && (
-                    <div className="wallet-vault-review-grid">
-                      <div className="wallet-vault-review-wide"><small>Server treasury address</small><strong>{serverTreasuryReadiness.treasuryAddress || 'Not configured'}</strong></div>
-                      <div><small>Backend preflight flag</small><strong>{serverTreasuryReadiness.withdrawalsEnabled === true ? 'Passed (informational only)' : 'Not passed'}</strong></div>
-                      <div><small>Application payout execution</small><strong>{serverTreasuryReadiness?.executionEnabled === true ? 'Enabled' : serverTreasuryReadiness?.executionBlocker === 'real-value-payout-execution-disabled-in-this-build' ? 'Disabled by server safety gate' : 'Disabled in this build'}</strong></div>
-                      <div><small>Configuration completeness</small><strong>{serverTreasuryReadiness.configuration?.configurationComplete === true ? 'Complete' : 'Incomplete'}</strong></div>
-                      <div><small>USDT payout switch</small><strong>{serverTreasuryReadiness.configuration?.featureFlagEnabled === true ? 'Enabled' : 'Disabled (safe default)'}</strong></div>
-                      <div><small>USDT asset identity</small><strong>{serverTreasuryReadiness.providerAssetIdentityVerified === true ? 'Verified' : 'Unverified'}</strong></div>
-                      <div><small>USDT vault address match</small><strong>{serverTreasuryReadiness.providerVaultAddressVerified === true ? 'Verified' : 'Unverified / mismatch'}</strong></div>
-                      <div><small>Native TRX asset identity</small><strong>{serverTreasuryReadiness.nativeTrxAssetIdentityVerified === true ? 'Verified' : 'Unverified'}</strong></div>
-                      <div><small>Native TRX vault address match</small><strong>{serverTreasuryReadiness.nativeTrxVaultAddressVerified === true ? 'Verified' : 'Unverified / mismatch'}</strong></div>
-                      <div><small>Verified treasury USDT</small><strong>{typeof serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits) ? formatUnits(serverTreasuryReadiness.treasuryUsdtBalanceBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
-                      <div><small>Provider-available USDT</small><strong>{typeof serverTreasuryReadiness.providerAvailableUsdtBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.providerAvailableUsdtBaseUnits) ? formatUnits(serverTreasuryReadiness.providerAvailableUsdtBaseUnits, 6) + ' USDT' : 'Unavailable'}</strong></div>
-                      <div><small>Verified treasury TRX</small><strong>{typeof serverTreasuryReadiness.treasuryTrxBalanceSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryTrxBalanceSun) ? formatUnits(serverTreasuryReadiness.treasuryTrxBalanceSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
-                      <div><small>Provider-available TRX</small><strong>{typeof serverTreasuryReadiness.providerAvailableTrxBaseUnits === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.providerAvailableTrxBaseUnits) ? formatUnits(serverTreasuryReadiness.providerAvailableTrxBaseUnits, 6) + ' TRX' : 'Unavailable'}</strong></div>
-                      <div><small>Configured fee reserve / estimate threshold</small><strong>{typeof serverTreasuryReadiness.treasuryFeeLimitSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.treasuryFeeLimitSun) ? formatUnits(serverTreasuryReadiness.treasuryFeeLimitSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
-                      <div><small>Current reserved fee requirement</small><strong>{typeof serverTreasuryReadiness.requiredFeeReserveSun === 'string' && /^(0|[1-9][0-9]*)$/.test(serverTreasuryReadiness.requiredFeeReserveSun) ? formatUnits(serverTreasuryReadiness.requiredFeeReserveSun, 6) + ' TRX' : 'Unavailable'}</strong></div>
-                      <div><small>Fee reserve funding check</small><strong>{serverTreasuryReadiness.networkFeeCapCovered === true ? 'Covered' : 'Not covered'}</strong></div>
-                      <div><small>All pending fee reservations</small><strong>{serverTreasuryReadiness.feeReserveCovered === true ? 'Covered' : 'Not covered'}</strong></div>
-                    </div>
-                  )}
-                  {serverTreasuryReadiness?.withdrawalsEnabled !== true && (
+                  {ownerSessionToken && ownerSessionAddress === unlocked.record.address ? (
+                    <p className="wallet-vault-caption">Owner session verified for {shortenAddress(ownerSessionAddress)}. A fresh local signature is still required for every payout.</p>
+                  ) : (
                     <div className="wallet-vault-transfer-warning" role="status">
-                      <strong>Real payout readiness</strong>
-                      <p>Server-funded USDT withdrawals remain disabled unless the backend signer, persistent database, payout limits and actual treasury balance all pass checks. This screen never creates USDT or pays a recipient from an empty treasury.</p>
-                      {Array.isArray(serverTreasuryReadiness?.configuration?.missing) && serverTreasuryReadiness.configuration.missing.length > 0 && (
-                        <p><strong>Backend configuration still missing:</strong> {serverTreasuryReadiness.configuration.missing.join(', ')}</p>
-                      )}
-                      {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && (
-                        <p><strong>Current funding/readiness blockers:</strong> {serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
-                      )}
-                      {serverTreasuryReadiness?.payoutBlockers?.includes('treasury-trx-below-fee-cap') && (
-                        <p>The treasury needs verified TRX for the configured reserve. The backend checks Fireblocks low/medium/high estimates before submission, but that estimate threshold is not a provider-enforced hard fee cap. Actual costs must be reconciled after the transaction; the owner wallet does not pay the treasury's fee.</p>
-                      )}
+                      <strong>Owner authorization required</strong>
+                      <p>Sign in to the owner console with this unlocked Mainnet wallet before preparing a Fincra payout.</p>
+                      <button type="button" className="wallet-vault-secondary" disabled={ownerTreasuryLoading} onClick={() => void performWalletAction(refreshOwnerTreasury)}>
+                        {ownerTreasuryLoading ? 'Verifying owner…' : 'Verify owner wallet'}
+                      </button>
                     </div>
                   )}
-                  {serverTreasuryReadiness?.withdrawalsEnabled === true
-                    && typeof serverTreasuryReadiness.treasuryAddress === 'string'
-                    && typeof ownerTreasurySnapshot?.treasuryAddress === 'string'
-                    && !serverTreasuryAddressMatchesSnapshot && (
-                    <p className="wallet-vault-risk-note" role="alert">Payout is blocked: the server signing address does not match the treasury address whose on-chain balance was checked. Fix the backend address configuration and repeat the owner check.</p>
-                  )}
-                  {serverTreasuryReadiness?.withdrawalsEnabled === true && !serverTreasuryHasFunds && (
-                    <p className="wallet-vault-risk-note" role="note">The server treasury has no verified positive USDT balance. Fund it with genuine USDT and verify the balance before requesting a payout.</p>
-                  )}
-                  <div className="wallet-vault-transfer-warning" role="note">
-                    <strong>No payout request can be submitted from this build</strong>
-                    <p>Recipient and amount entry are intentionally unavailable. This panel is limited to read-only treasury observations and previously saved request-reference lookup; it does not create a payout, reserve funds, sign, or broadcast a transaction.</p>
+                  <div className="wallet-vault-form-grid">
+                    <label className="wallet-vault-field">
+                      <span>Recipient TRON address</span>
+                      <input value={treasuryPayoutRecipient} onChange={event => setTreasuryPayoutRecipient(event.target.value.trim())} placeholder="T… destination address" autoComplete="off" spellCheck={false} />
+                    </label>
+                    <label className="wallet-vault-field">
+                      <span>Beneficiary account-holder name</span>
+                      <input value={treasuryPayoutBeneficiary} onChange={event => setTreasuryPayoutBeneficiary(event.target.value)} placeholder="Name registered for the receiving wallet" autoComplete="name" maxLength={120} />
+                    </label>
+                    <label className="wallet-vault-field">
+                      <span>USDT amount</span>
+                      <input inputMode="decimal" value={treasuryPayoutAmount} onChange={event => setTreasuryPayoutAmount(event.target.value)} placeholder="0.00" autoComplete="off" />
+                    </label>
+                    <label className="wallet-vault-field">
+                      <span>Type SEND to confirm the exact request</span>
+                      <input value={treasuryPayoutConfirm} onChange={event => setTreasuryPayoutConfirm(event.target.value)} placeholder="SEND" autoComplete="off" />
+                    </label>
                   </div>
+                  <p className="wallet-vault-caption">This initial route uses a Fincra USDT source wallet. Other source currencies and quote conversion are not enabled in this UI route. Amount and daily limits are enforced by the backend.</p>
+                  {Array.isArray(serverTreasuryReadiness?.payoutBlockers) && serverTreasuryReadiness.payoutBlockers.length > 0 && (
+                    <div className="wallet-vault-transfer-warning" role="status">
+                      <strong>Current readiness blockers</strong>
+                      <p>{serverTreasuryReadiness.payoutBlockers.map((item: string) => item.replaceAll('-', ' ')).join('; ')}</p>
+                    </div>
+                  )}
+                  {ownerTreasuryError && <p className="wallet-vault-risk-note" role="alert">{ownerTreasuryError}</p>}
                   {treasuryPayoutError && <p className="wallet-vault-risk-note" role="alert">{treasuryPayoutError}</p>}
+                  <button type="button" className="wallet-vault-primary" disabled={
+                    treasuryPayoutBusy || !unlocked || !ownerSessionToken || ownerSessionAddress !== unlocked.record.address
+                    || !ADDRESS_PATTERN.test(treasuryPayoutRecipient) || !treasuryPayoutBeneficiary.trim()
+                    || !treasuryPayoutAmount.trim() || treasuryPayoutConfirm !== 'SEND'
+                    || serverTreasuryReadiness?.sandboxSubmissionEnabled !== true
+                  } onClick={() => void submitServerTreasuryPayout()}>
+                    {treasuryPayoutBusy ? 'Preparing Fincra request…' : 'Review & authorize Fincra payout'}
+                  </button>
                   {treasuryPayoutStatus && (
                     <div className="wallet-vault-review-grid">
-                      <div><small>Request status</small><strong>{treasuryPayoutStatus.withdrawal?.status || treasuryPayoutStatus.status || 'unknown'}</strong></div>
-                      <div className="wallet-vault-review-wide"><small>Idempotency key</small><strong>{treasuryPayoutStatus.withdrawal?.idempotencyKey || treasuryPayoutStatus.idempotencyKey || 'Unavailable'}</strong></div>
-                      {treasuryPayoutStatus.withdrawal?.transactionHash && <div className="wallet-vault-review-wide"><small>Transaction</small><a href={explorerTransactionUrl('mainnet', treasuryPayoutStatus.withdrawal.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryPayoutStatus.withdrawal.transactionHash} ↗</a></div>}
-                      {treasuryPayoutStatus.transactionHash && <div className="wallet-vault-review-wide"><small>Transaction</small><a href={explorerTransactionUrl('mainnet', treasuryPayoutStatus.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryPayoutStatus.transactionHash} ↗</a></div>}
-                      <div className="wallet-vault-review-wide"><small>Verification reminder</small><strong>Broadcast acceptance is not confirmation. Check the successful solidified receipt and exchange deposit status.</strong></div>
+                      <div><small>Fincra payout status</small><strong>{treasuryPayoutStatus.payout?.status || treasuryPayoutStatus.status || 'unknown'}</strong></div>
+                      <div className="wallet-vault-review-wide"><small>Customer reference</small><strong>{treasuryPayoutStatus.payout?.customerReference || treasuryPayoutStatus.customerReference || 'Unavailable'}</strong></div>
+                      {treasuryPayoutStatus.payout?.recipientAddress && <div className="wallet-vault-review-wide"><small>Recipient</small><strong>{treasuryPayoutStatus.payout.recipientAddress}</strong></div>}
+                      {treasuryPayoutStatus.payout?.amountBaseUnits && <div><small>Amount requested</small><strong>{formatUnits(treasuryPayoutStatus.payout.amountBaseUnits, 6)} USDT</strong></div>}
+                      {treasuryPayoutStatus.payout?.transactionHash && <div className="wallet-vault-review-wide"><small>TRON transaction</small><a href={explorerTransactionUrl('mainnet', treasuryPayoutStatus.payout.transactionHash)} target="_blank" rel="noopener noreferrer">{treasuryPayoutStatus.payout.transactionHash} ↗</a></div>}
+                      {treasuryPayoutStatus.verification?.status && <div><small>Chain verification</small><strong>{treasuryPayoutStatus.verification.status}</strong></div>}
                     </div>
                   )}
-                  <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !treasuryPayoutStatus} onClick={() => void lookupServerTreasuryPayout()}>Verify receipt & look up saved status</button>
-                  <p className="wallet-vault-caption">Sponsored transfer submission remains disabled. No user-funded fallback, hidden balance, or external exchange credit is created by this panel.</p>
+                  <button type="button" className="wallet-vault-secondary" disabled={treasuryPayoutBusy || !(treasuryPayoutStatus?.payout?.customerReference || treasuryPayoutStatus?.customerReference || readTreasuryPayoutReference()?.idempotencyKey)} onClick={() => void lookupServerTreasuryPayout()}>
+                    {treasuryPayoutBusy ? 'Checking Fincra and Tatum…' : 'Refresh payout status & verify chain'}
+                  </button>
+                  <p className="wallet-vault-caption">An API acceptance or Fincra “successful” result is not chain confirmation. Only a matching successful solidified receipt and official USDT Transfer event verified through Tatum is shown as confirmed.</p>
                 </section>
               )}
 

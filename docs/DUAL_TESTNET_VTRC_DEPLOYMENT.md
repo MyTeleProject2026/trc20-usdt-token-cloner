@@ -71,7 +71,7 @@ The backend request-intake route will accept a VTRC request only when the submit
 
 Do not generate it in ChatGPT, a public password generator, a browser form that stores values, GitHub, or a frontend variable. Store it only in the Render backend environment and the organization's approved secret manager. Do not share it in chat.
 
-The person who can view the sponsor queue is not automatically authorized to activate a budget, approve a transfer, sign a transaction, or use Fireblocks. Keep those roles and approval quorums separate.
+The person who can view the sponsor queue is not automatically authorized to activate a budget, approve a transfer, sign a transaction, or use an external custody provider. Keep those roles and approval quorums separate.
 
 ## Acceptance criteria
 
