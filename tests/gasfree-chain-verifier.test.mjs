@@ -104,7 +104,7 @@ test('GasFree chain verifier confirms only an exact solidified TRC-20 Transfer e
 test('GasFree chain verifier rejects a successful receipt with a mismatched Transfer event', async () => {
   const fixtures = makeChainFixtures({ mismatchedReceiver: true })
   const verify = createGasFreeChainVerifier({
-    env: {},
+    env: { TATUM_API_KEY: 'server-only-test-key' },
     tronWebFactory: fakeTronWebFactory,
     fetchImpl: async (url) => url.endsWith('/walletsolidity/gettransactionbyid')
       ? providerResponse(fixtures.transaction)
@@ -121,7 +121,7 @@ test('GasFree chain verifier fails closed when solidified provider is unavailabl
     env: { TATUM_API_KEY: 'server-only-test-key' },
     tronWebFactory: fakeTronWebFactory,
     fetchImpl: async (_url, options) => {
-      assert.equal(options.headers['TRON-PRO-API-KEY'], 'server-only-test-key')
+      assert.equal(options.headers['x-api-key'], 'server-only-test-key')
       return providerResponse({}, false)
     },
   })
