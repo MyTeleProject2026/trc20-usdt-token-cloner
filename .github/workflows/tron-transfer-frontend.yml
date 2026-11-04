@@ -1,0 +1,26 @@
+name: Tron Transfer Frontend
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Frontend-Tron-Transfer/**'
+      - '.github/workflows/tron-transfer-frontend.yml'
+  pull_request:
+    paths:
+      - 'Frontend-Tron-Transfer/**'
+      - '.github/workflows/tron-transfer-frontend.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend-Tron-Transfer/package.json
+      - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - run: npm test --prefix Frontend-Tron-Transfer
+      - run: npm run build --prefix Frontend-Tron-Transfer
