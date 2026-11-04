@@ -595,7 +595,9 @@ export function createTronTransferRouter({ env = process.env, fetchImpl = fetch 
     try {
       await ensureSchema(db)
       const client = await db.connect()
-      let row\n      let firstAttempt = false\n      try {
+      let row
+      let firstAttempt = false
+      try {
         await client.query('BEGIN')
         const found = await client.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE id=$1 FOR UPDATE`, [req.params.id])
         if (!found.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, error: 'sponsor-request-not-found' }) }
