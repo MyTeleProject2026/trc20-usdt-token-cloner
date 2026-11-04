@@ -339,6 +339,7 @@ export async function settleSponsorChainFeeObservation(input = {}) {
         success: true, duplicate: false, settled: true,
         settlementId: inserted.rows[0].id, settlementReference,
         settledFeeSun: feeSun.toString(), feeBudgetSettled: true,
+        executionResult: observation.execution_result,
       }
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {})
