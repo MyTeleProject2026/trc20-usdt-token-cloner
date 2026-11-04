@@ -122,6 +122,16 @@ test('PostgreSQL stores finalized failed fee observations separately and idempot
       accounting_classification: 'trx-burn-payer-observed',
     })
 
+    await assert.rejects(
+      pool.query(
+        `UPDATE trc20_token_clone.sponsor_chain_fee_observations
+            SET reported_fee_sun = 1
+          WHERE network = 'nile' AND transaction_hash = $1`,
+        [hash],
+      ),
+      /immutable/,
+    )
+
     const transfer = await pool.query(
       `SELECT status FROM trc20_token_clone.sponsor_transfers WHERE idempotency_key = $1`,
       [key],
