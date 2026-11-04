@@ -19,21 +19,18 @@ Do not add a conversion endpoint that reports testnet balances as Mainnet funds.
 
 ## Sponsorship integration gate
 
-The current `GET /api/tron/sponsorship/status` response intentionally remains fail-closed:
+The current `GET /api/tron/sponsorship/status` response intentionally remains fail-closed for payouts while accurately describing the implemented signer:
 - `enabled: false`
 - `mainnetEnabled: false`
 - `canSubmitSponsoredTransfer: false`
-- `provider: null`
-- `status: not-integrated`
+- `provider: null` (the sponsor signs in its own connected wallet; no custody provider is required)
+- `status: testnet-wallet-signer-integrated-mainnet-disabled`
+- `signerArchitecture.providerIndependent: true`
+- `signerArchitecture.fireblocksRequired: false`
 
-Do not change these values merely because an API key or environment variable exists. Before implementing a provider adapter, confirm all of the following from the provider's current official documentation and account:
-- Supported network is TRON Mainnet, not only Shasta/Nile.
-- Exact supported transaction type and TRC-20 contract requirements.
-- Complete fee schedule, including any fee-payment transaction, minimums, limits, and refund behavior.
-- Authentication/signature scheme, request/response schemas, rate limits, and error handling.
-- Whether the user must still pay a service fee or provide Energy/Bandwidth.
-- Provider terms, operational support, and production credentials.
-- Successful end-to-end tests using dedicated wallets and a low-value Mainnet transaction before enabling production.
+The exact sponsor-controlled wallet-signing path exists for Shasta/Nile testnets; see [PROVIDER_INDEPENDENT_SPONSOR_SYSTEM.md](./PROVIDER_INDEPENDENT_SPONSOR_SYSTEM.md). Fireblocks is not needed for that workflow. Mainnet signing/broadcast is not implemented. Do not change the fail-closed payout booleans merely because an API key, connected wallet, budget record, or environment variable exists.
+
+Before a production Mainnet sponsor path can be considered, the organization must document the account ownership and spending mandate, confirm the funded asset-principal and separate fee/resource accounts, define signer/approval policy and limits, implement and security-review the Mainnet signing/submission adapter, complete exact transaction and fee reconciliation, and independently verify a controlled end-to-end settlement.
 
 Never collect a wallet seed phrase or private key on the server. The user's wallet should review and sign its own transfer. Keep provider credentials only in backend environment variables or a managed secret store.
 
