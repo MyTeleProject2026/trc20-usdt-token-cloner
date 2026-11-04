@@ -1107,6 +1107,12 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
 }, async (t) => {
   const { createMainnetDirectSponsorRequestStore, OFFICIAL_MAINNET_USDT_CONTRACT } =
     await import('../server/routes/mainnet-direct-sponsor-requests.mjs')
+  const {
+    buildMainnetDirectSponsorApprovalMessage,
+    mainnetDirectSponsorRequestSnapshotHash,
+    resolveMainnetDirectSponsorApprovalPolicy,
+    sha256Hex,
+  } = await import('../server/mainnet-direct-sponsor-approval.mjs')
   const store = createMainnetDirectSponsorRequestStore(process.env)
   const cleanupPool = new Pool({ connectionString: databaseUrl })
   const idempotencyKey = 'pg-mainnet-direct-' + randomUUID()
@@ -1154,7 +1160,116 @@ test('Mainnet direct sponsor requests persist idempotently in the isolated Postg
     const queue = await store.listRequests({ limit: 100 })
     assert.equal(queue.success, true)
     assert.ok(queue.requests.some((request) => request.idempotencyKey === idempotencyKey))
+
+    const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+    const organizationReference = 'PG-SPONSOR-ORG-2026'
+    const agreementReference = 'PG-SPONSOR-AGREEMENT-2026'
+    const agreementSha256 = 'a'.repeat(64)
+    const policy = resolveMainnetDirectSponsorApprovalPolicy({
+      SPONSOR_ASSET_MAINNET_ADDRESS: sponsorAddress,
+      SPONSOR_MAINNET_DIRECT_ORGANIZATION_REFERENCE: organizationReference,
+      SPONSOR_MAINNET_DIRECT_AGREEMENT_REFERENCE: agreementReference,
+      SPONSOR_MAINNET_DIRECT_AGREEMENT_SHA256: agreementSha256,
+      SPONSOR_MAINNET_DIRECT_MAX_PAYOUT_USDT_BASE_UNITS: '250000000',
+      SPONSOR_APPROVED_AGREEMENT_REFERENCES: [
+        [agreementReference, organizationReference, 'mainnet', sponsorAddress, 'asset-grant', 'USDT', OFFICIAL_MAINNET_USDT_CONTRACT].join('|'),
+      ].join(';'),
+    })
+    assert.equal(policy.configured, true)
+    const issuedAtMs = Date.now()
+    const issuedAt = new Date(issuedAtMs).toISOString()
+    const challengeExpiresAt = new Date(issuedAtMs + 10 * 60 * 1000).toISOString()
+    const nonce = randomUUID().replace(/-/g, '').padEnd(48, 'f').slice(0, 64)
+    const challengeId = 'pg-mainnet-approval-' + randomUUID()
+    const approvalMessage = buildMainnetDirectSponsorApprovalMessage({
+      request: original,
+      policy,
+      nonce,
+      issuedAt,
+      expiresAt: challengeExpiresAt,
+    })
+    const createdChallenge = await store.createApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nonceHash: sha256Hex(nonce),
+      messageSha256: sha256Hex(approvalMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId,
+      policy,
+      issuedAt,
+      expiresAt: challengeExpiresAt,
+    })
+    assert.equal(createdChallenge.success, true)
+    const duplicateChallenge = await store.createApprovalChallenge({
+      idempotencyKey,
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nonceHash: sha256Hex(nonce + '1'),
+      messageSha256: sha256Hex(approvalMessage),
+      requestSnapshotSha256: mainnetDirectSponsorRequestSnapshotHash(original),
+      challengeId: challengeId + '-duplicate',
+      policy,
+      issuedAt,
+      expiresAt: challengeExpiresAt,
+    })
+    assert.equal(duplicateChallenge.success, false)
+    assert.equal(duplicateChallenge.reason, 'approval-challenge-already-open')
+
+    const consumedChallenge = await store.consumeApprovalChallenge({
+      nonceHash: sha256Hex(nonce),
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nowMs: issuedAtMs + 1,
+    })
+    assert.equal(consumedChallenge.success, true)
+    assert.equal(consumedChallenge.challenge.requestId, original.id)
+    assert.equal(consumedChallenge.request.idempotencyKey, idempotencyKey)
+    const replayedChallenge = await store.consumeApprovalChallenge({
+      nonceHash: sha256Hex(nonce),
+      sponsorAddress,
+      origin: 'https://sponsor-review.test',
+      nowMs: issuedAtMs + 2,
+    })
+    assert.equal(replayedChallenge.success, false)
+    assert.equal(replayedChallenge.reason, 'approval-challenge-invalid-expired-or-replayed')
+
+    const approvedAt = new Date(issuedAtMs + 3).toISOString()
+    const approvalExpiresAt = new Date(issuedAtMs + 30 * 60 * 1000).toISOString()
+    const recordedApproval = await store.recordSponsorApproval({
+      requestId: original.id,
+      challengeId,
+      sponsorAddress,
+      organizationReference,
+      agreementReference,
+      agreementSha256,
+      messageSha256: sha256Hex(approvalMessage),
+      signature: '0x' + 'b'.repeat(130),
+      approvedAt,
+      expiresAt: approvalExpiresAt,
+    })
+    assert.equal(recordedApproval.success, true)
+    assert.equal(recordedApproval.approval.sponsorAddress, sponsorAddress)
+    const requesterApprovalView = await store.findRequest(idempotencyKey, input.requesterAddress)
+    assert.equal(requesterApprovalView.success, true)
+    assert.equal(requesterApprovalView.sponsorApproval.agreementReference, agreementReference)
+
+    const approvedQueue = await store.listSponsorReviewQueue({ sponsorAddress, limit: 100 })
+    const approvedRow = approvedQueue.requests.find((request) => request.idempotencyKey === idempotencyKey)
+    assert.equal(approvedRow.sponsorApproval.status, 'approved-active')
   } finally {
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_sponsor_approvals
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
+    await cleanupPool.query(`
+      DELETE FROM trc20_token_clone.mainnet_direct_sponsor_approval_challenges
+      WHERE request_id IN (
+        SELECT id FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1
+      )
+    `, [idempotencyKey]).catch(() => {})
     await cleanupPool.query(
       'DELETE FROM trc20_token_clone.mainnet_direct_sponsor_requests WHERE idempotency_key = $1',
       [idempotencyKey],
