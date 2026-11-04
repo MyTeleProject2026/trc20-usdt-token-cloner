@@ -1476,6 +1476,10 @@ export async function transitionSponsorTransferWithPool(input, db, { initialize 
       return { updated: false, reason: 'transfer-not-found' }
     }
     const transfer = result.rows[0]
+    if (nextStatus === 'confirmed' && !['nile', 'shasta'].includes(transfer.network)) {
+      await client.query('ROLLBACK')
+      return { updated: false, reason: 'mainnet-sponsor-confirmation-disabled' }
+    }
     if (transfer.status === nextStatus) {
       const sameHash = !['submitted', 'confirmed'].includes(nextStatus)
         || transfer.transaction_hash?.trim().toLowerCase() === transactionHash?.toLowerCase()
