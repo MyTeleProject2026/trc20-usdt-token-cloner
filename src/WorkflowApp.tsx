@@ -1327,7 +1327,7 @@ export default function WorkflowApp() {
       if (!response.ok || payload?.success !== true || payload?.request?.idempotencyKey !== key) {
         throw new Error(payload?.message || payload?.error || ('Request status lookup failed (HTTP ' + response.status + ').'))
       }
-      setMainnetSponsorRequest(payload.request as MainnetDirectSponsorRequestRecord)
+      setMainnetSponsorRequest({ ...(payload.request as MainnetDirectSponsorRequestRecord), sponsorApproval: payload.sponsorApproval || null })
     } catch (caught) {
       setMainnetSponsorRequestError(caught instanceof Error ? caught.message : 'Could not retrieve the Mainnet sponsor request.')
     } finally {
