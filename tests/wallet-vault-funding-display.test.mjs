@@ -10,7 +10,7 @@ test('owner sponsor navigation uses a separate local-wallet request path and doe
   const requests = await read('server/routes/mainnet-direct-sponsor-requests.mjs')
   const approval = await read('server/routes/mainnet-direct-sponsor-approval.mjs')
   assert.ok(vault.includes("function navigatePanel(panel:"))
-  assert.ok(vault.includes("onClick={() => navigatePanel('treasury')}))
+  assert.ok(vault.includes("onClick={() => navigatePanel('treasury')}"))
   assert.ok(vault.includes('<DirectSponsorPayouts'))
   assert.ok(sponsor.includes('/api/tron/sponsorship/mainnet-direct/requests'))
   assert.ok(sponsor.includes('This workflow can store a request and verify request-specific sponsor approval messages.'))
