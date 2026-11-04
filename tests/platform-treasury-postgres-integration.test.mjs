@@ -46,9 +46,11 @@ function createTestTronWeb() {
       fromHex: (hex) => addressByHex.get(String(hex).replace(/^0x/i, '')) || '',
     },
     contract: () => ({
-      decimals: () => ({ call: async () => 6 }),
-      symbol: () => ({ call: async () => 'USDT' }),
-      balanceOf: () => ({ call: async () => '1000000000' }),
+      at: async () => ({
+        decimals: () => ({ call: async () => 6 }),
+        symbol: () => ({ call: async () => 'USDT' }),
+        balanceOf: () => ({ call: async () => '1000000000' }),
+      }),
     }),
     trx: {
       getBalance: async () => '10000000000',
