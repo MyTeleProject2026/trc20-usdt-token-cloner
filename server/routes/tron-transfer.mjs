@@ -504,7 +504,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
         description: cleanString(item?.description || item?.reason, 180) || null,
         sender: cleanString(item?.customerName || item?.senderName || item?.sender?.name, 120) || null,
         createdAt: cleanString(item?.createdAt || item?.created_at || item?.initiatedAt, 64) || null,
-      })).filter((item) => item.action === 'credit' && (!item.currency || item.currency === 'USDT'))
+      })).filter((item) => item.action === 'credit' && item.currency === 'USDT')
       return res.json({
         success: true,
         source: 'fincra-business-wallet-ledger',
