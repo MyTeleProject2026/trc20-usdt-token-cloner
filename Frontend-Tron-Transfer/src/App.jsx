@@ -636,9 +636,10 @@ export default function App() {
                       <div className="recipient-balance-grid">
                         <article className="metric-card"><span>Native TRX balance</span><strong>{recipientInspection.nativeBalanceTRX ?? 'Unavailable'} <small>TRX</small></strong></article>
                         <article className="metric-card"><span>Token balance</span><strong>{recipientInspection.tokenBalance ? formatUnits(recipientInspection.tokenBalance.balanceBaseUnits, recipientInspection.tokenBalance.decimals) : 'Not queried' } <small>{recipientInspection.tokenBalance?.symbol || ''}</small></strong></article>
+                        <article className="metric-card"><span>Account state</span><strong>{recipientInspection.accountExists ? 'Account found' : 'Not activated / not found'}</strong></article>
                         <article className="metric-card"><span>Network</span><strong>{String(recipientInspection.network).toUpperCase()}</strong></article>
                       </div>
-                      <div className="section-heading"><div><span className="eyebrow">TATUM INDEXED FEED</span><h3>Incoming transaction history</h3><p>{recipientInspection.historyStatus === 'tatum-history-read' ? 'Confirmed incoming transactions returned by Tatum.' : 'Tatum history could not be loaded for this lookup.'}</p></div></div>
+                      <div className="section-heading"><div><span className="eyebrow">TATUM INDEXED FEED</span><h3>Incoming transaction history</h3><p>{recipientInspection.historyStatus === 'complete' ? 'Both confirmed incoming TRX and TRC-20 history feeds were read through Tatum.' : recipientInspection.historyStatus === 'partial' ? 'Only one incoming history feed was available; results are partial.' : 'Tatum could not load incoming history for this lookup.'}</p></div></div>
                       {!recipientInspection.incomingHistory?.length ? <div className="empty-state"><ArrowDownLeft size={25}/><b>No incoming transfers found</b><p>This is a live indexer response, not proof that an address has never received funds.</p></div> : recipientInspection.incomingHistory.map((item, index) => (
                         <article className="history-item" key={item.txid || index}>
                           <div className="history-icon incoming"><ArrowDownLeft size={17}/></div>
