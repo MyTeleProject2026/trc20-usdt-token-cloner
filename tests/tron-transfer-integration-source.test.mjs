@@ -39,6 +39,13 @@ test('Mainnet sponsor transfer matching uses TronGrid confirmed history and Tatu
   assert.match(route, /solidified-trc20-transfer-verified/)
 })
 
+test('provider readiness actively probes both TRON testnet SolidityNodes', () => {
+  assert.match(route, /inspectSolidifiedNode\('nile'\)/)
+  assert.match(route, /inspectSolidifiedNode\('shasta'\)/)
+  assert.match(route, /testnetNodes: \{ nile: nileNode, shasta: shastaNode \}/)
+  assert.match(route, /testnetAllReachable: nileNode\.checked && shastaNode\.checked/)
+})
+
 test('Fincra readiness is owner-session gated before exposing provider and source-wallet status', () => {
   const start = route.indexOf("router.get('/readiness'")
   const end = route.indexOf("router.all('/rpc/:network/*'", start)
