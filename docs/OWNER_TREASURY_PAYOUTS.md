@@ -1,6 +1,8 @@
 # Owner-only treasury payout setup
 
-This guide describes the single-owner authorization gate and points to the current managed signing integration. It is not a way to create or mint USDT.
+This guide describes a separate, optional owner-only payout path. It is not the provider-independent sponsor-wallet workflow and it is not a way to create or mint USDT.
+
+**Fireblocks is not required for the sponsor organization workflow.** The existing sponsor-controlled wallet-signing adapter is a separate Shasta/Nile testnet capability. This owner-treasury page documents only the Fireblocks-backed owner payout integration, whose real-value execution remains hard-disabled in this build.
 
 ## Owner identity
 
