@@ -308,7 +308,7 @@ function fundedSponsorRoleSnapshot() {
       networkFeeSponsor: {
         address: feeSponsorAddress,
         onChainBalanceRead: true,
-        native: { status: 'verified', balanceSun: '5000000' },
+        native: { status: 'verified', balanceSun: '100000000' },
         resourceStatus: { resourceRead: true },
       },
       assetPrincipalSponsor: {
@@ -865,4 +865,20 @@ test('fee sponsor approval rejects the same wallet and missing fee-resource audi
   })
   assert.equal(badAudit.status, 409)
   assert.ok((await badAudit.json()).blockers.includes('fee-sponsor-energy-and-bandwidth-delegation-audit-not-verified'))
+
+  const lowTrxBase = await serve(t, createMainnetDirectSponsorRequestRouter({
+    env: feeApprovalEnv,
+    store,
+    sessionLookup: sessionLookup(feeSponsorAddress),
+    readSponsorRoles: async () => {
+      const snapshot = fundedSponsorRoleSnapshot()
+      snapshot.roles.networkFeeSponsor.native.balanceSun = '1000'
+      return snapshot
+    },
+  }))
+  const lowTrx = await fetch(lowTrxBase + '/sponsorship/mainnet-direct/requests/' + key + '/fee-approval-challenge', {
+    method: 'POST', headers: headers(),
+  })
+  assert.equal(lowTrx.status, 409)
+  assert.ok((await lowTrx.json()).blockers.includes('fee-sponsor-positive-trx-balance-below-approved-fee-cap'))
 })
