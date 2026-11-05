@@ -285,12 +285,8 @@ function matchesSponsorDirectSolidifiedTransaction(transaction, {
   } catch {
     return false
   }
-  const expectedData = 'a9059cbb' + buildOwnerUsdtTransferParameter(recipientAddressForVerification(to), amountBaseUnits, tronWeb)
+  const expectedData = 'a9059cbb' + buildOwnerUsdtTransferParameter(to, amountBaseUnits, tronWeb)
   return typeof value.data === 'string' && value.data.replace(/^0x/i, '').toLowerCase() === expectedData
-}
-
-function recipientAddressForVerification(value) {
-  return value
 }
 
 /**
@@ -816,8 +812,9 @@ export async function runSponsorDirectPayoutReconciliationSweep({
   const summary = { enabled: true, checked: 0, confirmed: 0, failed: 0, manualReview: 0, pending: 0, skipped: 0, errors: 0 }
 
   for (const candidate of candidates.rows || []) {
-    const client = await db.connect()
+    let client
     try {
+      client = await db.connect()
       await client.query('BEGIN')
       const locked = await client.query(
         'SELECT id, sponsor_address, recipient_address, token_contract, ' +
@@ -892,10 +889,10 @@ export async function runSponsorDirectPayoutReconciliationSweep({
       else if (resultingStatus === 'manual-review') summary.manualReview += 1
       else summary.pending += 1
     } catch {
-      try { await client.query('ROLLBACK') } catch {}
+      try { await client?.query('ROLLBACK') } catch {}
       summary.errors += 1
     } finally {
-      client.release()
+      client?.release()
     }
   }
   return summary
