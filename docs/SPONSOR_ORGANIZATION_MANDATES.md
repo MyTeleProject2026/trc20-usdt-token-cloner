@@ -43,5 +43,6 @@ This workflow is integrated into the deployed `Frontend-Tron-Transfer` applicati
 - `POST /api/tron/organizations/applications/:id/mandates` (sponsor wallet)
 - `GET /api/tron/organizations/mandates` (owner)
 - `POST /api/tron/organizations/mandates/:id/review` (owner)
+- `POST /api/tron/organizations/mandates/:id/revoke` (sponsor wallet)
 
 No additional Render environment variables are required by this feature.
