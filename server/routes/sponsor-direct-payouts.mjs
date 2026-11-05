@@ -459,7 +459,7 @@ async function autoAssignSponsorToRequest({
   try {
     await releaseExpiredSponsorMatches(db)
     const found = await db.query(
-      'SELECT DISTINCT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
+      'SELECT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
       'JOIN ' + SCHEMA + '.sponsor_organization_applications a ' +
       'ON a.sponsor_wallet_address=s.sponsor_address ' +
       'JOIN ' + SCHEMA + '.sponsor_organization_mandates m ' +
@@ -474,7 +474,7 @@ async function autoAssignSponsorToRequest({
       'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
       'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\' ' +
       'AND (p.expires_at IS NULL OR p.expires_at > now())) ' +
-      'ORDER BY s.updated_at ASC LIMIT 10',
+      'GROUP BY s.sponsor_address ORDER BY MIN(s.updated_at) ASC LIMIT 10',
       [
         new Date(now()).toISOString(),
         request.requester_address,
