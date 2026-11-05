@@ -132,7 +132,7 @@ async function ensureSchema(db) {
       await db.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
         SCHEMA + '.sponsor_direct_payouts (updated_at ASC) ' +
-        'WHERE status IN (\\'broadcasting\\',\\'submitted\\',\\'outcome-unknown\\')'
+        "WHERE status IN ('broadcasting','submitted','outcome-unknown')"
       )
     })().catch((error) => {
       schemaPromise = null
