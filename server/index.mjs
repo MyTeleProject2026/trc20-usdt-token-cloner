@@ -21,7 +21,7 @@ import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import tronTransferRoutes from './routes/tron-transfer.mjs'
 import { createTronOwnerWithdrawalsRouter } from './routes/tron-owner-withdrawals.mjs'
-import { createSponsorDirectPayoutsRouter } from './routes/sponsor-direct-payouts.mjs'
+import { createSponsorDirectPayoutsRouter, startSponsorDirectPayoutReconciliationWorker } from './routes/sponsor-direct-payouts.mjs'
 import { createSponsorOrganizationRouter } from './routes/sponsor-organization-onboarding.mjs'
 import fireblocksInventorySyncRoutes from './routes/fireblocks-inventory-sync.mjs'
 import fireblocksInventoryStatusRoutes from './routes/fireblocks-inventory-status.mjs'
@@ -177,6 +177,13 @@ if (process.env.DATABASE_URL) {
   try {
     const database = await initializeDatabase()
     console.log('Project database initialization:', database.ready ? 'ready' : 'not-configured')
+    if (database.ready && process.env.NODE_ENV === 'production') {
+      const worker = startSponsorDirectPayoutReconciliationWorker()
+      console.log(
+        'Sponsor direct settlement worker:',
+        worker.started ? 'started' : 'not-started (' + worker.reason + ')',
+      )
+    }
   } catch {
     // Keep read-only chain verification endpoints available; storage status exposes failure.
     console.error('Project database initialization failed; persistence is unavailable')
