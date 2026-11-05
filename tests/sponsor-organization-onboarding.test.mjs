@@ -1,0 +1,68 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import express from 'express'
+import { createServer } from 'node:http'
+import { readFile } from 'node:fs/promises'
+import {
+  createSponsorOrganizationRouter,
+  parseSponsorOrganizationUsdtAmount,
+} from '../server/routes/sponsor-organization-onboarding.mjs'
+
+test('organization mandate USDT limits use exact six-decimal base units', () => {
+  assert.equal(parseSponsorOrganizationUsdtAmount('1'), '1000000')
+  assert.equal(parseSponsorOrganizationUsdtAmount('12.340056'), '12340056')
+  assert.equal(parseSponsorOrganizationUsdtAmount('0.000001'), '1')
+  for (const value of ['0', '0.0000001', '-1', '1e2', ' 1', 1, null]) {
+    assert.throws(() => parseSponsorOrganizationUsdtAmount(value))
+  }
+})
+
+test('public organization config does not equate an application with payout authorization', async (t) => {
+  const app = express()
+  app.use('/api/tron', createSponsorOrganizationRouter({ env: {} }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve())))
+
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/organizations/config')
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.network, 'mainnet')
+  assert.equal(payload.walletSignatureRequired, true)
+  assert.equal(payload.organizationReviewRequired, true)
+  assert.equal(payload.writtenMandateRequired, true)
+  assert.equal(payload.independentVerificationRequired, true)
+  assert.equal(payload.sponsorFundingRequired, true)
+  assert.equal(payload.payoutEnabledByApplication, false)
+})
+
+test('organization applications and mandate reviews require an authenticated owner or sponsor session', async (t) => {
+  const app = express()
+  app.use(express.json())
+  app.use('/api/tron', createSponsorOrganizationRouter({ env: {} }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) =>
+    server.close((error) => error ? reject(error) : resolve())))
+
+  const base = 'http://127.0.0.1:' + server.address().port + '/api/tron'
+  const application = await fetch(base + '/organizations/applications', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ organizationName: 'Test Organization' }),
+  })
+  assert.equal(application.status, 401)
+
+  const ownerQueue = await fetch(base + '/organizations/applications')
+  assert.equal(ownerQueue.status, 401)
+})
+
+test('Mainnet sponsor payout preparation requires an authorized mandate covering principal and fees', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
+  assert.match(source, /getAuthorizedSponsorMandate/)
+  assert.match(source, /m\.status=\\'authorized\\'/)
+  assert.match(source, /m\.purpose=\\'both\\'/)
+  assert.match(source, /authorized-sponsor-organization-mandate-required/)
+  assert.match(source, /authorized-sponsor-mandate-invalid-or-expired/)
+})
