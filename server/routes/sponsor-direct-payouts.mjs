@@ -1014,8 +1014,8 @@ export function createSponsorDirectPayoutsRouter({
         && row.expires_at && new Date(row.expires_at).getTime() <= now()) {
         const released = await client.query(
           'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET sponsor_address=NULL, expires_at=NULL, ' +
-          'failure_code=\\'sponsor-match-expired\\', updated_at=now() ' +
-          'WHERE id=$1 AND status=\\'requested\\' AND sponsor_address=$2 RETURNING *',
+          'failure_code=\'sponsor-match-expired\', updated_at=now() ' +
+          'WHERE id=$1 AND status=\'requested\' AND sponsor_address=$2 RETURNING *',
           [id, auth.address],
         )
         await client.query('COMMIT')
