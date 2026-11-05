@@ -477,6 +477,24 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             </div>
           )}
           <p className="fine-print">The balance shown belongs to the connected sponsor wallet, not to the requester or platform owner. Each payment requires a fresh signature from that sponsor wallet.</p>
+          {prepared?.unsignedTransaction && prepared.sponsorAddress === walletAddress && (
+            <div className="prepared-review-panel">
+              <div className="section-heading compact">
+                <div><span className="eyebrow">SPONSOR SIGNATURE REQUIRED</span><h3>Review exact USDT transfer</h3></div>
+                <div className="panel-icon"><ShieldCheck /></div>
+              </div>
+              <div className="readiness-checks">
+                <span>Sending sponsor: {prepared.sponsorAddress}</span>
+                <span>External recipient: {prepared.recipientAddress}</span>
+                <span>Asset: Official USDT TRC20 · TRON Mainnet</span>
+                <span>Amount: {formatUnits(prepared.amountBaseUnits)} USDT</span>
+                <span>Transaction ID: {prepared.transactionHash || prepared.unsignedTransaction.txID}</span>
+                <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
+              </div>
+              <p className="fine-print">Check the sender, recipient and exact amount. The next action opens the sponsor wallet's own TronLink approval. Nothing is broadcast until the sponsor explicitly approves the transaction.</p>
+              <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>
+            </div>
+          )}
           <div className="section-heading compact"><div><span className="eyebrow">SPONSOR REQUEST QUEUE</span><h3>Requests awaiting sponsor action</h3></div></div>
           {!queue.length ? <div className="empty-state"><History size={22} /><b>No payout requests available</b><p>New requests appear here for approved sponsors to review.</p></div> : (
             <div className="transaction-list">
