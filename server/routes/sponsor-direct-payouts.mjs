@@ -889,10 +889,10 @@ export async function runSponsorDirectPayoutReconciliationSweep({
       const updated = await client.query(
         'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET ' +
         'status=$2, ' +
-        'failure_code=CASE WHEN $2=\\'confirmed\\' THEN NULL WHEN $2 IN (\\'failed\\',\\'manual-review\\') THEN $3 ELSE failure_code END, ' +
+        "failure_code=CASE WHEN $2='confirmed' THEN NULL WHEN $2 IN ('failed','manual-review') THEN $3 ELSE failure_code END, " +
         'confirmation_block_number=COALESCE($4, confirmation_block_number), ' +
         'confirmation_log_index=COALESCE($5, confirmation_log_index), ' +
-        'confirmation_verified_at=CASE WHEN $2=\\'confirmed\\' THEN COALESCE(confirmation_verified_at,now()) ELSE confirmation_verified_at END, ' +
+        "confirmation_verified_at=CASE WHEN $2='confirmed' THEN COALESCE(confirmation_verified_at,now()) ELSE confirmation_verified_at END, " +
         'confirmation_evidence=COALESCE($6::jsonb, confirmation_evidence), ' +
         'reconciliation_last_checked_at=now(), reconciliation_attempts=reconciliation_attempts+1, ' +
         'reconciliation_last_error=$7, updated_at=now() ' +
