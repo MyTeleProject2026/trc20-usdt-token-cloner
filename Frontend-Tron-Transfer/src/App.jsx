@@ -84,8 +84,26 @@ export default function App() {
     setUnlocked({address,tronWeb,provider})
     setNotice('TronLink connected to TRON Mainnet. The wallet retains its private key; transaction signatures require a separate approval.')
   }
+  useEffect(()=>{
+    const provider=unlocked?.provider
+    if(!provider||typeof provider.on!=='function') return undefined
+    const invalidateWallet=()=>{
+      setUnlocked(null)
+      setTab('overview')
+      setNotice('The TronLink account or network changed. Reconnect and verify the configured owner wallet before continuing.')
+    }
+    const events=['accountsChanged','chainChanged','disconnect']
+    for(const event of events) provider.on(event,invalidateWallet)
+    return ()=>{
+      if(typeof provider.removeListener==='function') {
+        for(const event of events) provider.removeListener(event,invalidateWallet)
+      }
+    }
+  },[unlocked?.provider])
+
   function lockWallet() {
     setUnlocked(null)
+    setTab('overview')
     setNotice('TronLink disconnected from this application. Your wallet remains in TronLink.')
   }
   async function inspectAddress(address=monitorAddress) {
