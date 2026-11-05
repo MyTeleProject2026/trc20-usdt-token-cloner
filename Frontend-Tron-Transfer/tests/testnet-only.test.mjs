@@ -73,7 +73,9 @@ test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, own
 })
 
 test('wallet connection is user-approved and does not import a private key', () => {
-  assert.ok(app.includes("provider.request({method:'eth_requestAccounts'})"))
+  assert.ok(app.includes('discoverTronLinkProvider(window)'))
+  assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
+  assert.ok(app.includes('TronLink connected to TRON Mainnet'))
   assert.ok(app.includes('TronLink connected to TRON Mainnet'))
   assert.ok(app.includes('No imported private keys') || app.includes('private key'))
 })

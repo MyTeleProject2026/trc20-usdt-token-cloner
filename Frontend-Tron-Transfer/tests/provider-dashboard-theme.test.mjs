@@ -31,7 +31,8 @@ test('owner session is restored and used independently from TronLink account con
   assert.ok(app.includes('/api/auth/owner/session'))
   assert.ok(app.includes('/api/auth/owner/login'))
   assert.ok(app.includes('OWNER_SESSION_KEY'))
-  assert.ok(app.includes('provider.request({method:\'eth_requestAccounts\'})'))
+  assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
+  assert.ok(app.includes('/api/auth/owner/login'))
   assert.ok(withdrawals.includes('ownerSession.address === walletAddress'))
 })
 
