@@ -76,10 +76,13 @@ The no-per-withdrawal-prompt mode is a **standing authorization**, not an author
 Official provider documentation: https://docs.fincra.com/reference/initiate-payout-2
 
 
-### Myanmar / jurisdiction qualification
+### Fincra stablecoin payout API versus restricted MCY account product
 
-Fincra's published **Multicurrency Virtual Account (MCY)** restrictions currently list Myanmar. That page describes the MCY account product; it does not, by itself, prove that every Fincra product or the stablecoin payout endpoint is unavailable to every entity connected with Myanmar. Before configuring a real sponsor account, obtain written confirmation from Fincra that the exact sponsor legal entity, incorporation/residence, beneficial owners, source-of-funds arrangement and intended TRON USDT payout model are eligible. Do not use a nominee, false address or another organization's account to bypass eligibility.
+Fincra's current stablecoin payout reference explicitly lists `USDT` with `usdt_trc20`, requires a Fincra business ID and funded source wallet, and says live stablecoin payouts must be enabled for the business. A successful API response means the request was accepted for processing, not that the payout settled. The integration must continue status/webhook reconciliation. References:
+- https://docs.fincra.com/reference/initiate-payout-2
+- https://docs.fincra.com/reference/get-balances
+- https://docs.fincra.com/di/reference/fetch-payout-by-customer-reference
 
-Fincra's terms also require prior written approval and a current sub-merchant/customer list where a customer acts as an aggregator. Therefore, do not expose this payout service to third parties until Fincra has explicitly approved that business model and the required customer list/onboarding controls. A single-owner private test deployment should still use only an account legitimately controlled by that owner and a provider-approved use case.
+Fincra's separate prohibited-countries page explicitly labels its geographic restriction as applying to the **Multicurrency (MCY) Account Product**, and lists Myanmar. Do not assume that page alone conclusively prohibits or permits the distinct stablecoin payout API. Fincra must confirm in writing whether the exact legal entity, beneficial owner/residency, source-of-funds arrangement, crypto-wallet payout use case and any platform/aggregator model are eligible. The same page also lists crypto-exchange/nesting business activity among prohibited MCY activities; get product-specific clarification rather than trying to route around it. Reference: https://docs.fincra.com/docs/fcy-prohibited-activities-and-countries
 
-Reference: https://docs.fincra.com/docs/fcy-prohibited-activities-and-countries
+No false address, nominee, borrowed business ID, or another organization's account may be used to bypass eligibility. Do not configure production credentials or enable live payouts until Fincra confirms eligibility and enables live USDT TRC20 payouts for the actual sponsor business.
