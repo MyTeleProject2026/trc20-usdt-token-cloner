@@ -8,6 +8,7 @@ import {
   parseSponsorDirectUsdtAmount,
   calculateSponsorDirectAvailableBaseUnits,
   matchesSponsorDirectUnsignedTransaction,
+  isSponsorDirectAutoRouteEligible,
   createSponsorDirectPayoutsRouter,
 } from '../server/routes/sponsor-direct-payouts.mjs'
 import { buildOwnerUsdtTransferParameter, MAINNET_USDT_CONTRACT } from '../server/routes/tron-owner-withdrawals.mjs'
@@ -26,6 +27,25 @@ test('sponsor-direct USDT amount parser accepts exact six-decimal amounts', () =
   assert.throws(() => parseSponsorDirectUsdtAmount('-1'))
   assert.throws(() => parseSponsorDirectUsdtAmount('1e2'))
   assert.throws(() => parseSponsorDirectUsdtAmount(1))
+})
+
+test('automatic sponsor routing requires actual available USDT, mandate limits, daily capacity and verified fee coverage', () => {
+  const eligible = {
+    amountBaseUnits: '25000000',
+    balanceBaseUnits: '100000000',
+    reservedBaseUnits: '25000000',
+    perPayoutLimitBaseUnits: '50000000',
+    dailyLimitBaseUnits: '100000000',
+    dailyUsedBaseUnits: '25000000',
+    feeCoverage: true,
+  }
+  assert.equal(isSponsorDirectAutoRouteEligible(eligible), true)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, balanceBaseUnits: '40000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, reservedBaseUnits: '80000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, perPayoutLimitBaseUnits: '20000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '80000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, feeCoverage: false }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: 'not-an-integer' }), false)
 })
 
 test('sponsor-direct available balance subtracts reservations without going negative', () => {
