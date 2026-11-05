@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import OwnerWithdrawals from './OwnerWithdrawals.jsx'
 import { TronWeb } from 'tronweb'
+import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
@@ -43,7 +44,7 @@ export default function App() {
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
-  const [ownerAddress,setOwnerAddress]=useState('')
+  const [ownerAddress,setOwnerAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [ownerPassword,setOwnerPassword]=useState('')
   const [ownerSession,setOwnerSession]=useState(null)
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
@@ -61,28 +62,16 @@ export default function App() {
     try { return await fn() } catch(e) { setError(e instanceof Error?e.message:'Operation failed.'); return null } finally { setBusy(false) }
   }
 
-  function getTronLinkProvider() {
-    const candidates=[window.tron,window.tronLink]
-    return candidates.find(provider=>provider&&provider.isTronLink===true&&typeof provider.request==='function')||null
-  }
   async function connectTronLink() {
-    const provider=getTronLinkProvider()
-    if(!provider) throw new Error('TronLink was not detected. Open Tron Transfer in the TronLink DApp browser, unlock your wallet and retry.')
-    let accounts
-    try { accounts=await provider.request({method:'eth_requestAccounts'}) }
-    catch(e) {
-      const code=Number(e?.code), message=String(e?.message||e||'')
-      if(code===-32601||code===4200||/method not found|unsupported method|method not supported/i.test(message)) accounts=await provider.request({method:'tron_requestAccounts'})
-      else throw e
-    }
-    const tronWeb=provider.tronWeb||window.tronWeb
-    const address=String(tronWeb?.defaultAddress?.base58||(Array.isArray(accounts)?accounts.find(isValidAddress):'')||'')
-    if(!isValidAddress(address)||!tronWeb?.trx||typeof tronWeb.trx.sign!=='function') throw new Error('TronLink did not expose a valid Mainnet account and transaction signer. Unlock the wallet and retry.')
+    const provider=await discoverTronLinkProvider(window)
+    if(!provider) throw new Error('TronLink was not detected. Open this page in the TronLink DApp browser, unlock your wallet, and connect again.')
+    const {address,tronWeb}=await requestTronLinkConnection(provider,window)
+    if(!isValidAddress(address)) throw new Error('TronLink returned an invalid account address. Select a valid TRON account and retry.')
     let node=''
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
-    if(node!=='api.trongrid.io') throw new Error('Network mismatch. Switch TronLink to TRON Mainnet before connecting.')
+    if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. The wallet retains its private key; transaction signatures require a separate approval.')
+    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; every withdrawal still requires a separate wallet approval.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
