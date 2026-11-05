@@ -11,7 +11,7 @@ import {
 
 const ownerAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
 const recipientAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
-const tronWeb = new TronWeb()
+const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
 
 test('owner USDT amount parser converts exact six-decimal base units', () => {
   assert.equal(parseOwnerUsdtAmount('1'), '1000000')
