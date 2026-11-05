@@ -192,8 +192,10 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <button className="secondary-button" disabled={!token || refreshing || busy} onClick={() => void refresh()}><RefreshCw size={15} /> Refresh</button>
           </div>
           {!snapshot ? <p className="fine-print">Sign in as owner, connect the same TronLink address, then refresh to read actual balances from Tatum.</p> : <div className="recipient-balance-grid">
-            <article className="metric-card"><span>Official USDT</span><strong>{formatUnits(snapshot.usdtBalanceBaseUnits)} <small>USDT</small></strong></article>
-            <article className="metric-card"><span>TRX</span><strong>{formatTrx(snapshot.trxBalanceSun)} <small>TRX</small></strong></article>
+            <article className="metric-card"><span>Official USDT wallet balance</span><strong>{formatUnits(snapshot.usdtBalanceBaseUnits)} <small>USDT</small></strong></article>
+            <article className="metric-card"><span>Reserved for prepared / pending transfers</span><strong>{formatUnits(snapshot.reservedUsdtBaseUnits || '0')} <small>USDT</small></strong></article>
+            <article className="metric-card"><span>Available for a new withdrawal</span><strong>{formatUnits(snapshot.availableForWithdrawalBaseUnits ?? snapshot.usdtBalanceBaseUnits)} <small>USDT</small></strong></article>
+            <article className="metric-card"><span>TRX for network costs</span><strong>{formatTrx(snapshot.trxBalanceSun)} <small>TRX</small></strong></article>
             <article className="metric-card"><span>Available energy</span><strong>{snapshot.energyAvailable === null ? 'Unavailable' : Number(snapshot.energyAvailable).toLocaleString()}</strong></article>
             <article className="metric-card"><span>Available bandwidth</span><strong>{snapshot.bandwidthAvailable === null ? 'Unavailable' : Number(snapshot.bandwidthAvailable).toLocaleString()}</strong></article>
           </div>}
@@ -208,7 +210,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <label>USDT amount
               <input value={amount} onChange={(event) => { setAmount(event.target.value); setPrepared(null) }} placeholder="e.g. 10.00" inputMode="decimal" />
             </label>
-            <button className="primary-button" disabled={!canInteract || busy || refreshing || !snapshot || BigInt(snapshot.usdtBalanceBaseUnits || '0') <= 0n || Boolean(prepared)} onClick={() => void prepareWithdrawal()}>
+            <button className="primary-button" disabled={!canInteract || busy || refreshing || !snapshot || BigInt(snapshot.availableForWithdrawalBaseUnits ?? snapshot.usdtBalanceBaseUnits ?? '0') <= 0n || Boolean(prepared)} onClick={() => void prepareWithdrawal()}>
               <ArrowUpRight size={16} /> Prepare direct withdrawal
             </button>
             {!canInteract && <p className="fine-print">A matching owner login and TronLink connection are both required. Requester identity login alone is not enough.</p>}
@@ -223,7 +225,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
               <span>Broadcast: Tatum Mainnet Gateway</span>
               <span>Confirmation: solidified receipt + exact Transfer event</span>
             </div>
-            <p className="fine-print">The sending wallet must hold the requested USDT and enough TRON resources or TRX for network fees. Tatum does not provide the USDT principal.</p>
+            <p className="fine-print">The sending wallet must hold the requested USDT after pending-withdrawal reservations, plus enough TRON resources or TRX for network fees. Tatum does not provide the USDT principal.</p>
           </aside>
         </div>
 
