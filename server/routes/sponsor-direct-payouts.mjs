@@ -67,7 +67,7 @@ function bearerToken(req) {
   return match ? match[1] : ''
 }
 
-function getDatabase(env) {
+function getPool(env) {
   if (pool) return pool
   if (!clean(env.DATABASE_URL, 4096)) return null
   const connectionString = normalizeDatabaseConnectionString(env.DATABASE_URL)
