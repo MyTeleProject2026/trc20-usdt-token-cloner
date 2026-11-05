@@ -425,7 +425,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         </div>
       )}
 
-      {mode !== 'withdraw' && (
+      {mode === 'sponsor' && (
         <div className="sponsor-funding-destination">
           <span className="eyebrow">02 / SPONSOR WALLET PARTICIPATION</span>
           <h3>Register a self-custody sponsor wallet</h3>
@@ -458,7 +458,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         </div>
       )}
 
-      {mode !== 'withdraw' && activeSponsor && (
+      {mode === 'sponsor' && activeSponsor && (
         <div className="sponsor-funding-destination">
           <div className="section-heading compact">
             <div><span className="eyebrow">03 / LIVE SPONSOR READINESS</span><h3>Actual sponsor treasury balance and resources</h3></div>
