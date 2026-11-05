@@ -108,6 +108,7 @@ test('Fincra automatic payout requires an allowlisted requester and an authorize
 })
 
 test('requesters can view and reconcile only their own Fincra payout history', () => {
+  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   assert.match(recipientRoute, /router\.get\('\/sponsor-requests\/mine'/)
   assert.match(recipientRoute, /router\.post\('\/sponsor-requests\/:id\/fincra-status'/)
   assert.match(recipientRoute, /router\.post\('\/sponsor-requests\/:id\/verify-recipient-transfer'/)

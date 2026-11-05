@@ -695,7 +695,15 @@ export default createSponsorOrganizationRouter()
         ADD CONSTRAINT sponsor_organization_mandates_provider_scope_check
         CHECK ((execution_mode='per-transfer' AND provider_name IS NULL AND provider_business_id IS NULL)
           OR (execution_mode='fincra-automatic' AND provider_name='fincra'
-            AND provider_business_id ~ '^[A-Za-z0-9._:-]{4,128}
+            AND provider_business_id IS NOT NULL
+            AND provider_business_id ~ '^[A-Za-z0-9._:-]{4,128}$'))`)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS sponsor_organization_mandates_fincra_auto_idx
+        ON ${SCHEMA}.sponsor_organization_mandates (provider_name, provider_business_id, status, valid_until)
+        WHERE execution_mode='fincra-automatic'
+      `)
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS sponsor_organization_mandates_wallet_status_idx
         ON ${SCHEMA}.sponsor_organization_mandates (sponsor_wallet_address, status, valid_until)
       `)
       await db.query(`
