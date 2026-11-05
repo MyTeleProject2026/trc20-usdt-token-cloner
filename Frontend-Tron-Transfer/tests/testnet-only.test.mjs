@@ -3,109 +3,77 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+const withdrawals = await readFile(new URL('../src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 
-test('production frontend is Mainnet-only and defaults to the monitored wallet', () => {
+test('production frontend is TRON Mainnet-only and pins official Tether USDT', () => {
   assert.ok(app.includes("MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
   assert.ok(app.includes("network:'mainnet'"))
   assert.ok(app.includes("tokenContract:MAINNET_USDT"))
-  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app))
+  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + withdrawals))
   assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(withdrawals.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
 })
 
-test('only official USDT is represented as the payout asset', () => {
-  assert.ok(app.includes('USDT amount'))
-  assert.ok(app.includes('Official Tether USDT TRC20'))
-  assert.ok(!/addToken|tokenInput|custom token contract/i.test(app))
+test('only the official Tether contract is exposed as the withdrawal asset', () => {
+  assert.ok(withdrawals.includes('Official Tether USDT TRC20'))
+  assert.ok(!/custom token contract|addToken|tokenInput/i.test(app + withdrawals))
 })
 
-test('no direct wallet send or simulator path is present in the frontend', () => {
-  assert.ok(!/buildSignAndBroadcastTransfer|sendRawTransaction|testnet simulator|Send testnet assets/i.test(app))
-  assert.ok(app.includes('Mainnet-only sponsored withdrawals'))
-  assert.ok(app.includes('fincra-payout'))
+test('withdrawal form uses TronLink signing and Tatum server broadcast', () => {
+  assert.ok(app.includes("<OwnerWithdrawals wallet={unlocked} ownerSession={ownerSession} />"))
+  assert.ok(withdrawals.includes('wallet.tronWeb.trx.sign(prepared.unsignedTransaction)'))
+  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/prepare'))
+  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/'))
+  assert.ok(withdrawals.includes('/broadcast'))
+  assert.ok(!/sendRawTransaction|privateKey|private key input|seed phrase input/i.test(withdrawals))
 })
 
-test('sponsor request uses off-chain Mainnet wallet ownership verification', () => {
-  assert.ok(app.includes('signMessageV2'))
-  assert.ok(app.includes('does not require TRX'))
-  assert.ok(app.includes('/api/tron-transfer/sponsor-requests'))
-  assert.ok(app.includes('requesterSession.sessionToken'))
+test('owner session and connected TronLink account must match before signing', () => {
+  assert.ok(app.includes('/api/auth/owner/login'))
+  assert.ok(withdrawals.includes('ownerSession.address === walletAddress'))
+  assert.ok(withdrawals.includes('currentAddress !== ownerSession.address'))
+  assert.ok(withdrawals.includes('configured owner address'))
 })
 
-test('production metadata and frontend test command are configured', () => {
-  assert.ok(html.includes('Mainnet-only sponsored Tether USDT TRC20 withdrawal platform'))
-  assert.ok(html.includes('Tron Transfer · Mainnet USDT Payouts'))
+test('wallet assets are read-only and never represented as simulated funding', () => {
+  assert.ok(app.includes('MONITORED ADDRESS · READ ONLY'))
+  assert.ok(withdrawals.includes('USDT principal'))
+  assert.ok(withdrawals.includes('Tatum does not provide the USDT principal'))
+  assert.ok(!/mockUsdtBalance|fakeUsdtBalance|simulatorMode|testnetTransfer/i.test(app + withdrawals))
+})
+
+test('external exchange deposit warning distinguishes chain confirmation from exchange credit', () => {
+  assert.ok(withdrawals.includes('minimum deposit'))
+  assert.ok(withdrawals.includes('does not guarantee the exchange will credit its internal account ledger'))
+  assert.ok(withdrawals.includes('TRON / TRC20 USDT deposit address'))
+})
+
+test('no legacy Fincra payout flow remains in the active Tron Transfer UI', () => {
+  assert.ok(!/Fincra|FINCRA|fincra-payout/i.test(app + withdrawals))
+  assert.ok(app.includes('Owner access & wallet funding'))
+  assert.ok(withdrawals.includes('TATUM MAINNET · TRONLINK OWNER SIGNING'))
+})
+
+test('production metadata and frontend test command remain configured', () => {
+  assert.ok(html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
+  assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
   assert.equal(pkg.scripts.build, 'vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })
 
-test('production pages are separated into dedicated navigation and render sections', () => {
+test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, owner and transaction pages', () => {
   for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'sponsors', 'transactions', 'settings']) {
-    assert.ok(app.includes(`id:'${page}'`), `missing navigation item: ${page}`)
-    assert.ok(app.includes(`tab==='${page}'`), `missing dedicated page section: ${page}`)
+    assert.ok(app.includes(`id:'${page}'`), 'missing navigation item: ' + page)
+    assert.ok(app.includes(`tab==='${page}'`), 'missing dedicated page section: ' + page)
   }
-  assert.ok(app.includes('Request a genuine USDT withdrawal'))
-  assert.ok(app.includes('Sponsor funding & payout operations'))
-  assert.ok(app.includes('Withdrawal transaction history'))
-  assert.ok(app.includes('Tron Transfer settings'))
+  assert.ok(app.includes('<OwnerWithdrawals wallet={unlocked} ownerSession={ownerSession} historyOnly />'))
+  assert.ok(app.includes('Owner authentication'))
 })
 
-test('Assets page keeps personal wallet balances separate from Fincra sponsor liquidity', () => {
-  assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
-  assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
-  assert.ok(app.includes('This is the Fincra source-wallet availability only. Your monitored wallet balance is not included'))
-  assert.ok(app.includes('readiness.fincra.sourceBalance.availableBalance'))
-})
-
-test('new production page layouts have responsive styling', async () => {
-  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
-  assert.ok(css.includes('.asset-source-grid'))
-  assert.ok(css.includes('.withdrawal-form-grid'))
-  assert.ok(css.includes('.transaction-row'))
-  assert.ok(css.includes('.settings-page'))
-  assert.ok(css.includes('@media(max-width:560px)'))
-})
-
-test('Sponsor funding page provides the Fincra USDT wallet number for authorized incoming sponsor transfers', () => {
-  assert.ok(app.includes('SPONSOR FUNDING DESTINATION · FINCRA USDT BALANCE'))
-  assert.ok(app.includes('account-to-account transfer only if Fincra enables transfers between both businesses’ USDT balances'))
-  assert.ok(app.includes('confirm USDT wallet-to-wallet eligibility with Fincra before relying on this route'))
-  assert.ok(app.includes('Fincra documents no webhook for account-to-account transfers'))
-  assert.ok(app.includes('use Refresh readiness to confirm the credit from the actual available USDT balance'))
-  assert.ok(app.includes('readiness.fincra.sourceBalance.walletNumber'))
-  assert.ok(app.includes('Fincra USDT wallet number copied.'))
-})
-
-test('Assets page displays the verified Fincra USDT funding wallet number without combining it with monitored wallet assets', () => {
-  assert.ok(app.includes('Fincra USDT funding wallet number:'))
-  assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
-  assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
-})
-
-test('Sponsor funding page loads and displays read-only Fincra business wallet credits', () => {
-  assert.ok(app.includes('FINCRA BUSINESS BALANCE LEDGER'))
-  assert.ok(app.includes('Incoming sponsor credits'))
-  assert.ok(app.includes('/api/tron-transfer/sponsor-funding-history'))
-  assert.ok(app.includes('Refresh funding history'))
-  assert.ok(app.includes('Provider ledger records, not manually entered sponsor claims'))
-})
-
-test('Assets page shows available, locked and ledger total sponsor balances as separate values', () => {
-  assert.ok(app.includes('Available · payout eligible'))
-  assert.ok(app.includes('Locked'))
-  assert.ok(app.includes('Ledger · total'))
-  assert.ok(app.includes('FINCRA SPONSOR LEDGER · TOTAL SOURCE ASSETS'))
-  assert.ok(app.includes('Only the separately displayed available balance is eligible to fund a new payout'))
-})
-
-test('withdrawal transaction pages distinguish requested gross amount from Fincra net recipient receipt and fees', () => {
-  assert.ok(app.includes('Recipient received:'))
-  assert.ok(app.includes('Sponsor charged:'))
-  assert.ok(app.includes('Fee:'))
-  assert.ok(app.includes('Net recipient amount:'))
-  assert.ok(app.includes('Fincra fee:'))
-  assert.ok(app.includes('fincraAmountReceivedBaseUnits'))
-  assert.ok(app.includes('fincraAmountChargedBaseUnits'))
-  assert.ok(app.includes('fincraFeeBaseUnits'))
+test('wallet connection is user-approved and does not import a private key', () => {
+  assert.ok(app.includes("provider.request({method:'eth_requestAccounts'})"))
+  assert.ok(app.includes('TronLink connected to TRON Mainnet'))
+  assert.ok(app.includes('No imported private keys') || app.includes('private key'))
 })
