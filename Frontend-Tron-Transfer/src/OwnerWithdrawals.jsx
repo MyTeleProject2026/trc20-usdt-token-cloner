@@ -265,7 +265,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
 
       <div className="notice notice-warning owner-deposit-warning">
         <AlertTriangle size={17} />
-        <div><b>Exchange deposit reminder</b><p>Use the exchange’s own TRON / TRC20 USDT deposit address and check any minimum deposit, confirmation and memo/tag instructions before sending. A solidified on-chain transfer does not guarantee the exchange will credit its internal account ledger.</p></div>
+        <div><b>Exchange deposit reminder</b><p>Use the exchange’s own TRON / TRC20 USDT deposit address and check the exchange's minimum deposit, confirmation and memo/tag instructions before sending. A solidified on-chain transfer does not guarantee the exchange will credit its internal account ledger.</p></div>
       </div>
       <p className="fine-print">This interface never asks for a seed phrase or private key. Do not retry a transaction with an unknown broadcast outcome until its fixed transaction ID has been checked on Mainnet.</p>
     </section>
