@@ -11,7 +11,8 @@ This workflow is integrated into the deployed `Frontend-Tron-Transfer` applicati
 5. The owner records an agreement-evidence review, then makes a separate `authorize` decision with an external verification/case reference. The mandate must explicitly cover both USDT principal and network fees for this current direct-wallet payout path.
 6. The existing sponsor wallet application must also be active under its separately configured payout caps.
 7. At payout readiness and preparation, the API requires an authorized, unexpired mandate bound to the same sponsor wallet and accepted organization. The effective per-payout and daily limits are the lower of the wallet approval caps and mandate caps.
-8. The API reads the sponsor's actual USDT balance and TRON resources through Tatum. It reserves requests, prepares the exact official USDT Mainnet transfer, and only the sponsor wallet may sign it with its own TronLink wallet. The API validates the signed payload before broadcasting through Tatum and verifies a solidified receipt and exact Transfer event.
+8. When a requester submits a withdrawal, the API attempts to match it to an active wallet sponsor with an accepted organization application, an authorized unexpired mandate covering both principal and fees, a current Mainnet USDT balance sufficient for the request, unreserved/daily capacity, and a successful Tatum transfer simulation with verified fee coverage. It atomically assigns the request to at most one sponsor wallet. If no candidate passes, the request stays unassigned in the sponsor queue.
+9. The assigned sponsor opens its queue and explicitly signs the exact transfer in its own TronLink wallet. The API validates the signed payload before broadcasting through Tatum and verifies a solidified receipt and exact Transfer event.
 
 ## Fail-closed rules
 
@@ -21,7 +22,8 @@ This workflow is integrated into the deployed `Frontend-Tron-Transfer` applicati
 - A mandate marked `verified` is not yet spend-authorized; a distinct `authorized` review state is required.
 - Payout preparation and broadcast fail closed if the mandate is missing, expired, not authorized, does not cover both principal and fees, or is for another wallet.
 - Fresh Tatum Mainnet balance and resource checks remain mandatory. No balance is inferred from an application, agreement or owner setting.
-- Every transaction still requires the sponsor's explicit wallet signature. This implementation does not create unattended signing or custody.
+- Automatic matching selects a sponsor; it does not sign or broadcast. Every transaction still requires the sponsor's explicit wallet signature. This implementation does not create unattended signing or custody.
+- Automatic matching uses fresh USDT/resource reads and exact transfer simulation, but the sponsor's live balances and resources are checked again at preparation and broadcast. A request is not paid merely because it was matched.
 - Requester wallet USDT is not used. A genuine sponsor must provide all USDT principal and network-fee resources.
 - On-chain settlement is not treated as exchange account credit.
 
