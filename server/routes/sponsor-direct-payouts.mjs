@@ -399,6 +399,190 @@ function lowerBaseUnitLimit(left, right) {
   return (a < b ? a : b).toString()
 }
 
+export function isSponsorDirectAutoRouteEligible({
+  amountBaseUnits,
+  balanceBaseUnits,
+  reservedBaseUnits,
+  perPayoutLimitBaseUnits,
+  dailyLimitBaseUnits,
+  dailyUsedBaseUnits,
+  feeCoverage,
+}) {
+  const values = [
+    amountBaseUnits,
+    balanceBaseUnits,
+    reservedBaseUnits,
+    perPayoutLimitBaseUnits,
+    dailyLimitBaseUnits,
+    dailyUsedBaseUnits,
+  ].map(String)
+  if (values.some((value) => !/^(0|[1-9][0-9]*)$/.test(value))) return false
+  const [amount, balance, reserved, perPayout, dailyLimit, dailyUsed] = values.map(BigInt)
+  const available = balance > reserved ? balance - reserved : 0n
+  return feeCoverage === true
+    && amount > 0n
+    && amount <= perPayout
+    && amount <= available
+    && dailyUsed + amount <= dailyLimit
+}
+
+async function autoAssignSponsorToRequest({
+  db,
+  env,
+  request,
+  now,
+  readSnapshot,
+  providerPost,
+}) {
+  if (!request || request.status !== 'requested' || request.sponsor_address) {
+    return { request, routing: request?.sponsor_address ? 'already-assigned' : 'awaiting-eligible-sponsor' }
+  }
+  const amountBaseUnits = String(request.amount_base_units || '')
+  if (!/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+  let candidates
+  try {
+    const found = await db.query(
+      'SELECT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
+      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ' +
+      'ON a.sponsor_wallet_address=s.sponsor_address ' +
+      'JOIN ' + SCHEMA + '.sponsor_organization_mandates m ' +
+      'ON m.application_id=a.id AND m.sponsor_wallet_address=s.sponsor_address ' +
+      'WHERE s.status=\'active\' AND a.status=\'accepted-for-due-diligence\' ' +
+      'AND m.status=\'authorized\' AND m.purpose=\'both\' ' +
+      'AND m.valid_from <= $1 AND m.valid_until > $1 ' +
+      'AND s.sponsor_address <> $2 ' +
+      'AND s.per_payout_limit_base_units >= $3::numeric ' +
+      'AND m.per_payout_limit_base_units >= $3::numeric ' +
+      'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
+      'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\') ' +
+      'ORDER BY s.updated_at ASC LIMIT 10',
+      [new Date(now()).toISOString(), request.requester_address, amountBaseUnits],
+    )
+    candidates = found.rows || []
+  } catch {
+    // Organization tables may not yet exist; preserve the request in the unassigned queue.
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+
+  const tronWeb = tronWebForMainnet()
+  const feeLimitSun = clean(env.SPONSOR_DIRECT_TRON_USDT_FEE_LIMIT_SUN || DEFAULT_FEE_LIMIT_SUN, 32)
+  if (!/^[1-9][0-9]{0,9}$/.test(feeLimitSun) || BigInt(feeLimitSun) > 1000000000n) {
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+
+  for (const candidate of candidates) {
+    const sponsorAddress = candidate.sponsor_address
+    let client
+    try {
+      await clientlessSponsorPreflight()
+    } catch {
+      // Preflight helper errors are isolated per candidate; no request is assigned.
+      continue
+    }
+
+    async function clientlessSponsorPreflight() {
+      const snapshot = await readSnapshot(env, sponsorAddress)
+      const parameter = buildOwnerUsdtTransferParameter(
+        request.recipient_address,
+        amountBaseUnits,
+        tronWeb,
+      )
+      const transferBody = {
+        owner_address: sponsorAddress,
+        contract_address: MAINNET_USDT_CONTRACT,
+        function_selector: 'transfer(address,uint256)',
+        parameter,
+        fee_limit: Number(feeLimitSun),
+        call_value: 0,
+        visible: true,
+      }
+      const simulation = await providerPost(env, 'wallet/triggerconstantcontract', transferBody)
+      if (simulation?.result?.result !== true) return
+      const built = await providerPost(env, 'wallet/triggersmartcontract', transferBody)
+      const unsignedTransaction = built?.transaction
+      if (built?.result?.result !== true || !matchesSponsorDirectUnsignedTransaction(
+        unsignedTransaction,
+        { sponsorAddress, recipientAddress: request.recipient_address, amountBaseUnits, tronWeb },
+      )) return
+      const feeCoverage = hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun)
+      if (!feeCoverage.covered) return
+
+      client = await db.connect()
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['sponsor-direct:' + sponsorAddress])
+      const locked = await client.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 FOR UPDATE',
+        [request.id],
+      )
+      const current = locked.rows[0]
+      if (!current || current.status !== 'requested' || current.sponsor_address) {
+        await client.query('ROLLBACK')
+        return
+      }
+
+      const profile = await getSponsorProfile(client, sponsorAddress)
+      const mandate = await getAuthorizedSponsorMandate(client, sponsorAddress, now())
+      if (!profile || profile.status !== 'active' || !mandate || mandate.purpose !== 'both') {
+        await client.query('ROLLBACK')
+        return
+      }
+      const [latestSnapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
+        readSnapshot(env, sponsorAddress),
+        readReservations(client, sponsorAddress),
+        readDailyUsage(client, sponsorAddress),
+      ])
+      const perPayoutLimit = lowerBaseUnitLimit(
+        profile.per_payout_limit_base_units,
+        mandate.per_payout_limit_base_units,
+      )
+      const dailyLimit = lowerBaseUnitLimit(
+        profile.daily_limit_base_units,
+        mandate.daily_limit_base_units,
+      )
+      if (!isSponsorDirectAutoRouteEligible({
+        amountBaseUnits,
+        balanceBaseUnits: latestSnapshot.usdtBalanceBaseUnits,
+        reservedBaseUnits,
+        perPayoutLimitBaseUnits: perPayoutLimit,
+        dailyLimitBaseUnits: dailyLimit,
+        dailyUsedBaseUnits,
+        feeCoverage: hasFeeCoverage(latestSnapshot, simulation, unsignedTransaction, feeLimitSun).covered,
+      })) {
+        await client.query('ROLLBACK')
+        return
+      }
+      const assigned = await client.query(
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'SET sponsor_address=$2, updated_at=now() ' +
+        'WHERE id=$1 AND status=\'requested\' AND sponsor_address IS NULL RETURNING *',
+        [request.id, sponsorAddress],
+      )
+      if (!assigned.rowCount) {
+        await client.query('ROLLBACK')
+        return
+      }
+      await client.query('COMMIT')
+      return assigned.rows[0]
+    }
+
+    try {
+      const assigned = await clientlessSponsorPreflight()
+      if (assigned) {
+        return { request: assigned, routing: 'auto-assigned-awaiting-sponsor-signature' }
+      }
+    } catch {
+      if (client) {
+        try { await client.query('ROLLBACK') } catch {}
+      }
+    } finally {
+      client?.release()
+    }
+  }
+  return { request, routing: 'awaiting-eligible-sponsor' }
+}
+
 export function createSponsorDirectPayoutsRouter({
   env = process.env,
   getSession = getWalletAuthSession,
