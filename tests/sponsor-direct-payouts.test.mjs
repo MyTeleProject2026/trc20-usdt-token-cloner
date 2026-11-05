@@ -151,14 +151,20 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
     await db.query(
       'CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_applications (' +
-      'id UUID PRIMARY KEY, sponsor_wallet_address TEXT NOT NULL, status TEXT NOT NULL)',
+      'id UUID PRIMARY KEY, sponsor_wallet_address TEXT NOT NULL, organization_name TEXT NOT NULL, ' +
+      'business_email TEXT NOT NULL, jurisdiction TEXT NOT NULL, website TEXT, requested_roles JSONB NOT NULL, ' +
+      'application_signature_hash CHAR(64) NOT NULL, status TEXT NOT NULL, review_reference TEXT, ' +
+      'reviewed_by_address TEXT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
+      'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
     )
     await db.query(
       'CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_mandates (' +
       'id UUID PRIMARY KEY, application_id UUID NOT NULL, sponsor_wallet_address TEXT NOT NULL, ' +
-      'status TEXT NOT NULL, purpose TEXT NOT NULL, per_payout_limit_base_units NUMERIC(78,0) NOT NULL, ' +
-      'daily_limit_base_units NUMERIC(78,0) NOT NULL, valid_from TIMESTAMPTZ NOT NULL, ' +
-      'valid_until TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
+      'agreement_reference TEXT NOT NULL, agreement_digest CHAR(64) NOT NULL, purpose TEXT NOT NULL, ' +
+      'per_payout_limit_base_units NUMERIC(78,0) NOT NULL, daily_limit_base_units NUMERIC(78,0) NOT NULL, ' +
+      'valid_from TIMESTAMPTZ NOT NULL, valid_until TIMESTAMPTZ NOT NULL, sponsor_signature_hash CHAR(64) NOT NULL, ' +
+      'status TEXT NOT NULL, review_reference TEXT, reviewed_by_address TEXT, reviewed_at TIMESTAMPTZ, ' +
+      'created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
     )
 
     const app = express()
@@ -240,15 +246,18 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
       [sponsorApplicationId, sponsorAddress, 'Integration sponsor', '50000000', '100000000'],
     )
     await db.query(
-      'INSERT INTO trc20_token_clone.sponsor_organization_applications (id,sponsor_wallet_address,status) ' +
-      "VALUES ($1,$2,'accepted-for-due-diligence')",
-      [organizationApplicationId, sponsorAddress],
+      'INSERT INTO trc20_token_clone.sponsor_organization_applications ' +
+      '(id,sponsor_wallet_address,organization_name,business_email,jurisdiction,website,requested_roles,application_signature_hash,status) ' +
+      "VALUES ($1,$2,$3,$4,$5,NULL,$6::jsonb,$7,'accepted-for-due-diligence')",
+      [organizationApplicationId, sponsorAddress, 'Integration Sponsor LLC', 'sponsor@example.test', 'US',
+        JSON.stringify(['asset-principal', 'network-fees']), 'a'.repeat(64)],
     )
     await db.query(
       'INSERT INTO trc20_token_clone.sponsor_organization_mandates ' +
-      '(id,application_id,sponsor_wallet_address,status,purpose,per_payout_limit_base_units,daily_limit_base_units,valid_from,valid_until) ' +
-      "VALUES ($1,$2,$3,'authorized','both',$4,$5,now() - interval '1 minute',now() + interval '1 day')",
-      [mandateId, organizationApplicationId, sponsorAddress, '50000000', '100000000'],
+      '(id,application_id,sponsor_wallet_address,agreement_reference,agreement_digest,purpose,per_payout_limit_base_units,daily_limit_base_units,valid_from,valid_until,sponsor_signature_hash,status) ' +
+      "VALUES ($1,$2,$3,$4,$5,'both',$6,$7,now() - interval '1 minute',now() + interval '1 day',$8,'authorized')",
+      [mandateId, organizationApplicationId, sponsorAddress, 'integration-test-agreement',
+        'b'.repeat(64), '50000000', '100000000', 'c'.repeat(64)],
     )
 
     const first = await call('/requests', requesterToken, {
