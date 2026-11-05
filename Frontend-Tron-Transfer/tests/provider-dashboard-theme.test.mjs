@@ -38,11 +38,12 @@ test('requester identity and payout owner sessions are separate', () => {
   assert.ok(app.includes('OWNER_SESSION_KEY'))
 })
 
-test('sponsor request requires fresh recipient inspection for the same address', () => {
+test('Tatum-only withdrawal preparation keeps recipient inspection tied to the selected address', () => {
   assert.ok(app.includes('inspectRequestRecipient'))
-  assert.ok(app.includes('requestInspection.address !== requestRecipient.trim()'))
-  assert.ok(app.includes('five minutes'))
+  assert.ok(app.includes('requestInspection&&requestInspection.address===requestRecipient.trim()'))
+  assert.ok(app.includes('Recheck after five minutes or whenever the address changes'))
   assert.ok(app.includes('Inspect recipient balance & history'))
+  assert.ok(app.includes('Tatum-only withdrawal preparation pending'))
 })
 
 test('forest emerald glass theme and responsive breakpoints remain', () => {
