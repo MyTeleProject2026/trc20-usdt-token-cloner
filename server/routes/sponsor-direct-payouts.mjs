@@ -391,13 +391,16 @@ export function createSponsorDirectPayoutsRouter({
       network: 'mainnet',
       asset: 'USDT',
       tokenContract: MAINNET_USDT_CONTRACT,
+      payoutMode: 'sponsor-direct',
       requesterWalletFundingRequired: false,
+      requesterWalletSignaturePurpose: 'identity-only',
+      requestIntakeEnabled: true,
       sponsorWalletFundingRequired: true,
       sponsorWalletSignatureRequired: true,
+      payoutExecution: 'conditional-on-approved-funded-sponsor',
+      sponsorApprovalRequired: true,
       sponsorOrganizationVerification: 'platform-review-required; legal-entity and KYC verification are not performed by this application',
-      canSubmitSponsoredTransfer: false,
-      submissionEnabled: false,
-      note: 'Requesters can authenticate with a zero-balance wallet. A separately approved sponsor wallet must hold actual USDT and cover TRON network resources, then sign each exact payout in TronLink.',
+      note: 'A requester can submit a withdrawal request with a zero-balance wallet. An actual payout executes only after an approved sponsor wallet is verified to hold the official Mainnet USDT amount and sufficient TRON network resources, and the sponsor signs the exact transaction in its own wallet.',
     })
   })
 
