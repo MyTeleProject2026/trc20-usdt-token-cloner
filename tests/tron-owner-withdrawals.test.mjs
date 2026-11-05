@@ -5,6 +5,7 @@ import { TronWeb } from 'tronweb'
 import {
   MAINNET_USDT_CONTRACT,
   parseOwnerUsdtAmount,
+  calculateOwnerWithdrawableUsdtBaseUnits,
   buildOwnerUsdtTransferParameter,
   validateOwnerSignedTransaction,
 } from '../server/routes/tron-owner-withdrawals.mjs'
@@ -23,6 +24,14 @@ test('owner USDT amount parser rejects zero, excess precision and non-decimal va
   for (const value of ['0', '0.000000', '0.0000001', '-1', '1e2', '01', '1,000', 1]) {
     assert.throws(() => parseOwnerUsdtAmount(value))
   }
+})
+
+test('available USDT subtracts active reservations without allowing a negative result', () => {
+  assert.equal(calculateOwnerWithdrawableUsdtBaseUnits('100000000', '25000000'), '75000000')
+  assert.equal(calculateOwnerWithdrawableUsdtBaseUnits('1000000', '1000000'), '0')
+  assert.equal(calculateOwnerWithdrawableUsdtBaseUnits('1000000', '2000000'), '0')
+  assert.throws(() => calculateOwnerWithdrawableUsdtBaseUnits('-1', '0'))
+  assert.throws(() => calculateOwnerWithdrawableUsdtBaseUnits('100', '1.5'))
 })
 
 test('TRC20 ABI parameter encodes recipient and six-decimal amount exactly', () => {
