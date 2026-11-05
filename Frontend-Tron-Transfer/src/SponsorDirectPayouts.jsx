@@ -47,6 +47,11 @@ async function api(path, token, options = {}) {
   return body
 }
 
+function hasExpiredPreparation(request) {
+  const expiresAt = Date.parse(request?.expiresAt || '')
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
+}
+
 function statusLabel(status) {
   return ({
     requested: 'Awaiting sponsor',
@@ -180,6 +185,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           const ownPrepared = (queueResult.requests || []).find((item) =>
             item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction)
           if (ownPrepared) setPrepared(ownPrepared)
+          else setPrepared(null)
         } else {
           setSnapshot(null)
           setQueue([])
@@ -511,7 +517,9 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
               </div>
               <p className="fine-print">Check the sender, recipient and exact amount. The next action opens the sponsor wallet's own TronLink approval. Nothing is broadcast until the sponsor explicitly approves the transaction.</p>
-              <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>
+              {hasExpiredPreparation(prepared)
+                ? <button className="secondary-button" disabled={busy || !identityMatchesWallet} onClick={() => void prepareRequest(prepared)}><RefreshCw size={16} /> Refresh expired preparation</button>
+                : <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
             </div>
           )}
           <div className="section-heading compact"><div><span className="eyebrow">SPONSOR REQUEST QUEUE</span><h3>Requests awaiting sponsor action</h3></div></div>
@@ -528,7 +536,9 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                   </div>
                   <div className="transaction-actions">
                     {item.status === 'requested' && <button className="secondary-button" disabled={busy || BigInt(snapshot?.availableUsdtBaseUnits || '0') < BigInt(item.amountBaseUnits)} onClick={() => void prepareRequest(item)}><ClipboardCheck size={15} /> Prepare from sponsor wallet</button>}
-                    {item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction && <button className="primary-button" disabled={busy} onClick={() => void signAndBroadcast(item)}><Wallet size={15} /> Sign and broadcast</button>}
+                    {item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction && (hasExpiredPreparation(item)
+                      ? <button className="secondary-button" disabled={busy} onClick={() => void prepareRequest(item)}><RefreshCw size={15} /> Refresh expired preparation</button>
+                      : <button className="primary-button" disabled={busy} onClick={() => void signAndBroadcast(item)}><Wallet size={15} /> Sign and broadcast</button>)}
                     {['submitted', 'outcome-unknown', 'broadcasting'].includes(item.status) && <button className="secondary-button" disabled={busy} onClick={() => void refreshRequest(item.id)}><RefreshCw size={15} /> Verify Mainnet status</button>}
                   </div>
                 </article>
