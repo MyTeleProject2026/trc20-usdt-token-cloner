@@ -25,6 +25,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const TXID_RE = /^[0-9a-f]{64}$/i
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
+const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
 
 let pool
@@ -324,26 +325,39 @@ function publicRequest(row) {
   }
 }
 
-async function readReservations(db, sponsorAddress) {
+async function readReservations(db, sponsorAddress, excludeRequestId = null) {
   const result = await db.query(
     'SELECT COALESCE(SUM(amount_base_units),0)::text AS reserved FROM ' + SCHEMA +
-    '.sponsor_direct_payouts WHERE sponsor_address=$1 AND ' +
-    '(((status=\'prepared\') AND expires_at > now()) OR status IN ' +
-    '(\'broadcasting\',\'submitted\',\'outcome-unknown\',\'manual-review\'))',
-    [sponsorAddress],
+    '.sponsor_direct_payouts WHERE sponsor_address=$1 AND (' +
+    '(status=\'requested\' AND (expires_at IS NULL OR expires_at > now())) OR ' +
+    '(status=\'prepared\' AND (expires_at IS NULL OR expires_at > now())) OR ' +
+    'status IN (\'broadcasting\',\'submitted\',\'outcome-unknown\',\'manual-review\')) ' +
+    'AND ($2::uuid IS NULL OR id <> $2::uuid)',
+    [sponsorAddress, excludeRequestId],
   )
   const value = String(result.rows?.[0]?.reserved ?? '0')
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error('Sponsor reservation ledger is unreadable.')
   return value
 }
 
-async function readDailyUsage(db, sponsorAddress) {
+async function releaseExpiredSponsorMatches(db) {
+  await db.query(
+    'UPDATE ' + SCHEMA + '.sponsor_direct_payouts ' +
+    'SET sponsor_address=NULL, expires_at=NULL, failure_code=\'sponsor-match-expired\', updated_at=now() ' +
+    'WHERE status=\'requested\' AND sponsor_address IS NOT NULL ' +
+    'AND expires_at IS NOT NULL AND expires_at <= now()',
+  )
+}
+
+async function readDailyUsage(db, sponsorAddress, excludeRequestId = null) {
   const result = await db.query(
     'SELECT COALESCE(SUM(amount_base_units),0)::text AS used FROM ' + SCHEMA +
     '.sponsor_direct_payouts WHERE sponsor_address=$1 AND created_at >= ' +
     '(date_trunc(\'day\', now() AT TIME ZONE \'UTC\') AT TIME ZONE \'UTC\') ' +
-    'AND status NOT IN (\'failed\',\'cancelled\',\'expired\',\'broadcast-rejected\')',
-    [sponsorAddress],
+    'AND status NOT IN (\'failed\',\'cancelled\',\'expired\',\'broadcast-rejected\') ' +
+    'AND (status <> \'requested\' OR expires_at IS NULL OR expires_at > now()) ' +
+    'AND ($2::uuid IS NULL OR id <> $2::uuid)',
+    [sponsorAddress, excludeRequestId],
   )
   const value = String(result.rows?.[0]?.used ?? '0')
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error('Sponsor daily-usage ledger is unreadable.')
@@ -399,6 +413,202 @@ function lowerBaseUnitLimit(left, right) {
   return (a < b ? a : b).toString()
 }
 
+export function isSponsorDirectAutoRouteEligible({
+  amountBaseUnits,
+  balanceBaseUnits,
+  reservedBaseUnits,
+  perPayoutLimitBaseUnits,
+  dailyLimitBaseUnits,
+  dailyUsedBaseUnits,
+  feeCoverage,
+}) {
+  const values = [
+    amountBaseUnits,
+    balanceBaseUnits,
+    reservedBaseUnits,
+    perPayoutLimitBaseUnits,
+    dailyLimitBaseUnits,
+    dailyUsedBaseUnits,
+  ].map(String)
+  if (values.some((value) => !/^(0|[1-9][0-9]*)$/.test(value))) return false
+  const [amount, balance, reserved, perPayout, dailyLimit, dailyUsed] = values.map(BigInt)
+  const available = balance > reserved ? balance - reserved : 0n
+  return feeCoverage === true
+    && amount > 0n
+    && amount <= perPayout
+    && amount <= available
+    && dailyUsed + amount <= dailyLimit
+}
+
+async function autoAssignSponsorToRequest({
+  db,
+  env,
+  request,
+  now,
+  readSnapshot,
+  providerPost,
+}) {
+  if (!request || request.status !== 'requested' || request.sponsor_address) {
+    return { request, routing: request?.sponsor_address ? 'already-assigned' : 'awaiting-eligible-sponsor' }
+  }
+  const amountBaseUnits = String(request.amount_base_units || '')
+  if (!/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+  let candidates
+  try {
+    await releaseExpiredSponsorMatches(db)
+    const found = await db.query(
+      'SELECT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
+      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ' +
+      'ON a.sponsor_wallet_address=s.sponsor_address ' +
+      'JOIN ' + SCHEMA + '.sponsor_organization_mandates m ' +
+      'ON m.application_id=a.id AND m.sponsor_wallet_address=s.sponsor_address ' +
+      'WHERE s.status=\'active\' AND a.status=\'accepted-for-due-diligence\' ' +
+      'AND m.status=\'authorized\' AND m.purpose=\'both\' ' +
+      'AND m.valid_from <= $1 AND m.valid_until > $1 ' +
+      'AND s.sponsor_address <> $2 ' +
+      'AND ($4::text IS NULL OR s.sponsor_address <> $4::text) ' +
+      'AND s.per_payout_limit_base_units >= $3::numeric ' +
+      'AND m.per_payout_limit_base_units >= $3::numeric ' +
+      'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
+      'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\' ' +
+      'AND (p.expires_at IS NULL OR p.expires_at > now())) ' +
+      'GROUP BY s.sponsor_address ORDER BY MIN(s.updated_at) ASC LIMIT 10',
+      [
+        new Date(now()).toISOString(),
+        request.requester_address,
+        amountBaseUnits,
+        isValidTronAddress(clean(env.OWNER_WALLET_ADDRESS, 64)) ? clean(env.OWNER_WALLET_ADDRESS, 64) : null,
+      ],
+    )
+    candidates = found.rows || []
+  } catch {
+    // Organization tables may not yet exist; preserve the request in the unassigned queue.
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+
+  const tronWeb = tronWebForMainnet()
+  const feeLimitSun = clean(env.SPONSOR_DIRECT_TRON_USDT_FEE_LIMIT_SUN || DEFAULT_FEE_LIMIT_SUN, 32)
+  if (!/^[1-9][0-9]{0,9}$/.test(feeLimitSun) || BigInt(feeLimitSun) > 1000000000n) {
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+
+  for (const candidate of candidates) {
+    const sponsorAddress = candidate.sponsor_address
+    let client
+
+    async function clientlessSponsorPreflight() {
+      const snapshot = await readSnapshot(env, sponsorAddress)
+      const parameter = buildOwnerUsdtTransferParameter(
+        request.recipient_address,
+        amountBaseUnits,
+        tronWeb,
+      )
+      const transferBody = {
+        owner_address: sponsorAddress,
+        contract_address: MAINNET_USDT_CONTRACT,
+        function_selector: 'transfer(address,uint256)',
+        parameter,
+        fee_limit: Number(feeLimitSun),
+        call_value: 0,
+        visible: true,
+      }
+      const simulation = await providerPost(env, 'wallet/triggerconstantcontract', transferBody)
+      if (simulation?.result?.result !== true) return
+      const built = await providerPost(env, 'wallet/triggersmartcontract', transferBody)
+      const unsignedTransaction = built?.transaction
+      if (built?.result?.result !== true || !matchesSponsorDirectUnsignedTransaction(
+        unsignedTransaction,
+        { sponsorAddress, recipientAddress: request.recipient_address, amountBaseUnits, tronWeb },
+      )) return
+      const feeCoverage = hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun)
+      if (!feeCoverage.covered) return
+
+      client = await db.connect()
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['sponsor-direct:' + sponsorAddress])
+      const locked = await client.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 FOR UPDATE',
+        [request.id],
+      )
+      const current = locked.rows[0]
+      if (!current || current.status !== 'requested' || current.sponsor_address) {
+        await client.query('ROLLBACK')
+        return
+      }
+
+      const profile = await getSponsorProfile(client, sponsorAddress)
+      const mandate = await getAuthorizedSponsorMandate(client, sponsorAddress, now())
+      if (!profile || profile.status !== 'active' || !mandate || mandate.purpose !== 'both') {
+        await client.query('ROLLBACK')
+        return
+      }
+      const otherPending = await client.query(
+        'SELECT id FROM ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'WHERE sponsor_address=$1 AND status=\'requested\' AND id<>$2 ' +
+        'AND (expires_at IS NULL OR expires_at > now()) LIMIT 1',
+        [sponsorAddress, request.id],
+      )
+      if (otherPending.rows.length) {
+        await client.query('ROLLBACK')
+        return
+      }
+      const [latestSnapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
+        readSnapshot(env, sponsorAddress),
+        readReservations(client, sponsorAddress),
+        readDailyUsage(client, sponsorAddress),
+      ])
+      const perPayoutLimit = lowerBaseUnitLimit(
+        profile.per_payout_limit_base_units,
+        mandate.per_payout_limit_base_units,
+      )
+      const dailyLimit = lowerBaseUnitLimit(
+        profile.daily_limit_base_units,
+        mandate.daily_limit_base_units,
+      )
+      if (!isSponsorDirectAutoRouteEligible({
+        amountBaseUnits,
+        balanceBaseUnits: latestSnapshot.usdtBalanceBaseUnits,
+        reservedBaseUnits,
+        perPayoutLimitBaseUnits: perPayoutLimit,
+        dailyLimitBaseUnits: dailyLimit,
+        dailyUsedBaseUnits,
+        feeCoverage: hasFeeCoverage(latestSnapshot, simulation, unsignedTransaction, feeLimitSun).covered,
+      })) {
+        await client.query('ROLLBACK')
+        return
+      }
+      const assigned = await client.query(
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'SET sponsor_address=$2, expires_at=$3, failure_code=NULL, updated_at=now() ' +
+        'WHERE id=$1 AND status=\'requested\' AND sponsor_address IS NULL RETURNING *',
+        [request.id, sponsorAddress, new Date(now() + SPONSOR_MATCH_LIFETIME_MS).toISOString()],
+      )
+      if (!assigned.rowCount) {
+        await client.query('ROLLBACK')
+        return
+      }
+      await client.query('COMMIT')
+      return assigned.rows[0]
+    }
+
+    try {
+      const assigned = await clientlessSponsorPreflight()
+      if (assigned) {
+        return { request: assigned, routing: 'auto-assigned-awaiting-sponsor-signature' }
+      }
+    } catch {
+      if (client) {
+        try { await client.query('ROLLBACK') } catch {}
+      }
+    } finally {
+      client?.release()
+    }
+  }
+  return { request, routing: 'awaiting-eligible-sponsor' }
+}
+
 export function createSponsorDirectPayoutsRouter({
   env = process.env,
   getSession = getWalletAuthSession,
@@ -406,6 +616,7 @@ export function createSponsorDirectPayoutsRouter({
   readSnapshot = readSponsorSnapshot,
   providerPost = tatumPost,
   verifyTransfer = verifySolidifiedUsdtTransfer,
+  getDatabase = getPool,
 } = {}) {
   const router = Router()
 
@@ -433,7 +644,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -448,6 +659,10 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const configuredOwner = clean(env.OWNER_WALLET_ADDRESS, 64)
+    if (isValidTronAddress(configuredOwner) && auth.address === configuredOwner) {
+      return res.status(403).json({ success: false, error: 'platform-owner-wallet-cannot-act-as-third-party-sponsor' })
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['displayName', 'contactEmail'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
@@ -458,7 +673,7 @@ export function createSponsorDirectPayoutsRouter({
       || (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail))) {
       return res.status(400).json({ success: false, error: 'invalid-sponsor-profile' })
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -487,7 +702,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requirePlatformOwner(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -536,7 +751,7 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(400).json({ success: false, error: 'daily-limit-must-cover-per-payout-limit' })
       }
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -565,7 +780,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     if (!tatumApiKey(env)) return res.status(503).json({ success: false, error: 'tatum-mainnet-key-not-configured' })
     try {
@@ -646,7 +861,7 @@ export function createSponsorDirectPayoutsRouter({
     try { amountBaseUnits = parseSponsorDirectUsdtAmount(body.amount) } catch {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -668,12 +883,23 @@ export function createSponsorDirectPayoutsRouter({
         'VALUES ($1,$2,$3,$4,$5,$6,\'requested\') RETURNING *',
         [randomUUID(), idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits],
       )
+      const routed = await autoAssignSponsorToRequest({
+        db,
+        env,
+        request: result.rows[0],
+        now,
+        readSnapshot,
+        providerPost,
+      })
       return res.status(201).json({
         success: true,
-        request: publicRequest(result.rows[0]),
+        request: publicRequest(routed.request || result.rows[0]),
+        sponsorRouting: routed.routing,
         payoutAuthorized: false,
         transactionBroadcast: false,
-        note: 'Your zero-balance wallet authenticated the request only. No USDT has been sent. An approved sponsor must accept the request, hold the actual USDT, and sign the exact transfer.',
+        note: routed.routing === 'auto-assigned-awaiting-sponsor-signature'
+          ? 'An eligible sponsor was automatically matched using a fresh Mainnet USDT and fee-resource check. The sponsor must still review and sign the exact payout in its own wallet. No funds have moved yet.'
+          : 'Your zero-balance wallet submitted the request. No currently eligible sponsor could be matched; it remains in the approved sponsor queue until a sponsor with an authorized mandate and sufficient funds/resources can accept it. No funds have moved.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-request-storage-unavailable' })
@@ -684,7 +910,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -710,7 +936,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -718,12 +944,28 @@ export function createSponsorDirectPayoutsRouter({
       if (!profile || profile.status !== 'active') {
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
+      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
+      if (!mandate || mandate.purpose !== 'both') {
+        return res.json({
+          success: true,
+          requests: [],
+          canReceivePayoutRequests: false,
+          note: 'An active wallet sponsor application and an authorized, unexpired organization mandate for USDT principal and network fees are required before this sponsor can receive payout requests.',
+        })
+      }
+      await releaseExpiredSponsorMatches(db)
       const result = await db.query(
         'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE ' +
-        '(status=\'requested\' OR sponsor_address=$1) ORDER BY created_at ASC LIMIT 50',
+        '((status=\'requested\' AND (sponsor_address IS NULL OR sponsor_address=$1)) OR sponsor_address=$1) ' +
+        'ORDER BY created_at ASC LIMIT 50',
         [auth.address],
       )
-      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+      return res.json({ success: true, requests: result.rows.map((row) => ({
+        ...publicRequest(row),
+        ...(row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
+          ? { unsignedTransaction: row.unsigned_transaction }
+          : {}),
+      })) })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-queue-unavailable' })
     }
@@ -735,7 +977,7 @@ export function createSponsorDirectPayoutsRouter({
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params?.id, 64)
     if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-payout-request-id' })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     if (!tatumApiKey(env)) return res.status(503).json({ success: false, error: 'tatum-mainnet-key-not-configured' })
     const tronWeb = tronWebForMainnet()
@@ -769,6 +1011,22 @@ export function createSponsorDirectPayoutsRouter({
           note: 'The same unexpired sponsor preparation was returned. No second payout was created.',
         })
       }
+      if (row.status === 'requested' && row.sponsor_address === auth.address
+        && row.expires_at && new Date(row.expires_at).getTime() <= now()) {
+        const released = await client.query(
+          'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET sponsor_address=NULL, expires_at=NULL, ' +
+          'failure_code=\'sponsor-match-expired\', updated_at=now() ' +
+          'WHERE id=$1 AND status=\'requested\' AND sponsor_address=$2 RETURNING *',
+          [id, auth.address],
+        )
+        await client.query('COMMIT')
+        return res.status(409).json({
+          success: false,
+          error: 'sponsor-match-expired',
+          request: publicRequest(released.rows[0] || row),
+          note: 'The temporary sponsor match expired before preparation. The request is unassigned and available for another eligible sponsor.',
+        })
+      }
       // An expired unsigned preparation may be released and claimed again.
       // Signed, broadcasting and ambiguous payouts are never reset or reassigned.
       if (row.status === 'prepared' && row.expires_at
@@ -780,6 +1038,10 @@ export function createSponsorDirectPayoutsRouter({
           [id],
         )
         if (released.rowCount) row = released.rows[0]
+      }
+      if (row.sponsor_address && row.sponsor_address !== auth.address) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'payout-automatically-assigned-to-another-sponsor' })
       }
       if (row.status !== 'requested') {
         await client.query('ROLLBACK')
@@ -797,8 +1059,8 @@ export function createSponsorDirectPayoutsRouter({
       }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
-        readReservations(client, auth.address),
-        readDailyUsage(client, auth.address),
+        readReservations(client, auth.address, id),
+        readDailyUsage(client, auth.address, id),
       ])
       const amountBaseUnits = String(row.amount_base_units)
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
@@ -922,7 +1184,7 @@ export function createSponsorDirectPayoutsRouter({
     if (!serialized || serialized.length > MAX_SIGNED_TRANSACTION_BYTES) {
       return res.status(400).json({ success: false, error: 'invalid-signed-transaction-size' })
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     let row
     let client
@@ -1041,7 +1303,7 @@ export function createSponsorDirectPayoutsRouter({
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params?.id, 64)
     if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-payout-request-id' })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)

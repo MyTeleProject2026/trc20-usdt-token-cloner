@@ -47,6 +47,11 @@ async function api(path, token, options = {}) {
   return body
 }
 
+function hasExpiredPreparation(request) {
+  const expiresAt = Date.parse(request?.expiresAt || '')
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
+}
+
 function statusLabel(status) {
   return ({
     requested: 'Awaiting sponsor',
@@ -180,6 +185,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           const ownPrepared = (queueResult.requests || []).find((item) =>
             item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction)
           if (ownPrepared) setPrepared(ownPrepared)
+          else setPrepared(null)
         } else {
           setSnapshot(null)
           setQueue([])
@@ -208,6 +214,14 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   useEffect(() => {
     void refresh()
   }, [identityToken, walletAddress, ownerSession?.sessionToken])
+
+  useEffect(() => {
+    if (!identityMatchesWallet || !['withdraw', 'history'].includes(mode)) return undefined
+    const interval = window.setInterval(() => {
+      void refresh()
+    }, 15000)
+    return () => window.clearInterval(interval)
+  }, [identityMatchesWallet, identityToken, walletAddress, mode])
 
   async function submitRequest() {
     setBusy(true)
@@ -427,7 +441,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Contract: {MAINNET_USDT}</span>
                 <span>Requester wallet: identity only</span>
                 <span>Sender: approved sponsor wallet</span>
-                <span>Signer: sponsor's TronLink account</span>
+                <span>Routing: automatic matching against authorized sponsor mandates and live funding checks</span>
+                <span>Signer: sponsor's TronLink account; sponsor approval is still required</span>
                 <span>Broadcast and confirmation: Tatum Mainnet</span>
               </div>
             </aside>
@@ -502,7 +517,9 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
               </div>
               <p className="fine-print">Check the sender, recipient and exact amount. The next action opens the sponsor wallet's own TronLink approval. Nothing is broadcast until the sponsor explicitly approves the transaction.</p>
-              <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>
+              {hasExpiredPreparation(prepared)
+                ? <button className="secondary-button" disabled={busy || !identityMatchesWallet} onClick={() => void prepareRequest(prepared)}><RefreshCw size={16} /> Refresh expired preparation</button>
+                : <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
             </div>
           )}
           <div className="section-heading compact"><div><span className="eyebrow">SPONSOR REQUEST QUEUE</span><h3>Requests awaiting sponsor action</h3></div></div>
@@ -519,7 +536,9 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                   </div>
                   <div className="transaction-actions">
                     {item.status === 'requested' && <button className="secondary-button" disabled={busy || BigInt(snapshot?.availableUsdtBaseUnits || '0') < BigInt(item.amountBaseUnits)} onClick={() => void prepareRequest(item)}><ClipboardCheck size={15} /> Prepare from sponsor wallet</button>}
-                    {item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction && <button className="primary-button" disabled={busy} onClick={() => void signAndBroadcast(item)}><Wallet size={15} /> Sign and broadcast</button>}
+                    {item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction && (hasExpiredPreparation(item)
+                      ? <button className="secondary-button" disabled={busy} onClick={() => void prepareRequest(item)}><RefreshCw size={15} /> Refresh expired preparation</button>
+                      : <button className="primary-button" disabled={busy} onClick={() => void signAndBroadcast(item)}><Wallet size={15} /> Sign and broadcast</button>)}
                     {['submitted', 'outcome-unknown', 'broadcasting'].includes(item.status) && <button className="secondary-button" disabled={busy} onClick={() => void refreshRequest(item.id)}><RefreshCw size={15} /> Verify Mainnet status</button>}
                   </div>
                 </article>
@@ -574,6 +593,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       <span>To {item.recipientAddress}</span>
                       <small>Status: {statusLabel(item.status)}</small>
                       <small>Sponsor: {item.sponsorAddress ? shorten(item.sponsorAddress) : 'Not assigned'}</small>
+                      {item.status === 'requested' && <small>{item.sponsorAddress
+                        ? 'Automatically matched using current sponsor funding and fee checks. Waiting for the sponsor to prepare and sign this payout.'
+                        : 'No eligible funded sponsor is matched yet. The request remains queued; your wallet is not charged.'}</small>}
+                      {item.status === 'requested' && item.sponsorAddress && item.expiresAt && <small>Temporary sponsor reservation expires {new Date(item.expiresAt).toLocaleString()}. If it expires, the request returns to the available sponsor queue.</small>}
+
                       {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
                       {item.status === 'confirmed' && <small>On-chain transfer confirmed; exchange account credit is not independently verified.</small>}
                     </div>
