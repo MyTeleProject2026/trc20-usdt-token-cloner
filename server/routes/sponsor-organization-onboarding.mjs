@@ -149,6 +149,11 @@ async function ensureSchema(db) {
         ON ${SCHEMA}.sponsor_organization_applications (sponsor_wallet_address, created_at DESC)
       `)
       await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS sponsor_organization_one_open_application_idx
+        ON ${SCHEMA}.sponsor_organization_applications (sponsor_wallet_address)
+        WHERE status IN ('pending-review','in-review','accepted-for-due-diligence')
+      `)
+      await db.query(`
         CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_mandates (
           id UUID PRIMARY KEY,
           application_id UUID NOT NULL REFERENCES ${SCHEMA}.sponsor_organization_applications(id),
@@ -176,6 +181,11 @@ async function ensureSchema(db) {
       await db.query(`
         CREATE INDEX IF NOT EXISTS sponsor_organization_mandates_wallet_status_idx
         ON ${SCHEMA}.sponsor_organization_mandates (sponsor_wallet_address, status, valid_until)
+      `)
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS sponsor_organization_one_open_mandate_idx
+        ON ${SCHEMA}.sponsor_organization_mandates (sponsor_wallet_address)
+        WHERE status IN ('signed-awaiting-review','verified','authorized')
       `)
     })().catch((error) => {
       schemaPromise = null
