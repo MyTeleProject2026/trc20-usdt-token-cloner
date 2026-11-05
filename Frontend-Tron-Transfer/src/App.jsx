@@ -34,7 +34,7 @@ async function api(path, options = {}) {
 }
 
 export default function App() {
-  const [tab,setTab]=useState('recipients')
+  const [tab,setTab]=useState('overview')
   const [unlocked,setUnlocked]=useState(null)
   const [monitorAddress,setMonitorAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [monitorData,setMonitorData]=useState(null)
