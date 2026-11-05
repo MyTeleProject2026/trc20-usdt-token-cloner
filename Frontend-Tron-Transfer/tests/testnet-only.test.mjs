@@ -37,7 +37,7 @@ test('only the approved sponsor wallet signs and broadcasts its exact payout', (
   assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/requests/'))
   assert.ok(sponsorPayouts.includes('/broadcast'))
   assert.ok(sponsorPayouts.includes('Only the approved sponsor address that prepared this payment can sign it.'))
-  assert.ok(sponsorPayouts.includes("The sponsor's own wallet sends and signs the USDT"))
+  assert.ok(sponsorPayouts.includes("The approved sponsor's own funded TRON wallet sends and signs the USDT"))
 })
 
 test('platform owner session is used for sponsor application review, not as the payout signer', () => {
@@ -58,7 +58,7 @@ test('sponsor readiness uses actual on-chain balances, resources and bounded bud
 
 test('payout history distinguishes on-chain confirmation from exchange account credit', () => {
   assert.ok(sponsorPayouts.includes('View on TRONSCAN'))
-  assert.ok(sponsorPayouts.includes('on-chain transfer is not exchange credit'))
+  assert.ok(sponsorPayouts.includes('On-chain confirmation is not exchange credit'))
   assert.ok(sponsorPayouts.includes('does not prove that an exchange credited the deposit'))
   assert.ok(sponsorPayouts.includes('minimum deposit'))
 })
