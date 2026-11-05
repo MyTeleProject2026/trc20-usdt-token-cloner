@@ -40,11 +40,53 @@ export default function App() {
   const [monitorData,setMonitorData]=useState(null)
   const [monitorError,setMonitorError]=useState('')
   const [monitorBusy,setMonitorBusy]=useState(false)
+  const [notice,setNotice]=useState('')
+  const [error,setError]=useState('')
+  const [busy,setBusy]=useState(false)
+  const [ownerAddress,setOwnerAddress]=useState('')
+  const [ownerPassword,setOwnerPassword]=useState('')
+  const [ownerSession,setOwnerSession]=useState(null)
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
+
+  useEffect(()=>{
+    void inspectAddress(MAINNET_MONITORED_ADDRESS).catch(e=>setMonitorError(e.message))
+    try {
+      const owner=sessionStorage.getItem(OWNER_SESSION_KEY)
+      if(owner) void restoreOwner(owner)
+    } catch {}
+  },[])
 
   async function perform(fn) {
     setBusy(true); setError('')
     try { return await fn() } catch(e) { setError(e instanceof Error?e.message:'Operation failed.'); return null } finally { setBusy(false) }
+  }
+
+  function getTronLinkProvider() {
+    const candidates=[window.tron,window.tronLink]
+    return candidates.find(provider=>provider&&provider.isTronLink===true&&typeof provider.request==='function')||null
+  }
+  async function connectTronLink() {
+    const provider=getTronLinkProvider()
+    if(!provider) throw new Error('TronLink was not detected. Open Tron Transfer in the TronLink DApp browser, unlock your wallet and retry.')
+    let accounts
+    try { accounts=await provider.request({method:'eth_requestAccounts'}) }
+    catch(e) {
+      const code=Number(e?.code), message=String(e?.message||e||'')
+      if(code===-32601||code===4200||/method not found|unsupported method|method not supported/i.test(message)) accounts=await provider.request({method:'tron_requestAccounts'})
+      else throw e
+    }
+    const tronWeb=provider.tronWeb||window.tronWeb
+    const address=String(tronWeb?.defaultAddress?.base58||(Array.isArray(accounts)?accounts.find(isValidAddress):'')||'')
+    if(!isValidAddress(address)||!tronWeb?.trx||typeof tronWeb.trx.sign!=='function') throw new Error('TronLink did not expose a valid Mainnet account and transaction signer. Unlock the wallet and retry.')
+    let node=''
+    try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
+    if(node!=='api.trongrid.io') throw new Error('Network mismatch. Switch TronLink to TRON Mainnet before connecting.')
+    setUnlocked({address,tronWeb,provider})
+    setNotice('TronLink connected to TRON Mainnet. The wallet retains its private key; transaction signatures require a separate approval.')
+  }
+  function lockWallet() {
+    setUnlocked(null)
+    setNotice('TronLink disconnected from this application. Your wallet remains in TronLink.')
   }
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
@@ -100,13 +142,13 @@ export default function App() {
         {tab==='overview'&&<>
           <section className="wallet-summary">
             <div className="panel balance-card"><div className="panel-heading"><div><span className="eyebrow">MONITORED MAINNET ADDRESS</span><h2>{shorten(monitorAddress)}</h2>{addressLink&&<a href={addressLink} target="_blank" rel="noreferrer">Open TRONSCAN <ExternalLink size={13}/></a>}</div><div className="panel-icon"><Wallet/></div></div><div className="balance-number">{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'—'} <small>USDT</small></div><div className="balance-footer"><span>Official TRC20 USDT · Mainnet</span><button className="icon-button" disabled={monitorBusy} onClick={()=>perform(()=>inspectAddress())}><RefreshCw size={16}/> Refresh</button></div></div>
-            <div className="panel quick-card"><span className="eyebrow">PAYOUT MODEL</span><strong className="status-live"><i/> Sponsor-funded</strong><p>USDT principal and network resources must already be held by the configured owner wallet. TronLink signs each direct Mainnet withdrawal.</p><button className="secondary-button" onClick={()=>setTab('sponsors')}>Open payout workspace</button></div>
+            <div className="panel quick-card"><span className="eyebrow">PAYOUT MODEL</span><strong className="status-live"><i/> Owner-controlled</strong><p>USDT principal and network resources must already be held by the configured owner wallet. TronLink signs each direct Mainnet withdrawal.</p><button className="secondary-button" onClick={()=>setTab('sponsors')}>Open owner access</button></div>
           </section>
           <section className="panel"><div className="section-heading"><div><span className="eyebrow">OFFICIAL ASSET</span><h2>Tether USD · TRC20</h2><p>The production asset is pinned to the official TRON Mainnet token contract.</p></div><div className="panel-icon"><ShieldCheck/></div></div><div className="asset-row"><div className="asset-symbol token-symbol">US</div><div className="asset-name"><b>Official Tether USD</b><small>{MAINNET_USDT}</small></div><strong>{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'Not loaded'} <small>USDT</small></strong></div><p className="fine-print">Only the official Mainnet contract is supported. This dashboard displays only actual Mainnet balances for the monitored address and does not display simulated tokens.</p></section>
           <section className="panel wallet-access">
             <div className="panel-heading"><div><span className="eyebrow">OWNER WALLET · TRONLINK</span><h2>{unlocked?'TronLink connected':'Connect your TronLink wallet'}</h2><p>TronLink keeps your private key inside the wallet. Tron Transfer requests only account access and explicit message or transaction signatures.</p></div><div className="panel-icon"><Wallet/></div></div>
             {unlocked?<div className="form-stack"><div className="address-box"><span>Connected TRON Mainnet account</span><b>{unlocked.address}</b></div><div className="button-row"><button className="secondary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><RefreshCw size={15}/> Refresh connection</button><button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Disconnect</button></div></div>:<div className="form-stack"><p className="fine-print">Open this application in the TronLink DApp browser on Android, unlock your wallet, then connect. Never paste a private key or recovery phrase into this website.</p><button className="primary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><Wallet size={16}/> Connect TronLink</button></div>}
-            <p className="fine-print">Wallet connection alone does not prove owner authorization, fund a balance or enable withdrawals. A separate signature verifies identity, and every transfer requires its own TronLink transaction approval.</p>
+            <p className="fine-print">Wallet connection alone does not authorize a transfer. The backend owner session must match this TronLink address, and every withdrawal requires its own transaction approval inside TronLink.</p>
           </section>
         </>}
 
@@ -124,7 +166,7 @@ export default function App() {
             <div className="section-heading"><div><span className="eyebrow">CONFIRMED MAINNET ACCOUNT HISTORY</span><h3>Incoming TRC20 activity</h3><p>{monitorData.historyStatus==='complete'?'Mainnet incoming history was retrieved.':monitorData.historyStatus==='partial'?'Only part of the history feed was available.':'History provider did not return a complete result.'}</p></div></div>
             {!monitorData.incomingHistory?.length?<div className="empty-state"><ArrowDownLeft size={25}/><b>No incoming transfers returned</b><p>This provider response is not proof that the address has never received funds.</p></div>:monitorData.incomingHistory.map((item,index)=><article className="history-item" key={item.txid||index}><div className="history-icon incoming"><ArrowDownLeft size={17}/></div><div className="history-main"><b>{item.amountBaseUnits&&item.decimals!==null?formatUnits(item.amountBaseUnits,item.decimals):'Amount unavailable'} {item.symbol||item.asset}</b><small>From {shorten(item.from)} · {item.timestamp?new Date(item.timestamp).toLocaleString():'Timestamp unavailable'}</small><span className={'status-text '+(item.confirmed?'good':'')}>{item.confirmed?'Confirmed':'History candidate'}</span>{item.txid&&<a href={'https://tronscan.org/#/transaction/'+item.txid} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12}/></a>}</div></article>)}
           </div>}
-          <p className="fine-print">Balance and history reads are Mainnet-only. A withdrawal is not marked complete until Fincra settlement and the exact solidified Tether Transfer are independently verified.</p>
+          <p className="fine-print">Balance and history reads are Mainnet-only. A withdrawal is not marked complete until Tatum confirms the exact solidified Tether Transfer on Mainnet.</p>
         </section>}
 
         
