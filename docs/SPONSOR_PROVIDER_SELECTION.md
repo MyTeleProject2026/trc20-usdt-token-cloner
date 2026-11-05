@@ -65,3 +65,12 @@ A single organization can perform both roles only if its mandate, budgets, accou
 - An exchange integration if the product promises exchange deposit-credit status.
 
 Until these items are evidenced, runtime status must remain enabled: false, canSubmitSponsoredTransfer: false, submissionEnabled: false, and user-funded fallback must remain prohibited.
+
+
+## Fincra/Tatum implementation path (2026-11)
+
+The repository now uses Fincra as the provider-managed payout rail for an authorized, funded Fincra business account and Tatum as the TRON Mainnet RPC/recipient-verification layer. Fincra documents `usdt_trc20` as a stablecoin payout scheme; this is a provider payout capability, not a public or free asset sponsor. A live business account must be approved and enabled for stablecoin payouts by Fincra. Available USDT must exist in the configured account before the API is called.
+
+The no-per-withdrawal-prompt mode is a **standing authorization**, not an authorization bypass. A sponsor signs the exact Fincra business ID, agreement digest, Mainnet USDT purpose, limits, and validity. The platform independently reviews that evidence; the server matches the mandate's business ID to the configured account; the requester is allowlisted; and the backend enforces the per-payout and daily limits. A sponsor signature per payout is not required only inside that pre-authorized provider scope. Keep automatic mode off until the real business account and sponsor arrangement are operationally verified.
+
+Official provider documentation: https://docs.fincra.com/reference/initiate-payout-2

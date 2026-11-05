@@ -93,3 +93,35 @@ test('frontend requests TronLink to sign and never sends a raw transaction itsel
   assert.ok(frontend.includes('/broadcast'))
   assert.doesNotMatch(frontend, /sendRawTransaction|privateKey\\s*[:=]/i)
 })
+
+
+test('Fincra automatic payout requires an allowlisted requester and an authorized matching standing mandate', () => {
+  assert.match(recipientRoute, /FINCRA_AUTO_PAYOUTS_ENABLED !== 'true'/)
+  assert.match(recipientRoute, /FINCRA_AUTO_PAYOUT_REQUESTER_ADDRESSES/)
+  assert.match(recipientRoute, /authorized-fincra-standing-mandate-required/)
+  assert.match(recipientRoute, /m\.execution_mode='fincra-automatic'/)
+  assert.match(recipientRoute, /m\.provider_business_id=\$1/)
+  assert.match(recipientRoute, /m\.per_payout_limit_base_units >= \$2/)
+  assert.match(recipientRoute, /fincra-standing-mandate-daily-limit-exceeded/)
+  assert.match(recipientRoute, /FOR UPDATE OF m/)
+  assert.match(recipientRoute, /sponsor_mandate_id/)
+})
+
+test('requesters can view and reconcile only their own Fincra payout history', () => {
+  assert.match(recipientRoute, /router\.get\('\/sponsor-requests\/mine'/)
+  assert.match(recipientRoute, /router\.post\('\/sponsor-requests\/:id\/fincra-status'/)
+  assert.match(recipientRoute, /router\.post\('\/sponsor-requests\/:id\/verify-recipient-transfer'/)
+  assert.match(recipientRoute, /requester-does-not-own-this-payout-request/)
+  assert.match(app, /FincraWithdrawals/)
+})
+
+test('Fincra frontend initiates provider submission and polls provider/solidified-chain reconciliation', async () => {
+  const page = await readFile(new URL('../Frontend-Tron-Transfer/src/FincraWithdrawals.jsx', import.meta.url), 'utf8')
+  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
+  assert.match(page, /\/api\/tron-transfer\/sponsor-requests/)
+  assert.match(page, /\/fincra-payout/)
+  assert.match(page, /\/fincra-status/)
+  assert.match(page, /\/verify-recipient-transfer/)
+  assert.match(page, /solidified-recipient-transfer-verified/)
+  assert.doesNotMatch(page, /privateKey\s*[:=]/i)
+})

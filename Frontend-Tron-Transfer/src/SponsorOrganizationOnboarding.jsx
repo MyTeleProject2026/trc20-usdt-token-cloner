@@ -34,7 +34,7 @@ function applicationMessage(input) {
     'Jurisdiction: ' + input.jurisdiction,
     'Website: ' + (input.website || 'not provided'),
     'Requested roles: ' + input.roles.join(', '),
-    'Declarations: authorized representative; controls the sponsor wallet; proposed funds are lawfully controlled; agrees to separate written mandate and transaction approval; consents to application-data processing.',
+    'Declarations: authorized representative; controls the sponsor wallet; proposed funds are lawfully controlled; agrees to a separate written mandate defining any permitted provider-managed payout authorization; consents to application-data processing.',
   ].join('\n')
 }
 
@@ -42,7 +42,7 @@ function mandateMessage(input) {
   return [
     'TRON Transfer sponsor payout mandate',
     'Purpose: confirm the exact limits and agreement reference below. This is not a transaction and does not itself move funds.',
-    'Version: sponsor-payout-mandate-v1',
+    'Version: ' + (input.executionMode === 'fincra-automatic' ? 'sponsor-payout-mandate-v2' : 'sponsor-payout-mandate-v1'),
     'Network: TRON Mainnet',
     'Sponsor wallet: ' + input.wallet,
     'Organization application: ' + input.applicationId,
@@ -53,7 +53,13 @@ function mandateMessage(input) {
     'Daily maximum (USDT base units): ' + input.dailyBaseUnits,
     'Valid from: ' + input.validFrom,
     'Valid until: ' + input.validUntil,
-    'This mandate is subject to independent review and can be revoked. Every payout still requires the sponsor-authorized signing method.',
+    ...(input.executionMode === 'fincra-automatic' ? [
+      'Execution mode: fincra-automatic',
+      'Provider: Fincra',
+      'Fincra business ID: ' + input.providerBusinessId,
+      'Standing authorization: the platform may submit Mainnet USDT TRC20 payouts from this identified and separately funded provider business account without a fresh sponsor wallet signature for each payout, only within the limits, purpose, validity and agreement above.',
+      'This authorization does not permit use of any other business account, asset, network, beneficiary scope or funds outside the signed agreement. The sponsor may revoke this mandate.',
+    ] : ['This mandate is subject to independent review and can be revoked. Every payout still requires the sponsor-authorized signing method.']),
   ].join('\n')
 }
 
@@ -81,7 +87,13 @@ function defaultDate(offsetDays = 0) {
   return date.toISOString().slice(0, 16)
 }
 
-export default function SponsorOrganizationOnboarding({ wallet, identityToken, identityMatchesWallet, ownerSession }) {
+export default function SponsorOrganizationOnboarding({ wallet, ownerSession }) {
+  const [identitySession, setIdentitySession] = useState(null)
+  const [executionMode, setExecutionMode] = useState('per-transfer')
+  const [providerBusinessId, setProviderBusinessId] = useState('')
+  const walletAddress = wallet?.address || ''
+  const identityToken = identitySession?.sessionToken || ''
+  const identityMatchesWallet = Boolean(identityToken && identitySession?.address === walletAddress)
   const [application, setApplication] = useState(null)
   const [mandates, setMandates] = useState([])
   const [applications, setApplications] = useState([])
@@ -128,6 +140,40 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
     } catch (cause) {
       setError(cause?.message || 'Could not refresh organization onboarding.')
     }
+  }
+
+  useEffect(() => {
+    let current = true
+    setIdentitySession(null)
+    if (!walletAddress) return () => { current = false }
+    let token = ''
+    try { token = sessionStorage.getItem('tron-transfer:organization-session:v1:' + walletAddress) || '' } catch {}
+    if (!token) return () => { current = false }
+    api('/api/auth/tron/session', token)
+      .then((result) => {
+        if (!current || result.authenticated !== true || result.address !== walletAddress
+          || result.network !== 'mainnet' || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now()) return
+        setIdentitySession({ address: result.address, expiresAt: result.expiresAt, sessionToken: token })
+      })
+      .catch(() => { try { sessionStorage.removeItem('tron-transfer:organization-session:v1:' + walletAddress) } catch {} })
+    return () => { current = false }
+  }, [walletAddress])
+
+  async function verifyWalletIdentity() {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      if (!wallet?.tronWeb?.trx || !walletAddress) throw new Error('Connect the sponsor TronLink Mainnet wallet first.')
+      if (wallet.tronWeb.defaultAddress?.base58 && wallet.tronWeb.defaultAddress.base58 !== walletAddress) throw new Error('TronLink account changed. Reconnect before continuing.')
+      if (typeof wallet.tronWeb.trx.signMessageV2 !== 'function') throw new Error('TronLink message signing is unavailable.')
+      const challenge = await api('/api/auth/tron/challenge', null, { method: 'POST', body: JSON.stringify({ address: walletAddress, network: 'mainnet' }) })
+      const signature = await wallet.tronWeb.trx.signMessageV2(challenge.message)
+      const verified = await api('/api/auth/tron/verify', null, { method: 'POST', body: JSON.stringify({ address: walletAddress, network: 'mainnet', nonce: challenge.nonce, signature }) })
+      if (verified.authenticated !== true || verified.address !== walletAddress || verified.network !== 'mainnet' || typeof verified.sessionToken !== 'string') throw new Error('Sponsor wallet identity verification failed.')
+      setIdentitySession({ address: verified.address, expiresAt: verified.expiresAt, sessionToken: verified.sessionToken })
+      try { sessionStorage.setItem('tron-transfer:organization-session:v1:' + walletAddress, verified.sessionToken) } catch {}
+      setNotice('Sponsor wallet identity verified. This message signature does not move funds or authorize payouts.')
+    } catch (cause) { setError(cause?.message || 'Sponsor identity verification failed.') }
+    finally { setBusy(false) }
   }
 
   useEffect(() => { void refresh() }, [identityToken, identityMatchesWallet, ownerSession?.sessionToken])
@@ -193,6 +239,8 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
         dailyBaseUnits,
         validFrom: from.toISOString(),
         validUntil: until.toISOString(),
+        executionMode,
+        providerBusinessId: executionMode === 'fincra-automatic' ? providerBusinessId.trim() : '',
       }
       const signature = await wallet.tronWeb.trx.signMessageV2(mandateMessage(input))
       const result = await api('/api/tron/organizations/applications/' + encodeURIComponent(application.id) + '/mandates', identityToken, {
@@ -205,6 +253,9 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
           dailyLimit: dailyLimit.trim(),
           validFrom: input.validFrom,
           validUntil: input.validUntil,
+          executionMode,
+          providerName: executionMode === 'fincra-automatic' ? 'fincra' : null,
+          providerBusinessId: executionMode === 'fincra-automatic' ? providerBusinessId.trim() : null,
           mandateSignature: signature,
         }),
       })
@@ -267,12 +318,12 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
         <div><span className="eyebrow">ORGANIZATION SPONSOR INTAKE</span><h3>External sponsor organization</h3></div>
         <button className="secondary-button" disabled={busy} onClick={() => void refresh()}><RefreshCw size={15} /> Refresh</button>
       </div>
-      <p className="fine-print">An organization application is not proof of company identity, source of funds or authority to spend. A signed agreement must be reviewed before a mandate can be authorized. Sponsors keep control of their wallet and sign their own transfers.</p>
+      <p className="fine-print">An organization application is not proof of company identity, source of funds or authority to spend. A signed agreement must be reviewed before a mandate can be authorized. Sponsors may select per-transfer approval or explicitly authorize bounded provider-managed payouts; an application alone never permits spending.</p>
       {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
       {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
 
       {!identityMatchesWallet ? (
-        <p className="fine-print">Connect the proposed sponsor's TronLink wallet and verify its identity before submitting an organization application or mandate.</p>
+        <div className="owner-session-card"><p className="fine-print">Connect the proposed sponsor's TronLink wallet and verify its identity before submitting an organization application or mandate.</p><button className="primary-button" disabled={busy || !walletAddress} onClick={() => void verifyWalletIdentity()}>Sign sponsor identity message</button></div>
       ) : !application ? (
         <div className="form-stack">
           <label>Organization legal name<input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} maxLength={120} placeholder="Registered organization name" /></label>
@@ -303,11 +354,13 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
           <label>Agreement reference<input value={agreementReference} onChange={(e) => setAgreementReference(e.target.value)} placeholder="Signed agreement reference" /></label>
           <label>Signed agreement file (PDF, maximum 5 MB)<input type="file" accept=".pdf,application/pdf" onChange={(e) => setAgreementFile(e.target.files?.[0] || null)} /></label>
           <label>Mandate purpose<select value={purpose} onChange={(e) => setPurpose(e.target.value)}><option value="asset-principal">USDT payout principal</option><option value="network-fees">Network fees/resources only</option><option value="both">USDT principal and network fees</option></select></label>
+          <label>Execution authorization<select value={executionMode} onChange={(e) => setExecutionMode(e.target.value)}><option value="per-transfer">Per-transfer sponsor wallet approval</option><option value="fincra-automatic">Standing Fincra authorization (no per-withdrawal sponsor signature)</option></select></label>
+          {executionMode === 'fincra-automatic' && <><label>Fincra business ID<input value={providerBusinessId} onChange={(e) => setProviderBusinessId(e.target.value)} maxLength={128} placeholder="Exact Fincra business ID in the signed agreement" /></label><p className="fine-print">This signature explicitly authorizes provider-managed Mainnet USDT TRC20 payout submissions for this exact Fincra business ID. The platform reviewer must independently verify the signed agreement, account relationship and funding. Provider submission still requires the backend's separately configured live authorization and funded balance.</p></>}
           <label>Maximum per payout (USDT)<input value={perPayoutLimit} onChange={(e) => setPerPayoutLimit(e.target.value)} inputMode="decimal" placeholder="e.g. 50" /></label>
           <label>Daily maximum (USDT)<input value={dailyLimit} onChange={(e) => setDailyLimit(e.target.value)} inputMode="decimal" placeholder="e.g. 200" /></label>
           <label>Valid from<input type="datetime-local" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} /></label>
           <label>Valid until<input type="datetime-local" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></label>
-          <button className="primary-button" disabled={busy || !agreementReference.trim() || !agreementFile || !perPayoutLimit.trim() || !dailyLimit.trim()} onClick={() => void submitMandate()}><ShieldCheck size={16} /> Sign and submit mandate</button>
+          <button className="primary-button" disabled={busy || !agreementReference.trim() || !agreementFile || !perPayoutLimit.trim() || !dailyLimit.trim() || (executionMode === 'fincra-automatic' && !/^[A-Za-z0-9._:-]{4,128}$/.test(providerBusinessId.trim()))} onClick={() => void submitMandate()}><ShieldCheck size={16} /> Sign and submit mandate</button>
         </div>
       )}
 
@@ -315,7 +368,7 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
         <div className="sponsor-funding-destination">
           <h4>Mandate history</h4>
           {mandates.map((item) => <article className="transaction-row" key={item.id}>
-            <div className="transaction-main"><strong>{item.status} · {item.purpose}</strong><span>{item.agreementReference}</span><small>Per payout: {fromUnits(item.perPayoutLimitBaseUnits)} USDT · Daily: {fromUnits(item.dailyLimitBaseUnits)} USDT</small><small>Valid until: {new Date(item.validUntil).toLocaleString()}</small></div>
+            <div className="transaction-main"><strong>{item.status} · {item.purpose}</strong><span>{item.agreementReference}</span><small>Mode: {item.executionMode || 'per-transfer'}{item.providerBusinessId ? ' · Fincra business ' + item.providerBusinessId : ''}</small><small>Per payout: {fromUnits(item.perPayoutLimitBaseUnits)} USDT · Daily: {fromUnits(item.dailyLimitBaseUnits)} USDT</small><small>Valid until: {new Date(item.validUntil).toLocaleString()}</small></div>
             {['signed-awaiting-review', 'verified', 'authorized'].includes(item.status) && <div className="transaction-actions"><button className="outline-button" disabled={busy} onClick={() => void revokeMandate(item.id)}>Revoke mandate</button></div>}
           </article>)}
         </div>
@@ -334,7 +387,7 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
           </article>)}
           <h4>Signed sponsor mandates</h4>
           {!mandateQueue.length ? <p className="fine-print">No signed mandates awaiting owner review.</p> : mandateQueue.map((item) => <article className="transaction-row" key={item.id}>
-            <div className="transaction-main"><strong>{item.status} · {item.purpose}</strong><span>{item.sponsorWalletAddress}</span><small>{item.agreementReference}</small><small>Digest: {item.agreementDigest}</small><small>Per payout: {fromUnits(item.perPayoutLimitBaseUnits)} USDT · Daily: {fromUnits(item.dailyLimitBaseUnits)} USDT</small><small>Valid until: {new Date(item.validUntil).toLocaleString()}</small></div>
+            <div className="transaction-main"><strong>{item.status} · {item.purpose}</strong><span>{item.sponsorWalletAddress}</span><small>{item.agreementReference}</small><small>Digest: {item.agreementDigest}</small><small>Mode: {item.executionMode || 'per-transfer'}{item.providerBusinessId ? ' · Fincra business ' + item.providerBusinessId : ''}</small><small>Per payout: {fromUnits(item.perPayoutLimitBaseUnits)} USDT · Daily: {fromUnits(item.dailyLimitBaseUnits)} USDT</small><small>Valid until: {new Date(item.validUntil).toLocaleString()}</small></div>
             <div className="transaction-actions">
               {item.status === 'signed-awaiting-review' && <button className="secondary-button" disabled={busy} onClick={() => void reviewMandate(item.id, 'verify')}>Verify agreement evidence</button>}
               {item.status === 'verified' && <button className="primary-button" disabled={busy} onClick={() => void reviewMandate(item.id, 'authorize')}>Authorize mandate</button>}
