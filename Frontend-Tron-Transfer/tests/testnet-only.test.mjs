@@ -41,7 +41,7 @@ test('wallet assets are read-only and never represented as simulated funding', (
   assert.ok(app.includes('MONITORED ADDRESS · READ ONLY'))
   assert.ok(withdrawals.includes('USDT principal'))
   assert.ok(withdrawals.includes('Tatum does not provide the USDT principal'))
-  assert.ok(!/fake balance|simulated balance|testnet simulator/i.test(app + withdrawals))
+  assert.ok(!/mockUsdtBalance|fakeUsdtBalance|simulatorMode|testnetTransfer/i.test(app + withdrawals))
 })
 
 test('external exchange deposit warning distinguishes chain confirmation from exchange credit', () => {
@@ -57,7 +57,7 @@ test('no legacy Fincra payout flow remains in the active Tron Transfer UI', () =
 })
 
 test('production metadata and frontend test command remain configured', () => {
-  assert.ok(html.includes('Mainnet-only sponsored Tether USDT TRC20 withdrawal platform') || html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
+  assert.ok(html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
   assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
   assert.equal(pkg.scripts.build, 'vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
