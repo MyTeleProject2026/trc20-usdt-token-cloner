@@ -67,7 +67,7 @@ function bearerToken(req) {
   return match ? match[1] : ''
 }
 
-function getPool(env) {
+function getDatabase(env) {
   if (pool) return pool
   if (!clean(env.DATABASE_URL, 4096)) return null
   const connectionString = normalizeDatabaseConnectionString(env.DATABASE_URL)
@@ -616,6 +616,7 @@ export function createSponsorDirectPayoutsRouter({
   readSnapshot = readSponsorSnapshot,
   providerPost = tatumPost,
   verifyTransfer = verifySolidifiedUsdtTransfer,
+  getDatabase = getPool,
 } = {}) {
   const router = Router()
 
@@ -643,7 +644,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -672,7 +673,7 @@ export function createSponsorDirectPayoutsRouter({
       || (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail))) {
       return res.status(400).json({ success: false, error: 'invalid-sponsor-profile' })
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -701,7 +702,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requirePlatformOwner(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -750,7 +751,7 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(400).json({ success: false, error: 'daily-limit-must-cover-per-payout-limit' })
       }
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -779,7 +780,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     if (!tatumApiKey(env)) return res.status(503).json({ success: false, error: 'tatum-mainnet-key-not-configured' })
     try {
@@ -860,7 +861,7 @@ export function createSponsorDirectPayoutsRouter({
     try { amountBaseUnits = parseSponsorDirectUsdtAmount(body.amount) } catch {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -909,7 +910,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -935,7 +936,7 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
@@ -976,7 +977,7 @@ export function createSponsorDirectPayoutsRouter({
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params?.id, 64)
     if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-payout-request-id' })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     if (!tatumApiKey(env)) return res.status(503).json({ success: false, error: 'tatum-mainnet-key-not-configured' })
     const tronWeb = tronWebForMainnet()
@@ -1183,7 +1184,7 @@ export function createSponsorDirectPayoutsRouter({
     if (!serialized || serialized.length > MAX_SIGNED_TRANSACTION_BYTES) {
       return res.status(400).json({ success: false, error: 'invalid-signed-transaction-size' })
     }
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     let row
     let client
@@ -1302,7 +1303,7 @@ export function createSponsorDirectPayoutsRouter({
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params?.id, 64)
     if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-payout-request-id' })
-    const db = getPool(env)
+    const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
