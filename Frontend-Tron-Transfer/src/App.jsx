@@ -9,7 +9,6 @@ const MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
 const REQUESTER_SESSION_KEY = 'tron-transfer:requester-wallet-session:v1'
-const REQUEST_REFERENCE_KEY = 'tron-transfer:pending-request-reference:v1'
 
 function shorten(value) { return value && value.length > 18 ? value.slice(0, 9) + '…' + value.slice(-7) : value || '—' }
 function isValidAddress(value) {
@@ -54,8 +53,6 @@ export default function App() {
   const [busy,setBusy]=useState(false)
   const [requestRecipient,setRequestRecipient]=useState('')
   const [requestAmount,setRequestAmount]=useState('')
-  const [beneficiaryName,setBeneficiaryName]=useState('')
-  const [beneficiaryEmail,setBeneficiaryEmail]=useState('')
   const [ownerAddress,setOwnerAddress]=useState('')
   const [ownerPassword,setOwnerPassword]=useState('')
   const [requesterSession,setRequesterSession]=useState(null)
@@ -182,30 +179,6 @@ export default function App() {
     } finally {
       setRequestInspectionBusy(false)
     }
-  }
-
-  async function submitSponsorRequest() {
-    throw new Error('Sponsor-provider submissions are disabled. The selected architecture is Tatum-only.')
-    if(!connectedWallet?.address||!requesterSession?.sessionToken||requesterSession.address!==connectedAddress) throw new Error('Connect TronLink and verify ownership of the same Mainnet account first.')
-    if(!isValidAddress(requestRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
-    if (!requestInspection || requestInspection.address !== requestRecipient.trim() || Date.now() - requestInspection.inspectedAt > 5 * 60 * 1000) {
-      throw new Error('Inspect the recipient balance and incoming history for this exact address before creating the payout request.')
-    }
-    if(!beneficiaryName.trim()) throw new Error('Enter the beneficiary name.')
-    const amount=requestAmount.trim()
-    if(!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)) throw new Error('Enter a positive USDT amount with up to six decimal places.')
-    const parts=amount.split('.'), base=BigInt(parts[0])*1000000n+BigInt((parts[1]||'').padEnd(6,'0')||'0')
-    if(base<=0n) throw new Error('USDT amount must be greater than zero.')
-    let reference=sessionStorage.getItem(REQUEST_REFERENCE_KEY)
-    if(!reference){reference='tt-'+crypto.randomUUID();sessionStorage.setItem(REQUEST_REFERENCE_KEY,reference)}
-    const result=await api('/api/tron-transfer/sponsor-requests',{
-      method:'POST',headers:{Authorization:'Bearer '+requesterSession.sessionToken},
-      body:JSON.stringify({requesterAddress:requesterSession.address,recipientAddress:requestRecipient.trim(),beneficiaryName:beneficiaryName.trim(),beneficiaryEmail:beneficiaryEmail.trim(),amount,customerReference:reference}),
-    })
-    sessionStorage.removeItem(REQUEST_REFERENCE_KEY);setRequestRecipient('');setRequestInspection(null);setRequestInspectionError('');setRequestAmount('');setBeneficiaryName('');setBeneficiaryEmail('')
-    setNotice('Sponsor request recorded. No payout occurs until an authorized owner submits it to live Fincra.')
-    if(ownerSession?.sessionToken) await loadRequests(ownerSession.sessionToken)
-    return result
   }
 
   async function restoreOwner(token) {
