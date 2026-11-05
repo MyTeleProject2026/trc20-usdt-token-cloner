@@ -55,6 +55,15 @@ test('withdrawal preparation checks real USDT funds and builds one exact TRC20 t
   assert.match(withdrawalRoute, /status !== 'prepared'/)
 })
 
+test('prepared and unresolved withdrawals reserve owner USDT against concurrent allocations', () => {
+  assert.match(withdrawalRoute, /readOwnerUsdtReservations/)
+  assert.match(withdrawalRoute, /status='prepared' AND expires_at > now\(\)/)
+  assert.match(withdrawalRoute, /'broadcasting','submitted','outcome-unknown','manual-review'/)
+  assert.match(withdrawalRoute, /pg_advisory_xact_lock/)
+  assert.match(withdrawalRoute, /availableForWithdrawalBaseUnits/)
+})
+
+
 test('broadcast requires the persisted intent and Tatum-validated configured-owner signature', () => {
   assert.match(withdrawalRoute, /validateOwnerSignedTransaction/)
   assert.match(withdrawalRoute, /wallet\/getapprovedlist/)
