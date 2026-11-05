@@ -216,6 +216,19 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
     } finally { setBusy(false) }
   }
 
+  async function revokeMandate(id) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api('/api/tron/organizations/mandates/' + encodeURIComponent(id) + '/revoke', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      setNotice(result.note || 'Mandate revoked.')
+      await refresh()
+    } catch (cause) { setError(cause?.message || 'Mandate revocation failed.') }
+    finally { setBusy(false) }
+  }
+
   async function reviewApplication(id, decision) {
     setBusy(true); setError(''); setNotice('')
     try {
@@ -303,6 +316,7 @@ export default function SponsorOrganizationOnboarding({ wallet, identityToken, i
           <h4>Mandate history</h4>
           {mandates.map((item) => <article className="transaction-row" key={item.id}>
             <div className="transaction-main"><strong>{item.status} · {item.purpose}</strong><span>{item.agreementReference}</span><small>Per payout: {fromUnits(item.perPayoutLimitBaseUnits)} USDT · Daily: {fromUnits(item.dailyLimitBaseUnits)} USDT</small><small>Valid until: {new Date(item.validUntil).toLocaleString()}</small></div>
+            {['signed-awaiting-review', 'verified', 'authorized'].includes(item.status) && <div className="transaction-actions"><button className="outline-button" disabled={busy} onClick={() => void revokeMandate(item.id)}>Revoke mandate</button></div>}
           </article>)}
         </div>
       )}
