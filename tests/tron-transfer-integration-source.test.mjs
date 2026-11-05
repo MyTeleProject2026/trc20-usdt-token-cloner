@@ -12,8 +12,10 @@ test('Tatum proxy is restricted to Mainnet and read-only RPC methods', () => {
   assert.doesNotMatch(route, /tron-nile|tron-shasta|wallet\/broadcasttransaction/)
 })
 
-test('direct wallet broadcasts are disabled; Mainnet sponsor payout is the only send rail', () => {
+test('direct wallet broadcasts and legacy Fincra submission are disabled in Tatum-only mode', () => {
   assert.match(route, /direct-wallet-broadcast-disabled/)
+  assert.match(route, /legacy-fincra-sponsor-intake-disabled/)
+  assert.match(route, /legacy-fincra-payout-disabled/)
   assert.match(route, /transactionSubmitted: false/)
   assert.match(route, /paymentDestination: 'crypto_wallet'/)
   assert.match(route, /paymentScheme: 'usdt_trc20'/)

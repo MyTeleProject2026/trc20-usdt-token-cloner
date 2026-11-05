@@ -5,10 +5,12 @@ import { readFile } from 'node:fs/promises'
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
 const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
 
-test('recipient inspection and payout request use Mainnet API paths', () => {
+test('recipient inspection uses Mainnet API and live withdrawal submission stays gated', () => {
   assert.ok(app.includes('/api/tron-transfer/recipient'))
   assert.ok(app.includes("network:'mainnet'"))
-  assert.ok(app.includes('/api/tron-transfer/sponsor-requests'))
+  assert.ok(app.includes('Tatum-only withdrawal preparation pending'))
+  assert.ok(!app.includes('async function submitSponsorRequest'))
+  assert.ok(app.includes("api('/api/tron-transfer/sponsor-requests',{headers:{Authorization:'Bearer '+token}})"))
   assert.ok(!app.includes('/api/tron-transfer/broadcast'))
   assert.ok(!app.includes('wallet/broadcasttransaction'))
 })
@@ -19,9 +21,10 @@ test('recipient monitor defaults to the public monitored address and official Te
   assert.ok(app.includes('TRON Mainnet'))
 })
 
-test('sponsor dashboard exposes live Fincra and independent chain verification only', () => {
+test('legacy Fincra reconciliation is read-only and payout submission is disabled', () => {
   assert.ok(app.includes('canSubmitLivePayout'))
-  assert.ok(app.includes('fincra-payout'))
+  assert.ok(app.includes('Fincra payout disabled'))
+  assert.ok(app.includes("action==='fincra-payout'"))
   assert.ok(app.includes('fincra-status'))
   assert.ok(app.includes('verify-recipient-transfer'))
   assert.ok(!app.includes('canSubmitSandboxPayout'))
@@ -36,11 +39,12 @@ test('requester identity and payout owner sessions are separate', () => {
   assert.ok(app.includes('OWNER_SESSION_KEY'))
 })
 
-test('sponsor request requires fresh recipient inspection for the same address', () => {
+test('Tatum-only withdrawal preparation keeps recipient inspection tied to the selected address', () => {
   assert.ok(app.includes('inspectRequestRecipient'))
-  assert.ok(app.includes('requestInspection.address !== requestRecipient.trim()'))
-  assert.ok(app.includes('five minutes'))
+  assert.ok(app.includes('requestInspection&&requestInspection.address===requestRecipient.trim()'))
+  assert.ok(app.includes('Recheck after five minutes or whenever the address changes'))
   assert.ok(app.includes('Inspect recipient balance & history'))
+  assert.ok(app.includes('Tatum-only withdrawal preparation pending'))
 })
 
 test('forest emerald glass theme and responsive breakpoints remain', () => {

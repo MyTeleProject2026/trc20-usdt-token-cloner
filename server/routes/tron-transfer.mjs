@@ -707,6 +707,13 @@ export function createTronTransferRouter({ env = process.env } = {}) {
 
   router.post('/sponsor-requests', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
+    return res.status(410).json({
+      success: false,
+      error: 'legacy-fincra-sponsor-intake-disabled',
+      payoutProvider: 'tatum',
+      transactionSubmitted: false,
+      message: 'Fincra sponsor-request intake is disabled. Tron Transfer is configured for the Tatum-only owner-wallet flow.',
+    })
     const walletAuth = await requireRequesterWalletSession(req, env)
     if (!walletAuth.ok) return res.status(walletAuth.status).json({ success: false, error: walletAuth.error })
     const requesterAddress = walletAuth.address
@@ -826,6 +833,14 @@ export function createTronTransferRouter({ env = process.env } = {}) {
 
   router.post('/sponsor-requests/:id/fincra-payout', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
+    return res.status(410).json({
+      success: false,
+      error: 'legacy-fincra-payout-disabled',
+      payoutProvider: 'tatum',
+      transactionSubmitted: false,
+      submissionEnabled: false,
+      message: 'Fincra payout submission is disabled. Tatum provides blockchain infrastructure; owner-controlled Mainnet signing and verified funding are required for a future withdrawal flow.',
+    })
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const db = getPool(env)

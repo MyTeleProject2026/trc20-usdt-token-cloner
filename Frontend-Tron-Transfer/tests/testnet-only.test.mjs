@@ -15,22 +15,25 @@ test('production frontend is Mainnet-only and defaults to the monitored wallet',
 })
 
 test('only official USDT is represented as the payout asset', () => {
-  assert.ok(app.includes('USDT amount'))
+  assert.ok(app.includes('USDT withdrawal amount'))
   assert.ok(app.includes('Official Tether USDT TRC20'))
   assert.ok(!/addToken|tokenInput|custom token contract/i.test(app))
 })
 
 test('no direct wallet send or simulator path is present in the frontend', () => {
   assert.ok(!/buildSignAndBroadcastTransfer|sendRawTransaction|testnet simulator|Send testnet assets/i.test(app))
-  assert.ok(app.includes('Mainnet-only sponsored withdrawals'))
+  assert.ok(app.includes('Tatum-only Mainnet architecture'))
   assert.ok(app.includes('fincra-payout'))
 })
 
-test('sponsor request uses off-chain Mainnet wallet ownership verification', () => {
+test('withdrawal screen uses off-chain TronLink Mainnet identity verification but does not create sponsor requests', () => {
   assert.ok(app.includes('signMessageV2'))
-  assert.ok(app.includes('does not require TRX'))
-  assert.ok(app.includes('/api/tron-transfer/sponsor-requests'))
-  assert.ok(app.includes('requesterSession.sessionToken'))
+  assert.ok(app.includes('This identity signature is not a transaction and authorizes no funds.'))
+  assert.ok(!app.includes('async function submitSponsorRequest'))
+  assert.ok(app.includes('Tatum-only withdrawal preparation pending'))
+  assert.ok(app.includes("/api/auth/tron/challenge"))
+  assert.ok(app.includes("/api/auth/tron/verify"))
+  assert.ok(app.includes('setRequesterSession({address:verified.address,expiresAt:verified.expiresAt,sessionToken:verified.sessionToken})'))
 })
 
 test('production metadata and frontend test command are configured', () => {
@@ -54,7 +57,8 @@ test('production pages are separated into dedicated navigation and render sectio
 test('Assets page keeps personal wallet balances separate from Fincra sponsor liquidity', () => {
   assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
   assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
-  assert.ok(app.includes('This is the Fincra source-wallet availability only. Your monitored wallet balance is not included'))
+  assert.ok(app.includes('Live Fincra business wallet balances returned by the provider.'))
+  assert.ok(app.includes('This address is monitored only.'))
   assert.ok(app.includes('readiness.fincra.sourceBalance.availableBalance'))
 })
 
@@ -88,7 +92,7 @@ test('Sponsor funding page loads and displays read-only Fincra business wallet c
   assert.ok(app.includes('Incoming sponsor credits'))
   assert.ok(app.includes('/api/tron-transfer/sponsor-funding-history'))
   assert.ok(app.includes('Refresh funding history'))
-  assert.ok(app.includes('Provider ledger records, not manually entered sponsor claims'))
+  assert.ok(app.includes('provider ledger records, not manually entered sponsor claims'))
 })
 
 test('Assets page shows available, locked and ledger total sponsor balances as separate values', () => {
