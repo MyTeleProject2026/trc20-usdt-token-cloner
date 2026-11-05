@@ -22,14 +22,14 @@ test('only official USDT is represented as the payout asset', () => {
 
 test('no direct wallet send or simulator path is present in the frontend', () => {
   assert.ok(!/buildSignAndBroadcastTransfer|sendRawTransaction|testnet simulator|Send testnet assets/i.test(app))
-  assert.ok(app.includes('Mainnet-only sponsored withdrawals'))
+  assert.ok(app.includes('Tatum-only Mainnet architecture'))
   assert.ok(app.includes('fincra-payout'))
 })
 
-test('sponsor request uses off-chain Mainnet wallet ownership verification', () => {
+test('withdrawal screen uses off-chain TronLink Mainnet identity verification but does not create sponsor requests', () => {
   assert.ok(app.includes('signMessageV2'))
-  assert.ok(app.includes('does not require TRX'))
-  assert.ok(app.includes('/api/tron-transfer/sponsor-requests'))
+  assert.ok(app.includes('This identity signature is not a transaction and authorizes no funds.'))
+  assert.ok(!app.includes('/api/tron-transfer/sponsor-requests'))
   assert.ok(app.includes('requesterSession.sessionToken'))
 })
 
