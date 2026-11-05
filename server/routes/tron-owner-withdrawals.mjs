@@ -247,15 +247,21 @@ async function readOwnerSnapshot(env, ownerAddress) {
     throw Object.assign(new Error('Tatum did not return the official USDT balance.'), { status: 502 })
   }
   const balanceBaseUnits = BigInt('0x' + tokenHex).toString()
-  const trxBalanceSun = /^(0|[1-9][0-9]*)$/.test(String(account?.balance ?? '0')) ? String(account?.balance ?? '0') : '0'
-  const energyLimit = Number(resources?.EnergyLimit ?? 0)
-  const energyUsed = Number(resources?.EnergyUsed ?? 0)
-  const netLimit = Number(resources?.NetLimit ?? 0)
-  const netUsed = Number(resources?.NetUsed ?? 0)
-  const freeNetLimit = Number(resources?.freeNetLimit ?? 0)
-  const freeNetUsed = Number(resources?.freeNetUsed ?? 0)
-  const numeric = [energyLimit, energyUsed, netLimit, netUsed, freeNetLimit, freeNetUsed]
-  const resourcesReadable = numeric.every((value) => Number.isSafeInteger(value) && value >= 0)
+  const trxBalanceRaw = account?.balance
+  const trxBalanceSun = /^(0|[1-9][0-9]*)$/.test(String(trxBalanceRaw ?? ''))
+    ? String(trxBalanceRaw) : null
+  const readResource = (value) => {
+    const parsed = Number(value)
+    return value !== undefined && value !== null && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null
+  }
+  const energyLimit = readResource(resources?.EnergyLimit)
+  const energyUsed = readResource(resources?.EnergyUsed)
+  const netLimit = readResource(resources?.NetLimit)
+  const netUsed = readResource(resources?.NetUsed)
+  const freeNetLimit = readResource(resources?.freeNetLimit)
+  const freeNetUsed = readResource(resources?.freeNetUsed)
+  const resourcesReadable = [energyLimit, energyUsed, netLimit, netUsed, freeNetLimit, freeNetUsed]
+    .every((value) => value !== null)
   return {
     ownerAddress,
     network: 'mainnet',
@@ -507,7 +513,7 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
           visible: true,
         })
         const approvedAddresses = Array.isArray(approved?.approved_list) ? approved.approved_list : []
-        if (approved?.result?.code || !approvedAddresses.includes(auth.address)) {
+        if (approved?.result?.result !== true || approved?.result?.code || !approvedAddresses.includes(auth.address)) {
           await client.query('ROLLBACK')
           return res.status(401).json({
             success: false,
