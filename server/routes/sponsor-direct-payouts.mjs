@@ -374,6 +374,31 @@ function hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun) 
   }
 }
 
+async function getAuthorizedSponsorMandate(db, sponsorAddress, nowMs) {
+  try {
+    const result = await db.query(
+      'SELECT m.* FROM ' + SCHEMA + '.sponsor_organization_mandates m ' +
+      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ON a.id=m.application_id ' +
+      'WHERE m.sponsor_wallet_address=$1 AND a.sponsor_wallet_address=$1 ' +
+      'AND a.status=\'accepted-for-due-diligence\' AND m.status=\'authorized\' ' +
+      'AND m.purpose IN (\'asset-principal\',\'both\') ' +
+      'AND m.valid_from <= $2 AND m.valid_until > $2 ' +
+      'ORDER BY m.updated_at DESC LIMIT 1',
+      [sponsorAddress, new Date(nowMs).toISOString()],
+    )
+    return result.rows[0] || null
+  } catch {
+    // Missing organization/mandate schema, stale DB state, or query errors all fail closed.
+    return null
+  }
+}
+
+function lowerBaseUnitLimit(left, right) {
+  const a = BigInt(String(left || '0'))
+  const b = BigInt(String(right || '0'))
+  return (a < b ? a : b).toString()
+}
+
 export function createSponsorDirectPayoutsRouter({
   env = process.env,
   getSession = getWalletAuthSession,
@@ -555,14 +580,25 @@ export function createSponsorDirectPayoutsRouter({
           submissionEnabled: false,
         })
       }
+      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
+      if (!mandate) {
+        return res.status(403).json({
+          success: false,
+          error: 'authorized-sponsor-organization-mandate-required',
+          canSponsorPayouts: false,
+          canSubmitSponsoredTransfer: false,
+          submissionEnabled: false,
+          note: 'A wallet-only sponsor application is insufficient. An organization application, signed written mandate and separate owner authorization are required.',
+        })
+      }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(db, auth.address),
         readDailyUsage(db, auth.address),
       ])
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
-      const dailyLimit = String(profile.daily_limit_base_units || '0')
-      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
+      const dailyLimit = lowerBaseUnitLimit(profile.daily_limit_base_units, mandate.daily_limit_base_units)
+      const perPayoutLimit = lowerBaseUnitLimit(profile.per_payout_limit_base_units, mandate.per_payout_limit_base_units)
       const dailyRemaining = calculateSponsorDirectAvailableBaseUnits(dailyLimit, dailyUsedBaseUnits)
       return res.json({
         success: true,
@@ -754,6 +790,11 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
+      const mandate = await getAuthorizedSponsorMandate(client, auth.address, now())
+      if (!mandate) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'authorized-sponsor-organization-mandate-required' })
+      }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(client, auth.address),
@@ -761,8 +802,8 @@ export function createSponsorDirectPayoutsRouter({
       ])
       const amountBaseUnits = String(row.amount_base_units)
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
-      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
-      const dailyLimit = String(profile.daily_limit_base_units || '0')
+      const perPayoutLimit = lowerBaseUnitLimit(profile.per_payout_limit_base_units, mandate.per_payout_limit_base_units)
+      const dailyLimit = lowerBaseUnitLimit(profile.daily_limit_base_units, mandate.daily_limit_base_units)
       if (BigInt(amountBaseUnits) > BigInt(perPayoutLimit)) {
         await client.query('ROLLBACK')
         return res.status(409).json({ success: false, error: 'sponsor-per-payout-limit-exceeded', availableBaseUnits, requestedBaseUnits: amountBaseUnits })
@@ -906,6 +947,12 @@ export function createSponsorDirectPayoutsRouter({
       if (!profile || profile.status !== 'active') {
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
+      }
+      const mandate = await getAuthorizedSponsorMandate(client, auth.address, now())
+      if (!mandate
+        || BigInt(String(row.amount_base_units)) > BigInt(String(mandate.per_payout_limit_base_units))) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'authorized-sponsor-mandate-invalid-or-expired' })
       }
       if (row.status !== 'prepared') {
         await client.query('ROLLBACK')
