@@ -58,7 +58,7 @@ test('no legacy Fincra payout flow remains in the active Tron Transfer UI', () =
 
 test('production metadata and frontend test command remain configured', () => {
   assert.ok(html.includes('Mainnet-only sponsored Tether USDT TRC20 withdrawal platform') || html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
-  assert.ok(html.includes('Tron Transfer · Mainnet USDT Payouts'))
+  assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
   assert.equal(pkg.scripts.build, 'vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })
