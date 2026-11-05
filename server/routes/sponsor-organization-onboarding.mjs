@@ -97,7 +97,7 @@ function buildOrganizationApplicationMessage(input) {
     'Jurisdiction: ' + input.jurisdiction,
     'Website: ' + (input.website || 'not provided'),
     'Requested roles: ' + input.roles.join(', '),
-    'Declarations: authorized representative; controls the sponsor wallet; proposed funds are lawfully controlled; agrees to separate written mandate and transaction approval; consents to application-data processing.',
+    'Declarations: authorized representative; controls the sponsor wallet; proposed funds are lawfully controlled; agrees to a separate written mandate defining any provider-managed payout authorization; consents to application-data processing.',
   ].join('\n')
 }
 
@@ -105,7 +105,7 @@ function buildMandateMessage(input) {
   return [
     'TRON Transfer sponsor payout mandate',
     'Purpose: confirm the exact limits and agreement reference below. This is not a transaction and does not itself move funds.',
-    'Version: sponsor-payout-mandate-v1',
+    'Version: ' + (input.executionMode === 'fincra-automatic' ? 'sponsor-payout-mandate-v2' : 'sponsor-payout-mandate-v1'),
     'Network: TRON Mainnet',
     'Sponsor wallet: ' + input.wallet,
     'Organization application: ' + input.applicationId,
@@ -116,7 +116,13 @@ function buildMandateMessage(input) {
     'Daily maximum (USDT base units): ' + input.dailyBaseUnits,
     'Valid from: ' + input.validFrom,
     'Valid until: ' + input.validUntil,
-    'This mandate is subject to independent review and can be revoked. Every payout still requires the sponsor-authorized signing method.',
+    ...(input.executionMode === 'fincra-automatic' ? [
+      'Execution mode: fincra-automatic',
+      'Provider: Fincra',
+      'Fincra business ID: ' + input.providerBusinessId,
+      'Standing authorization: the platform may submit Mainnet USDT TRC20 payouts from this identified and separately funded provider business account without a fresh sponsor wallet signature for each payout, only within the limits, purpose, validity and agreement above.',
+      'This authorization does not permit use of any other business account, asset, network, beneficiary scope or funds outside the signed agreement. The sponsor may revoke this mandate.',
+    ] : ['This mandate is subject to independent review and can be revoked. Every payout still requires the sponsor-authorized signing method.']),
   ].join('\n')
 }
 
@@ -178,6 +184,25 @@ async function ensureSchema(db) {
           CHECK (sponsor_wallet_address ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$')
         )
       `)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_mandates
+        ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'per-transfer',
+        ADD COLUMN IF NOT EXISTS provider_name TEXT,
+        ADD COLUMN IF NOT EXISTS provider_business_id TEXT`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_mandates
+        DROP CONSTRAINT IF EXISTS sponsor_organization_mandates_execution_mode_check`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_mandates
+        ADD CONSTRAINT sponsor_organization_mandates_execution_mode_check
+        CHECK (execution_mode IN ('per-transfer','fincra-automatic'))`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_mandates
+        DROP CONSTRAINT IF EXISTS sponsor_organization_mandates_provider_scope_check`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_mandates
+        ADD CONSTRAINT sponsor_organization_mandates_provider_scope_check
+        CHECK ((execution_mode='per-transfer' AND provider_name IS NULL AND provider_business_id IS NULL)
+          OR (execution_mode='fincra-automatic' AND provider_name='fincra'
+            AND provider_business_id IS NOT NULL AND provider_business_id ~ '^[A-Za-z0-9._:-]{4,128}$'))`)
+      await db.query(`CREATE INDEX IF NOT EXISTS sponsor_organization_mandates_fincra_auto_idx
+        ON ${SCHEMA}.sponsor_organization_mandates (provider_name, provider_business_id, status, valid_until)
+        WHERE execution_mode='fincra-automatic'`)
       await db.query(`
         CREATE INDEX IF NOT EXISTS sponsor_organization_mandates_wallet_status_idx
         ON ${SCHEMA}.sponsor_organization_mandates (sponsor_wallet_address, status, valid_until)
@@ -250,6 +275,9 @@ function publicMandate(row) {
     agreementReference: row.agreement_reference,
     agreementDigest: row.agreement_digest,
     purpose: row.purpose,
+    executionMode: row.execution_mode || 'per-transfer',
+    providerName: row.provider_name || null,
+    providerBusinessId: row.provider_business_id || null,
     perPayoutLimitBaseUnits: String(row.per_payout_limit_base_units),
     dailyLimitBaseUnits: String(row.daily_limit_base_units),
     validFrom: new Date(row.valid_from).toISOString(),
@@ -279,6 +307,8 @@ export function createSponsorOrganizationRouter({
       independentVerificationRequired: true,
       sponsorFundingRequired: true,
       payoutEnabledByApplication: false,
+      supportedExecutionModes: ['per-transfer', 'fincra-automatic'],
+      fincraAutomaticModeGateConfigured: env.FINCRA_AUTO_PAYOUTS_ENABLED === 'true',
       note: 'An organization application or signed mandate does not activate payouts. Independent review, verified funding and an authorized sponsor signer remain required.',
     })
   })
@@ -450,15 +480,21 @@ export function createSponsorOrganizationRouter({
     const id = clean(req.params?.id, 64)
     if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-application-id' })
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    const allowed = ['agreementReference', 'agreementDigest', 'purpose', 'perPayoutLimit', 'dailyLimit', 'validFrom', 'validUntil', 'mandateSignature']
+    const allowed = ['agreementReference', 'agreementDigest', 'purpose', 'executionMode', 'providerName', 'providerBusinessId', 'perPayoutLimit', 'dailyLimit', 'validFrom', 'validUntil', 'mandateSignature']
     if (Object.keys(body).some((key) => !allowed.includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
     const agreementReference = clean(body.agreementReference, 160)
     const agreementDigest = clean(body.agreementDigest, 64).toLowerCase()
     const purpose = body.purpose
+    const executionMode = body.executionMode === undefined ? 'per-transfer' : body.executionMode
+    const providerName = executionMode === 'fincra-automatic' ? clean(body.providerName, 24).toLowerCase() : null
+    const providerBusinessId = executionMode === 'fincra-automatic' ? clean(body.providerBusinessId, 128) : null
     if (agreementReference.length < 8 || !SHA256_RE.test(agreementDigest)
-      || !['asset-principal', 'network-fees', 'both'].includes(purpose)) {
+      || !['asset-principal', 'network-fees', 'both'].includes(purpose)
+      || !['per-transfer', 'fincra-automatic'].includes(executionMode)
+      || (executionMode === 'fincra-automatic' && (providerName !== 'fincra'
+        || !/^[A-Za-z0-9._:-]{4,128}$/.test(providerBusinessId)))) {
       return res.status(400).json({ success: false, error: 'invalid-sponsor-mandate' })
     }
     let perPayoutBaseUnits, dailyBaseUnits
@@ -496,7 +532,8 @@ export function createSponsorOrganizationRouter({
       const requestedRoles = Array.isArray(row.requested_roles) ? row.requested_roles : []
       if (purpose === 'asset-principal' && !requestedRoles.includes('asset-principal')
         || purpose === 'network-fees' && !requestedRoles.includes('network-fees')
-        || purpose === 'both' && (!requestedRoles.includes('asset-principal') || !requestedRoles.includes('network-fees'))) {
+        || purpose === 'both' && (!requestedRoles.includes('asset-principal') || !requestedRoles.includes('network-fees'))
+        || executionMode === 'fincra-automatic' && (!requestedRoles.includes('asset-principal') || !['asset-principal', 'both'].includes(purpose))) {
         return res.status(403).json({ success: false, error: 'mandate-purpose-not-requested-by-organization' })
       }
       const message = buildMandateMessage({
@@ -509,6 +546,8 @@ export function createSponsorOrganizationRouter({
         dailyBaseUnits,
         validFrom: validFrom.toISOString(),
         validUntil: validUntil.toISOString(),
+        executionMode,
+        providerBusinessId,
       })
       let signer
       try { signer = await verifyMessage(message, body.mandateSignature) } catch { signer = null }
@@ -516,18 +555,22 @@ export function createSponsorOrganizationRouter({
       const result = await db.query(
         `INSERT INTO ${SCHEMA}.sponsor_organization_mandates
          (id,application_id,sponsor_wallet_address,agreement_reference,agreement_digest,purpose,
-          per_payout_limit_base_units,daily_limit_base_units,valid_from,valid_until,sponsor_signature_hash)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+          per_payout_limit_base_units,daily_limit_base_units,valid_from,valid_until,sponsor_signature_hash,
+          execution_mode,provider_name,provider_business_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
         [randomUUID(), id, auth.address, agreementReference, agreementDigest, purpose,
           perPayoutBaseUnits, dailyBaseUnits, validFrom.toISOString(), validUntil.toISOString(),
-          digest(body.mandateSignature)],
+          digest(body.mandateSignature), executionMode, providerName, providerBusinessId],
       )
       return res.status(201).json({
         success: true,
         mandate: publicMandate(result.rows[0]),
         independentVerificationRequired: true,
         payoutAuthorized: false,
-        note: 'The sponsor signed the mandate terms. A signed mandate digest is not independent proof that the agreement, organization or funding is valid.',
+        executionMode,
+        note: executionMode === 'fincra-automatic'
+          ? 'The sponsor signed a standing Fincra authorization limited to the exact business ID, Mainnet USDT principal, agreement digest, caps and validity. Independent organization/provider verification and funded-balance checks are still required; the mode is not active yet.'
+          : 'The sponsor signed the mandate terms. A signed mandate digest is not independent proof that the agreement, organization or funding is valid.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-mandate-storage-failed' })
@@ -579,6 +622,25 @@ export function createSponsorOrganizationRouter({
       : body.decision === 'authorize' ? 'authorized' : 'declined'
     try {
       await ensureSchema(db)
+      if (body.decision === 'authorize') {
+        const mandateEvidence = await db.query(
+          `SELECT execution_mode, provider_name, provider_business_id
+           FROM ${SCHEMA}.sponsor_organization_mandates WHERE id=$1`,
+          [id],
+        )
+        const pendingMandate = mandateEvidence.rows[0]
+        if (!pendingMandate) return res.status(404).json({ success: false, error: 'sponsor-mandate-not-found' })
+        if (pendingMandate.execution_mode === 'fincra-automatic'
+          && (pendingMandate.provider_name !== 'fincra'
+            || !clean(env.FINCRA_BUSINESS_ID, 128)
+            || pendingMandate.provider_business_id !== clean(env.FINCRA_BUSINESS_ID, 128))) {
+          return res.status(409).json({
+            success: false, error: 'fincra-business-id-does-not-match-server-configuration',
+            payoutAuthorized: false,
+            note: 'Before authorizing this standing mandate, configure the exact Fincra business ID server-side and independently verify that the signed agreement and sponsor authority cover that same business account.',
+          })
+        }
+      }
       const result = await db.query(
         `UPDATE ${SCHEMA}.sponsor_organization_mandates
          SET status=$2, review_reference=$3, reviewed_by_address=$4, reviewed_at=now(), updated_at=now()
@@ -592,7 +654,9 @@ export function createSponsorOrganizationRouter({
         mandate: publicMandate(result.rows[0]),
         payoutAuthorized: authorized,
         note: authorized
-          ? 'Internal sponsor mandate authorization recorded against the evidence reference. Payout preparation still checks the sponsor’s live Mainnet USDT balance, resources, limits, validity and sponsor signature.'
+          ? result.rows[0].execution_mode === 'fincra-automatic'
+            ? 'Standing Fincra authorization recorded against the independently reviewed business-account and agreement evidence. Automatic submission remains separately disabled until the backend live-payout gates, requester allowlist, exact business ID and funded USDT balance all pass.'
+            : 'Internal sponsor mandate authorization recorded against the evidence reference. Payout preparation still checks the sponsor’s live Mainnet USDT balance, resources, limits, validity and sponsor signature.'
           : body.decision === 'verify'
             ? 'Agreement review recorded. A separate owner authorization decision is still required before this mandate can be used by the payout workflow.'
             : 'Mandate declined. No payout was activated.',

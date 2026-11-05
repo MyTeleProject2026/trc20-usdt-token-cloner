@@ -65,3 +65,21 @@ A single organization can perform both roles only if its mandate, budgets, accou
 - An exchange integration if the product promises exchange deposit-credit status.
 
 Until these items are evidenced, runtime status must remain enabled: false, canSubmitSponsoredTransfer: false, submissionEnabled: false, and user-funded fallback must remain prohibited.
+
+
+## Fincra/Tatum implementation path (2026-11)
+
+The repository now uses Fincra as the provider-managed payout rail for an authorized, funded Fincra business account and Tatum as the TRON Mainnet RPC/recipient-verification layer. Fincra documents `usdt_trc20` as a stablecoin payout scheme; this is a provider payout capability, not a public or free asset sponsor. A live business account must be approved and enabled for stablecoin payouts by Fincra. Available USDT must exist in the configured account before the API is called.
+
+The no-per-withdrawal-prompt mode is a **standing authorization**, not an authorization bypass. A sponsor signs the exact Fincra business ID, agreement digest, Mainnet USDT purpose, limits, and validity. The platform independently reviews that evidence; the server matches the mandate's business ID to the configured account; the requester is allowlisted; and the backend enforces the per-payout and daily limits. A sponsor signature per payout is not required only inside that pre-authorized provider scope. Keep automatic mode off until the real business account and sponsor arrangement are operationally verified.
+
+Official provider documentation: https://docs.fincra.com/reference/initiate-payout-2
+
+
+### Myanmar / jurisdiction qualification
+
+Fincra's published **Multicurrency Virtual Account (MCY)** restrictions currently list Myanmar. That page describes the MCY account product; it does not, by itself, prove that every Fincra product or the stablecoin payout endpoint is unavailable to every entity connected with Myanmar. Before configuring a real sponsor account, obtain written confirmation from Fincra that the exact sponsor legal entity, incorporation/residence, beneficial owners, source-of-funds arrangement and intended TRON USDT payout model are eligible. Do not use a nominee, false address or another organization's account to bypass eligibility.
+
+Fincra's terms also require prior written approval and a current sub-merchant/customer list where a customer acts as an aggregator. Therefore, do not expose this payout service to third parties until Fincra has explicitly approved that business model and the required customer list/onboarding controls. A single-owner private test deployment should still use only an account legitimately controlled by that owner and a provider-approved use case.
+
+Reference: https://docs.fincra.com/docs/fcy-prohibited-activities-and-countries

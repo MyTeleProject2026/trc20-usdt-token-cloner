@@ -81,3 +81,26 @@ test('Mainnet sponsor payout preparation requires an authorized mandate covering
   assert.match(source, /authorized-sponsor-organization-mandate-required/)
   assert.match(source, /authorized-sponsor-mandate-invalid-or-expired/)
 })
+
+
+test('standing Fincra mandate is sponsor-signed, business-account-bound and separately reviewed', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+  const frontend = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorOrganizationOnboarding.jsx', import.meta.url), 'utf8')
+  assert.match(source, /execution_mode TEXT NOT NULL DEFAULT 'per-transfer'/)
+  assert.match(source, /execution_mode='fincra-automatic'/)
+  assert.match(source, /provider_business_id ~ '\^\[A-Za-z0-9\._:-\]\{4,128\}\$'/)
+  assert.match(source, /Fincra business ID: ' \+ input\.providerBusinessId/)
+  assert.match(source, /without a fresh sponsor wallet signature for each payout/)
+  assert.match(source, /fincra-business-id-does-not-match-server-configuration/)
+  assert.match(frontend, /Standing Fincra authorization \(no per-withdrawal sponsor signature\)/)
+  assert.match(frontend, /providerBusinessId: executionMode === 'fincra-automatic'/)
+})
+
+test('Fincra automatic mode is not authorized by application or mandate signature alone', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+  assert.match(source, /payoutEnabledByApplication: false/)
+  assert.match(source, /organizationReviewRequired: true/)
+  assert.match(source, /independentVerificationRequired: true/)
+  assert.match(source, /sponsorFundingRequired: true/)
+  assert.match(source, /payoutAuthorized: false/)
+})

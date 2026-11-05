@@ -27,6 +27,12 @@ Fee funding does not provide the transfer principal. An accounting entry, sponso
 - A chain confirmation is not proof that an exchange credited a deposit.
 - Normal wallet transfers cannot enforce spending restrictions after the recipient receives assets; do not promise restrictions without a reviewed escrow/vesting design.
 
+## Fincra provider-managed standing authorization
+
+A sponsor may choose a one-time standing mandate for the exact Fincra business account configured on the backend. The sponsor signature must name the Fincra business ID, official TRON Mainnet USDT TRC20 purpose, agreement digest, per-payout cap, daily cap, start/end time and provider-managed execution mode. The owner must independently review the legal agreement, sponsor authority, Fincra account relationship and funding evidence before authorizing it. The sponsor can revoke the mandate. This can remove the sponsor wallet signature from each individual payout, but it does not remove the sponsor's initial authorization or Fincra's provider-account requirements.
+
+The initial implementation intentionally supports one configured Fincra business account per backend deployment. It does not multiplex unrelated organizations' Fincra balances by changing a client-supplied business ID. The API key, server-side business ID and signed mandate must all identify the same account. Automatic submission is separately disabled by default and is additionally restricted to an explicit requester-address allowlist. If any check fails, the request is retained but no live payout is submitted. Provider acceptance is not recipient settlement; Tatum/TronGrid solidified chain evidence is required before the platform reports an on-chain transfer verified. An exchange's internal credit still requires its own confirmation.
+
 ## Activation gates
 
 All gates are mandatory; none may be inferred from an environment variable alone.

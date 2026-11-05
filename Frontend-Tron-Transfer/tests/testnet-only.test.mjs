@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
-const sponsorPayouts = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
+const fincraWithdrawals = await readFile(new URL('../src/FincraWithdrawals.jsx', import.meta.url), 'utf8')
+const sponsorOrganization = await readFile(new URL('../src/SponsorOrganizationOnboarding.jsx', import.meta.url), 'utf8')
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 
@@ -11,62 +12,73 @@ test('production frontend is TRON Mainnet-only and pins official Tether USDT', (
   assert.ok(app.includes("MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
   assert.ok(app.includes("network:'mainnet'"))
   assert.ok(app.includes("tokenContract:MAINNET_USDT"))
-  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + sponsorPayouts))
+  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + fincraWithdrawals + sponsorOrganization))
   assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
-  assert.ok(sponsorPayouts.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
 })
 
-test('only the official Tether contract is exposed as the withdrawal asset', () => {
-  assert.ok(sponsorPayouts.includes('Official Tether USDT TRC20'))
-  assert.ok(!/custom token contract|addToken|tokenInput/i.test(app + sponsorPayouts))
+test('only official Mainnet Tether USDT is exposed as the withdrawal asset', () => {
+  assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(fincraWithdrawals.includes('USDT TRC20 amount'))
+  assert.ok(!/custom token contract|addToken|tokenInput/i.test(app + fincraWithdrawals))
 })
 
-test('requester can submit sponsored withdrawals without signing or funding the payout transaction', () => {
-  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />'))
-  assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/requests'))
-  assert.ok(sponsorPayouts.includes('/api/auth/tron/challenge'))
-  assert.ok(sponsorPayouts.includes('signMessageV2(challenge.message)'))
-  assert.ok(sponsorPayouts.includes('/api/auth/tron/verify'))
-  assert.ok(sponsorPayouts.includes('Your wallet does not need USDT or TRX to submit a request'))
-  assert.ok(!/sendRawTransaction|privateKey|private key input|seed phrase input/i.test(app + sponsorPayouts))
+test('requester can submit a payout with identity proof only, without signing or funding the payout transaction', () => {
+  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="withdraw" />'))
+  assert.ok(fincraWithdrawals.includes('/api/tron-transfer/sponsor-requests'))
+  assert.ok(fincraWithdrawals.includes('/api/auth/tron/challenge'))
+  assert.ok(fincraWithdrawals.includes('signMessageV2(challenge.message)'))
+  assert.ok(fincraWithdrawals.includes('/api/auth/tron/verify'))
+  assert.ok(fincraWithdrawals.includes('/fincra-payout'))
+  assert.ok(fincraWithdrawals.includes('This signature does not spend funds'))
+  assert.ok(!/sendRawTransaction|privateKey|private key input|seed phrase input/i.test(app + fincraWithdrawals))
 })
 
-test('only the approved sponsor wallet signs and broadcasts its exact payout', () => {
-  assert.ok(sponsorPayouts.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
-  assert.ok(sponsorPayouts.includes('walletAddress !== item.sponsorAddress'))
-  assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/requests/'))
-  assert.ok(sponsorPayouts.includes('/broadcast'))
-  assert.ok(sponsorPayouts.includes('Only the approved sponsor address that prepared this payment can sign it.'))
-  assert.ok(sponsorPayouts.includes("The approved sponsor's own funded TRON wallet sends and signs the USDT"))
+test('standing provider authorization is signed once within explicit limits; requester UI never signs a payout transaction', () => {
+  assert.ok(sponsorOrganization.includes('wallet.tronWeb.trx.signMessageV2'))
+  assert.ok(sponsorOrganization.includes('fincra-automatic'))
+  assert.ok(sponsorOrganization.includes('Fincra business ID'))
+  assert.ok(sponsorOrganization.includes('perPayoutBaseUnits'))
+  assert.ok(sponsorOrganization.includes('dailyBaseUnits'))
+  assert.ok(sponsorOrganization.includes('without a fresh sponsor wallet signature for each payout'))
+  assert.ok(!/trx\.sign\(.*unsignedTransaction/.test(fincraWithdrawals))
+  assert.ok(!fincraWithdrawals.includes('/broadcast'))
 })
 
-test('platform owner session is used for sponsor application review, not as the payout signer', () => {
+test('platform owner session is used for organization and mandate review', () => {
   assert.ok(app.includes('/api/auth/owner/login'))
   assert.ok(app.includes('Platform owner authentication'))
-  assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/applications'))
-  assert.ok(sponsorPayouts.includes('Approve wallet participation'))
-  assert.ok(sponsorPayouts.includes('complianceVerified: false') || sponsorPayouts.includes('does not constitute legal-entity verification'))
+  assert.ok(app.includes('<SponsorOrganizationOnboarding wallet={unlocked} ownerSession={ownerSession} />'))
+  assert.ok(sponsorOrganization.includes('Approve') || sponsorOrganization.includes('Review'))
 })
 
-test('sponsor readiness uses actual on-chain balances, resources and bounded budgets', () => {
-  assert.ok(sponsorPayouts.includes('Actual sponsor USDT'))
-  assert.ok(sponsorPayouts.includes('Available Energy'))
-  assert.ok(sponsorPayouts.includes('Available Bandwidth'))
-  assert.ok(sponsorPayouts.includes('Daily payout remaining'))
-  assert.ok(sponsorPayouts.includes('The balance shown belongs to the connected sponsor wallet'))
+test('automatic payout UI describes real provider funding and fail-closed sponsor requirements', () => {
+  assert.ok(fincraWithdrawals.includes('authorized Fincra business account'))
+  assert.ok(fincraWithdrawals.includes('standing sponsor mandate'))
+  assert.ok(fincraWithdrawals.includes('no payout is reported as successful'))
+  assert.ok(sponsorOrganization.includes('independently verify'))
 })
 
-test('payout history distinguishes on-chain confirmation from exchange account credit', () => {
-  assert.ok(sponsorPayouts.includes('View on TRONSCAN'))
-  assert.ok(sponsorPayouts.includes('On-chain confirmation is not exchange credit'))
-  assert.ok(sponsorPayouts.includes('does not prove that an exchange credited the deposit'))
-  assert.ok(sponsorPayouts.includes('minimum deposit'))
+test('only never-submitted pending requests can be explicitly retried; unknown outcomes are reconciled, not resubmitted', () => {
+  assert.match(fincraWithdrawals, /async function submitExistingRequest/)
+  assert.match(fincraWithdrawals, /request\.status !== 'pending-organization-review' \|\| request\.fincraStatus/)
+  assert.match(fincraWithdrawals, /Submitted or ambiguous payouts must be reconciled/)
+  assert.match(fincraWithdrawals, /Retry authorized payout/)
 })
 
-test('no legacy Fincra payout flow remains in the active Tron Transfer UI', () => {
-  assert.ok(!/Fincra|FINCRA|fincra-payout/i.test(app + sponsorPayouts))
-  assert.ok(app.includes('Sponsors & approvals'))
-  assert.ok(sponsorPayouts.includes('TATUM MAINNET · SPONSOR-DIRECT USDT'))
+test('payout history distinguishes provider state from solidified on-chain transfer evidence', () => {
+  assert.ok(fincraWithdrawals.includes('Provider processing'))
+  assert.ok(fincraWithdrawals.includes('solidified-recipient-transfer-verified'))
+  assert.ok(fincraWithdrawals.includes('/fincra-status'))
+  assert.ok(fincraWithdrawals.includes('/verify-recipient-transfer'))
+  assert.ok(fincraWithdrawals.includes('does not prove exchange internal credit'))
+})
+
+test('active UI uses Fincra payout flow and does not mount the legacy sponsor wallet broadcast UI', () => {
+  assert.ok(app.includes('FincraWithdrawals'))
+  assert.ok(app.includes("tab==='withdrawals'"))
+  assert.ok(app.includes("tab==='transactions'"))
+  assert.ok(!app.includes("import SponsorDirectPayouts"))
+  assert.ok(!app.includes('<SponsorDirectPayouts'))
 })
 
 test('production metadata and frontend test command remain configured', () => {
@@ -81,7 +93,7 @@ test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, spo
     assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
     assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
   }
-  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="history" />'))
+  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="history" />'))
   assert.ok(app.includes('Platform owner authentication'))
 })
 
