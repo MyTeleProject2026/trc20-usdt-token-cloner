@@ -35,7 +35,7 @@ test('withdrawal API binds owner privileges to the configured owner wallet and l
 
 test('owner snapshot reads actual USDT, TRX, Energy and Bandwidth through Tatum', () => {
   assert.match(withdrawalRoute, /walletsolidity\/getaccount/)
-  assert.match(withdrawalRoute, /walletsolidity\/getaccountresource/)
+  assert.ok(withdrawalRoute.includes("'wallet/getaccountresource'"))
   assert.match(withdrawalRoute, /walletsolidity\/triggerconstantcontract/)
   assert.match(withdrawalRoute, /function_selector: 'balanceOf\(address\)'/)
   assert.match(withdrawalRoute, /usdtBalanceBaseUnits/)
