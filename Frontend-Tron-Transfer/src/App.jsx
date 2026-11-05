@@ -178,7 +178,7 @@ export default function App() {
 
         
         {tab==='assets'&&<section className="assets-page">
-          <div className="section-heading"><div><span className="eyebrow">OFFICIAL TRON MAINNET ASSETS</span><h2>Wallet assets</h2><p>Read-only holdings for the monitored address. The live sending-wallet snapshot is shown separately in Direct Withdrawals after owner authentication.</p></div><button className="secondary-button" disabled={busy} onClick={()=>perform(()=>inspectAddress(MAINNET_MONITORED_ADDRESS))}><RefreshCw size={15}/> Refresh monitored balance</button></div>
+          <div className="section-heading"><div><span className="eyebrow">OFFICIAL TRON MAINNET ASSETS</span><h2>Wallet assets</h2><p>Read-only holdings for the monitored address. The live USDT, TRX, Energy and Bandwidth snapshot belongs to an approved sponsor wallet and is shown on the Sponsors page.</p></div><button className="secondary-button" disabled={busy} onClick={()=>perform(()=>inspectAddress(MAINNET_MONITORED_ADDRESS))}><RefreshCw size={15}/> Refresh monitored balance</button></div>
           <div className="asset-source-grid">
             <article className="panel asset-source-card">
               <span className="eyebrow">MONITORED ADDRESS · READ ONLY</span>
@@ -192,7 +192,7 @@ export default function App() {
               <span className="eyebrow">SPONSOR TREASURY</span>
               <h3>Actual payout funding</h3>
               <p>The sponsor's own wallet must hold the official USDT principal and enough TRON resources or TRX. Its live balance is checked when the sponsor prepares a payout.</p>
-              <button className="primary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={16}/> Open direct withdrawals</button>
+              <button className="primary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={16}/> Open sponsored withdrawals</button>
             </article>
           </div>
           <div className="panel assets-total-panel">
@@ -207,9 +207,9 @@ export default function App() {
 
         {tab==='settings'&&<section className="panel settings-page">
           <div className="section-heading"><div><span className="eyebrow">PRODUCTION CONFIGURATION</span><h2>Tron Transfer settings</h2><p>Mainnet-only configuration and operator access. Provider secrets remain on the backend and are never stored in this browser.</p></div><div className="panel-icon"><Settings/></div></div>
-          <div className="settings-group"><span className="eyebrow">MONITORED ADDRESS</span><div className="address-box"><span>Read-only Mainnet identity</span><b>{MAINNET_MONITORED_ADDRESS}</b></div><a href={'https://tronscan.org/#/address/'+MAINNET_MONITORED_ADDRESS} target="_blank" rel="noreferrer">Open address on TRONSCAN <ExternalLink size={12}/></a><p className="fine-print">The configured sending wallet is authenticated separately and is displayed from the live Tatum snapshot on the Withdrawals page.</p></div>
-          <div className="settings-group"><span className="eyebrow">TATUM MAINNET</span><p>Balance reads, unsigned USDT transaction preparation, signed transaction broadcast and solidified receipt verification use the backend Tatum Mainnet Gateway.</p><p className="fine-print">Required backend configuration includes TATUM_MAINNET_API_KEY (or TATUM_API_KEY), DATABASE_URL, OWNER_WALLET_ADDRESS, OWNER_PASSWORD_HASH and the approved frontend origins.</p><button className="secondary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={15}/> Open withdrawal readiness</button></div>
-          <div className="settings-group"><span className="eyebrow">WALLET SIGNING</span><p>{unlocked?'TronLink is connected to '+shorten(unlocked.address)+'.':'No TronLink wallet is connected.'}</p><p className="fine-print">The site never asks for a private key or recovery phrase. Every transaction signature must be approved inside TronLink.</p>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Disconnect wallet</button>}</div>
+          <div className="settings-group"><span className="eyebrow">MONITORED ADDRESS</span><div className="address-box"><span>Read-only Mainnet identity</span><b>{MAINNET_MONITORED_ADDRESS}</b></div><a href={'https://tronscan.org/#/address/'+MAINNET_MONITORED_ADDRESS} target="_blank" rel="noreferrer">Open address on TRONSCAN <ExternalLink size={12}/></a><p className="fine-print">Your requester wallet is used for identity only. The approved sponsor's sending wallet and live Tatum snapshot are displayed on the Sponsors page.</p></div>
+          <div className="settings-group"><span className="eyebrow">TATUM MAINNET</span><p>Requester identity uses a TronLink message signature. Sponsor balance reads, exact unsigned USDT transfer preparation, sponsor-signed broadcast and solidified receipt verification use the backend Tatum Mainnet Gateway.</p><p className="fine-print">Required backend configuration includes TATUM_MAINNET_API_KEY (or TATUM_API_KEY), DATABASE_URL, OWNER_WALLET_ADDRESS, OWNER_PASSWORD_HASH and the approved frontend origins.</p><button className="secondary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={15}/> Open withdrawal readiness</button></div>
+          <div className="settings-group"><span className="eyebrow">WALLET SIGNING</span><p>{unlocked?'TronLink is connected to '+shorten(unlocked.address)+'.':'No TronLink wallet is connected.'}</p><p className="fine-print">The site never asks for a private key or recovery phrase. Requesters sign only an identity message; every payout transaction must be approved inside the sponsor's own TronLink wallet.</p>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Disconnect wallet</button>}</div>
         </section>}
 
 {tab==='sponsors'&&<section className="panel sponsor-panel">
