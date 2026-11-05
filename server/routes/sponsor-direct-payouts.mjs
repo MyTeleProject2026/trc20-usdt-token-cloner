@@ -27,6 +27,7 @@ const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
+const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 let pool
 let schemaPromise
@@ -337,13 +338,39 @@ export async function verifySponsorDirectMainnetTransfer(env, {
       'receipt-has-no-solidified-block',
     ].includes(reason)
       ? 'awaiting-solidified-receipt'
-      : reason === 'contract-execution-not-successful'
+      : ['contract-execution-not-successful', 'transaction-contract-execution-not-successful'].includes(reason)
         ? 'solidified-transaction-failed'
         : reason === 'matching-transfer-event-not-found'
           ? 'solidified-transfer-mismatch'
           : reason
     return { verified: false, status, reason }
   }
+
+  const matchingLogIndexes = (Array.isArray(receipt.log) ? receipt.log : []).flatMap((log, index) => {
+    const topics = Array.isArray(log?.topics) ? log.topics : []
+    const data = typeof log?.data === 'string' ? log.data.replace(/^0x/i, '') : ''
+    const topicAddressMatches = (topic, expected) => {
+      if (typeof topic !== 'string' || !/^[0-9a-f]{64}$/i.test(topic)) return false
+      return canonicalAddress('41' + topic.slice(-40), tronWeb) === expected
+    }
+    let amountMatches = false
+    try { amountMatches = /^[0-9a-f]{64}$/i.test(data) && BigInt('0x' + data) === BigInt(String(amountBaseUnits)) } catch {}
+    return canonicalAddress(log?.address, tronWeb) === MAINNET_USDT_CONTRACT
+      && String(topics[0] || '').replace(/^0x/i, '').toLowerCase() === USDT_TRANSFER_EVENT_TOPIC
+      && topicAddressMatches(topics[1], from)
+      && topicAddressMatches(topics[2], to)
+      && amountMatches
+      ? [index]
+      : []
+  })
+  if (matchingLogIndexes.length !== 1 || matchingLogIndexes[0] !== result.logIndex) {
+    return {
+      verified: false,
+      status: matchingLogIndexes.length > 1 ? 'ambiguous-transfer-event' : 'solidified-transfer-mismatch',
+      reason: matchingLogIndexes.length > 1 ? 'ambiguous-transfer-event' : 'matching-transfer-event-not-found',
+    }
+  }
+
   return {
     verified: true,
     transactionHash: transactionHash.toLowerCase(),
