@@ -335,6 +335,11 @@ function publicRequest(row) {
     transactionHash: row.transaction_hash ? String(row.transaction_hash).trim() : null,
     failureCode: row.failure_code || null,
     expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+    ...(row.confirmation_block_number == null ? {} : { confirmationBlockNumber: Number(row.confirmation_block_number) }),
+    ...(row.confirmation_log_index == null ? {} : { confirmationLogIndex: Number(row.confirmation_log_index) }),
+    ...(row.confirmation_verified_at ? { confirmedAt: new Date(row.confirmation_verified_at).toISOString() } : {}),
+    reconciliationAttempts: Number(row.reconciliation_attempts || 0),
+    lastReconciledAt: row.reconciliation_last_checked_at ? new Date(row.reconciliation_last_checked_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   }
