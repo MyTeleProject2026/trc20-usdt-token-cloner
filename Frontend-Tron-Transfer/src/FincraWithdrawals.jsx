@@ -128,6 +128,22 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
     finally { setBusy(false) }
   }
 
+  async function submitExistingRequest(request) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      if (!identityMatchesWallet) throw new Error('Verify your connected wallet identity first.')
+      if (request.requesterAddress !== walletAddress) throw new Error('This payout request does not belong to the connected wallet.')
+      if (request.status !== 'pending-organization-review' || request.fincraStatus) {
+        throw new Error('Only a payout request that has never been submitted to Fincra can be retried. Submitted or ambiguous payouts must be reconciled.')
+      }
+      const result = await api('/api/tron-transfer/sponsor-requests/' + encodeURIComponent(request.id) + '/fincra-payout',
+        session.sessionToken, { method: 'POST', body: JSON.stringify({}) })
+      setNotice(result.note || 'The existing request was sent to Fincra. Wait for provider and Mainnet verification.')
+      await refresh()
+    } catch (cause) { setError(cause?.message || 'Could not submit the existing payout request.') }
+    finally { setBusy(false) }
+  }
+
   async function submitRequest() {
     setBusy(true); setError(''); setNotice('')
     try {
@@ -209,6 +225,13 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
               {request.chainVerificationStatus && <small>Chain evidence: {request.chainVerificationStatus}</small>}
               <small>{new Date(request.createdAt).toLocaleString()}</small>
             </div>
+            {request.status === 'pending-organization-review' && !request.fincraStatus && (
+              <div className="transaction-actions">
+                <button className="outline-button" disabled={busy} onClick={() => void submitExistingRequest(request)}>
+                  <ArrowUpRight size={14} /> Retry authorized payout
+                </button>
+              </div>
+            )}
           </article>
         ))}
       </div>

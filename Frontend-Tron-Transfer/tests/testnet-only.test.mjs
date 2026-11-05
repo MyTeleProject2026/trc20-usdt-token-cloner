@@ -58,6 +58,13 @@ test('automatic payout UI describes real provider funding and fail-closed sponso
   assert.ok(sponsorOrganization.includes('independently verify'))
 })
 
+test('only never-submitted pending requests can be explicitly retried; unknown outcomes are reconciled, not resubmitted', () => {
+  assert.match(fincraWithdrawals, /async function submitExistingRequest/)
+  assert.match(fincraWithdrawals, /request\.status !== 'pending-organization-review' \|\| request\.fincraStatus/)
+  assert.match(fincraWithdrawals, /Submitted or ambiguous payouts must be reconciled/)
+  assert.match(fincraWithdrawals, /Retry authorized payout/)
+})
+
 test('payout history distinguishes provider state from solidified on-chain transfer evidence', () => {
   assert.ok(fincraWithdrawals.includes('Provider processing'))
   assert.ok(fincraWithdrawals.includes('solidified-recipient-transfer-verified'))
