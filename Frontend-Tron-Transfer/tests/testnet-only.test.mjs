@@ -31,7 +31,9 @@ test('withdrawal screen uses off-chain TronLink Mainnet identity verification bu
   assert.ok(app.includes('This identity signature is not a transaction and authorizes no funds.'))
   assert.ok(!app.includes('async function submitSponsorRequest'))
   assert.ok(app.includes('Tatum-only withdrawal preparation pending'))
-  assert.ok(app.includes('requesterSession.sessionToken'))
+  assert.ok(app.includes("/api/auth/tron/challenge"))
+  assert.ok(app.includes("/api/auth/tron/verify"))
+  assert.ok(app.includes('setRequesterSession({address:verified.address,expiresAt:verified.expiresAt,sessionToken:verified.sessionToken})'))
 })
 
 test('production metadata and frontend test command are configured', () => {
@@ -90,7 +92,7 @@ test('Sponsor funding page loads and displays read-only Fincra business wallet c
   assert.ok(app.includes('Incoming sponsor credits'))
   assert.ok(app.includes('/api/tron-transfer/sponsor-funding-history'))
   assert.ok(app.includes('Refresh funding history'))
-  assert.ok(app.includes('Provider ledger records, not manually entered sponsor claims'))
+  assert.ok(app.includes('provider ledger records, not manually entered sponsor claims'))
 })
 
 test('Assets page shows available, locked and ledger total sponsor balances as separate values', () => {
