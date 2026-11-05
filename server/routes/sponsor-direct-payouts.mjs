@@ -264,6 +264,35 @@ async function readSponsorSnapshot(env, sponsorAddress) {
   }
 }
 
+function matchesSponsorDirectSolidifiedTransaction(transaction, {
+  transactionHash, from, to, amountBaseUnits, tronWeb,
+}) {
+  if (typeof transaction?.txID !== 'string'
+    || transaction.txID.toLowerCase() !== transactionHash.toLowerCase()
+    || typeof transaction.raw_data_hex !== 'string'
+    || !/^(?:[0-9a-f]{2})+$/i.test(transaction.raw_data_hex)) return false
+  const calculatedHash = createHash('sha256')
+    .update(Buffer.from(transaction.raw_data_hex, 'hex'))
+    .digest('hex')
+  if (calculatedHash.toLowerCase() !== transactionHash.toLowerCase()) return false
+  const contracts = transaction.raw_data?.contract
+  if (!Array.isArray(contracts) || contracts.length !== 1 || contracts[0]?.type !== 'TriggerSmartContract') return false
+  const value = contracts[0]?.parameter?.value
+  if (!value || canonicalAddress(value.owner_address, tronWeb) !== from
+    || canonicalAddress(value.contract_address, tronWeb) !== MAINNET_USDT_CONTRACT) return false
+  try {
+    if (BigInt(String(value.call_value ?? 0)) !== 0n) return false
+  } catch {
+    return false
+  }
+  const expectedData = 'a9059cbb' + buildOwnerUsdtTransferParameter(recipientAddressForVerification(to), amountBaseUnits, tronWeb)
+  return typeof value.data === 'string' && value.data.replace(/^0x/i, '').toLowerCase() === expectedData
+}
+
+function recipientAddressForVerification(value) {
+  return value
+}
+
 /**
  * Read-only Mainnet verifier for a stored sponsor payout intent. It queries
  * Tatum's SolidityNode endpoints and verifies the exact official USDT Transfer
@@ -286,6 +315,15 @@ export async function verifySponsorDirectMainnetTransfer(env, {
     providerPost(env, 'walletsolidity/gettransactioninfobyid', { value: transactionHash, visible: false }),
   ])
   const tronWeb = await tronWebFactory()
+  const receiptBlock = Number(receipt?.blockNumber)
+  const receiptIsSolidified = String(receipt?.id || '').toLowerCase() === transactionHash.toLowerCase()
+    && Number.isSafeInteger(receiptBlock) && receiptBlock > 0
+  if (!receiptIsSolidified) return { verified: false, status: 'awaiting-solidified-receipt' }
+  if (!matchesSponsorDirectSolidifiedTransaction(transaction, {
+    transactionHash, from, to, amountBaseUnits: String(amountBaseUnits), tronWeb,
+  })) {
+    return { verified: false, status: 'solidified-transfer-mismatch' }
+  }
   const result = verifySolidifiedTrc20Transfer({
     transaction,
     receipt,
