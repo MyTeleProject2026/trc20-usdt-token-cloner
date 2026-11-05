@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TronWeb } from 'tronweb'
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, Copy, ExternalLink, FileKey2, History, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
-import { encryptWalletPrivateKey, decryptWalletPrivateKey, isEncryptedWalletRecord } from './lib/wallet-vault-crypto.mjs'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
-const WALLET_KEY = 'tron-transfer:mainnet-wallet:v1'
 const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
 const REQUESTER_SESSION_KEY = 'tron-transfer:requester-wallet-session:v1'
 const REQUEST_REFERENCE_KEY = 'tron-transfer:pending-request-reference:v1'
@@ -42,14 +40,7 @@ async function api(path, options = {}) {
 
 export default function App() {
   const [tab,setTab]=useState('recipients')
-  const [walletRecord,setWalletRecord]=useState(()=>readJson(WALLET_KEY,null))
   const [unlocked,setUnlocked]=useState(null)
-  const [password,setPassword]=useState('')
-  const [confirmPassword,setConfirmPassword]=useState('')
-  const [privateKeyInput,setPrivateKeyInput]=useState('')
-  const [backupText,setBackupText]=useState('')
-  const [showKey,setShowKey]=useState(false)
-  const [walletMode,setWalletMode]=useState('import')
   const [monitorAddress,setMonitorAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [monitorData,setMonitorData]=useState(null)
   const [monitorError,setMonitorError]=useState('')
@@ -88,38 +79,30 @@ export default function App() {
     setBusy(true); setError('')
     try { return await fn() } catch(e) { setError(e instanceof Error?e.message:'Operation failed.'); return null } finally { setBusy(false) }
   }
-  async function saveWallet(key,address,pwd) {
-    const record=await encryptWalletPrivateKey(key,address,pwd)
-    writeJson(WALLET_KEY,record); setWalletRecord(record); setUnlocked({address,privateKey:key.replace(/^0x/i,'').toLowerCase()})
-    setPassword(''); setConfirmPassword(''); setPrivateKeyInput(''); setBackupText('')
-    setNotice('Wallet encrypted locally. Its private key was not sent to the server.')
+  function getTronLinkProvider() {
+    const candidates=[window.tronLink,window.tron]
+    return candidates.find(p=>p&&p.isTronLink===true&&typeof p.request==='function')||null
   }
-  async function importWallet() {
-    if(password.length<12||password!==confirmPassword) throw new Error('Use matching passwords of at least 12 characters.')
-    const key=privateKeyInput.trim().replace(/^0x/i,'')
-    if(!/^[0-9a-f]{64}$/i.test(key)) throw new Error('Enter a 64-character hexadecimal TRON private key.')
-    const signer=new TronWeb({privateKey:key}), address=String(signer.defaultAddress?.base58||'')
-    if(!isValidAddress(address)) throw new Error('The key did not produce a valid TRON Mainnet address.')
-    await saveWallet(key,address,password)
+  async function connectTronLink() {
+    const provider=getTronLinkProvider()
+    if(!provider) throw new Error('TronLink was not detected. Open Tron Transfer in the TronLink DApp browser, unlock your wallet, and retry.')
+    let accounts
+    try { accounts=await provider.request({method:'eth_requestAccounts'}) }
+    catch(e) {
+      const code=Number(e?.code), message=String(e?.message||e||'')
+      if(code===-32601||code===4200||/method not found|unsupported method|method not supported/i.test(message)) accounts=await provider.request({method:'tron_requestAccounts'})
+      else throw e
+    }
+    const tronWeb=provider.tronWeb||window.tronWeb
+    const address=String(tronWeb?.defaultAddress?.base58|| (Array.isArray(accounts)?accounts.find(isValidAddress):'') || '')
+    if(!isValidAddress(address)||!tronWeb?.trx||typeof tronWeb.trx.signMessageV2!=='function') throw new Error('TronLink did not expose a valid account and message-signing provider. Unlock TronLink and retry.')
+    let node=''
+    try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
+    if(node!=='api.trongrid.io') throw new Error('Network mismatch. Switch TronLink to TRON Mainnet and use its official Mainnet node before connecting.')
+    setUnlocked({address,tronWeb,provider})
+    setNotice('TronLink connected to TRON Mainnet. No private key was imported or stored by Tron Transfer.')
   }
-  async function restoreWallet() {
-    if(!backupText.trim()||!password) throw new Error('Choose an encrypted backup and enter its password.')
-    const parsed=JSON.parse(backupText), record=parsed?.wallet||parsed
-    if(!isEncryptedWalletRecord(record)) throw new Error('Unsupported encrypted wallet backup.')
-    const key=await decryptWalletPrivateKey(record,password), signer=new TronWeb({privateKey:key})
-    if(String(signer.defaultAddress?.base58||'')!==record.address) throw new Error('Backup key/address mismatch.')
-    writeJson(WALLET_KEY,record); setWalletRecord(record); setUnlocked({address:record.address,privateKey:key})
-    setPassword(''); setBackupText(''); setNotice('Encrypted Mainnet wallet backup restored locally.')
-  }
-  async function unlockWallet() {
-    if(!walletRecord||!password) throw new Error('Enter the saved wallet password.')
-    const key=await decryptWalletPrivateKey(walletRecord,password), signer=new TronWeb({privateKey:key})
-    if(String(signer.defaultAddress?.base58||'')!==walletRecord.address) throw new Error('Wallet address verification failed.')
-    setUnlocked({address:walletRecord.address,privateKey:key}); setPassword('')
-    setNotice('Wallet unlocked. An identity message signature does not require TRX.')
-  }
-  function lockWallet(){setUnlocked(null);setPassword('');setNotice('Wallet locked and decrypted key cleared from application state.')}
-  function removeWallet(){setUnlocked(null);localStorage.removeItem(WALLET_KEY);setWalletRecord(null);setNotice('Encrypted wallet record removed from this browser.')}
+  function lockWallet(){setUnlocked(null);setRequesterSession(null);try{sessionStorage.removeItem(REQUESTER_SESSION_KEY)}catch{};setNotice('TronLink application session disconnected. Your wallet remains in TronLink.')}
 
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
@@ -140,11 +123,11 @@ export default function App() {
     } catch {setRequesterSession(null)}
   }
   async function verifyRequester() {
-    if(!unlocked) throw new Error('Import or unlock the Mainnet wallet you control first.')
-    const signer=new TronWeb({privateKey:unlocked.privateKey})
-    if(String(signer.defaultAddress?.base58||'')!==unlocked.address||typeof signer.trx?.signMessageV2!=='function') throw new Error('The wallet cannot sign the identity challenge.')
+    if(!unlocked?.tronWeb) throw new Error('Connect your TronLink Mainnet wallet first.')
+    const signer=unlocked.tronWeb
+    if(String(signer.defaultAddress?.base58||'')!==unlocked.address||typeof signer.trx?.signMessageV2!=='function') throw new Error('The connected TronLink account changed or cannot sign the identity challenge. Reconnect the wallet.')
     const challenge=await api('/api/auth/tron/challenge',{method:'POST',body:JSON.stringify({address:unlocked.address,network:'mainnet'})})
-    if(challenge.network!=='mainnet'||typeof challenge.message!=='string'||typeof challenge.nonce!=='string'||!Number.isFinite(challenge.expiresAt)||challenge.expiresAt<=Date.now()) throw new Error('Invalid Mainnet identity challenge.')
+    if(challenge.network!=='mainnet'||challenge.address!==unlocked.address||typeof challenge.message!=='string'||typeof challenge.nonce!=='string'||!Number.isFinite(challenge.expiresAt)||challenge.expiresAt<=Date.now()) throw new Error('Invalid Mainnet identity challenge.')
     const signature=await signer.trx.signMessageV2(challenge.message)
     if(typeof signature!=='string'||!/^0x[0-9a-f]{130}$/i.test(signature)) throw new Error('Invalid wallet identity signature.')
     const verified=await api('/api/auth/tron/verify',{method:'POST',body:JSON.stringify({address:unlocked.address,network:'mainnet',nonce:challenge.nonce,signature})})
@@ -250,12 +233,6 @@ export default function App() {
     setNotice(p.note||p.request?.fincraStatus||p.error||'Payout status refreshed.')
     return p
   }
-  async function exportBackup(){
-    if(!walletRecord) throw new Error('No encrypted wallet is saved on this device.')
-    const blob=new Blob([JSON.stringify({wallet:walletRecord},null,2)],{type:'application/json'})
-    const url=URL.createObjectURL(blob),a=document.createElement('a')
-    a.href=url;a.download='tron-transfer-mainnet-encrypted-wallet.json';a.click();URL.revokeObjectURL(url)
-  }
   const nav=[
     {id:'overview',label:'Dashboard',icon:Wallet},
     {id:'assets',label:'Assets',icon:Coins},
@@ -271,12 +248,12 @@ export default function App() {
       <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
       <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
       <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>{setTab(item.id);if(ownerSession?.sessionToken&&['assets','sponsors','transactions','settings'].includes(item.id)){void loadRequests(ownerSession.sessionToken).catch(e=>setError(e.message));void refreshReadiness(ownerSession.sessionToken)}if(ownerSession?.sessionToken&&item.id==='sponsors'){void loadSponsorFundingHistory(ownerSession.sessionToken)}}}><item.icon size={17}/>{item.label}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>Local identity signing<br/><b>No server-held wallet keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Lock wallet</button>:<span className="muted small">Identity wallet locked</span>}</div>
+      <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
       <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout dashboard',assets:'Mainnet assets & sponsor funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal request',sponsors:'Sponsor funding & payout operations',transactions:'Payout transactions & settlement history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span>{unlocked&&<button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div></header>
       <div className="content">
-        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Mainnet-only sponsored withdrawals</b><p>Only official Tether USDT TRC20 Mainnet payouts are supported. Tatum provides Mainnet account and transaction verification; an authorized, funded Fincra business account supplies and executes the payout. Demo balances and local wallet-funded sends are disabled.</p></div></section>
+        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Mainnet-only owner-authorized withdrawals</b><p>Tatum provides TRON Mainnet infrastructure. TronLink controls owner approval and signing. Real USDT principal and transaction resources must be present in the sending wallet; withdrawals remain disabled until funding and signing checks are complete.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
         {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
 
@@ -287,17 +264,9 @@ export default function App() {
           </section>
           <section className="panel"><div className="section-heading"><div><span className="eyebrow">OFFICIAL ASSET</span><h2>Tether USD · TRC20</h2><p>The production asset is pinned to the official TRON Mainnet token contract.</p></div><div className="panel-icon"><ShieldCheck/></div></div><div className="asset-row"><div className="asset-symbol token-symbol">US</div><div className="asset-name"><b>Official Tether USD</b><small>{MAINNET_USDT}</small></div><strong>{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'Not loaded'} <small>USDT</small></strong></div><p className="fine-print">Only the official Mainnet contract is supported. This dashboard does not display simulated balances or unsupported token contracts.</p></section>
           <section className="panel wallet-access">
-            <div className="panel-heading"><div><span className="eyebrow">DEVICE-LOCAL IDENTITY WALLET</span><h2>{walletRecord?'Unlock your wallet':'Import or restore your wallet'}</h2><p>Your key stays encrypted in this browser. A signed identity message does not require TRX and does not authorize a payout.</p></div><div className="panel-icon"><LockKeyhole/></div></div>
-            {!walletRecord||walletMode==='restore'?<div className="form-stack">
-              {!walletRecord&&<label>Private key <div className="input-with-action"><input type={showKey?'text':'password'} value={privateKeyInput} onChange={e=>setPrivateKeyInput(e.target.value)} autoComplete="off" spellCheck="false" placeholder="64-character hexadecimal key"/><button type="button" onClick={()=>setShowKey(!showKey)}>{showKey?'Hide':'Show'}</button></div></label>}
-              {walletMode==='restore'&&<label>Encrypted backup JSON<textarea value={backupText} onChange={e=>setBackupText(e.target.value)} rows={4}/></label>}
-              <label>Wallet password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/></label>
-              {!walletRecord&&<label>Confirm password<input type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} autoComplete="new-password"/></label>}
-              {!walletRecord&&walletMode==='import'&&<button className="primary-button" disabled={busy||!privateKeyInput||password.length<12||password!==confirmPassword} onClick={()=>perform(importWallet)}><KeyRound size={17}/> Encrypt and import locally</button>}
-              {walletMode==='restore'&&<button className="primary-button" disabled={busy||!backupText.trim()||!password} onClick={()=>perform(restoreWallet)}><FileKey2 size={17}/> Restore encrypted backup</button>}
-              {!walletRecord&&<button className="text-button" onClick={()=>setWalletMode(walletMode==='import'?'restore':'import')}>{walletMode==='import'?'Restore encrypted backup instead':'Import private key instead'}</button>}
-            </div>:<div className="form-stack"><div className="address-box"><span>Saved Mainnet wallet</span><b>{shorten(walletRecord.address)}</b></div><label>Wallet password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password"/></label><button className="primary-button" disabled={busy||!password} onClick={()=>perform(unlockWallet)}><LockKeyhole size={16}/> Unlock wallet</button><div className="button-row"><button className="secondary-button" onClick={()=>perform(exportBackup)}><FileKey2 size={15}/> Export encrypted backup</button><button className="outline-button" onClick={()=>{removeWallet();setWalletMode('import')}}>Remove local wallet</button></div><button className="text-button" onClick={()=>setWalletMode('restore')}>Restore another encrypted backup</button></div>}
-            <p className="fine-print">Only import a wallet you control. Do not share a private key or recovery phrase. The local signature proves requester identity only; it never signs a payout transaction.</p>
+            <div className="panel-heading"><div><span className="eyebrow">OWNER WALLET · TRONLINK</span><h2>{unlocked?'TronLink connected':'Connect your TronLink wallet'}</h2><p>TronLink keeps your private key inside the wallet. Tron Transfer requests only account access and explicit message or transaction signatures.</p></div><div className="panel-icon"><Wallet/></div></div>
+            {unlocked?<div className="form-stack"><div className="address-box"><span>Connected TRON Mainnet account</span><b>{unlocked.address}</b></div><div className="button-row"><button className="secondary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><RefreshCw size={15}/> Refresh connection</button><button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Disconnect</button></div></div>:<div className="form-stack"><p className="fine-print">Open this application in the TronLink DApp browser on Android, unlock your wallet, then connect. Never paste a private key or recovery phrase into this website.</p><button className="primary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><Wallet size={16}/> Connect TronLink</button></div>}
+            <p className="fine-print">Wallet connection alone does not prove owner authorization, fund a balance or enable withdrawals. A separate signature verifies identity, and every transfer requires its own TronLink transaction approval.</p>
           </section>
         </>}
 
