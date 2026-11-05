@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import OwnerWithdrawals from './OwnerWithdrawals.jsx'
 import { TronWeb } from 'tronweb'
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, Copy, ExternalLink, FileKey2, History, KeyRound, Landmark, LockKeyhole, LogOut, Plus, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
-const REQUESTER_SESSION_KEY = 'tron-transfer:requester-wallet-session:v1'
-const REQUEST_REFERENCE_KEY = 'tron-transfer:pending-request-reference:v1'
 
-function readJson(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback } catch { return fallback }
-}
-function writeJson(key, value) { localStorage.setItem(key, JSON.stringify(value)) }
 function shorten(value) { return value && value.length > 18 ? value.slice(0, 9) + '…' + value.slice(-7) : value || '—' }
 function isValidAddress(value) {
   try { return ADDRESS_RE.test(String(value || '')) && new TronWeb().isAddress(String(value)) } catch { return false }
@@ -46,65 +40,12 @@ export default function App() {
   const [monitorData,setMonitorData]=useState(null)
   const [monitorError,setMonitorError]=useState('')
   const [monitorBusy,setMonitorBusy]=useState(false)
-  const [requestInspection,setRequestInspection]=useState(null)
-  const [requestInspectionBusy,setRequestInspectionBusy]=useState(false)
-  const [requestInspectionError,setRequestInspectionError]=useState('')
-  const [notice,setNotice]=useState('')
-  const [error,setError]=useState('')
-  const [busy,setBusy]=useState(false)
-  const [requestRecipient,setRequestRecipient]=useState('')
-  const [requestAmount,setRequestAmount]=useState('')
-  const [beneficiaryName,setBeneficiaryName]=useState('')
-  const [beneficiaryEmail,setBeneficiaryEmail]=useState('')
-  const [ownerAddress,setOwnerAddress]=useState('')
-  const [ownerPassword,setOwnerPassword]=useState('')
-  const [requesterSession,setRequesterSession]=useState(null)
-  const [ownerSession,setOwnerSession]=useState(null)
-  const [requests,setRequests]=useState([])
-  const [readiness,setReadiness]=useState(null)
-  const [sponsorFundingHistory,setSponsorFundingHistory]=useState([])
-  const [sponsorFundingHistoryBusy,setSponsorFundingHistoryBusy]=useState(false)
-  const [sponsorFundingHistoryError,setSponsorFundingHistoryError]=useState('')
-  const unlockedAddress=unlocked?.address || ''
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
-
-  useEffect(()=>{
-    void inspectAddress(MAINNET_MONITORED_ADDRESS).catch(e=>setMonitorError(e.message))
-    try {
-      const owner=sessionStorage.getItem(OWNER_SESSION_KEY); if(owner) void restoreOwner(owner)
-      const requester=sessionStorage.getItem(REQUESTER_SESSION_KEY); if(requester) void restoreRequester(requester)
-    } catch {}
-  },[])
 
   async function perform(fn) {
     setBusy(true); setError('')
     try { return await fn() } catch(e) { setError(e instanceof Error?e.message:'Operation failed.'); return null } finally { setBusy(false) }
   }
-  function getTronLinkProvider() {
-    const candidates=[window.tronLink,window.tron]
-    return candidates.find(p=>p&&p.isTronLink===true&&typeof p.request==='function')||null
-  }
-  async function connectTronLink() {
-    const provider=getTronLinkProvider()
-    if(!provider) throw new Error('TronLink was not detected. Open Tron Transfer in the TronLink DApp browser, unlock your wallet, and retry.')
-    let accounts
-    try { accounts=await provider.request({method:'eth_requestAccounts'}) }
-    catch(e) {
-      const code=Number(e?.code), message=String(e?.message||e||'')
-      if(code===-32601||code===4200||/method not found|unsupported method|method not supported/i.test(message)) accounts=await provider.request({method:'tron_requestAccounts'})
-      else throw e
-    }
-    const tronWeb=provider.tronWeb||window.tronWeb
-    const address=String(tronWeb?.defaultAddress?.base58|| (Array.isArray(accounts)?accounts.find(isValidAddress):'') || '')
-    if(!isValidAddress(address)||!tronWeb?.trx||typeof tronWeb.trx.signMessageV2!=='function') throw new Error('TronLink did not expose a valid account and message-signing provider. Unlock TronLink and retry.')
-    let node=''
-    try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
-    if(node!=='api.trongrid.io') throw new Error('Network mismatch. Switch TronLink to TRON Mainnet and use its official Mainnet node before connecting.')
-    setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. No private key was imported or stored by Tron Transfer.')
-  }
-  function lockWallet(){setUnlocked(null);setRequesterSession(null);try{sessionStorage.removeItem(REQUESTER_SESSION_KEY)}catch{};setNotice('TronLink application session disconnected. Your wallet remains in TronLink.')}
-
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
     setMonitorBusy(true); setMonitorError('')
@@ -114,77 +55,6 @@ export default function App() {
       setMonitorAddress(address); setMonitorData(result); return result
     } catch(e) {setMonitorError(e.message);throw e} finally {setMonitorBusy(false)}
   }
-  async function restoreRequester(token) {
-    try {
-      const p=await api('/api/auth/tron/session',{headers:{Authorization:'Bearer '+token}})
-      if(p.authenticated!==true||p.network!=='mainnet'||!isValidAddress(p.address)||!Number.isFinite(p.expiresAt)||p.expiresAt<=Date.now()) {
-        sessionStorage.removeItem(REQUESTER_SESSION_KEY);setRequesterSession(null);return
-      }
-      setRequesterSession({address:p.address,expiresAt:p.expiresAt,sessionToken:token})
-    } catch {setRequesterSession(null)}
-  }
-  async function verifyRequester() {
-    if(!unlocked?.tronWeb) throw new Error('Connect your TronLink Mainnet wallet first.')
-    const signer=unlocked.tronWeb
-    if(String(signer.defaultAddress?.base58||'')!==unlocked.address||typeof signer.trx?.signMessageV2!=='function') throw new Error('The connected TronLink account changed or cannot sign the identity challenge. Reconnect the wallet.')
-    const challenge=await api('/api/auth/tron/challenge',{method:'POST',body:JSON.stringify({address:unlocked.address,network:'mainnet'})})
-    if(challenge.network!=='mainnet'||challenge.address!==unlocked.address||typeof challenge.message!=='string'||typeof challenge.nonce!=='string'||!Number.isFinite(challenge.expiresAt)||challenge.expiresAt<=Date.now()) throw new Error('Invalid Mainnet identity challenge.')
-    const signature=await signer.trx.signMessageV2(challenge.message)
-    if(typeof signature!=='string'||!/^0x[0-9a-f]{130}$/i.test(signature)) throw new Error('Invalid wallet identity signature.')
-    const verified=await api('/api/auth/tron/verify',{method:'POST',body:JSON.stringify({address:unlocked.address,network:'mainnet',nonce:challenge.nonce,signature})})
-    if(verified.authenticated!==true||verified.address!==unlocked.address||verified.network!=='mainnet'||typeof verified.sessionToken!=='string'||!Number.isFinite(verified.expiresAt)) throw new Error('Wallet ownership verification failed.')
-    sessionStorage.setItem(REQUESTER_SESSION_KEY,verified.sessionToken)
-    setRequesterSession({address:verified.address,expiresAt:verified.expiresAt,sessionToken:verified.sessionToken})
-    setNotice('Mainnet wallet ownership verified. This off-chain message signature does not send or authorize funds.')
-  }
-  function signOutRequester(){
-    const token=requesterSession?.sessionToken
-    try{sessionStorage.removeItem(REQUESTER_SESSION_KEY)}catch{}
-    setRequesterSession(null)
-    if(token) void api('/api/auth/tron/logout',{method:'POST',headers:{Authorization:'Bearer '+token}}).catch(()=>undefined)
-  }
-  async function inspectRequestRecipient() {
-    const address = requestRecipient.trim()
-    if (!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet recipient address first.')
-    setRequestInspectionBusy(true)
-    setRequestInspectionError('')
-    try {
-      const query = new URLSearchParams({ network: 'mainnet', address, tokenContract: MAINNET_USDT })
-      const inspection = await api('/api/tron-transfer/recipient?' + query.toString())
-      setRequestInspection({ address, inspectedAt: Date.now(), data: inspection })
-      return inspection
-    } catch (cause) {
-      setRequestInspection(null)
-      setRequestInspectionError(cause.message || 'Recipient inspection failed.')
-      throw cause
-    } finally {
-      setRequestInspectionBusy(false)
-    }
-  }
-
-  async function submitSponsorRequest() {
-    if(!requesterSession?.sessionToken||requesterSession.address!==unlockedAddress) throw new Error('Verify requester wallet ownership first.')
-    if(!isValidAddress(requestRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
-    if (!requestInspection || requestInspection.address !== requestRecipient.trim() || Date.now() - requestInspection.inspectedAt > 5 * 60 * 1000) {
-      throw new Error('Inspect the recipient balance and incoming history for this exact address before creating the payout request.')
-    }
-    if(!beneficiaryName.trim()) throw new Error('Enter the beneficiary name.')
-    const amount=requestAmount.trim()
-    if(!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)) throw new Error('Enter a positive USDT amount with up to six decimal places.')
-    const parts=amount.split('.'), base=BigInt(parts[0])*1000000n+BigInt((parts[1]||'').padEnd(6,'0')||'0')
-    if(base<=0n) throw new Error('USDT amount must be greater than zero.')
-    let reference=sessionStorage.getItem(REQUEST_REFERENCE_KEY)
-    if(!reference){reference='tt-'+crypto.randomUUID();sessionStorage.setItem(REQUEST_REFERENCE_KEY,reference)}
-    const result=await api('/api/tron-transfer/sponsor-requests',{
-      method:'POST',headers:{Authorization:'Bearer '+requesterSession.sessionToken},
-      body:JSON.stringify({requesterAddress:requesterSession.address,recipientAddress:requestRecipient.trim(),beneficiaryName:beneficiaryName.trim(),beneficiaryEmail:beneficiaryEmail.trim(),amount,customerReference:reference}),
-    })
-    sessionStorage.removeItem(REQUEST_REFERENCE_KEY);setRequestRecipient('');setRequestInspection(null);setRequestInspectionError('');setRequestAmount('');setBeneficiaryName('');setBeneficiaryEmail('')
-    setNotice('Sponsor request recorded. No payout occurs until an authorized owner submits it to live Fincra.')
-    if(ownerSession?.sessionToken) await loadRequests(ownerSession.sessionToken)
-    return result
-  }
-
   async function restoreOwner(token) {
     try {
       const p=await api('/api/auth/owner/session',{headers:{Authorization:'Bearer '+token}})
@@ -202,36 +72,7 @@ export default function App() {
     setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:p.sessionToken})
     setNotice('Owner session active. Connect the same owner address in TronLink and check its real Mainnet balance before preparing a withdrawal.')
   }
-  async function loadRequests(token) {
-    const p=await api('/api/tron-transfer/sponsor-requests',{headers:{Authorization:'Bearer '+token}})
-    setRequests(Array.isArray(p.requests)?p.requests:[])
-  }
-  async function refreshReadiness(token=ownerSession?.sessionToken) {
-    if(!token){setReadiness(null);return}
-    try{setReadiness(await api('/api/tron-transfer/readiness',{headers:{Authorization:'Bearer '+token}}))}
-    catch{setReadiness(null)}
-  }
-  async function loadSponsorFundingHistory(token=ownerSession?.sessionToken) {
-    if(!token){setSponsorFundingHistory([]);setSponsorFundingHistoryError('Owner authentication is required to read the Fincra business ledger.');return}
-    setSponsorFundingHistoryBusy(true);setSponsorFundingHistoryError('')
-    try {
-      const p=await api('/api/tron-transfer/sponsor-funding-history',{headers:{Authorization:'Bearer '+token}})
-      setSponsorFundingHistory(Array.isArray(p.rows)?p.rows:[])
-    } catch(e) {
-      setSponsorFundingHistoryError(e.message)
-      setSponsorFundingHistory([])
-    } finally {setSponsorFundingHistoryBusy(false)}
-  }
-  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null);setRequests([]);setReadiness(null);setSponsorFundingHistory([]);setSponsorFundingHistoryError('')}
-  async function ownerAction(id,action) {
-    if(!ownerSession?.sessionToken) throw new Error('Sign in as payout owner first.')
-    const p=await api('/api/tron-transfer/sponsor-requests/'+encodeURIComponent(id)+'/'+action,{
-      method:'POST',headers:{Authorization:'Bearer '+ownerSession.sessionToken},
-    })
-    await loadRequests(ownerSession.sessionToken)
-    setNotice(p.note||p.request?.fincraStatus||p.error||'Payout status refreshed.')
-    return p
-  }
+  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null)}
   const nav=[
     {id:'overview',label:'Dashboard',icon:Wallet},
     {id:'assets',label:'Assets',icon:Coins},
@@ -246,7 +87,7 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
       <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
-      <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>{setTab(item.id);if(ownerSession?.sessionToken&&['assets','sponsors','transactions','settings'].includes(item.id)){void loadRequests(ownerSession.sessionToken).catch(e=>setError(e.message));void refreshReadiness(ownerSession.sessionToken)}if(ownerSession?.sessionToken&&item.id==='sponsors'){void loadSponsorFundingHistory(ownerSession.sessionToken)}}}><item.icon size={17}/>{item.label}</button>)}</nav>
+      <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>setTab(item.id)}><item.icon size={17}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
