@@ -846,12 +846,23 @@ export function createSponsorDirectPayoutsRouter({
         'VALUES ($1,$2,$3,$4,$5,$6,\'requested\') RETURNING *',
         [randomUUID(), idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits],
       )
+      const routed = await autoAssignSponsorToRequest({
+        db,
+        env,
+        request: result.rows[0],
+        now,
+        readSnapshot,
+        providerPost,
+      })
       return res.status(201).json({
         success: true,
-        request: publicRequest(result.rows[0]),
+        request: publicRequest(routed.request || result.rows[0]),
+        sponsorRouting: routed.routing,
         payoutAuthorized: false,
         transactionBroadcast: false,
-        note: 'Your zero-balance wallet authenticated the request only. No USDT has been sent. An approved sponsor must accept the request, hold the actual USDT, and sign the exact transfer.',
+        note: routed.routing === 'auto-assigned-awaiting-sponsor-signature'
+          ? 'An eligible sponsor was automatically matched using a fresh Mainnet USDT and fee-resource check. The sponsor must still review and sign the exact payout in its own wallet. No funds have moved yet.'
+          : 'Your zero-balance wallet submitted the request. No currently eligible sponsor could be matched; it remains in the approved sponsor queue until a sponsor with an authorized mandate and sufficient funds/resources can accept it. No funds have moved.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-request-storage-unavailable' })
@@ -896,9 +907,19 @@ export function createSponsorDirectPayoutsRouter({
       if (!profile || profile.status !== 'active') {
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
+      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
+      if (!mandate || mandate.purpose !== 'both') {
+        return res.json({
+          success: true,
+          requests: [],
+          canReceivePayoutRequests: false,
+          note: 'An active wallet sponsor application and an authorized, unexpired organization mandate for USDT principal and network fees are required before this sponsor can receive payout requests.',
+        })
+      }
       const result = await db.query(
         'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE ' +
-        '(status=\'requested\' OR sponsor_address=$1) ORDER BY created_at ASC LIMIT 50',
+        '((status=\'requested\' AND (sponsor_address IS NULL OR sponsor_address=$1)) OR sponsor_address=$1) ' +
+        'ORDER BY created_at ASC LIMIT 50',
         [auth.address],
       )
       return res.json({ success: true, requests: result.rows.map(publicRequest) })
@@ -958,6 +979,10 @@ export function createSponsorDirectPayoutsRouter({
           [id],
         )
         if (released.rowCount) row = released.rows[0]
+      }
+      if (row.sponsor_address && row.sponsor_address !== auth.address) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'payout-automatically-assigned-to-another-sponsor' })
       }
       if (row.status !== 'requested') {
         await client.query('ROLLBACK')
