@@ -49,7 +49,7 @@ export function discoverTronLink(windowRef = globalThis.window, timeoutMs = 700)
     if (typeof EventConstructor === 'function') {
       windowRef.dispatchEvent(new EventConstructor('TIP6963:requestProvider'))
     }
-    timer = setTimeout(() => finish(announced), Math.max(0, timeoutMs))
+    if (!settled) timer = setTimeout(() => finish(announced), Math.max(0, timeoutMs))
     if (fallback) finish(fallback)
   })
 }
