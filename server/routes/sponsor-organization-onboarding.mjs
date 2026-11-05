@@ -598,6 +598,36 @@ export function createSponsorOrganizationRouter({
     }
   })
 
+  router.post('/organizations/mandates/:id/revoke', async (req, res) => {
+    noStore(res)
+    const auth = await requireSession(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64)
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-mandate-id' })
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        `UPDATE ${SCHEMA}.sponsor_organization_mandates
+         SET status='revoked', updated_at=now()
+         WHERE id=$1 AND sponsor_wallet_address=$2
+           AND status IN ('signed-awaiting-review','verified','authorized')
+         RETURNING *`,
+        [id, auth.address],
+      )
+      if (!result.rowCount) return res.status(409).json({ success: false, error: 'mandate-not-revocable-or-not-owned' })
+      return res.json({
+        success: true,
+        mandate: publicMandate(result.rows[0]),
+        payoutAuthorized: false,
+        note: 'The sponsor revoked this mandate. New payout preparation and broadcast checks will reject it.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-mandate-revocation-failed' })
+    }
+  })
+
   return router
 }
 
