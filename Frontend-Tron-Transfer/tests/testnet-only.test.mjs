@@ -37,7 +37,7 @@ test('only the approved sponsor wallet signs and broadcasts its exact payout', (
   assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/requests/'))
   assert.ok(sponsorPayouts.includes('/broadcast'))
   assert.ok(sponsorPayouts.includes('Only the approved sponsor address that prepared this payment can sign it.'))
-  assert.ok(sponsorPayouts.includes('The sponsor\\'s own wallet sends and signs the USDT'))
+  assert.ok(sponsorPayouts.includes("The sponsor's own wallet sends and signs the USDT"))
 })
 
 test('platform owner session is used for sponsor application review, not as the payout signer', () => {
