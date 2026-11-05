@@ -81,6 +81,10 @@ function parseUsdt(value) {
   return baseUnits.toString()
 }
 
+export function parseSponsorOrganizationUsdtAmount(value) {
+  return parseUsdt(value)
+}
+
 function buildOrganizationApplicationMessage(input) {
   return [
     'TRON Transfer sponsor organization application',
