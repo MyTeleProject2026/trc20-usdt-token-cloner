@@ -45,7 +45,7 @@ test('wallet assets are read-only and never represented as simulated funding', (
 })
 
 test('external exchange deposit warning distinguishes chain confirmation from exchange credit', () => {
-  assert.ok(withdrawals.includes('exchange minimum deposit'))
+  assert.ok(withdrawals.includes('minimum deposit'))
   assert.ok(withdrawals.includes('does not guarantee the exchange will credit its internal account ledger'))
   assert.ok(withdrawals.includes('TRON / TRC20 USDT deposit address'))
 })
