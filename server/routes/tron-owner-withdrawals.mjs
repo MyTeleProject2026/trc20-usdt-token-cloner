@@ -84,6 +84,16 @@ export function parseOwnerUsdtAmount(value) {
   return baseUnits.toString()
 }
 
+export function calculateOwnerWithdrawableUsdtBaseUnits(balanceBaseUnits, reservedBaseUnits) {
+  const valid = (value) => /^(0|[1-9][0-9]*)$/.test(String(value))
+  if (!valid(balanceBaseUnits) || !valid(reservedBaseUnits)) {
+    throw new Error('Invalid USDT balance reservation values.')
+  }
+  const balance = BigInt(balanceBaseUnits)
+  const reserved = BigInt(reservedBaseUnits)
+  return (balance > reserved ? balance - reserved : 0n).toString()
+}
+
 function tronWebForMainnet() {
   return new TronWeb({ fullHost: MAINNET_GATEWAY })
 }
@@ -277,6 +287,19 @@ async function readOwnerSnapshot(env, ownerAddress) {
   }
 }
 
+async function readOwnerUsdtReservations(db, ownerAddress) {
+  const result = await db.query(
+    'SELECT COALESCE(SUM(amount_base_units), 0)::text AS reserved_base_units FROM ' + SCHEMA
+      + ".owner_direct_withdrawals WHERE owner_address=$1 AND ((status='prepared' AND expires_at > now()) OR status IN ('broadcasting','submitted','outcome-unknown','manual-review'))",
+    [ownerAddress],
+  )
+  const reserved = String(result.rows?.[0]?.reserved_base_units ?? '0')
+  if (!/^(0|[1-9][0-9]*)$/.test(reserved)) {
+    throw new Error('Owner USDT reservation state is unreadable.')
+  }
+  return reserved
+}
+
 function publicWithdrawal(row) {
   return {
     id: row.id,
@@ -303,13 +326,24 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
     const auth = await requireOwner(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     if (!tatumApiKey(env)) return res.status(503).json({ success: false, error: 'tatum-mainnet-key-not-configured' })
+    const db = getPool(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
-      const snapshot = await readOwnerSnapshot(env, auth.address)
+      await ensureSchema(db)
+      const [snapshot, reservedBaseUnits] = await Promise.all([
+        readOwnerSnapshot(env, auth.address),
+        readOwnerUsdtReservations(db, auth.address),
+      ])
+      const availableBaseUnits = calculateOwnerWithdrawableUsdtBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
       return res.json({
         success: true,
-        snapshot,
-        canPrepareWithdrawal: BigInt(snapshot.usdtBalanceBaseUnits) > 0n,
-        note: 'Balances and resources are read directly from Tatum Mainnet. The snapshot does not reserve funds or guarantee a later transaction will succeed.',
+        snapshot: {
+          ...snapshot,
+          reservedUsdtBaseUnits: reservedBaseUnits,
+          availableForWithdrawalBaseUnits: availableBaseUnits,
+        },
+        canPrepareWithdrawal: BigInt(availableBaseUnits) > 0n,
+        note: 'Balances and resources are read from Tatum Mainnet. Active prepared or unresolved withdrawals are reserved to prevent the same USDT from being allocated twice. A snapshot does not guarantee a later transaction will succeed.',
       })
     } catch (error) {
       return res.status(Number.isInteger(error?.status) ? error.status : 502).json({
@@ -380,13 +414,17 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
       }
 
       const snapshot = await readOwnerSnapshot(env, auth.address)
-      if (BigInt(snapshot.usdtBalanceBaseUnits) < BigInt(amountBaseUnits)) {
+      const reservedBaseUnits = await readOwnerUsdtReservations(db, auth.address)
+      const availableBaseUnits = calculateOwnerWithdrawableUsdtBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
+      if (BigInt(availableBaseUnits) < BigInt(amountBaseUnits)) {
         return res.status(409).json({
           success: false,
-          error: 'insufficient-mainnet-usdt-balance',
+          error: 'insufficient-mainnet-usdt-balance-after-reservations',
           balanceBaseUnits: snapshot.usdtBalanceBaseUnits,
+          reservedBaseUnits,
+          availableBaseUnits,
           requestedBaseUnits: amountBaseUnits,
-          note: 'The owner wallet must already hold the requested amount of official Mainnet USDT. Tatum does not supply the token principal.',
+          note: 'The owner wallet must already hold the requested amount of official Mainnet USDT after reserving all other prepared or unresolved withdrawals. Tatum does not supply the token principal.',
         })
       }
 
@@ -427,13 +465,60 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
       }
       const expiration = Number(unsignedTransaction.raw_data.expiration)
       const id = randomUUID()
-      const saved = await db.query(
-        'INSERT INTO ' + SCHEMA + '.owner_direct_withdrawals (id,idempotency_key,owner_address,recipient_address,token_contract,amount_base_units,unsigned_transaction,transaction_hash,status,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10) RETURNING *',
-        [id, idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits, JSON.stringify(unsignedTransaction), unsignedTransaction.txID, 'prepared', new Date(expiration).toISOString()],
-      )
+      const client = await db.connect()
+      let savedRow
+      try {
+        await client.query('BEGIN')
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [auth.address])
+        const lockedExisting = await client.query(
+          'SELECT * FROM ' + SCHEMA + '.owner_direct_withdrawals WHERE idempotency_key=$1 LIMIT 1',
+          [idempotencyKey],
+        )
+        if (lockedExisting.rows[0]) {
+          const row = lockedExisting.rows[0]
+          await client.query('COMMIT')
+          if (row.owner_address !== auth.address || row.recipient_address !== recipientAddress
+            || String(row.amount_base_units) !== amountBaseUnits) {
+            return res.status(409).json({ success: false, error: 'idempotency-key-reused-for-different-withdrawal' })
+          }
+          if (row.status !== 'prepared' || new Date(row.expires_at).getTime() <= Date.now()) {
+            return res.status(409).json({ success: false, error: 'existing-withdrawal-not-preparable', withdrawal: publicWithdrawal(row) })
+          }
+          return res.json({
+            success: true, duplicate: true, withdrawal: publicWithdrawal(row),
+            unsignedTransaction: row.unsigned_transaction,
+            note: 'This is the same unexpired prepared transaction; no second withdrawal was created.',
+          })
+        }
+        const lockedReservations = await readOwnerUsdtReservations(client, auth.address)
+        const lockedAvailable = calculateOwnerWithdrawableUsdtBaseUnits(snapshot.usdtBalanceBaseUnits, lockedReservations)
+        if (BigInt(lockedAvailable) < BigInt(amountBaseUnits)) {
+          await client.query('ROLLBACK')
+          return res.status(409).json({
+            success: false,
+            error: 'insufficient-mainnet-usdt-balance-after-reservations',
+            balanceBaseUnits: snapshot.usdtBalanceBaseUnits,
+            reservedBaseUnits: lockedReservations,
+            availableBaseUnits: lockedAvailable,
+            requestedBaseUnits: amountBaseUnits,
+            note: 'Another prepared or unresolved withdrawal reserved part of this wallet balance. Refresh readiness and use only the remaining available balance.',
+          })
+        }
+        const saved = await client.query(
+          'INSERT INTO ' + SCHEMA + '.owner_direct_withdrawals (id,idempotency_key,owner_address,recipient_address,token_contract,amount_base_units,unsigned_transaction,transaction_hash,status,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10) RETURNING *',
+          [id, idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits, JSON.stringify(unsignedTransaction), unsignedTransaction.txID, 'prepared', new Date(expiration).toISOString()],
+        )
+        savedRow = saved.rows[0]
+        await client.query('COMMIT')
+      } catch (error) {
+        try { await client.query('ROLLBACK') } catch {}
+        throw error
+      } finally {
+        client.release()
+      }
       return res.status(201).json({
         success: true,
-        withdrawal: publicWithdrawal(saved.rows[0]),
+        withdrawal: publicWithdrawal(savedRow),
         unsignedTransaction,
         snapshot,
         estimatedEnergy: Number.isSafeInteger(Number(simulation.energy_used)) ? Number(simulation.energy_used) : null,
