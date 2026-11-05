@@ -175,7 +175,7 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
       <div className="notice notice-warning">
         <AlertTriangle size={17} />
         <div><b>Automatic payout is bounded by a standing sponsor mandate</b>
-          <p>No new sponsor wallet prompt is required for each payout only when the sponsor has signed and the platform has independently authorized a Fincra automatic mandate for the exact business ID, asset, amount caps and validity. The Fincra account must be live-enabled and funded. Your wallet identity signature is not spending authorization.</p>
+          <p>No new sponsor wallet prompt is required for each payout only when the sponsor has signed and the platform has independently authorized a Fincra automatic mandate for the exact business ID, asset, amount caps and validity. The Fincra account must be live-enabled and funded. An on-chain transfer to an exchange deposit address does not prove exchange internal credit. Your wallet identity signature is not spending authorization.</p>
         </div>
       </div>
       {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
