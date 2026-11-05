@@ -81,6 +81,6 @@ test('withdrawal endpoints are mounted in the API entrypoint', () => {
 
 test('frontend requests TronLink to sign and never sends a raw transaction itself', () => {
   assert.match(frontend, /wallet\.tronWeb\.trx\.sign\(prepared\.unsignedTransaction\)/)
-  assert.match(frontend, //broadcast/)
+  assert.ok(frontend.includes('/broadcast'))
   assert.doesNotMatch(frontend, /sendRawTransaction|privateKey|seed phrase/i)
 })
