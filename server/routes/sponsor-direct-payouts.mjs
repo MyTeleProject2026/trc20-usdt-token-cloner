@@ -337,13 +337,14 @@ async function readReservations(db, sponsorAddress) {
   return value
 }
 
-async function readDailyUsage(db, sponsorAddress) {
+async function readDailyUsage(db, sponsorAddress, excludeRequestId = null) {
   const result = await db.query(
     'SELECT COALESCE(SUM(amount_base_units),0)::text AS used FROM ' + SCHEMA +
     '.sponsor_direct_payouts WHERE sponsor_address=$1 AND created_at >= ' +
     '(date_trunc(\'day\', now() AT TIME ZONE \'UTC\') AT TIME ZONE \'UTC\') ' +
-    'AND status NOT IN (\'failed\',\'cancelled\',\'expired\',\'broadcast-rejected\')',
-    [sponsorAddress],
+    'AND status NOT IN (\'failed\',\'cancelled\',\'expired\',\'broadcast-rejected\') ' +
+    'AND ($2::uuid IS NULL OR id <> $2::uuid)',
+    [sponsorAddress, excludeRequestId],
   )
   const value = String(result.rows?.[0]?.used ?? '0')
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error('Sponsor daily-usage ledger is unreadable.')
@@ -453,12 +454,18 @@ async function autoAssignSponsorToRequest({
       'AND m.status=\'authorized\' AND m.purpose=\'both\' ' +
       'AND m.valid_from <= $1 AND m.valid_until > $1 ' +
       'AND s.sponsor_address <> $2 ' +
+      'AND ($4::text IS NULL OR s.sponsor_address <> $4::text) ' +
       'AND s.per_payout_limit_base_units >= $3::numeric ' +
       'AND m.per_payout_limit_base_units >= $3::numeric ' +
       'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
       'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\') ' +
       'ORDER BY s.updated_at ASC LIMIT 10',
-      [new Date(now()).toISOString(), request.requester_address, amountBaseUnits],
+      [
+        new Date(now()).toISOString(),
+        request.requester_address,
+        amountBaseUnits,
+        isValidTronAddress(clean(env.OWNER_WALLET_ADDRESS, 64)) ? clean(env.OWNER_WALLET_ADDRESS, 64) : null,
+      ],
     )
     candidates = found.rows || []
   } catch {
@@ -626,6 +633,10 @@ export function createSponsorDirectPayoutsRouter({
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const configuredOwner = clean(env.OWNER_WALLET_ADDRESS, 64)
+    if (isValidTronAddress(configuredOwner) && auth.address === configuredOwner) {
+      return res.status(403).json({ success: false, error: 'platform-owner-wallet-cannot-act-as-third-party-sponsor' })
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['displayName', 'contactEmail'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
@@ -1001,7 +1012,7 @@ export function createSponsorDirectPayoutsRouter({
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(client, auth.address),
-        readDailyUsage(client, auth.address),
+        readDailyUsage(client, auth.address, id),
       ])
       const amountBaseUnits = String(row.amount_base_units)
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
