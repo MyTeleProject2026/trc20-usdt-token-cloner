@@ -653,7 +653,15 @@ export function createSponsorDirectPayoutsRouter({
         'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 50',
         [auth.address],
       )
-      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+      return res.json({
+        success: true,
+        requests: result.rows.map((row) => ({
+          ...publicRequest(row),
+          ...(row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
+            ? { unsignedTransaction: row.unsigned_transaction }
+            : {}),
+        })),
+      })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-history-unavailable' })
     }
@@ -710,7 +718,7 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
-      const row = found.rows[0]
+      let row = found.rows[0]
       if (row.status === 'prepared' && row.sponsor_address === auth.address
         && row.expires_at && new Date(row.expires_at).getTime() > now()) {
         await client.query('COMMIT')
@@ -721,6 +729,18 @@ export function createSponsorDirectPayoutsRouter({
           unsignedTransaction: row.unsigned_transaction,
           note: 'The same unexpired sponsor preparation was returned. No second payout was created.',
         })
+      }
+      // An expired unsigned preparation may be released and claimed again.
+      // Signed, broadcasting and ambiguous payouts are never reset or reassigned.
+      if (row.status === 'prepared' && row.expires_at
+        && new Date(row.expires_at).getTime() <= now() && !row.signed_transaction) {
+        const released = await client.query(
+          'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'requested\', sponsor_address=NULL, ' +
+          'unsigned_transaction=NULL, transaction_hash=NULL, expires_at=NULL, failure_code=\'unsigned-transaction-expired\', updated_at=now() ' +
+          'WHERE id=$1 AND status=\'prepared\' AND expires_at <= now() AND signed_transaction IS NULL RETURNING *',
+          [id],
+        )
+        if (released.rowCount) row = released.rows[0]
       }
       if (row.status !== 'requested') {
         await client.query('ROLLBACK')
