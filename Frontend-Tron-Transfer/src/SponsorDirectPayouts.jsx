@@ -209,6 +209,14 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     void refresh()
   }, [identityToken, walletAddress, ownerSession?.sessionToken])
 
+  useEffect(() => {
+    if (!identityMatchesWallet || !['withdraw', 'history'].includes(mode)) return undefined
+    const interval = window.setInterval(() => {
+      void refresh()
+    }, 15000)
+    return () => window.clearInterval(interval)
+  }, [identityMatchesWallet, identityToken, walletAddress, mode])
+
   async function submitRequest() {
     setBusy(true)
     setError('')
@@ -427,7 +435,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Contract: {MAINNET_USDT}</span>
                 <span>Requester wallet: identity only</span>
                 <span>Sender: approved sponsor wallet</span>
-                <span>Signer: sponsor's TronLink account</span>
+                <span>Routing: automatic matching against authorized sponsor mandates and live funding checks</span>
+                <span>Signer: sponsor's TronLink account; sponsor approval is still required</span>
                 <span>Broadcast and confirmation: Tatum Mainnet</span>
               </div>
             </aside>
@@ -574,6 +583,10 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       <span>To {item.recipientAddress}</span>
                       <small>Status: {statusLabel(item.status)}</small>
                       <small>Sponsor: {item.sponsorAddress ? shorten(item.sponsorAddress) : 'Not assigned'}</small>
+                      {item.status === 'requested' && <small>{item.sponsorAddress
+                        ? 'Automatically matched using current sponsor funding and fee checks. Waiting for the sponsor to sign this payout.'
+                        : 'No eligible funded sponsor is matched yet. The request remains queued; your wallet is not charged.'}</small>}
+
                       {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
                       {item.status === 'confirmed' && <small>On-chain transfer confirmed; exchange account credit is not independently verified.</small>}
                     </div>
