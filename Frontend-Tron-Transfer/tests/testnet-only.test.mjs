@@ -15,7 +15,7 @@ test('production frontend is Mainnet-only and defaults to the monitored wallet',
 })
 
 test('only official USDT is represented as the payout asset', () => {
-  assert.ok(app.includes('USDT amount'))
+  assert.ok(app.includes('USDT withdrawal amount'))
   assert.ok(app.includes('Official Tether USDT TRC20'))
   assert.ok(!/addToken|tokenInput|custom token contract/i.test(app))
 })
