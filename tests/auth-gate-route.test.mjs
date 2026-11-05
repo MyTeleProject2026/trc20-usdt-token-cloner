@@ -7,9 +7,12 @@ const gate = await readFile(new URL('../src/AuthGate.tsx', import.meta.url), 'ut
 const server = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
 const authRoute = await readFile(new URL('../server/routes/tron-wallet-auth.mjs', import.meta.url), 'utf8')
 
-test('every application route is wrapped in the same single-owner authentication gate', () => {
+test('only the external sponsor intake route is public; every owner workspace route remains behind the single-owner gate', () => {
   assert.match(entry, /import AuthGate from '\.\/AuthGate\.tsx'/)
+  assert.match(entry, /route === '#\/sponsor-onboarding'/)
+  assert.match(entry, /<SponsorOrganizationPortal \/>/)
   assert.match(entry, /<AuthGate>\{page\}<\/AuthGate>/)
+  assert.ok(entry.indexOf("route === '#/sponsor-onboarding'") < entry.indexOf('<AuthGate>{page}</AuthGate>'))
   assert.match(server, /app\.use\('\/api\/auth\/owner', createOwnerAuthRouter\(\)\)/)
   assert.match(gate, /\/api\/auth\/owner\/login/)
   assert.match(gate, /\/api\/auth\/owner\/session/)

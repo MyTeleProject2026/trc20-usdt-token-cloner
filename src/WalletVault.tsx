@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, CheckCircle2, Coins, Copy, Download, Eye, EyeO
 import { TronWeb } from 'tronweb'
 import { estimateTRC20TransferFee, parseUnitsDecimal, verifyTransferRecordOnChain } from './wallet-transfer.mjs'
 import { buildTreasuryWithdrawalAuthorizationMessage } from './treasury-withdrawal-auth.mjs'
+import SponsorOrganizationReviewPanel from './SponsorOrganizationReviewPanel.tsx'
 import { readTreasuryPayoutReference, saveTreasuryPayoutReference } from './treasury-payout-reference.mjs'
 import { assertOwnerMainnetTransferAccess } from './owner-transfer-policy.mjs'
 import {
@@ -1503,6 +1504,7 @@ export default function WalletVault() {
                     : 'View public treasury settings and read-only provider checks. Payout execution is unavailable in this build.'}
         </p>
         <a className="wallet-vault-secondary" href="#/testnet-sandbox">Open read-only Testnet Sandbox</a>
+        <a className="wallet-vault-secondary" href="#/sponsor-onboarding" target="_blank" rel="noopener noreferrer">Open external sponsor onboarding portal</a>
       </section>
 
       <div className="wallet-vault-transfer-warning wallet-vault-owner-model" role="note" hidden={activePanel !== 'dashboard'}>
@@ -2160,6 +2162,16 @@ export default function WalletVault() {
             </div>
           )}
         </section>
+      </div>
+
+      <div hidden={activePanel !== 'treasury'}>
+        <SponsorOrganizationReviewPanel
+          wallet={unlocked ? { address: unlocked.record.address, privateKey: unlocked.privateKey } : null}
+          network={network}
+          active={activePanel === 'treasury'}
+          onSelectMainnet={() => setNetwork('mainnet')}
+          onOpenAccount={() => navigatePanel('account')}
+        />
       </div>
 
       <nav className="wallet-vault-bottom-nav" aria-label="Owner wallet sections">
