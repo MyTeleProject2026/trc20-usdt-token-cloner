@@ -25,6 +25,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const TXID_RE = /^[0-9a-f]{64}$/i
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
+const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
 
 let pool
@@ -327,14 +328,24 @@ function publicRequest(row) {
 async function readReservations(db, sponsorAddress) {
   const result = await db.query(
     'SELECT COALESCE(SUM(amount_base_units),0)::text AS reserved FROM ' + SCHEMA +
-    '.sponsor_direct_payouts WHERE sponsor_address=$1 AND ' +
-    '(((status=\'prepared\') AND expires_at > now()) OR status IN ' +
-    '(\'broadcasting\',\'submitted\',\'outcome-unknown\',\'manual-review\'))',
+    '.sponsor_direct_payouts WHERE sponsor_address=$1 AND (' +
+    '(status=\'requested\' AND (expires_at IS NULL OR expires_at > now())) OR ' +
+    '(status=\'prepared\' AND (expires_at IS NULL OR expires_at > now())) OR ' +
+    'status IN (\'broadcasting\',\'submitted\',\'outcome-unknown\',\'manual-review\'))',
     [sponsorAddress],
   )
   const value = String(result.rows?.[0]?.reserved ?? '0')
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error('Sponsor reservation ledger is unreadable.')
   return value
+}
+
+async function releaseExpiredSponsorMatches(db) {
+  await db.query(
+    'UPDATE ' + SCHEMA + '.sponsor_direct_payouts ' +
+    'SET sponsor_address=NULL, expires_at=NULL, failure_code=\'sponsor-match-expired\', updated_at=now() ' +
+    'WHERE status=\'requested\' AND sponsor_address IS NOT NULL ' +
+    'AND expires_at IS NOT NULL AND expires_at <= now()',
+  )
 }
 
 async function readDailyUsage(db, sponsorAddress, excludeRequestId = null) {
@@ -444,8 +455,9 @@ async function autoAssignSponsorToRequest({
   }
   let candidates
   try {
+    await releaseExpiredSponsorMatches(db)
     const found = await db.query(
-      'SELECT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
+      'SELECT DISTINCT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
       'JOIN ' + SCHEMA + '.sponsor_organization_applications a ' +
       'ON a.sponsor_wallet_address=s.sponsor_address ' +
       'JOIN ' + SCHEMA + '.sponsor_organization_mandates m ' +
@@ -458,7 +470,8 @@ async function autoAssignSponsorToRequest({
       'AND s.per_payout_limit_base_units >= $3::numeric ' +
       'AND m.per_payout_limit_base_units >= $3::numeric ' +
       'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
-      'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\') ' +
+      'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\' ' +
+      'AND (p.expires_at IS NULL OR p.expires_at > now())) ' +
       'ORDER BY s.updated_at ASC LIMIT 10',
       [
         new Date(now()).toISOString(),
@@ -529,6 +542,16 @@ async function autoAssignSponsorToRequest({
         await client.query('ROLLBACK')
         return
       }
+      const otherPending = await client.query(
+        'SELECT id FROM ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'WHERE sponsor_address=$1 AND status=\'requested\' AND id<>$2 ' +
+        'AND (expires_at IS NULL OR expires_at > now()) LIMIT 1',
+        [sponsorAddress, request.id],
+      )
+      if (otherPending.rows.length) {
+        await client.query('ROLLBACK')
+        return
+      }
       const [latestSnapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, sponsorAddress),
         readReservations(client, sponsorAddress),
@@ -556,7 +579,7 @@ async function autoAssignSponsorToRequest({
       }
       const assigned = await client.query(
         'UPDATE ' + SCHEMA + '.sponsor_direct_payouts ' +
-        'SET sponsor_address=$2, updated_at=now() ' +
+        'SET sponsor_address=$2, expires_at=now() + interval \'15 minutes\', failure_code=NULL, updated_at=now() ' +
         'WHERE id=$1 AND status=\'requested\' AND sponsor_address IS NULL RETURNING *',
         [request.id, sponsorAddress],
       )
@@ -927,13 +950,19 @@ export function createSponsorDirectPayoutsRouter({
           note: 'An active wallet sponsor application and an authorized, unexpired organization mandate for USDT principal and network fees are required before this sponsor can receive payout requests.',
         })
       }
+      await releaseExpiredSponsorMatches(db)
       const result = await db.query(
         'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE ' +
         '((status=\'requested\' AND (sponsor_address IS NULL OR sponsor_address=$1)) OR sponsor_address=$1) ' +
         'ORDER BY created_at ASC LIMIT 50',
         [auth.address],
       )
-      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+      return res.json({ success: true, requests: result.rows.map((row) => ({
+        ...publicRequest(row),
+        ...(row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
+          ? { unsignedTransaction: row.unsigned_transaction }
+          : {}),
+      })) })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-queue-unavailable' })
     }
