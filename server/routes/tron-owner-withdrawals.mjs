@@ -233,7 +233,7 @@ async function readOwnerSnapshot(env, ownerAddress) {
   const addressWord = ownerHex.padStart(64, '0')
   const [account, resources, token] = await Promise.all([
     tatumPost(env, 'walletsolidity/getaccount', { address: ownerAddress, visible: true }),
-    tatumPost(env, 'walletsolidity/getaccountresource', { address: ownerAddress, visible: true }),
+    tatumPost(env, 'wallet/getaccountresource', { address: ownerAddress, visible: true }),
     tatumPost(env, 'walletsolidity/triggerconstantcontract', {
       owner_address: ownerAddress,
       contract_address: MAINNET_USDT_CONTRACT,
