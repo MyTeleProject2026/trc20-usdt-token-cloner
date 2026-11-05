@@ -45,8 +45,8 @@ async function ensureSchema(db) {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       await db.query('CREATE SCHEMA IF NOT EXISTS ' + SCHEMA)
-      await db.query(\`
-        CREATE TABLE IF NOT EXISTS \${SCHEMA}.owner_direct_withdrawals (
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS ${SCHEMA}.owner_direct_withdrawals (
           id UUID PRIMARY KEY,
           idempotency_key UUID NOT NULL UNIQUE,
           owner_address TEXT NOT NULL,
@@ -63,7 +63,7 @@ async function ensureSchema(db) {
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
-      \`)
+      `)
       await db.query('CREATE INDEX IF NOT EXISTS owner_direct_withdrawals_created_idx ON ' + SCHEMA + '.owner_direct_withdrawals (created_at DESC)')
       await db.query('CREATE INDEX IF NOT EXISTS owner_direct_withdrawals_status_idx ON ' + SCHEMA + '.owner_direct_withdrawals (status, updated_at DESC)')
     })().catch((error) => { schemaPromise = null; throw error })
@@ -136,8 +136,13 @@ function sameUnsignedTransaction(signed, unsigned) {
   if (!signed || typeof signed !== 'object' || Array.isArray(signed) || !unsigned) return false
   if (String(signed.txID || '').toLowerCase() !== String(unsigned.txID || '').toLowerCase()
     || String(signed.raw_data_hex || '').toLowerCase() !== String(unsigned.raw_data_hex || '').toLowerCase()) return false
+  const canonical = (value) => Array.isArray(value)
+    ? value.map(canonical)
+    : value && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+      : value
   try {
-    return JSON.stringify(signed.raw_data) === JSON.stringify(unsigned.raw_data)
+    return JSON.stringify(canonical(signed.raw_data)) === JSON.stringify(canonical(unsigned.raw_data))
   } catch {
     return false
   }
@@ -563,7 +568,7 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
   async function refreshWithdrawal(db, row) {
     if (!['submitted', 'outcome-unknown', 'broadcasting'].includes(row.status)) return row
     const verification = await verifySolidifiedUsdtTransfer(env, {
-      transactionHash: String(row.transaction_hash || row.transaction_hash === null ? row.transaction_hash : row.transaction_hash || '').trim() || String(row.unsigned_transaction?.txID || ''),
+      transactionHash: String(row.transaction_hash || row.unsigned_transaction?.txID || '').trim(),
       from: row.owner_address,
       to: row.recipient_address,
       amountBaseUnits: String(row.amount_base_units),
