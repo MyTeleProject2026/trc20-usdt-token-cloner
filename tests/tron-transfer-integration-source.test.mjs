@@ -2,183 +2,85 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const route = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
+const recipientRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
+const withdrawalRoute = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
 const entry = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+const frontend = await readFile(new URL('../Frontend-Tron-Transfer/src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
 
-test('Tatum proxy is restricted to Mainnet and read-only RPC methods', () => {
-  assert.match(route, /const NETWORKS = Object\.freeze\(\{ mainnet: 'tron-mainnet' \}\)/)
-  assert.match(route, /network !== 'mainnet' \|\| !RPC_METHODS\.has\(method\)/)
-  assert.match(route, /TATUM_MAINNET_API_KEY/)
-  assert.doesNotMatch(route, /tron-nile|tron-shasta|wallet\/broadcasttransaction/)
+test('recipient inspection remains read-only and Mainnet-only', () => {
+  assert.match(recipientRoute, /const NETWORKS = Object\.freeze\(\{ mainnet: 'tron-mainnet' \}\)/)
+  assert.match(recipientRoute, /network !== 'mainnet'/)
+  assert.match(recipientRoute, /TATUM_MAINNET_API_KEY/)
+  assert.match(recipientRoute, /walletsolidity\/getaccount/)
+  assert.match(recipientRoute, /balanceOf\(address\)/)
+  assert.match(recipientRoute, /MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'/)
+  assert.doesNotMatch(recipientRoute, /tron-nile|tron-shasta/)
 })
 
-test('direct wallet broadcasts are disabled; Mainnet sponsor payout is the only send rail', () => {
-  assert.match(route, /direct-wallet-broadcast-disabled/)
-  assert.match(route, /transactionSubmitted: false/)
-  assert.match(route, /paymentDestination: 'crypto_wallet'/)
-  assert.match(route, /paymentScheme: 'usdt_trc20'/)
-  assert.match(route, /sourceCurrency: 'USDT'/)
+test('direct withdrawal route uses only the Tatum TRON Mainnet gateway and official USDT contract', () => {
+  assert.match(withdrawalRoute, /MAINNET_GATEWAY = 'https:\/\/tron-mainnet\.gateway\.tatum\.io'/)
+  assert.match(withdrawalRoute, /MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'/)
+  assert.match(withdrawalRoute, /TATUM_MAINNET_API_KEY \|\| env\.TATUM_API_KEY/)
+  assert.match(withdrawalRoute, /tatumProviderFetch\(MAINNET_GATEWAY/)
+  assert.doesNotMatch(withdrawalRoute, /FINCRA|fincra|fireblocks/i)
 })
 
-test('recipient inspection only reads Mainnet official USDT balances and incoming history', () => {
-  assert.match(route, /network !== 'mainnet'/)
-  assert.match(route, /tokenContract !== MAINNET_USDT/)
-  assert.match(route, /walletsolidity\/getaccount/)
-  assert.match(route, /recipient-mainnet-account-not-activated/)
-  assert.match(route, /balanceOf\(address\)/)
-  assert.match(route, /readTronGridIncomingHistory/)
-  assert.match(route, /historyProvider: 'trongrid'/)
+test('withdrawal API binds owner privileges to the configured owner wallet and live session', () => {
+  assert.match(withdrawalRoute, /OWNER_WALLET_ADDRESS/)
+  assert.match(withdrawalRoute, /session\.address !== ownerAddress/)
+  assert.match(withdrawalRoute, /session\.network !== 'mainnet'/)
+  assert.match(withdrawalRoute, /session\.origin !== origin/)
+  assert.match(withdrawalRoute, /getWalletAuthSession/)
 })
 
-test('Fincra source-balance parser accepts array and object wallet-list response shapes', () => {
-  assert.match(route, /Array\.isArray\(data\?\.results\)/)
-  assert.match(route, /Array\.isArray\(data\?\.accounts\)/)
-  assert.match(route, /Array\.isArray\(data\?\.balances\)/)
-  assert.match(route, /data\.availableBalance !== undefined/)
-  assert.match(route, /availableBaseUnits/)
+test('owner snapshot reads actual USDT, TRX, Energy and Bandwidth through Tatum', () => {
+  assert.match(withdrawalRoute, /walletsolidity\/getaccount/)
+  assert.match(withdrawalRoute, /walletsolidity\/getaccountresource/)
+  assert.match(withdrawalRoute, /walletsolidity\/triggerconstantcontract/)
+  assert.match(withdrawalRoute, /function_selector: 'balanceOf\(address\)'/)
+  assert.match(withdrawalRoute, /usdtBalanceBaseUnits/)
+  assert.match(withdrawalRoute, /energyAvailable/)
+  assert.match(withdrawalRoute, /bandwidthAvailable/)
+  assert.match(withdrawalRoute, /trxBalanceSun/)
 })
 
-test('Fincra live payout requires provider enablement, source funds, Tatum Mainnet and database readiness', () => {
-  assert.match(route, /config\.mode !== 'live'/)
-  assert.match(route, /FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED/)
-  assert.match(route, /canSubmitLivePayout/)
-  assert.doesNotMatch(route, /canSubmitSandboxPayout/)
-  assert.match(route, /sourceBalanceBaseUnits > 0n/)
-  assert.match(route, /availableBaseUnits < BigInt\(row\.amount_base_units\)/)
+test('withdrawal preparation checks real USDT funds and builds one exact TRC20 transfer', () => {
+  assert.match(withdrawalRoute, /insufficient-mainnet-usdt-balance/)
+  assert.match(withdrawalRoute, /function_selector: 'transfer\(address,uint256\)'/)
+  assert.match(withdrawalRoute, /wallet\/triggerconstantcontract/)
+  assert.match(withdrawalRoute, /wallet\/triggersmartcontract/)
+  assert.match(withdrawalRoute, /TRANSFER_SELECTOR = 'a9059cbb'/)
+  assert.match(withdrawalRoute, /transactionMatchesIntent/)
+  assert.match(withdrawalRoute, /idempotency_key/)
+  assert.match(withdrawalRoute, /status !== 'prepared'/)
 })
 
-test('Fincra payout amounts use exact six-decimal formatting before numeric API serialization', () => {
-  assert.match(route, /maxFincraBaseUnits = 1_000_000_000_000_000n/)
-  assert.match(route, /const normalizedFraction = fraction\.padEnd\(6, '0'\)\.replace\(\/0\+\$\//)
-  assert.doesNotMatch(route, /Number\(baseUnits\) \/ 1_000_000/)
+test('broadcast requires the persisted intent and Tatum-validated configured-owner signature', () => {
+  assert.match(withdrawalRoute, /validateOwnerSignedTransaction/)
+  assert.match(withdrawalRoute, /wallet\/getapprovedlist/)
+  assert.match(withdrawalRoute, /approved\?\.result\?\.result !== true/)
+  assert.match(withdrawalRoute, /approvedAddresses\.includes\(auth\.address\)/)
+  assert.match(withdrawalRoute, /wallet\/broadcasttransaction/)
+  assert.match(withdrawalRoute, /signed_transaction/)
 })
 
-test('duplicate Fincra customer references become unknown and never falsely failed', () => {
-  assert.match(route, /DUPLICATE_CUSTOMER_REFERENCE/)
-  assert.match(route, /fincra-duplicate-customer-reference/)
-  assert.match(route, /transactionSubmitted: 'unknown'/)
+test('broadcast acceptance is pending until an exact solidified Tether Transfer is verified', () => {
+  assert.match(withdrawalRoute, /verifySolidifiedUsdtTransfer/)
+  assert.match(withdrawalRoute, /solidified/)
+  assert.match(withdrawalRoute, /transfer-event/)
+  assert.match(withdrawalRoute, /outcome-unknown/)
+  assert.match(withdrawalRoute, /status === 'confirmed'/)
 })
 
-test('an ambiguous Fincra submission can never be automatically resubmitted after a 404 lookup', () => {
-  assert.match(route, /let firstAttempt = false/)
-  assert.match(route, /firstAttempt = true/)
-  assert.match(route, /if \(!firstAttempt\)/)
-  assert.match(route, /fincra-retry-requires-manual-reconciliation/)
-  assert.match(route, /customer-reference\//)
+test('withdrawal endpoints are mounted in the API entrypoint', () => {
+  assert.match(entry, /createTronOwnerWithdrawalsRouter/)
+  assert.match(entry, /app\.use\('\/api\/tron-owner-withdrawals', createTronOwnerWithdrawalsRouter\(\)\)/)
+  assert.match(frontend, /\/api\/tron-owner-withdrawals\/prepare/)
+  assert.match(frontend, /\/api\/tron-owner-withdrawals\//)
 })
 
-test('Fincra settlement timestamps are persisted and used to bound exact on-chain recipient verification', () => {
-  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ/)
-  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_successful_at TIMESTAMPTZ/)
-  assert.match(route, /fincra_successful_at=CASE WHEN/)
-  assert.match(route, /fincra-status-requery/)
-  assert.match(route, /payoutStartMs/)
-  assert.match(route, /payoutEndMs/)
-  assert.match(route, /verifySolidifiedUsdtTransfer/)
-  assert.match(route, /item\.tokenContract === MAINNET_USDT/)
-})
-
-test('Fincra webhook remains raw-body HMAC-SHA512 verified', () => {
-  assert.match(route, /createHmac\('sha512'/)
-  assert.match(route, /timingSafeEqual/)
-  assert.match(route, /req\.headers\?\.signature/)
-})
-
-test('API entrypoint mounts Tron Transfer and only accepts its configured frontend origin', () => {
-  assert.match(entry, /TRON_TRANSFER_UI_ORIGIN/)
-  assert.match(entry, /app\.use\('\/api\/tron-transfer', tronTransferRoutes\)/)
-})
-
-test('live Fincra payout performs server-side official Mainnet USDT recipient preflight before submission', () => {
-  assert.match(route, /async function preflightMainnetUsdtRecipient\(address\)/)
-  assert.match(route, /walletsolidity\/getaccount/)
-  assert.match(route, /function_selector: 'balanceOf\(address\)'/)
-  assert.match(route, /function_selector: 'decimals\(\)'/)
-  assert.match(route, /Number\(BigInt\('0x' \+ decimalsHex\)\) === 6/)
-  assert.match(route, /const recipientPreflight = await preflightMainnetUsdtRecipient\(row\.recipient_address\)/)
-  assert.match(route, /recipient-mainnet-preflight-failed/)
-  assert.ok(route.indexOf('const recipientPreflight = await preflightMainnetUsdtRecipient(row.recipient_address)') < route.indexOf('const created = await fincraRequest(config, \'/disbursements/payouts\''))
-})
-
-test('Fincra signed webhooks are reconciled against the authoritative payout record before sponsor status changes', () => {
-  assert.match(route, /fetchFincraPayoutByCustomerReference\(config, customerReference\)/)
-  assert.match(route, /payout\.customerReference \|\| payout\.customer_reference/)
-  assert.match(route, /destinationCurrency !== 'USDT'/)
-  assert.match(route, /paymentScheme !== 'usdt_trc20'/)
-  assert.match(route, /paymentDestination !== 'crypto_wallet'/)
-  assert.match(route, /const verifiedAmount = providerReceived \?\? signedReceived/)
-  assert.match(route, /fincra_amount_received_base_units=COALESCE\(\$6,fincra_amount_received_base_units\)/)
-  assert.match(route, /fincra-webhook-recipient-mismatch/)
-  assert.match(route, /fincra-webhook-settlement-amount-unverified/)
-  assert.match(route, /fincra_status IN \('successful','failed'\)/)
-})
-
-test('Fincra webhook accepts payout identity and received amount from the signed event when the status lookup omits those fields', () => {
-  assert.match(route, /payout\.destinationCurrency \|\| eventData\.destinationCurrency/)
-  assert.match(route, /payout\.sourceCurrency \|\| eventData\.sourceCurrency/)
-  assert.match(route, /payout\.paymentScheme \|\| eventData\.paymentScheme/)
-  assert.match(route, /payout\.paymentDestination \|\| eventData\.paymentDestination/)
-  assert.match(route, /const verifiedAmount = providerReceived \?\? signedReceived/)
-  assert.match(route, /provider-event-received-amount-conflict/)
-  assert.match(route, /providerRecipient && providerRecipient !== row\.recipient_address/)
-  assert.match(route, /signedEventRecipient && signedEventRecipient !== row\.recipient_address/)
-})
-
-test('Fincra USDT source balance exposes the recipient wallet number for sponsor-to-business funding', () => {
-  assert.match(route, /const walletNumberRaw = wallet\.walletNumber \?\? wallet\.balanceNumber \?\? wallet\.wallet_number/)
-  assert.match(route, /Number\.isSafeInteger\(walletNumberRaw\)/)
-  assert.match(route, /walletNumber: walletNumber \|\| null/)
-  assert.match(route, /router\.get\('\/readiness'/)
-  assert.match(route, /sourceBalance,/)
-})
-
-test('Fincra prior-payout and manual status reconciliation cannot mark an unverified payout successful', () => {
-  assert.match(route, /function reconcileFincraPayoutIdentity\(payout, row\)/)
-  assert.match(route, /successful-payout-record-incomplete/)
-  assert.match(route, /const reconciliation = reconcileFincraPayoutIdentity\(data, row\)/)
-  assert.match(route, /Fincra returned an existing payout for this reference, but its recipient, route and settlement amount details could not all be reconciled/)
-  assert.match(route, /Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and settlement details/)
-  assert.match(route, /fincra-webhook-recipient-unverified/)
-})
-
-test('Fincra payout-create acceptance cannot be marked successful unless its response fully matches the exact recipient and amount', () => {
-  assert.match(route, /const immediateReconciliation = reconcileFincraPayoutIdentity\(data, row\)/)
-  assert.match(route, /provider-accepted-awaiting-reconciliation/)
-  assert.match(route, /Fincra accepted or returned a payout response that does not include enough matching settlement details to mark it successful/)
-})
-
-test('Fincra sponsor funding history reads owner-authenticated business wallet credits from the provider ledger', () => {
-  assert.match(route, /router\.get\('\/sponsor-funding-history'/)
-  assert.match(route, /requireOwnerSession\(req, env\)/)
-  assert.match(route, /\/wallets\/logs\?/)
-  assert.match(route, /business: config\.businessId/)
-  assert.match(route, /action: 'credit'/)
-  assert.match(route, /source: 'fincra-business-wallet-ledger'/)
-  assert.match(route, /item\.action === 'credit'/)
-  assert.match(route, /item\.currency === 'USDT'/)
-})
-
-test('Fincra source balance returns available locked and ledger totals separately', () => {
-  assert.match(route, /lockedBalance: lockedBaseUnits === null \? null : String\(lockedRaw\)/)
-  assert.match(route, /ledgerBalance: ledgerBaseUnits === null \? null : String\(ledgerRaw\)/)
-  assert.match(route, /availableBalanceBaseUnits: availableBaseUnits\.toString\(\)/)
-})
-
-test('Fincra crypto wallet payout reconciliation recognizes provider walletAddress and address aliases', () => {
-  assert.match(route, /payout\.beneficiary\?\.address/)
-  assert.match(route, /payout\.recipient\?\.address/)
-  assert.match(route, /signedRecipient\.address/)
-})
-
-test('Fincra net recipient amount, gross sponsor charge and fee are persisted separately', () => {
-  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_amount_charged_base_units NUMERIC\(78,0\)/)
-  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_amount_received_base_units NUMERIC\(78,0\)/)
-  assert.match(route, /ADD COLUMN IF NOT EXISTS fincra_fee_base_units NUMERIC\(78,0\)/)
-  assert.match(route, /const received = parseOptional\(payout\.amountReceived\)/)
-  assert.match(route, /const charged = parseOptional\(payout\.amountCharged\)/)
-  assert.match(route, /const fee = parseOptional\(payout\.fee\)/)
-  assert.match(route, /Fincra amountReceived is the net beneficiary amount after fees/)
-  assert.match(route, /item\.amountBaseUnits === receivedAmountBaseUnits/)
-  assert.match(route, /amountBaseUnits: receivedAmountBaseUnits/)
-  assert.doesNotMatch(route, /const amountRaw = payout\.amountReceived \?\? payout\.amount \?\? payout\.destinationAmount/)
+test('frontend requests TronLink to sign and never sends a raw transaction itself', () => {
+  assert.match(frontend, /wallet\.tronWeb\.trx\.sign\(prepared\.unsignedTransaction\)/)
+  assert.match(frontend, //broadcast/)
+  assert.doesNotMatch(frontend, /sendRawTransaction|privateKey|seed phrase/i)
 })
