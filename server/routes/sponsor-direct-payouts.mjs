@@ -981,7 +981,7 @@ export function createSponsorDirectPayoutsRouter({
   now = () => Date.now(),
   readSnapshot = readSponsorSnapshot,
   providerPost = tatumPost,
-  verifyTransfer = verifySolidifiedUsdtTransfer,
+  verifyTransfer = verifySponsorDirectMainnetTransfer,
   getDatabase = getPool,
 } = {}) {
   const router = Router()
