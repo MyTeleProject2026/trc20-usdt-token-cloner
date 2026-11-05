@@ -475,6 +475,12 @@ export function createSponsorOrganizationRouter({
         || row.status !== 'accepted-for-due-diligence') {
         return res.status(403).json({ success: false, error: 'accepted-organization-application-required' })
       }
+      const requestedRoles = Array.isArray(row.requested_roles) ? row.requested_roles : []
+      if (purpose === 'asset-principal' && !requestedRoles.includes('asset-principal')
+        || purpose === 'network-fees' && !requestedRoles.includes('network-fees')
+        || purpose === 'both' && (!requestedRoles.includes('asset-principal') || !requestedRoles.includes('network-fees'))) {
+        return res.status(403).json({ success: false, error: 'mandate-purpose-not-requested-by-organization' })
+      }
       const message = buildMandateMessage({
         wallet: auth.address,
         applicationId: id,
