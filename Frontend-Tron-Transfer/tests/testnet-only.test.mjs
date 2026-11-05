@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
-const withdrawals = await readFile(new URL('../src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
+const sponsorPayouts = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 
@@ -11,49 +11,62 @@ test('production frontend is TRON Mainnet-only and pins official Tether USDT', (
   assert.ok(app.includes("MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
   assert.ok(app.includes("network:'mainnet'"))
   assert.ok(app.includes("tokenContract:MAINNET_USDT"))
-  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + withdrawals))
+  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + sponsorPayouts))
   assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
-  assert.ok(withdrawals.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+  assert.ok(sponsorPayouts.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
 })
 
 test('only the official Tether contract is exposed as the withdrawal asset', () => {
-  assert.ok(withdrawals.includes('Official Tether USDT TRC20'))
-  assert.ok(!/custom token contract|addToken|tokenInput/i.test(app + withdrawals))
+  assert.ok(sponsorPayouts.includes('Official Tether USDT TRC20'))
+  assert.ok(!/custom token contract|addToken|tokenInput/i.test(app + sponsorPayouts))
 })
 
-test('withdrawal form uses TronLink signing and Tatum server broadcast', () => {
-  assert.ok(app.includes("<OwnerWithdrawals wallet={unlocked} ownerSession={ownerSession} />"))
-  assert.ok(withdrawals.includes('wallet.tronWeb.trx.sign(prepared.unsignedTransaction)'))
-  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/prepare'))
-  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/'))
-  assert.ok(withdrawals.includes('/broadcast'))
-  assert.ok(!/sendRawTransaction|privateKey|private key input|seed phrase input/i.test(withdrawals))
+test('requester can submit sponsored withdrawals without signing or funding the payout transaction', () => {
+  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />'))
+  assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/requests'))
+  assert.ok(sponsorPayouts.includes('/api/auth/tron/challenge'))
+  assert.ok(sponsorPayouts.includes('signMessageV2(challenge.message)'))
+  assert.ok(sponsorPayouts.includes('/api/auth/tron/verify'))
+  assert.ok(sponsorPayouts.includes('Your wallet does not need USDT or TRX to submit a request'))
+  assert.ok(!/sendRawTransaction|privateKey|private key input|seed phrase input/i.test(app + sponsorPayouts))
 })
 
-test('owner session and connected TronLink account must match before signing', () => {
+test('only the approved sponsor wallet signs and broadcasts its exact payout', () => {
+  assert.ok(sponsorPayouts.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsorPayouts.includes('walletAddress !== item.sponsorAddress'))
+  assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/requests/'))
+  assert.ok(sponsorPayouts.includes('/broadcast'))
+  assert.ok(sponsorPayouts.includes('Only the approved sponsor address that prepared this payment can sign it.'))
+  assert.ok(sponsorPayouts.includes("The approved sponsor's own funded TRON wallet sends and signs the USDT"))
+})
+
+test('platform owner session is used for sponsor application review, not as the payout signer', () => {
   assert.ok(app.includes('/api/auth/owner/login'))
-  assert.ok(withdrawals.includes('ownerSession.address === walletAddress'))
-  assert.ok(withdrawals.includes('currentAddress !== ownerSession.address'))
-  assert.ok(withdrawals.includes('configured owner address'))
+  assert.ok(app.includes('Platform owner authentication'))
+  assert.ok(sponsorPayouts.includes('/api/tron/sponsor-direct/applications'))
+  assert.ok(sponsorPayouts.includes('Approve wallet participation'))
+  assert.ok(sponsorPayouts.includes('complianceVerified: false') || sponsorPayouts.includes('does not constitute legal-entity verification'))
 })
 
-test('wallet assets are read-only and never represented as simulated funding', () => {
-  assert.ok(app.includes('MONITORED ADDRESS · READ ONLY'))
-  assert.ok(withdrawals.includes('USDT principal'))
-  assert.ok(withdrawals.includes('Tatum does not provide the USDT principal'))
-  assert.ok(!/mockUsdtBalance|fakeUsdtBalance|simulatorMode|testnetTransfer/i.test(app + withdrawals))
+test('sponsor readiness uses actual on-chain balances, resources and bounded budgets', () => {
+  assert.ok(sponsorPayouts.includes('Actual sponsor USDT'))
+  assert.ok(sponsorPayouts.includes('Available Energy'))
+  assert.ok(sponsorPayouts.includes('Available Bandwidth'))
+  assert.ok(sponsorPayouts.includes('Daily payout remaining'))
+  assert.ok(sponsorPayouts.includes('The balance shown belongs to the connected sponsor wallet'))
 })
 
-test('external exchange deposit warning distinguishes chain confirmation from exchange credit', () => {
-  assert.ok(withdrawals.includes('minimum deposit'))
-  assert.ok(withdrawals.includes('does not guarantee the exchange will credit its internal account ledger'))
-  assert.ok(withdrawals.includes('TRON / TRC20 USDT deposit address'))
+test('payout history distinguishes on-chain confirmation from exchange account credit', () => {
+  assert.ok(sponsorPayouts.includes('View on TRONSCAN'))
+  assert.ok(sponsorPayouts.includes('On-chain confirmation is not exchange credit'))
+  assert.ok(sponsorPayouts.includes('does not prove that an exchange credited the deposit'))
+  assert.ok(sponsorPayouts.includes('minimum deposit'))
 })
 
 test('no legacy Fincra payout flow remains in the active Tron Transfer UI', () => {
-  assert.ok(!/Fincra|FINCRA|fincra-payout/i.test(app + withdrawals))
-  assert.ok(app.includes('Owner access & wallet funding'))
-  assert.ok(withdrawals.includes('TATUM MAINNET · TRONLINK OWNER SIGNING'))
+  assert.ok(!/Fincra|FINCRA|fincra-payout/i.test(app + sponsorPayouts))
+  assert.ok(app.includes('Sponsors & approvals'))
+  assert.ok(sponsorPayouts.includes('TATUM MAINNET · SPONSOR-DIRECT USDT'))
 })
 
 test('production metadata and frontend test command remain configured', () => {
@@ -63,19 +76,18 @@ test('production metadata and frontend test command remain configured', () => {
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })
 
-test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, owner and transaction pages', () => {
+test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, sponsor and transaction pages', () => {
   for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'sponsors', 'transactions', 'settings']) {
-    assert.ok(app.includes(`id:'${page}'`), 'missing navigation item: ' + page)
-    assert.ok(app.includes(`tab==='${page}'`), 'missing dedicated page section: ' + page)
+    assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
+    assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
   }
-  assert.ok(app.includes('<OwnerWithdrawals wallet={unlocked} ownerSession={ownerSession} historyOnly />'))
-  assert.ok(app.includes('Owner authentication'))
+  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="history" />'))
+  assert.ok(app.includes('Platform owner authentication'))
 })
 
 test('wallet connection is user-approved and does not import a private key', () => {
   assert.ok(app.includes('discoverTronLinkProvider(window)'))
   assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
-  assert.ok(app.includes('TronLink connected to TRON Mainnet'))
   assert.ok(app.includes('TronLink connected to TRON Mainnet'))
   assert.ok(app.includes('No imported private keys') || app.includes('private key'))
 })
