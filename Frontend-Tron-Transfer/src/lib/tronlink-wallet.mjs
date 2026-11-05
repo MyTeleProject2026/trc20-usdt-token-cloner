@@ -27,11 +27,12 @@ export function discoverTronLink(windowRef = globalThis.window, timeoutMs = 700)
   return new Promise((resolve) => {
     let announced = null
     let settled = false
+    let timer = null
     const finish = (provider) => {
       if (settled) return
       settled = true
       windowRef.removeEventListener?.('TIP6963:announceProvider', onAnnounce)
-      clearTimeout(timer)
+      if (timer !== null) clearTimeout(timer)
       resolve(provider || fallback)
     }
     const onAnnounce = (event) => {
@@ -48,7 +49,7 @@ export function discoverTronLink(windowRef = globalThis.window, timeoutMs = 700)
     if (typeof EventConstructor === 'function') {
       windowRef.dispatchEvent(new EventConstructor('TIP6963:requestProvider'))
     }
-    const timer = setTimeout(() => finish(announced), Math.max(0, timeoutMs))
+    timer = setTimeout(() => finish(announced), Math.max(0, timeoutMs))
     if (fallback) finish(fallback)
   })
 }
