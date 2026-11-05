@@ -15,7 +15,7 @@ function formatUnits(value, decimals = 6) {
     return (n / base).toString() + (fraction ? '.' + fraction : '')
   } catch { return 'Unavailable' }
 }
-function formatTrx(sun) { return formatUnits(sun, 6) }
+function formatTrx(sun) { return sun === null || sun === undefined ? 'Unavailable' : formatUnits(sun, 6) }
 async function api(path, token, options = {}) {
   const response = await fetch(API_BASE + path, {
     ...options,
