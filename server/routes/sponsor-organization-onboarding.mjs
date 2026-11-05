@@ -158,7 +158,7 @@ async function ensureSchema(db) {
           valid_until TIMESTAMPTZ NOT NULL,
           sponsor_signature_hash CHAR(64) NOT NULL,
           status TEXT NOT NULL DEFAULT 'signed-awaiting-review'
-            CHECK (status IN ('signed-awaiting-review','verified','declined','revoked','expired')),
+            CHECK (status IN ('signed-awaiting-review','verified','authorized','declined','revoked','expired')),
           review_reference TEXT,
           reviewed_by_address TEXT,
           reviewed_at TIMESTAMPTZ,
@@ -521,7 +521,7 @@ export function createSponsorOrganizationRouter({
       const result = await db.query(
         `SELECT m.*, a.organization_name FROM ${SCHEMA}.sponsor_organization_mandates m
          JOIN ${SCHEMA}.sponsor_organization_applications a ON a.id=m.application_id
-         WHERE m.status='signed-awaiting-review' ORDER BY m.created_at ASC LIMIT 50`,
+         WHERE m.status IN ('signed-awaiting-review','verified') ORDER BY m.created_at ASC LIMIT 50`,
       )
       return res.json({ success: true, mandates: result.rows.map(publicMandate), payoutAuthorized: false })
     } catch {
@@ -539,29 +539,39 @@ export function createSponsorOrganizationRouter({
     if (Object.keys(body).some((key) => !['decision', 'verificationReference'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
-    if (!['verify', 'decline'].includes(body.decision)) {
+    if (!['verify', 'authorize', 'decline'].includes(body.decision)) {
       return res.status(400).json({ success: false, error: 'invalid-mandate-review-decision' })
     }
     const reference = clean(body.verificationReference, 160)
     if (reference.length < 8) return res.status(400).json({ success: false, error: 'independent-verification-reference-required' })
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    const priorStatuses = body.decision === 'verify'
+      ? ['signed-awaiting-review']
+      : body.decision === 'authorize'
+        ? ['verified']
+        : ['signed-awaiting-review', 'verified']
+    const nextStatus = body.decision === 'verify' ? 'verified'
+      : body.decision === 'authorize' ? 'authorized' : 'declined'
     try {
       await ensureSchema(db)
       const result = await db.query(
         `UPDATE ${SCHEMA}.sponsor_organization_mandates
          SET status=$2, review_reference=$3, reviewed_by_address=$4, reviewed_at=now(), updated_at=now()
-         WHERE id=$1 AND status='signed-awaiting-review' RETURNING *`,
-        [id, body.decision === 'verify' ? 'verified' : 'declined', reference, auth.address],
+         WHERE id=$1 AND status=ANY($5::text[]) RETURNING *`,
+        [id, nextStatus, reference, auth.address, priorStatuses],
       )
-      if (!result.rowCount) return res.status(409).json({ success: false, error: 'mandate-not-reviewable' })
+      if (!result.rowCount) return res.status(409).json({ success: false, error: 'mandate-not-reviewable-or-wrong-state' })
+      const authorized = body.decision === 'authorize'
       return res.json({
         success: true,
         mandate: publicMandate(result.rows[0]),
-        payoutAuthorized: false,
-        note: body.decision === 'verify'
-          ? 'Mandate reference marked verified for internal workflow purposes. Funding and sponsor signing readiness still require independent checks; this action alone does not activate payouts.'
-          : 'Mandate declined. No payout was activated.',
+        payoutAuthorized: authorized,
+        note: authorized
+          ? 'Internal sponsor mandate authorization recorded against the evidence reference. Payout preparation still checks the sponsor’s live Mainnet USDT balance, resources, limits, validity and sponsor signature.'
+          : body.decision === 'verify'
+            ? 'Agreement review recorded. A separate owner authorization decision is still required before this mandate can be used by the payout workflow.'
+            : 'Mandate declined. No payout was activated.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-mandate-review-failed' })
