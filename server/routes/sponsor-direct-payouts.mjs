@@ -381,7 +381,7 @@ async function getAuthorizedSponsorMandate(db, sponsorAddress, nowMs) {
       'JOIN ' + SCHEMA + '.sponsor_organization_applications a ON a.id=m.application_id ' +
       'WHERE m.sponsor_wallet_address=$1 AND a.sponsor_wallet_address=$1 ' +
       'AND a.status=\'accepted-for-due-diligence\' AND m.status=\'authorized\' ' +
-      'AND m.purpose IN (\'asset-principal\',\'both\') ' +
+      'AND m.purpose=\'both\' ' +
       'AND m.valid_from <= $2 AND m.valid_until > $2 ' +
       'ORDER BY m.updated_at DESC LIMIT 1',
       [sponsorAddress, new Date(nowMs).toISOString()],
