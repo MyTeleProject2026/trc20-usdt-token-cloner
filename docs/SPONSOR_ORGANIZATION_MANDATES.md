@@ -49,3 +49,7 @@ This workflow is integrated into the deployed `Frontend-Tron-Transfer` applicati
 - `POST /api/tron/organizations/mandates/:id/revoke` (sponsor wallet)
 
 No additional Render environment variables are required by this feature.
+
+## Automatic routing validation
+
+The sponsor-direct route tests include a PostgreSQL-backed integration scenario in the isolated CI `sponsor_test` database. It checks that a funded and authorized sponsor is matched to one request, that a second live request is not concurrently assigned to the same sponsor, that pending principal is counted as reserved and daily usage, and that the persisted unsigned transaction is returned only to the authenticated sponsor wallet. Tatum calls are mocked in this test; it does not sign or broadcast a Mainnet transaction.
