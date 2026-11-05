@@ -118,6 +118,21 @@ async function ensureSchema(db) {
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
         SCHEMA + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
       )
+      await db.query(
+        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'ADD COLUMN IF NOT EXISTS confirmation_block_number BIGINT, ' +
+        'ADD COLUMN IF NOT EXISTS confirmation_log_index INTEGER, ' +
+        'ADD COLUMN IF NOT EXISTS confirmation_verified_at TIMESTAMPTZ, ' +
+        'ADD COLUMN IF NOT EXISTS confirmation_evidence JSONB, ' +
+        'ADD COLUMN IF NOT EXISTS reconciliation_last_checked_at TIMESTAMPTZ, ' +
+        'ADD COLUMN IF NOT EXISTS reconciliation_attempts INTEGER NOT NULL DEFAULT 0, ' +
+        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT'
+      )
+      await db.query(
+        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
+        SCHEMA + '.sponsor_direct_payouts (updated_at ASC) ' +
+        'WHERE status IN (\\'broadcasting\\',\\'submitted\\',\\'outcome-unknown\\')'
+      )
     })().catch((error) => {
       schemaPromise = null
       throw error
@@ -607,6 +622,231 @@ async function autoAssignSponsorToRequest({
     }
   }
   return { request, routing: 'awaiting-eligible-sponsor' }
+}
+
+
+const SPONSOR_SETTLEMENT_PENDING_STATUSES = Object.freeze(['broadcasting', 'submitted', 'outcome-unknown'])
+
+function boundedWorkerInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback
+}
+
+/**
+ * Classify evidence for an already-broadcast sponsor payout.
+ * This function never authorizes, signs, broadcasts, or retries a transaction.
+ */
+export function classifySponsorDirectSettlement({ transfer, verification } = {}) {
+  const transactionHash = clean(transfer?.transaction_hash || transfer?.transactionHash, 64).toLowerCase()
+  const sponsorAddress = clean(transfer?.sponsor_address || transfer?.sponsorAddress, 64)
+  const recipientAddress = clean(transfer?.recipient_address || transfer?.recipientAddress, 64)
+  const amountBaseUnits = String(transfer?.amount_base_units ?? transfer?.amountBaseUnits ?? '')
+  const tokenContract = clean(transfer?.token_contract || transfer?.tokenContract, 64)
+
+  if (!TXID_RE.test(transactionHash)
+    || !isValidTronAddress(sponsorAddress)
+    || !isValidTronAddress(recipientAddress)
+    || tokenContract !== MAINNET_USDT_CONTRACT
+    || !/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
+    return { status: 'manual-review', reason: 'stored-settlement-intent-invalid' }
+  }
+
+  if (verification?.verified === true) {
+    const verifiedHash = clean(verification.transactionHash || verification.txId, 64).toLowerCase()
+    const verifiedContract = clean(verification.contract || verification.tokenContractAddress, 64)
+    const verifiedFrom = clean(verification.from || verification.fromAddress, 64)
+    const verifiedTo = clean(verification.to || verification.toAddress, 64)
+    const verifiedAmount = String(verification.amountBaseUnits ?? verification.amountSun ?? '')
+    const blockNumber = Number(verification.blockNumber)
+    const logIndex = Number(verification.logIndex)
+    const exact = verifiedHash === transactionHash
+      && verifiedContract === MAINNET_USDT_CONTRACT
+      && verifiedFrom === sponsorAddress
+      && verifiedTo === recipientAddress
+      && verifiedAmount === amountBaseUnits
+      && Number.isSafeInteger(blockNumber) && blockNumber > 0
+      && Number.isSafeInteger(logIndex) && logIndex >= 0
+    return exact
+      ? { status: 'confirmed', blockNumber, logIndex, reason: null }
+      : { status: 'manual-review', reason: 'solidified-evidence-identity-mismatch' }
+  }
+
+  const status = String(verification?.status || '')
+  if (['solidified-transaction-failed', 'solidified-transaction-execution-failed'].includes(status)) {
+    return { status: 'failed', reason: 'confirmed-solidified-transaction-failed' }
+  }
+  if ([
+    'solidified-transfer-mismatch',
+    'ambiguous-transfer-event',
+    'invalid-verification-intent',
+    'invalid-address-checksum',
+    'invalid-expected-address',
+    'invalid-expected-amount',
+  ].includes(status)) {
+    return { status: 'manual-review', reason: status }
+  }
+  return { status: 'pending', reason: status || 'solidified-receipt-not-yet-available' }
+}
+
+/**
+ * Reconcile only existing broadcasting/submitted/outcome-unknown records.
+ * It reads solidified Mainnet evidence and updates status; it never creates,
+ * signs, rebroadcasts, replaces, or otherwise initiates a payment.
+ */
+export async function runSponsorDirectPayoutReconciliationSweep({
+  env = process.env,
+  db = getPool(env),
+  verifyTransfer = verifySolidifiedUsdtTransfer,
+  limit = boundedWorkerInteger(env.SPONSOR_DIRECT_RECONCILIATION_BATCH_SIZE, 15, 1, 50),
+} = {}) {
+  if (!db) return { enabled: false, reason: 'database-not-configured', checked: 0, confirmed: 0, failed: 0, manualReview: 0, pending: 0, errors: 0 }
+  if (!tatumApiKey(env)) return { enabled: false, reason: 'tatum-mainnet-key-not-configured', checked: 0, confirmed: 0, failed: 0, manualReview: 0, pending: 0, errors: 0 }
+
+  await ensureSchema(db)
+  const candidates = await db.query(
+    'SELECT id FROM ' + SCHEMA + '.sponsor_direct_payouts ' +
+    'WHERE status = ANY($1::text[]) AND transaction_hash IS NOT NULL ' +
+    'AND sponsor_address IS NOT NULL ' +
+    'AND btrim(transaction_hash) ~ \'^[0-9a-fA-F]{64}$\' ' +
+    'ORDER BY updated_at ASC LIMIT $2',
+    [SPONSOR_SETTLEMENT_PENDING_STATUSES, limit],
+  )
+  const summary = { enabled: true, checked: 0, confirmed: 0, failed: 0, manualReview: 0, pending: 0, skipped: 0, errors: 0 }
+
+  for (const candidate of candidates.rows || []) {
+    const client = await db.connect()
+    try {
+      await client.query('BEGIN')
+      const locked = await client.query(
+        'SELECT id, sponsor_address, recipient_address, token_contract, ' +
+        'amount_base_units::text AS amount_base_units, transaction_hash, status ' +
+        'FROM ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'WHERE id=$1 AND status = ANY($2::text[]) FOR UPDATE SKIP LOCKED',
+        [candidate.id, SPONSOR_SETTLEMENT_PENDING_STATUSES],
+      )
+      const transfer = locked.rows?.[0]
+      if (!transfer) {
+        await client.query('ROLLBACK')
+        summary.skipped += 1
+        continue
+      }
+
+      let verification = null
+      let verificationError = null
+      try {
+        verification = await verifyTransfer(env, {
+          transactionHash: String(transfer.transaction_hash || '').trim(),
+          from: transfer.sponsor_address,
+          to: transfer.recipient_address,
+          amountBaseUnits: String(transfer.amount_base_units),
+        })
+      } catch {
+        verificationError = 'solidified-provider-request-failed'
+      }
+
+      const decision = verificationError
+        ? { status: 'pending', reason: verificationError }
+        : classifySponsorDirectSettlement({ transfer, verification })
+      const evidence = decision.status === 'confirmed'
+        ? {
+            source: 'Tatum solidified Mainnet transaction body and exact official USDT Transfer event',
+            transactionHash: String(transfer.transaction_hash).trim().toLowerCase(),
+            tokenContract: MAINNET_USDT_CONTRACT,
+            sponsorAddress: transfer.sponsor_address,
+            recipientAddress: transfer.recipient_address,
+            amountBaseUnits: String(transfer.amount_base_units),
+            blockNumber: decision.blockNumber,
+            logIndex: decision.logIndex,
+          }
+        : null
+
+      const updated = await client.query(
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET ' +
+        'status=$2, ' +
+        'failure_code=CASE WHEN $2=\\'confirmed\\' THEN NULL WHEN $2 IN (\\'failed\\',\\'manual-review\\') THEN $3 ELSE failure_code END, ' +
+        'confirmation_block_number=COALESCE($4, confirmation_block_number), ' +
+        'confirmation_log_index=COALESCE($5, confirmation_log_index), ' +
+        'confirmation_verified_at=CASE WHEN $2=\\'confirmed\\' THEN COALESCE(confirmation_verified_at,now()) ELSE confirmation_verified_at END, ' +
+        'confirmation_evidence=COALESCE($6::jsonb, confirmation_evidence), ' +
+        'reconciliation_last_checked_at=now(), reconciliation_attempts=reconciliation_attempts+1, ' +
+        'reconciliation_last_error=$7, updated_at=now() ' +
+        'WHERE id=$1 AND status = ANY($8::text[]) RETURNING id,status',
+        [
+          transfer.id,
+          decision.status === 'pending' ? transfer.status : decision.status,
+          decision.reason,
+          decision.blockNumber ?? null,
+          decision.logIndex ?? null,
+          evidence ? JSON.stringify(evidence) : null,
+          decision.status === 'pending' ? decision.reason : null,
+          SPONSOR_SETTLEMENT_PENDING_STATUSES,
+        ],
+      )
+      await client.query('COMMIT')
+      summary.checked += 1
+      const resultingStatus = updated.rows?.[0]?.status
+      if (resultingStatus === 'confirmed') summary.confirmed += 1
+      else if (resultingStatus === 'failed') summary.failed += 1
+      else if (resultingStatus === 'manual-review') summary.manualReview += 1
+      else summary.pending += 1
+    } catch {
+      try { await client.query('ROLLBACK') } catch {}
+      summary.errors += 1
+    } finally {
+      client.release()
+    }
+  }
+  return summary
+}
+
+/**
+ * Starts a bounded, non-overlapping background verifier in the API process.
+ * It uses existing DATABASE_URL and Tatum credentials, requires no new secret,
+ * and performs no transaction signing or broadcasting.
+ */
+export function startSponsorDirectPayoutReconciliationWorker({ env = process.env, logger = console } = {}) {
+  if (env.SPONSOR_DIRECT_RECONCILIATION_WORKER_ENABLED === 'false') {
+    return { started: false, reason: 'disabled-by-configuration', stop() {} }
+  }
+  if (!clean(env.DATABASE_URL, 4096)) return { started: false, reason: 'database-not-configured', stop() {} }
+  if (!tatumApiKey(env)) return { started: false, reason: 'tatum-mainnet-key-not-configured', stop() {} }
+
+  const intervalMs = boundedWorkerInteger(env.SPONSOR_DIRECT_RECONCILIATION_INTERVAL_MS, 45000, 15000, 300000)
+  let stopped = false
+  let running = false
+  let timer = null
+  const schedule = (delay) => {
+    if (stopped) return
+    timer = setTimeout(run, delay)
+    timer.unref?.()
+  }
+  const run = async () => {
+    if (stopped || running) return
+    running = true
+    try {
+      const result = await runSponsorDirectPayoutReconciliationSweep({ env })
+      if (result.enabled && (result.checked || result.errors)) {
+        logger.info?.('Sponsor direct settlement reconciliation:', JSON.stringify({
+          checked: result.checked, confirmed: result.confirmed, failed: result.failed,
+          manualReview: result.manualReview, pending: result.pending, errors: result.errors,
+        }))
+      }
+    } catch (error) {
+      logger.error?.('Sponsor direct settlement reconciliation failed:', error?.code || 'worker-error')
+    } finally {
+      running = false
+      schedule(intervalMs)
+    }
+  }
+  schedule(10000)
+  return {
+    started: true,
+    intervalMs,
+    stop() {
+      stopped = true
+      if (timer) clearTimeout(timer)
+    },
+  }
 }
 
 export function createSponsorDirectPayoutsRouter({
