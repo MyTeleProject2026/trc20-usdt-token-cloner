@@ -29,7 +29,8 @@ test('no direct wallet send or simulator path is present in the frontend', () =>
 test('withdrawal screen uses off-chain TronLink Mainnet identity verification but does not create sponsor requests', () => {
   assert.ok(app.includes('signMessageV2'))
   assert.ok(app.includes('This identity signature is not a transaction and authorizes no funds.'))
-  assert.ok(!app.includes('/api/tron-transfer/sponsor-requests'))
+  assert.ok(!app.includes('async function submitSponsorRequest'))
+  assert.ok(app.includes('Tatum-only withdrawal preparation pending'))
   assert.ok(app.includes('requesterSession.sessionToken'))
 })
 
@@ -54,7 +55,8 @@ test('production pages are separated into dedicated navigation and render sectio
 test('Assets page keeps personal wallet balances separate from Fincra sponsor liquidity', () => {
   assert.ok(app.includes('MONITORED ADDRESS · NOT PAYOUT FUNDING'))
   assert.ok(app.includes('AUTHORIZED FINCRA SOURCE · PAYOUT FUNDING'))
-  assert.ok(app.includes('This is the Fincra source-wallet availability only. Your monitored wallet balance is not included'))
+  assert.ok(app.includes('Live Fincra business wallet balances returned by the provider.'))
+  assert.ok(app.includes('This address is monitored only.'))
   assert.ok(app.includes('readiness.fincra.sourceBalance.availableBalance'))
 })
 
