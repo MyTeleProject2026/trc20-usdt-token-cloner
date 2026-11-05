@@ -46,6 +46,11 @@ test('automatic sponsor routing requires actual available USDT, mandate limits, 
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '80000000' }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, feeCoverage: false }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: 'not-an-integer' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: '0' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyLimitBaseUnits: '49999999' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, feeCoverage: 'true' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, reservedBaseUnits: 'not-an-integer' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '75000000' }), true)
 })
 
 test('sponsor-direct available balance subtracts reservations without going negative', () => {
