@@ -287,6 +287,10 @@ export function createSponsorOrganizationRouter({
     noStore(res)
     const auth = await requireSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const configuredOwner = clean(env.OWNER_WALLET_ADDRESS, 64)
+    if (configuredOwner && auth.address === configuredOwner) {
+      return res.status(403).json({ success: false, error: 'platform-owner-wallet-cannot-act-as-third-party-sponsor' })
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     const allowed = ['organizationName', 'businessEmail', 'jurisdiction', 'website', 'requestedRoles', 'applicationSignature']
     if (Object.keys(body).some((key) => !allowed.includes(key))) {
