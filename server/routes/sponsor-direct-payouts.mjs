@@ -475,12 +475,6 @@ async function autoAssignSponsorToRequest({
   for (const candidate of candidates) {
     const sponsorAddress = candidate.sponsor_address
     let client
-    try {
-      await clientlessSponsorPreflight()
-    } catch {
-      // Preflight helper errors are isolated per candidate; no request is assigned.
-      continue
-    }
 
     async function clientlessSponsorPreflight() {
       const snapshot = await readSnapshot(env, sponsorAddress)
