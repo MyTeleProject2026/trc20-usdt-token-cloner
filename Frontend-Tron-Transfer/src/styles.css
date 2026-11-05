@@ -779,3 +779,33 @@ h1, h2, h3 { font-family: 'Space Grotesk', sans-serif; letter-spacing: -.035em; 
 .balance-breakdown b{color:var(--ink);font:600 13px 'Space Grotesk',sans-serif;overflow-wrap:anywhere}
 .balance-breakdown>div:first-child b{color:var(--mint)}
 @media(max-width:560px){.balance-breakdown{grid-template-columns:1fr}.balance-breakdown>div{display:flex;justify-content:space-between;gap:12px}}
+
+
+/* Direct owner-controlled Tatum Mainnet withdrawal workspace */
+.owner-withdrawals-page { display: grid; gap: 22px; }
+.owner-chain-snapshot, .prepared-withdrawal, .withdrawal-eligibility, .sponsor-admin-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  padding: 18px;
+}
+.section-heading.compact { align-items: center; margin-bottom: 14px; }
+.section-heading.compact h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+.owner-chain-snapshot .recipient-balance-grid { margin: 0; }
+.withdrawal-eligibility h3 { margin: 8px 0 12px; }
+.withdrawal-eligibility .readiness-checks { display: grid; gap: 8px; margin-bottom: 14px; }
+.prepared-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.prepared-details > div { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.prepared-details span, .prepared-details b { display: block; overflow-wrap: anywhere; }
+.prepared-details span { color: var(--muted); font-size: .78rem; margin-bottom: 5px; }
+.prepared-details b { font-size: .9rem; }
+.owner-history-heading { margin-top: 26px; }
+.owner-deposit-warning { margin-top: 4px; }
+.owner-deposit-warning p { margin: 5px 0 0; }
+.sponsor-panel { display: grid; gap: 18px; }
+.sponsor-admin-card { display: grid; gap: 12px; }
+.sponsor-funding-destination { display: grid; gap: 12px; }
+@media (max-width: 640px) {
+  .prepared-details { grid-template-columns: minmax(0, 1fr); }
+  .owner-withdrawals-page .section-heading { align-items: flex-start; }
+}
