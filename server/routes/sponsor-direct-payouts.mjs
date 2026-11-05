@@ -15,7 +15,7 @@ import {
   parseOwnerUsdtAmount,
   validateOwnerSignedTransaction,
 } from './tron-owner-withdrawals.mjs'
-import { verifySolidifiedUsdtTransfer } from './tron-transfer.mjs'
+import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -261,6 +261,65 @@ async function readSponsorSnapshot(env, sponsorAddress) {
       : null,
     resourcesReadable,
     checkedAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Read-only Mainnet verifier for a stored sponsor payout intent. It queries
+ * Tatum's SolidityNode endpoints and verifies the exact official USDT Transfer
+ * event. It never signs, broadcasts, or modifies a transaction.
+ */
+export async function verifySponsorDirectMainnetTransfer(env, {
+  transactionHash, from, to, amountBaseUnits,
+}, {
+  providerPost = tatumPost,
+  tronWebFactory = tronWebForMainnet,
+} = {}) {
+  if (!TXID_RE.test(transactionHash || '')
+    || !isValidTronAddress(from) || !isValidTronAddress(to)
+    || !/^[1-9][0-9]{0,77}$/.test(String(amountBaseUnits))) {
+    return { verified: false, status: 'invalid-verification-intent' }
+  }
+
+  const [transaction, receipt] = await Promise.all([
+    providerPost(env, 'walletsolidity/gettransactionbyid', { value: transactionHash, visible: false }),
+    providerPost(env, 'walletsolidity/gettransactioninfobyid', { value: transactionHash, visible: false }),
+  ])
+  const tronWeb = await tronWebFactory()
+  const result = verifySolidifiedTrc20Transfer({
+    transaction,
+    receipt,
+    expectedTxId: transactionHash,
+    tokenContractAddress: tronWeb.address.toHex(MAINNET_USDT_CONTRACT),
+    fromAddress: tronWeb.address.toHex(from),
+    toAddress: tronWeb.address.toHex(to),
+    amountSun: String(amountBaseUnits),
+  })
+  if (result.verified !== true) {
+    const reason = result.reason || 'solidified-verification-unavailable'
+    const status = [
+      'solidified-transaction-not-found-or-id-mismatch',
+      'solidified-receipt-not-found-or-id-mismatch',
+      'receipt-has-no-solidified-block',
+    ].includes(reason)
+      ? 'awaiting-solidified-receipt'
+      : reason === 'contract-execution-not-successful'
+        ? 'solidified-transaction-failed'
+        : reason === 'matching-transfer-event-not-found'
+          ? 'solidified-transfer-mismatch'
+          : reason
+    return { verified: false, status, reason }
+  }
+  return {
+    verified: true,
+    transactionHash: transactionHash.toLowerCase(),
+    contract: MAINNET_USDT_CONTRACT,
+    from,
+    to,
+    amountBaseUnits: String(amountBaseUnits),
+    blockNumber: result.blockNumber,
+    logIndex: result.logIndex,
+    confirmationSource: 'Tatum SolidityNode transaction body and exact official USDT Transfer event',
   }
 }
 
@@ -701,7 +760,7 @@ export function classifySponsorDirectSettlement({ transfer, verification } = {})
 export async function runSponsorDirectPayoutReconciliationSweep({
   env = process.env,
   db = getPool(env),
-  verifyTransfer = verifySolidifiedUsdtTransfer,
+  verifyTransfer = verifySponsorDirectMainnetTransfer,
   limit = boundedWorkerInteger(env.SPONSOR_DIRECT_RECONCILIATION_BATCH_SIZE, 15, 1, 50),
 } = {}) {
   if (!db) return { enabled: false, reason: 'database-not-configured', checked: 0, confirmed: 0, failed: 0, manualReview: 0, pending: 0, errors: 0 }
