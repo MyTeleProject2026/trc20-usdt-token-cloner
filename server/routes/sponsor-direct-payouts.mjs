@@ -325,14 +325,15 @@ function publicRequest(row) {
   }
 }
 
-async function readReservations(db, sponsorAddress) {
+async function readReservations(db, sponsorAddress, excludeRequestId = null) {
   const result = await db.query(
     'SELECT COALESCE(SUM(amount_base_units),0)::text AS reserved FROM ' + SCHEMA +
     '.sponsor_direct_payouts WHERE sponsor_address=$1 AND (' +
     '(status=\'requested\' AND (expires_at IS NULL OR expires_at > now())) OR ' +
     '(status=\'prepared\' AND (expires_at IS NULL OR expires_at > now())) OR ' +
-    'status IN (\'broadcasting\',\'submitted\',\'outcome-unknown\',\'manual-review\'))',
-    [sponsorAddress],
+    'status IN (\'broadcasting\',\'submitted\',\'outcome-unknown\',\'manual-review\')) ' +
+    'AND ($2::uuid IS NULL OR id <> $2::uuid)',
+    [sponsorAddress, excludeRequestId],
   )
   const value = String(result.rows?.[0]?.reserved ?? '0')
   if (!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error('Sponsor reservation ledger is unreadable.')
@@ -354,6 +355,7 @@ async function readDailyUsage(db, sponsorAddress, excludeRequestId = null) {
     '.sponsor_direct_payouts WHERE sponsor_address=$1 AND created_at >= ' +
     '(date_trunc(\'day\', now() AT TIME ZONE \'UTC\') AT TIME ZONE \'UTC\') ' +
     'AND status NOT IN (\'failed\',\'cancelled\',\'expired\',\'broadcast-rejected\') ' +
+    'AND (status <> \'requested\' OR expires_at IS NULL OR expires_at > now()) ' +
     'AND ($2::uuid IS NULL OR id <> $2::uuid)',
     [sponsorAddress, excludeRequestId],
   )
@@ -579,9 +581,9 @@ async function autoAssignSponsorToRequest({
       }
       const assigned = await client.query(
         'UPDATE ' + SCHEMA + '.sponsor_direct_payouts ' +
-        'SET sponsor_address=$2, expires_at=now() + interval \'15 minutes\', failure_code=NULL, updated_at=now() ' +
+        'SET sponsor_address=$2, expires_at=$3, failure_code=NULL, updated_at=now() ' +
         'WHERE id=$1 AND status=\'requested\' AND sponsor_address IS NULL RETURNING *',
-        [request.id, sponsorAddress],
+        [request.id, sponsorAddress, new Date(now() + SPONSOR_MATCH_LIFETIME_MS).toISOString()],
       )
       if (!assigned.rowCount) {
         await client.query('ROLLBACK')
@@ -1040,7 +1042,7 @@ export function createSponsorDirectPayoutsRouter({
       }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
-        readReservations(client, auth.address),
+        readReservations(client, auth.address, id),
         readDailyUsage(client, auth.address, id),
       ])
       const amountBaseUnits = String(row.amount_base_units)
