@@ -20,6 +20,7 @@ import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-walle
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import tronTransferRoutes from './routes/tron-transfer.mjs'
+import { createTronOwnerWithdrawalsRouter } from './routes/tron-owner-withdrawals.mjs'
 import fireblocksInventorySyncRoutes from './routes/fireblocks-inventory-sync.mjs'
 import fireblocksInventoryStatusRoutes from './routes/fireblocks-inventory-status.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
@@ -166,6 +167,7 @@ app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/treasury/owner', ownerSponsorLiquidityRoutes)
 app.use('/api/tron-transfer', tronTransferRoutes)
+app.use('/api/tron-owner-withdrawals', createTronOwnerWithdrawalsRouter())
 
 if (process.env.DATABASE_URL) {
   try {
