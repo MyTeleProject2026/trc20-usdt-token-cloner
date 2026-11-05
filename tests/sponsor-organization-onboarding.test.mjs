@@ -58,6 +58,21 @@ test('organization applications and mandate reviews require an authenticated own
   assert.equal(ownerQueue.status, 401)
 })
 
+test('owner wallet cannot enroll as a third-party sponsor and sponsor can revoke its mandate', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+  assert.match(source, /platform-owner-wallet-cannot-act-as-third-party-sponsor/)
+  assert.match(source, /router\.post\('\/organizations\/mandates\/:id\/revoke'/)
+  assert.match(source, /SET status='revoked'/)
+  assert.match(source, /status IN \('signed-awaiting-review','verified','authorized'\)/)
+})
+
+test('mandate authorization is a separate transition after evidence verification', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+  assert.match(source, /'signed-awaiting-review','verified','authorized','declined','revoked','expired'/)
+  assert.match(source, /body\.decision === 'authorize'\s*\? \['verified'\]/)
+  assert.match(source, /body\.decision === 'authorize' \? 'authorized'/)
+})
+
 test('Mainnet sponsor payout preparation requires an authorized mandate covering principal and fees', async () => {
   const source = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
   assert.match(source, /getAuthorizedSponsorMandate/)
