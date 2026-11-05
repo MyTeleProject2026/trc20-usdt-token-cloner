@@ -1010,6 +1010,22 @@ export function createSponsorDirectPayoutsRouter({
           note: 'The same unexpired sponsor preparation was returned. No second payout was created.',
         })
       }
+      if (row.status === 'requested' && row.sponsor_address === auth.address
+        && row.expires_at && new Date(row.expires_at).getTime() <= now()) {
+        const released = await client.query(
+          'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET sponsor_address=NULL, expires_at=NULL, ' +
+          'failure_code='sponsor-match-expired', updated_at=now() ' +
+          'WHERE id=$1 AND status='requested' AND sponsor_address=$2 RETURNING *',
+          [id, auth.address],
+        )
+        await client.query('COMMIT')
+        return res.status(409).json({
+          success: false,
+          error: 'sponsor-match-expired',
+          request: publicRequest(released.rows[0] || row),
+          note: 'The temporary sponsor match expired before preparation. The request is unassigned and available for another eligible sponsor.',
+        })
+      }
       // An expired unsigned preparation may be released and claimed again.
       // Signed, broadcasting and ambiguous payouts are never reset or reassigned.
       if (row.status === 'prepared' && row.expires_at
