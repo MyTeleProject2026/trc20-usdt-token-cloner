@@ -546,6 +546,9 @@ transaction_hash CHAR(64),
   })
 
   router.all('/rpc/:network/*', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const network = req.params.network
     const method = String(req.params[0] || '').replace(/^\/+/, '').toLowerCase()
     if (network !== 'mainnet' || !RPC_METHODS.has(method) || req.method !== 'POST') {
@@ -575,7 +578,9 @@ transaction_hash CHAR(64),
   })
 
   router.get('/recipient', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const network = cleanString(req.query?.network, 16)
     const address = cleanString(req.query?.address, 64)
     const tokenContract = cleanString(req.query?.tokenContract, 64)
