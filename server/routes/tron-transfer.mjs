@@ -700,7 +700,7 @@ transaction_hash CHAR(64),
       return res.status(400).json({ success: false, error: 'beneficiary-name-required', payoutSubmitted: false })
     }
     const beneficiaryEmail = cleanString(body.beneficiaryEmail, 254).toLowerCase()
-    if (beneficiaryEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(beneficiaryEmail)) {
+    if (beneficiaryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(beneficiaryEmail)) {
       return res.status(400).json({ success: false, error: 'invalid-beneficiary-email', payoutSubmitted: false })
     }
     let amount
