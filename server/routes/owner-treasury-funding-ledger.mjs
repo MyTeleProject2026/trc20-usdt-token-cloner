@@ -49,19 +49,24 @@ function getPool(env) {
 
 async function ensureSchema(db) {
   await db.query('CREATE SCHEMA IF NOT EXISTS ' + SCHEMA)
-  await db.query(
-    'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.owner_treasury_verified_inflows (' +
-    'id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ' +
-    'network TEXT NOT NULL CHECK (network = \'mainnet\'), ' +
-    'transaction_hash CHAR(64) NOT NULL, log_index INTEGER NOT NULL CHECK (log_index >= 0), ' +
-    'token_contract TEXT NOT NULL CHECK (token_contract = \' + "'" + OFFICIAL_MAINNET_USDT + "'" + '), ' +
-    'from_address TEXT NOT NULL, treasury_address TEXT NOT NULL, ' +
-    'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
-    'block_number BIGINT NOT NULL CHECK (block_number > 0), ' +
-    'verified_by_owner_address TEXT NOT NULL, verification_source TEXT NOT NULL, ' +
-    'verified_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
-    'UNIQUE (transaction_hash, log_index))'
-  )
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS ${SCHEMA}.owner_treasury_verified_inflows (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      network TEXT NOT NULL CHECK (network = 'mainnet'),
+      transaction_hash CHAR(64) NOT NULL,
+      log_index INTEGER NOT NULL CHECK (log_index >= 0),
+      token_contract TEXT NOT NULL CHECK (token_contract = '${OFFICIAL_MAINNET_USDT}'),
+      from_address TEXT NOT NULL,
+      treasury_address TEXT NOT NULL,
+      amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
+      block_number BIGINT NOT NULL CHECK (block_number > 0),
+      verified_by_owner_address TEXT NOT NULL,
+      verification_source TEXT NOT NULL,
+      verified_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (transaction_hash, log_index)
+    )
+  `)
   await db.query(
     'CREATE INDEX IF NOT EXISTS owner_treasury_verified_inflows_created_idx ON ' +
     SCHEMA + '.owner_treasury_verified_inflows (created_at DESC)'
