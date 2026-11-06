@@ -73,7 +73,9 @@ export function normalizeFincraPayoutWebhook(payload) {
   const providerStatus = payoutStatusFromProvider(data.status)
   const recipientAddress = clean(
     data.beneficiary?.walletAddress
+      || data.beneficiary?.address
       || data.recipient?.walletAddress
+      || data.recipient?.address
       || data.recipient?.accountNumber
       || data.walletAddress,
     64,
@@ -226,7 +228,12 @@ export function createFincraWebhookRouter({
       })
     }
 
-    const db = databaseFactory(env)
+    let db
+    try {
+      db = databaseFactory(env)
+    } catch {
+      return res.status(503).json({ success: false, error: 'fincra-webhook-database-unavailable' })
+    }
     if (!db || typeof db.connect !== 'function') {
       return res.status(503).json({ success: false, error: 'fincra-webhook-database-unavailable' })
     }
@@ -234,8 +241,8 @@ export function createFincraWebhookRouter({
     let client
     try {
       client = await db.connect()
-      await client.query('BEGIN')
       await readySchema(client)
+      await client.query('BEGIN')
 
       const environment = env.FINCRA_ENVIRONMENT === 'live' ? 'live' : 'sandbox'
       const inserted = await client.query(
@@ -258,11 +265,18 @@ export function createFincraWebhookRouter({
         return res.status(200).json({ success: true, received: true, duplicate: true, processed: false })
       }
 
-      const found = await client.query(
-        'SELECT id, customer_reference, recipient_address, amount_base_units, fincra_status ' +
-        'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1',
-        [event.customerReference],
-      )
+      let found = { rows: [] }
+      try {
+        found = await client.query(
+          'SELECT id, customer_reference, recipient_address, amount_base_units, fincra_status ' +
+          'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1',
+          [event.customerReference],
+        )
+      } catch (error) {
+        // The legacy request table is not provisioned in current provider-neutral
+        // deployments. Keep the signed event as unmatched instead of retrying it.
+        if (error?.code !== '42P01') throw error
+      }
       const row = found.rows[0] || null
       const matched = requestMatchesWebhook(row, event)
       const identityStatus = matched ? 'matched' : row ? 'review-required' : 'unmatched'
