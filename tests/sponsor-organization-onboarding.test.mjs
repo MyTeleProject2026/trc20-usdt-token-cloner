@@ -83,9 +83,11 @@ test('individual Mainnet wallet sponsors use per-transfer signing while Fincra a
   assert.match(source, /sponsor-per-payout-limit-exceeded/)
   assert.match(source, /sponsor-daily-limit-exceeded/)
   const providerRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
-  assert.match(providerRoute, /authorized-fincra-standing-mandate-required/)
-  assert.match(providerRoute, /m\.execution_mode='fincra-automatic'/)
-  assert.match(providerRoute, /fincra-standing-mandate-daily-limit-exceeded/)
+  assert.match(providerRoute, /getUnconfiguredProviderPayoutReadiness\(\)/)
+  assert.match(providerRoute, /providerOwnedLiquidityVerified: false/)
+  assert.match(providerRoute, /providerApprovedCreditVerified: false/)
+  assert.match(providerRoute, /A real payout remains disabled until a provider explicitly authorizes this owner/)
+  assert.doesNotMatch(providerRoute, /FINCRA_PAYOUTS_ENABLED === 'true'/)
 })
 
 
