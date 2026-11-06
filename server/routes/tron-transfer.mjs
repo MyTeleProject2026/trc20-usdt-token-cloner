@@ -370,6 +370,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
             recipient_address TEXT NOT NULL,
             beneficiary_name TEXT NOT NULL,
             beneficiary_email TEXT,
+            idempotency_key TEXT,
             asset TEXT NOT NULL DEFAULT 'USDT' CHECK (asset = 'USDT'),
             network TEXT NOT NULL DEFAULT 'mainnet' CHECK (network = 'mainnet'),
             token_contract TEXT NOT NULL DEFAULT '${MAINNET_USDT}',
@@ -390,6 +391,10 @@ transaction_hash CHAR(64),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         `)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS idempotency_key TEXT`)
+        await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tron_transfer_sponsor_requests_idempotency_idx
+          ON ${SCHEMA}.tron_transfer_sponsor_requests (idempotency_key) WHERE idempotency_key IS NOT NULL`)
         await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
           ADD COLUMN IF NOT EXISTS fincra_submitted_at TIMESTAMPTZ`)
         await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
@@ -673,15 +678,123 @@ transaction_hash CHAR(64),
     }
   })
 
-  router.post('/sponsor-requests', (_req, res) => res.status(410).json({
-    success: false, error: 'legacy-sponsor-request-intake-disabled', payoutSubmitted: false,
-  }))
-  router.get('/sponsor-requests/mine', (_req, res) => res.status(410).json({
-    success: false, error: 'legacy-sponsor-request-history-disabled',
-  }))
-  router.get('/sponsor-requests', (_req, res) => res.status(410).json({
-    success: false, error: 'legacy-sponsor-request-review-disabled',
-  }))
+  // Durable owner-only request intake. Creating a request never calls Fincra,
+  // reserves provider funds, or submits a payout; it records a uniquely keyed
+  // intent for later independently authorized processing.
+  router.post('/sponsor-requests', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error, payoutSubmitted: false })
+
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    const idempotencyKey = cleanString(req.headers?.['idempotency-key'] || body.idempotencyKey, 128)
+    if (!/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
+      return res.status(400).json({ success: false, error: 'valid-idempotency-key-required', payoutSubmitted: false })
+    }
+    const recipientAddress = cleanString(body.recipientAddress, 64)
+    if (!isValidTronAddress(recipientAddress)) {
+      return res.status(400).json({ success: false, error: 'invalid-tron-mainnet-recipient-address', payoutSubmitted: false })
+    }
+    const beneficiaryName = cleanString(body.beneficiaryName, 120)
+    if (beneficiaryName.length < 2) {
+      return res.status(400).json({ success: false, error: 'beneficiary-name-required', payoutSubmitted: false })
+    }
+    const beneficiaryEmail = cleanString(body.beneficiaryEmail, 254).toLowerCase()
+    if (beneficiaryEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(beneficiaryEmail)) {
+      return res.status(400).json({ success: false, error: 'invalid-beneficiary-email', payoutSubmitted: false })
+    }
+    let amount
+    try {
+      amount = parseUsdtAmount(body.amount)
+    } catch {
+      return res.status(400).json({ success: false, error: 'invalid-usdt-amount', payoutSubmitted: false })
+    }
+
+    const db = getPool(env)
+    if (!db || typeof db.query !== 'function') {
+      return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable', payoutSubmitted: false })
+    }
+    try {
+      await ensureSchema(db)
+      const id = randomUUID()
+      const customerReference = 'TRONUSDT-' + randomUUID().replace(/-/g, '')
+      const inserted = await db.query(
+        `INSERT INTO ${SCHEMA}.tron_transfer_sponsor_requests
+          (id, customer_reference, requester_address, recipient_address, beneficiary_name,
+           beneficiary_email, idempotency_key, asset, network, token_contract,
+           amount_base_units, amount_decimal, status, chain_verification_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'USDT','mainnet',$8,$9,$10,'awaiting-provider-authorization','not-verified')
+         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+         RETURNING *`,
+        [id, customerReference, auth.address, recipientAddress, beneficiaryName,
+          beneficiaryEmail || null, idempotencyKey, MAINNET_USDT, amount.baseUnits, amount.decimal],
+      )
+      let row = inserted.rows[0]
+      const duplicate = !row
+      if (duplicate) {
+        const existing = await db.query(
+          `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE idempotency_key=$1 LIMIT 1`,
+          [idempotencyKey],
+        )
+        row = existing.rows[0]
+        if (!row) return res.status(503).json({ success: false, error: 'idempotency-record-unavailable', payoutSubmitted: false })
+        if (row.requester_address !== auth.address || row.recipient_address !== recipientAddress
+          || String(row.amount_base_units) !== amount.baseUnits
+          || row.beneficiary_name !== beneficiaryName
+          || (row.beneficiary_email || '') !== beneficiaryEmail) {
+          return res.status(409).json({ success: false, error: 'idempotency-key-reused-for-different-request', payoutSubmitted: false })
+        }
+      }
+      return res.status(duplicate ? 200 : 202).json({
+        success: true,
+        duplicate,
+        request: publicRequest(row),
+        payoutSubmitted: false,
+        transactionSubmitted: false,
+        chainSettlementVerified: false,
+        nextStep: 'awaiting-provider-authorization-and-funding-verification',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable', payoutSubmitted: false })
+    }
+  })
+
+  router.get('/sponsor-requests/mine', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getPool(env)
+    if (!db || typeof db.query !== 'function') return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests
+         WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 100`,
+        [auth.address],
+      )
+      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+    } catch {
+      return res.status(503).json({ success: false, error: 'payout-request-history-unavailable' })
+    }
+  })
+
+  router.get('/sponsor-requests', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getPool(env)
+    if (!db || typeof db.query !== 'function') return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests
+         ORDER BY created_at DESC LIMIT 100`,
+      )
+      return res.json({ success: true, requests: result.rows.map(publicRequest) })
+    } catch {
+      return res.status(503).json({ success: false, error: 'payout-request-list-unavailable' })
+    }
+  })
 
   router.post('/sponsor-requests/:id/fincra-payout', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
