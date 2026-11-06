@@ -215,11 +215,12 @@ async function readFincraSourceBalance(config) {
 
 export function payoutStatusFromProvider(value) {
   const status = cleanString(value, 32).toLowerCase()
+  // Follow the payout-specific contract: Fincra payout states are
+  // successful, failed, and processing. Generic "pending" statuses are not
+  // promoted to payout processing; unknown payout states remain unacknowledged.
   if (status === 'successful') return 'successful'
   if (status === 'failed') return 'failed'
-  // Fincra documents "pending" as a non-terminal payout state. Normalize it
-  // to processing so valid pending webhooks are acknowledged and reconciled.
-  if (status === 'pending' || status === 'processing') return 'processing'
+  if (status === 'processing') return 'processing'
   return 'unknown'
 }
 
