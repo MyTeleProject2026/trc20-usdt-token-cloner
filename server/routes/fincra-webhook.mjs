@@ -141,6 +141,10 @@ function getWebhookRequestMatchReasons(row, event) {
     return reasons
   }
   if (event.customerReference !== row.customer_reference) reasons.push('customer-reference-mismatch')
+  const payoutState = clean(row.status, 48).toLowerCase()
+  if (!['submission-unknown', 'provider-processing', 'awaiting-chain-verification'].includes(payoutState)) {
+    reasons.push('payout-not-in-submitted-or-reconciliation-state')
+  }
   if (event.recipientAddress !== row.recipient_address) reasons.push('recipient-mismatch')
   if ((event.destinationTag || '') !== (row.destination_tag || '')) reasons.push('destination-tag-mismatch')
   if (event.sourceCurrency !== 'USDT' || event.destinationCurrency !== 'USDT') reasons.push('currency-route-mismatch')
@@ -327,7 +331,7 @@ export function createFincraWebhookRouter({
       if (requestTable.rows[0]?.table_name) {
         await client.query('ALTER TABLE ' + SCHEMA + '.tron_transfer_sponsor_requests ADD COLUMN IF NOT EXISTS destination_tag TEXT')
         found = await client.query(
-          'SELECT id, customer_reference, recipient_address, destination_tag, amount_base_units, fincra_status ' +
+          'SELECT id, customer_reference, recipient_address, destination_tag, amount_base_units, fincra_status, status ' +
           'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1 FOR UPDATE',
           [event.customerReference],
         )
@@ -345,6 +349,7 @@ export function createFincraWebhookRouter({
       if (matched) {
         await client.query(
           'UPDATE ' + SCHEMA + '.tron_transfer_sponsor_requests SET ' +
+          'status=CASE WHEN $3=\'successful\' THEN \'awaiting-chain-verification\' ELSE \'provider-failed\' END, ' +
           'fincra_reference=COALESCE($2,fincra_reference), fincra_status=$3, fincra_webhook_event=$4, ' +
           'fincra_webhook_received_at=now(), fincra_amount_charged_base_units=$5, ' +
           'fincra_amount_received_base_units=$6, fincra_fee_base_units=$7, ' +
