@@ -141,7 +141,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     [createHash('sha256').update(ownerToken).digest('hex'), recipientAddress],
   ])
   const ownerAddress = recipientAddress
-  const sponsorApplicationId = randomUUID()
+  let sponsorApplicationId = null
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
   const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
@@ -220,6 +220,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
     const registration = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
     assert.equal(registration.response.status, 201)
+    sponsorApplicationId = registration.payload.application.id
     assert.equal(registration.payload.application.status, 'pending-review')
     assert.equal(registration.payload.complianceVerified, false)
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
