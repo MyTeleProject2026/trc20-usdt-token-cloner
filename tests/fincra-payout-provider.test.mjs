@@ -175,6 +175,19 @@ test('Fincra read-only diagnostics verify profile business ID and report sponsor
   assert.equal(diagnostics.payoutSubmissionEnabled, false)
 })
 
+test('Fincra diagnostics also accept a single-wallet object response', async () => {
+  const fetchImpl = async (url) => String(url).includes('/profile/business/me')
+    ? jsonResponse({ success: true, data: { _id: sponsorBusiness } })
+    : jsonResponse({ success: true, data: { id: 'wallet-2', currency: 'USDT', availableBalance: '3.000001' } })
+  const diagnostics = await readFincraAccountDiagnostics({
+    FINCRA_SECRET_KEY: 'sandbox-key',
+    FINCRA_BUSINESS_ID: sponsorBusiness,
+  }, { fetchImpl })
+  assert.equal(diagnostics.businessIdMatches, true)
+  assert.equal(diagnostics.usdtWalletFound, true)
+  assert.equal(diagnostics.availableUsdtBalanceBaseUnits, '3000001')
+})
+
 test('Fincra diagnostics do not call the provider without server-side credentials', async () => {
   let called = false
   const diagnostics = await readFincraAccountDiagnostics({}, {
