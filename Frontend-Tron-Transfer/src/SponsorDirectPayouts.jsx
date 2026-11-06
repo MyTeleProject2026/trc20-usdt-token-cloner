@@ -99,7 +99,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const identityToken = identitySession?.sessionToken || ''
   const identityMatchesWallet = Boolean(identityToken && identitySession?.address === walletAddress)
   const activeSponsor = application?.status === 'active'
-  const isOwnerAdmin = Boolean(ownerSession?.sessionToken)
+  // Owner review is available only when both the private owner session and the exact
+  // configured owner wallet identity are present. The API token for review is the
+  // wallet-auth session, not the separate password-only owner-console session.
+  const isOwnerAdmin = Boolean(ownerSession?.sessionToken && identityMatchesWallet
+    && walletAddress === ownerSession.address)
 
   useEffect(() => {
     let current = true
@@ -198,7 +202,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         setPrepared(null)
       }
       if (isOwnerAdmin) {
-        const adminResult = await api('/api/tron/sponsor-direct/applications', ownerSession.sessionToken)
+        const adminResult = await api('/api/tron/sponsor-direct/applications', identityToken)
         setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
       } else {
         setApplications([])
@@ -377,7 +381,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       <div className="section-heading">
         <div>
           <span className="eyebrow">TATUM MAINNET · SPONSOR-DIRECT USDT</span>
-          <h2>{mode === 'sponsor' ? 'Sponsor treasury & approvals' : mode === 'history' ? 'Sponsored withdrawal history' : 'Request a sponsored USDT withdrawal'}</h2>
+          <h2>{mode === 'sponsor' ? (isOwnerAdmin ? 'Sponsor wallet approvals' : 'Sponsor treasury & approvals') : mode === 'history' ? 'Sponsored withdrawal history' : 'Request a sponsored USDT withdrawal'}</h2>
           <p>Your personal TronLink wallet is used for identity only when requesting. The approved sponsor's own funded TRON wallet sends and signs the USDT.</p>
         </div>
         <div className="panel-icon"><Building2 /></div>
@@ -446,7 +450,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           <span className="eyebrow">02 / SPONSOR WALLET PARTICIPATION</span>
           <h3>Register a self-custody sponsor wallet</h3>
           {!identityMatchesWallet && <p>Connect the sponsor's own TronLink wallet and verify its identity before applying or managing its sponsorship profile.</p>}
-          {identityMatchesWallet && !application && (
+          {identityMatchesWallet && !application && !isOwnerAdmin && (
             <div className="form-stack">
               <p>An individual can apply using a self-custody TRON wallet; this application does not require company registration documents. Platform review does not constitute legal-entity verification, KYC, or a guarantee of funds.</p>
               <label>Sponsor display name
