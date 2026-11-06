@@ -71,7 +71,7 @@ export default function App() {
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
     if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; this wallet proves requester identity only. Payout execution depends on a separately authorized and funded Fincra business account.')
+    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; this wallet proves requester identity only. Payout execution depends on a provider-approved funding arrangement; your wallet is not the source of payout principal.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
@@ -140,7 +140,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout dashboard',assets:'Mainnet assets & sponsor funding',recipients:'Recipient balance & incoming history',withdrawals:'External provider USDT withdrawal',provider:'External payout funding',transactions:'Provider payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span>{unlocked&&<button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div></header>
+      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'External provider USDT withdrawal',provider:'External payout funding',transactions:'Provider payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span>{unlocked&&<button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div></header>
       <div className="content">
         <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
@@ -153,9 +153,9 @@ export default function App() {
           </section>
           <section className="panel"><div className="section-heading"><div><span className="eyebrow">OFFICIAL ASSET</span><h2>Tether USD · TRC20</h2><p>The production asset is pinned to the official TRON Mainnet token contract.</p></div><div className="panel-icon"><ShieldCheck/></div></div><div className="asset-row"><div className="asset-symbol token-symbol">US</div><div className="asset-name"><b>Official Tether USD</b><small>{MAINNET_USDT}</small></div><strong>{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'Not loaded'} <small>USDT</small></strong></div><p className="fine-print">Only the official Mainnet contract is supported. This dashboard displays only actual Mainnet balances for the monitored address and does not display simulated tokens.</p></section>
           <section className="panel wallet-access">
-            <div className="panel-heading"><div><span className="eyebrow">REQUESTER WALLET · TRONLINK</span><h2>{unlocked?'TronLink connected':'Connect your TronLink wallet'}</h2><p>Your personal TronLink account is used for identity and withdrawal requests. It does not need USDT or TRX for a sponsored payout and does not sign the sponsor's transfer.</p></div><div className="panel-icon"><Wallet/></div></div>
+            <div className="panel-heading"><div><span className="eyebrow">REQUESTER WALLET · TRONLINK</span><h2>{unlocked?'TronLink connected':'Connect your TronLink wallet'}</h2><p>Your personal TronLink account can be used to establish your identity. It is not used as the source of payout USDT or TRX.</p></div><div className="panel-icon"><Wallet/></div></div>
             {unlocked?<div className="form-stack"><div className="address-box"><span>Connected TRON Mainnet account</span><b>{unlocked.address}</b></div><div className="button-row"><button className="secondary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><RefreshCw size={15}/> Refresh connection</button><button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Disconnect</button></div></div>:<div className="form-stack"><p className="fine-print">Open this application in the TronLink DApp browser on Android, unlock your wallet, then connect. Never paste a private key or recovery phrase into this website.</p><button className="primary-button" disabled={busy} onClick={()=>perform(connectTronLink)}><Wallet size={16}/> Connect TronLink</button></div>}
-            <p className="fine-print">Wallet connection alone does not authorize a payout. You sign only an identity message. The authenticated platform owner may use their own approved Fincra account; third-party sponsor accounts require a standing authorization.</p>
+            <p className="fine-print">Wallet connection alone does not authorize a payout. You sign only an identity message. A connected wallet does not authorize spending or create payout funds. Only an approved external provider can supply payout principal.</p>
           </section>
         </>}
 
@@ -178,7 +178,7 @@ export default function App() {
 
         
         {tab==='assets'&&<section className="assets-page">
-          <div className="section-heading"><div><span className="eyebrow">OFFICIAL TRON MAINNET ASSETS</span><h2>Wallet assets</h2><p>Read-only holdings for the monitored address. The live USDT, TRX, Energy and Bandwidth snapshot belongs to an approved sponsor wallet and is shown on the Sponsors page.</p></div><button className="secondary-button" disabled={busy} onClick={()=>perform(()=>inspectAddress(MAINNET_MONITORED_ADDRESS))}><RefreshCw size={15}/> Refresh monitored balance</button></div>
+          <div className="section-heading"><div><span className="eyebrow">OFFICIAL TRON MAINNET ASSETS</span><h2>Wallet assets</h2><p>Read-only holdings for the monitored address. These balances are not assumed to fund external payouts.</p></div><button className="secondary-button" disabled={busy} onClick={()=>perform(()=>inspectAddress(MAINNET_MONITORED_ADDRESS))}><RefreshCw size={15}/> Refresh monitored balance</button></div>
           <div className="asset-source-grid">
             <article className="panel asset-source-card">
               <span className="eyebrow">MONITORED ADDRESS · READ ONLY</span>
@@ -205,7 +205,7 @@ export default function App() {
 
         {tab==='transactions'&&<ProviderPayoutReadiness ownerSession={ownerSession} mode="history" />}
 
-        {tab==='provider'&&<section className="panel sponsor-panel">
+        {tab==='provider'&&<section className="panel provider-panel">
           <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>Owner-only administration. No public sponsor applications, company registration page, or third-party sponsor portal is enabled.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
           <div className="sponsor-admin-card">
             <span className="eyebrow">01 / PLATFORM OWNER SESSION</span><h3>Platform owner authentication</h3>
