@@ -143,12 +143,18 @@ test('the frontend shows an owner sign-in gate before rendering the dashboard', 
   assert.match(app, /Authorization: 'Bearer ' \+ ownerSession\.sessionToken/)
 })
 
-test('provider readiness is private, read-only and fails closed without verified funding', () => {
+test('provider readiness is private, performs only read-only Fincra diagnostics, and remains fail-closed', () => {
   assert.match(recipientRoute, /router.get\('\/provider-readiness'/)
   assert.match(recipientRoute, /requireOwnerSession\(req, env\)/)
+  assert.match(recipientRoute, /readFincraAccountDiagnostics\(env\)/)
   assert.match(recipientRoute, /getUnconfiguredProviderPayoutReadiness\(\)/)
-  assert.match(recipientRoute, /provider-owned USDT liquidity or an approved credit facility/)
-  assert.match(recipientRoute, /readiness,/) 
+  assert.match(recipientRoute, /providerOwnedLiquidityVerified: false/)
+  assert.match(recipientRoute, /providerApprovedCreditVerified: false/)
+  assert.match(recipientRoute, /payoutSubmissionEnabled: false/)
+  assert.match(recipientRoute, /transactionSubmitted: false/)
+  assert.match(recipientRoute, /sponsorBusinessBalanceIsSponsorOwnedAccountFunds: true/)
+  assert.match(recipientRoute, /sponsor-standing-fincra-mandate-not-independently-authorized/)
+  assert.match(recipientRoute, /production-payout-and-chain-reconciliation-not-enabled/)
 })
 
 test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow and reconciliation worker', () => {
