@@ -151,21 +151,21 @@ export default function App() {
   }
   async function signOutOwner() {
     const token = ownerSession?.sessionToken
-    if (token) {
-      try {
-        await api('/api/auth/owner/logout', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + token },
-        })
-      } catch {
-        setError('Server-side session revocation could not be confirmed. This session will expire automatically; sign in again after reconnecting.')
-      }
-    }
+    // Lock this browser immediately, even if the network is unavailable.
     try { sessionStorage.removeItem(OWNER_SESSION_KEY) } catch {}
     setOwnerSession(null)
     setUnlocked(null)
     setMonitorData(null)
     setTab('overview')
+    if (!token) return
+    try {
+      await api('/api/auth/owner/logout', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+      })
+    } catch {
+      setError('Server-side session revocation could not be confirmed. The server session will expire automatically.')
+    }
   }
   const nav=[
     {id:'overview',label:'Dashboard',icon:Wallet},
