@@ -194,6 +194,11 @@ test('webhook amount or recipient mismatch is persisted for review and never app
     assert.deepEqual(database.identityStatuses, ['review-required'])
     assert.ok(database.reviewReasons[0].includes('beneficiary-net-amount-mismatch'))
     assert.ok(database.reviewReasons[0].includes('successful-net-amount-does-not-match-request'))
+    const duplicate = await postWebhook(base, payoutWebhook({ amountReceived: 9 }))
+    assert.equal(duplicate.response.status, 200)
+    assert.equal(duplicate.payload.duplicate, true)
+    assert.equal(duplicate.payload.identityStatus, 'review-required')
+    assert.equal(database.requestUpdates.length, 0, 'a mismatched duplicate must remain manual-review only')
   })
 })
 
