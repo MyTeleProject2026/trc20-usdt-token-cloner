@@ -54,6 +54,7 @@ test('Fincra payload is pinned to same-currency official USDT TRON payout scheme
     ...payoutInput,
     businessId: sponsorBusiness,
     beneficiaryEmail: 'owner@example.test',
+    destinationTag: 'deposit-2048',
   })
   assert.deepEqual(body, {
     business: sponsorBusiness,
@@ -68,6 +69,7 @@ test('Fincra payload is pinned to same-currency official USDT TRON payout scheme
       walletAddress: recipient,
       accountHolderName: 'Test Beneficiary',
       email: 'owner@example.test',
+      destinationTag: 'deposit-2048',
     },
   })
 })
@@ -82,6 +84,12 @@ test('Fincra payload builder rejects invalid recipients, precision and reference
   assert.throws(() => buildFincraUsdtTronPayoutPayload({
     ...payoutInput, businessId: sponsorBusiness, customerReference: 'short',
   }), /invalid-unique-customer-reference/)
+})
+
+test('Fincra payout builder rejects malformed destination tags', () => {
+  assert.throws(() => buildFincraUsdtTronPayoutPayload({
+    ...payoutInput, businessId: sponsorBusiness, destinationTag: 'invalid tag with spaces',
+  }), /invalid-beneficiary-destination-tag/)
 })
 
 test('Fincra successful status requires exact recipient identity and exact net amount', () => {
