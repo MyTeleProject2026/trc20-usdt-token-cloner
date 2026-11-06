@@ -164,6 +164,7 @@ test('Fincra read-only diagnostics verify profile business ID and report sponsor
   const diagnostics = await readFincraAccountDiagnostics({
     FINCRA_SECRET_KEY: 'sandbox-key',
     FINCRA_BUSINESS_ID: sponsorBusiness,
+    FINCRA_WEBHOOK_SECRET: 'test-webhook-secret',
   }, { fetchImpl })
   assert.equal(urls.length, 2)
   assert.equal(diagnostics.apiAuthenticated, true)
@@ -173,6 +174,8 @@ test('Fincra read-only diagnostics verify profile business ID and report sponsor
   assert.equal(diagnostics.availableUsdtBalanceBaseUnits, '25500000')
   assert.equal(diagnostics.accountBalanceIsSponsorBusinessFunds, true)
   assert.equal(diagnostics.payoutSubmissionEnabled, false)
+  assert.equal(diagnostics.webhookSecretConfigured, true)
+  assert.equal(diagnostics.reasons.includes('fincra-webhook-secret-not-configured'), false)
 })
 
 test('Fincra diagnostics also accept a single-wallet object response', async () => {
@@ -197,6 +200,8 @@ test('Fincra diagnostics do not call the provider without server-side credential
   assert.equal(diagnostics.configured, false)
   assert.equal(diagnostics.apiAuthenticated, false)
   assert.equal(diagnostics.availableUsdtBalance, null)
+  assert.equal(diagnostics.webhookSecretConfigured, false)
+  assert.ok(diagnostics.reasons.includes('fincra-webhook-secret-not-configured'))
 })
 
 test('Fincra live environment is not accepted by the sandbox submit helper', async () => {
