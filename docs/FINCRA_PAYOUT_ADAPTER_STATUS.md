@@ -8,6 +8,7 @@ Implemented in this branch:
 
 - Server-only Fincra environment parsing with sandbox as the default.
 - Strict builder for same-currency USDT to a TRON crypto wallet using \`paymentDestination=crypto_wallet\` and \`paymentScheme=usdt_trc20\`.
+- Optional beneficiary destination tags are validated, persisted with the owner-only withdrawal intent, and included in the Fincra crypto-wallet payout payload when the exchange or wallet requires a memo/tag.
 - Six-decimal USDT base-unit parsing, bounded numeric amount conversion, Mainnet TRON Base58Check address validation, and unique customer-reference validation.
 - Read-only diagnostics against the authenticated Fincra business profile and its business wallet list.
 - Payout-record normalization that requires exact business payout identity (customer reference, currencies, scheme, destination and recipient). A successful result is accepted by the helper only when the beneficiary's net received amount exactly matches the requested amount; mismatches go to manual review.
@@ -20,7 +21,7 @@ Implemented in this branch:
 The owner-only request API now accepts a validated USDT TRC20 withdrawal intent at
 `POST /api/tron-transfer/sponsor-requests`. It requires an authenticated owner
 session, a valid TRON Mainnet recipient, a positive six-decimal USDT amount,
-beneficiary name, and a stable idempotency key. The database stores a unique
+beneficiary name, optional destination tag, and a stable idempotency key. The database stores a unique
 customer reference and idempotency key; concurrent retries with the same key
 return the original request, while reuse of that key with different request
 details returns HTTP 409. The owner-only history/list routes return stored
