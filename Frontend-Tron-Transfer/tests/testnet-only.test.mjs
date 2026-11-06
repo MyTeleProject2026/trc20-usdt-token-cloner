@@ -53,7 +53,7 @@ test('platform owner session is used for organization and mandate review', () =>
 
 test('automatic payout UI describes real provider funding and fail-closed sponsor requirements', () => {
   assert.ok(fincraWithdrawals.includes('authorized Fincra business account'))
-  assert.ok(fincraWithdrawals.includes('standing sponsor mandate'))
+  assert.ok(fincraWithdrawals.includes('standing Fincra mandate'))
   assert.ok(fincraWithdrawals.includes('no payout is reported as successful'))
   assert.ok(sponsorOrganization.includes('independently verify'))
 })
@@ -101,7 +101,7 @@ test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, spo
     assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
     assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
   }
-  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="history" />'))
+  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="history" ownerSession={ownerSession} />'))
   assert.ok(app.includes('Platform owner authentication'))
 })
 
