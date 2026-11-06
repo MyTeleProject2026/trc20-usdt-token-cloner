@@ -73,13 +73,19 @@ test('mandate authorization is a separate transition after evidence verification
   assert.match(source, /body\.decision === 'authorize' \? 'authorized'/)
 })
 
-test('Mainnet sponsor payout preparation requires an authorized mandate covering principal and fees', async () => {
+test('individual Mainnet wallet sponsors use per-transfer signing while Fincra automation remains mandate-gated', async () => {
   const source = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
-  assert.match(source, /getAuthorizedSponsorMandate/)
-  assert.match(source, /m\.status=\\'authorized\\'/)
-  assert.match(source, /m\.purpose=\\'both\\'/)
-  assert.match(source, /authorized-sponsor-organization-mandate-required/)
-  assert.match(source, /authorized-sponsor-mandate-invalid-or-expired/)
+  assert.doesNotMatch(source, /getAuthorizedSponsorMandate|sponsor_organization_mandates|sponsor_organization_applications/)
+  assert.match(source, /active-sponsor-application-required/)
+  assert.match(source, /readSponsorSnapshot/)
+  assert.match(source, /validateOwnerSignedTransaction/)
+  assert.match(source, /wallet\\/getapprovedlist/)
+  assert.match(source, /sponsor-per-payout-limit-exceeded/)
+  assert.match(source, /sponsor-daily-limit-exceeded/)
+  const providerRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
+  assert.match(providerRoute, /authorized-fincra-standing-mandate-required/)
+  assert.match(providerRoute, /m\.execution_mode='fincra-automatic'/)
+  assert.match(providerRoute, /fincra-standing-mandate-daily-limit-exceeded/)
 })
 
 
