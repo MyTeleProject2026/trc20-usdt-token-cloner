@@ -193,9 +193,10 @@ async function ensureSchema(client) {
 }
 
 /**
- * Receives signed Fincra payout events. It stores minimal metadata and updates
- * only the provider-status columns of an exactly matching legacy request.
- * It never marks an on-chain transfer confirmed or broadcasts a transaction.
+ * Receives signed Fincra payout events. It stores minimal metadata and applies
+ * provider-status transitions only to an exactly matching request already in a
+ * submitted/reconciliation state. It never initiates a payout or marks an
+ * on-chain transfer confirmed.
  */
 export function createFincraWebhookRouter({
   env = process.env,
