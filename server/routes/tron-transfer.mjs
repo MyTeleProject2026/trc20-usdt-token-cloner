@@ -572,7 +572,7 @@ transaction_hash CHAR(64),
     return res.status(410).json({
       success: false,
       error: 'direct-wallet-broadcast-disabled',
-      message: 'Tron Transfer processes official USDT TRC20 Mainnet withdrawals through an authorized live Fincra business account. Direct wallet and testnet broadcasts are disabled.',
+      message: 'Tron Transfer is in private owner-only provider mode. Direct wallet and testnet broadcasts are disabled; no payout provider has yet been approved to supply USDT liquidity or an authorized credit facility.',
       transactionSubmitted: false,
     })
   })
