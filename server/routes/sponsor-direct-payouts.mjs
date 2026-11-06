@@ -528,31 +528,6 @@ function hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun) 
   }
 }
 
-async function getAuthorizedSponsorMandate(db, sponsorAddress, nowMs) {
-  try {
-    const result = await db.query(
-      'SELECT m.* FROM ' + SCHEMA + '.sponsor_organization_mandates m ' +
-      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ON a.id=m.application_id ' +
-      'WHERE m.sponsor_wallet_address=$1 AND a.sponsor_wallet_address=$1 ' +
-      'AND a.status=\'accepted-for-due-diligence\' AND m.status=\'authorized\' ' +
-      'AND m.purpose=\'both\' ' +
-      'AND m.valid_from <= $2 AND m.valid_until > $2 ' +
-      'ORDER BY m.updated_at DESC LIMIT 1',
-      [sponsorAddress, new Date(nowMs).toISOString()],
-    )
-    return result.rows[0] || null
-  } catch {
-    // Missing organization/mandate schema, stale DB state, or query errors all fail closed.
-    return null
-  }
-}
-
-function lowerBaseUnitLimit(left, right) {
-  const a = BigInt(String(left || '0'))
-  const b = BigInt(String(right || '0'))
-  return (a < b ? a : b).toString()
-}
-
 export function isSponsorDirectAutoRouteEligible({
   amountBaseUnits,
   balanceBaseUnits,
