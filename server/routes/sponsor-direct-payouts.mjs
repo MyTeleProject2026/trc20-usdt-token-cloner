@@ -1103,6 +1103,84 @@ export function createSponsorDirectPayoutsRouter({
     }
   })
 
+  // Owner-only aggregate view: report profile/queue counts without leaking sponsor
+  // addresses or pretending that an approved profile proves current funding.
+  router.get('/owner-overview', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const [sponsors, payouts] = await Promise.all([
+        db.query(
+          'SELECT COUNT(*)::int AS total, ' +
+          "COUNT(*) FILTER (WHERE status='active')::int AS approved, " +
+          "COUNT(*) FILTER (WHERE status='pending-review')::int AS pending_review, " +
+          "COUNT(*) FILTER (WHERE status='declined')::int AS declined, " +
+          "COUNT(*) FILTER (WHERE status='suspended')::int AS suspended " +
+          'FROM ' + SCHEMA + '.sponsor_direct_applications',
+        ),
+        db.query(
+          'SELECT COUNT(*)::int AS total, ' +
+          "COUNT(*) FILTER (WHERE status='requested' AND sponsor_address IS NULL)::int AS awaiting_sponsor, " +
+          "COUNT(*) FILTER (WHERE status='requested' AND sponsor_address IS NOT NULL)::int AS matched_awaiting_signature, " +
+          "COUNT(*) FILTER (WHERE status='prepared')::int AS prepared, " +
+          "COUNT(*) FILTER (WHERE status IN ('broadcasting','submitted','outcome-unknown'))::int AS submitted_or_reconciling, " +
+          "COUNT(*) FILTER (WHERE status='confirmed')::int AS confirmed, " +
+          "COUNT(*) FILTER (WHERE status IN ('failed','broadcast-rejected','manual-review'))::int AS attention_required " +
+          'FROM ' + SCHEMA + '.sponsor_direct_payouts',
+        ),
+      ])
+      const sponsorRow = sponsors.rows?.[0] || {}
+      const payoutRow = payouts.rows?.[0] || {}
+      const count = (value) => {
+        const parsed = Number(value ?? 0)
+        return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0
+      }
+      const approved = count(sponsorRow.approved)
+      return res.json({
+        success: true,
+        network: 'mainnet',
+        asset: 'USDT',
+        tokenContract: MAINNET_USDT_CONTRACT,
+        requesterWalletFundingRequired: false,
+        individualSponsorCompanyRegistrationRequiredByThisApplication: false,
+        individualSponsorContactEmailRequired: false,
+        sponsorProfiles: {
+          total: count(sponsorRow.total),
+          approved,
+          pendingReview: count(sponsorRow.pending_review),
+          declined: count(sponsorRow.declined),
+          suspended: count(sponsorRow.suspended),
+        },
+        withdrawals: {
+          total: count(payoutRow.total),
+          awaitingSponsor: count(payoutRow.awaiting_sponsor),
+          matchedAwaitingSignature: count(payoutRow.matched_awaiting_signature),
+          prepared: count(payoutRow.prepared),
+          submittedOrReconciling: count(payoutRow.submitted_or_reconciling),
+          confirmed: count(payoutRow.confirmed),
+          attentionRequired: count(payoutRow.attention_required),
+        },
+        funding: {
+          status: approved === 0 ? 'no-approved-sponsor-wallets' : 'live-funding-check-required',
+          approvedSponsorProfilesExist: approved > 0,
+          liveSponsorFundingVerified: false,
+          canPayWithoutRealMainnetUsdt: false,
+          message: approved === 0
+            ? 'No approved individual sponsor wallet is registered. Withdrawal requests can be stored, but no Mainnet USDT payout can be funded or sent.'
+            : 'Approved sponsor profiles exist, but this overview does not verify their live balances or resources. Each payout still requires a fresh Mainnet funding check and the sponsor wallet signature.',
+        },
+        complianceVerified: false,
+        note: 'This aggregate is owner-only. It does not expose sponsor addresses, verify identity/KYC/KYB, prove source of funds, or represent live sponsor balances.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-owner-overview-unavailable' })
+    }
+  })
+
   router.get('/readiness', async (req, res) => {
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
