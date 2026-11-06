@@ -13,7 +13,7 @@ const OWNER_SESSION_KEY = 'tron-transfer:owner-session:v1'
 
 function shorten(value) { return value && value.length > 18 ? value.slice(0, 9) + '…' + value.slice(-7) : value || '—' }
 function isValidAddress(value) {
-  try { return ADDRESS_RE.test(String(value || '')) && new TronWeb().isAddress(String(value)) } catch { return false }
+  try { return ADDRESS_RE.test(String(value || '')) && TronWeb.isAddress(String(value)) } catch { return false }
 }
 function formatUnits(value, decimals = 6) {
   try {
