@@ -1122,25 +1122,14 @@ export function createSponsorDirectPayoutsRouter({
           submissionEnabled: false,
         })
       }
-      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
-      if (!mandate) {
-        return res.status(403).json({
-          success: false,
-          error: 'authorized-sponsor-organization-mandate-required',
-          canSponsorPayouts: false,
-          canSubmitSponsoredTransfer: false,
-          submissionEnabled: false,
-          note: 'A wallet-only sponsor application is insufficient. An organization application, signed written mandate and separate owner authorization are required.',
-        })
-      }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(db, auth.address),
         readDailyUsage(db, auth.address),
       ])
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
-      const dailyLimit = lowerBaseUnitLimit(profile.daily_limit_base_units, mandate.daily_limit_base_units)
-      const perPayoutLimit = lowerBaseUnitLimit(profile.per_payout_limit_base_units, mandate.per_payout_limit_base_units)
+      const dailyLimit = String(profile.daily_limit_base_units || '0')
+      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
       const dailyRemaining = calculateSponsorDirectAvailableBaseUnits(dailyLimit, dailyUsedBaseUnits)
       return res.json({
         success: true,
@@ -1159,8 +1148,11 @@ export function createSponsorDirectPayoutsRouter({
         dailyUsedBaseUnits,
         dailyRemainingBaseUnits: dailyRemaining,
         checkedAt: snapshot.checkedAt,
-        canSponsorPayouts: BigInt(availableBaseUnits) > 0n && BigInt(dailyRemaining) > 0n,
-        note: 'All USDT availability comes from the sponsor wallet on solidified Mainnet state, less active reservations. This balance is not the requester’s wallet balance.',
+        canSponsorPayouts: BigInt(availableBaseUnits) > 0n && BigInt(dailyRemaining) > 0n
+          && BigInt(perPayoutLimit) > 0n,
+        sponsorQualification: 'owner-reviewed-individual-self-custody-wallet',
+        complianceVerified: false,
+        note: 'All USDT availability comes from the sponsor wallet on solidified Mainnet state, less active reservations. Every transfer is signed by that sponsor wallet. Platform approval is not KYC, KYB, identity verification or source-of-funds verification.',
       })
     } catch (error) {
       return res.status(Number.isInteger(error?.status) ? error.status : 502).json({
