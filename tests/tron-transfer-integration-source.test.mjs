@@ -170,5 +170,6 @@ test('individual wallet sponsorship needs no provider organization mandate and e
   assert.ok(sponsorRoute.includes('wallet/getapprovedlist'))
   assert.match(sponsorRoute, /sponsor-daily-limit-exceeded/)
   assert.ok(sponsorFrontend.includes('Contact email (optional)'))
+  assert.doesNotMatch(sponsorFrontend, /SponsorOrganizationOnboarding/)
   assert.ok(sponsorFrontend.includes('does not require company registration documents'))
 })
