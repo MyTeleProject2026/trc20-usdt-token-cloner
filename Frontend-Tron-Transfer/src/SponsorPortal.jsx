@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ExternalLink, LockKeyhole, ShieldCheck, Wallet } from 'lucide-react'
-import { TronWeb } from 'tronweb'
+import { LockKeyhole, Wallet } from 'lucide-react'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
 
@@ -103,7 +102,6 @@ export default function SponsorPortal() {
                   <button className="primary-button" disabled={busy} onClick={() => void connectSponsorWallet()}><Wallet size={16} /> {busy ? 'Connecting…' : 'Connect sponsor TronLink'}</button>
                 </div>}
             <p className="fine-print">Wallet approval in this platform is not KYC, KYB, sanctions screening or source-of-funds verification. Any legal or compliance requirements remain applicable and must not be bypassed.</p>
-            <a href="#/sponsor" onClick={(event) => event.preventDefault()} aria-label="Sponsor portal route"><ExternalLink size={12}/> Sponsor portal route: #/sponsor</a>
           </section>
           <SponsorDirectPayouts wallet={wallet} ownerSession={null} mode="sponsor" />
         </div>
