@@ -23,7 +23,7 @@ test('only official Mainnet Tether USDT is exposed as the withdrawal asset', () 
 })
 
 test('requester can submit a payout with identity proof only, without signing or funding the payout transaction', () => {
-  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="withdraw" />'))
+  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="withdraw" ownerSession={ownerSession} />'))
   assert.ok(fincraWithdrawals.includes('/api/tron-transfer/sponsor-requests'))
   assert.ok(fincraWithdrawals.includes('/api/auth/tron/challenge'))
   assert.ok(fincraWithdrawals.includes('signMessageV2(challenge.message)'))
@@ -79,6 +79,14 @@ test('active UI uses Fincra payout flow and does not mount the legacy sponsor wa
   assert.ok(app.includes("tab==='transactions'"))
   assert.ok(!app.includes("import SponsorDirectPayouts"))
   assert.ok(!app.includes('<SponsorDirectPayouts'))
+})
+
+test('owner-controlled Fincra payouts use the owner session only when it matches the requester wallet', () => {
+  assert.ok(app.includes('ownerSession={ownerSession}'))
+  assert.ok(fincraWithdrawals.includes('ownerSession?.address === walletAddress'))
+  assert.ok(fincraWithdrawals.includes('payoutSessionToken = ownerManagedPayout ? ownerSession.sessionToken : session?.sessionToken'))
+  assert.ok(fincraWithdrawals.includes('Owner-operated Fincra account'))
+  assert.ok(fincraWithdrawals.includes('does not require a separate sponsor wallet mandate'))
 })
 
 test('production metadata and frontend test command remain configured', () => {
