@@ -47,15 +47,23 @@ export default function App() {
   const [ownerAddress,setOwnerAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [ownerPassword,setOwnerPassword]=useState('')
   const [ownerSession,setOwnerSession]=useState(null)
+  const [ownerSessionResolved,setOwnerSessionResolved]=useState(false)
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
 
   useEffect(()=>{
-    void inspectAddress(MAINNET_MONITORED_ADDRESS).catch(e=>setMonitorError(e.message))
-    try {
-      const owner=sessionStorage.getItem(OWNER_SESSION_KEY)
-      if(owner) void restoreOwner(owner)
-    } catch {}
+    let token = ''
+    try { token = sessionStorage.getItem(OWNER_SESSION_KEY) || '' } catch {}
+    if (token) {
+      void restoreOwner(token).finally(() => setOwnerSessionResolved(true))
+    } else {
+      setOwnerSessionResolved(true)
+    }
   },[])
+
+  useEffect(()=>{
+    if (!ownerSession?.sessionToken) return
+    void inspectAddress(MAINNET_MONITORED_ADDRESS).catch(e=>setMonitorError(e.message))
+  },[ownerSession?.sessionToken])
 
   async function perform(fn) {
     setBusy(true); setError('')
@@ -99,8 +107,11 @@ export default function App() {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
     setMonitorBusy(true); setMonitorError('')
     try {
+      if (!ownerSession?.sessionToken) throw new Error('Sign in to the private owner account first.')
       const query=new URLSearchParams({network:'mainnet',address,tokenContract:MAINNET_USDT})
-      const result=await api('/api/tron-transfer/recipient?'+query.toString())
+      const result=await api('/api/tron-transfer/recipient?'+query.toString(), {
+        headers: { Authorization: 'Bearer ' + ownerSession.sessionToken },
+      })
       setMonitorAddress(address); setMonitorData(result); return result
     } catch(e) {setMonitorError(e.message);throw e} finally {setMonitorBusy(false)}
   }
@@ -111,6 +122,7 @@ export default function App() {
         sessionStorage.removeItem(OWNER_SESSION_KEY);setOwnerSession(null);return
       }
       setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:token})
+    setOwnerSessionResolved(true)
     } catch {setOwnerSession(null)}
   }
   async function signInOwner() {
@@ -119,9 +131,10 @@ export default function App() {
     if(p.authenticated!==true||p.network!=='mainnet'||typeof p.sessionToken!=='string'||!Number.isFinite(p.expiresAt)) throw new Error('Owner authentication failed.')
     sessionStorage.setItem(OWNER_SESSION_KEY,p.sessionToken);setOwnerPassword('')
     setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:p.sessionToken})
+    setOwnerSessionResolved(true)
     setNotice('Private platform-owner session active. Your TronLink wallet is not used as the source of payout funds. External payouts remain disabled until a provider authorizes provider-owned liquidity or an approved credit facility for this account.')
   }
-  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null)}
+  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null);setUnlocked(null);setMonitorData(null);setTab('overview')}
   const nav=[
     {id:'overview',label:'Dashboard',icon:Wallet},
     {id:'assets',label:'Assets',icon:Coins},
@@ -132,6 +145,33 @@ export default function App() {
     {id:'settings',label:'Settings',icon:Settings},
   ]
 
+  if (!ownerSessionResolved) return (
+    <div className="app-shell">
+      <main className="main-content">
+        <div className="content"><section className="panel"><div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER WORKSPACE</span><h2>Checking owner session</h2><p>Verifying the configured platform-owner session before opening Tron Transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div></section></div>
+      </main>
+    </div>
+  )
+
+  if (!ownerSession) return (
+    <div className="app-shell">
+      <main className="main-content">
+        <div className="content">
+          <section className="panel provider-panel">
+            <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · PRIVATE ACCESS</span><h2>Platform owner sign-in</h2><p>This workspace is reserved for the configured owner account. There is no public registration or sponsor sign-up.</p></div><div className="panel-icon"><LockKeyhole/></div></div>
+            {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span></div>}
+            <div className="form-stack">
+              <label>Configured owner TRON Mainnet address<input value={ownerAddress} onChange={e=>setOwnerAddress(e.target.value)} placeholder="T..." autoComplete="username"/></label>
+              <label>Owner password<input value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} type="password" autoComplete="current-password"/></label>
+              <button className="primary-button" disabled={busy||!ownerAddress.trim()||!ownerPassword} onClick={()=>perform(signInOwner)}><LockKeyhole size={16}/>{busy?'Signing in…':'Sign in to private workspace'}</button>
+            </div>
+            <p className="fine-print">Never share your password, wallet private key or recovery phrase. This password authenticates the platform owner; it does not fund withdrawals.</p>
+          </section>
+        </div>
+      </main>
+    </div>
+  )
+
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
@@ -140,7 +180,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'External provider USDT withdrawal',provider:'External payout funding',transactions:'Provider payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span>{unlocked&&<button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div></header>
+      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'External provider USDT withdrawal',provider:'External payout funding',transactions:'Provider payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
       <div className="content">
         <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
@@ -206,11 +246,7 @@ export default function App() {
         {tab==='transactions'&&<ProviderPayoutReadiness ownerSession={ownerSession} mode="history" />}
 
         {tab==='provider'&&<section className="panel provider-panel">
-          <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>Owner-only administration. No public sponsor applications, company registration page, or third-party sponsor portal is enabled.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
-          <div className="sponsor-admin-card">
-            <span className="eyebrow">01 / PLATFORM OWNER SESSION</span><h3>Platform owner authentication</h3>
-            {!ownerSession?<div className="form-stack"><label>Configured owner Mainnet address<input value={ownerAddress} onChange={e=>setOwnerAddress(e.target.value)} placeholder="T..." autoComplete="off"/></label><label>Owner password<input value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} type="password" autoComplete="current-password"/></label><button className="secondary-button" disabled={busy||!ownerAddress.trim()||!ownerPassword} onClick={()=>perform(signInOwner)}><LockKeyhole size={16}/> Sign in as configured owner</button></div>:<div className="owner-session-card"><strong><ShieldCheck size={15}/> Owner session active</strong><small>{shorten(ownerSession.address)} · expires {new Date(ownerSession.expiresAt).toLocaleTimeString()}</small><button className="outline-button" onClick={signOutOwner}>Sign out</button></div>}
-          </div>
+          <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>No public sponsor applications or third-party sponsor portal is enabled. The provider must authorize this owner account and its funding arrangement.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
           <ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />
         </section>}
 
