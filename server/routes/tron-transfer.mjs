@@ -717,7 +717,9 @@ transaction_hash CHAR(64),
       await ensureSchema(client)
       const row = await findRequest(client, id)
       if (!row) return res.status(404).json({ success: false, error: 'sponsor-request-not-found' })
-      const customerReference = cleanString(row.fincra_reference || row.customer_reference, 80)
+      // Fincra's customer-reference lookup must use our stable local customer_reference.
+      // fincra_reference stores the provider's separate payout/reference identifier.
+      const customerReference = cleanString(row.customer_reference, 80)
       if (!customerReference) {
         return res.status(409).json({
           success: false, error: 'fincra-customer-reference-missing',
