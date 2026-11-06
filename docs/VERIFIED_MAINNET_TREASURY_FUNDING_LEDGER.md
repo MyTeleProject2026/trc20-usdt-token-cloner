@@ -38,7 +38,7 @@ Do not put credentials, wallet private keys, recovery phrases, or signing materi
 
 1. Configure a dedicated TRON Mainnet treasury address that you are authorized to use. It can receive funds without the owner's identity wallet holding USDT or TRX.
 2. Have a legitimate payer transfer official USDT TRC20 to that exact address. The payer's transaction must be real and solidified; this application does not create the payment.
-3. In Wallet Vault → Mainnet → Treasury, complete the owner wallet identity check.
+3. Open the owner withdrawal page on the deployed `tron-transfer.onrender.com` frontend and authenticate the configured owner wallet with its Mainnet identity signature. The funding ledger is shown in the owner withdrawal view. The repository-root Wallet Vault also contains the corresponding Mainnet → Treasury panel for the legacy frontend.
 4. Enter the incoming transaction hash, sender address, and exact received USDT amount. Select **Verify and record incoming USDT**.
 5. The backend independently checks the transaction body and exact official USDT Transfer event before recording it. Refresh the ledger to read the current on-chain balance and payout reservations.
 6. To use the treasury as an outgoing sponsor, its wallet must separately be registered and owner-approved in the sponsor-direct workflow, meet fresh on-chain USDT and TRON fee/resource requirements, and sign each exact payout. This ledger alone cannot spend those funds.
