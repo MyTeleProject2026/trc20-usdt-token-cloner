@@ -297,74 +297,6 @@ test('unsigned sponsor transaction rejects malformed tx IDs, expired data and no
 })
 
 
-test('reconciliation sweep persists only exact confirmed evidence and leaves inconclusive transfers pending', async () => {
-  const confirmedId = randomUUID()
-  const pendingId = randomUUID()
-  const txConfirmed = 'a'.repeat(64)
-  const txPending = 'b'.repeat(64)
-  const rows = new Map([
-    [confirmedId, {
-      id: confirmedId, sponsor_address: sponsorAddress, recipient_address: recipientAddress,
-      token_contract: MAINNET_USDT_CONTRACT, amount_base_units: '25000000',
-      transaction_hash: txConfirmed, status: 'submitted',
-    }],
-    [pendingId, {
-      id: pendingId, sponsor_address: sponsorAddress, recipient_address: recipientAddress,
-      token_contract: MAINNET_USDT_CONTRACT, amount_base_units: '1000000',
-      transaction_hash: txPending, status: 'outcome-unknown',
-    }],
-  ])
-  const updates = []
-  const db = {
-    async query(sql, values = []) {
-      if (sql.startsWith('SELECT id FROM trc20_token_clone.sponsor_direct_payouts')) {
-        return { rows: [...rows.values()].map(({ id }) => ({ id })) }
-      }
-      return { rows: [] }
-    },
-    async connect() {
-      let selected
-      return {
-        async query(sql, values = []) {
-          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK'
-            || sql.startsWith('CREATE ') || sql.startsWith('ALTER ') ) return { rows: [] }
-          if (sql.startsWith('SELECT id, sponsor_address, recipient_address')) {
-            selected = rows.get(values[0])
-            return { rows: selected ? [{ ...selected }] : [] }
-          }
-          if (sql.startsWith('UPDATE trc20_token_clone.sponsor_direct_payouts SET status=$2')) {
-            updates.push({ id: values[0], status: values[1], evidence: values[5], error: values[6] })
-            if (selected) selected.status = values[1]
-            return { rows: [{ id: values[0], status: values[1] }] }
-          }
-          throw new Error('Unexpected reconciliation SQL: ' + sql.slice(0, 120))
-        },
-        release() {},
-      }
-    },
-  }
-  const summary = await runSponsorDirectPayoutReconciliationSweep({
-    env: { TATUM_MAINNET_API_KEY: 'test-only-placeholder' },
-    db,
-    verifyTransfer: async (_env, intent) => intent.transactionHash === txConfirmed
-      ? {
-          verified: true, transactionHash: txConfirmed, contract: MAINNET_USDT_CONTRACT,
-          from: sponsorAddress, to: recipientAddress, amountBaseUnits: '25000000',
-          blockNumber: 987654, logIndex: 2,
-        }
-      : { verified: false, status: 'awaiting-solidified-receipt' },
-  })
-  assert.equal(summary.checked, 2)
-  assert.equal(summary.confirmed, 1)
-  assert.equal(summary.pending, 1)
-  assert.deepEqual(updates.map(({ status }) => status), ['confirmed', 'outcome-unknown'])
-  assert.equal(JSON.parse(updates[0].evidence).transactionHash, txConfirmed)
-  assert.equal(updates[0].error, null)
-  assert.equal(updates[1].error, 'awaiting-solidified-receipt')
-  assert.equal(rows.get(confirmedId).status, 'confirmed')
-  assert.equal(rows.get(pendingId).status, 'outcome-unknown')
-})
-
 test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, and returns the unsigned draft only to the sponsor', {
   skip: !postgresIntegrationEnabled && 'Set SPONSOR_PG_INTEGRATION=1 with a dedicated sponsor_test DATABASE_URL',
 }, async (t) => {
@@ -663,3 +595,70 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+test('reconciliation sweep persists only exact confirmed evidence and leaves inconclusive transfers pending', async () => {
+  const confirmedId = randomUUID()
+  const pendingId = randomUUID()
+  const txConfirmed = 'a'.repeat(64)
+  const txPending = 'b'.repeat(64)
+  const rows = new Map([
+    [confirmedId, {
+      id: confirmedId, sponsor_address: sponsorAddress, recipient_address: recipientAddress,
+      token_contract: MAINNET_USDT_CONTRACT, amount_base_units: '25000000',
+      transaction_hash: txConfirmed, status: 'submitted',
+    }],
+    [pendingId, {
+      id: pendingId, sponsor_address: sponsorAddress, recipient_address: recipientAddress,
+      token_contract: MAINNET_USDT_CONTRACT, amount_base_units: '1000000',
+      transaction_hash: txPending, status: 'outcome-unknown',
+    }],
+  ])
+  const updates = []
+  const db = {
+    async query(sql, values = []) {
+      if (sql.startsWith('SELECT id FROM trc20_token_clone.sponsor_direct_payouts')) {
+        return { rows: [...rows.values()].map(({ id }) => ({ id })) }
+      }
+      return { rows: [] }
+    },
+    async connect() {
+      let selected
+      return {
+        async query(sql, values = []) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK'
+            || sql.startsWith('CREATE ') || sql.startsWith('ALTER ') ) return { rows: [] }
+          if (sql.startsWith('SELECT id, sponsor_address, recipient_address')) {
+            selected = rows.get(values[0])
+            return { rows: selected ? [{ ...selected }] : [] }
+          }
+          if (sql.startsWith('UPDATE trc20_token_clone.sponsor_direct_payouts SET status=$2')) {
+            updates.push({ id: values[0], status: values[1], evidence: values[5], error: values[6] })
+            if (selected) selected.status = values[1]
+            return { rows: [{ id: values[0], status: values[1] }] }
+          }
+          throw new Error('Unexpected reconciliation SQL: ' + sql.slice(0, 120))
+        },
+        release() {},
+      }
+    },
+  }
+  const summary = await runSponsorDirectPayoutReconciliationSweep({
+    env: { TATUM_MAINNET_API_KEY: 'test-only-placeholder' },
+    db,
+    verifyTransfer: async (_env, intent) => intent.transactionHash === txConfirmed
+      ? {
+          verified: true, transactionHash: txConfirmed, contract: MAINNET_USDT_CONTRACT,
+          from: sponsorAddress, to: recipientAddress, amountBaseUnits: '25000000',
+          blockNumber: 987654, logIndex: 2,
+        }
+      : { verified: false, status: 'awaiting-solidified-receipt' },
+  })
+  assert.equal(summary.checked, 2)
+  assert.equal(summary.confirmed, 1)
+  assert.equal(summary.pending, 1)
+  assert.deepEqual(updates.map(({ status }) => status), ['confirmed', 'outcome-unknown'])
+  assert.equal(JSON.parse(updates[0].evidence).transactionHash, txConfirmed)
+  assert.equal(updates[0].error, null)
+  assert.equal(updates[1].error, 'awaiting-solidified-receipt')
+  assert.equal(rows.get(confirmedId).status, 'confirmed')
+  assert.equal(rows.get(pendingId).status, 'outcome-unknown')
+})
