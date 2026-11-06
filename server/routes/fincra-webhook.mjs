@@ -265,17 +265,17 @@ export function createFincraWebhookRouter({
         return res.status(200).json({ success: true, received: true, duplicate: true, processed: false })
       }
 
+      const requestTable = await client.query(
+        'SELECT to_regclass($1) AS table_name',
+        [SCHEMA + '.tron_transfer_sponsor_requests'],
+      )
       let found = { rows: [] }
-      try {
+      if (requestTable.rows[0]?.table_name) {
         found = await client.query(
           'SELECT id, customer_reference, recipient_address, amount_base_units, fincra_status ' +
           'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1',
           [event.customerReference],
         )
-      } catch (error) {
-        // The legacy request table is not provisioned in current provider-neutral
-        // deployments. Keep the signed event as unmatched instead of retrying it.
-        if (error?.code !== '42P01') throw error
       }
       const row = found.rows[0] || null
       const matched = requestMatchesWebhook(row, event)
