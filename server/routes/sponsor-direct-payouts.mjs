@@ -764,6 +764,9 @@ async function autoAssignSponsorToRequest({
       ])
       const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
       const dailyLimit = String(profile.daily_limit_base_units || '0')
+      const latestFeeCoverage = calculateSponsorDirectFeeCoverage(
+        latestSnapshot, simulation, unsignedTransaction, feeLimitSun, feeParameters,
+      )
       if (!isSponsorDirectAutoRouteEligible({
         amountBaseUnits,
         balanceBaseUnits: latestSnapshot.usdtBalanceBaseUnits,
@@ -771,7 +774,7 @@ async function autoAssignSponsorToRequest({
         perPayoutLimitBaseUnits: perPayoutLimit,
         dailyLimitBaseUnits: dailyLimit,
         dailyUsedBaseUnits,
-        feeCoverage: hasFeeCoverage(latestSnapshot, simulation, unsignedTransaction, feeLimitSun).covered,
+        feeCoverage: latestFeeCoverage.covered,
       })) {
         await client.query('ROLLBACK')
         return
