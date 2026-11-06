@@ -136,11 +136,13 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   const sponsorToken = 's'.repeat(43)
   const ownerToken = 'o'.repeat(43)
   const sessionAddresses = new Map([
-    [createHash('sha256').update(requesterToken).digest('hex'), requesterAddress],
+    [createHash('sha256').update(requesterToken).digest('hex'), ownerAddress],
     [createHash('sha256').update(sponsorToken).digest('hex'), sponsorAddress],
-    [createHash('sha256').update(ownerToken).digest('hex'), recipientAddress],
+    [createHash('sha256').update(ownerToken).digest('hex'), ownerAddress],
+    [createHash('sha256').update(outsiderToken).digest('hex'), recipientAddress],
   ])
-  const ownerAddress = recipientAddress
+  const ownerAddress = requesterAddress
+  const outsiderToken = 'x'.repeat(43)
   let sponsorApplicationId = null
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
@@ -232,6 +234,14 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
     assert.equal(ownerReview.payload.complianceVerified, false)
+    const outsiderRequest = await call('/requests', outsiderToken, {
+      recipientAddress,
+      amount: '25',
+      idempotencyKey: randomUUID(),
+    })
+    assert.equal(outsiderRequest.response.status, 403)
+    assert.equal(outsiderRequest.payload.error, 'platform-owner-only')
+
     const first = await call('/requests', requesterToken, {
       recipientAddress,
       amount: '25',
