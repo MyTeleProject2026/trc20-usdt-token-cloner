@@ -118,6 +118,8 @@ test('owner-only Fincra request intake persists exact USDT intent idempotently w
   assert.match(handler, /valid-idempotency-key-required/)
   assert.match(handler, /isValidTronAddress\(recipientAddress\)/)
   assert.match(handler, /parseUsdtAmount\(body\.amount\)/)
+  assert.match(handler, /destinationTag/)
+  assert.match(handler, /destination_tag/)
   assert.match(handler, /ON CONFLICT \(idempotency_key\)/)
   assert.match(handler, /idempotency-key-reused-for-different-request/)
   assert.match(handler, /awaiting-provider-authorization/)
