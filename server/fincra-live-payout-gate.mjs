@@ -32,11 +32,13 @@ export function evaluateFincraLivePayoutGate(evidence = {}) {
     missing.push('ownerApprovalBoundToRequest')
   }
 
+  const uniqueMissing = [...new Set(missing)]
   return Object.freeze({
-    allowed: missing.length === 0,
-    missing: [...new Set(missing)],
+    evidenceComplete: uniqueMissing.length === 0,
+    submissionAllowed: false,
+    missing: uniqueMissing,
     payoutSubmissionEnabled: false,
-    reason: missing.length === 0
+    reason: uniqueMissing.length === 0
       ? 'evidence-complete-but-live-submission-requires-separate-reviewed-enablement'
       : 'live-payout-evidence-incomplete',
   })
