@@ -43,6 +43,8 @@ test('private owner dashboard uses per-transfer approved sponsor wallets for Mai
   assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="sponsor" />'))
   assert.ok(!/FincraWithdrawals|SponsorOrganizationOnboarding/.test(app))
   assert.ok(sponsorPage.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsorPage.includes('amountBaseUnits < 1000000000n'))
+  assert.ok(sponsorPage.includes('Platform minimum: 1,000 USDT'))
   assert.ok(sponsorPage.includes('/api/tron/sponsor-direct/requests'))
 })
 
