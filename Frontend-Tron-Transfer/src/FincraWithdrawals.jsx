@@ -34,7 +34,7 @@ function displayStatus(request) {
   return request.status || 'Request recorded'
 }
 
-export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
+export default function FincraWithdrawals({ wallet, mode = 'withdraw', ownerSession = null }) {
   const walletAddress = wallet?.address || ''
   const [session, setSession] = useState(null)
   const [recipient, setRecipient] = useState('')
@@ -48,6 +48,10 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
   const [error, setError] = useState('')
 
   const identityMatchesWallet = Boolean(session?.address === walletAddress && session?.sessionToken)
+  // Use the owner-only payout path only when the active platform owner is also
+  // the requester. Different requester wallets must use a sponsor's standing mandate.
+  const ownerManagedPayout = Boolean(ownerSession?.sessionToken && ownerSession?.address === walletAddress)
+  const payoutSessionToken = ownerManagedPayout ? ownerSession.sessionToken : session?.sessionToken
 
   async function refresh(token = session?.sessionToken) {
     if (!token) { setRequests([]); return }
@@ -137,7 +141,7 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
         throw new Error('Only a payout request that has never been submitted to Fincra can be retried. Submitted or ambiguous payouts must be reconciled.')
       }
       const result = await api('/api/tron-transfer/sponsor-requests/' + encodeURIComponent(request.id) + '/fincra-payout',
-        session.sessionToken, { method: 'POST', body: JSON.stringify({}) })
+        payoutSessionToken, { method: 'POST', body: JSON.stringify({}) })
       setNotice(result.note || 'The existing request was sent to Fincra. Wait for provider and Mainnet verification.')
       await refresh()
     } catch (cause) { setError(cause?.message || 'Could not submit the existing payout request.') }
@@ -168,7 +172,7 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
       if (!id) throw new Error('The request was not assigned a payout reference.')
       try {
         const payout = await api('/api/tron-transfer/sponsor-requests/' + encodeURIComponent(id) + '/fincra-payout',
-          session.sessionToken, { method: 'POST', body: JSON.stringify({}) })
+          payoutSessionToken, { method: 'POST', body: JSON.stringify({}) })
         setNotice(payout.note || 'Payout submission reached Fincra. Settlement is still pending verification.')
       } catch (cause) {
         setNotice('Request saved (' + created.request.customerReference + '), but automatic payout was not submitted: '
@@ -190,8 +194,10 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
       </div>
       <div className="notice notice-warning">
         <AlertTriangle size={17} />
-        <div><b>Automatic payout is bounded by a standing sponsor mandate</b>
-          <p>No new sponsor wallet prompt is required for each payout only when the sponsor has signed and the platform has independently authorized a Fincra automatic mandate for the exact business ID, asset, amount caps and validity. The Fincra account must be live-enabled and funded. An on-chain transfer to an exchange deposit address does not prove exchange internal credit. Your wallet identity signature is not spending authorization.</p>
+        <div><b>{ownerManagedPayout ? 'Owner-operated Fincra account' : 'Automatic payout requires standing sponsor authorization'}</b>
+          <p>{ownerManagedPayout
+            ? 'Your configured platform-owner session matches the connected requester wallet. The payout will use the owner-operated Fincra account path and does not require a separate sponsor wallet mandate. Use only a Fincra business account you own or are expressly authorized by Fincra to operate. The account must be live-enabled and funded.'
+            : 'For a third-party sponsor account, a sponsor must authorize a standing Fincra mandate for the exact business ID, asset, amount caps and validity. The requester does not sign each payout. The Fincra account must be live-enabled and funded.'} An on-chain transfer to an exchange deposit address does not prove exchange internal credit. Your wallet identity signature is not spending authorization.</p>
         </div>
       </div>
       {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
@@ -208,7 +214,7 @@ export default function FincraWithdrawals({ wallet, mode = 'withdraw' }) {
           <label>Beneficiary / account holder name<input value={beneficiaryName} onChange={(e) => setBeneficiaryName(e.target.value)} maxLength={120} placeholder="Name required by payout provider" /></label>
           <label>Beneficiary email (optional)<input type="email" value={beneficiaryEmail} onChange={(e) => setBeneficiaryEmail(e.target.value)} maxLength={254} placeholder="name@example.com" /></label>
           <label>USDT TRC20 amount<input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" /></label>
-          <button className="primary-button" disabled={busy || !recipient.trim() || !beneficiaryName.trim() || !amount.trim()} onClick={() => void submitRequest()}><ArrowUpRight size={16} /> Submit and attempt authorized automatic payout</button>
+          <button className="primary-button" disabled={busy || !recipient.trim() || !beneficiaryName.trim() || !amount.trim()} onClick={() => void submitRequest()}><ArrowUpRight size={16} /> {ownerManagedPayout ? 'Submit owner-authorized payout' : 'Submit and attempt authorized sponsor payout'}</button>
           <p className="fine-print">A saved request is not a payment. If automatic authorization, live provider enablement, recipient preflight or balance checks fail, the request remains recorded and no payout is reported as successful.</p>
         </div>
       )}
