@@ -257,6 +257,8 @@ async function readSponsorSnapshot(env, sponsorAddress) {
     usdtBalanceBaseUnits: BigInt('0x' + tokenHex).toString(),
     trxBalanceSun,
     energyAvailable: resourcesReadable ? Math.max(0, energyLimit - energyUsed) : null,
+    stakedBandwidthAvailable: resourcesReadable ? Math.max(0, netLimit - netUsed) : null,
+    freeBandwidthAvailable: resourcesReadable ? Math.max(0, freeNetLimit - freeNetUsed) : null,
     bandwidthAvailable: resourcesReadable
       ? Math.max(0, netLimit - netUsed) + Math.max(0, freeNetLimit - freeNetUsed)
       : null,
@@ -504,28 +506,115 @@ async function readDailyUsage(db, sponsorAddress, excludeRequestId = null) {
   return value
 }
 
-function hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun) {
+export function parseSponsorDirectFeeParameters(payload) {
+  const rows = Array.isArray(payload?.chainParameter) ? payload.chainParameter : []
+  const read = (key) => {
+    const row = rows.find((item) => item?.key === key)
+    const value = String(row?.value ?? '')
+    return /^(0|[1-9][0-9]*)$/.test(value) && BigInt(value) > 0n ? value : null
+  }
+  const energyPriceSun = read('getEnergyFee')
+  const bandwidthPriceSun = read('getTransactionFee')
+  const maxFeeLimitSun = read('getMaxFeeLimit')
+  if (!energyPriceSun || !bandwidthPriceSun || !maxFeeLimitSun) {
+    throw new Error('Current TRON Mainnet fee parameters are unavailable.')
+  }
+  return { energyPriceSun, bandwidthPriceSun, maxFeeLimitSun }
+}
+
+/**
+ * Calculates a conservative pre-sign fee reserve from the current Mainnet
+ * chain parameters. Bandwidth quota sources are evaluated separately because
+ * stake-based and free Bandwidth are not additive for one transaction.
+ */
+export function calculateSponsorDirectFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun, feeParameters) {
   const energyUsed = Number(simulation?.energy_used)
   const energyPenalty = Number(simulation?.energy_penalty || 0)
   const energyRequired = Number.isSafeInteger(energyUsed) && energyUsed >= 0
     && Number.isSafeInteger(energyPenalty) && energyPenalty >= 0
     ? Math.ceil((energyUsed + energyPenalty) * 1.2) : null
-  const bandwidthRequired = typeof unsignedTransaction?.raw_data_hex === 'string'
-    ? Math.ceil(unsignedTransaction.raw_data_hex.length / 2) + 100 : null
-  const resourcesCovered = energyRequired !== null && snapshot.energyAvailable !== null
-    && snapshot.energyAvailable >= energyRequired
-    && bandwidthRequired !== null && snapshot.bandwidthAvailable !== null
-    && snapshot.bandwidthAvailable >= bandwidthRequired
-  let trxCovered = false
-  try {
-    trxCovered = snapshot.trxBalanceSun !== null && BigInt(snapshot.trxBalanceSun) >= BigInt(feeLimitSun)
-  } catch {}
-  return {
-    covered: resourcesCovered || trxCovered,
-    method: resourcesCovered ? 'verified-energy-and-bandwidth' : trxCovered ? 'trx-fee-limit-reserve' : 'insufficient-sponsor-network-resources',
-    energyRequired,
-    bandwidthRequired,
+  const rawBytes = typeof unsignedTransaction?.raw_data_hex === 'string'
+    && /^(?:[0-9a-f]{2})+$/i.test(unsignedTransaction.raw_data_hex)
+    ? unsignedTransaction.raw_data_hex.length / 2 : null
+  // Reserve the normal 65-byte signature plus TRON's additional 64-byte Bandwidth allowance.
+  const bandwidthRequired = rawBytes === null ? null : rawBytes + 65 + 64
+  const energyAvailable = Number.isSafeInteger(snapshot?.energyAvailable) && snapshot.energyAvailable >= 0
+    ? snapshot.energyAvailable : null
+  const stakedBandwidthAvailable = Number.isSafeInteger(snapshot?.stakedBandwidthAvailable)
+    && snapshot.stakedBandwidthAvailable >= 0 ? snapshot.stakedBandwidthAvailable : null
+  const freeBandwidthAvailable = Number.isSafeInteger(snapshot?.freeBandwidthAvailable)
+    && snapshot.freeBandwidthAvailable >= 0 ? snapshot.freeBandwidthAvailable : null
+  const energyPrice = BigInt(feeParameters.energyPriceSun)
+  const bandwidthPrice = BigInt(feeParameters.bandwidthPriceSun)
+  const maxFeeLimit = BigInt(feeParameters.maxFeeLimitSun)
+  let configuredFeeLimit = 0n
+  try { configuredFeeLimit = BigInt(feeLimitSun) } catch {}
+  const validFeeLimit = configuredFeeLimit > 0n && configuredFeeLimit <= maxFeeLimit
+  const energyBudgetRequiredSun = energyRequired === null ? null : (BigInt(energyRequired) * energyPrice).toString()
+  const energyShortfall = energyRequired === null || energyAvailable === null
+    ? null : Math.max(0, energyRequired - energyAvailable)
+  const energyTrxReserveSun = energyShortfall === null
+    ? null : (BigInt(energyShortfall) * energyPrice).toString()
+  let bandwidthCoverageMethod = 'unavailable'
+  if (bandwidthRequired !== null && stakedBandwidthAvailable !== null && stakedBandwidthAvailable >= bandwidthRequired) {
+    bandwidthCoverageMethod = 'staked-bandwidth'
+  } else if (bandwidthRequired !== null && freeBandwidthAvailable !== null && freeBandwidthAvailable >= bandwidthRequired) {
+    bandwidthCoverageMethod = 'free-bandwidth'
+  } else if (bandwidthRequired !== null && stakedBandwidthAvailable !== null && freeBandwidthAvailable !== null) {
+    bandwidthCoverageMethod = 'trx-burn'
   }
+  const bandwidthTrxReserveSun = bandwidthCoverageMethod === 'trx-burn' && bandwidthRequired !== null
+    ? (BigInt(bandwidthRequired) * bandwidthPrice).toString()
+    : bandwidthCoverageMethod === 'staked-bandwidth' || bandwidthCoverageMethod === 'free-bandwidth' ? '0' : null
+  const totalTrxReserveSun = energyTrxReserveSun !== null && bandwidthTrxReserveSun !== null
+    ? (BigInt(energyTrxReserveSun) + BigInt(bandwidthTrxReserveSun)).toString() : null
+  let trxBalanceSun = null
+  try {
+    const raw = String(snapshot?.trxBalanceSun ?? '')
+    if (/^(0|[1-9][0-9]*)$/.test(raw)) trxBalanceSun = BigInt(raw)
+  } catch {}
+  const feeLimitCoversEnergy = validFeeLimit && energyBudgetRequiredSun !== null
+    && configuredFeeLimit >= BigInt(energyBudgetRequiredSun)
+  const trxBalanceCoversReserve = trxBalanceSun !== null && totalTrxReserveSun !== null
+    && trxBalanceSun >= BigInt(totalTrxReserveSun)
+  const inputsReadable = energyRequired !== null && bandwidthRequired !== null
+    && energyAvailable !== null && stakedBandwidthAvailable !== null && freeBandwidthAvailable !== null
+    && totalTrxReserveSun !== null
+  const covered = inputsReadable && feeLimitCoversEnergy && trxBalanceCoversReserve
+  const energyResourcesCovered = energyShortfall === 0
+  const bandwidthResourcesCovered = bandwidthCoverageMethod === 'staked-bandwidth'
+    || bandwidthCoverageMethod === 'free-bandwidth'
+  const method = !inputsReadable ? 'fee-preflight-unavailable'
+    : energyResourcesCovered && bandwidthResourcesCovered ? 'verified-energy-and-bandwidth'
+      : trxBalanceCoversReserve ? 'mixed-resource-and-trx-reserve'
+        : 'insufficient-sponsor-network-resources'
+  return {
+    covered,
+    method,
+    energyRequired,
+    energyAvailable,
+    energyShortfall,
+    energyPriceSun: feeParameters.energyPriceSun,
+    energyBudgetRequiredSun,
+    energyTrxReserveSun,
+    bandwidthRequired,
+    stakedBandwidthAvailable,
+    freeBandwidthAvailable,
+    bandwidthCoverageMethod,
+    bandwidthPriceSun: feeParameters.bandwidthPriceSun,
+    bandwidthTrxReserveSun,
+    totalTrxReserveSun,
+    trxBalanceSun: trxBalanceSun === null ? null : trxBalanceSun.toString(),
+    feeLimitSun: configuredFeeLimit.toString(),
+    maxFeeLimitSun: feeParameters.maxFeeLimitSun,
+    feeLimitCoversEnergy,
+    trxBalanceCoversReserve,
+  }
+}
+
+async function readSponsorDirectFeeParameters(env, providerPost) {
+  const payload = await providerPost(env, 'wallet/getchainparameters', {})
+  return parseSponsorDirectFeeParameters(payload)
 }
 
 export function isSponsorDirectAutoRouteEligible({
