@@ -1362,11 +1362,6 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
-      const mandate = await getAuthorizedSponsorMandate(client, auth.address, now())
-      if (!mandate) {
-        await client.query('ROLLBACK')
-        return res.status(403).json({ success: false, error: 'authorized-sponsor-organization-mandate-required' })
-      }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(client, auth.address, id),
@@ -1374,8 +1369,8 @@ export function createSponsorDirectPayoutsRouter({
       ])
       const amountBaseUnits = String(row.amount_base_units)
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
-      const perPayoutLimit = lowerBaseUnitLimit(profile.per_payout_limit_base_units, mandate.per_payout_limit_base_units)
-      const dailyLimit = lowerBaseUnitLimit(profile.daily_limit_base_units, mandate.daily_limit_base_units)
+      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
+      const dailyLimit = String(profile.daily_limit_base_units || '0')
       if (BigInt(amountBaseUnits) > BigInt(perPayoutLimit)) {
         await client.query('ROLLBACK')
         return res.status(409).json({ success: false, error: 'sponsor-per-payout-limit-exceeded', availableBaseUnits, requestedBaseUnits: amountBaseUnits })
