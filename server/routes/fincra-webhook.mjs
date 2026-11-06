@@ -81,7 +81,7 @@ export function normalizeFincraPayoutWebhook(payload) {
       || data.walletAddress,
     64,
   )
-  const destinationTag = clean(data.beneficiary?.destinationTag || data.destinationTag, 128)
+  const destinationTag = clean(data.beneficiary?.destinationTag || data.recipient?.destinationTag || data.destinationTag, 128)
   const amountCharged = optionalAmount(data.amountCharged)
   const amountReceived = optionalAmount(data.amountReceived)
   const fee = optionalAmount(data.fee)
@@ -325,6 +325,7 @@ export function createFincraWebhookRouter({
       )
       let found = { rows: [] }
       if (requestTable.rows[0]?.table_name) {
+        await client.query('ALTER TABLE ' + SCHEMA + '.tron_transfer_sponsor_requests ADD COLUMN IF NOT EXISTS destination_tag TEXT')
         found = await client.query(
           'SELECT id, customer_reference, recipient_address, destination_tag, amount_base_units, fincra_status ' +
           'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1 FOR UPDATE',
