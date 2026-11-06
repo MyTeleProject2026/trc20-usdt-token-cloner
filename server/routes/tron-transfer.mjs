@@ -213,11 +213,13 @@ async function readFincraSourceBalance(config) {
   }
 }
 
-function payoutStatusFromProvider(value) {
+export function payoutStatusFromProvider(value) {
   const status = cleanString(value, 32).toLowerCase()
   if (status === 'successful') return 'successful'
   if (status === 'failed') return 'failed'
-  if (status === 'processing') return 'processing'
+  // Fincra documents "pending" as a non-terminal payout state. Normalize it
+  // to processing so valid pending webhooks are acknowledged and reconciled.
+  if (status === 'pending' || status === 'processing') return 'processing'
   return 'unknown'
 }
 
