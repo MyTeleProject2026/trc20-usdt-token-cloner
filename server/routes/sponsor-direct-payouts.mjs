@@ -27,6 +27,7 @@ const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
+export const MINIMUM_WITHDRAWAL_BASE_UNITS = '1000000000' // 1,000 USDT at six decimals
 const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 let pool
@@ -1053,6 +1054,8 @@ export function createSponsorDirectPayoutsRouter({
       network: 'mainnet',
       asset: 'USDT',
       tokenContract: MAINNET_USDT_CONTRACT,
+      minimumWithdrawalUsdt: '1000',
+      minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS,
       payoutMode: 'sponsor-direct',
       requesterWalletFundingRequired: false,
       requesterWalletSignaturePurpose: 'identity-only',
@@ -1359,6 +1362,14 @@ export function createSponsorDirectPayoutsRouter({
     let amountBaseUnits
     try { amountBaseUnits = parseSponsorDirectUsdtAmount(body.amount) } catch {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
+    }
+    if (BigInt(amountBaseUnits) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+      return res.status(400).json({
+        success: false,
+        error: 'minimum-withdrawal-1000-usdt',
+        minimumWithdrawalUsdt: '1000',
+        minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS,
+      })
     }
     const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
