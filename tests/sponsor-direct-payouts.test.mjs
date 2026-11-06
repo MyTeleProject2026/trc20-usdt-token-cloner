@@ -18,7 +18,7 @@ import {
 import { buildOwnerUsdtTransferParameter, MAINNET_USDT_CONTRACT } from '../server/routes/tron-owner-withdrawals.mjs'
 
 const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
-const recipientAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const recipientAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
 const requesterAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
 const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
 
@@ -168,7 +168,7 @@ test('Mainnet sponsor fee coverage fails closed when fee_limit does not cover En
 })
 
 function unsignedTransfer(overrides = {}) {
-  const amountBaseUnits = '25000000'
+  const amountBaseUnits = '1000000000'
   const parameter = buildOwnerUsdtTransferParameter(recipientAddress, amountBaseUnits, tronWeb)
   const rawDataHex = 'deadbeef'
   return {
@@ -195,7 +195,7 @@ function unsignedTransfer(overrides = {}) {
 
 test('unsigned sponsor transaction must bind the sponsor, official token, recipient and amount', () => {
   const tx = unsignedTransfer()
-  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '25000000', tronWeb }
+  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '1000000000', tronWeb }
   assert.equal(matchesSponsorDirectUnsignedTransaction(tx, intent), true)
   assert.equal(matchesSponsorDirectUnsignedTransaction(tx, { ...intent, sponsorAddress: requesterAddress }), false)
   assert.equal(matchesSponsorDirectUnsignedTransaction(tx, { ...intent, recipientAddress: requesterAddress }), false)
@@ -203,7 +203,7 @@ test('unsigned sponsor transaction must bind the sponsor, official token, recipi
 })
 
 test('unsigned sponsor transaction rejects malformed tx IDs, expired data and non-single-call payloads', () => {
-  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '25000000', tronWeb }
+  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '1000000000', tronWeb }
   const valid = unsignedTransfer()
   assert.equal(matchesSponsorDirectUnsignedTransaction({ ...valid, txID: 'z'.repeat(64) }, intent), false)
   assert.equal(matchesSponsorDirectUnsignedTransaction({
@@ -268,7 +268,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         sponsorAddress: address,
         network: 'mainnet',
         tokenContract: MAINNET_USDT_CONTRACT,
-        usdtBalanceBaseUnits: '100000000',
+        usdtBalanceBaseUnits: '1000000000',
         trxBalanceSun: '0',
         energyAvailable: 100000,
         stakedBandwidthAvailable: 100000,
@@ -328,15 +328,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
-      perPayoutLimit: '50',
-      dailyLimit: '100',
+      perPayoutLimit: '1000',
+      dailyLimit: '1000',
     })
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
     assert.equal(ownerReview.payload.complianceVerified, false)
     const outsiderRequest = await call('/requests', outsiderToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: randomUUID(),
     })
     assert.equal(outsiderRequest.response.status, 403)
@@ -344,7 +344,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const first = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: firstIdempotencyKey,
     })
     assert.equal(first.response.status, 201)
@@ -355,7 +355,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const second = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: secondIdempotencyKey,
     })
     assert.equal(second.response.status, 201)
@@ -364,9 +364,9 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const readiness = await call('/readiness', sponsorToken)
     assert.equal(readiness.response.status, 200)
-    assert.equal(readiness.payload.reservedUsdtBaseUnits, '25000000')
-    assert.equal(readiness.payload.availableUsdtBaseUnits, '75000000')
-    assert.equal(readiness.payload.dailyUsedBaseUnits, '25000000')
+    assert.equal(readiness.payload.reservedUsdtBaseUnits, '1000000000')
+    assert.equal(readiness.payload.availableUsdtBaseUnits, '0')
+    assert.equal(readiness.payload.dailyUsedBaseUnits, '1000000000')
 
     const prepared = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
     assert.equal(prepared.response.status, 201)
