@@ -12,13 +12,13 @@ Implemented in this branch:
 - Read-only diagnostics against the authenticated Fincra business profile and its business wallet list.
 - Payout-record normalization that requires exact business payout identity (customer reference, currencies, scheme, destination and recipient). A successful result is accepted by the helper only when the beneficiary's net received amount exactly matches the requested amount; mismatches go to manual review.
 - HMAC-SHA512 webhook-signature verification helper.
-- Sandbox-only payout initiation and customer-reference lookup helpers. The sandbox initiation helper refuses live mode and requires the explicit \`FINCRA_SANDBOX_PAYOUTS_ENABLED=true\` flag.
+- Sandbox-only payout initiation plus read-only customer-reference lookup. The submit helper refuses live mode and requires the explicit \`FINCRA_SANDBOX_PAYOUTS_ENABLED=true\` flag; the reference lookup supports sandbox and live modes and never submits a payout. It distinguishes a provider 404 from other provider failures.
 - Owner-only provider-readiness page now displays the Fincra API/profile and sponsor-account balance diagnostics without enabling submission.
 
 ## What this does not enable
 
 - Production Fincra payout submission remains disabled.
-- The existing legacy \`/sponsor-requests/:id/fincra-payout\`, \`/sponsor-requests/:id/fincra-status\`, and \`/fincra/webhook\` endpoints remain disabled. The new helper is not a route that can send funds in production.
+- Production Fincra payout submission remains disabled. The legacy payout-request intake, payout-submit and status-polling routes still return HTTP 410. Separately, the signed receiver is mounted at \`POST /api/tron-transfer/fincra/webhook\`; it validates HMAC-SHA512, records targeted final USDT TRC20 webhook events idempotently, and only updates an exact legacy request match. It cannot initiate a payout or confirm TRON chain settlement.
 - The readiness API does not claim Fincra has donated USDT or granted credit. A positive available balance belongs to the configured Fincra business account and must be attributable to the sponsor under a lawful, documented arrangement.
 - An API key and matching business ID do not prove the operator is legally authorized to use the business account or that the sponsor approved the payout program.
 - Sandbox acceptance is not Mainnet submission, TRON settlement, or exchange deposit credit.
@@ -34,7 +34,7 @@ Keep all credentials on the backend only:
 | \`FINCRA_SECRET_KEY\` | Fincra environment-specific secret API key |
 | \`FINCRA_BUSINESS_ID\` | Exact business ID returned by the authenticated business profile |
 | \`FINCRA_SOURCE_CURRENCY\` | \`USDT\` for this same-currency adapter |
-| \`FINCRA_WEBHOOK_SECRET\` | Webhook HMAC-SHA512 verification key; helper only in this release |
+| \`FINCRA_WEBHOOK_SECRET\` | Backend-only HMAC-SHA512 key used by the mounted signed webhook receiver |
 | \`FINCRA_SANDBOX_PAYOUTS_ENABLED\` | Optional, explicit sandbox-only test gate; does not enable live payouts |
 
 Do not put any of these values in source control, frontend variables, issues, pull requests, or chat. Rotate credentials that have already been exposed outside the provider/Render secret store.
