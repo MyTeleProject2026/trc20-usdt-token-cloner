@@ -50,6 +50,9 @@ class FakeDatabase {
       this.events.add(digest)
       return { rows: [{ event_digest: digest }] }
     }
+    if (normalized.startsWith('select to_regclass')) {
+      return { rows: [{ table_name: this.request ? 'trc20_token_clone.tron_transfer_sponsor_requests' : null }] }
+    }
     if (normalized.startsWith('select id, customer_reference')) {
       return { rows: this.request && this.request.customer_reference === values[0] ? [this.request] : [] }
     }
@@ -114,13 +117,11 @@ test('normalizer marks mismatched event and provider statuses for review', () =>
 })
 
 test('webhook rejects an invalid HMAC signature without connecting to the database', async () => {
-  let databaseCalls = 0
   await withServer(null, async (base) => {
     const result = await postWebhook(base, payoutWebhook(), '0'.repeat(128))
     assert.equal(result.response.status, 401)
     assert.equal(result.payload.error, 'invalid-fincra-webhook-signature')
   }, {})
-  assert.equal(databaseCalls, 0)
 })
 
 test('webhook records an authenticated matching payout event without claiming chain settlement', async () => {
