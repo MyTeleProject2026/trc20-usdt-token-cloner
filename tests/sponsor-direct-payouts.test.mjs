@@ -18,7 +18,7 @@ import {
 import { buildOwnerUsdtTransferParameter, MAINNET_USDT_CONTRACT } from '../server/routes/tron-owner-withdrawals.mjs'
 
 const sponsorAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
-const recipientAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
+const recipientAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const requesterAddress = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8'
 const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
 
@@ -400,6 +400,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
 test('public sponsor-direct configuration allows a zero-balance requester but requires sponsor funding and signature', async (t) => {
   const app = express()
+  app.use(express.json())
   app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({ env: {} }))
   const server = createServer(app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
