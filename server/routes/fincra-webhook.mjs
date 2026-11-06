@@ -5,6 +5,7 @@ import { normalizeDatabaseConnectionString, databaseSslConfig } from '../databas
 import { isValidTronAddress } from '../tron-address.mjs'
 import { parseFincraUsdtBaseUnits, verifyFincraWebhookSignature } from '../fincra-payout-provider.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
+import { getFincraWebhookTransition } from '../fincra-payout-state.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -141,10 +142,12 @@ function getWebhookRequestMatchReasons(row, event) {
     return reasons
   }
   if (event.customerReference !== row.customer_reference) reasons.push('customer-reference-mismatch')
-  const payoutState = clean(row.status, 48).toLowerCase()
-  if (!['submission-unknown', 'provider-processing', 'awaiting-chain-verification'].includes(payoutState)) {
-    reasons.push('payout-not-in-submitted-or-reconciliation-state')
-  }
+  const transition = getFincraWebhookTransition({
+    requestStatus: row.status,
+    previousProviderStatus: row.fincra_status,
+    providerStatus: event.providerStatus,
+  })
+  if (!transition.allowed) reasons.push(transition.reason)
   if (event.recipientAddress !== row.recipient_address) reasons.push('recipient-mismatch')
   if ((event.destinationTag || '') !== (row.destination_tag || '')) reasons.push('destination-tag-mismatch')
   if (event.sourceCurrency !== 'USDT' || event.destinationCurrency !== 'USDT') reasons.push('currency-route-mismatch')
@@ -160,10 +163,6 @@ function getWebhookRequestMatchReasons(row, event) {
     reasons.push('successful-net-amount-does-not-match-request')
   }
 
-  const previousStatus = clean(row.fincra_status, 32).toLowerCase()
-  if (['successful', 'failed'].includes(previousStatus) && previousStatus !== event.providerStatus) {
-    reasons.push('terminal-provider-status-conflict')
-  }
   return [...new Set(reasons)]
 }
 
@@ -348,18 +347,25 @@ export function createFincraWebhookRouter({
       )
 
       if (matched) {
+        const transition = getFincraWebhookTransition({
+          requestStatus: row.status,
+          previousProviderStatus: row.fincra_status,
+          providerStatus: event.providerStatus,
+        })
+        if (!transition.allowed) throw new Error('fincra-webhook-transition-not-allowed')
         await client.query(
           'UPDATE ' + SCHEMA + '.tron_transfer_sponsor_requests SET ' +
-          'status=CASE WHEN $3=\'successful\' THEN \'awaiting-chain-verification\' ELSE \'provider-failed\' END, ' +
+          'status=$8, ' +
           'fincra_reference=COALESCE($2,fincra_reference), fincra_status=$3, fincra_webhook_event=$4, ' +
           'fincra_webhook_received_at=now(), fincra_amount_charged_base_units=$5, ' +
           'fincra_amount_received_base_units=$6, fincra_fee_base_units=$7, ' +
           'fincra_submitted_at=COALESCE(fincra_submitted_at,now()), ' +
-          'fincra_successful_at=CASE WHEN $3=\'successful\' THEN COALESCE(fincra_successful_at,now()) ELSE fincra_successful_at END, ' +
+          'fincra_successful_at=CASE WHEN $3=\\'successful\\' THEN COALESCE(fincra_successful_at,now()) ELSE fincra_successful_at END, ' +
           'updated_at=now() WHERE id=$1',
           [
             row.id, event.providerReference, event.providerStatus, event.eventType,
             event.amountChargedBaseUnits, event.amountReceivedBaseUnits, event.feeBaseUnits,
+            transition.nextStatus,
           ],
         )
       }
