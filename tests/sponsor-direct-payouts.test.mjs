@@ -371,6 +371,13 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(prepared.response.status, 201)
     assert.equal(prepared.payload.request.status, 'prepared')
     assert.equal(prepared.payload.feeCoverage.covered, true)
+    assert.equal(prepared.payload.feeCoverage.totalTrxReserveSun, '0')
+
+    const reusedPreparation = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
+    assert.equal(reusedPreparation.response.status, 200)
+    assert.equal(reusedPreparation.payload.duplicate, true)
+    assert.equal(reusedPreparation.payload.feeCoverage.covered, true)
+    assert.equal(reusedPreparation.payload.signingAllowed, true)
 
     const sponsorQueue = await call('/queue', sponsorToken)
     assert.equal(sponsorQueue.response.status, 200)
