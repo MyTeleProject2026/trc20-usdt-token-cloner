@@ -7,7 +7,7 @@ import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
-import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
+import { readFincraAccountDiagnostics, lookupFincraPayoutByCustomerReference, normalizeFincraPayoutRecord } from '../fincra-payout-provider.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -696,15 +696,81 @@ transaction_hash CHAR(64),
     })
   })
 
+  // Read-only reconciliation lookup for an existing payout reference. This
+  // route never creates, retries, or submits a payout and never marks chain
+  // settlement as complete.
   router.post('/sponsor-requests/:id/fincra-status', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    return res.status(410).json({
-      success: false,
-      error: 'legacy-fincra-status-polling-disabled',
-      providerRequestMade: false,
-    })
+    const id = cleanString(req.params?.id, 64)
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(400).json({ success: false, error: 'invalid-sponsor-request-id' })
+    }
+    const db = getPool(env)
+    if (!db || typeof db.connect !== 'function') {
+      return res.status(503).json({ success: false, error: 'payout-request-storage-unavailable' })
+    }
+    let client
+    try {
+      client = await db.connect()
+      await ensureSchema(client)
+      const row = await findRequest(client, id)
+      if (!row) return res.status(404).json({ success: false, error: 'sponsor-request-not-found' })
+      const customerReference = cleanString(row.fincra_reference || row.customer_reference, 80)
+      if (!customerReference) {
+        return res.status(409).json({
+          success: false, error: 'fincra-customer-reference-missing',
+          providerRequestMade: false, payoutSubmitted: false,
+        })
+      }
+      const result = await lookupFincraPayoutByCustomerReference(env, customerReference)
+      if (!result.found) {
+        return res.status(200).json({
+          success: true, found: false, providerStatus: 'not-found',
+          customerReference, providerRequestMade: true, payoutSubmitted: false,
+          retryAllowed: false,
+          message: 'The original reference is not currently visible at Fincra. Preserve this reference and reconcile again; do not create a replacement payout.',
+        })
+      }
+      const identity = normalizeFincraPayoutRecord(result.payout, {
+        customerReference,
+        recipientAddress: row.recipient_address,
+        amount: row.amount_decimal,
+      })
+      return res.status(200).json({
+        success: true,
+        found: true,
+        provider: 'fincra',
+        customerReference,
+        providerStatus: identity.status,
+        providerRecordValid: identity.valid,
+        reviewReasons: identity.reasons,
+        recipientAddress: identity.recipientAddress,
+        amountReceivedBaseUnits: identity.amountReceivedBaseUnits,
+        amountChargedBaseUnits: identity.amountChargedBaseUnits,
+        providerReference: identity.providerReference,
+        providerTransactionHash: identity.transactionHash,
+        payoutSubmitted: false,
+        transactionSubmitted: false,
+        chainSettlementVerified: false,
+        message: identity.valid
+          ? 'Provider status was read and identity checks passed. This is not proof of a solidified TRON transfer.'
+          : 'Provider record requires manual review. No local payout or chain-settlement status was changed.',
+      })
+    } catch (error) {
+      const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599
+        ? error.status : 502
+      return res.status(status).json({
+        success: false,
+        error: status === 404 ? 'fincra-payout-reference-not-found' : 'fincra-status-lookup-unavailable',
+        providerStatus: status,
+        providerRequestMade: true,
+        payoutSubmitted: false,
+      })
+    } finally {
+      client?.release()
+    }
   })
 
   router.post('/fincra/webhook', (_req, res) => {
