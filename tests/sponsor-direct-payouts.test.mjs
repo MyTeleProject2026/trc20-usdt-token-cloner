@@ -149,8 +149,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
   try {
     await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
-    await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
-        const app = express()
+    const app = express()
     app.use(express.json())
     app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
       env: {
