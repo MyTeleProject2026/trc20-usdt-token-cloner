@@ -404,7 +404,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       })
       setNotice(result.note || 'Sponsor transaction prepared. Review the exact details before signing.')
       await refresh()
-      setPrepared(item)
+      setPrepared({
+        ...item,
+        feeSnapshot: result.snapshot || null,
+        signingAllowed: result.signingAllowed !== false && result.feeCoverage?.covered === true,
+      })
     } catch (cause) {
       setError(cause?.message || 'Could not prepare the sponsor payout.')
     } finally {
