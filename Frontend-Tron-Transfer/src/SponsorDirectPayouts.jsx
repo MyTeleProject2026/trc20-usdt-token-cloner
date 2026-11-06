@@ -395,6 +395,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         unsignedTransaction: result.unsignedTransaction,
         feeLimitSun: result.feeLimitSun,
         feeCoverage: result.feeCoverage,
+        feeSnapshot: result.snapshot || null,
       }
       setPrepared(item)
       setNotice(result.note || 'Sponsor transaction prepared. Review the exact details before signing.')
@@ -712,11 +713,17 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Sending sponsor: {prepared.sponsorAddress}</span>
                 <span>External recipient: {prepared.recipientAddress}</span>
                 <span>Asset: Official USDT TRC20 · TRON Mainnet</span>
-                <span>Amount: {formatUnits(prepared.amountBaseUnits)} USDT</span>
+                <span>USDT principal to recipient: {formatUnits(prepared.amountBaseUnits)} USDT</span>
+                <span>Network-cost coverage: {prepared.feeCoverage?.method === 'verified-energy-and-bandwidth' ? 'Sponsor Energy + Bandwidth preflight passed' : prepared.feeCoverage?.method === 'trx-fee-limit-reserve' ? 'Sponsor TRX reserve preflight passed' : 'Coverage not verified — do not sign'}</span>
+                {prepared.feeCoverage?.energyRequired !== null && prepared.feeCoverage?.energyRequired !== undefined && <span>Buffered Energy requirement: {Number(prepared.feeCoverage.energyRequired).toLocaleString()} Energy</span>}
+                {prepared.feeCoverage?.bandwidthRequired !== null && prepared.feeCoverage?.bandwidthRequired !== undefined && <span>Buffered Bandwidth requirement: {Number(prepared.feeCoverage.bandwidthRequired).toLocaleString()} bytes (pre-sign estimate)</span>}
+                {prepared.feeSnapshot?.trxBalanceSun !== null && prepared.feeSnapshot?.trxBalanceSun !== undefined && <span>Observed sponsor TRX balance: {formatUnits(prepared.feeSnapshot.trxBalanceSun)} TRX</span>}
+                {prepared.feeLimitSun && <span>Transaction fee_limit: {formatUnits(prepared.feeLimitSun)} TRX-equivalent maximum Energy budget</span>}
                 <span>Transaction ID: {prepared.transactionHash || prepared.unsignedTransaction.txID}</span>
                 <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
               </div>
-              <p className="fine-print">Check the sender, recipient and exact amount. The next action opens the sponsor wallet's own TronLink approval. Nothing is broadcast until the sponsor explicitly approves the transaction.</p>
+              <p className="fine-print">The sponsor wallet supplies the USDT principal and its own TRON network resources or TRX. The fee_limit is a maximum caller-side Energy budget, not a quoted fee or an amount charged upfront. Actual resource use and TRX burn depend on execution and finalized chain conditions; a failed contract execution can still consume resources. The requester’s zero-balance wallet is not charged.</p>
+              <p className="fine-print">Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Nothing is broadcast until the sponsor explicitly signs this exact transaction.</p>
               {hasExpiredPreparation(prepared)
                 ? <button className="secondary-button" disabled={busy || !identityMatchesWallet} onClick={() => void prepareRequest(prepared)}><RefreshCw size={16} /> Refresh expired preparation</button>
                 : <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
