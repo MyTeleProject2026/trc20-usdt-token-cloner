@@ -95,6 +95,12 @@ function responseRows(payload) {
   if (Array.isArray(data?.results)) return data.results
   if (Array.isArray(data?.accounts)) return data.accounts
   if (Array.isArray(data?.balances)) return data.balances
+  if (data && typeof data === 'object'
+    && (data.currency || data.sourceCurrency)
+    && (data.availableBalance !== undefined || data.available_balance !== undefined)) return [data]
+  if (payload && typeof payload === 'object'
+    && (payload.currency || payload.sourceCurrency)
+    && (payload.availableBalance !== undefined || payload.available_balance !== undefined)) return [payload]
   return []
 }
 
