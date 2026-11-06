@@ -57,6 +57,11 @@ export function buildFincraUsdtTronPayoutPayload(input = {}) {
   const customerReference = clean(input.customerReference, 80)
   const amount = toFincraNumericAmount(input.amount)
   const beneficiaryEmail = clean(input.beneficiaryEmail, 254).toLowerCase()
+  const destinationTag = clean(input.destinationTag, 128)
+
+  if (destinationTag && !/^[A-Za-z0-9._:-]{1,128}$/.test(destinationTag)) {
+    throw new Error('invalid-beneficiary-destination-tag')
+  }
 
   if (!BUSINESS_ID_RE.test(businessId)) throw new Error('invalid-fincra-business-id')
   if (!isValidTronAddress(recipientAddress)) throw new Error('invalid-tron-mainnet-recipient-address')
@@ -79,6 +84,7 @@ export function buildFincraUsdtTronPayoutPayload(input = {}) {
       walletAddress: recipientAddress,
       accountHolderName: beneficiaryName,
       ...(beneficiaryEmail ? { email: beneficiaryEmail } : {}),
+      ...(destinationTag ? { destinationTag } : {}),
     },
   }
 }
