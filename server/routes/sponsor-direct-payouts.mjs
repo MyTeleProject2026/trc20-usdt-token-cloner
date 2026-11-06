@@ -1490,12 +1490,55 @@ export function createSponsorDirectPayoutsRouter({
       if (row.status === 'prepared' && row.sponsor_address === auth.address
         && row.expires_at && new Date(row.expires_at).getTime() > now()) {
         await client.query('COMMIT')
+        // Re-run live fee preflight before returning a saved unsigned transaction.
+        // A stale UI snapshot must never be treated as current fee authorization.
+        const snapshot = await readSnapshot(env, auth.address)
+        const amountBaseUnits = String(row.amount_base_units)
+        const feeLimitSun = String(row.unsigned_transaction?.raw_data?.fee_limit ?? 0)
+        if (!/^[1-9][0-9]{0,12}$/.test(feeLimitSun)) {
+          return res.status(503).json({ success: false, error: 'saved-transaction-fee-limit-unreadable' })
+        }
+        const requestBody = {
+          owner_address: auth.address,
+          contract_address: MAINNET_USDT_CONTRACT,
+          function_selector: 'transfer(address,uint256)',
+          parameter: buildOwnerUsdtTransferParameter(row.recipient_address, amountBaseUnits, tronWeb),
+          fee_limit: Number(feeLimitSun),
+          call_value: 0,
+          visible: true,
+        }
+        const simulation = await providerPost(env, 'wallet/triggerconstantcontract', requestBody)
+        if (simulation?.result?.result !== true) {
+          return res.status(409).json({ success: false, error: 'sponsor-transfer-fee-preflight-failed' })
+        }
+        const feeParameters = await readSponsorDirectFeeParameters(env, providerPost)
+        const feeCoverage = calculateSponsorDirectFeeCoverage(
+          snapshot, simulation, row.unsigned_transaction, feeLimitSun, feeParameters,
+        )
         return res.json({
           success: true,
           duplicate: true,
           request: publicRequest(row),
           unsignedTransaction: row.unsigned_transaction,
-          note: 'The same unexpired sponsor preparation was returned. No second payout was created.',
+          feeLimitSun,
+          feeCoverage,
+          snapshot: {
+            usdtBalanceBaseUnits: snapshot.usdtBalanceBaseUnits,
+            reservedUsdtBaseUnits: await readReservations(db, auth.address, id),
+            availableUsdtBaseUnits: calculateSponsorDirectAvailableBaseUnits(
+              snapshot.usdtBalanceBaseUnits, await readReservations(db, auth.address, id),
+            ),
+            trxBalanceSun: snapshot.trxBalanceSun,
+            energyAvailable: snapshot.energyAvailable,
+            stakedBandwidthAvailable: snapshot.stakedBandwidthAvailable,
+            freeBandwidthAvailable: snapshot.freeBandwidthAvailable,
+            bandwidthAvailable: snapshot.bandwidthAvailable,
+            checkedAt: snapshot.checkedAt,
+          },
+          signingAllowed: feeCoverage.covered,
+          note: feeCoverage.covered
+            ? 'The same unsigned transaction was rechecked against current Mainnet fee parameters. No second payout was created.'
+            : 'The saved unsigned transaction is unchanged, but current fee coverage is insufficient. Do not sign until the sponsor has sufficient resources or TRX and a fresh preparation is available.',
         })
       }
       if (row.status === 'requested' && row.sponsor_address === auth.address
