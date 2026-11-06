@@ -530,14 +530,14 @@ transaction_hash CHAR(64),
     // Read-only Fincra profile and USDT-wallet diagnostics. These checks do
     // not prove sponsor authority, legal eligibility, credit, or payout consent.
     const fincra = await readFincraAccountDiagnostics(env)
-    const readiness = getUnconfiguredProviderPayoutReadiness()
+    const unconfiguredReadiness = getUnconfiguredProviderPayoutReadiness()
     const sponsorBusinessBalanceVerified = fincra.apiAuthenticated
       && fincra.businessIdMatches
       && fincra.usdtWalletFound
       && fincra.availableUsdtBalanceBaseUnits !== null
       && BigInt(fincra.availableUsdtBalanceBaseUnits) > 0n
     const blockers = [
-      ...readiness.blockers,
+      ...unconfiguredReadiness.blockers.filter((blocker) => blocker !== 'no-provider-selected'),
       ...(fincra.apiAuthenticated ? [] : ['fincra-api-authentication-not-verified']),
       ...(fincra.businessIdMatches ? [] : ['fincra-business-id-not-matched-to-api-profile']),
       ...(sponsorBusinessBalanceVerified ? [] : ['sponsor-fincra-usdt-account-funding-not-verified']),
@@ -551,7 +551,14 @@ transaction_hash CHAR(64),
       ownerAddress: auth.address,
       selectedProvider: 'Fincra',
       fincra,
-      readiness: { ...readiness, blockers, executionEnabled: false, status: 'provider-payout-blocked' },
+      readiness: {
+        ...unconfiguredReadiness,
+        provider: { name: 'Fincra', selected: true },
+        checks: { ...unconfiguredReadiness.checks, providerSelected: true },
+        blockers,
+        executionEnabled: false,
+        status: 'provider-payout-blocked',
+      },
       funding: {
         ownerDepositRequired: false,
         ownerWalletPrincipalRequired: false,
