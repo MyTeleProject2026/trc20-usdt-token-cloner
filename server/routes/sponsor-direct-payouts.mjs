@@ -1948,11 +1948,25 @@ export function createSponsorDirectPayoutsRouter({
           failureCode = verification.status
         }
         if (nextStatus !== row.status || failureCode !== row.failure_code) {
+          // A status refresh may have started from a stale read while the
+          // background worker (or another refresh) already finalized this payout.
+          // Restrict writes to unresolved states so a delayed result can never
+          // downgrade confirmed/failed/manual-review terminal evidence.
           const updated = await db.query(
-            'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=$2, failure_code=$3, updated_at=now() WHERE id=$1 RETURNING *',
-            [id, nextStatus, failureCode],
+            'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=$2, failure_code=$3, updated_at=now() ' +
+            "WHERE id=$1 AND status = ANY($4::text[]) RETURNING *",
+            [id, nextStatus, failureCode, ['submitted', 'outcome-unknown', 'broadcasting']],
           )
-          row = updated.rows[0] || row
+          if (updated.rows[0]) {
+            row = updated.rows[0]
+          } else {
+            // Another process won the race; return its current durable state.
+            const latest = await db.query(
+              'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 LIMIT 1',
+              [id],
+            )
+            row = latest.rows[0] || row
+          }
         }
       }
       return res.json({
