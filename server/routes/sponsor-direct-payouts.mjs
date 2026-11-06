@@ -1770,6 +1770,64 @@ export function createSponsorDirectPayoutsRouter({
         amountBaseUnits: String(row.amount_base_units),
         tronWeb: tronWebForMainnet(),
       }
+      // Verify current principal and resource coverage again after the sponsor
+      // signs but before any broadcast attempt; preparation data can go stale.
+      const [latestSnapshot, otherReservations] = await Promise.all([
+        readSnapshot(env, auth.address),
+        readReservations(client, auth.address, id),
+      ])
+      const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(
+        latestSnapshot.usdtBalanceBaseUnits, otherReservations,
+      )
+      if (BigInt(availableBaseUnits) < payoutAmountBaseUnits) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'sponsor-mainnet-usdt-balance-changed',
+          availableBaseUnits,
+          requestedBaseUnits: String(row.amount_base_units),
+          note: 'The signed transaction was not broadcast because the sponsor no longer has enough unreserved Mainnet USDT.',
+        })
+      }
+      const transactionFeeLimitSun = String(row.unsigned_transaction?.raw_data?.fee_limit ?? '')
+      if (!/^[1-9][0-9]{0,12}$/.test(transactionFeeLimitSun)) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'sponsor-fee-limit-unreadable' })
+      }
+      const feeRequest = {
+        owner_address: auth.address,
+        contract_address: MAINNET_USDT_CONTRACT,
+        function_selector: 'transfer(address,uint256)',
+        parameter: buildOwnerUsdtTransferParameter(
+          row.recipient_address, String(row.amount_base_units), tronWebForMainnet(),
+        ),
+        fee_limit: Number(transactionFeeLimitSun),
+        call_value: 0,
+        visible: true,
+      }
+      const latestSimulation = await providerPost(env, 'wallet/triggerconstantcontract', feeRequest)
+      if (latestSimulation?.result?.result !== true) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'sponsor-mainnet-fee-simulation-changed',
+          note: 'The exact transfer simulation no longer passes. The signed transaction was not broadcast.',
+        })
+      }
+      const currentFeeParameters = await readSponsorDirectFeeParameters(env, providerPost)
+      const latestFeeCoverage = calculateSponsorDirectFeeCoverage(
+        latestSnapshot, latestSimulation, row.unsigned_transaction,
+        transactionFeeLimitSun, currentFeeParameters,
+      )
+      if (!latestFeeCoverage.covered) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'sponsor-mainnet-fee-coverage-changed',
+          feeCoverage: latestFeeCoverage,
+          note: 'Current Mainnet Energy/Bandwidth resources or TRX reserve no longer cover this exact transfer. The signed transaction was not broadcast.',
+        })
+      }
       const validation = validateOwnerSignedTransaction(signedTransaction, row.unsigned_transaction, intent)
       if (!validation.ok) {
         await client.query('ROLLBACK')
