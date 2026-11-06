@@ -123,7 +123,7 @@ export default function App() {
       }
       setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:token})
     setOwnerSessionResolved(true)
-    } catch {setOwnerSession(null)}
+    } catch {setOwnerSession(null)} finally {setOwnerSessionResolved(true)}
   }
   async function signInOwner() {
     if(!isValidAddress(ownerAddress.trim())||!ownerPassword) throw new Error('Enter the configured owner Mainnet address and password.')
