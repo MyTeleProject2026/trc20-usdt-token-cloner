@@ -179,6 +179,17 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
+test('sponsor payout status refresh cannot overwrite a concurrently finalized state', () => {
+  const statusHandler = sponsorRoute.slice(
+    sponsorRoute.indexOf("router.get('/requests/:id'"),
+    sponsorRoute.indexOf('\n  return router', sponsorRoute.indexOf("router.get('/requests/:id'")),
+  )
+  assert.match(statusHandler, /WHERE id=\$1 AND status = ANY\(\$4::text\[\]\) RETURNING \*/);
+  assert.match(statusHandler, /\['submitted', 'outcome-unknown', 'broadcasting'\]/);
+  assert.match(statusHandler, /Another process won the race/);
+  assert.match(statusHandler, /SELECT \* FROM .*sponsor_direct_payouts WHERE id=\$1 LIMIT 1/);
+});
+
 test('private owner console exposes sponsor withdrawals and keeps provider readiness separate', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
