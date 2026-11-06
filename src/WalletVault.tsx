@@ -100,6 +100,26 @@ type OwnerTreasurySnapshot = {
   submissionEnabled?: boolean
 }
 
+type OwnerTreasuryFundingLedger = {
+  success?: boolean
+  status?: string
+  treasuryAddress?: string
+  onChainBalanceBaseUnits?: string
+  reservedBaseUnits?: string
+  availableBaseUnits?: string
+  totalVerifiedInboundBaseUnits?: string
+  native?: { status?: string; balanceTRX?: string }
+  payoutSubmissionEnabled?: boolean
+  entries?: Array<{
+    transactionHash: string
+    logIndex: number
+    fromAddress: string
+    amountBaseUnits: string
+    blockNumber: number
+    verifiedAt: string | null
+  }>
+}
+
 type OwnerSponsorLiquiditySource = {
   address: string
   status: string
@@ -358,6 +378,12 @@ export default function WalletVault() {
   const [transferHistory, setTransferHistory] = useState<TransferActivity[]>(readTransferHistory)
   const [historyLoading, setHistoryLoading] = useState('')
   const [ownerTreasurySnapshot, setOwnerTreasurySnapshot] = useState<OwnerTreasurySnapshot | null>(null)
+  const [ownerFundingLedger, setOwnerFundingLedger] = useState<OwnerTreasuryFundingLedger | null>(null)
+  const [ownerFundingLedgerError, setOwnerFundingLedgerError] = useState('')
+  const [fundingDepositTxHash, setFundingDepositTxHash] = useState('')
+  const [fundingDepositFromAddress, setFundingDepositFromAddress] = useState('')
+  const [fundingDepositAmount, setFundingDepositAmount] = useState('')
+  const [fundingDepositBusy, setFundingDepositBusy] = useState(false)
   const [ownerSponsorLiquidity, setOwnerSponsorLiquidity] = useState<OwnerSponsorLiquiditySnapshot | null>(null)
   const [ownerSponsorLiquidityError, setOwnerSponsorLiquidityError] = useState('')
   const [ownerTreasuryLoading, setOwnerTreasuryLoading] = useState(false)
@@ -1050,6 +1076,7 @@ export default function WalletVault() {
       }
       setOwnerSessionToken(verified.sessionToken)
       setOwnerTreasurySnapshot(status as OwnerTreasurySnapshot)
+      await refreshOwnerFundingLedger(verified.sessionToken)
       const payoutReadinessResponse = await fetch(API_BASE + '/api/treasury/withdrawals/readiness', {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: 'Bearer ' + verified.sessionToken },
@@ -1063,6 +1090,74 @@ export default function WalletVault() {
       setOwnerTreasuryError(caught instanceof Error ? caught.message : 'Owner treasury verification failed. No payout was signed or submitted.')
     } finally {
       setOwnerTreasuryLoading(false)
+    }
+  }
+
+  async function refreshOwnerFundingLedger(sessionToken: string = ownerSessionToken) {
+    if (!sessionToken) return
+    setOwnerFundingLedgerError('')
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/owner/funding-ledger?network=mainnet', {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: 'Bearer ' + sessionToken },
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true
+        || payload.network !== 'mainnet'
+        || typeof payload.onChainBalanceBaseUnits !== 'string'
+        || typeof payload.availableBaseUnits !== 'string') {
+        throw new Error(payload?.message || payload?.error || 'Verified funding ledger is unavailable.')
+      }
+      setOwnerFundingLedger(payload as OwnerTreasuryFundingLedger)
+    } catch (caught) {
+      setOwnerFundingLedger(null)
+      setOwnerFundingLedgerError(caught instanceof Error ? caught.message : 'Could not load the verified treasury funding ledger.')
+    }
+  }
+
+  async function verifyIncomingTreasuryDeposit() {
+    if (!ownerSessionToken || ownerTreasurySnapshot?.ownerAccessVerified !== true) {
+      setOwnerFundingLedgerError('Sign the configured owner wallet check before verifying a treasury inflow.')
+      return
+    }
+    setFundingDepositBusy(true)
+    setOwnerFundingLedgerError('')
+    try {
+      const response = await fetch(API_BASE + '/api/treasury/owner/funding-ledger/deposits/verify', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + ownerSessionToken,
+        },
+        body: JSON.stringify({
+          network: 'mainnet',
+          transactionHash: fundingDepositTxHash.trim(),
+          fromAddress: fundingDepositFromAddress.trim(),
+          amount: fundingDepositAmount.trim(),
+        }),
+        credentials: 'omit',
+        cache: 'no-store',
+        redirect: 'error',
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.success !== true || payload?.credited !== true) {
+        throw new Error(payload?.message || payload?.error || 'The incoming transfer was not credited to the verified ledger.')
+      }
+      setFundingDepositTxHash('')
+      setFundingDepositFromAddress('')
+      setFundingDepositAmount('')
+      await refreshOwnerFundingLedger(ownerSessionToken)
+      setNotice(payload.duplicate
+        ? 'This exact solidified Mainnet USDT transfer was already recorded; no duplicate credit was created.'
+        : 'Incoming Mainnet USDT transfer verified and recorded. Refresh the live balance before preparing any payout.')
+    } catch (caught) {
+      setOwnerFundingLedgerError(caught instanceof Error ? caught.message : 'Treasury inflow verification failed.')
+    } finally {
+      setFundingDepositBusy(false)
     }
   }
 
@@ -1956,6 +2051,54 @@ export default function WalletVault() {
                       {ownerTreasurySnapshot.treasuryAddress && ownerTreasurySnapshot.treasuryAddress !== unlocked.record.address && (
                         <p className="wallet-vault-risk-note" role="note">The watched treasury address is different from the currently unlocked wallet. The Send section below can sign only from the unlocked wallet address; this watch-only address cannot authorize a payout. To send treasury funds, the treasury wallet must be unlocked locally with its matching private key and must hold the real assets.</p>
                       )}
+                    </>
+                  )}
+                  <div className="wallet-vault-transfer-warning" role="note">
+                    <strong>Verified incoming Mainnet funding ledger</strong>
+                    <p>Record a deposit only after the sender has transferred official Tether TRC20 USDT to the configured treasury address. The backend verifies the solidified transaction and exact sender, recipient, amount, token contract, and Transfer event. This is an inflow ledger, not a funding generator or an outgoing payout authorization.</p>
+                  </div>
+                  <div className="wallet-vault-transfer-form">
+                    <label>Incoming transaction hash
+                      <input value={fundingDepositTxHash} onChange={(event) => setFundingDepositTxHash(event.target.value)} placeholder="64-character Mainnet transaction hash" autoComplete="off" spellCheck={false} />
+                    </label>
+                    <label>Sender TRON address
+                      <input value={fundingDepositFromAddress} onChange={(event) => setFundingDepositFromAddress(event.target.value)} placeholder="T..." autoComplete="off" spellCheck={false} />
+                    </label>
+                    <label>Received amount (USDT)
+                      <input value={fundingDepositAmount} onChange={(event) => setFundingDepositAmount(event.target.value)} placeholder="e.g. 25.00" inputMode="decimal" />
+                    </label>
+                    <button type="button" className="wallet-vault-primary" disabled={fundingDepositBusy || !ownerSessionToken || !fundingDepositTxHash.trim() || !fundingDepositFromAddress.trim() || !fundingDepositAmount.trim()} onClick={() => void verifyIncomingTreasuryDeposit()}>
+                      <ShieldCheck size={16} /> {fundingDepositBusy ? 'Checking solidified Mainnet event…' : 'Verify and record incoming USDT'}
+                    </button>
+                    <button type="button" className="wallet-vault-secondary" disabled={!ownerSessionToken || fundingDepositBusy} onClick={() => void refreshOwnerFundingLedger()}>
+                      <RefreshCw size={15} /> Refresh verified funding ledger
+                    </button>
+                  </div>
+                  {ownerFundingLedgerError && <p className="wallet-vault-risk-note" role="alert">{ownerFundingLedgerError}</p>}
+                  {ownerFundingLedger && (
+                    <>
+                      <div className="wallet-vault-review-grid">
+                        <div><small>Live on-chain USDT</small><strong>{formatUnits(ownerFundingLedger.onChainBalanceBaseUnits || '0', 6)} USDT</strong></div>
+                        <div><small>Active payout reservations</small><strong>{formatUnits(ownerFundingLedger.reservedBaseUnits || '0', 6)} USDT</strong></div>
+                        <div><small>Unreserved on-chain balance</small><strong>{formatUnits(ownerFundingLedger.availableBaseUnits || '0', 6)} USDT</strong></div>
+                        <div><small>Verified inflows recorded</small><strong>{formatUnits(ownerFundingLedger.totalVerifiedInboundBaseUnits || '0', 6)} USDT</strong></div>
+                        <div className="wallet-vault-review-wide"><small>Treasury network fee balance</small><strong>{ownerFundingLedger.native?.status === 'verified' ? (ownerFundingLedger.native.balanceTRX || '0') + ' TRX' : 'Not verified'}</strong></div>
+                      </div>
+                      <p className="wallet-vault-caption">Available USDT is calculated from the live treasury balance less active sponsor-direct payout reservations. It does not include an Energy/Bandwidth fee assessment, prove source-of-funds compliance, or enable treasury signing. Outgoing payouts remain subject to an approved sponsor profile and that wallet's fresh signature.</p>
+                      {ownerFundingLedger.entries?.length ? (
+                        <div className="wallet-vault-history-list">
+                          {ownerFundingLedger.entries.map((entry) => (
+                            <div className="wallet-vault-history-item" key={entry.transactionHash + ':' + entry.logIndex}>
+                              <div className="wallet-vault-history-main">
+                                <strong>{formatUnits(entry.amountBaseUnits, 6)} USDT received</strong>
+                                <small>{shortenAddress(entry.fromAddress)} · block {entry.blockNumber} · event {entry.logIndex}</small>
+                                <a href={'https://tronscan.org/#/transaction/' + entry.transactionHash} target="_blank" rel="noopener noreferrer">View verified transaction ↗</a>
+                              </div>
+                              <span className="wallet-vault-status-tag">SOLIDIFIED</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="wallet-vault-caption">No verified inflows have been recorded in this ledger yet.</p>}
                     </>
                   )}
                   <div className="wallet-vault-transfer-warning" role="note">
