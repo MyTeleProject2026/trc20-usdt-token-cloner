@@ -36,7 +36,7 @@ independent Mainnet reconciliation have been completed and explicitly enabled.
 
 ## What this does not enable
 
-- Production Fincra payout submission remains disabled. The owner-only `POST /api/tron-transfer/sponsor-requests` route creates a durable, idempotent withdrawal request; it does not call Fincra, reserve funds, or broadcast a transaction. The `POST /api/tron-transfer/sponsor-requests/:id/fincra-payout` route remains disabled and returns HTTP 410. The owner-only `POST /api/tron-transfer/sponsor-requests/:id/fincra-status` route performs a read-only lookup against the original Fincra customer reference and validates provider identity; it never submits/retries a payout or changes chain-settlement state. Separately, the signed receiver is mounted at `POST /api/tron-transfer/fincra/webhook`; it validates HMAC-SHA512, records targeted final USDT TRC20 webhook events idempotently, and only updates an exact legacy request match. It cannot initiate a payout or confirm TRON chain settlement.
+- Production Fincra payout submission remains disabled. The owner-only `POST /api/tron-transfer/sponsor-requests` route creates a durable, idempotent withdrawal request; it does not call Fincra, reserve funds, or broadcast a transaction. The `POST /api/tron-transfer/sponsor-requests/:id/fincra-payout` route remains disabled and returns HTTP 410. The owner-only `POST /api/tron-transfer/sponsor-requests/:id/fincra-status` route performs a read-only lookup against the original Fincra customer reference and validates provider identity; it never submits/retries a payout or changes chain-settlement state. Separately, the signed receiver is mounted at `POST /api/tron-transfer/fincra/webhook`; it validates HMAC-SHA512 and records targeted final USDT TRC20 webhook events idempotently. It only applies a provider result when the exact local request is already in `submission-unknown`, `provider-processing`, or `awaiting-chain-verification`; an intake request still awaiting provider authorization is sent to manual review and cannot be advanced by a webhook. A matched successful provider event advances the request only to `awaiting-chain-verification`; a matched failure advances it to `provider-failed`. The receiver cannot initiate/retry a payout or confirm TRON chain settlement.
 - The readiness API does not claim Fincra has donated USDT or granted credit. A positive available balance belongs to the configured Fincra business account and must be attributable to the sponsor under a lawful, documented arrangement.
 - An API key and matching business ID do not prove the operator is legally authorized to use the business account or that the sponsor approved the payout program.
 - Sandbox acceptance is not Mainnet submission, TRON settlement, or exchange deposit credit.
@@ -75,6 +75,22 @@ All of the following remain required before a live payout route may be enabled:
 No personal wallet funding, unapproved third-party spending, fabricated balance, or exchange-credit claim is permitted as a fallback.
 
 
+## Webhook state-transition guard
+
+The signed webhook now checks the durable local request state in addition to
+customer reference, recipient, amount, route and destination tag. Only
+`submission-unknown`, `provider-processing`, and `awaiting-chain-verification`
+requests are eligible for provider-status reconciliation. A newly created
+`awaiting-provider-authorization` request cannot be advanced by a webhook,
+even if a signed event happens to carry its customer reference. Such an event
+is retained as review-required without updating the request.
+
+A matching successful Fincra event advances the local workflow to
+`awaiting-chain-verification`, never `settled`; a matching failed event advances
+it to `provider-failed`. The final chain-settlement decision remains separate
+and requires independent solidified TRON Mainnet USDT transfer verification.
+This guard does not create a submission path: the payout endpoint remains
+disabled, and no request is moved into a submitted state by this change.
 ## Duplicate and timeout policy
 
 A webhook is a provider notification, not a withdrawal instruction. The receiver deduplicates a repeated signed event, binds any supplied exchange destination tag to the stored request tag, and must never use a duplicate notification to create another payout. If an event was originally stored as unmatched solely because its local request did not yet exist, a later delivery of the same signed event may retry that local matching step after the request is created; once matched or sent to manual review, subsequent duplicates do not reapply it. This replay only reconciles provider metadata and never creates or resubmits a payout. A payout itself is identified by one stable, unique `customerReference`. Fincra documents that reusing a customer reference is rejected as a duplicate; on an ambiguous network timeout, reconcile the original reference rather than creating a new one. Its payout overview describes `RESOURCE_NOT_FOUND` as a response to re-query until a definitive `processing`, `failed`, or `successful` status is returned, so one 404 is not a final-failure signal. See the [Fincra stablecoin payout API](https://docs.fincra.com/reference/initiate-payout-2), [customer-reference status lookup](https://docs.fincra.com/reference/fetch-payout-by-customer-reference), and [payout overview and errors](https://docs.fincra.com/docs/payout-overview).
