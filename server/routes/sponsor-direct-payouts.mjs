@@ -173,6 +173,13 @@ function canonicalAddress(value, tronWeb) {
   }
 }
 
+export function sponsorApprovalContainsAddress(response, address) {
+  const result = response?.result
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false
+  if (result.result === false || result.code) return false
+  return Array.isArray(response.approved_list) && response.approved_list.includes(address)
+}
+
 export function matchesSponsorDirectUnsignedTransaction(transaction, intent) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) return false
   const { sponsorAddress, recipientAddress, amountBaseUnits, tronWeb = tronWebForMainnet() } = intent || {}
@@ -1859,8 +1866,7 @@ export function createSponsorDirectPayoutsRouter({
         raw_data: signedTransaction.raw_data,
         visible: true,
       })
-      const approvedAddresses = Array.isArray(approved?.approved_list) ? approved.approved_list : []
-      if (approved?.result?.result !== true || approved?.result?.code || !approvedAddresses.includes(auth.address)) {
+      if (!sponsorApprovalContainsAddress(approved, auth.address)) {
         await client.query('ROLLBACK')
         return res.status(401).json({ success: false, error: 'sponsor-signature-not-approved-by-tron-network' })
       }
