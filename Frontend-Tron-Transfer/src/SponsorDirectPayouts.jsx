@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import SponsorOrganizationOnboarding from './SponsorOrganizationOnboarding.jsx'
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw,
   ShieldCheck, Wallet, Building2, ClipboardCheck, Send,
@@ -407,14 +406,6 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         <small className="fine-print">Signing the identity message does not spend TRX, transfer tokens, or authorize sponsor withdrawals.</small>
       </div>
 
-      {mode === 'sponsor' && (
-        <SponsorOrganizationOnboarding
-          wallet={wallet}
-          identityToken={identityToken}
-          identityMatchesWallet={identityMatchesWallet}
-          ownerSession={ownerSession}
-        />
-      )}
 
       {mode !== 'sponsor' && mode !== 'history' && (
         <div className="sponsor-funding-destination">
@@ -441,7 +432,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Contract: {MAINNET_USDT}</span>
                 <span>Requester wallet: identity only</span>
                 <span>Sender: approved sponsor wallet</span>
-                <span>Routing: automatic matching against authorized sponsor mandates and live funding checks</span>
+                <span>Routing: automatic matching against owner-approved individual sponsor wallets and live funding checks</span>
                 <span>Signer: sponsor's TronLink account; sponsor approval is still required</span>
                 <span>Broadcast and confirmation: Tatum Mainnet</span>
               </div>

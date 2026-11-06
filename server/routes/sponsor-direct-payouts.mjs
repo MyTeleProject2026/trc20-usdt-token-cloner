@@ -528,31 +528,6 @@ function hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun) 
   }
 }
 
-async function getAuthorizedSponsorMandate(db, sponsorAddress, nowMs) {
-  try {
-    const result = await db.query(
-      'SELECT m.* FROM ' + SCHEMA + '.sponsor_organization_mandates m ' +
-      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ON a.id=m.application_id ' +
-      'WHERE m.sponsor_wallet_address=$1 AND a.sponsor_wallet_address=$1 ' +
-      'AND a.status=\'accepted-for-due-diligence\' AND m.status=\'authorized\' ' +
-      'AND m.purpose=\'both\' ' +
-      'AND m.valid_from <= $2 AND m.valid_until > $2 ' +
-      'ORDER BY m.updated_at DESC LIMIT 1',
-      [sponsorAddress, new Date(nowMs).toISOString()],
-    )
-    return result.rows[0] || null
-  } catch {
-    // Missing organization/mandate schema, stale DB state, or query errors all fail closed.
-    return null
-  }
-}
-
-function lowerBaseUnitLimit(left, right) {
-  const a = BigInt(String(left || '0'))
-  const b = BigInt(String(right || '0'))
-  return (a < b ? a : b).toString()
-}
-
 export function isSponsorDirectAutoRouteEligible({
   amountBaseUnits,
   balanceBaseUnits,
@@ -600,23 +575,15 @@ async function autoAssignSponsorToRequest({
     await releaseExpiredSponsorMatches(db)
     const found = await db.query(
       'SELECT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
-      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ' +
-      'ON a.sponsor_wallet_address=s.sponsor_address ' +
-      'JOIN ' + SCHEMA + '.sponsor_organization_mandates m ' +
-      'ON m.application_id=a.id AND m.sponsor_wallet_address=s.sponsor_address ' +
-      'WHERE s.status=\'active\' AND a.status=\'accepted-for-due-diligence\' ' +
-      'AND m.status=\'authorized\' AND m.purpose=\'both\' ' +
-      'AND m.valid_from <= $1 AND m.valid_until > $1 ' +
-      'AND s.sponsor_address <> $2 ' +
-      'AND ($4::text IS NULL OR s.sponsor_address <> $4::text) ' +
-      'AND s.per_payout_limit_base_units >= $3::numeric ' +
-      'AND m.per_payout_limit_base_units >= $3::numeric ' +
+      'WHERE s.status=\'active\' ' +
+      'AND s.sponsor_address <> $1 ' +
+      'AND ($3::text IS NULL OR s.sponsor_address <> $3::text) ' +
+      'AND s.per_payout_limit_base_units >= $2::numeric ' +
       'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
       'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\' ' +
       'AND (p.expires_at IS NULL OR p.expires_at > now())) ' +
       'GROUP BY s.sponsor_address ORDER BY MIN(s.updated_at) ASC LIMIT 10',
       [
-        new Date(now()).toISOString(),
         request.requester_address,
         amountBaseUnits,
         isValidTronAddress(clean(env.OWNER_WALLET_ADDRESS, 64)) ? clean(env.OWNER_WALLET_ADDRESS, 64) : null,
@@ -624,7 +591,7 @@ async function autoAssignSponsorToRequest({
     )
     candidates = found.rows || []
   } catch {
-    // Organization tables may not yet exist; preserve the request in the unassigned queue.
+    // A temporary database or sponsor-profile issue leaves the request unassigned.
     return { request, routing: 'awaiting-eligible-sponsor' }
   }
 
@@ -679,8 +646,7 @@ async function autoAssignSponsorToRequest({
       }
 
       const profile = await getSponsorProfile(client, sponsorAddress)
-      const mandate = await getAuthorizedSponsorMandate(client, sponsorAddress, now())
-      if (!profile || profile.status !== 'active' || !mandate || mandate.purpose !== 'both') {
+      if (!profile || profile.status !== 'active') {
         await client.query('ROLLBACK')
         return
       }
@@ -699,14 +665,8 @@ async function autoAssignSponsorToRequest({
         readReservations(client, sponsorAddress),
         readDailyUsage(client, sponsorAddress),
       ])
-      const perPayoutLimit = lowerBaseUnitLimit(
-        profile.per_payout_limit_base_units,
-        mandate.per_payout_limit_base_units,
-      )
-      const dailyLimit = lowerBaseUnitLimit(
-        profile.daily_limit_base_units,
-        mandate.daily_limit_base_units,
-      )
+      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
+      const dailyLimit = String(profile.daily_limit_base_units || '0')
       if (!isSponsorDirectAutoRouteEligible({
         amountBaseUnits,
         balanceBaseUnits: latestSnapshot.usdtBalanceBaseUnits,
@@ -1001,8 +961,9 @@ export function createSponsorDirectPayoutsRouter({
       sponsorWalletSignatureRequired: true,
       payoutExecution: 'conditional-on-approved-funded-sponsor',
       sponsorApprovalRequired: true,
-      sponsorOrganizationVerification: 'platform-review-required; legal-entity and KYC verification are not performed by this application',
-      note: 'A requester can submit a withdrawal request with a zero-balance wallet. An actual payout executes only after an approved sponsor wallet is verified to hold the official Mainnet USDT amount and sufficient TRON network resources, and the sponsor signs the exact transaction in its own wallet.',
+      sponsorOrganizationVerification: 'not-required-for-individual-per-transfer-wallet-sponsorship',
+      sponsorComplianceStatus: 'platform wallet review only; this application does not perform identity, KYC, KYB or source-of-funds verification',
+      note: 'A requester can submit a withdrawal request with a zero-balance wallet. An individual self-custody sponsor can participate after platform-owner wallet review, without an organization application or provider account. Every payout still requires a fresh signature from the sponsor wallet after live Mainnet USDT and network-resource checks. This is not identity or source-of-funds verification.'
     })
   })
 
@@ -1161,25 +1122,14 @@ export function createSponsorDirectPayoutsRouter({
           submissionEnabled: false,
         })
       }
-      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
-      if (!mandate) {
-        return res.status(403).json({
-          success: false,
-          error: 'authorized-sponsor-organization-mandate-required',
-          canSponsorPayouts: false,
-          canSubmitSponsoredTransfer: false,
-          submissionEnabled: false,
-          note: 'A wallet-only sponsor application is insufficient. An organization application, signed written mandate and separate owner authorization are required.',
-        })
-      }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(db, auth.address),
         readDailyUsage(db, auth.address),
       ])
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
-      const dailyLimit = lowerBaseUnitLimit(profile.daily_limit_base_units, mandate.daily_limit_base_units)
-      const perPayoutLimit = lowerBaseUnitLimit(profile.per_payout_limit_base_units, mandate.per_payout_limit_base_units)
+      const dailyLimit = String(profile.daily_limit_base_units || '0')
+      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
       const dailyRemaining = calculateSponsorDirectAvailableBaseUnits(dailyLimit, dailyUsedBaseUnits)
       return res.json({
         success: true,
@@ -1198,8 +1148,11 @@ export function createSponsorDirectPayoutsRouter({
         dailyUsedBaseUnits,
         dailyRemainingBaseUnits: dailyRemaining,
         checkedAt: snapshot.checkedAt,
-        canSponsorPayouts: BigInt(availableBaseUnits) > 0n && BigInt(dailyRemaining) > 0n,
-        note: 'All USDT availability comes from the sponsor wallet on solidified Mainnet state, less active reservations. This balance is not the requester’s wallet balance.',
+        canSponsorPayouts: BigInt(availableBaseUnits) > 0n && BigInt(dailyRemaining) > 0n
+          && BigInt(perPayoutLimit) > 0n,
+        sponsorQualification: 'owner-reviewed-individual-self-custody-wallet',
+        complianceVerified: false,
+        note: 'All USDT availability comes from the sponsor wallet on solidified Mainnet state, less active reservations. Every transfer is signed by that sponsor wallet. Platform approval is not KYC, KYB, identity verification or source-of-funds verification.',
       })
     } catch (error) {
       return res.status(Number.isInteger(error?.status) ? error.status : 502).json({
@@ -1265,7 +1218,7 @@ export function createSponsorDirectPayoutsRouter({
         transactionBroadcast: false,
         note: routed.routing === 'auto-assigned-awaiting-sponsor-signature'
           ? 'An eligible sponsor was automatically matched using a fresh Mainnet USDT and fee-resource check. The sponsor must still review and sign the exact payout in its own wallet. No funds have moved yet.'
-          : 'Your zero-balance wallet submitted the request. No currently eligible sponsor could be matched; it remains in the approved sponsor queue until a sponsor with an authorized mandate and sufficient funds/resources can accept it. No funds have moved.',
+          : 'Your zero-balance wallet submitted the request. No currently eligible funded sponsor wallet could be matched; it remains available in the sponsor queue. A sponsor must be owner-approved, hold the requested USDT and network resources, and sign each exact payout. No funds have moved.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-request-storage-unavailable' })
@@ -1309,15 +1262,6 @@ export function createSponsorDirectPayoutsRouter({
       const profile = await getSponsorProfile(db, auth.address)
       if (!profile || profile.status !== 'active') {
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
-      }
-      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
-      if (!mandate || mandate.purpose !== 'both') {
-        return res.json({
-          success: true,
-          requests: [],
-          canReceivePayoutRequests: false,
-          note: 'An active wallet sponsor application and an authorized, unexpired organization mandate for USDT principal and network fees are required before this sponsor can receive payout requests.',
-        })
       }
       await releaseExpiredSponsorMatches(db)
       const result = await db.query(
@@ -1418,11 +1362,6 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
-      const mandate = await getAuthorizedSponsorMandate(client, auth.address, now())
-      if (!mandate) {
-        await client.query('ROLLBACK')
-        return res.status(403).json({ success: false, error: 'authorized-sponsor-organization-mandate-required' })
-      }
       const [snapshot, reservedBaseUnits, dailyUsedBaseUnits] = await Promise.all([
         readSnapshot(env, auth.address),
         readReservations(client, auth.address, id),
@@ -1430,8 +1369,8 @@ export function createSponsorDirectPayoutsRouter({
       ])
       const amountBaseUnits = String(row.amount_base_units)
       const availableBaseUnits = calculateSponsorDirectAvailableBaseUnits(snapshot.usdtBalanceBaseUnits, reservedBaseUnits)
-      const perPayoutLimit = lowerBaseUnitLimit(profile.per_payout_limit_base_units, mandate.per_payout_limit_base_units)
-      const dailyLimit = lowerBaseUnitLimit(profile.daily_limit_base_units, mandate.daily_limit_base_units)
+      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
+      const dailyLimit = String(profile.daily_limit_base_units || '0')
       if (BigInt(amountBaseUnits) > BigInt(perPayoutLimit)) {
         await client.query('ROLLBACK')
         return res.status(409).json({ success: false, error: 'sponsor-per-payout-limit-exceeded', availableBaseUnits, requestedBaseUnits: amountBaseUnits })
@@ -1576,11 +1515,17 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
-      const mandate = await getAuthorizedSponsorMandate(client, auth.address, now())
-      if (!mandate
-        || BigInt(String(row.amount_base_units)) > BigInt(String(mandate.per_payout_limit_base_units))) {
+      const payoutAmountBaseUnits = BigInt(String(row.amount_base_units))
+      const perPayoutLimitBaseUnits = BigInt(String(profile.per_payout_limit_base_units || '0'))
+      if (payoutAmountBaseUnits <= 0n || payoutAmountBaseUnits > perPayoutLimitBaseUnits) {
         await client.query('ROLLBACK')
-        return res.status(403).json({ success: false, error: 'authorized-sponsor-mandate-invalid-or-expired' })
+        return res.status(403).json({ success: false, error: 'sponsor-per-payout-limit-exceeded' })
+      }
+      const dailyLimitBaseUnits = BigInt(String(profile.daily_limit_base_units || '0'))
+      const dailyUsedBaseUnits = BigInt(await readDailyUsage(client, auth.address, id))
+      if (dailyUsedBaseUnits + payoutAmountBaseUnits > dailyLimitBaseUnits) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'sponsor-daily-limit-exceeded' })
       }
       if (row.status !== 'prepared') {
         await client.query('ROLLBACK')
