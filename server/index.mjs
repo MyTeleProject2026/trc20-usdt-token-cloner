@@ -11,7 +11,6 @@ import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import tronTransferRoutes from './routes/tron-transfer.mjs'
-import { createTronOwnerWithdrawalsRouter } from './routes/tron-owner-withdrawals.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
@@ -141,7 +140,6 @@ app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/tron-transfer', tronTransferRoutes)
-app.use('/api/tron-owner-withdrawals', createTronOwnerWithdrawalsRouter())
 
 if (process.env.DATABASE_URL) {
   try {
