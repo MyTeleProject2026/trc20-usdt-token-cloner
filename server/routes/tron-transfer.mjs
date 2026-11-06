@@ -860,6 +860,7 @@ transaction_hash CHAR(64),
       const identity = normalizeFincraPayoutRecord(result.payout, {
         customerReference,
         recipientAddress: row.recipient_address,
+        destinationTag: row.destination_tag || '',
         amount: row.amount_decimal,
       })
       return res.status(200).json({
