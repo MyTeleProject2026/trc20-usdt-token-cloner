@@ -13,6 +13,7 @@ import {
   matchesSponsorDirectUnsignedTransaction,
   sponsorApprovalContainsAddress,
   classifySponsorBroadcastResponse,
+  classifySponsorDirectSettlement,
   isSponsorDirectAutoRouteEligible,
   createSponsorDirectPayoutsRouter,
 } from '../server/routes/sponsor-direct-payouts.mjs'
@@ -199,6 +200,54 @@ test('ambiguous or negative Tatum broadcast responses remain reconcilable by the
   assert.equal(classifySponsorBroadcastResponse({ result: false, code: 'DUP_TRANSACTION_ERROR' }), 'outcome-unknown')
   assert.equal(classifySponsorBroadcastResponse({ code: 'SERVER_BUSY' }), 'outcome-unknown')
   assert.equal(classifySponsorBroadcastResponse(null), 'outcome-unknown')
+})
+
+test('settlement reconciliation confirms only exact solidified evidence and keeps missing evidence pending', () => {
+  const transactionHash = 'a'.repeat(64)
+  const transfer = {
+    transaction_hash: transactionHash,
+    sponsor_address: sponsorAddress,
+    recipient_address: recipientAddress,
+    token_contract: MAINNET_USDT_CONTRACT,
+    amount_base_units: '25000000',
+  }
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: { verified: false, status: 'awaiting-solidified-receipt' },
+  }), { status: 'pending', reason: 'awaiting-solidified-receipt' })
+
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: {
+      verified: true,
+      transactionHash,
+      contract: MAINNET_USDT_CONTRACT,
+      from: sponsorAddress,
+      to: recipientAddress,
+      amountBaseUnits: '25000000',
+      blockNumber: 123456,
+      logIndex: 0,
+    },
+  }), { status: 'confirmed', blockNumber: 123456, logIndex: 0, reason: null })
+
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: {
+      verified: true,
+      transactionHash: 'b'.repeat(64),
+      contract: MAINNET_USDT_CONTRACT,
+      from: sponsorAddress,
+      to: recipientAddress,
+      amountBaseUnits: '25000000',
+      blockNumber: 123456,
+      logIndex: 0,
+    },
+  }), { status: 'manual-review', reason: 'solidified-evidence-identity-mismatch' })
+
+  assert.deepEqual(classifySponsorDirectSettlement({
+    transfer,
+    verification: { verified: false, status: 'solidified-transaction-failed' },
+  }), { status: 'failed', reason: 'confirmed-solidified-transaction-failed' })
 })
 
 test('TRON approved-list accepts documented successful response and fails closed on errors or wrong signer', () => {
