@@ -1908,7 +1908,7 @@ export function createSponsorDirectPayoutsRouter({
     }
     if (classifySponsorBroadcastResponse(broadcast) === 'outcome-unknown') {
       await db.query(
-        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\\'outcome-unknown\\', failure_code=$2, updated_at=now() WHERE id=$1 AND status=\\'broadcasting\\'',
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'outcome-unknown\', failure_code=$2, updated_at=now() WHERE id=$1 AND status=\'broadcasting\'',
         [id, clean(broadcast?.code || broadcast?.message, 128) || 'tatum-broadcast-response-inconclusive'],
       )
       return res.status(202).json({
