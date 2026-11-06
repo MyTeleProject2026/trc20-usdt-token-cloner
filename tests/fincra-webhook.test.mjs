@@ -73,7 +73,7 @@ class FakeDatabase {
       return { rows: [] }
     }
     if (normalized.startsWith('update trc20_token_clone.tron_transfer_sponsor_requests')) {
-      this.requestUpdates.push(values)
+      this.requestUpdates.push({ sql: String(sql), values })
       return { rows: [] }
     }
     return { rows: [] }
@@ -154,6 +154,7 @@ test('webhook records an authenticated matching payout event without claiming ch
     destination_tag: 'deposit-2048',
     amount_base_units: '10000000',
     fincra_status: 'processing',
+    status: 'provider-processing',
   })
   await withServer(database, async (base) => {
     const result = await postWebhook(base, payoutWebhook({ destinationTag: 'deposit-2048' }))
@@ -165,7 +166,28 @@ test('webhook records an authenticated matching payout event without claiming ch
     assert.equal(result.payload.chainSettlement, 'not-verified')
     assert.equal(database.events.get(normalizeFincraPayoutWebhook(payoutWebhook({ destinationTag: 'deposit-2048' })).eventDigest).destination_tag, 'deposit-2048')
     assert.equal(database.requestUpdates.length, 1)
+    assert.match(database.requestUpdates[0].sql, /status=CASE WHEN \$3='successful' THEN 'awaiting-chain-verification' ELSE 'provider-failed' END/)
     assert.deepEqual(database.identityStatuses, ['matched'])
+  })
+})
+
+test('webhook cannot advance a withdrawal that has not reached a submitted reconciliation state', async () => {
+  const database = new FakeDatabase({
+    id: 'request-awaiting-authorization',
+    customer_reference: customerReference,
+    recipient_address: recipientAddress,
+    destination_tag: null,
+    amount_base_units: '10000000',
+    fincra_status: null,
+    status: 'awaiting-provider-authorization',
+  })
+  await withServer(database, async (base) => {
+    const result = await postWebhook(base, payoutWebhook())
+    assert.equal(result.response.status, 200)
+    assert.equal(result.payload.identityStatus, 'review-required')
+    assert.equal(result.payload.localRequestMatched, false)
+    assert.equal(database.requestUpdates.length, 0)
+    assert.ok(database.reviewReasons[0].includes('payout-not-in-submitted-or-reconciliation-state'))
   })
 })
 
@@ -177,6 +199,7 @@ test('webhook destination-tag mismatch is recorded for review and not applied', 
     destination_tag: 'expected-tag',
     amount_base_units: '10000000',
     fincra_status: 'processing',
+    status: 'provider-processing',
   })
   await withServer(database, async (base) => {
     const result = await postWebhook(base, payoutWebhook({ destinationTag: 'different-tag' }))
@@ -195,6 +218,7 @@ test('webhook delivery is idempotent for the same signed event', async () => {
     recipient_address: recipientAddress,
     amount_base_units: '10000000',
     fincra_status: 'processing',
+    status: 'provider-processing',
   })
   await withServer(database, async (base) => {
     const first = await postWebhook(base, payoutWebhook())
@@ -212,6 +236,7 @@ test('webhook amount or recipient mismatch is persisted for review and never app
     recipient_address: recipientAddress,
     amount_base_units: '10000000',
     fincra_status: 'processing',
+    status: 'provider-processing',
   })
   await withServer(database, async (base) => {
     const result = await postWebhook(base, payoutWebhook({ amountReceived: 9 }))
@@ -256,6 +281,7 @@ test('webhook encryption-key environment alias is accepted without requiring an 
     recipient_address: recipientAddress,
     amount_base_units: '10000000',
     fincra_status: 'processing',
+    status: 'provider-processing',
   })
   await withServer(database, async (base) => {
     const result = await postWebhook(base, payoutWebhook())
@@ -282,6 +308,7 @@ test('same Fincra webhook can reconcile later after its local request is created
       recipient_address: recipientAddress,
       amount_base_units: '10000000',
       fincra_status: 'processing',
+    status: 'provider-processing',
     }
 
     const replay = await postWebhook(base, payoutWebhook())
