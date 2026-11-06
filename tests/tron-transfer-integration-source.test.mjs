@@ -84,11 +84,13 @@ test('broadcast acceptance is pending until an exact solidified Tether Transfer 
   assert.match(withdrawalRoute, /status === 'confirmed'/)
 })
 
-test('withdrawal endpoints are mounted in the API entrypoint', () => {
-  assert.match(entry, /createTronOwnerWithdrawalsRouter/)
-  assert.match(entry, /app\.use\('\/api\/tron-owner-withdrawals', createTronOwnerWithdrawalsRouter\(\)\)/)
-  assert.match(frontend, /\/api\/tron-owner-withdrawals\/prepare/)
-  assert.match(frontend, /\/api\/tron-owner-withdrawals\//)
+test('self-funded direct owner wallet withdrawal route is not exposed by the private provider-funded runtime', () => {
+  assert.doesNotMatch(entry, /createTronOwnerWithdrawalsRouter|tron-owner-withdrawals/)
+  assert.doesNotMatch(frontend, /\/api\/tron-owner-withdrawals\//)
+  // The isolated route source remains covered for historical safety regression,
+  // but the deployed API does not mount it in provider-funded mode.
+  assert.match(withdrawalRoute, /insufficient-mainnet-usdt-balance/)
+  assert.match(withdrawalRoute, /validateOwnerSignedTransaction/)
 })
 
 test('frontend requests TronLink to sign and never sends a raw transaction itself', () => {
