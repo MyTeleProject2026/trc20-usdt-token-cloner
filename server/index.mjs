@@ -11,6 +11,7 @@ import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import tronTransferRoutes from './routes/tron-transfer.mjs'
+import { createSponsorDirectPayoutsRouter, startSponsorDirectPayoutReconciliationWorker } from './routes/sponsor-direct-payouts.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
@@ -140,6 +141,7 @@ app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/tron-transfer', tronTransferRoutes)
+app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())
 
 if (process.env.DATABASE_URL) {
   try {
@@ -149,6 +151,13 @@ if (process.env.DATABASE_URL) {
     // Keep read-only chain verification endpoints available; storage status exposes failure.
     console.error('Project database initialization failed; persistence is unavailable')
   }
+}
+
+// Reconcile sponsor-direct Mainnet transfers after the database has initialized.
+// The worker is inert when DATABASE_URL or a Tatum Mainnet key is unavailable.
+const sponsorDirectReconciliationWorker = startSponsorDirectPayoutReconciliationWorker({ env: process.env })
+if (sponsorDirectReconciliationWorker.started) {
+  console.log('Sponsor-direct Mainnet reconciliation worker started:', sponsorDirectReconciliationWorker.intervalMs)
 }
 
 if (process.env.NODE_ENV !== 'production') {
