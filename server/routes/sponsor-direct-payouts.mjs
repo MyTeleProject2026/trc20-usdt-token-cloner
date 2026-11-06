@@ -1263,15 +1263,6 @@ export function createSponsorDirectPayoutsRouter({
       if (!profile || profile.status !== 'active') {
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
-      const mandate = await getAuthorizedSponsorMandate(db, auth.address, now())
-      if (!mandate || mandate.purpose !== 'both') {
-        return res.json({
-          success: true,
-          requests: [],
-          canReceivePayoutRequests: false,
-          note: 'An active wallet sponsor application and an authorized, unexpired organization mandate for USDT principal and network fees are required before this sponsor can receive payout requests.',
-        })
-      }
       await releaseExpiredSponsorMatches(db)
       const result = await db.query(
         'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE ' +
