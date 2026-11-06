@@ -229,7 +229,7 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
       || payout.walletAddress,
     64,
   )
-  const destinationTag = clean(payout.beneficiary?.destinationTag || payout.destinationTag, 128)
+  const destinationTag = clean(payout.beneficiary?.destinationTag || payout.recipient?.destinationTag || payout.destinationTag, 128)
   const expectedDestinationTag = clean(expected.destinationTag, 128)
   const expectedAmountBaseUnits = parseFincraUsdtBaseUnits(expected.amount)
   const amountReceivedBaseUnits = payout.amountReceived == null ? null : parseFincraUsdtBaseUnits(payout.amountReceived)
