@@ -4,6 +4,9 @@ import { readFile } from 'node:fs/promises'
 
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
 const providerPage = await readFile(new URL('../src/ProviderPayoutReadiness.jsx', import.meta.url), 'utf8')
+const sponsorPage = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
+const sponsorPortal = await readFile(new URL('../src/SponsorPortal.jsx', import.meta.url), 'utf8')
+const main = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8')
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 
@@ -30,11 +33,17 @@ test('the entire dashboard is gated by the configured platform-owner session', (
   assert.ok(app.includes("Authorization: 'Bearer ' + ownerSession.sessionToken"))
 })
 
-test('private owner dashboard has no public sponsor or legacy Fincra payout UI', () => {
+test('private owner dashboard uses per-transfer approved sponsor wallets for Mainnet withdrawals', () => {
   assert.ok(app.includes("id:'provider',label:'Funding provider'"))
+  assert.ok(app.includes("id:'sponsors',label:'Sponsor approvals'"))
   assert.ok(app.includes("tab==='provider'"))
-  assert.ok(app.includes('<ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />'))
-  assert.ok(!/FincraWithdrawals|SponsorOrganizationOnboarding|SponsorDirectPayouts|tab==='sponsors'/.test(app))
+  assert.ok(app.includes("tab==='sponsors'"))
+  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />'))
+  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="history" />'))
+  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="sponsor" />'))
+  assert.ok(!/FincraWithdrawals|SponsorOrganizationOnboarding/.test(app))
+  assert.ok(sponsorPage.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsorPage.includes('/api/tron/sponsor-direct/requests'))
 })
 
 test('provider payout readiness never claims execution without verified provider liquidity or credit', () => {
@@ -54,13 +63,21 @@ test('the owner is not required to deposit or fund payouts from the identity wal
   assert.ok(providerPage.includes('not treated as the source of payout funds'))
 })
 
-test('navigation contains only private owner dashboard pages and a provider readiness page', () => {
-  for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'provider', 'transactions', 'settings']) {
+test('navigation keeps private owner pages and explicit sponsor approvals separate', () => {
+  for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'provider', 'sponsors', 'transactions', 'settings']) {
     assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
     assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
   }
-  assert.ok(!app.includes("id:'sponsors'"))
-  assert.ok(!app.includes("tab==='sponsors'"))
+})
+
+test('the sponsor portal is a separate wallet-authenticated route, not the owner console', () => {
+  assert.ok(main.includes("window.location.hash === '#/sponsor'"))
+  assert.ok(main.includes('<SponsorPortal />'))
+  assert.ok(sponsorPortal.includes('<SponsorDirectPayouts wallet={wallet} ownerSession={null} mode="sponsor" />'))
+  assert.ok(sponsorPortal.includes('TRON Mainnet'))
+  assert.ok(!sponsorPortal.includes('ownerSession.sessionToken'))
+  assert.ok(sponsorPage.includes('walletAddress === ownerSession.address'))
+  assert.ok(sponsorPage.includes("api('/api/tron/sponsor-direct/applications', identityToken)"))
 })
 
 test('wallet connection remains user-approved and never imports a private key', () => {
@@ -68,7 +85,7 @@ test('wallet connection remains user-approved and never imports a private key', 
   assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
   assert.ok(app.includes('TronLink connected to TRON Mainnet'))
   assert.ok(app.includes('No imported private keys') || app.includes('private key'))
-  assert.ok(!/sendRawTransaction|privateKey\s*[:=]/i.test(app + providerPage))
+  assert.ok(!/sendRawTransaction|privateKey\s*[:=]/i.test(app + providerPage + sponsorPage + sponsorPortal))
 })
 
 test('owner can close the private session and leave the application locked', () => {

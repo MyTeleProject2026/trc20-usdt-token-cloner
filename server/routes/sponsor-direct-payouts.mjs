@@ -1164,7 +1164,9 @@ export function createSponsorDirectPayoutsRouter({
 
   router.post('/requests', async (req, res) => {
     setNoStore(res)
-    const auth = await requireWalletSession(req, env, getSession, now)
+    // Only the configured private platform owner may create withdrawal requests.
+    // Sponsor wallets may review and sign only requests already created by the owner.
+    const auth = await requirePlatformOwner(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
     if (Object.keys(body).some((key) => !['recipientAddress', 'amount', 'idempotencyKey'].includes(key))) {

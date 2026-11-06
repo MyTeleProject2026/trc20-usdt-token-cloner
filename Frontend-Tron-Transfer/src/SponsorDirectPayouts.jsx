@@ -99,7 +99,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const identityToken = identitySession?.sessionToken || ''
   const identityMatchesWallet = Boolean(identityToken && identitySession?.address === walletAddress)
   const activeSponsor = application?.status === 'active'
-  const isOwnerAdmin = Boolean(ownerSession?.sessionToken)
+  // Owner review is available only when both the private owner session and the exact
+  // configured owner wallet identity are present. The API token for review is the
+  // wallet-auth session, not the separate password-only owner-console session.
+  const isOwnerAdmin = Boolean(ownerSession?.sessionToken && identityMatchesWallet
+    && walletAddress === ownerSession.address)
 
   useEffect(() => {
     let current = true
@@ -198,7 +202,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         setPrepared(null)
       }
       if (isOwnerAdmin) {
-        const adminResult = await api('/api/tron/sponsor-direct/applications', ownerSession.sessionToken)
+        const adminResult = await api('/api/tron/sponsor-direct/applications', identityToken)
         setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
       } else {
         setApplications([])
@@ -228,6 +232,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setNotice('')
     try {
       if (!identityMatchesWallet) throw new Error('Verify your connected wallet identity first.')
+      if (ownerSession?.address && walletAddress !== ownerSession.address) throw new Error('Connect the configured platform-owner wallet before submitting a withdrawal request.')
       if (!isValidAddress(recipient.trim(), wallet?.tronWeb)) throw new Error('Enter a valid TRON Mainnet recipient address.')
       if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
         throw new Error('Enter a positive USDT amount with no more than six decimal places.')
@@ -377,8 +382,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       <div className="section-heading">
         <div>
           <span className="eyebrow">TATUM MAINNET · SPONSOR-DIRECT USDT</span>
-          <h2>{mode === 'sponsor' ? 'Sponsor treasury & approvals' : mode === 'history' ? 'Sponsored withdrawal history' : 'Request a sponsored USDT withdrawal'}</h2>
-          <p>Your personal TronLink wallet is used for identity only when requesting. The approved sponsor's own funded TRON wallet sends and signs the USDT.</p>
+          <h2>{mode === 'sponsor' ? (isOwnerAdmin ? 'Sponsor wallet approvals' : 'Sponsor treasury & approvals') : mode === 'history' ? 'Sponsored withdrawal history' : 'Request a sponsored USDT withdrawal'}</h2>
+          <p>{mode === 'sponsor' ? 'The connected sponsor wallet is the actual USDT sender. It must hold the requested tokens and cover its own TRON network resources, then sign each exact transfer.' : 'Your personal TronLink wallet is used for owner identity only. A separate, approved sponsor wallet holds the USDT and signs each exact transfer.'}</p>
         </div>
         <div className="panel-icon"><Building2 /></div>
       </div>
@@ -386,8 +391,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       <div className="notice notice-warning">
         <AlertTriangle size={17} />
         <div>
-          <b>Zero-balance requester wallet is supported</b>
-          <p>Your wallet does not need USDT or TRX to submit a request. This does not create funds: an approved sponsor must have the actual USDT and sufficient TRON Energy, Bandwidth or TRX, and must approve the exact transfer in its own TronLink wallet.</p>
+          <b>{mode === 'sponsor' ? 'Sponsor funding stays under sponsor control' : 'Zero-balance owner identity wallet is supported'}</b>
+          <p>{mode === 'sponsor' ? 'A sponsor must already hold the actual USDT amount and enough TRON Energy, Bandwidth or TRX for the transfer. The sponsor wallet is the sender and must explicitly sign the exact recipient and amount. The platform does not supply funds.' : 'The owner identity wallet does not need USDT or TRX to submit a request. This does not create funds: an approved sponsor must hold the actual USDT and sufficient TRON resources, then approve the exact transfer in its own TronLink wallet.'}</p>
         </div>
       </div>
 
@@ -446,7 +451,19 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           <span className="eyebrow">02 / SPONSOR WALLET PARTICIPATION</span>
           <h3>Register a self-custody sponsor wallet</h3>
           {!identityMatchesWallet && <p>Connect the sponsor's own TronLink wallet and verify its identity before applying or managing its sponsorship profile.</p>}
-          {identityMatchesWallet && !application && (
+          {mode === 'sponsor' && isOwnerAdmin && (
+            <div className="owner-session-card">
+              <strong><ShieldCheck size={15} /> Platform owner review mode</strong>
+              <small>Connect and verify the exact configured owner wallet to review sponsor applications and set conservative per-payout and daily caps. Invite sponsors through the separate #/sponsor portal.</small>
+            </div>
+          )}
+          {ownerSession?.sessionToken && walletAddress && walletAddress !== ownerSession.address && (
+            <div className="notice notice-warning" role="alert">
+              <AlertTriangle size={16} />
+              <span>Connect the configured platform-owner wallet ({shorten(ownerSession.address)}) to create withdrawal requests or review sponsor applications.</span>
+            </div>
+          )}
+          {identityMatchesWallet && !application && !isOwnerAdmin && (
             <div className="form-stack">
               <p>An individual can apply using a self-custody TRON wallet; this application does not require company registration documents. Platform review does not constitute legal-entity verification, KYC, or a guarantee of funds.</p>
               <label>Sponsor display name
