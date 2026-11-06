@@ -37,6 +37,7 @@ class FakeDatabase {
     this.request = request
     this.events = new Set()
     this.identityStatuses = []
+    this.reviewReasons = []
     this.requestUpdates = []
   }
 
@@ -58,6 +59,7 @@ class FakeDatabase {
     }
     if (normalized.startsWith('update trc20_token_clone.fincra_payout_webhook_events')) {
       this.identityStatuses.push(values[1])
+      if (values[2]) this.reviewReasons.push(JSON.parse(values[2]))
       return { rows: [] }
     }
     if (normalized.startsWith('update trc20_token_clone.tron_transfer_sponsor_requests')) {
@@ -102,6 +104,9 @@ test('normalizer accepts only exact USDT TRC20 crypto-wallet payout events', () 
   assert.equal(event.eventType, 'payout.successful')
   assert.equal(event.providerStatus, 'successful')
   assert.equal(event.amountReceivedBaseUnits, '10000000')
+  const reorderedData = Object.fromEntries(Object.entries(payoutWebhook().data).reverse())
+  const reorderedEvent = normalizeFincraPayoutWebhook({ data: reorderedData, event: 'payout.successful' })
+  assert.equal(reorderedEvent.eventDigest, event.eventDigest, 'deduplication must ignore JSON property order')
 
   const bankPayout = normalizeFincraPayoutWebhook({
     event: 'payout.successful',
@@ -177,6 +182,8 @@ test('webhook amount or recipient mismatch is persisted for review and never app
     assert.equal(result.payload.identityStatus, 'review-required')
     assert.equal(database.requestUpdates.length, 0)
     assert.deepEqual(database.identityStatuses, ['review-required'])
+    assert.ok(database.reviewReasons[0].includes('beneficiary-net-amount-mismatch'))
+    assert.ok(database.reviewReasons[0].includes('successful-net-amount-does-not-match-request'))
   })
 })
 
