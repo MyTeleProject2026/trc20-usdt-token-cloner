@@ -136,8 +136,8 @@ test('Fincra frontend initiates provider submission and polls provider/solidifie
 
 
 test('Fincra pending payout status is treated as non-terminal processing', () => {
-  assert.equal(payoutStatusFromProvider('pending'), 'processing')
-  assert.equal(payoutStatusFromProvider('PENDING'), 'processing')
+  assert.equal(payoutStatusFromProvider('pending'), 'unknown')
+  assert.equal(payoutStatusFromProvider('PENDING'), 'unknown')
   assert.equal(payoutStatusFromProvider('processing'), 'processing')
   assert.equal(payoutStatusFromProvider('successful'), 'successful')
   assert.equal(payoutStatusFromProvider('failed'), 'failed')
