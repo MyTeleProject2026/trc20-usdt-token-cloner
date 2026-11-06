@@ -73,6 +73,8 @@ test('wallet connection remains user-approved and never imports a private key', 
 
 test('owner can close the private session and leave the application locked', () => {
   assert.ok(app.includes('function signOutOwner()'))
+  assert.ok(app.includes("api('/api/auth/owner/logout'"))
+  assert.ok(app.includes('window.setTimeout(expireSession, remaining)'))
   assert.ok(app.includes('setOwnerSession(null)'))
   assert.ok(app.includes('onClick={signOutOwner}'))
 })
