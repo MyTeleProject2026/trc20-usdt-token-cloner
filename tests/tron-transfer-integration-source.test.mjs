@@ -117,6 +117,29 @@ test('legacy Fincra payout submission is disabled even if old credentials remain
   assert.doesNotMatch(handler, /fincraRequest\(config, '\/stablecoin\/payouts'/)
 })
 
+test('recipient inspection and TRON RPC require the configured owner session', () => {
+  const recipientHandler = recipientRoute.slice(
+    recipientRoute.indexOf("router.get('/recipient'"),
+    recipientRoute.indexOf("router.post('/sponsor-requests'"),
+  )
+  const rpcHandler = recipientRoute.slice(
+    recipientRoute.indexOf("router.all('/rpc/:network/*'"),
+    recipientRoute.indexOf("router.post('/broadcast'"),
+  )
+  assert.match(recipientHandler, /requireOwnerSession\(req, env\)/)
+  assert.match(rpcHandler, /requireOwnerSession\(req, env\)/)
+  assert.match(recipientHandler, /no-store, private/)
+})
+
+test('the frontend shows an owner sign-in gate before rendering the dashboard', async () => {
+  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
+  assert.match(app, /ownerSessionResolved/)
+  assert.match(app, /if \(!ownerSession\) return/)
+  assert.match(app, /Platform owner sign-in/)
+  assert.match(app, /ownerSession\.sessionToken/)
+  assert.match(app, /Authorization: 'Bearer ' \+ ownerSession\.sessionToken/)
+})
+
 test('provider readiness is private, read-only and fails closed without verified funding', () => {
   assert.match(recipientRoute, /router.get\('\/provider-readiness'/)
   assert.match(recipientRoute, /requireOwnerSession\(req, env\)/)
