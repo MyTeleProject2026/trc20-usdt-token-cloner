@@ -219,3 +219,16 @@ test('Fincra signed payout webhook is mounted before the disabled legacy handler
   assert.match(fincraWebhookRoute, /chainSettlement: 'not-verified'/)
   assert.doesNotMatch(fincraWebhookRoute, /wallet\/broadcasttransaction|sendRawTransaction/i)
 })
+
+
+test('Fincra status reconciliation always looks up the stable local customer reference, not the provider reference field', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-status'"),
+    recipientRoute.indexOf("router.post('/fincra/webhook'"),
+  )
+  assert.match(handler, /cleanString\(row\.customer_reference, 80\)/)
+  assert.doesNotMatch(handler, /row\.fincra_reference\s*\|\|\s*row\.customer_reference/)
+  assert.match(handler, /amount: row\.amount_decimal/)
+  assert.match(handler, /payoutSubmitted: false/)
+  assert.match(handler, /chainSettlementVerified: false/)
+})
