@@ -48,7 +48,7 @@ class FakeDatabase {
     if (normalized.startsWith('insert into trc20_token_clone.fincra_payout_webhook_events')) {
       const digest = values[0]
       if (this.events.has(digest)) return { rows: [] }
-      this.events.set(digest, { identity_status: 'unmatched', review_reasons: JSON.parse(values[16] || '[]') })
+      this.events.set(digest, { identity_status: 'unmatched', destination_tag: values[12] || null, review_reasons: JSON.parse(values[16] || '[]') })
       return { rows: [{ event_digest: digest }] }
     }
     if (normalized.startsWith('select identity_status, review_reasons from trc20_token_clone.fincra_payout_webhook_events')) {
@@ -163,6 +163,7 @@ test('webhook records an authenticated matching payout event without claiming ch
     assert.equal(result.payload.identityStatus, 'matched')
     assert.equal(result.payload.providerPayoutStatus, 'successful')
     assert.equal(result.payload.chainSettlement, 'not-verified')
+    assert.equal(database.events.get(normalizeFincraPayoutWebhook(payoutWebhook({ destinationTag: 'deposit-2048' })).eventDigest).destination_tag, 'deposit-2048')
     assert.equal(database.requestUpdates.length, 1)
     assert.deepEqual(database.identityStatuses, ['matched'])
   })
