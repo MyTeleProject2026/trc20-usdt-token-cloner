@@ -48,7 +48,7 @@ class FakeDatabase {
     if (normalized.startsWith('insert into trc20_token_clone.fincra_payout_webhook_events')) {
       const digest = values[0]
       if (this.events.has(digest)) return { rows: [] }
-      this.events.set(digest, { identity_status: 'unmatched', review_reasons: JSON.parse(values[15] || '[]') })
+      this.events.set(digest, { identity_status: 'unmatched', review_reasons: JSON.parse(values[16] || '[]') })
       return { rows: [{ event_digest: digest }] }
     }
     if (normalized.startsWith('select identity_status, review_reasons from trc20_token_clone.fincra_payout_webhook_events')) {
@@ -125,6 +125,13 @@ test('normalizer accepts only exact USDT TRC20 crypto-wallet payout events', () 
   assert.equal(bankPayout.targeted, false)
 })
 
+test('webhook normalization preserves destination tags in its signed-event identity', () => {
+  const event = normalizeFincraPayoutWebhook(payoutWebhook({ destinationTag: 'deposit-2048' }))
+  assert.equal(event.destinationTag, 'deposit-2048')
+  const changed = normalizeFincraPayoutWebhook(payoutWebhook({ destinationTag: 'other-tag' }))
+  assert.notEqual(changed.eventDigest, event.eventDigest)
+})
+
 test('normalizer marks mismatched event and provider statuses for review', () => {
   const event = normalizeFincraPayoutWebhook(payoutWebhook({ status: 'failed' }))
   assert.equal(event.targeted, true)
@@ -144,11 +151,12 @@ test('webhook records an authenticated matching payout event without claiming ch
     id: 'request-1',
     customer_reference: customerReference,
     recipient_address: recipientAddress,
+    destination_tag: 'deposit-2048',
     amount_base_units: '10000000',
     fincra_status: 'processing',
   })
   await withServer(database, async (base) => {
-    const result = await postWebhook(base, payoutWebhook())
+    const result = await postWebhook(base, payoutWebhook({ destinationTag: 'deposit-2048' }))
     assert.equal(result.response.status, 200)
     assert.equal(result.payload.recorded, true)
     assert.equal(result.payload.localRequestMatched, true)
@@ -157,6 +165,25 @@ test('webhook records an authenticated matching payout event without claiming ch
     assert.equal(result.payload.chainSettlement, 'not-verified')
     assert.equal(database.requestUpdates.length, 1)
     assert.deepEqual(database.identityStatuses, ['matched'])
+  })
+})
+
+test('webhook destination-tag mismatch is recorded for review and not applied', async () => {
+  const database = new FakeDatabase({
+    id: 'request-tagged',
+    customer_reference: customerReference,
+    recipient_address: recipientAddress,
+    destination_tag: 'expected-tag',
+    amount_base_units: '10000000',
+    fincra_status: 'processing',
+  })
+  await withServer(database, async (base) => {
+    const result = await postWebhook(base, payoutWebhook({ destinationTag: 'different-tag' }))
+    assert.equal(result.response.status, 200)
+    assert.equal(result.payload.identityStatus, 'review-required')
+    assert.equal(result.payload.localRequestMatched, false)
+    assert.equal(database.requestUpdates.length, 0)
+    assert.ok(database.reviewReasons[0].includes('destination-tag-mismatch'))
   })
 })
 
