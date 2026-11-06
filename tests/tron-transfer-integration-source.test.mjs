@@ -143,3 +143,16 @@ test('Fincra pending payout status is treated as non-terminal processing', () =>
   assert.equal(payoutStatusFromProvider('failed'), 'failed')
   assert.equal(payoutStatusFromProvider('unknown-provider-state'), 'unknown')
 })
+
+
+test('unsupported Fincra payout statuses are not mapped into payout state', () => {
+  assert.equal(payoutStatusFromProvider('pending'), 'unknown')
+  assert.equal(payoutStatusFromProvider('initiated'), 'unknown')
+  assert.equal(payoutStatusFromProvider('processing'), 'processing')
+  assert.equal(payoutStatusFromProvider('successful'), 'successful')
+  assert.equal(payoutStatusFromProvider('failed'), 'failed')
+  assert.match(recipientRoute, /reason: 'unsupported-payout-status'/)
+  assert.match(recipientRoute, /ignored: true/)
+  assert.match(recipientRoute, /stateChanged: false/)
+  assert.match(recipientRoute, /\['successful-payout-record-incomplete', 'unsupported-payout-status'\]\.includes\(reconciliation\.reason\)/)
+})
