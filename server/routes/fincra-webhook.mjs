@@ -74,6 +74,7 @@ export function normalizeFincraPayoutWebhook(payload) {
   const recipientAddress = clean(
     data.beneficiary?.walletAddress
       || data.beneficiary?.address
+      || data.beneficiary?.accountNumber
       || data.recipient?.walletAddress
       || data.recipient?.address
       || data.recipient?.accountNumber
@@ -121,7 +122,13 @@ export function normalizeFincraPayoutWebhook(payload) {
     amountReceivedBaseUnits: amountReceived.value,
     feeBaseUnits: fee.value,
     reasons,
-    eventDigest: createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex'),
+    eventDigest: createHash('sha256').update(JSON.stringify({
+      eventType, customerReference, providerReference: clean(data.reference || data.transactionReference, 128) || null,
+      payoutId: data.id == null ? null : clean(String(data.id), 128) || null,
+      providerStatus, sourceCurrency, destinationCurrency, paymentScheme, paymentDestination,
+      recipientAddress, amountChargedBaseUnits: amountCharged.value,
+      amountReceivedBaseUnits: amountReceived.value, feeBaseUnits: fee.value, reasons,
+    }), 'utf8').digest('hex'),
   }
 }
 
@@ -153,6 +160,9 @@ async function ensureSchema(client) {
     'fee_base_units NUMERIC(78,0), identity_status TEXT NOT NULL DEFAULT \'unmatched\' ' +
     'CHECK (identity_status IN (\'unmatched\',\'matched\',\'review-required\')), ' +
     'received_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+  )
+  await client.query(
+    'ALTER TABLE ' + SCHEMA + '.fincra_payout_webhook_events ADD COLUMN IF NOT EXISTS review_reasons JSONB NOT NULL DEFAULT \'[]\'::jsonb'
   )
   await client.query(
     'CREATE INDEX IF NOT EXISTS fincra_payout_webhook_customer_reference_idx ON ' +
@@ -256,7 +266,7 @@ export function createFincraWebhookRouter({
           event.eventDigest, environment, event.eventType, event.customerReference,
           event.providerReference, event.payoutId, event.providerStatus, event.sourceCurrency,
           event.destinationCurrency, event.paymentScheme, event.paymentDestination, event.recipientAddress,
-          event.amountChargedBaseUnits, event.amountReceivedBaseUnits, event.feeBaseUnits,
+          event.amountChargedBaseUnits, event.amountReceivedBaseUnits, event.feeBaseUnits, JSON.stringify(event.reasons),
         ],
       )
 
