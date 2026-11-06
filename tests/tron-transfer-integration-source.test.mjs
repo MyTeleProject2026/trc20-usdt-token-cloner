@@ -151,19 +151,37 @@ test('provider readiness is private, read-only and fails closed without verified
   assert.match(recipientRoute, /readiness,/) 
 })
 
-test('runtime does not expose public sponsor registration, individual sponsor settlement or Fireblocks routes', () => {
-  assert.doesNotMatch(entry, /sponsorRequestIntakeRoutes|createSponsorDirectPayoutsRouter|createSponsorOrganizationRouter/)
-  assert.doesNotMatch(entry, /startSponsorDirectPayoutReconciliationWorker/)
-  assert.doesNotMatch(entry, /treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
+test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow and reconciliation worker', () => {
+  assert.ok(entry.includes('createSponsorDirectPayoutsRouter'))
+  assert.ok(entry.includes("app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())"))
+  assert.ok(entry.includes('startSponsorDirectPayoutReconciliationWorker({ env: process.env })'))
+  assert.doesNotMatch(entry, /createSponsorOrganizationRouter|treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
   assert.doesNotMatch(entry, /ownerSponsorLiquidityRoutes/)
+
+  const requestIntake = sponsorRoute.slice(
+    sponsorRoute.indexOf("router.post('/requests'"),
+    sponsorRoute.indexOf("router.get('/my-requests'"),
+  )
+  assert.ok(requestIntake.includes('requirePlatformOwner(req, env, getSession, now)'))
+  assert.ok(!requestIntake.includes('requireWalletSession(req, env, getSession, now)'))
+  assert.ok(sponsorRoute.includes('sponsorWalletSignatureRequired: true'))
+  assert.ok(sponsorRoute.includes("payoutExecution: 'conditional-on-approved-funded-sponsor'"))
+  assert.ok(sponsorRoute.includes('verifySponsorDirectMainnetTransfer'))
+  assert.ok(sponsorFrontend.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
-test('private owner console uses provider readiness instead of sponsor or Fincra pages', async () => {
+test('private owner console exposes sponsor withdrawals and keeps provider readiness separate', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
+  const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
   const providerPage = await readFile(new URL('../Frontend-Tron-Transfer/src/ProviderPayoutReadiness.jsx', import.meta.url), 'utf8')
-  assert.match(app, /ProviderPayoutReadiness/)
-  assert.match(app, /id:'provider',label:'Funding provider'/)
-  assert.doesNotMatch(app, /FincraWithdrawals|SponsorOrganizationOnboarding|tab==='sponsors'/)
+  assert.match(app, /SponsorDirectPayouts/)
+  assert.match(app, /id:'sponsors',label:'Sponsor approvals'/)
+  assert.match(app, /mode="withdraw"/)
+  assert.match(app, /mode="history"/)
+  assert.match(app, /mode="sponsor"/)
+  assert.doesNotMatch(app, /FincraWithdrawals|SponsorOrganizationOnboarding/)
+  assert.ok(portal.includes('ownerSession={null}'))
   assert.match(providerPage, /provider-readiness/)
   assert.match(providerPage, /No approved payout funding source/)
   assert.match(providerPage, /provider-owned USDT liquidity/)
