@@ -7,6 +7,7 @@ import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
+import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -526,22 +527,50 @@ transaction_hash CHAR(64),
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
 
-    // No provider currently has verified authorization plus provider-owned
-    // liquidity or an approved credit facility for this owner. This route is
-    // deliberately read-only and never probes or submits to an unapproved API.
-    const readiness = getUnconfiguredProviderPayoutReadiness()
+    // Read-only Fincra profile and USDT-wallet diagnostics. These checks do
+    // not prove sponsor authority, legal eligibility, credit, or payout consent.
+    const fincra = await readFincraAccountDiagnostics(env)
+    const unconfiguredReadiness = getUnconfiguredProviderPayoutReadiness()
+    const sponsorBusinessBalanceVerified = fincra.apiAuthenticated
+      && fincra.businessIdMatches
+      && fincra.usdtWalletFound
+      && fincra.availableUsdtBalanceBaseUnits !== null
+      && BigInt(fincra.availableUsdtBalanceBaseUnits) > 0n
+    const blockers = [
+      ...unconfiguredReadiness.blockers.filter((blocker) => blocker !== 'no-provider-selected'),
+      ...(fincra.apiAuthenticated ? [] : ['fincra-api-authentication-not-verified']),
+      ...(fincra.businessIdMatches ? [] : ['fincra-business-id-not-matched-to-api-profile']),
+      ...(sponsorBusinessBalanceVerified ? [] : ['sponsor-fincra-usdt-account-funding-not-verified']),
+      'sponsor-standing-fincra-mandate-not-independently-authorized',
+      'fincra-live-stablecoin-payout-approval-not-verified',
+      'fincra-fee-and-exact-beneficiary-amount-policy-not-verified',
+      'production-payout-and-chain-reconciliation-not-enabled',
+    ]
     return res.json({
       success: true,
       ownerAddress: auth.address,
-      readiness,
+      selectedProvider: 'Fincra',
+      fincra,
+      readiness: {
+        ...unconfiguredReadiness,
+        provider: { name: 'Fincra', selected: true },
+        checks: { ...unconfiguredReadiness.checks, providerSelected: true },
+        blockers,
+        executionEnabled: false,
+        status: 'provider-payout-blocked',
+      },
       funding: {
         ownerDepositRequired: false,
         ownerWalletPrincipalRequired: false,
+        sponsorBusinessBalanceVerified,
+        sponsorBusinessBalanceIsSponsorOwnedAccountFunds: true,
         providerOwnedLiquidityVerified: false,
         providerApprovedCreditVerified: false,
       },
-      blockers: readiness.blockers,
-      note: 'Owner funds and deposits are not assumed. A real payout remains disabled until a provider explicitly authorizes this owner, verifies provider-owned USDT liquidity or an approved credit facility, enables USDT TRON Mainnet payouts, and supplies a reviewed broadcast adapter.',
+      blockers,
+      payoutSubmissionEnabled: false,
+      transactionSubmitted: false,
+      note: 'Fincra is selected as the initial payout adapter. Any displayed USDT is the sponsor business account balance, not Fincra-donated liquidity or an approved credit line. No live payout is submitted until the exact business account, standing sponsor mandate, legal/provider eligibility, available funds, fee treatment, and independent TRON settlement path are verified.',
     })
   })
 
