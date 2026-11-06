@@ -18,6 +18,8 @@ The sponsor route does not render the owner console. It only exposes the wallet-
 
 ## Mainnet withdrawal flow
 
+The private platform enforces a **1,000 USDT minimum per withdrawal request** (1,000,000,000 base units). This is an application policy, not a provider/network minimum and not evidence of available funds or credit.
+
 1. The owner signs in to the private console and connects the TronLink account that exactly matches `OWNER_WALLET_ADDRESS`.
 2. The owner signs a short-lived wallet-identity challenge. This is a message signature, not a token transfer or spending authorization.
 3. The owner enters the external TRON Mainnet recipient address and exact USDT amount. The backend accepts only the configured owner wallet for `POST /api/tron/sponsor-direct/requests`.
