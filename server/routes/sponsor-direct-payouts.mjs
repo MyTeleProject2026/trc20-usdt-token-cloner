@@ -173,6 +173,13 @@ function canonicalAddress(value, tronWeb) {
   }
 }
 
+export function classifySponsorBroadcastResponse(response) {
+  // A negative or malformed provider response is not proof that the fixed
+  // transaction never reached a node. Keep it reconcilable by txID instead
+  // of terminally rejecting a payment that may already have propagated.
+  return response?.result === true ? 'submitted' : 'outcome-unknown'
+}
+
 export function sponsorApprovalContainsAddress(response, address) {
   const result = response?.result
   if (!result || typeof result !== 'object' || Array.isArray(result)) return false
@@ -1899,12 +1906,17 @@ export function createSponsorDirectPayoutsRouter({
         note: 'Tatum did not return a conclusive broadcast response. The fixed transaction ID will be checked on Mainnet. Do not sign or submit a replacement payment.',
       })
     }
-    if (broadcast?.result !== true) {
+    if (classifySponsorBroadcastResponse(broadcast) === 'outcome-unknown') {
       await db.query(
-        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'broadcast-rejected\', failure_code=$2, updated_at=now() WHERE id=$1 AND status=\'broadcasting\'',
-        [id, clean(broadcast?.code || broadcast?.message, 128) || 'tatum-broadcast-rejected'],
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\\'outcome-unknown\\', failure_code=$2, updated_at=now() WHERE id=$1 AND status=\\'broadcasting\\'',
+        [id, clean(broadcast?.code || broadcast?.message, 128) || 'tatum-broadcast-response-inconclusive'],
       )
-      return res.status(409).json({ success: false, error: 'tatum-broadcast-rejected' })
+      return res.status(202).json({
+        success: true,
+        status: 'outcome-unknown',
+        transactionHash: row.transaction_hash,
+        note: 'Tatum did not confirm acceptance. The fixed transaction ID will be checked on Mainnet before this payout can be treated as failed. Do not sign or submit a replacement payment.',
+      })
     }
     await db.query(
       'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'submitted\', failure_code=NULL, updated_at=now() WHERE id=$1 AND status IN (\'broadcasting\',\'outcome-unknown\')',
