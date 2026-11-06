@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises'
 import { payoutStatusFromProvider } from '../server/fincra-payout-status.mjs'
 
 const recipientRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
+const sponsorRoute = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
+const sponsorFrontend = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
 const withdrawalRoute = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
 const entry = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
 const frontend = await readFile(new URL('../Frontend-Tron-Transfer/src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
@@ -155,4 +157,18 @@ test('unsupported Fincra payout statuses are not mapped into payout state', () =
   assert.match(recipientRoute, /ignored: true/)
   assert.match(recipientRoute, /stateChanged: false/)
   assert.match(recipientRoute, /\['successful-payout-record-incomplete', 'unsupported-payout-status'\]\.includes\(reconciliation\.reason\)/)
+})
+test('individual wallet sponsorship needs no provider organization mandate and every payout is sponsor-signed', () => {
+  assert.match(sponsorRoute, /requesterWalletFundingRequired: false/)
+  assert.match(sponsorRoute, /sponsorWalletFundingRequired: true/)
+  assert.match(sponsorRoute, /sponsorWalletSignatureRequired: true/)
+  assert.match(sponsorRoute, /sponsorOrganizationVerification: 'not-required-for-individual-per-transfer-wallet-sponsorship'/)
+  assert.doesNotMatch(sponsorRoute, /getAuthorizedSponsorMandate|sponsor_organization_mandates|sponsor_organization_applications/)
+  assert.match(sponsorRoute, /active-sponsor-application-required/)
+  assert.match(sponsorRoute, /readSponsorSnapshot/)
+  assert.match(sponsorRoute, /validateOwnerSignedTransaction/)
+  assert.match(sponsorRoute, /wallet\\/getapprovedlist/)
+  assert.match(sponsorRoute, /sponsor-daily-limit-exceeded/)
+  assert.match(sponsorFrontend, /Contact email \\(optional\\)/)
+  assert.match(sponsorFrontend, /without company registration documents/)
 })
