@@ -135,14 +135,14 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   const requesterToken = 'r'.repeat(43)
   const sponsorToken = 's'.repeat(43)
   const ownerToken = 'o'.repeat(43)
+  const ownerAddress = requesterAddress
+  const outsiderToken = 'x'.repeat(43)
   const sessionAddresses = new Map([
     [createHash('sha256').update(requesterToken).digest('hex'), ownerAddress],
     [createHash('sha256').update(sponsorToken).digest('hex'), sponsorAddress],
     [createHash('sha256').update(ownerToken).digest('hex'), ownerAddress],
     [createHash('sha256').update(outsiderToken).digest('hex'), recipientAddress],
   ])
-  const ownerAddress = requesterAddress
-  const outsiderToken = 'x'.repeat(43)
   let sponsorApplicationId = null
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
