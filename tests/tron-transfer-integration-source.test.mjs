@@ -109,6 +109,32 @@ test('payout wallet sessions are restricted to the configured private platform o
   assert.match(recipientRoute, /private-platform-owner-not-configured/)
 })
 
+test('owner-only Fincra request intake persists exact USDT intent idempotently without submitting a payout', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.post('/sponsor-requests'"),
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
+  )
+  assert.match(handler, /requireOwnerSession\(req, env\)/)
+  assert.match(handler, /valid-idempotency-key-required/)
+  assert.match(handler, /isValidTronAddress\(recipientAddress\)/)
+  assert.match(handler, /parseUsdtAmount\(body\.amount\)/)
+  assert.match(handler, /ON CONFLICT \(idempotency_key\)/)
+  assert.match(handler, /idempotency-key-reused-for-different-request/)
+  assert.match(handler, /awaiting-provider-authorization/)
+  assert.match(handler, /payoutSubmitted: false/)
+  assert.doesNotMatch(handler, /fincraRequest\(|initiateFincraSandboxUsdtTronPayout/)
+})
+
+test('owner-only payout request history never exposes other requester records', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.get('/sponsor-requests/mine'"),
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
+  )
+  assert.match(handler, /requireOwnerSession\(req, env\)/)
+  assert.match(handler, /WHERE requester_address=\$1/)
+  assert.match(handler, /LIMIT 100/)
+})
+
 test('legacy Fincra payout submission is disabled even if old credentials remain configured', () => {
   const handler = recipientRoute.slice(
     recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
