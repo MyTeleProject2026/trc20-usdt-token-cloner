@@ -101,3 +101,22 @@ The new `lookupFincraPayoutByCustomerReference` helper is a read-only building b
 ## Owner-only status reconciliation route
 
 The owner-authenticated `POST /api/tron-transfer/sponsor-requests/:id/fincra-status` route reads the existing local request and queries Fincra by its stable original `customer_reference`. The separate `fincra_reference` field may hold a provider-generated reference and is not used as the customer-reference lookup key. It validates the returned record against the local customer reference, USDT currencies, `usdt_trc20` crypto-wallet route, recipient address, optional destination tag and requested net amount. The response is sanitized and does not expose the raw provider payload or credentials. The route does not write payout status, submit/retry a payout, or mark TRON settlement. A not-found response is informational and explicitly disallows creating a replacement reference. Independent solidified TRON verification remains required.
+
+
+## Fail-closed live payout evidence gate
+
+A separate policy helper, `server/fincra-live-payout-gate.mjs`, now defines
+the evidence categories a future live payout release would need: verified
+business-account ownership, live USDT TRC20 product enablement, a beneficiary
+payout mandate, independently verified provider liquidity or approved credit,
+and owner approval cryptographically bound to the exact request digest.
+Each evidence item must include a non-empty external evidence reference; a
+configuration flag or a self-asserted boolean is not sufficient evidence.
+
+The helper is deliberately not wired to enable submission. Even when all
+evidence categories are supplied, it returns `submissionAllowed: false` and
+`payoutSubmissionEnabled: false`. This prevents a local approval record,
+environment setting, or incomplete integration from being mistaken for
+Fincra authorization or production funding. Live submission requires a
+separate reviewed implementation after the provider's actual authorization,
+funding and API contract have been independently established.
