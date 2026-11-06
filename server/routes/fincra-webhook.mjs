@@ -259,8 +259,8 @@ export function createFincraWebhookRouter({
         'INSERT INTO ' + SCHEMA + '.fincra_payout_webhook_events ' +
         '(event_digest, environment, event_type, customer_reference, provider_reference, provider_payout_id, ' +
         'provider_status, source_currency, destination_currency, payment_scheme, payment_destination, recipient_address, ' +
-        'amount_charged_base_units, amount_received_base_units, fee_base_units, identity_status) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,\'unmatched\') ' +
+        'amount_charged_base_units, amount_received_base_units, fee_base_units, review_reasons, identity_status) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,\'unmatched\') ' +
         'ON CONFLICT (event_digest) DO NOTHING RETURNING event_digest',
         [
           event.eventDigest, environment, event.eventType, event.customerReference,
