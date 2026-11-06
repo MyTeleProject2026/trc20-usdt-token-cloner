@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { TronWeb } from 'tronweb'
 import {
   parseSponsorDirectUsdtAmount,
+  MINIMUM_WITHDRAWAL_BASE_UNITS,
   calculateSponsorDirectAvailableBaseUnits,
   parseSponsorDirectFeeParameters,
   calculateSponsorDirectFeeCoverage,
@@ -483,3 +484,54 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+
+
+test('sponsor-direct withdrawal minimum is exactly 1,000 USDT at six-decimal precision', () => {
+  assert.equal(MINIMUM_WITHDRAWAL_BASE_UNITS, '1000000000')
+  assert.equal(parseSponsorDirectUsdtAmount('1000'), MINIMUM_WITHDRAWAL_BASE_UNITS)
+  assert.equal(parseSponsorDirectUsdtAmount('1000.000001'), '1000000001')
+  assert.equal(parseSponsorDirectUsdtAmount('999.999999'), '999999999')
+})
+
+test('owner withdrawal request rejects amounts below 1,000 USDT before database access', async (t) => {
+  const ownerToken = 'o'.repeat(43)
+  const origin = 'https://tron-transfer.integration.test'
+  const app = express()
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
+    env: { FRONTEND_ORIGIN: origin, OWNER_WALLET_ADDRESS: requesterAddress },
+    getSession: async ({ origin: requestOrigin }) => ({
+      success: true,
+      session: {
+        address: requesterAddress,
+        network: 'mainnet',
+        origin: requestOrigin,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      },
+    }),
+    getDatabase: () => {
+      throw new Error('Database must not be accessed for a below-minimum request')
+    },
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/sponsor-direct/requests', {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      Authorization: 'Bearer ' + ownerToken,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      recipientAddress,
+      amount: '999.999999',
+      idempotencyKey: randomUUID(),
+    }),
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 400)
+  assert.equal(payload.error, 'minimum-withdrawal-1000-usdt')
+  assert.equal(payload.minimumWithdrawalUsdt, '1000')
+  assert.equal(payload.minimumWithdrawalBaseUnits, MINIMUM_WITHDRAWAL_BASE_UNITS)
+})
