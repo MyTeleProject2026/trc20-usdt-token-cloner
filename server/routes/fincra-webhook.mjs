@@ -360,7 +360,7 @@ export function createFincraWebhookRouter({
           'fincra_webhook_received_at=now(), fincra_amount_charged_base_units=$5, ' +
           'fincra_amount_received_base_units=$6, fincra_fee_base_units=$7, ' +
           'fincra_submitted_at=COALESCE(fincra_submitted_at,now()), ' +
-          'fincra_successful_at=CASE WHEN $3=\\'successful\\' THEN COALESCE(fincra_successful_at,now()) ELSE fincra_successful_at END, ' +
+          'fincra_successful_at=CASE WHEN $3=\'successful\' THEN COALESCE(fincra_successful_at,now()) ELSE fincra_successful_at END, ' +
           'updated_at=now() WHERE id=$1',
           [
             row.id, event.providerReference, event.providerStatus, event.eventType,
