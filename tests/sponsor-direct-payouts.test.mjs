@@ -45,7 +45,7 @@ test('sponsor-direct USDT amount parser accepts exact six-decimal amounts', () =
   assert.throws(() => parseSponsorDirectUsdtAmount(1))
 })
 
-test('automatic sponsor routing requires actual available USDT, mandate limits, daily capacity and verified fee coverage', () => {
+test('automatic sponsor routing requires available sponsor USDT, approved wallet limits, daily capacity and verified fee coverage', () => {
   const eligible = {
     amountBaseUnits: '25000000',
     balanceBaseUnits: '100000000',
@@ -134,13 +134,13 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   const origin = 'https://tron-transfer.integration.test'
   const requesterToken = 'r'.repeat(43)
   const sponsorToken = 's'.repeat(43)
+  const ownerToken = 'o'.repeat(43)
   const sessionAddresses = new Map([
     [createHash('sha256').update(requesterToken).digest('hex'), requesterAddress],
     [createHash('sha256').update(sponsorToken).digest('hex'), sponsorAddress],
+    [createHash('sha256').update(ownerToken).digest('hex'), recipientAddress],
   ])
   const ownerAddress = recipientAddress
-  const organizationApplicationId = randomUUID()
-  const mandateId = randomUUID()
   const sponsorApplicationId = randomUUID()
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
@@ -149,25 +149,8 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
   try {
     await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
-    await db.query(
-      'CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_applications (' +
-      'id UUID PRIMARY KEY, sponsor_wallet_address TEXT NOT NULL, organization_name TEXT NOT NULL, ' +
-      'business_email TEXT NOT NULL, jurisdiction TEXT NOT NULL, website TEXT, requested_roles JSONB NOT NULL, ' +
-      'application_signature_hash CHAR(64) NOT NULL, status TEXT NOT NULL, review_reference TEXT, ' +
-      'reviewed_by_address TEXT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
-      'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
-    )
-    await db.query(
-      'CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_mandates (' +
-      'id UUID PRIMARY KEY, application_id UUID NOT NULL, sponsor_wallet_address TEXT NOT NULL, ' +
-      'agreement_reference TEXT NOT NULL, agreement_digest CHAR(64) NOT NULL, purpose TEXT NOT NULL, ' +
-      'per_payout_limit_base_units NUMERIC(78,0) NOT NULL, daily_limit_base_units NUMERIC(78,0) NOT NULL, ' +
-      'valid_from TIMESTAMPTZ NOT NULL, valid_until TIMESTAMPTZ NOT NULL, sponsor_signature_hash CHAR(64) NOT NULL, ' +
-      'status TEXT NOT NULL, review_reference TEXT, reviewed_by_address TEXT, reviewed_at TIMESTAMPTZ, ' +
-      'created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())',
-    )
-
-    const app = express()
+    await db.query('CREATE SCHEMA IF NOT EXISTS trc20_token_clone')
+        const app = express()
     app.use(express.json())
     app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
       env: {
@@ -236,30 +219,19 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2', [requesterAddress, sponsorAddress])
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
-    await db.query('DELETE FROM trc20_token_clone.sponsor_organization_mandates WHERE sponsor_wallet_address=$1', [sponsorAddress])
-    await db.query('DELETE FROM trc20_token_clone.sponsor_organization_applications WHERE sponsor_wallet_address=$1', [sponsorAddress])
-
-    await db.query(
-      'INSERT INTO trc20_token_clone.sponsor_direct_applications ' +
-      '(id,sponsor_address,display_name,status,per_payout_limit_base_units,daily_limit_base_units) ' +
-      "VALUES ($1,$2,$3,'active',$4,$5)",
-      [sponsorApplicationId, sponsorAddress, 'Integration sponsor', '50000000', '100000000'],
-    )
-    await db.query(
-      'INSERT INTO trc20_token_clone.sponsor_organization_applications ' +
-      '(id,sponsor_wallet_address,organization_name,business_email,jurisdiction,website,requested_roles,application_signature_hash,status) ' +
-      "VALUES ($1,$2,$3,$4,$5,NULL,$6::jsonb,$7,'accepted-for-due-diligence')",
-      [organizationApplicationId, sponsorAddress, 'Integration Sponsor LLC', 'sponsor@example.test', 'US',
-        JSON.stringify(['asset-principal', 'network-fees']), 'a'.repeat(64)],
-    )
-    await db.query(
-      'INSERT INTO trc20_token_clone.sponsor_organization_mandates ' +
-      '(id,application_id,sponsor_wallet_address,agreement_reference,agreement_digest,purpose,per_payout_limit_base_units,daily_limit_base_units,valid_from,valid_until,sponsor_signature_hash,status) ' +
-      "VALUES ($1,$2,$3,$4,$5,'both',$6,$7,now() - interval '1 minute',now() + interval '1 day',$8,'authorized')",
-      [mandateId, organizationApplicationId, sponsorAddress, 'integration-test-agreement',
-        'b'.repeat(64), '50000000', '100000000', 'c'.repeat(64)],
-    )
-
+    const registration = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
+    assert.equal(registration.response.status, 201)
+    assert.equal(registration.payload.application.status, 'pending-review')
+    assert.equal(registration.payload.complianceVerified, false)
+    const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
+      decision: 'approve',
+      reviewReference: 'wallet-sponsor-review-001',
+      perPayoutLimit: '50',
+      dailyLimit: '100',
+    })
+    assert.equal(ownerReview.response.status, 200)
+    assert.equal(ownerReview.payload.application.status, 'active')
+    assert.equal(ownerReview.payload.complianceVerified, false)
     const first = await call('/requests', requesterToken, {
       recipientAddress,
       amount: '25',
@@ -304,8 +276,6 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
-    await db.query('DELETE FROM trc20_token_clone.sponsor_organization_mandates WHERE id=$1', [mandateId]).catch(() => {})
-    await db.query('DELETE FROM trc20_token_clone.sponsor_organization_applications WHERE id=$1', [organizationApplicationId]).catch(() => {})
     if (server) await new Promise((resolve) => server.close(resolve))
     await db.end()
   }
