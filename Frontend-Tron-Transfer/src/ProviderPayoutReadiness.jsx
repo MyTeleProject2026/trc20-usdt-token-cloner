@@ -28,6 +28,13 @@ const blockerLabels = {
   'provider-owned-liquidity-or-approved-credit-not-verified': 'No provider-owned USDT liquidity or approved credit facility has been verified.',
   'network-fee-coverage-not-verified': 'TRON network-fee coverage has not been verified.',
   'approved-provider-broadcast-adapter-not-installed': 'A provider-specific, security-reviewed payout adapter is not installed.',
+  'fincra-api-authentication-not-verified': 'Fincra API credentials have not been authenticated against the business profile.',
+  'fincra-business-id-not-matched-to-api-profile': 'The configured Fincra business ID does not match the authenticated API profile.',
+  'sponsor-fincra-usdt-account-funding-not-verified': 'No positive, readable USDT balance has been verified in the exact sponsor Fincra business account.',
+  'sponsor-standing-fincra-mandate-not-independently-authorized': 'The sponsor standing mandate has not been independently reviewed and authorized.',
+  'fincra-live-stablecoin-payout-approval-not-verified': 'Fincra has not independently confirmed live USDT TRC20 payout access for this business account.',
+  'fincra-fee-and-exact-beneficiary-amount-policy-not-verified': 'Payout fees and the exact amount received by the beneficiary have not been validated.',
+  'production-payout-and-chain-reconciliation-not-enabled': 'Production submission and independent TRON settlement reconciliation remain disabled.',
 }
 
 export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw' }) {
@@ -70,6 +77,7 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
   }, [ownerSession?.sessionToken])
 
   const readiness = result?.readiness
+  const fincra = result?.fincra
   const blockers = Array.isArray(readiness?.blockers) ? readiness.blockers : []
   const ownerDepositNotRequired = result?.funding?.ownerDepositRequired === false
   const ownerWalletPrincipalNotRequired = result?.funding?.ownerWalletPrincipalRequired === false
@@ -88,8 +96,8 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
       <div className="notice notice-warning">
         <AlertTriangle size={17} />
         <div>
-          <b>External funding is not connected</b>
-          <p>The platform will not ask you to deposit USDT or TRX. A provider must expressly agree to supply provider-owned USDT liquidity or an approved credit facility, authorize your account, and support genuine USDT TRON Mainnet payouts. No provider has been verified for those conditions yet.</p>
+          <b>Fincra account diagnostics are separate from payout authorization</b>
+          <p>The platform will not ask you to deposit USDT or TRX. A sponsor organization must authorize the exact Fincra business account and hold spendable USDT in that account. A displayed account balance is sponsor business funds; it is not Fincra-donated liquidity or a credit facility. Live payouts remain disabled until Fincra and the sponsor have independently approved the arrangement.</p>
         </div>
       </div>
 
@@ -100,6 +108,9 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
         <article className="metric-card"><span>Asset / network</span><strong>USDT · TRON Mainnet</strong></article>
         <article className="metric-card"><span>Your deposit required</span><strong>{ownerDepositNotRequired ? 'No' : 'Not verified'}</strong></article>
         <article className="metric-card"><span>Your wallet principal required</span><strong>{ownerWalletPrincipalNotRequired ? 'No' : 'Not verified'}</strong></article>
+        <article className="metric-card"><span>Fincra API profile</span><strong>{fincra?.apiAuthenticated ? 'Authenticated' : 'Not verified'}</strong></article>
+        <article className="metric-card"><span>Fincra business ID</span><strong>{fincra?.businessIdMatches ? 'Matched' : 'Not verified'}</strong></article>
+        <article className="metric-card"><span>Sponsor account USDT</span><strong>{fincra?.availableUsdtBalance != null ? `${fincra.availableUsdtBalance} USDT` : 'Not verified'}</strong></article>
         <article className="metric-card"><span>Real payout execution</span><strong>{readiness?.executionEnabled ? 'Provider approved' : 'Disabled'}</strong></article>
       </div>
 
@@ -117,12 +128,13 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
       </div>
 
       <div className="sponsor-funding-destination">
-        <h3>Funding arrangements this platform can recognize</h3>
-        <div className="history-item"><div className="history-icon incoming"><ShieldCheck size={17} /></div><div className="history-main"><b>Provider-owned liquidity</b><small>The provider contractually authorizes this owner account to use its own available USDT pool for approved withdrawals.</small></div></div>
-        <div className="history-item"><div className="history-icon incoming"><ShieldCheck size={17} /></div><div className="history-main"><b>Provider-approved credit facility</b><small>The provider grants a documented credit limit and authorizes settlement under its own risk and compliance checks.</small></div></div>
+        <h3>Fincra account and sponsor funding checks</h3>
+        <div className="history-item"><div className="history-icon incoming"><ShieldCheck size={17} /></div><div className="history-main"><b>Authenticated business account</b><small>{fincra?.apiAuthenticated ? 'The server authenticated with Fincra.' : 'Fincra API credentials are not verified.'} {fincra?.businessIdMatches ? 'The business ID matches the authenticated profile.' : 'The business ID/profile match is not verified.'}</small></div></div>
+        <div className="history-item"><div className="history-icon incoming"><Wallet size={17} /></div><div className="history-main"><b>Sponsor-owned Fincra USDT balance</b><small>{fincra?.usdtWalletFound && fincra?.availableUsdtBalance != null ? `${fincra.availableUsdtBalance} USDT available in the configured sponsor business account (${fincra.mode || 'unknown'} environment).` : 'No available USDT balance has been verified in the configured Fincra business account.'} This is money already held by that sponsor account, not free provider funding.</small></div></div>
+        <div className="history-item"><div className="history-icon incoming"><ShieldCheck size={17} /></div><div className="history-main"><b>Provider-approved credit facility</b><small>A credit line is recognized only when Fincra has explicitly approved a documented facility for this sponsor account. No credit is assumed by this integration.</small></div></div>
       </div>
 
-      <p className="fine-print">A wallet connection, API catalogue entry, gas sponsorship feature, or displayed balance is not sufficient authorization. No request is submitted and no status is marked submitted or confirmed until a real provider adapter is approved and actual settlement evidence is verified on TRON Mainnet.</p>
+      <p className="fine-print">This release performs read-only account diagnostics and contains a gated sandbox adapter foundation. It does not submit a production payout. An authenticated API key, a sponsor-account balance, a signed mandate, or a Fincra “processing” response is not proof of a settled transfer. Production stays disabled until account eligibility, sponsor authorization, funding, fees, provider settlement and solidified official USDT Transfer evidence are independently verified.</p>
     </section>
   )
 }
