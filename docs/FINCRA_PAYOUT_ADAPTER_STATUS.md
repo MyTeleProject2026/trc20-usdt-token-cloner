@@ -49,9 +49,16 @@ All of the following remain required before a live payout route may be enabled:
 4. The owner completes independent due diligence and records a durable approval reference; application or wallet signature alone is not KYB, identity verification, source-of-funds evidence, or legal approval.
 5. Live account diagnostics verify the exact business profile and positive available USDT balance. The account owner/sponsor must lawfully fund that account; this integration cannot create principal or credit.
 6. The provider fee model is proven to leave the exact requested net amount at the beneficiary, with any charges separately funded and authorized.
-7. Production request creation reserves principal and fees atomically, pins the exact recipient/contract/network/amount and uses one idempotent customer reference. Timeouts and duplicate submissions must enter reconciliation, not blind retry.
-8. The status worker and webhook receiver verify the provider record, webhook signature, exact mandate/business ID, exact amount and recipient. Webhooks are re-queried against Fincra before state changes.
+7. Production request creation reserves principal and fees atomically, pins the exact recipient/contract/network/amount and uses one stable customer reference. Fincra documents that customer references must be unique and duplicate references are rejected; after a timeout or duplicate-reference response, re-query the original reference rather than creating a different reference to attempt a second payout. A lookup 404 after an ambiguous submission is not by itself permission to replay.
+8. The status worker and webhook receiver verify the provider record, webhook signature, exact mandate/business ID, exact amount and recipient. Webhooks are re-queried against Fincra before state changes; the current live-capable lookup helper is read-only and is not yet exposed by an authenticated payout-status route.
 9. The Mainnet settlement path independently verifies the solidified TRON transaction, successful receipt and exact official Tether USDT Transfer event. A provider response alone is not chain settlement.
 10. Testnet/sandbox integration tests, PostgreSQL concurrency/replay tests, negative tests, operational pause controls, security review and explicit production release approval pass.
 
 No personal wallet funding, unapproved third-party spending, fabricated balance, or exchange-credit claim is permitted as a fallback.
+
+
+## Duplicate and timeout policy
+
+A webhook is a provider notification, not a withdrawal instruction. The receiver deduplicates a repeated signed event and must never use a duplicate notification to create another payout. A payout itself is identified by one stable, unique `customerReference`. Fincra documents that reusing a customer reference is rejected as a duplicate; on an ambiguous network timeout, reconcile the original reference rather than creating a new one. See the [Fincra stablecoin payout API](https://docs.fincra.com/reference/initiate-payout-2) and [customer-reference status lookup](https://docs.fincra.com/reference/fetch-payout-by-customer-reference).
+
+The new `lookupFincraPayoutByCustomerReference` helper is a read-only building block for reconciliation and supports the configured sandbox or live API base URL. It distinguishes HTTP 404 from other provider failures. It does not retry a payout, submit an API payout request, mark a transfer settled, or enable the disabled withdrawal-request endpoints.
