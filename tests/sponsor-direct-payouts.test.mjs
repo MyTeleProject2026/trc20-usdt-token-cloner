@@ -175,6 +175,7 @@ function unsignedTransfer(overrides = {}) {
     raw_data_hex: rawDataHex,
     raw_data: {
       expiration: Date.now() + 5 * 60 * 1000,
+      fee_limit: 100000000,
       contract: [{
         type: 'TriggerSmartContract',
         parameter: {
