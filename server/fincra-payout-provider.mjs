@@ -141,10 +141,12 @@ export async function readFincraAccountDiagnostics(env = process.env, { fetchImp
     availableUsdtBalanceBaseUnits: null,
     accountBalanceIsSponsorBusinessFunds: true,
     payoutSubmissionEnabled: false,
+    webhookSecretConfigured: Boolean(clean(env.FINCRA_WEBHOOK_SECRET, 4096)),
     reasons: [],
     checkedAt: new Date().toISOString(),
   }
 
+  if (!result.webhookSecretConfigured) result.reasons.push('fincra-webhook-secret-not-configured')
   if (!config.apiKey) {
     result.reasons.push('fincra-api-key-not-configured')
     return result
