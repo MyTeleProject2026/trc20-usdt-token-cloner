@@ -8,6 +8,8 @@ import { TronWeb } from 'tronweb'
 import {
   parseSponsorDirectUsdtAmount,
   calculateSponsorDirectAvailableBaseUnits,
+  parseSponsorDirectFeeParameters,
+  calculateSponsorDirectFeeCoverage,
   matchesSponsorDirectUnsignedTransaction,
   isSponsorDirectAutoRouteEligible,
   createSponsorDirectPayoutsRouter,
@@ -75,6 +77,93 @@ test('sponsor-direct available balance subtracts reservations without going nega
   assert.equal(calculateSponsorDirectAvailableBaseUnits('1000000', '2000000'), '0')
   assert.throws(() => calculateSponsorDirectAvailableBaseUnits('-1', '0'))
   assert.throws(() => calculateSponsorDirectAvailableBaseUnits('1.2', '0'))
+})
+
+const mainnetFeeParameters = {
+  energyPriceSun: '100',
+  bandwidthPriceSun: '1000',
+  maxFeeLimitSun: '15000000000',
+}
+
+test('TRON fee parameters are read from the current Mainnet chain parameters', () => {
+  assert.deepEqual(parseSponsorDirectFeeParameters({
+    chainParameter: [
+      { key: 'getEnergyFee', value: 100 },
+      { key: 'getTransactionFee', value: 1000 },
+      { key: 'getMaxFeeLimit', value: 15000000000 },
+    ],
+  }), mainnetFeeParameters)
+  assert.throws(() => parseSponsorDirectFeeParameters({ chainParameter: [{ key: 'getEnergyFee', value: 100 }] }))
+})
+
+test('Mainnet sponsor fee coverage calculates Energy cap and separate Bandwidth sources', () => {
+  const snapshot = {
+    energyAvailable: 2000,
+    stakedBandwidthAvailable: 500,
+    freeBandwidthAvailable: 600,
+    trxBalanceSun: '0',
+  }
+  const simulation = { energy_used: 1000, energy_penalty: 100 }
+  const unsigned = { raw_data_hex: 'ab'.repeat(200) }
+  const covered = calculateSponsorDirectFeeCoverage(
+    snapshot, simulation, unsigned, '200000', mainnetFeeParameters,
+  )
+  assert.equal(covered.covered, true)
+  assert.equal(covered.energyRequired, 1320)
+  assert.equal(covered.energyBudgetRequiredSun, '132000')
+  assert.equal(covered.bandwidthRequired, 329)
+  assert.equal(covered.bandwidthCoverageMethod, 'staked-bandwidth')
+  assert.equal(covered.energyTrxReserveSun, '0')
+  assert.equal(covered.bandwidthTrxReserveSun, '0')
+  assert.equal(covered.totalTrxReserveSun, '0')
+})
+
+test('Mainnet sponsor fee coverage adds Energy and Bandwidth shortfalls to required TRX reserve', () => {
+  const snapshot = {
+    energyAvailable: 900,
+    stakedBandwidthAvailable: 0,
+    freeBandwidthAvailable: 0,
+    trxBalanceSun: '370999',
+  }
+  const unsigned = { raw_data_hex: 'ab'.repeat(200) }
+  const short = calculateSponsorDirectFeeCoverage(
+    snapshot, { energy_used: 1000, energy_penalty: 100 }, unsigned, '200000', mainnetFeeParameters,
+  )
+  assert.equal(short.energyRequired, 1320)
+  assert.equal(short.energyTrxReserveSun, '42000')
+  assert.equal(short.bandwidthTrxReserveSun, '329000')
+  assert.equal(short.totalTrxReserveSun, '371000')
+  assert.equal(short.trxBalanceCoversReserve, false)
+  assert.equal(short.covered, false)
+
+  const sufficient = calculateSponsorDirectFeeCoverage(
+    { ...snapshot, trxBalanceSun: '371000' },
+    { energy_used: 1000, energy_penalty: 100 },
+    unsigned,
+    '200000',
+    mainnetFeeParameters,
+  )
+  assert.equal(sufficient.covered, true)
+  assert.equal(sufficient.method, 'mixed-resource-and-trx-reserve')
+})
+
+test('Mainnet sponsor fee coverage fails closed when fee_limit does not cover Energy or exceeds chain maximum', () => {
+  const snapshot = {
+    energyAvailable: 100000,
+    stakedBandwidthAvailable: 1000,
+    freeBandwidthAvailable: 1000,
+    trxBalanceSun: '0',
+  }
+  const unsigned = { raw_data_hex: 'ab'.repeat(100) }
+  const tooLow = calculateSponsorDirectFeeCoverage(
+    snapshot, { energy_used: 1000, energy_penalty: 0 }, unsigned, '99999', mainnetFeeParameters,
+  )
+  assert.equal(tooLow.covered, false)
+  assert.equal(tooLow.feeLimitCoversEnergy, false)
+  const aboveMax = calculateSponsorDirectFeeCoverage(
+    snapshot, { energy_used: 100, energy_penalty: 0 }, unsigned, '15000000001', mainnetFeeParameters,
+  )
+  assert.equal(aboveMax.covered, false)
 })
 
 function unsignedTransfer(overrides = {}) {
@@ -180,11 +269,20 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         usdtBalanceBaseUnits: '100000000',
         trxBalanceSun: '0',
         energyAvailable: 100000,
-        bandwidthAvailable: 100000,
+        stakedBandwidthAvailable: 100000,
+        freeBandwidthAvailable: 100000,
+        bandwidthAvailable: 200000,
         resourcesReadable: true,
         checkedAt: new Date().toISOString(),
       }),
       providerPost: async (_env, providerPath) => {
+        if (providerPath === 'wallet/getchainparameters') {
+          return { chainParameter: [
+            { key: 'getEnergyFee', value: 100 },
+            { key: 'getTransactionFee', value: 1000 },
+            { key: 'getMaxFeeLimit', value: 15000000000 },
+          ] }
+        }
         if (providerPath === 'wallet/triggerconstantcontract') {
           return { result: { result: true }, energy_used: 100, energy_penalty: 0 }
         }
