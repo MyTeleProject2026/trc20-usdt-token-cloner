@@ -112,6 +112,25 @@ test('Fincra successful status requires exact recipient identity and exact net a
   assert.equal(normalized.providerReference, 'fincra-reference-1')
 })
 
+test('Fincra payout status requires the exact optional destination tag', () => {
+  const expected = { ...payoutInput, destinationTag: 'deposit-2048' }
+  const payout = {
+    status: 'processing',
+    customerReference: payoutInput.customerReference,
+    sourceCurrency: 'USDT',
+    destinationCurrency: 'USDT',
+    paymentScheme: 'usdt_trc20',
+    paymentDestination: 'crypto_wallet',
+    beneficiary: { walletAddress: recipient, destinationTag: 'deposit-2048' },
+  }
+  assert.equal(normalizeFincraPayoutRecord(payout, expected).valid, true)
+  const mismatch = normalizeFincraPayoutRecord({
+    ...payout, beneficiary: { ...payout.beneficiary, destinationTag: 'wrong-tag' },
+  }, expected)
+  assert.equal(mismatch.valid, false)
+  assert.ok(mismatch.reasons.includes('destination-tag-mismatch'))
+})
+
 test('Fincra successful status with fee-shortened receiver amount is sent to manual review', () => {
   const payout = {
     status: 'successful',
