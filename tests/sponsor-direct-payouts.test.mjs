@@ -12,6 +12,7 @@ import {
   calculateSponsorDirectFeeCoverage,
   matchesSponsorDirectUnsignedTransaction,
   sponsorApprovalContainsAddress,
+  classifySponsorBroadcastResponse,
   isSponsorDirectAutoRouteEligible,
   createSponsorDirectPayoutsRouter,
 } from '../server/routes/sponsor-direct-payouts.mjs'
@@ -192,6 +193,13 @@ function unsignedTransfer(overrides = {}) {
     ...overrides,
   }
 }
+
+test('ambiguous or negative Tatum broadcast responses remain reconcilable by the fixed transaction ID', () => {
+  assert.equal(classifySponsorBroadcastResponse({ result: true }), 'submitted')
+  assert.equal(classifySponsorBroadcastResponse({ result: false, code: 'DUP_TRANSACTION_ERROR' }), 'outcome-unknown')
+  assert.equal(classifySponsorBroadcastResponse({ code: 'SERVER_BUSY' }), 'outcome-unknown')
+  assert.equal(classifySponsorBroadcastResponse(null), 'outcome-unknown')
+})
 
 test('TRON approved-list accepts documented successful response and fails closed on errors or wrong signer', () => {
   assert.equal(sponsorApprovalContainsAddress({
