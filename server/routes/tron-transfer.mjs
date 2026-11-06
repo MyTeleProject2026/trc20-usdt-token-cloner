@@ -891,6 +891,19 @@ transaction_hash CHAR(64),
         const found = await client.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE id=$1 FOR UPDATE`, [req.params.id])
         if (!found.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, error: 'sponsor-request-not-found' }) }
         row = found.rows[0]
+        // The owner's own Fincra account may be used without a third-party sponsor
+        // mandate only for a request authenticated by that same configured owner wallet.
+        // This prevents owner API credentials from becoming a blanket substitute for
+        // third-party sponsor consent.
+        if (ownerAuth.ok && row.requester_address !== ownerAuth.address) {
+          await client.query('ROLLBACK')
+          return res.status(403).json({
+            success: false,
+            error: 'owner-fincra-payout-requires-owner-requester-wallet',
+            transactionSubmitted: false,
+            note: 'The owner-operated Fincra account can only fund a request created by the configured owner wallet. Other requesters require an authorized sponsor standing mandate.',
+          })
+        }
         if (automaticRequest) {
           if (row.requester_address !== requesterAuth.address) {
             await client.query('ROLLBACK')

@@ -107,6 +107,12 @@ test('Fincra automatic payout requires an allowlisted requester and an authorize
   assert.match(recipientRoute, /sponsor_mandate_id/)
 })
 
+test('owner-operated Fincra payout cannot substitute owner credentials for a third-party sponsor mandate', () => {
+  assert.match(recipientRoute, /if \(ownerAuth\.ok && row\.requester_address !== ownerAuth\.address\)/)
+  assert.match(recipientRoute, /owner-fincra-payout-requires-owner-requester-wallet/)
+  assert.match(recipientRoute, /Other requesters require an authorized sponsor standing mandate/)
+})
+
 test('requesters can view and reconcile only their own Fincra payout history', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   assert.match(recipientRoute, /router\.get\('\/sponsor-requests\/mine'/)

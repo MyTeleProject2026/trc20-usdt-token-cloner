@@ -23,7 +23,7 @@ test('only official Mainnet Tether USDT is exposed as the withdrawal asset', () 
 })
 
 test('requester can submit a payout with identity proof only, without signing or funding the payout transaction', () => {
-  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="withdraw" />'))
+  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="withdraw" ownerSession={ownerSession} />'))
   assert.ok(fincraWithdrawals.includes('/api/tron-transfer/sponsor-requests'))
   assert.ok(fincraWithdrawals.includes('/api/auth/tron/challenge'))
   assert.ok(fincraWithdrawals.includes('signMessageV2(challenge.message)'))
@@ -53,7 +53,7 @@ test('platform owner session is used for organization and mandate review', () =>
 
 test('automatic payout UI describes real provider funding and fail-closed sponsor requirements', () => {
   assert.ok(fincraWithdrawals.includes('authorized Fincra business account'))
-  assert.ok(fincraWithdrawals.includes('standing sponsor mandate'))
+  assert.ok(fincraWithdrawals.includes('standing Fincra mandate'))
   assert.ok(fincraWithdrawals.includes('no payout is reported as successful'))
   assert.ok(sponsorOrganization.includes('independently verify'))
 })
@@ -81,6 +81,14 @@ test('active UI uses Fincra payout flow and does not mount the legacy sponsor wa
   assert.ok(!app.includes('<SponsorDirectPayouts'))
 })
 
+test('owner-controlled Fincra payouts use the owner session only when it matches the requester wallet', () => {
+  assert.ok(app.includes('ownerSession={ownerSession}'))
+  assert.ok(fincraWithdrawals.includes('ownerSession?.address === walletAddress'))
+  assert.ok(fincraWithdrawals.includes('payoutSessionToken = ownerManagedPayout ? ownerSession.sessionToken : session?.sessionToken'))
+  assert.ok(fincraWithdrawals.includes('Owner-operated Fincra account'))
+  assert.ok(fincraWithdrawals.includes('does not require a separate sponsor wallet mandate'))
+})
+
 test('production metadata and frontend test command remain configured', () => {
   assert.ok(html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
   assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
@@ -93,7 +101,7 @@ test('navigation keeps dedicated dashboard, assets, recipients, withdrawals, spo
     assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
     assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
   }
-  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="history" />'))
+  assert.ok(app.includes('<FincraWithdrawals wallet={unlocked} mode="history" ownerSession={ownerSession} />'))
   assert.ok(app.includes('Platform owner authentication'))
 })
 
