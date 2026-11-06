@@ -79,7 +79,7 @@ test('individual Mainnet wallet sponsors use per-transfer signing while Fincra a
   assert.match(source, /active-sponsor-application-required/)
   assert.match(source, /readSponsorSnapshot/)
   assert.match(source, /validateOwnerSignedTransaction/)
-  assert.match(source, /wallet\\/getapprovedlist/)
+  assert.ok(source.includes('wallet/getapprovedlist'))
   assert.match(source, /sponsor-per-payout-limit-exceeded/)
   assert.match(source, /sponsor-daily-limit-exceeded/)
   const providerRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
