@@ -591,7 +591,7 @@ async function autoAssignSponsorToRequest({
     )
     candidates = found.rows || []
   } catch {
-    // Organization tables may not yet exist; preserve the request in the unassigned queue.
+    // A temporary database or sponsor-profile issue leaves the request unassigned.
     return { request, routing: 'awaiting-eligible-sponsor' }
   }
 
