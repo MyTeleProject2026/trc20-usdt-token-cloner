@@ -441,7 +441,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Contract: {MAINNET_USDT}</span>
                 <span>Requester wallet: identity only</span>
                 <span>Sender: approved sponsor wallet</span>
-                <span>Routing: automatic matching against authorized sponsor mandates and live funding checks</span>
+                <span>Routing: automatic matching against owner-approved individual sponsor wallets and live funding checks</span>
                 <span>Signer: sponsor's TronLink account; sponsor approval is still required</span>
                 <span>Broadcast and confirmation: Tatum Mainnet</span>
               </div>
