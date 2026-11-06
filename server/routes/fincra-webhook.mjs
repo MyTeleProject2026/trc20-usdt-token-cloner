@@ -81,6 +81,7 @@ export function normalizeFincraPayoutWebhook(payload) {
       || data.walletAddress,
     64,
   )
+  const destinationTag = clean(data.beneficiary?.destinationTag || data.destinationTag, 128)
   const amountCharged = optionalAmount(data.amountCharged)
   const amountReceived = optionalAmount(data.amountReceived)
   const fee = optionalAmount(data.fee)
@@ -118,6 +119,7 @@ export function normalizeFincraPayoutWebhook(payload) {
     paymentScheme,
     paymentDestination,
     recipientAddress: isValidTronAddress(recipientAddress) ? recipientAddress : null,
+    destinationTag: destinationTag || null,
     amountChargedBaseUnits: amountCharged.value,
     amountReceivedBaseUnits: amountReceived.value,
     feeBaseUnits: fee.value,
@@ -126,7 +128,7 @@ export function normalizeFincraPayoutWebhook(payload) {
       eventType, customerReference, providerReference: clean(data.reference || data.transactionReference, 128) || null,
       payoutId: data.id == null ? null : clean(String(data.id), 128) || null,
       providerStatus, sourceCurrency, destinationCurrency, paymentScheme, paymentDestination,
-      recipientAddress, amountChargedBaseUnits: amountCharged.value,
+      recipientAddress, destinationTag: destinationTag || null, amountChargedBaseUnits: amountCharged.value,
       amountReceivedBaseUnits: amountReceived.value, feeBaseUnits: fee.value, reasons,
     }), 'utf8').digest('hex'),
   }
@@ -140,6 +142,7 @@ function getWebhookRequestMatchReasons(row, event) {
   }
   if (event.customerReference !== row.customer_reference) reasons.push('customer-reference-mismatch')
   if (event.recipientAddress !== row.recipient_address) reasons.push('recipient-mismatch')
+  if ((event.destinationTag || '') !== (row.destination_tag || '')) reasons.push('destination-tag-mismatch')
   if (event.sourceCurrency !== 'USDT' || event.destinationCurrency !== 'USDT') reasons.push('currency-route-mismatch')
   if (event.paymentScheme !== 'usdt_trc20' || event.paymentDestination !== 'crypto_wallet') {
     reasons.push('payment-scheme-or-destination-mismatch')
@@ -168,10 +171,13 @@ async function ensureSchema(client) {
     'event_type TEXT NOT NULL CHECK (event_type IN (\'payout.successful\',\'payout.failed\')), ' +
     'customer_reference TEXT, provider_reference TEXT, provider_payout_id TEXT, provider_status TEXT NOT NULL, ' +
     'source_currency TEXT, destination_currency TEXT, payment_scheme TEXT, payment_destination TEXT, ' +
-    'recipient_address TEXT, amount_charged_base_units NUMERIC(78,0), amount_received_base_units NUMERIC(78,0), ' +
+    'recipient_address TEXT, destination_tag TEXT, amount_charged_base_units NUMERIC(78,0), amount_received_base_units NUMERIC(78,0), ' +
     'fee_base_units NUMERIC(78,0), identity_status TEXT NOT NULL DEFAULT \'unmatched\' ' +
     'CHECK (identity_status IN (\'unmatched\',\'matched\',\'review-required\')), ' +
     'received_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+  )
+  await client.query(
+    'ALTER TABLE ' + SCHEMA + '.fincra_payout_webhook_events ADD COLUMN IF NOT EXISTS destination_tag TEXT'
   )
   await client.query(
     'ALTER TABLE ' + SCHEMA + '.fincra_payout_webhook_events ADD COLUMN IF NOT EXISTS review_reasons JSONB NOT NULL DEFAULT \'[]\'::jsonb'
@@ -320,7 +326,7 @@ export function createFincraWebhookRouter({
       let found = { rows: [] }
       if (requestTable.rows[0]?.table_name) {
         found = await client.query(
-          'SELECT id, customer_reference, recipient_address, amount_base_units, fincra_status ' +
+          'SELECT id, customer_reference, recipient_address, destination_tag, amount_base_units, fincra_status ' +
           'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1 FOR UPDATE',
           [event.customerReference],
         )
