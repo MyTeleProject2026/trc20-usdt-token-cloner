@@ -71,6 +71,8 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
 
   const readiness = result?.readiness
   const blockers = Array.isArray(readiness?.blockers) ? readiness.blockers : []
+  const ownerDepositNotRequired = result?.funding?.ownerDepositRequired === false
+  const ownerWalletPrincipalNotRequired = result?.funding?.ownerWalletPrincipalRequired === false
 
   return (
     <section className="panel owner-withdrawals-page provider-payout-page">
@@ -96,7 +98,8 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
       <div className="recipient-balance-grid">
         <article className="metric-card"><span>Platform access</span><strong>Private owner-only</strong></article>
         <article className="metric-card"><span>Asset / network</span><strong>USDT · TRON Mainnet</strong></article>
-        <article className="metric-card"><span>Your deposit required</span><strong>No</strong></article>
+        <article className="metric-card"><span>Your deposit required</span><strong>{ownerDepositNotRequired ? 'No' : 'Not verified'}</strong></article>
+        <article className="metric-card"><span>Your wallet principal required</span><strong>{ownerWalletPrincipalNotRequired ? 'No' : 'Not verified'}</strong></article>
         <article className="metric-card"><span>Real payout execution</span><strong>{readiness?.executionEnabled ? 'Provider approved' : 'Disabled'}</strong></article>
       </div>
 
