@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { payoutStatusFromProvider } from '../server/routes/tron-transfer.mjs'
 
 const recipientRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
 const withdrawalRoute = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
@@ -131,4 +132,14 @@ test('Fincra frontend initiates provider submission and polls provider/solidifie
   assert.match(page, /\/verify-recipient-transfer/)
   assert.match(page, /solidified-recipient-transfer-verified/)
   assert.doesNotMatch(page, /privateKey\s*[:=]/i)
+})
+
+
+test('Fincra pending payout status is treated as non-terminal processing', () => {
+  assert.equal(payoutStatusFromProvider('pending'), 'processing')
+  assert.equal(payoutStatusFromProvider('PENDING'), 'processing')
+  assert.equal(payoutStatusFromProvider('processing'), 'processing')
+  assert.equal(payoutStatusFromProvider('successful'), 'successful')
+  assert.equal(payoutStatusFromProvider('failed'), 'failed')
+  assert.equal(payoutStatusFromProvider('unknown-provider-state'), 'unknown')
 })
