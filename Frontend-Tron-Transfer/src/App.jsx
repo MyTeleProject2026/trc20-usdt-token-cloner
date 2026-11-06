@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import ProviderPayoutReadiness from './ProviderPayoutReadiness.jsx'
+import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
@@ -173,6 +174,7 @@ export default function App() {
     {id:'recipients',label:'Recipients',icon:ArrowDownLeft},
     {id:'withdrawals',label:'Withdrawals',icon:ArrowUpRight},
     {id:'provider',label:'Funding provider',icon:ShieldCheck},
+    {id:'sponsors',label:'Sponsor approvals',icon:ShieldCheck},
     {id:'transactions',label:'Transactions',icon:History},
     {id:'settings',label:'Settings',icon:Settings},
   ]
@@ -273,12 +275,17 @@ export default function App() {
           </div>
         </section>}
 
-        {tab==='withdrawals'&&<ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />}
+        {tab==='withdrawals'&&<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />}
 
-        {tab==='transactions'&&<ProviderPayoutReadiness ownerSession={ownerSession} mode="history" />}
+        {tab==='transactions'&&<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="history" />}
+
+        {tab==='sponsors'&&<section className="panel provider-panel">
+          <div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER · SPONSOR WALLET REVIEW</span><h2>Approved sponsor wallets</h2><p>Invite a separate wallet owner to the sponsor portal. You review each wallet and set its per-payout and daily caps; every Mainnet transfer still requires that sponsor to sign the exact transaction.</p><a href="#/sponsor" target="_blank" rel="noreferrer">Open the separate sponsor portal <ExternalLink size={12}/></a></div><div className="panel-icon"><ShieldCheck/></div></div>
+          <SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="sponsor" />
+        </section>}
 
         {tab==='provider'&&<section className="panel provider-panel">
-          <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>No public sponsor applications or third-party sponsor portal is enabled. The provider must authorize this owner account and its funding arrangement.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
+          <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>Provider-managed payout credit is not configured. The active route is a separately owned, self-custody sponsor wallet that must be reviewed, funded and explicitly sign each transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
           <ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />
         </section>}
 
