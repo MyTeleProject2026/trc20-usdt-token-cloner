@@ -1379,9 +1379,27 @@ export function createSponsorDirectPayoutsRouter({
       const result = await db.query(
         'INSERT INTO ' + SCHEMA + '.sponsor_direct_payouts ' +
         '(id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,\'requested\') RETURNING *',
+        'VALUES ($1,$2,$3,$4,$5,$6,\'requested\') ' +
+        'ON CONFLICT (idempotency_key) DO NOTHING RETURNING *',
         [randomUUID(), idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits],
       )
+      // The preflight SELECT above handles ordinary retries. This conflict path
+      // closes the race where two identical requests arrive before either INSERT
+      // commits: only the winner creates/routes a payout; the loser returns the
+      // durable winner after validating that the key was not reused for another intent.
+      if (!result.rows[0]) {
+        const raced = await db.query(
+          'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE idempotency_key=$1 LIMIT 1',
+          [idempotencyKey],
+        )
+        const row = raced.rows[0]
+        if (!row) throw new Error('Idempotency conflict row is not yet readable.')
+        if (row.requester_address !== auth.address || row.recipient_address !== recipientAddress
+          || String(row.amount_base_units) !== amountBaseUnits) {
+          return res.status(409).json({ success: false, error: 'idempotency-key-reused-for-different-request' })
+        }
+        return res.json({ success: true, duplicate: true, request: publicRequest(row), payoutAuthorized: false })
+      }
       const routed = await autoAssignSponsorToRequest({
         db,
         env,
