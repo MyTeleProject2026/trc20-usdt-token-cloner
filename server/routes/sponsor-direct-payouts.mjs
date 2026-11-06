@@ -646,8 +646,7 @@ async function autoAssignSponsorToRequest({
       }
 
       const profile = await getSponsorProfile(client, sponsorAddress)
-      const mandate = await getAuthorizedSponsorMandate(client, sponsorAddress, now())
-      if (!profile || profile.status !== 'active' || !mandate || mandate.purpose !== 'both') {
+      if (!profile || profile.status !== 'active') {
         await client.query('ROLLBACK')
         return
       }
@@ -666,14 +665,8 @@ async function autoAssignSponsorToRequest({
         readReservations(client, sponsorAddress),
         readDailyUsage(client, sponsorAddress),
       ])
-      const perPayoutLimit = lowerBaseUnitLimit(
-        profile.per_payout_limit_base_units,
-        mandate.per_payout_limit_base_units,
-      )
-      const dailyLimit = lowerBaseUnitLimit(
-        profile.daily_limit_base_units,
-        mandate.daily_limit_base_units,
-      )
+      const perPayoutLimit = String(profile.per_payout_limit_base_units || '0')
+      const dailyLimit = String(profile.daily_limit_base_units || '0')
       if (!isSponsorDirectAutoRouteEligible({
         amountBaseUnits,
         balanceBaseUnits: latestSnapshot.usdtBalanceBaseUnits,
