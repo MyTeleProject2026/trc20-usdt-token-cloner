@@ -63,7 +63,7 @@ test('the owner is not required to deposit or fund payouts from the identity wal
   assert.ok(providerPage.includes('not treated as the source of payout funds'))
 })
 
-test('navigation contains only private owner dashboard pages and a provider readiness page', () => {
+test('navigation keeps private owner pages and explicit sponsor approvals separate', () => {
   for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'provider', 'sponsors', 'transactions', 'settings']) {
     assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
     assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
@@ -85,7 +85,7 @@ test('wallet connection remains user-approved and never imports a private key', 
   assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
   assert.ok(app.includes('TronLink connected to TRON Mainnet'))
   assert.ok(app.includes('No imported private keys') || app.includes('private key'))
-  assert.ok(!/sendRawTransaction|privateKey\s*[:=]/i.test(app + providerPage))
+  assert.ok(!/sendRawTransaction|privateKey\s*[:=]/i.test(app + providerPage + sponsorPage + sponsorPortal))
 })
 
 test('owner can close the private session and leave the application locked', () => {
