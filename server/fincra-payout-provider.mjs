@@ -229,6 +229,8 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
       || payout.walletAddress,
     64,
   )
+  const destinationTag = clean(payout.beneficiary?.destinationTag || payout.destinationTag, 128)
+  const expectedDestinationTag = clean(expected.destinationTag, 128)
   const expectedAmountBaseUnits = parseFincraUsdtBaseUnits(expected.amount)
   const amountReceivedBaseUnits = payout.amountReceived == null ? null : parseFincraUsdtBaseUnits(payout.amountReceived)
   const amountChargedBaseUnits = payout.amountCharged == null ? null : parseFincraUsdtBaseUnits(payout.amountCharged)
@@ -242,6 +244,7 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
     ['payment-scheme-mismatch', paymentScheme, FINCRA_USDT_TRON_SCHEME],
     ['payment-destination-mismatch', paymentDestination, 'crypto_wallet'],
     ['recipient-mismatch', recipientAddress, expected.recipientAddress],
+    ['destination-tag-mismatch', destinationTag, expectedDestinationTag],
   ]
   for (const [reason, actual, required] of checks) {
     if (!required || !actual || actual !== required) reasons.push(reason)
@@ -261,6 +264,7 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
     providerStatus: status,
     customerReference: customerReference || null,
     recipientAddress: recipientAddress || null,
+    destinationTag: destinationTag || null,
     amountReceivedBaseUnits,
     amountChargedBaseUnits,
     reasons,
