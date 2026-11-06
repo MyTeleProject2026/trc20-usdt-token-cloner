@@ -282,9 +282,35 @@ export function createFincraWebhookRouter({
         ],
       )
 
-      if (!inserted.rows.length) {
-        await client.query('COMMIT')
-        return res.status(200).json({ success: true, received: true, duplicate: true, processed: false })
+      const duplicate = inserted.rows.length === 0
+      if (duplicate) {
+        // A previously unmatched delivery may be retried after the local intent
+        // is created. Reconcile that same event only when absence of the local
+        // request was its sole prior blocker; matched/reviewed events are terminal
+        // for webhook replay and can never trigger another payout.
+        const existingEvent = await client.query(
+          'SELECT identity_status, review_reasons FROM ' + SCHEMA + '.fincra_payout_webhook_events ' +
+          'WHERE event_digest=$1 FOR UPDATE',
+          [event.eventDigest],
+        )
+        const prior = existingEvent.rows[0]
+        if (!prior) throw new Error('duplicate-fincra-event-record-missing')
+        const priorReasons = Array.isArray(prior.review_reasons) ? prior.review_reasons : []
+        const safeToRetryMatch = prior.identity_status === 'unmatched'
+          && event.reasons.length === 0
+          && priorReasons.length === 1
+          && priorReasons[0] === 'local-payout-request-not-found'
+        if (!safeToRetryMatch) {
+          await client.query('COMMIT')
+          return res.status(200).json({
+            success: true, received: true, duplicate: true, processed: false,
+            localRequestMatched: prior.identity_status === 'matched',
+            identityStatus: prior.identity_status,
+            reason: prior.identity_status === 'unmatched'
+              ? 'local-payout-request-still-not-found'
+              : 'duplicate-event-already-reconciled-or-requires-review',
+          })
+        }
       }
 
       const requestTable = await client.query(
@@ -295,7 +321,7 @@ export function createFincraWebhookRouter({
       if (requestTable.rows[0]?.table_name) {
         found = await client.query(
           'SELECT id, customer_reference, recipient_address, amount_base_units, fincra_status ' +
-          'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1',
+          'FROM ' + SCHEMA + '.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1 FOR UPDATE',
           [event.customerReference],
         )
       }
@@ -329,8 +355,9 @@ export function createFincraWebhookRouter({
       return res.status(200).json({
         success: true,
         received: true,
-        recorded: true,
-        duplicate: false,
+        recorded: !duplicate,
+        duplicate,
+        reprocessed: duplicate && matched,
         localRequestMatched: matched,
         identityStatus,
         providerPayoutStatus: event.providerStatus,
