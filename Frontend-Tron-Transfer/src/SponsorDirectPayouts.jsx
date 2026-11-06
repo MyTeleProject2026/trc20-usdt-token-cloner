@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import SponsorOrganizationOnboarding from './SponsorOrganizationOnboarding.jsx'
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw,
   ShieldCheck, Wallet, Building2, ClipboardCheck, Send,
@@ -407,14 +406,6 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         <small className="fine-print">Signing the identity message does not spend TRX, transfer tokens, or authorize sponsor withdrawals.</small>
       </div>
 
-      {mode === 'sponsor' && (
-        <SponsorOrganizationOnboarding
-          wallet={wallet}
-          identityToken={identityToken}
-          identityMatchesWallet={identityMatchesWallet}
-          ownerSession={ownerSession}
-        />
-      )}
 
       {mode !== 'sponsor' && mode !== 'history' && (
         <div className="sponsor-funding-destination">
