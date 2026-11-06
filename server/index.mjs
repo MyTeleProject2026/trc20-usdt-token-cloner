@@ -143,19 +143,23 @@ app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/tron-transfer', tronTransferRoutes)
 app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())
 
+let sponsorDatabaseReady = false
 if (process.env.DATABASE_URL) {
   try {
     const database = await initializeDatabase()
-    console.log('Project database initialization:', database.ready ? 'ready' : 'not-configured')
+    sponsorDatabaseReady = database.ready === true
+    console.log('Project database initialization:', sponsorDatabaseReady ? 'ready' : 'not-configured')
   } catch {
     // Keep read-only chain verification endpoints available; storage status exposes failure.
     console.error('Project database initialization failed; persistence is unavailable')
   }
 }
 
-// Reconcile sponsor-direct Mainnet transfers after the database has initialized.
-// The worker is inert when DATABASE_URL or a Tatum Mainnet key is unavailable.
-const sponsorDirectReconciliationWorker = startSponsorDirectPayoutReconciliationWorker({ env: process.env })
+// Reconcile sponsor-direct Mainnet transfers only after the database has passed
+// initialization. The worker is otherwise inert and will not create payout state.
+const sponsorDirectReconciliationWorker = sponsorDatabaseReady
+  ? startSponsorDirectPayoutReconciliationWorker({ env: process.env })
+  : { started: false, reason: 'database-not-ready' }
 if (sponsorDirectReconciliationWorker.started) {
   console.log('Sponsor-direct Mainnet reconciliation worker started:', sponsorDirectReconciliationWorker.intervalMs)
 }
