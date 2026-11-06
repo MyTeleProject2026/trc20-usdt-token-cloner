@@ -83,6 +83,12 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
   const [ownerOverview, setOwnerOverview] = useState(null)
+  const [ownerFundingLedger, setOwnerFundingLedger] = useState(null)
+  const [fundingLedgerError, setFundingLedgerError] = useState('')
+  const [fundingDepositTxHash, setFundingDepositTxHash] = useState('')
+  const [fundingDepositFromAddress, setFundingDepositFromAddress] = useState('')
+  const [fundingDepositAmount, setFundingDepositAmount] = useState('')
+  const [fundingLedgerBusy, setFundingLedgerBusy] = useState(false)
   const [recipient, setRecipient] = useState('')
   const [amount, setAmount] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -114,6 +120,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setMyRequests([])
     setQueue([])
     setOwnerOverview(null)
+    setOwnerFundingLedger(null)
+    setFundingLedgerError('')
     if (!ADDRESS_RE.test(walletAddress)) return () => { current = false }
     let stored = ''
     try { stored = sessionStorage.getItem(SESSION_KEY_PREFIX + walletAddress) || '' } catch {}
@@ -210,9 +218,12 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         ])
         setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
         setOwnerOverview(overviewResult)
+        await refreshOwnerFundingLedger()
       } else {
         setApplications([])
         setOwnerOverview(null)
+        setOwnerFundingLedger(null)
+        setFundingLedgerError('')
       }
     } catch (cause) {
       setError(cause?.message || 'Could not refresh sponsor-direct status.')
@@ -232,6 +243,57 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     }, 15000)
     return () => window.clearInterval(interval)
   }, [identityMatchesWallet, identityToken, walletAddress, mode])
+
+  async function refreshOwnerFundingLedger() {
+    if (!isOwnerAdmin || !identityMatchesWallet) return
+    setFundingLedgerError('')
+    try {
+      const result = await api('/api/treasury/owner/funding-ledger?network=mainnet', identityToken)
+      if (result.success !== true || result.network !== 'mainnet'
+        || typeof result.onChainBalanceBaseUnits !== 'string'
+        || typeof result.availableBaseUnits !== 'string') {
+        throw new Error(result.message || result.error || 'Verified treasury funding ledger is unavailable.')
+      }
+      setOwnerFundingLedger(result)
+    } catch (cause) {
+      setOwnerFundingLedger(null)
+      setFundingLedgerError(cause?.message || 'Could not load verified treasury funding.')
+    }
+  }
+
+  async function verifyIncomingTreasuryDeposit() {
+    if (!isOwnerAdmin || !identityMatchesWallet) {
+      setFundingLedgerError('Verify the configured platform-owner wallet before recording a treasury deposit.')
+      return
+    }
+    setFundingLedgerBusy(true)
+    setFundingLedgerError('')
+    try {
+      const result = await api('/api/treasury/owner/funding-ledger/deposits/verify', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          network: 'mainnet',
+          transactionHash: fundingDepositTxHash.trim(),
+          fromAddress: fundingDepositFromAddress.trim(),
+          amount: fundingDepositAmount.trim(),
+        }),
+      })
+      if (result.success !== true || result.credited !== true) {
+        throw new Error(result.message || result.error || 'Incoming transfer was not verified.')
+      }
+      setFundingDepositTxHash('')
+      setFundingDepositFromAddress('')
+      setFundingDepositAmount('')
+      await refreshOwnerFundingLedger()
+      setNotice(result.duplicate
+        ? 'This exact solidified Mainnet USDT transfer is already recorded; no duplicate credit was added.'
+        : 'Incoming Mainnet USDT transfer verified and recorded. The live treasury balance and payout reservations have been refreshed.')
+    } catch (cause) {
+      setFundingLedgerError(cause?.message || 'Incoming Mainnet deposit verification failed.')
+    } finally {
+      setFundingLedgerBusy(false)
+    }
+  }
 
   async function submitRequest() {
     setBusy(true)
@@ -422,6 +484,63 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             </div>
             <small className="fine-print">An approved wallet profile is not proof of USDT funds. Every payout requires a fresh live Mainnet balance/resource check and the sponsor's exact transaction signature. This application permits individual wallet applications without company registration documents or a required contact email; it does not perform KYC/KYB.</small>
           </div>
+        </div>
+      )}
+
+      {isOwnerAdmin && mode !== 'sponsor' && (
+        <div className="sponsor-funding-destination">
+          <span className="eyebrow">TREASURY FUNDING · VERIFIED MAINNET INFLOWS</span>
+          <h3>Incoming official USDT funding ledger</h3>
+          <p>Record an incoming payment only after it has reached the configured treasury address. The backend independently verifies the solidified Mainnet transaction and exact official Tether USDT Transfer event before recording it.</p>
+          <div className="withdrawal-form-grid">
+            <div className="form-stack">
+              <label>Incoming transaction hash
+                <input value={fundingDepositTxHash} onChange={(event) => setFundingDepositTxHash(event.target.value)} placeholder="64-character Mainnet transaction hash" autoComplete="off" spellCheck="false" />
+              </label>
+              <label>External sender TRON address
+                <input value={fundingDepositFromAddress} onChange={(event) => setFundingDepositFromAddress(event.target.value)} placeholder="T..." autoComplete="off" spellCheck="false" />
+              </label>
+              <label>Received amount (USDT)
+                <input value={fundingDepositAmount} onChange={(event) => setFundingDepositAmount(event.target.value)} placeholder="e.g. 25.00" inputMode="decimal" />
+              </label>
+              <button className="primary-button" disabled={fundingLedgerBusy || busy || !fundingDepositTxHash.trim() || !fundingDepositFromAddress.trim() || !fundingDepositAmount.trim()} onClick={() => void verifyIncomingTreasuryDeposit()}>
+                <ShieldCheck size={15} /> {fundingLedgerBusy ? 'Verifying solidified Mainnet transfer…' : 'Verify and record incoming USDT'}
+              </button>
+            </div>
+            <aside className="withdrawal-eligibility">
+              <span className="eyebrow">LIVE TREASURY ACCOUNTING</span>
+              {ownerFundingLedger ? (
+                <div className="readiness-checks">
+                  <span>Verified live on-chain USDT: {formatUnits(ownerFundingLedger.onChainBalanceBaseUnits)} USDT</span>
+                  <span>Active payout reservations: {formatUnits(ownerFundingLedger.reservedBaseUnits)} USDT</span>
+                  <span>Unreserved on-chain balance: {formatUnits(ownerFundingLedger.availableBaseUnits)} USDT</span>
+                  <span>Verified inflows recorded: {formatUnits(ownerFundingLedger.totalVerifiedInboundBaseUnits)} USDT</span>
+                  <span>Observed treasury TRX: {ownerFundingLedger.native?.status === 'verified' ? formatUnits(ownerFundingLedger.native.balanceSun) + ' TRX' : 'Unavailable'}</span>
+                </div>
+              ) : <p className="fine-print">Treasury balance is not yet verified. Refresh after the owner wallet identity has been verified.</p>}
+              <button className="secondary-button" disabled={fundingLedgerBusy || refreshing} onClick={() => void refreshOwnerFundingLedger()}>
+                <RefreshCw size={15} /> Refresh treasury funding
+              </button>
+            </aside>
+          </div>
+          {fundingLedgerError && <div className="notice notice-error" role="alert"><AlertTriangle size={15} /><span>{fundingLedgerError}</span></div>}
+          <p className="fine-print">This ledger never creates USDT or TRX. Available USDT is the live on-chain treasury balance less active sponsor payout reservations. It does not verify source-of-funds compliance or authorize a withdrawal. The treasury wallet must separately be approved as a sponsor and sign each exact outgoing transaction.</p>
+          {ownerFundingLedger?.entries?.length > 0 && (
+            <div className="transaction-list">
+              {ownerFundingLedger.entries.map((entry) => (
+                <article className="transaction-row" key={entry.transactionHash + ':' + entry.logIndex}>
+                  <div className="transaction-main">
+                    <strong>{formatUnits(entry.amountBaseUnits)} USDT received</strong>
+                    <span>From {shorten(entry.fromAddress)} · block {entry.blockNumber} · event {entry.logIndex}</span>
+                    <small>{entry.verifiedAt ? new Date(entry.verifiedAt).toLocaleString() : 'Verified time unavailable'}</small>
+                    <a href={'https://tronscan.org/#/transaction/' + entry.transactionHash} target="_blank" rel="noreferrer">View verified Mainnet transaction <ExternalLink size={12} /></a>
+                  </div>
+                  <span className="status-pill status-success">SOLIDIFIED</span>
+                </article>
+              ))}
+            </div>
+          )}
+          {ownerFundingLedger && !ownerFundingLedger.entries?.length && <p className="fine-print">No verified incoming USDT transfer events have been recorded yet.</p>}
         </div>
       )}
 
