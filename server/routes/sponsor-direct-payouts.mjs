@@ -961,8 +961,9 @@ export function createSponsorDirectPayoutsRouter({
       sponsorWalletSignatureRequired: true,
       payoutExecution: 'conditional-on-approved-funded-sponsor',
       sponsorApprovalRequired: true,
-      sponsorOrganizationVerification: 'platform-review-required; legal-entity and KYC verification are not performed by this application',
-      note: 'A requester can submit a withdrawal request with a zero-balance wallet. An actual payout executes only after an approved sponsor wallet is verified to hold the official Mainnet USDT amount and sufficient TRON network resources, and the sponsor signs the exact transaction in its own wallet.',
+      sponsorOrganizationVerification: 'not-required-for-individual-per-transfer-wallet-sponsorship',
+      sponsorComplianceStatus: 'platform wallet review only; this application does not perform identity, KYC, KYB or source-of-funds verification',
+      note: 'A requester can submit a withdrawal request with a zero-balance wallet. An individual self-custody sponsor can participate after platform-owner wallet review, without an organization application or provider account. Every payout still requires a fresh signature from the sponsor wallet after live Mainnet USDT and network-resource checks. This is not identity or source-of-funds verification.'
     })
   })
 
