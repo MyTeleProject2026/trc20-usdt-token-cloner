@@ -5,6 +5,7 @@ import { normalizeDatabaseConnectionString, databaseSslConfig, getWalletAuthSess
 import { isValidTronAddress } from '../tron-address.mjs'
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
+import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -211,14 +212,6 @@ async function readFincraSourceBalance(config) {
     walletId: cleanString(wallet.id || wallet.walletId, 128) || null,
     walletNumber: walletNumber || null,
   }
-}
-
-function payoutStatusFromProvider(value) {
-  const status = cleanString(value, 32).toLowerCase()
-  if (status === 'successful') return 'successful'
-  if (status === 'failed') return 'failed'
-  if (status === 'processing') return 'processing'
-  return 'unknown'
 }
 
 let pool
@@ -446,6 +439,9 @@ transaction_hash CHAR(64),
   function reconcileFincraPayoutIdentity(payout, row) {
     if (!payout || typeof payout !== 'object') return { ok: false, complete: false, reason: 'provider-payout-record-missing' }
     const status = payoutStatusFromProvider(payout.status)
+    if (status === 'unknown') {
+      return { ok: false, complete: false, status, reason: 'unsupported-payout-status' }
+    }
     const customerReference = cleanString(payout.customerReference || payout.customer_reference, 80)
     const sourceCurrency = cleanString(payout.sourceCurrency, 8).toUpperCase()
     const destinationCurrency = cleanString(payout.destinationCurrency, 8).toUpperCase()
@@ -1143,7 +1139,7 @@ transaction_hash CHAR(64),
       const data = result.payload.data
       const reconciliation = reconcileFincraPayoutIdentity(data, row)
       if (!reconciliation.ok) {
-        const statusCode = reconciliation.reason === 'successful-payout-record-incomplete' ? 202 : 409
+        const statusCode = ['successful-payout-record-incomplete', 'unsupported-payout-status'].includes(reconciliation.reason) ? 202 : 409
         return res.status(statusCode).json({
           success: false, error: reconciliation.reason, request: publicRequest(row),
           note: 'Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and settlement details. The net amount received is recorded separately from the requested payout amount and any fee.',
@@ -1272,7 +1268,16 @@ transaction_hash CHAR(64),
       const providerHasRecipient = Boolean(providerRecipient)
       const providerStatus = payoutStatusFromProvider(payout.status)
       if (providerStatus === 'unknown') {
-        return res.status(503).json({ success: false, error: 'fincra-webhook-provider-status-unrecognized' })
+        // The payout API has a narrower status contract than generic Fincra
+        // transaction events. Acknowledge a validly signed, reconciled event
+        // but do not mutate payout state for an unsupported status.
+        return res.status(200).json({
+          success: true,
+          matched: true,
+          ignored: true,
+          reason: 'unsupported-payout-status',
+          stateChanged: false,
+        })
       }
       if (providerStatus === 'successful' && !providerHasRecipient && !signedEventHasRecipient) {
         return res.status(503).json({
