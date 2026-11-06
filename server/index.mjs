@@ -12,6 +12,7 @@ import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-walle
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
 import tronTransferRoutes from './routes/tron-transfer.mjs'
 import { createSponsorDirectPayoutsRouter, startSponsorDirectPayoutReconciliationWorker } from './routes/sponsor-direct-payouts.mjs'
+import { createFincraWebhookRouter } from './routes/fincra-webhook.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
@@ -144,6 +145,8 @@ app.use('/api/tron', createSponsorIntegrationReadinessRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/treasury/owner', createOwnerTreasuryFundingLedgerRouter())
+// Handle signed Fincra payout notifications before the disabled legacy route.
+app.use('/api/tron-transfer', createFincraWebhookRouter())
 app.use('/api/tron-transfer', tronTransferRoutes)
 app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())
 
