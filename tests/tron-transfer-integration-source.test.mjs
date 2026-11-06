@@ -145,7 +145,7 @@ test('provider readiness is private, read-only and fails closed without verified
   assert.match(recipientRoute, /requireOwnerSession\(req, env\)/)
   assert.match(recipientRoute, /getUnconfiguredProviderPayoutReadiness\(\)/)
   assert.match(recipientRoute, /provider-owned USDT liquidity or an approved credit facility/)
-  assert.match(recipientRoute, /executionEnabled/)
+  assert.match(recipientRoute, /readiness,/) 
 })
 
 test('runtime does not expose public sponsor registration, individual sponsor settlement or Fireblocks routes', () => {
