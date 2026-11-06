@@ -1218,7 +1218,7 @@ export function createSponsorDirectPayoutsRouter({
         transactionBroadcast: false,
         note: routed.routing === 'auto-assigned-awaiting-sponsor-signature'
           ? 'An eligible sponsor was automatically matched using a fresh Mainnet USDT and fee-resource check. The sponsor must still review and sign the exact payout in its own wallet. No funds have moved yet.'
-          : 'Your zero-balance wallet submitted the request. No currently eligible sponsor could be matched; it remains in the approved sponsor queue until a sponsor with an authorized mandate and sufficient funds/resources can accept it. No funds have moved.',
+          : 'Your zero-balance wallet submitted the request. No currently eligible funded sponsor wallet could be matched; it remains available in the sponsor queue. A sponsor must be owner-approved, hold the requested USDT and network resources, and sign each exact payout. No funds have moved.',
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-request-storage-unavailable' })
