@@ -244,11 +244,11 @@ export function normalizeFincraPayoutRecord(payout, expected = {}) {
     ['payment-scheme-mismatch', paymentScheme, FINCRA_USDT_TRON_SCHEME],
     ['payment-destination-mismatch', paymentDestination, 'crypto_wallet'],
     ['recipient-mismatch', recipientAddress, expected.recipientAddress],
-    ['destination-tag-mismatch', destinationTag, expectedDestinationTag],
   ]
   for (const [reason, actual, required] of checks) {
     if (!required || !actual || actual !== required) reasons.push(reason)
   }
+  if (destinationTag !== expectedDestinationTag) reasons.push('destination-tag-mismatch')
 
   if (payout.amountReceived != null && amountReceivedBaseUnits === null) reasons.push('fincra-amount-received-invalid')
   if (payout.amountCharged != null && amountChargedBaseUnits === null) reasons.push('fincra-amount-charged-invalid')
