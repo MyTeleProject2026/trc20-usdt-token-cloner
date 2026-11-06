@@ -370,6 +370,7 @@ export function createTronTransferRouter({ env = process.env } = {}) {
             recipient_address TEXT NOT NULL,
             beneficiary_name TEXT NOT NULL,
             beneficiary_email TEXT,
+            destination_tag TEXT,
             idempotency_key TEXT,
             asset TEXT NOT NULL DEFAULT 'USDT' CHECK (asset = 'USDT'),
             network TEXT NOT NULL DEFAULT 'mainnet' CHECK (network = 'mainnet'),
@@ -391,6 +392,8 @@ transaction_hash CHAR(64),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
           )
         `)
+        await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
+          ADD COLUMN IF NOT EXISTS destination_tag TEXT`)
         await db.query(`ALTER TABLE ${SCHEMA}.tron_transfer_sponsor_requests
           ADD COLUMN IF NOT EXISTS idempotency_key TEXT`)
         await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tron_transfer_sponsor_requests_idempotency_idx
@@ -422,6 +425,7 @@ transaction_hash CHAR(64),
       recipientAddress: row.recipient_address,
       beneficiaryName: row.beneficiary_name,
       beneficiaryEmail: row.beneficiary_email || null,
+      destinationTag: row.destination_tag || null,
       asset: row.asset,
       network: row.network,
       tokenContract: row.token_contract,
@@ -703,6 +707,10 @@ transaction_hash CHAR(64),
     if (beneficiaryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(beneficiaryEmail)) {
       return res.status(400).json({ success: false, error: 'invalid-beneficiary-email', payoutSubmitted: false })
     }
+    const destinationTag = cleanString(body.destinationTag, 128)
+    if (destinationTag && !/^[A-Za-z0-9._:-]{1,128}$/.test(destinationTag)) {
+      return res.status(400).json({ success: false, error: 'invalid-beneficiary-destination-tag', payoutSubmitted: false })
+    }
     let amount
     try {
       amount = parseUsdtAmount(body.amount)
@@ -721,13 +729,13 @@ transaction_hash CHAR(64),
       const inserted = await db.query(
         `INSERT INTO ${SCHEMA}.tron_transfer_sponsor_requests
           (id, customer_reference, requester_address, recipient_address, beneficiary_name,
-           beneficiary_email, idempotency_key, asset, network, token_contract,
+           beneficiary_email, destination_tag, idempotency_key, asset, network, token_contract,
            amount_base_units, amount_decimal, status, chain_verification_status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'USDT','mainnet',$8,$9,$10,'awaiting-provider-authorization','not-verified')
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'USDT','mainnet',$9,$10,$11,'awaiting-provider-authorization','not-verified')
          ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
          RETURNING *`,
         [id, customerReference, auth.address, recipientAddress, beneficiaryName,
-          beneficiaryEmail || null, idempotencyKey, MAINNET_USDT, amount.baseUnits, amount.decimal],
+          beneficiaryEmail || null, destinationTag || null, idempotencyKey, MAINNET_USDT, amount.baseUnits, amount.decimal],
       )
       let row = inserted.rows[0]
       const duplicate = !row
@@ -741,7 +749,8 @@ transaction_hash CHAR(64),
         if (row.requester_address !== auth.address || row.recipient_address !== recipientAddress
           || String(row.amount_base_units) !== amount.baseUnits
           || row.beneficiary_name !== beneficiaryName
-          || (row.beneficiary_email || '') !== beneficiaryEmail) {
+          || (row.beneficiary_email || '') !== beneficiaryEmail
+          || (row.destination_tag || '') !== destinationTag) {
           return res.status(409).json({ success: false, error: 'idempotency-key-reused-for-different-request', payoutSubmitted: false })
         }
       }
