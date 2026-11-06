@@ -204,3 +204,18 @@ test('Fincra payout statuses remain conservative for historical reconciliation',
   assert.equal(payoutStatusFromProvider('failed'), 'failed')
   assert.equal(payoutStatusFromProvider('unknown-provider-state'), 'unknown')
 })
+
+
+const fincraWebhookRoute = await readFile(new URL('../server/routes/fincra-webhook.mjs', import.meta.url), 'utf8')
+
+test('Fincra signed payout webhook is mounted before the disabled legacy handler and never confirms chain settlement', () => {
+  const webhookMount = entry.indexOf("app.use('/api/tron-transfer', createFincraWebhookRouter())")
+  const legacyMount = entry.indexOf("app.use('/api/tron-transfer', tronTransferRoutes)")
+  assert.ok(webhookMount >= 0 && legacyMount > webhookMount)
+  assert.match(entry, /express\.raw\(\{ type: 'application\/json'/)
+  assert.match(fincraWebhookRoute, /verifyFincraWebhookSignature/)
+  assert.match(fincraWebhookRoute, /ON CONFLICT \(event_digest\) DO NOTHING/)
+  assert.match(fincraWebhookRoute, /fincra_status=\$3/)
+  assert.match(fincraWebhookRoute, /chainSettlement: 'not-verified'/)
+  assert.doesNotMatch(fincraWebhookRoute, /wallet\/broadcasttransaction|sendRawTransaction/i)
+})
