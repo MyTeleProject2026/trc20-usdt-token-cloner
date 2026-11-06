@@ -204,3 +204,22 @@ test('webhook acknowledges an event with no matching local request as unmatched'
     assert.equal(result.payload.identityStatus, 'unmatched')
   })
 })
+
+
+test('webhook encryption-key environment alias is accepted without requiring an API key', async () => {
+  const database = new FakeDatabase({
+    id: 'request-1',
+    customer_reference: customerReference,
+    recipient_address: recipientAddress,
+    amount_base_units: '10000000',
+    fincra_status: 'processing',
+  })
+  await withServer(database, async (base) => {
+    const result = await postWebhook(base, payoutWebhook())
+    assert.equal(result.response.status, 200)
+    assert.equal(result.payload.localRequestMatched, true)
+  }, {
+    FINCRA_WEBHOOK_SECRET: '',
+    FINCRA_WEBHOOK_ENCRYPTION_KEY: secret,
+  })
+})
