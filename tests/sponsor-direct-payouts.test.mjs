@@ -11,6 +11,7 @@ import {
   parseSponsorDirectFeeParameters,
   calculateSponsorDirectFeeCoverage,
   matchesSponsorDirectUnsignedTransaction,
+  sponsorApprovalContainsAddress,
   isSponsorDirectAutoRouteEligible,
   createSponsorDirectPayoutsRouter,
 } from '../server/routes/sponsor-direct-payouts.mjs'
@@ -191,6 +192,28 @@ function unsignedTransfer(overrides = {}) {
     ...overrides,
   }
 }
+
+test('TRON approved-list accepts documented successful response and fails closed on errors or wrong signer', () => {
+  assert.equal(sponsorApprovalContainsAddress({
+    result: {},
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), true)
+  assert.equal(sponsorApprovalContainsAddress({
+    result: { result: false },
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), false)
+  assert.equal(sponsorApprovalContainsAddress({
+    result: { code: 'SIGERROR' },
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), false)
+  assert.equal(sponsorApprovalContainsAddress({
+    result: {},
+    approved_list: [requesterAddress],
+  }, sponsorAddress), false)
+  assert.equal(sponsorApprovalContainsAddress({
+    approved_list: [sponsorAddress],
+  }, sponsorAddress), false)
+})
 
 test('unsigned sponsor transaction must bind the sponsor, official token, recipient and amount', () => {
   const tx = unsignedTransfer()
