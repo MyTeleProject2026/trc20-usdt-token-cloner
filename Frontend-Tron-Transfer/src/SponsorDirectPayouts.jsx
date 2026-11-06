@@ -397,7 +397,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         feeCoverage: result.feeCoverage,
         feeSnapshot: result.snapshot || null,
       }
-      setPrepared(item)
+      setPrepared({
+        ...item,
+        feeSnapshot: result.snapshot || null,
+        signingAllowed: result.signingAllowed !== false && result.feeCoverage?.covered === true,
+      })
       setNotice(result.note || 'Sponsor transaction prepared. Review the exact details before signing.')
       await refresh()
       setPrepared(item)
@@ -714,19 +718,25 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>External recipient: {prepared.recipientAddress}</span>
                 <span>Asset: Official USDT TRC20 · TRON Mainnet</span>
                 <span>USDT principal to recipient: {formatUnits(prepared.amountBaseUnits)} USDT</span>
-                <span>Network-cost coverage: {prepared.feeCoverage?.method === 'verified-energy-and-bandwidth' ? 'Sponsor Energy + Bandwidth preflight passed' : prepared.feeCoverage?.method === 'trx-fee-limit-reserve' ? 'Sponsor TRX reserve preflight passed' : 'Coverage not verified — do not sign'}</span>
+                <span>Network-cost preflight: {prepared.feeCoverage?.covered === true ? 'Passed' : 'Not verified / insufficient — signing blocked'}</span>
+                <span>Coverage path: {prepared.feeCoverage?.method === 'verified-energy-and-bandwidth' ? 'Energy and Bandwidth resources cover the transfer' : prepared.feeCoverage?.method === 'mixed-resource-and-trx-reserve' ? 'Resources plus sponsor TRX reserve cover the transfer' : 'Not covered'}</span>
                 {prepared.feeCoverage?.energyRequired !== null && prepared.feeCoverage?.energyRequired !== undefined && <span>Buffered Energy requirement: {Number(prepared.feeCoverage.energyRequired).toLocaleString()} Energy</span>}
-                {prepared.feeCoverage?.bandwidthRequired !== null && prepared.feeCoverage?.bandwidthRequired !== undefined && <span>Buffered Bandwidth requirement: {Number(prepared.feeCoverage.bandwidthRequired).toLocaleString()} bytes (pre-sign estimate)</span>}
+                {prepared.feeCoverage?.energyTrxReserveSun !== null && prepared.feeCoverage?.energyTrxReserveSun !== undefined && <span>Estimated Energy shortfall reserve: {formatUnits(prepared.feeCoverage.energyTrxReserveSun)} TRX</span>}
+                {prepared.feeCoverage?.bandwidthRequired !== null && prepared.feeCoverage?.bandwidthRequired !== undefined && <span>Estimated signed transaction Bandwidth: {Number(prepared.feeCoverage.bandwidthRequired).toLocaleString()} bytes</span>}
+                {prepared.feeCoverage?.bandwidthCoverageMethod && <span>Bandwidth payment method: {prepared.feeCoverage.bandwidthCoverageMethod}</span>}
+                {prepared.feeCoverage?.bandwidthTrxReserveSun !== null && prepared.feeCoverage?.bandwidthTrxReserveSun !== undefined && <span>Estimated Bandwidth reserve: {formatUnits(prepared.feeCoverage.bandwidthTrxReserveSun)} TRX</span>}
+                {prepared.feeCoverage?.totalTrxReserveSun !== null && prepared.feeCoverage?.totalTrxReserveSun !== undefined && <span>Estimated total TRX reserve for uncovered resources: {formatUnits(prepared.feeCoverage.totalTrxReserveSun)} TRX</span>}
                 {prepared.feeSnapshot?.trxBalanceSun !== null && prepared.feeSnapshot?.trxBalanceSun !== undefined && <span>Observed sponsor TRX balance: {formatUnits(prepared.feeSnapshot.trxBalanceSun)} TRX</span>}
-                {prepared.feeLimitSun && <span>Transaction fee_limit: {formatUnits(prepared.feeLimitSun)} TRX-equivalent maximum Energy budget</span>}
+                {prepared.feeLimitSun && <span>Transaction fee_limit: {formatUnits(prepared.feeLimitSun)} TRX maximum caller Energy budget (not total fee)</span>}
+                {prepared.feeCoverage?.energyBudgetRequiredSun && <span>Buffered Energy budget required by live price: {formatUnits(prepared.feeCoverage.energyBudgetRequiredSun)} TRX</span>}
                 <span>Transaction ID: {prepared.transactionHash || prepared.unsignedTransaction.txID}</span>
                 <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
               </div>
-              <p className="fine-print">The sponsor wallet supplies the USDT principal and its own TRON network resources or TRX. The fee_limit is a maximum caller-side Energy budget, not a quoted fee or an amount charged upfront. Actual resource use and TRX burn depend on execution and finalized chain conditions; a failed contract execution can still consume resources. The requester’s zero-balance wallet is not charged.</p>
-              <p className="fine-print">Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Nothing is broadcast until the sponsor explicitly signs this exact transaction.</p>
+              <p className="fine-print">The sponsor wallet supplies the USDT principal and its own TRON network resources or TRX. The fee_limit caps the caller's Energy budget only; it is not a total network fee quote or an upfront charge. The backend separately estimates Energy and Bandwidth shortfalls from current Mainnet chain prices. Actual usage can differ, and failed contract execution can still consume resources. The requester’s zero-balance wallet is not charged.</p>
+              <p className="fine-print">Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Signing is blocked unless the latest fee preflight passes. Nothing is broadcast until the sponsor explicitly signs this exact transaction.</p>
               {hasExpiredPreparation(prepared)
                 ? <button className="secondary-button" disabled={busy || !identityMatchesWallet} onClick={() => void prepareRequest(prepared)}><RefreshCw size={16} /> Refresh expired preparation</button>
-                : <button className="primary-button" disabled={busy || !identityMatchesWallet} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
+                : <button className="primary-button" disabled={busy || !identityMatchesWallet || prepared.feeCoverage?.covered !== true} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
             </div>
           )}
           <div className="section-heading compact"><div><span className="eyebrow">SPONSOR REQUEST QUEUE</span><h3>Requests awaiting sponsor action</h3></div></div>
@@ -743,9 +753,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                   </div>
                   <div className="transaction-actions">
                     {item.status === 'requested' && <button className="secondary-button" disabled={busy || BigInt(snapshot?.availableUsdtBaseUnits || '0') < BigInt(item.amountBaseUnits)} onClick={() => void prepareRequest(item)}><ClipboardCheck size={15} /> Prepare from sponsor wallet</button>}
-                    {item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction && (hasExpiredPreparation(item)
-                      ? <button className="secondary-button" disabled={busy} onClick={() => void prepareRequest(item)}><RefreshCw size={15} /> Refresh expired preparation</button>
-                      : <button className="primary-button" disabled={busy} onClick={() => void signAndBroadcast(item)}><Wallet size={15} /> Sign and broadcast</button>)}
+                    {item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction && (
+                      <button className="secondary-button" disabled={busy} onClick={() => void prepareRequest(item)}>
+                        <ClipboardCheck size={15} /> {hasExpiredPreparation(item) ? 'Refresh expired preparation' : 'Refresh fee check and review'}
+                      </button>
+                    )}
                     {['submitted', 'outcome-unknown', 'broadcasting'].includes(item.status) && <button className="secondary-button" disabled={busy} onClick={() => void refreshRequest(item.id)}><RefreshCw size={15} /> Verify Mainnet status</button>}
                   </div>
                 </article>
