@@ -84,9 +84,10 @@ test('broadcast acceptance is pending until an exact solidified Tether Transfer 
   assert.match(withdrawalRoute, /status === 'confirmed'/)
 })
 
-test('self-funded direct owner wallet withdrawal route is not exposed by the private provider-funded runtime', () => {
+test('self-funded direct owner wallet withdrawal route and page are not exposed by the private provider-funded runtime', async () => {
+  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   assert.doesNotMatch(entry, /createTronOwnerWithdrawalsRouter|tron-owner-withdrawals/)
-  assert.doesNotMatch(frontend, /\/api\/tron-owner-withdrawals\//)
+  assert.doesNotMatch(app, /OwnerWithdrawals|tron-owner-withdrawals/)
   // The isolated route source remains covered for historical safety regression,
   // but the deployed API does not mount it in provider-funded mode.
   assert.match(withdrawalRoute, /insufficient-mainnet-usdt-balance/)
