@@ -132,20 +132,32 @@ export function normalizeFincraPayoutWebhook(payload) {
   }
 }
 
-function requestMatchesWebhook(row, event) {
-  if (!row || !event || event.reasons.length) return false
-  if (event.customerReference !== row.customer_reference) return false
-  if (event.recipientAddress !== row.recipient_address) return false
-  if (event.sourceCurrency !== 'USDT' || event.destinationCurrency !== 'USDT'
-    || event.paymentScheme !== 'usdt_trc20' || event.paymentDestination !== 'crypto_wallet') return false
+function getWebhookRequestMatchReasons(row, event) {
+  const reasons = [...(event?.reasons || [])]
+  if (!row) {
+    reasons.push('local-payout-request-not-found')
+    return reasons
+  }
+  if (event.customerReference !== row.customer_reference) reasons.push('customer-reference-mismatch')
+  if (event.recipientAddress !== row.recipient_address) reasons.push('recipient-mismatch')
+  if (event.sourceCurrency !== 'USDT' || event.destinationCurrency !== 'USDT') reasons.push('currency-route-mismatch')
+  if (event.paymentScheme !== 'usdt_trc20' || event.paymentDestination !== 'crypto_wallet') {
+    reasons.push('payment-scheme-or-destination-mismatch')
+  }
 
   const requestedAmount = String(row.amount_base_units)
-  if (event.amountReceivedBaseUnits !== null && event.amountReceivedBaseUnits !== requestedAmount) return false
-  if (event.providerStatus === 'successful' && event.amountReceivedBaseUnits !== requestedAmount) return false
+  if (event.amountReceivedBaseUnits !== null && event.amountReceivedBaseUnits !== requestedAmount) {
+    reasons.push('beneficiary-net-amount-mismatch')
+  }
+  if (event.providerStatus === 'successful' && event.amountReceivedBaseUnits !== requestedAmount) {
+    reasons.push('successful-net-amount-does-not-match-request')
+  }
 
   const previousStatus = clean(row.fincra_status, 32).toLowerCase()
-  if (['successful', 'failed'].includes(previousStatus) && previousStatus !== event.providerStatus) return false
-  return true
+  if (['successful', 'failed'].includes(previousStatus) && previousStatus !== event.providerStatus) {
+    reasons.push('terminal-provider-status-conflict')
+  }
+  return [...new Set(reasons)]
 }
 
 async function ensureSchema(client) {
@@ -288,12 +300,13 @@ export function createFincraWebhookRouter({
         )
       }
       const row = found.rows[0] || null
-      const matched = requestMatchesWebhook(row, event)
+      const reviewReasons = getWebhookRequestMatchReasons(row, event)
+      const matched = reviewReasons.length === 0
       const identityStatus = matched ? 'matched' : row ? 'review-required' : 'unmatched'
 
       await client.query(
-        'UPDATE ' + SCHEMA + '.fincra_payout_webhook_events SET identity_status=$2 WHERE event_digest=$1',
-        [event.eventDigest, identityStatus],
+        'UPDATE ' + SCHEMA + '.fincra_payout_webhook_events SET identity_status=$2, review_reasons=$3::jsonb WHERE event_digest=$1',
+        [event.eventDigest, identityStatus, JSON.stringify(reviewReasons)],
       )
 
       if (matched) {
