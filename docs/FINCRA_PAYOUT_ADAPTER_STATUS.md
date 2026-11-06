@@ -15,6 +15,24 @@ Implemented in this branch:
 - Sandbox-only payout initiation plus read-only customer-reference lookup. The submit helper refuses live mode and requires the explicit \`FINCRA_SANDBOX_PAYOUTS_ENABLED=true\` flag; the reference lookup supports sandbox and live modes and never submits a payout. It distinguishes a provider 404 from other provider failures.
 - Owner-only provider-readiness page now displays the Fincra API/profile and sponsor-account balance diagnostics without enabling submission.
 
+## Durable owner-only withdrawal requests
+
+The owner-only request API now accepts a validated USDT TRC20 withdrawal intent at
+`POST /api/tron-transfer/sponsor-requests`. It requires an authenticated owner
+session, a valid TRON Mainnet recipient, a positive six-decimal USDT amount,
+beneficiary name, and a stable idempotency key. The database stores a unique
+customer reference and idempotency key; concurrent retries with the same key
+return the original request, while reuse of that key with different request
+details returns HTTP 409. The owner-only history/list routes return stored
+requests without exposing other requester records.
+
+New requests enter `awaiting-provider-authorization`. This is durable request
+intake only: it does not reserve Fincra funds, call Fincra, submit a payout,
+broadcast a transaction, or claim chain settlement. The Fincra payout-submit
+route remains disabled until the account mandate, provider eligibility,
+available liquidity, fee treatment, production submission safeguards and
+independent Mainnet reconciliation have been completed and explicitly enabled.
+
 ## What this does not enable
 
 - Production Fincra payout submission remains disabled.
