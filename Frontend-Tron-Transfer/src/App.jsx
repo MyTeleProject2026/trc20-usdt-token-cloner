@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import FincraWithdrawals from './FincraWithdrawals.jsx'
-import SponsorOrganizationOnboarding from './SponsorOrganizationOnboarding.jsx'
+import ProviderPayoutReadiness from './ProviderPayoutReadiness.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
@@ -120,7 +119,7 @@ export default function App() {
     if(p.authenticated!==true||p.network!=='mainnet'||typeof p.sessionToken!=='string'||!Number.isFinite(p.expiresAt)) throw new Error('Owner authentication failed.')
     sessionStorage.setItem(OWNER_SESSION_KEY,p.sessionToken);setOwnerPassword('')
     setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:p.sessionToken})
-    setNotice('Platform owner session active. You can review sponsor mandates and, when the connected requester wallet is this same owner address, authorize withdrawals from your own configured Fincra business account. Requesters do not need USDT in their personal wallets.')
+    setNotice('Private platform-owner session active. Your TronLink wallet is not used as the source of payout funds. External payouts remain disabled until a provider authorizes provider-owned liquidity or an approved credit facility for this account.')
   }
   function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null)}
   const nav=[
@@ -128,7 +127,7 @@ export default function App() {
     {id:'assets',label:'Assets',icon:Coins},
     {id:'recipients',label:'Recipients',icon:ArrowDownLeft},
     {id:'withdrawals',label:'Withdrawals',icon:ArrowUpRight},
-    {id:'sponsors',label:'Sponsors & approvals',icon:Building2},
+    {id:'provider',label:'Funding provider',icon:ShieldCheck},
     {id:'transactions',label:'Transactions',icon:History},
     {id:'settings',label:'Settings',icon:Settings},
   ]
@@ -141,16 +140,16 @@ export default function App() {
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout dashboard',assets:'Mainnet assets & sponsor funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored Mainnet USDT withdrawal',sponsors:'Sponsor treasury & approvals',transactions:'Sponsored withdrawal history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span>{unlocked&&<button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div></header>
+      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout dashboard',assets:'Mainnet assets & sponsor funding',recipients:'Recipient balance & incoming history',withdrawals:'External provider USDT withdrawal',provider:'External payout funding',transactions:'Provider payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span>{unlocked&&<button className="outline-button" onClick={lockWallet}><LogOut size={15}/> Lock</button>}</div></header>
       <div className="content">
-        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Mainnet USDT withdrawals</b><p>Your personal TronLink wallet proves requester identity and can have zero USDT. The platform owner can use their own approved, funded Fincra business account through an authenticated owner session; a third-party sponsor account requires a signed standing mandate. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
+        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
         {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
 
         {tab==='overview'&&<>
           <section className="wallet-summary">
             <div className="panel balance-card"><div className="panel-heading"><div><span className="eyebrow">MONITORED MAINNET ADDRESS</span><h2>{shorten(monitorAddress)}</h2>{addressLink&&<a href={addressLink} target="_blank" rel="noreferrer">Open TRONSCAN <ExternalLink size={13}/></a>}</div><div className="panel-icon"><Wallet/></div></div><div className="balance-number">{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'—'} <small>USDT</small></div><div className="balance-footer"><span>Official TRC20 USDT · Mainnet</span><button className="icon-button" disabled={monitorBusy} onClick={()=>perform(()=>inspectAddress())}><RefreshCw size={16}/> Refresh</button></div></div>
-            <div className="panel quick-card"><span className="eyebrow">PAYOUT MODEL</span><strong className="status-live"><i/> Sponsor-direct payouts</strong><p>Your personal wallet can remain at zero. Use the authenticated owner path with your own funded Fincra account, or an authorized third-party sponsor's standing mandate.</p><button className="secondary-button" onClick={()=>setTab('sponsors')}>Open sponsor approvals</button></div>
+            <div className="panel quick-card"><span className="eyebrow">PAYOUT MODEL</span><strong className="status-live"><i/> External provider funding</strong><p>Your wallet does not supply payout principal. Withdrawals remain unavailable until an approved provider confirms its own USDT liquidity or an approved credit facility for this owner account.</p><button className="secondary-button" onClick={()=>setTab('provider')}>Check provider readiness</button></div>
           </section>
           <section className="panel"><div className="section-heading"><div><span className="eyebrow">OFFICIAL ASSET</span><h2>Tether USD · TRC20</h2><p>The production asset is pinned to the official TRON Mainnet token contract.</p></div><div className="panel-icon"><ShieldCheck/></div></div><div className="asset-row"><div className="asset-symbol token-symbol">US</div><div className="asset-name"><b>Official Tether USD</b><small>{MAINNET_USDT}</small></div><strong>{monitorData?.tokenBalance?formatUnits(monitorData.tokenBalance.balanceBaseUnits,monitorData.tokenBalance.decimals):'Not loaded'} <small>USDT</small></strong></div><p className="fine-print">Only the official Mainnet contract is supported. This dashboard displays only actual Mainnet balances for the monitored address and does not display simulated tokens.</p></section>
           <section className="panel wallet-access">
@@ -190,10 +189,10 @@ export default function App() {
               <a href={'https://tronscan.org/#/address/'+MAINNET_MONITORED_ADDRESS} target="_blank" rel="noreferrer">Open monitored address on TRONSCAN <ExternalLink size={12}/></a>
             </article>
             <article className="panel asset-source-card">
-              <span className="eyebrow">SPONSOR TREASURY</span>
+              <span className="eyebrow">EXTERNAL PROVIDER FUNDING</span>
               <h3>Actual payout funding</h3>
-              <p>The configured Fincra business account must hold sufficient available USDT principal. The server checks its reported source balance before submission; provider and chain settlement are reconciled separately.</p>
-              <button className="primary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={16}/> Open sponsored withdrawals</button>
+              <p>No provider-owned USDT liquidity or approved credit facility has been verified for this owner account. Your personal wallet and any deposits are not used as payout principal.</p>
+              <button className="primary-button" onClick={()=>setTab('provider')}><ShieldCheck size={16}/> Check provider readiness</button>
             </article>
           </div>
           <div className="panel assets-total-panel">
@@ -202,15 +201,24 @@ export default function App() {
           </div>
         </section>}
 
-        {tab==='withdrawals'&&<FincraWithdrawals wallet={unlocked} mode="withdraw" ownerSession={ownerSession} />}
+        {tab==='withdrawals'&&<ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />}
 
-        {tab==='transactions'&&<FincraWithdrawals wallet={unlocked} mode="history" ownerSession={ownerSession} />}
+        {tab==='transactions'&&<ProviderPayoutReadiness ownerSession={ownerSession} mode="history" />}
+
+        {tab==='provider'&&<section className="panel sponsor-panel">
+          <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>Owner-only administration. No public sponsor applications, company registration page, or third-party sponsor portal is enabled.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
+          <div className="sponsor-admin-card">
+            <span className="eyebrow">01 / PLATFORM OWNER SESSION</span><h3>Platform owner authentication</h3>
+            {!ownerSession?<div className="form-stack"><label>Configured owner Mainnet address<input value={ownerAddress} onChange={e=>setOwnerAddress(e.target.value)} placeholder="T..." autoComplete="off"/></label><label>Owner password<input value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} type="password" autoComplete="current-password"/></label><button className="secondary-button" disabled={busy||!ownerAddress.trim()||!ownerPassword} onClick={()=>perform(signInOwner)}><LockKeyhole size={16}/> Sign in as configured owner</button></div>:<div className="owner-session-card"><strong><ShieldCheck size={15}/> Owner session active</strong><small>{shorten(ownerSession.address)} · expires {new Date(ownerSession.expiresAt).toLocaleTimeString()}</small><button className="outline-button" onClick={signOutOwner}>Sign out</button></div>}
+          </div>
+          <ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />
+        </section>}
 
         {tab==='settings'&&<section className="panel settings-page">
           <div className="section-heading"><div><span className="eyebrow">PRODUCTION CONFIGURATION</span><h2>Tron Transfer settings</h2><p>Mainnet-only configuration and operator access. Provider secrets remain on the backend and are never stored in this browser.</p></div><div className="panel-icon"><Settings/></div></div>
           <div className="settings-group"><span className="eyebrow">MONITORED ADDRESS</span><div className="address-box"><span>Read-only Mainnet identity</span><b>{MAINNET_MONITORED_ADDRESS}</b></div><a href={'https://tronscan.org/#/address/'+MAINNET_MONITORED_ADDRESS} target="_blank" rel="noreferrer">Open address on TRONSCAN <ExternalLink size={12}/></a><p className="fine-print">Your requester wallet is used for identity only. The approved sponsor's sending wallet and live Tatum snapshot are displayed on the Sponsors page.</p></div>
-          <div className="settings-group"><span className="eyebrow">TATUM MAINNET</span><p>Requester identity uses a TronLink message signature. Fincra handles provider-managed USDT TRC20 payouts from the approved business account; Tatum and TronGrid perform Mainnet recipient preflight and independent solidified-transfer verification.</p><p className="fine-print">Required backend configuration includes TATUM_MAINNET_API_KEY (or TATUM_API_KEY), DATABASE_URL, OWNER_WALLET_ADDRESS, OWNER_PASSWORD_HASH and the approved frontend origins.</p><button className="secondary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={15}/> Open withdrawal readiness</button></div>
-          <div className="settings-group"><span className="eyebrow">WALLET SIGNING</span><p>{unlocked?'TronLink is connected to '+shorten(unlocked.address)+'.':'No TronLink wallet is connected.'}</p><p className="fine-print">The site never asks for a private key or recovery phrase. Requesters sign only an identity message. The owner can use an owner-authenticated Fincra account path for their own wallet; payouts for other requesters still require an independently authorized, capped sponsor standing mandate.</p>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Disconnect wallet</button>}</div>
+          <div className="settings-group"><span className="eyebrow">TATUM MAINNET</span><p>Tatum provides TRON Mainnet balance reads, transaction inspection and solidified-transfer verification. It does not supply USDT payout principal. The payout provider must separately approve provider-owned liquidity or an approved credit facility.</p><p className="fine-print">Provider credentials and authorization remain server-side. Never place provider secrets, wallet private keys or recovery phrases in this frontend.</p><button className="secondary-button" onClick={()=>setTab('provider')}><ShieldCheck size={15}/> Open provider readiness</button></div>
+          <div className="settings-group"><span className="eyebrow">WALLET SIGNING</span><p>{unlocked?'TronLink is connected to '+shorten(unlocked.address)+'.':'No TronLink wallet is connected.'}</p><p className="fine-print">The site never asks for a private key or recovery phrase. Connecting TronLink does not authorize the platform to spend from your wallet and does not create payout funds. External provider execution needs separate provider authorization.</p>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Disconnect wallet</button>}</div>
         </section>}
 
 {tab==='sponsors'&&<section className="panel sponsor-panel">
@@ -222,7 +230,7 @@ export default function App() {
           <SponsorOrganizationOnboarding wallet={unlocked} ownerSession={ownerSession} />
         </section>}
       </div>
-      <footer className="app-footer">TRON TRANSFER · TRON MAINNET ONLY · OFFICIAL USDT TRC20 SPONSORED PAYOUTS</footer>
+      <footer className="app-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · OFFICIAL USDT TRC20</footer>
     </main>
   </div>
 }
