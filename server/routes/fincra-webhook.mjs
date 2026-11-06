@@ -208,7 +208,7 @@ export function createFincraWebhookRouter({
     res.setHeader('Cache-Control', 'no-store')
     res.setHeader('Pragma', 'no-cache')
 
-    const secret = clean(env.FINCRA_WEBHOOK_SECRET, 4096)
+    const secret = clean(env.FINCRA_WEBHOOK_SECRET || env.FINCRA_WEBHOOK_ENCRYPTION_KEY, 4096)
     if (!secret) return res.status(503).json({ success: false, error: 'fincra-webhook-secret-not-configured' })
 
     const rawBody = Buffer.isBuffer(req.body)
