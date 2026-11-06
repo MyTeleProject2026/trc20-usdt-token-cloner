@@ -3,6 +3,7 @@ import { isValidTronAddress } from './tron-address.mjs'
 
 export const FINCRA_MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 export const FINCRA_USDT_TRON_SCHEME = 'usdt_trc20'
+export const FINCRA_MINIMUM_WITHDRAWAL_BASE_UNITS = '1000000000' // 1,000 USDT at six decimals
 
 const BASE_UNITS = 1_000_000n
 const MAX_AMOUNT_BASE_UNITS = 1_000_000_000_000_000n
@@ -28,6 +29,9 @@ function toFincraNumericAmount(value) {
   const baseUnits = parseFincraUsdtBaseUnits(value)
   if (baseUnits === null || BigInt(baseUnits) <= 0n || BigInt(baseUnits) > MAX_AMOUNT_BASE_UNITS) {
     throw new Error('amount-must-be-positive-usdt-with-at-most-six-decimals-and-within-limit')
+  }
+  if (BigInt(baseUnits) < BigInt(FINCRA_MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+    throw new Error('minimum-withdrawal-1000-usdt')
   }
   const integer = BigInt(baseUnits) / BASE_UNITS
   const fraction = (BigInt(baseUnits) % BASE_UNITS).toString().padStart(6, '0').replace(/0+$/, '')
