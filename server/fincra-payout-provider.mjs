@@ -141,7 +141,7 @@ export async function readFincraAccountDiagnostics(env = process.env, { fetchImp
     availableUsdtBalanceBaseUnits: null,
     accountBalanceIsSponsorBusinessFunds: true,
     payoutSubmissionEnabled: false,
-    webhookSecretConfigured: Boolean(clean(env.FINCRA_WEBHOOK_SECRET, 4096)),
+    webhookSecretConfigured: Boolean(clean(env.FINCRA_WEBHOOK_SECRET || env.FINCRA_WEBHOOK_ENCRYPTION_KEY, 4096)),
     reasons: [],
     checkedAt: new Date().toISOString(),
   }
