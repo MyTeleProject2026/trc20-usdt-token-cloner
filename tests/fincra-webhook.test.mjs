@@ -166,7 +166,7 @@ test('webhook records an authenticated matching payout event without claiming ch
     assert.equal(result.payload.chainSettlement, 'not-verified')
     assert.equal(database.events.get(normalizeFincraPayoutWebhook(payoutWebhook({ destinationTag: 'deposit-2048' })).eventDigest).destination_tag, 'deposit-2048')
     assert.equal(database.requestUpdates.length, 1)
-    assert.match(database.requestUpdates[0].sql, /status=CASE WHEN \$3='successful' THEN 'awaiting-chain-verification' ELSE 'provider-failed' END/)
+    assert.match(database.requestUpdates[0].sql, /status=\\$8/)
     assert.deepEqual(database.identityStatuses, ['matched'])
   })
 })
