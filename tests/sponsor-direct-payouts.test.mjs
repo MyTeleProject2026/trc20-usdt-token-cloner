@@ -498,6 +498,7 @@ test('owner withdrawal request rejects amounts below 1,000 USDT before database 
   const ownerToken = 'o'.repeat(43)
   const origin = 'https://tron-transfer.integration.test'
   const app = express()
+  app.use(express.json())
   app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
     env: { FRONTEND_ORIGIN: origin, OWNER_WALLET_ADDRESS: requesterAddress },
     getSession: async ({ origin: requestOrigin }) => ({
