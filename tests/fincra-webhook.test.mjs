@@ -35,7 +35,7 @@ function signature(payload, key = secret) {
 class FakeDatabase {
   constructor(request = null) {
     this.request = request
-    this.events = new Set()
+    this.events = new Map()
     this.identityStatuses = []
     this.reviewReasons = []
     this.requestUpdates = []
@@ -48,8 +48,12 @@ class FakeDatabase {
     if (normalized.startsWith('insert into trc20_token_clone.fincra_payout_webhook_events')) {
       const digest = values[0]
       if (this.events.has(digest)) return { rows: [] }
-      this.events.add(digest)
+      this.events.set(digest, { identity_status: 'unmatched', review_reasons: JSON.parse(values[15] || '[]') })
       return { rows: [{ event_digest: digest }] }
+    }
+    if (normalized.startsWith('select identity_status, review_reasons from trc20_token_clone.fincra_payout_webhook_events')) {
+      const event = this.events.get(values[0])
+      return { rows: event ? [{ ...event }] : [] }
     }
     if (normalized.startsWith('select to_regclass')) {
       return { rows: [{ table_name: this.request ? 'trc20_token_clone.tron_transfer_sponsor_requests' : null }] }
@@ -59,7 +63,13 @@ class FakeDatabase {
     }
     if (normalized.startsWith('update trc20_token_clone.fincra_payout_webhook_events')) {
       this.identityStatuses.push(values[1])
-      if (values[2]) this.reviewReasons.push(JSON.parse(values[2]))
+      const reasons = values[2] ? JSON.parse(values[2]) : []
+      if (values[2]) this.reviewReasons.push(reasons)
+      const event = this.events.get(values[0])
+      if (event) {
+        event.identity_status = values[1]
+        event.review_reasons = reasons
+      }
       return { rows: [] }
     }
     if (normalized.startsWith('update trc20_token_clone.tron_transfer_sponsor_requests')) {
@@ -221,5 +231,39 @@ test('webhook encryption-key environment alias is accepted without requiring an 
   }, {
     FINCRA_WEBHOOK_SECRET: '',
     FINCRA_WEBHOOK_ENCRYPTION_KEY: secret,
+  })
+})
+
+test('same Fincra webhook can reconcile later after its local request is created, without reapplying once matched', async () => {
+  const database = new FakeDatabase(null)
+  await withServer(database, async (base) => {
+    const first = await postWebhook(base, payoutWebhook())
+    assert.equal(first.response.status, 200)
+    assert.equal(first.payload.recorded, true)
+    assert.equal(first.payload.identityStatus, 'unmatched')
+    assert.equal(database.requestUpdates.length, 0)
+
+    database.request = {
+      id: 'request-created-later',
+      customer_reference: customerReference,
+      recipient_address: recipientAddress,
+      amount_base_units: '10000000',
+      fincra_status: 'processing',
+    }
+
+    const replay = await postWebhook(base, payoutWebhook())
+    assert.equal(replay.response.status, 200)
+    assert.equal(replay.payload.duplicate, true)
+    assert.equal(replay.payload.reprocessed, true)
+    assert.equal(replay.payload.localRequestMatched, true)
+    assert.equal(replay.payload.identityStatus, 'matched')
+    assert.equal(database.requestUpdates.length, 1)
+
+    const thirdDelivery = await postWebhook(base, payoutWebhook())
+    assert.equal(thirdDelivery.response.status, 200)
+    assert.equal(thirdDelivery.payload.duplicate, true)
+    assert.equal(thirdDelivery.payload.reprocessed, undefined)
+    assert.equal(thirdDelivery.payload.identityStatus, 'matched')
+    assert.equal(database.requestUpdates.length, 1, 'a matched event must not reapply on later duplicate deliveries')
   })
 })
