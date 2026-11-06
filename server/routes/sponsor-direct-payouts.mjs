@@ -689,6 +689,12 @@ async function autoAssignSponsorToRequest({
   if (!/^[1-9][0-9]{0,9}$/.test(feeLimitSun) || BigInt(feeLimitSun) > 1000000000n) {
     return { request, routing: 'awaiting-eligible-sponsor' }
   }
+  let feeParameters
+  try {
+    feeParameters = await readSponsorDirectFeeParameters(env, providerPost)
+  } catch {
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
 
   for (const candidate of candidates) {
     const sponsorAddress = candidate.sponsor_address
@@ -718,7 +724,9 @@ async function autoAssignSponsorToRequest({
         unsignedTransaction,
         { sponsorAddress, recipientAddress: request.recipient_address, amountBaseUnits, tronWeb },
       )) return
-      const feeCoverage = hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun)
+      const feeCoverage = calculateSponsorDirectFeeCoverage(
+        snapshot, simulation, unsignedTransaction, feeLimitSun, feeParameters,
+      )
       if (!feeCoverage.covered) return
 
       client = await db.connect()
@@ -1587,7 +1595,10 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(502).json({ success: false, error: 'tatum-unsigned-sponsor-transaction-invalid' })
       }
-      const feeCoverage = hasFeeCoverage(snapshot, simulation, unsignedTransaction, feeLimitSun)
+      const feeParameters = await readSponsorDirectFeeParameters(env, providerPost)
+      const feeCoverage = calculateSponsorDirectFeeCoverage(
+        snapshot, simulation, unsignedTransaction, feeLimitSun, feeParameters,
+      )
       if (!feeCoverage.covered) {
         await client.query('ROLLBACK')
         return res.status(409).json({
@@ -1597,7 +1608,7 @@ export function createSponsorDirectPayoutsRouter({
           trxBalanceSun: snapshot.trxBalanceSun,
           energyAvailable: snapshot.energyAvailable,
           bandwidthAvailable: snapshot.bandwidthAvailable,
-          note: 'The sponsor must cover the estimated Energy and Bandwidth with verified resources or hold enough TRX for the configured fee limit. The requester’s wallet is not charged.',
+          note: 'The sponsor must cover the buffered Energy and transaction Bandwidth with verified resources or have sufficient TRX for the calculated shortfall using live Mainnet prices. The fee_limit is an Energy budget cap, not a total fee quote. The requester’s wallet is not charged.',
         })
       }
       const expiration = Number(unsignedTransaction.raw_data.expiration)
@@ -1624,6 +1635,8 @@ export function createSponsorDirectPayoutsRouter({
           availableUsdtBaseUnits: availableBaseUnits,
           trxBalanceSun: snapshot.trxBalanceSun,
           energyAvailable: snapshot.energyAvailable,
+          stakedBandwidthAvailable: snapshot.stakedBandwidthAvailable,
+          freeBandwidthAvailable: snapshot.freeBandwidthAvailable,
           bandwidthAvailable: snapshot.bandwidthAvailable,
           checkedAt: snapshot.checkedAt,
         },
