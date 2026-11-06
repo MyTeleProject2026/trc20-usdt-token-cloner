@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw,
   ShieldCheck, Wallet, Building2, ClipboardCheck, Send,
@@ -101,6 +101,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [lastRefreshAt, setLastRefreshAt] = useState(null)
+  const refreshInFlightRef = useRef(null)
 
   const walletAddress = wallet?.address || ''
   const identityToken = identitySession?.sessionToken || ''
@@ -122,6 +124,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setOwnerOverview(null)
     setOwnerFundingLedger(null)
     setFundingLedgerError('')
+    setLastRefreshAt(null)
     if (!ADDRESS_RE.test(walletAddress)) return () => { current = false }
     let stored = ''
     try { stored = sessionStorage.getItem(SESSION_KEY_PREFIX + walletAddress) || '' } catch {}
@@ -177,58 +180,74 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setNotice('Wallet identity verified. This message signature does not spend TRX or authorize a payout.')
   }
 
-  async function refresh() {
-    setRefreshing(true)
-    setError('')
-    try {
-      if (identityMatchesWallet) {
-        const [appResult, mineResult] = await Promise.all([
-          api('/api/tron/sponsor-direct/application', identityToken),
-          api('/api/tron/sponsor-direct/my-requests', identityToken),
-        ])
-        setApplication(appResult.application || null)
-        setMyRequests(Array.isArray(mineResult.requests) ? mineResult.requests : [])
-        if (appResult.application?.status === 'active') {
-          const [readiness, queueResult] = await Promise.all([
-            api('/api/tron/sponsor-direct/readiness', identityToken),
-            api('/api/tron/sponsor-direct/queue', identityToken),
+  async function refresh({ silent = false } = {}) {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current
+
+    const operation = (async () => {
+      setRefreshing(true)
+      if (!silent) setError('')
+      try {
+        if (identityMatchesWallet) {
+          const [appResult, mineResult] = await Promise.all([
+            api('/api/tron/sponsor-direct/application', identityToken),
+            api('/api/tron/sponsor-direct/my-requests', identityToken),
           ])
-          setSnapshot(readiness)
-          setQueue(Array.isArray(queueResult.requests) ? queueResult.requests : [])
-          const ownPrepared = (queueResult.requests || []).find((item) =>
-            item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction)
-          if (ownPrepared) setPrepared(ownPrepared)
-          else setPrepared(null)
+          setApplication(appResult.application || null)
+          setMyRequests(Array.isArray(mineResult.requests) ? mineResult.requests : [])
+          if (appResult.application?.status === 'active') {
+            const [readiness, queueResult] = await Promise.all([
+              api('/api/tron/sponsor-direct/readiness', identityToken),
+              api('/api/tron/sponsor-direct/queue', identityToken),
+            ])
+            setSnapshot(readiness)
+            setQueue(Array.isArray(queueResult.requests) ? queueResult.requests : [])
+            const ownPrepared = (queueResult.requests || []).find((item) =>
+              item.status === 'prepared' && item.sponsorAddress === walletAddress && item.unsignedTransaction)
+            if (ownPrepared) setPrepared(ownPrepared)
+            else setPrepared(null)
+          } else {
+            setSnapshot(null)
+            setQueue([])
+            setPrepared(null)
+          }
+          if (isOwnerAdmin) {
+            const [adminResult, overviewResult] = await Promise.all([
+              api('/api/tron/sponsor-direct/applications', identityToken),
+              api('/api/tron/sponsor-direct/owner-overview', identityToken),
+            ])
+            setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
+            setOwnerOverview(overviewResult)
+            await refreshOwnerFundingLedger()
+          } else {
+            setApplications([])
+            setOwnerOverview(null)
+            setOwnerFundingLedger(null)
+            setFundingLedgerError('')
+          }
+          setLastRefreshAt(Date.now())
         } else {
+          setApplication(null)
           setSnapshot(null)
+          setMyRequests([])
           setQueue([])
           setPrepared(null)
+          setApplications([])
+          setOwnerOverview(null)
+          setOwnerFundingLedger(null)
+          setLastRefreshAt(null)
         }
-      } else {
-        setApplication(null)
-        setSnapshot(null)
-        setMyRequests([])
-        setQueue([])
-        setPrepared(null)
+      } catch (cause) {
+        setError(cause?.message || 'Could not refresh sponsor-direct status.')
+      } finally {
+        setRefreshing(false)
       }
-      if (isOwnerAdmin) {
-        const [adminResult, overviewResult] = await Promise.all([
-          api('/api/tron/sponsor-direct/applications', identityToken),
-          api('/api/tron/sponsor-direct/owner-overview', identityToken),
-        ])
-        setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
-        setOwnerOverview(overviewResult)
-        await refreshOwnerFundingLedger()
-      } else {
-        setApplications([])
-        setOwnerOverview(null)
-        setOwnerFundingLedger(null)
-        setFundingLedgerError('')
-      }
-    } catch (cause) {
-      setError(cause?.message || 'Could not refresh sponsor-direct status.')
+    })()
+
+    refreshInFlightRef.current = operation
+    try {
+      return await operation
     } finally {
-      setRefreshing(false)
+      if (refreshInFlightRef.current === operation) refreshInFlightRef.current = null
     }
   }
 
@@ -236,13 +255,30 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     void refresh()
   }, [identityToken, walletAddress, ownerSession?.sessionToken])
 
+  // Keep live status fresh while the app is open. Pause polling in a background
+  // tab to avoid unnecessary provider calls, then refresh immediately on return.
   useEffect(() => {
-    if (!identityMatchesWallet || !['withdraw', 'history'].includes(mode)) return undefined
-    const interval = window.setInterval(() => {
-      void refresh()
-    }, 15000)
-    return () => window.clearInterval(interval)
-  }, [identityMatchesWallet, identityToken, walletAddress, mode])
+    if (!identityMatchesWallet || !['withdraw', 'history', 'sponsor'].includes(mode)) return undefined
+    let stopped = false
+    const runIfActive = () => {
+      if (stopped || document.visibilityState !== 'visible' || !navigator.onLine) return
+      void refresh({ silent: true })
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') runIfActive()
+    }
+    const interval = window.setInterval(runIfActive, 15000)
+    window.addEventListener('focus', runIfActive)
+    window.addEventListener('online', runIfActive)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      stopped = true
+      window.clearInterval(interval)
+      window.removeEventListener('focus', runIfActive)
+      window.removeEventListener('online', runIfActive)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [identityMatchesWallet, identityToken, walletAddress, ownerSession?.sessionToken, mode])
 
   async function refreshOwnerFundingLedger() {
     if (!isOwnerAdmin || !identityMatchesWallet) return
@@ -468,6 +504,16 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
       {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
 
+      <p className="fine-print" role="status" aria-live="polite">
+        {refreshing
+          ? 'Refreshing live Mainnet balances and withdrawal status…'
+          : lastRefreshAt
+            ? 'Background refresh active · Last checked ' + new Date(lastRefreshAt).toLocaleTimeString() + ' · updates every 15 seconds while this page is visible.'
+            : identityMatchesWallet
+              ? 'Loading live Mainnet balances and withdrawal status…'
+              : 'Connect TronLink and verify the wallet identity to load live Mainnet balances and withdrawal status.'}
+      </p>
+
       {isOwnerAdmin && mode !== 'sponsor' && ownerOverview && (
         <div className="notice notice-warning" role="status">
           <AlertTriangle size={17} />
@@ -516,6 +562,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                   <span>Unreserved on-chain balance: {formatUnits(ownerFundingLedger.availableBaseUnits)} USDT</span>
                   <span>Verified inflows recorded: {formatUnits(ownerFundingLedger.totalVerifiedInboundBaseUnits)} USDT</span>
                   <span>Observed treasury TRX: {ownerFundingLedger.native?.status === 'verified' ? formatUnits(ownerFundingLedger.native.balanceSun) + ' TRX' : 'Unavailable'}</span>
+                  <span>Payout execution gate: {ownerFundingLedger.payoutSubmissionEnabled === true ? 'Enabled by the authorized payout flow' : 'Locked until a sender is approved, current fee coverage is verified and the sender signs the exact transfer'}</span>
                 </div>
               ) : <p className="fine-print">Treasury balance is not yet verified. Refresh after the owner wallet identity has been verified.</p>}
               <button className="secondary-button" disabled={fundingLedgerBusy || refreshing} onClick={() => void refreshOwnerFundingLedger()}>
