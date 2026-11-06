@@ -36,6 +36,23 @@ The sponsor route does not render the owner console. It only exposes the wallet-
 - The owner wallet can remain at zero USDT and zero TRX, but a zero-balance sponsor cannot send a payout.
 - A successful on-chain transfer to an exchange deposit address does not prove that the exchange credited the account. Exchange credit must be checked separately with that exchange.
 
+
+## Zero-balance owner and no-sponsor operating state
+
+The owner may submit a request with a zero-balance identity wallet. The individual sponsor application form does not require company-registration documents or a contact email. This application-level rule is not KYC/KYB, identity verification, source-of-funds verification, or a waiver of any legal/provider requirements.
+
+When no approved sponsor profile exists, the request may be stored but cannot be funded or broadcast. When profiles do exist, they are only candidates: the backend checks each candidate's live solidified Mainnet USDT balance, reservations, limits, and network-resource coverage before matching. Every payout still requires that wallet owner's exact TronLink signature.
+
+The owner-only endpoint `GET /api/tron/sponsor-direct/owner-overview` reports aggregate sponsor-profile and withdrawal states without exposing sponsor addresses. Its `liveSponsorFundingVerified` field is intentionally always false: profile counts are not a substitute for the per-request live balance/resource check. The endpoint distinguishes:
+- `no-approved-sponsor-wallets`: there are no active individual sponsor profiles; a request can remain queued, but no payout is currently matchable.
+- `live-funding-check-required`: active profiles exist, but no funds are presumed available until a request-specific Mainnet preflight succeeds.
+
+## Why flash loans are not a withdrawal funding source
+
+TRON's TRC-3156 flash-loan interface requires the borrowed asset plus any fee to be returned before the same transaction finishes. If the borrowed USDT is sent to an external exchange deposit address and is not returned during that transaction, the flash-loan call must revert. If it is returned, the external recipient has not received a lasting payout. Therefore this project does not treat a flash loan as free or lasting USDT principal for an ordinary external withdrawal.
+
+Reference: [TRC-3156 Flash Loans specification discussion](https://github.com/tronprotocol/tips/issues/893). The standard interface does not itself create a lender, a funded liquidity pool, or uncollateralized credit.
+
 ## Runtime configuration
 
 The backend requires the already-established private owner and database configuration plus a valid server-side Tatum Mainnet key:

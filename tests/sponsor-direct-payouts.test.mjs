@@ -313,3 +313,67 @@ test('public sponsor-direct configuration allows a zero-balance requester but re
   assert.equal(payload.payoutExecution, 'conditional-on-approved-funded-sponsor')
   assert.equal(payload.sponsorApprovalRequired, true)
 })
+
+test('owner-only funding overview reports zero approved sponsors without implying live funding', async (t) => {
+  const ownerToken = 'o'.repeat(43)
+  const origin = 'https://tron-transfer.integration.test'
+  const database = {
+    async query(sql) {
+      if (sql.startsWith('SELECT COUNT(*)::int AS total')
+        && sql.includes('sponsor_direct_applications')) {
+        return { rows: [{ total: 0, approved: 0, pending_review: 0, declined: 0, suspended: 0 }] }
+      }
+      if (sql.startsWith('SELECT COUNT(*)::int AS total')
+        && sql.includes('sponsor_direct_payouts')) {
+        return {
+          rows: [{
+            total: 0,
+            awaiting_sponsor: 0,
+            matched_awaiting_signature: 0,
+            prepared: 0,
+            submitted_or_reconciling: 0,
+            confirmed: 0,
+            attention_required: 0,
+          }],
+        }
+      }
+      return { rows: [], rowCount: 0 }
+    },
+  }
+  const app = express()
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
+    env: { FRONTEND_ORIGIN: origin, OWNER_WALLET_ADDRESS: requesterAddress },
+    getSession: async ({ origin: requestOrigin }) => ({
+      success: true,
+      session: {
+        address: requesterAddress,
+        network: 'mainnet',
+        origin: requestOrigin,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      },
+    }),
+    getDatabase: () => database,
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/sponsor-direct/owner-overview', {
+    headers: { Origin: origin, Authorization: 'Bearer ' + ownerToken },
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(payload.network, 'mainnet')
+  assert.equal(payload.sponsorProfiles.approved, 0)
+  assert.equal(payload.sponsorProfiles.pendingReview, 0)
+  assert.equal(payload.funding.status, 'no-approved-sponsor-wallets')
+  assert.equal(payload.funding.approvedSponsorProfilesExist, false)
+  assert.equal(payload.funding.liveSponsorFundingVerified, false)
+  assert.equal(payload.funding.canPayWithoutRealMainnetUsdt, false)
+  assert.equal(payload.requesterWalletFundingRequired, false)
+  assert.equal(payload.individualSponsorCompanyRegistrationRequiredByThisApplication, false)
+  assert.equal(payload.individualSponsorContactEmailRequired, false)
+  assert.equal(payload.complianceVerified, false)
+  assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
+})
+

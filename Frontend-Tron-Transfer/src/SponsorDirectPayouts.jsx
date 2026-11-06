@@ -82,6 +82,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [myRequests, setMyRequests] = useState([])
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
+  const [ownerOverview, setOwnerOverview] = useState(null)
   const [recipient, setRecipient] = useState('')
   const [amount, setAmount] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -112,6 +113,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setSnapshot(null)
     setMyRequests([])
     setQueue([])
+    setOwnerOverview(null)
     if (!ADDRESS_RE.test(walletAddress)) return () => { current = false }
     let stored = ''
     try { stored = sessionStorage.getItem(SESSION_KEY_PREFIX + walletAddress) || '' } catch {}
@@ -202,10 +204,15 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         setPrepared(null)
       }
       if (isOwnerAdmin) {
-        const adminResult = await api('/api/tron/sponsor-direct/applications', identityToken)
+        const [adminResult, overviewResult] = await Promise.all([
+          api('/api/tron/sponsor-direct/applications', identityToken),
+          api('/api/tron/sponsor-direct/owner-overview', identityToken),
+        ])
         setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
+        setOwnerOverview(overviewResult)
       } else {
         setApplications([])
+        setOwnerOverview(null)
       }
     } catch (cause) {
       setError(cause?.message || 'Could not refresh sponsor-direct status.')
@@ -398,6 +405,25 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
 
       {notice && <div className="notice notice-success" role="status"><CheckCircle2 size={16} /><span>{notice}</span></div>}
       {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
+
+      {isOwnerAdmin && mode !== 'sponsor' && ownerOverview && (
+        <div className="notice notice-warning" role="status">
+          <AlertTriangle size={17} />
+          <div>
+            <b>Mainnet sponsor funding availability</b>
+            <p>{ownerOverview.funding?.message || 'Sponsor funding status is unavailable. No payout should be assumed ready.'}</p>
+            <div className="readiness-checks">
+              <span>Approved individual sponsor wallets: {ownerOverview.sponsorProfiles?.approved ?? '—'}</span>
+              <span>Applications awaiting owner review: {ownerOverview.sponsorProfiles?.pendingReview ?? '—'}</span>
+              <span>Withdrawal requests awaiting a sponsor: {ownerOverview.withdrawals?.awaitingSponsor ?? '—'}</span>
+              <span>Matched requests awaiting sponsor signature: {ownerOverview.withdrawals?.matchedAwaitingSignature ?? '—'}</span>
+              <span>Submitted / awaiting chain reconciliation: {ownerOverview.withdrawals?.submittedOrReconciling ?? '—'}</span>
+              <span>On-chain confirmed: {ownerOverview.withdrawals?.confirmed ?? '—'}</span>
+            </div>
+            <small className="fine-print">An approved wallet profile is not proof of USDT funds. Every payout requires a fresh live Mainnet balance/resource check and the sponsor's exact transaction signature. This application permits individual wallet applications without company registration documents or a required contact email; it does not perform KYC/KYB.</small>
+          </div>
+        </div>
+      )}
 
       <div className="owner-session-card">
         <strong><Wallet size={15} /> {identityMatchesWallet ? 'Wallet identity verified' : walletAddress ? 'TronLink connected · identity not verified' : 'Connect TronLink to continue'}</strong>
