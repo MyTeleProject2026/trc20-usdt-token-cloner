@@ -575,23 +575,15 @@ async function autoAssignSponsorToRequest({
     await releaseExpiredSponsorMatches(db)
     const found = await db.query(
       'SELECT s.sponsor_address FROM ' + SCHEMA + '.sponsor_direct_applications s ' +
-      'JOIN ' + SCHEMA + '.sponsor_organization_applications a ' +
-      'ON a.sponsor_wallet_address=s.sponsor_address ' +
-      'JOIN ' + SCHEMA + '.sponsor_organization_mandates m ' +
-      'ON m.application_id=a.id AND m.sponsor_wallet_address=s.sponsor_address ' +
-      'WHERE s.status=\'active\' AND a.status=\'accepted-for-due-diligence\' ' +
-      'AND m.status=\'authorized\' AND m.purpose=\'both\' ' +
-      'AND m.valid_from <= $1 AND m.valid_until > $1 ' +
-      'AND s.sponsor_address <> $2 ' +
-      'AND ($4::text IS NULL OR s.sponsor_address <> $4::text) ' +
-      'AND s.per_payout_limit_base_units >= $3::numeric ' +
-      'AND m.per_payout_limit_base_units >= $3::numeric ' +
+      'WHERE s.status=\'active\' ' +
+      'AND s.sponsor_address <> $1 ' +
+      'AND ($3::text IS NULL OR s.sponsor_address <> $3::text) ' +
+      'AND s.per_payout_limit_base_units >= $2::numeric ' +
       'AND NOT EXISTS (SELECT 1 FROM ' + SCHEMA + '.sponsor_direct_payouts p ' +
       'WHERE p.sponsor_address=s.sponsor_address AND p.status=\'requested\' ' +
       'AND (p.expires_at IS NULL OR p.expires_at > now())) ' +
       'GROUP BY s.sponsor_address ORDER BY MIN(s.updated_at) ASC LIMIT 10',
       [
-        new Date(now()).toISOString(),
         request.requester_address,
         amountBaseUnits,
         isValidTronAddress(clean(env.OWNER_WALLET_ADDRESS, 64)) ? clean(env.OWNER_WALLET_ADDRESS, 64) : null,
