@@ -1515,11 +1515,17 @@ export function createSponsorDirectPayoutsRouter({
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'active-sponsor-application-required' })
       }
-      const mandate = await getAuthorizedSponsorMandate(client, auth.address, now())
-      if (!mandate
-        || BigInt(String(row.amount_base_units)) > BigInt(String(mandate.per_payout_limit_base_units))) {
+      const payoutAmountBaseUnits = BigInt(String(row.amount_base_units))
+      const perPayoutLimitBaseUnits = BigInt(String(profile.per_payout_limit_base_units || '0'))
+      if (payoutAmountBaseUnits <= 0n || payoutAmountBaseUnits > perPayoutLimitBaseUnits) {
         await client.query('ROLLBACK')
-        return res.status(403).json({ success: false, error: 'authorized-sponsor-mandate-invalid-or-expired' })
+        return res.status(403).json({ success: false, error: 'sponsor-per-payout-limit-exceeded' })
+      }
+      const dailyLimitBaseUnits = BigInt(String(profile.daily_limit_base_units || '0'))
+      const dailyUsedBaseUnits = BigInt(await readDailyUsage(client, auth.address, id))
+      if (dailyUsedBaseUnits + payoutAmountBaseUnits > dailyLimitBaseUnits) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'sponsor-daily-limit-exceeded' })
       }
       if (row.status !== 'prepared') {
         await client.query('ROLLBACK')
