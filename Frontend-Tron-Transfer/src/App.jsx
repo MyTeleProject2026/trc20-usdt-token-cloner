@@ -60,6 +60,21 @@ export default function App() {
     }
   },[])
 
+  useEffect(() => {
+    if (!ownerSession?.expiresAt) return undefined
+    const expireSession = () => {
+      void signOutOwner()
+      setNotice('The private owner session expired. Sign in again to continue.')
+    }
+    const remaining = ownerSession.expiresAt - Date.now()
+    if (remaining <= 0) {
+      expireSession()
+      return undefined
+    }
+    const timer = window.setTimeout(expireSession, remaining)
+    return () => window.clearTimeout(timer)
+  }, [ownerSession?.expiresAt])
+
   useEffect(()=>{
     if (!ownerSession?.sessionToken) return
     void inspectAddress(MAINNET_MONITORED_ADDRESS).catch(e=>setMonitorError(e.message))
@@ -134,7 +149,24 @@ export default function App() {
     setOwnerSessionResolved(true)
     setNotice('Private platform-owner session active. Your TronLink wallet is not used as the source of payout funds. External payouts remain disabled until a provider authorizes provider-owned liquidity or an approved credit facility for this account.')
   }
-  function signOutOwner(){try{sessionStorage.removeItem(OWNER_SESSION_KEY)}catch{};setOwnerSession(null);setUnlocked(null);setMonitorData(null);setTab('overview')}
+  async function signOutOwner() {
+    const token = ownerSession?.sessionToken
+    if (token) {
+      try {
+        await api('/api/auth/owner/logout', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token },
+        })
+      } catch {
+        setError('Server-side session revocation could not be confirmed. This session will expire automatically; sign in again after reconnecting.')
+      }
+    }
+    try { sessionStorage.removeItem(OWNER_SESSION_KEY) } catch {}
+    setOwnerSession(null)
+    setUnlocked(null)
+    setMonitorData(null)
+    setTab('overview')
+  }
   const nav=[
     {id:'overview',label:'Dashboard',icon:Wallet},
     {id:'assets',label:'Assets',icon:Coins},
