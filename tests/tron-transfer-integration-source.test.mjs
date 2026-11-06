@@ -98,78 +98,57 @@ test('frontend requests TronLink to sign and never sends a raw transaction itsel
 })
 
 
-test('Fincra automatic payout requires an allowlisted requester and an authorized matching standing mandate', () => {
-  assert.match(recipientRoute, /FINCRA_AUTO_PAYOUTS_ENABLED !== 'true'/)
-  assert.match(recipientRoute, /FINCRA_AUTO_PAYOUT_REQUESTER_ADDRESSES/)
-  assert.match(recipientRoute, /authorized-fincra-standing-mandate-required/)
-  assert.match(recipientRoute, /m\.execution_mode='fincra-automatic'/)
-  assert.match(recipientRoute, /m\.provider_business_id=\$1/)
-  assert.match(recipientRoute, /m\.per_payout_limit_base_units >= \$2/)
-  assert.match(recipientRoute, /fincra-standing-mandate-daily-limit-exceeded/)
-  assert.match(recipientRoute, /FOR UPDATE OF m/)
-  assert.match(recipientRoute, /sponsor_mandate_id/)
+
+test('payout wallet sessions are restricted to the configured private platform owner', () => {
+  assert.match(recipientRoute, /const configuredOwner = cleanString\(env\.OWNER_WALLET_ADDRESS \|\| env\.TREASURY_OWNER_ADDRESS, 64\)/)
+  assert.match(recipientRoute, /session\.address !== configuredOwner/)
+  assert.match(recipientRoute, /private-owner-only-platform/)
+  assert.match(recipientRoute, /private-platform-owner-not-configured/)
 })
 
-test('owner-operated Fincra payout cannot substitute owner credentials for a third-party sponsor mandate', () => {
-  assert.match(recipientRoute, /if \(ownerAuth\.ok && row\.requester_address !== ownerAuth\.address\)/)
-  assert.match(recipientRoute, /owner-fincra-payout-requires-owner-requester-wallet/)
-  assert.match(recipientRoute, /Other requesters require an authorized sponsor standing mandate/)
+test('legacy Fincra payout submission is disabled even if old credentials remain configured', () => {
+  const handler = recipientRoute.slice(
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-payout'"),
+    recipientRoute.indexOf("router.post('/sponsor-requests/:id/fincra-status'"),
+  )
+  assert.match(handler, /legacy-fincra-payout-disabled/)
+  assert.match(handler, /return res\.status\(410\)/)
+  assert.match(handler, /payoutSubmitted: false/)
+  assert.doesNotMatch(handler, /fincraRequest\(config, '\/stablecoin\/payouts'/)
 })
 
-test('requesters can view and reconcile only their own Fincra payout history', async () => {
+test('provider readiness is private, read-only and fails closed without verified funding', () => {
+  assert.match(recipientRoute, /router.get\('\/provider-readiness'/)
+  assert.match(recipientRoute, /requireOwnerSession\(req, env\)/)
+  assert.match(recipientRoute, /getUnconfiguredProviderPayoutReadiness\(\)/)
+  assert.match(recipientRoute, /provider-owned USDT liquidity or an approved credit facility/)
+  assert.match(recipientRoute, /executionEnabled/)
+})
+
+test('runtime does not expose public sponsor registration, individual sponsor settlement or Fireblocks routes', () => {
+  assert.doesNotMatch(entry, /sponsorRequestIntakeRoutes|createSponsorDirectPayoutsRouter|createSponsorOrganizationRouter/)
+  assert.doesNotMatch(entry, /startSponsorDirectPayoutReconciliationWorker/)
+  assert.doesNotMatch(entry, /treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
+  assert.doesNotMatch(entry, /ownerSponsorLiquidityRoutes/)
+})
+
+test('private owner console uses provider readiness instead of sponsor or Fincra pages', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
-  assert.match(recipientRoute, /router\.get\('\/sponsor-requests\/mine'/)
-  assert.match(recipientRoute, /router\.post\('\/sponsor-requests\/:id\/fincra-status'/)
-  assert.match(recipientRoute, /router\.post\('\/sponsor-requests\/:id\/verify-recipient-transfer'/)
-  assert.match(recipientRoute, /requester-does-not-own-this-payout-request/)
-  assert.match(app, /FincraWithdrawals/)
+  const providerPage = await readFile(new URL('../Frontend-Tron-Transfer/src/ProviderPayoutReadiness.jsx', import.meta.url), 'utf8')
+  assert.match(app, /ProviderPayoutReadiness/)
+  assert.match(app, /id:'provider',label:'Funding provider'/)
+  assert.doesNotMatch(app, /FincraWithdrawals|SponsorOrganizationOnboarding|tab==='sponsors'/)
+  assert.match(providerPage, /provider-readiness/)
+  assert.match(providerPage, /No approved payout funding source/)
+  assert.match(providerPage, /provider-owned USDT liquidity/)
 })
 
-test('Fincra frontend initiates provider submission and polls provider/solidified-chain reconciliation', async () => {
-  const page = await readFile(new URL('../Frontend-Tron-Transfer/src/FincraWithdrawals.jsx', import.meta.url), 'utf8')
-  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
-  assert.match(page, /\/api\/tron-transfer\/sponsor-requests/)
-  assert.match(page, /\/fincra-payout/)
-  assert.match(page, /\/fincra-status/)
-  assert.match(page, /\/verify-recipient-transfer/)
-  assert.match(page, /solidified-recipient-transfer-verified/)
-  assert.doesNotMatch(page, /privateKey\s*[:=]/i)
-})
-
-
-test('Fincra pending payout status is not promoted to a payout lifecycle state', () => {
+test('Fincra payout statuses remain conservative for historical reconciliation', () => {
   assert.equal(payoutStatusFromProvider('pending'), 'unknown')
   assert.equal(payoutStatusFromProvider('PENDING'), 'unknown')
-  assert.equal(payoutStatusFromProvider('processing'), 'processing')
-  assert.equal(payoutStatusFromProvider('successful'), 'successful')
-  assert.equal(payoutStatusFromProvider('failed'), 'failed')
-  assert.equal(payoutStatusFromProvider('unknown-provider-state'), 'unknown')
-})
-
-
-test('unsupported Fincra payout statuses are not mapped into payout state', () => {
-  assert.equal(payoutStatusFromProvider('pending'), 'unknown')
   assert.equal(payoutStatusFromProvider('initiated'), 'unknown')
   assert.equal(payoutStatusFromProvider('processing'), 'processing')
   assert.equal(payoutStatusFromProvider('successful'), 'successful')
   assert.equal(payoutStatusFromProvider('failed'), 'failed')
-  assert.match(recipientRoute, /reason: 'unsupported-payout-status'/)
-  assert.match(recipientRoute, /ignored: true/)
-  assert.match(recipientRoute, /stateChanged: false/)
-  assert.match(recipientRoute, /\['successful-payout-record-incomplete', 'unsupported-payout-status'\]\.includes\(reconciliation\.reason\)/)
-})
-test('individual wallet sponsorship needs no provider organization mandate and every payout is sponsor-signed', () => {
-  assert.match(sponsorRoute, /requesterWalletFundingRequired: false/)
-  assert.match(sponsorRoute, /sponsorWalletFundingRequired: true/)
-  assert.match(sponsorRoute, /sponsorWalletSignatureRequired: true/)
-  assert.match(sponsorRoute, /sponsorOrganizationVerification: 'not-required-for-individual-per-transfer-wallet-sponsorship'/)
-  assert.doesNotMatch(sponsorRoute, /getAuthorizedSponsorMandate|sponsor_organization_mandates|sponsor_organization_applications/)
-  assert.match(sponsorRoute, /active-sponsor-application-required/)
-  assert.match(sponsorRoute, /readSponsorSnapshot/)
-  assert.match(sponsorRoute, /validateOwnerSignedTransaction/)
-  assert.ok(sponsorRoute.includes('wallet/getapprovedlist'))
-  assert.match(sponsorRoute, /sponsor-daily-limit-exceeded/)
-  assert.ok(sponsorFrontend.includes('Contact email (optional)'))
-  assert.doesNotMatch(sponsorFrontend, /SponsorOrganizationOnboarding/)
-  assert.ok(sponsorFrontend.includes('does not require company registration documents'))
+  assert.equal(payoutStatusFromProvider('unknown-provider-state'), 'unknown')
 })
