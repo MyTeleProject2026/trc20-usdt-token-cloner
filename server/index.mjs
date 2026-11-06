@@ -6,31 +6,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tatumRoutes from './routes/tatum.mjs'
 import nativeTronRoutes from './routes/native-tron.mjs'
-import sponsorIntegrationReadinessRoutes from './routes/sponsor-integration-readiness.mjs'
-import sponsorTestnetPilotRoutes from './routes/sponsor-testnet-pilot.mjs'
-import sponsorSettlementRoutes from './routes/sponsor-settlement.mjs'
-import sponsorChainCostObservationRoutes from './routes/sponsor-chain-cost-observations.mjs'
-import sponsorChainFeeObservationRoutes from './routes/sponsor-chain-fee-observations.mjs'
-import sponsorChainFeeSettlementRoutes from './routes/sponsor-chain-fee-settlements.mjs'
-import sponsorSolidifiedReconciliationRoutes from './routes/sponsor-solidified-reconciliation.mjs'
 import trc20VerificationRoutes from './routes/trc20-verification.mjs'
-import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'
 import gasFreeRoutes from './routes/gasfree.mjs'
 import tronWalletAuthRoutes, { createOwnerAuthRouter } from './routes/tron-wallet-auth.mjs'
 import okxDepositStatusRoutes from './routes/okx-deposit-status.mjs'
-import treasuryWithdrawalsRoutes from './routes/treasury-withdrawals.mjs'
 import tronTransferRoutes from './routes/tron-transfer.mjs'
-import { createTronOwnerWithdrawalsRouter } from './routes/tron-owner-withdrawals.mjs'
-import { createSponsorDirectPayoutsRouter, startSponsorDirectPayoutReconciliationWorker } from './routes/sponsor-direct-payouts.mjs'
-import { createSponsorOrganizationRouter } from './routes/sponsor-organization-onboarding.mjs'
-import fireblocksInventorySyncRoutes from './routes/fireblocks-inventory-sync.mjs'
-import fireblocksInventoryStatusRoutes from './routes/fireblocks-inventory-status.mjs'
 import { createTokenAuthenticityRouter } from './routes/token-authenticity.mjs'
 import { createChainTokenInspectionRouter } from './routes/chain-token-inspection.mjs'
 import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mjs'
-import sponsorRequestIntakeRoutes from './routes/sponsor-request-intake.mjs'
 import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
-import ownerSponsorLiquidityRoutes from './routes/owner-sponsor-liquidity.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
@@ -146,44 +130,21 @@ app.get('/api/readiness', async (_req, res) => {
 })
 app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
-app.use('/api/tron', sponsorFeeEstimateRoutes)
 app.use('/api/tron', nativeTronRoutes)
-app.use('/api/tron', sponsorIntegrationReadinessRoutes)
-app.use('/api/tron', sponsorTestnetPilotRoutes)
-app.use('/api/tron', sponsorSettlementRoutes)
-app.use('/api/tron', sponsorChainCostObservationRoutes)
-app.use('/api/tron', sponsorChainFeeObservationRoutes)
-app.use('/api/tron', sponsorChainFeeSettlementRoutes)
-app.use('/api/tron', sponsorSolidifiedReconciliationRoutes)
 app.use('/api/gasfree', gasFreeRoutes)
 app.use('/api/auth/tron', tronWalletAuthRoutes)
 app.use('/api/auth/owner', createOwnerAuthRouter())
 app.use('/api/okx', okxDepositStatusRoutes)
-app.use('/api/treasury', treasuryWithdrawalsRoutes)
-app.use('/api/treasury', fireblocksInventorySyncRoutes())
-app.use('/api/treasury', fireblocksInventoryStatusRoutes())
-app.use('/api/tron', sponsorRequestIntakeRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
-app.use('/api/treasury/owner', ownerSponsorLiquidityRoutes)
 app.use('/api/tron-transfer', tronTransferRoutes)
-app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())
-app.use('/api/tron', createSponsorOrganizationRouter())
-app.use('/api/tron-owner-withdrawals', createTronOwnerWithdrawalsRouter())
 
 if (process.env.DATABASE_URL) {
   try {
     const database = await initializeDatabase()
     console.log('Project database initialization:', database.ready ? 'ready' : 'not-configured')
-    if (database.ready && process.env.NODE_ENV === 'production') {
-      const worker = startSponsorDirectPayoutReconciliationWorker()
-      console.log(
-        'Sponsor direct settlement worker:',
-        worker.started ? 'started' : 'not-started (' + worker.reason + ')',
-      )
-    }
   } catch {
     // Keep read-only chain verification endpoints available; storage status exposes failure.
     console.error('Project database initialization failed; persistence is unavailable')

@@ -8,8 +8,8 @@ const route = await readFile(new URL('../server/routes/sponsor-fee-estimate.mjs'
 const delegationReader = await readFile(new URL('../server/sponsor-delegation-snapshot.mjs', import.meta.url), 'utf8')
 
 test('read-only sponsor energy estimate is mounted and wired to the exact request parameters', () => {
-  assert.ok(entry.includes("import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'"))
-  assert.ok(entry.includes("app.use('/api/tron', sponsorFeeEstimateRoutes)"))
+  assert.ok(!entry.includes("import sponsorFeeEstimateRoutes from './routes/sponsor-fee-estimate.mjs'"))
+  assert.ok(!entry.includes("app.use('/api/tron', sponsorFeeEstimateRoutes)"))
   assert.ok(ui.includes('/api/tron/sponsorship/fee-estimate'))
   assert.ok(ui.includes('/api/tron/sponsorship/native-fee-estimate'))
   assert.ok(ui.includes('tokenContract: contract'))

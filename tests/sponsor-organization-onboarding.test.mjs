@@ -73,19 +73,19 @@ test('mandate authorization is a separate transition after evidence verification
   assert.match(source, /body\.decision === 'authorize' \? 'authorized'/)
 })
 
-test('individual Mainnet wallet sponsors use per-transfer signing while Fincra automation remains mandate-gated', async () => {
-  const source = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
-  assert.doesNotMatch(source, /getAuthorizedSponsorMandate|sponsor_organization_mandates|sponsor_organization_applications/)
-  assert.match(source, /active-sponsor-application-required/)
-  assert.match(source, /readSponsorSnapshot/)
-  assert.match(source, /validateOwnerSignedTransaction/)
-  assert.ok(source.includes('wallet/getapprovedlist'))
-  assert.match(source, /sponsor-per-payout-limit-exceeded/)
-  assert.match(source, /sponsor-daily-limit-exceeded/)
+test('private owner provider payout readiness stays fail-closed until a provider is approved', async () => {
   const providerRoute = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
-  assert.match(providerRoute, /authorized-fincra-standing-mandate-required/)
-  assert.match(providerRoute, /m\.execution_mode='fincra-automatic'/)
-  assert.match(providerRoute, /fincra-standing-mandate-daily-limit-exceeded/)
+  const readinessPolicy = await readFile(new URL('../server/provider-payout-readiness.mjs', import.meta.url), 'utf8')
+  assert.match(providerRoute, /router\.get\('\/provider-readiness'/)
+  assert.match(providerRoute, /providerOwnedLiquidityVerified: false/)
+  assert.match(providerRoute, /providerApprovedCreditVerified: false/)
+  assert.match(providerRoute, /legacy-fincra-payout-disabled/)
+  assert.match(providerRoute, /payoutSubmitted: false/)
+  assert.match(providerRoute, /transactionSubmitted: false/)
+  assert.match(readinessPolicy, /provider-authorization-not-verified/)
+  assert.match(readinessPolicy, /provider-owned-liquidity-or-approved-credit-not-verified/)
+  assert.match(readinessPolicy, /approved-provider-broadcast-adapter-not-installed/)
+  assert.match(readinessPolicy, /executionEnabled: blockers\.length === 0/)
 })
 
 

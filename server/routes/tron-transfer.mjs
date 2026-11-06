@@ -6,6 +6,7 @@ import { isValidTronAddress } from '../tron-address.mjs'
 import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
+import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -110,7 +111,14 @@ async function requireRequesterWalletSession(req, env) {
     || !isValidTronAddress(session.address)) {
     return { ok: false, status: 401, error: 'requester-wallet-session-invalid-or-expired' }
   }
-  return { ok: true, address: session.address }
+  const configuredOwner = cleanString(env.OWNER_WALLET_ADDRESS || env.TREASURY_OWNER_ADDRESS, 64)
+  if (!isValidTronAddress(configuredOwner)) {
+    return { ok: false, status: 503, error: 'private-platform-owner-not-configured' }
+  }
+  if (session.address !== configuredOwner) {
+    return { ok: false, status: 403, error: 'private-owner-only-platform' }
+  }
+  return { ok: true, address: configuredOwner }
 }
 
 async function requireOwnerSession(req, env) {
@@ -475,147 +483,72 @@ transaction_hash CHAR(64),
     return { ok: true, complete, status, recipient, amountReceivedBaseUnits: received?.toString() || null, amountChargedBaseUnits: charged?.toString() || null, feeBaseUnits: fee?.toString() || null }
   }
   router.get('/sponsor-funding-history', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Cache-Control', 'no-store, private')
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const config = fincraConfig(env)
-    if (!config.apiKey || !config.businessId || config.sourceCurrency !== 'USDT') {
-      return res.status(503).json({ success: false, error: 'fincra-usdt-funding-history-not-configured' })
-    }
-    const dateFrom = cleanString(req.query?.dateFrom, 10)
-    const dateTo = cleanString(req.query?.dateTo, 10)
-    const datePattern = /^\d{4}-\d{2}-\d{2}$/
-    if ((dateFrom && !datePattern.test(dateFrom)) || (dateTo && !datePattern.test(dateTo))) {
-      return res.status(400).json({ success: false, error: 'invalid-funding-history-date-range' })
-    }
-    const query = new URLSearchParams({
-      business: config.businessId,
-      action: 'credit',
-      page: '1',
-      perPage: '50',
+    return res.status(410).json({
+      success: false,
+      error: 'legacy-fincra-funding-history-disabled',
+      providerRequestMade: false,
+      message: 'Fincra funding history is disabled in the private provider-neutral deployment.',
     })
-    if (dateFrom) query.set('dateFrom', dateFrom)
-    if (dateTo) query.set('dateTo', dateTo)
-    try {
-      const result = await fincraRequest(config, '/wallets/logs?' + query.toString())
-      if (!result.ok || result.payload?.success === false) {
-        return res.status(502).json({ success: false, error: 'fincra-funding-history-unavailable', providerStatus: result.status })
-      }
-      const payloadRows = result.payload?.data
-      const candidates = Array.isArray(payloadRows) ? payloadRows
-        : Array.isArray(payloadRows?.logs) ? payloadRows.logs
-          : Array.isArray(payloadRows?.transactions) ? payloadRows.transactions
-            : Array.isArray(payloadRows?.rows) ? payloadRows.rows
-              : Array.isArray(payloadRows?.items) ? payloadRows.items
-                : Array.isArray(payloadRows?.data) ? payloadRows.data : []
-      const rows = candidates.slice(0, 50).map((item) => ({
-        id: cleanString(item?.id || item?._id, 96) || null,
-        reference: cleanString(item?.reference || item?.transactionReference, 128) || null,
-        customerReference: cleanString(item?.customerReference || item?.customer_reference, 96) || null,
-        action: cleanString(item?.action || item?.type, 24).toLowerCase() || 'credit',
-        currency: cleanString(item?.currency || item?.sourceCurrency || item?.destinationCurrency, 8).toUpperCase() || null,
-        amount: cleanString(String(item?.amountReceived ?? item?.amount ?? item?.destinationAmount ?? ''), 64) || null,
-        status: cleanString(item?.status, 32).toLowerCase() || null,
-        description: cleanString(item?.description || item?.reason, 180) || null,
-        sender: cleanString(item?.customerName || item?.senderName || item?.sender?.name, 120) || null,
-        createdAt: cleanString(item?.createdAt || item?.created_at || item?.initiatedAt, 64) || null,
-      })).filter((item) => item.action === 'credit' && item.currency === 'USDT')
-      return res.json({
-        success: true,
-        source: 'fincra-business-wallet-ledger',
-        sourceCurrency: 'USDT',
-        rows,
-        hasMore: Boolean(result.payload?.data?.hasMore || result.payload?.data?.pagination?.hasNextPage),
-        note: 'These are read-only Fincra business wallet ledger credits. A credit is included only when Fincra returns it; the current available balance remains the authoritative payout liquidity check.',
-      })
-    } catch {
-      return res.status(502).json({ success: false, error: 'fincra-funding-history-request-failed' })
-    }
   })
 
-  router.get('/readiness', async (_req, res) => {
-    const auth = await requireOwnerSession(_req, env)
+  router.get('/readiness', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
-    const fincra = fincraConfig(env)
-    const mainnetConfigured = Boolean(configuredApiKey(env, 'mainnet'))
-    let databaseReady = false
-    if (db) {
-      try { await ensureSchema(db); await db.query('SELECT 1'); databaseReady = true } catch {}
-    }
-    const inspectSolidifiedNode = async (network) => {
-      const configured = Boolean(configuredApiKey(env, network))
-      if (!configured) return { checked: false, reason: network === 'mainnet' ? 'tatum-mainnet-key-missing' : 'tatum-testnet-key-missing' }
-      try {
-        const block = await tatumGatewayRequest({ env, network, path: 'walletsolidity/getnowblock', body: {} })
-        const number = Number(block?.block_header?.raw_data?.number)
-        const blockId = cleanString(block?.blockID, 96)
-        return Number.isSafeInteger(number) && number > 0 && TXID_RE.test(blockId)
-          ? { checked: true, status: 'solidified-node-reachable', latestSolidifiedBlockNumber: number }
-          : { checked: false, reason: 'invalid-solidified-block-response' }
-      } catch (error) {
-        return {
-          checked: false,
-          reason: Number.isInteger(error?.status) ? 'tatum-provider-http-error' : 'tatum-provider-unreachable',
-          providerStatus: Number.isInteger(error?.status) ? error.status : null,
-        }
-      }
-    }
-    const mainnetNode = await inspectSolidifiedNode('mainnet')
-    let sourceBalance = { checked: false, reason: 'fincra-not-configured' }
-    if (fincra.apiKey && fincra.businessId) {
-      try { sourceBalance = await readFincraSourceBalance(fincra) } catch { sourceBalance = { checked: false, reason: 'fincra-wallets-unavailable' } }
-    }
-    const sourceBalanceBaseUnits = sourceBalance.checked
-      ? parseUsdtBalanceBaseUnits(sourceBalance.availableBalance) : null
-    const usdtSourceBalanceReady = sourceBalanceBaseUnits !== null
-      && sourceBalanceBaseUnits > 0n && fincra.sourceCurrency === 'USDT'
-    const canLivePayout = fincra.mode === 'live' && fincra.payoutsEnabled && fincra.liveConfirmed
-      && Boolean(fincra.apiKey && fincra.businessId && fincra.webhookConfigured && databaseReady && mainnetNode.checked)
-      && usdtSourceBalanceReady
-    const automaticPayoutsConfigured = env.FINCRA_AUTO_PAYOUTS_ENABLED === 'true'
-      && (env.FINCRA_AUTO_PAYOUT_REQUESTER_ADDRESSES || '').split(',').map((value) => value.trim()).some(isValidTronAddress)
+    const readiness = getUnconfiguredProviderPayoutReadiness()
     return res.json({
       success: true,
-      status: 'readiness-evaluated',
-      tatum: {
-        mainnetConfigured,
-        mainnetNode,
-        supportedNetwork: 'mainnet-only',
-        networkRouting: 'server-side-tatum-gateway',
-        directWalletBroadcast: false,
+      status: readiness.status,
+      platformMode: 'private-owner-only',
+      ownerAddress: auth.address,
+      tatumMainnetConfigured: Boolean(configuredApiKey(env, 'mainnet')),
+      databaseConfigured: Boolean(env.DATABASE_URL),
+      legacyFincra: {
+        enabled: false,
+        submissionEnabled: false,
+        providerRequestsMade: false,
+        reason: 'legacy-provider-disabled',
       },
-      fincra: {
-        environment: fincra.mode,
-        apiKeyConfigured: Boolean(fincra.apiKey),
-        businessIdConfigured: Boolean(fincra.businessId),
-        webhookSecretConfigured: fincra.webhookConfigured,
-        sourceCurrency: fincra.sourceCurrency,
-        payoutsEnabled: fincra.payoutsEnabled,
-        liveStablecoinPayoutsConfirmed: fincra.liveConfirmed,
-        sourceBalance,
-        canSubmitLivePayout: canLivePayout,
-        automaticPayoutsGateConfigured: automaticPayoutsConfigured,
-        automaticPayoutsRequireStandingMandate: true,
-        requiredScheme: 'usdt_trc20',
-      },
-      tronGrid: {
-        apiKeyConfigured: Boolean(cleanString(env.TRONGRID_API_KEY, 2048)),
-        incomingHistoryProvider: 'network-specific-v1-account-history',
-      },
-      storage: { configured: Boolean(env.DATABASE_URL), ready: databaseReady },
-      mainnetUsdtContract: MAINNET_USDT,
+      providerPayout: readiness,
       limitations: [
-        'Tatum signs nothing: wallet transactions are signed locally and only signed raw transactions are submitted.',
-        'A Fincra API acceptance is not settlement; query status or accept a verified webhook.',
-        'A successful Fincra payout is not an independently verified TRON token transfer.',
-        'Live payout requires a funded Fincra USDT source wallet and explicit live stablecoin enablement by Fincra.',
-        'Tron Transfer is Mainnet-only; testnet and sandbox payouts are disabled.',
+        'This endpoint does not call Fincra or another payout provider.',
+        'A genuine payout requires provider authorization and verified provider-owned USDT liquidity or an approved credit facility.',
+        'Tatum supplies TRON infrastructure and verification, not payout principal.',
       ],
     })
   })
 
+  router.get('/provider-readiness', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+
+    // No provider currently has verified authorization plus provider-owned
+    // liquidity or an approved credit facility for this owner. This route is
+    // deliberately read-only and never probes or submits to an unapproved API.
+    const readiness = getUnconfiguredProviderPayoutReadiness()
+    return res.json({
+      success: true,
+      ownerAddress: auth.address,
+      readiness,
+      funding: {
+        ownerDepositRequired: false,
+        ownerWalletPrincipalRequired: false,
+        providerOwnedLiquidityVerified: false,
+        providerApprovedCreditVerified: false,
+      },
+      blockers: readiness.blockers,
+      note: 'Owner funds and deposits are not assumed. A real payout remains disabled until a provider explicitly authorizes this owner, verifies provider-owned USDT liquidity or an approved credit facility, enables USDT TRON Mainnet payouts, and supplies a reviewed broadcast adapter.',
+    })
+  })
+
   router.all('/rpc/:network/*', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const network = req.params.network
     const method = String(req.params[0] || '').replace(/^\/+/, '').toLowerCase()
     if (network !== 'mainnet' || !RPC_METHODS.has(method) || req.method !== 'POST') {
@@ -639,13 +572,15 @@ transaction_hash CHAR(64),
     return res.status(410).json({
       success: false,
       error: 'direct-wallet-broadcast-disabled',
-      message: 'Tron Transfer processes official USDT TRC20 Mainnet withdrawals through an authorized live Fincra business account. Direct wallet and testnet broadcasts are disabled.',
+      message: 'Tron Transfer is in private owner-only provider mode. Direct wallet and testnet broadcasts are disabled; no payout provider has yet been approved to supply USDT liquidity or an authorized credit facility.',
       transactionSubmitted: false,
     })
   })
 
   router.get('/recipient', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const network = cleanString(req.query?.network, 16)
     const address = cleanString(req.query?.address, 64)
     const tokenContract = cleanString(req.query?.tokenContract, 64)
@@ -709,695 +644,47 @@ transaction_hash CHAR(64),
     }
   })
 
-  router.post('/sponsor-requests', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store')
-    const walletAuth = await requireRequesterWalletSession(req, env)
-    if (!walletAuth.ok) return res.status(walletAuth.status).json({ success: false, error: walletAuth.error })
-    const requesterAddress = walletAuth.address
-    const assertedRequester = cleanString(req.body?.requesterAddress, 64)
-    if (assertedRequester && assertedRequester !== requesterAddress) {
-      return res.status(403).json({ success: false, error: 'requester-address-does-not-match-wallet-session' })
-    }
-    const recipientAddress = cleanString(req.body?.recipientAddress, 64)
-    const beneficiaryName = cleanString(req.body?.beneficiaryName, 120)
-    const beneficiaryEmail = cleanString(req.body?.beneficiaryEmail, 254)
-    const customerReference = cleanString(req.body?.customerReference, 80)
-    let amount
-    try { amount = parseUsdtAmount(req.body?.amount) } catch (error) {
-      return res.status(400).json({ success: false, error: 'invalid-amount', message: error.message })
-    }
-    if (!isValidTronAddress(requesterAddress) || !isValidTronAddress(recipientAddress)
-      || !beneficiaryName || !/^[A-Za-z0-9._:-]{12,80}$/.test(customerReference)) {
-      return res.status(400).json({ success: false, error: 'invalid-sponsor-request' })
-    }
-    if (beneficiaryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(beneficiaryEmail)) {
-      return res.status(400).json({ success: false, error: 'invalid-beneficiary-email' })
-    }
-    const db = getPool(env)
-    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
-    try {
-      await ensureSchema(db)
-      const id = randomUUID()
-      const result = await db.query(`
-        INSERT INTO ${SCHEMA}.tron_transfer_sponsor_requests
-          (id,customer_reference,requester_address,recipient_address,beneficiary_name,beneficiary_email,amount_base_units,amount_decimal)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        ON CONFLICT (customer_reference) DO NOTHING
-        RETURNING *
-      `, [id, customerReference, requesterAddress, recipientAddress, beneficiaryName, beneficiaryEmail || null, amount.baseUnits, amount.decimal])
-      if (result.rows[0]) return res.status(201).json({ success: true, request: publicRequest(result.rows[0]), note: 'Request recorded for organization review. No payout was initiated.' })
-      const existing = await db.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1`, [customerReference])
-      const prior = existing.rows[0]
-      if (prior && prior.requester_address === requesterAddress && prior.recipient_address === recipientAddress
-        && String(prior.amount_base_units) === amount.baseUnits) {
-        return res.status(200).json({ success: true, duplicate: true, request: publicRequest(prior), note: 'Matching request already exists; no duplicate payout was submitted.' })
-      }
-      return res.status(409).json({ success: false, error: 'customer-reference-conflict' })
-    } catch {
-      return res.status(503).json({ success: false, error: 'sponsor-request-storage-unavailable' })
-    }
-  })
-
-  router.get('/sponsor-requests/mine', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store, private')
-    const auth = await requireRequesterWalletSession(req, env)
-    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
-    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
-    try {
-      await ensureSchema(db)
-      const result = await db.query(
-        `SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests
-         WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 50`,
-        [auth.address],
-      )
-      return res.json({ success: true, requests: result.rows.map(publicRequest) })
-    } catch {
-      return res.status(503).json({ success: false, error: 'requester-sponsor-history-unavailable' })
-    }
-  })
-
-  router.get('/sponsor-requests', async (req, res) => {
-    const auth = await requireOwnerSession(req, env)
-    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
-    const db = getPool(env)
-    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
-    try {
-      await ensureSchema(db)
-      const result = await db.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests ORDER BY created_at DESC LIMIT 100`)
-      return res.json({ success: true, requests: result.rows.map(publicRequest) })
-    } catch {
-      return res.status(503).json({ success: false, error: 'sponsor-request-list-unavailable' })
-    }
-  })
-
-  async function fetchFincraPayoutByCustomerReference(config, customerReference) {
-    const path = '/disbursements/payouts/customer-reference/' + encodeURIComponent(customerReference)
-    return fincraRequest(config, path)
-  }
-
-  async function preflightMainnetUsdtRecipient(address) {
-    if (!isValidTronAddress(address)) return { checked: false, reason: 'invalid-recipient-address' }
-    try {
-      const { TronWeb } = await import('tronweb')
-      const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
-      const account = await tatumGatewayRequest({
-        env, network: 'mainnet', path: 'walletsolidity/getaccount',
-        body: { address, visible: true },
-      })
-      if (!account?.address) return { checked: false, reason: 'recipient-mainnet-account-not-activated' }
-      const ownerHex = tronWeb.address.toHex(address)
-      const contractHex = tronWeb.address.toHex(MAINNET_USDT)
-      const [balance, decimals] = await Promise.all([
-        tatumGatewayRequest({
-          env, network: 'mainnet', path: 'walletsolidity/triggerconstantcontract',
-          body: {
-            owner_address: ownerHex, contract_address: contractHex,
-            function_selector: 'balanceOf(address)',
-            parameter: ownerHex.replace(/^41/i, '').padStart(64, '0'), visible: false,
-          },
-        }),
-        tatumGatewayRequest({
-          env, network: 'mainnet', path: 'walletsolidity/triggerconstantcontract',
-          body: {
-            owner_address: ownerHex, contract_address: contractHex,
-            function_selector: 'decimals()', parameter: '', visible: false,
-          },
-        }),
-      ])
-      const balanceHex = balance?.constant_result?.[0]
-      const decimalsHex = decimals?.constant_result?.[0]
-      const validBalance = balance?.result?.result === true
-        && typeof balanceHex === 'string' && /^[0-9a-f]+$/i.test(balanceHex)
-      const validDecimals = decimals?.result?.result === true
-        && typeof decimalsHex === 'string' && /^[0-9a-f]+$/i.test(decimalsHex)
-        && Number(BigInt('0x' + decimalsHex)) === 6
-      if (!validBalance || !validDecimals) {
-        return { checked: false, reason: 'official-mainnet-usdt-contract-preflight-failed' }
-      }
-      return {
-        checked: true,
-        accountExists: Boolean(account?.address),
-        contract: MAINNET_USDT,
-        decimals: 6,
-        balanceBaseUnits: BigInt('0x' + balanceHex).toString(),
-      }
-    } catch {
-      return { checked: false, reason: 'tatum-recipient-preflight-unavailable' }
-    }
-  }
+  router.post('/sponsor-requests', (_req, res) => res.status(410).json({
+    success: false, error: 'legacy-sponsor-request-intake-disabled', payoutSubmitted: false,
+  }))
+  router.get('/sponsor-requests/mine', (_req, res) => res.status(410).json({
+    success: false, error: 'legacy-sponsor-request-history-disabled',
+  }))
+  router.get('/sponsor-requests', (_req, res) => res.status(410).json({
+    success: false, error: 'legacy-sponsor-request-review-disabled',
+  }))
 
   router.post('/sponsor-requests/:id/fincra-payout', async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Cache-Control', 'no-store, private')
     const ownerAuth = await requireOwnerSession(req, env)
-    const requesterAuth = ownerAuth.ok ? null : await requireRequesterWalletSession(req, env)
-    const automaticRequest = Boolean(!ownerAuth.ok && requesterAuth?.ok)
-    if (!ownerAuth.ok && !requesterAuth?.ok) {
-      return res.status(ownerAuth.status === 403 ? ownerAuth.status : requesterAuth?.status || ownerAuth.status)
-        .json({ success: false, error: requesterAuth?.error || ownerAuth.error })
-    }
-    if (automaticRequest) {
-      const allowedRequesters = cleanString(env.FINCRA_AUTO_PAYOUT_REQUESTER_ADDRESSES, 4096)
-        .split(',').map((value) => value.trim()).filter(isValidTronAddress)
-      if (env.FINCRA_AUTO_PAYOUTS_ENABLED !== 'true' || !allowedRequesters.includes(requesterAuth.address)) {
-        return res.status(403).json({ success: false, error: 'fincra-automatic-requester-not-authorized', transactionSubmitted: false })
-      }
-    }
-    const auth = ownerAuth.ok ? ownerAuth : requesterAuth
-    const db = getPool(env)
-    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
-    const config = fincraConfig(env)
-    if (config.mode !== 'live') return res.status(403).json({ success: false, error: 'mainnet-live-payouts-only', submissionEnabled: false })
-    if (!config.payoutsEnabled || !config.apiKey || !config.businessId) {
-      return res.status(503).json({ success: false, error: 'fincra-payout-not-configured', submissionEnabled: false })
-    }
-    if (config.sourceCurrency !== 'USDT') {
-      return res.status(409).json({ success: false, error: 'fincra-source-currency-needs-quote-flow', message: 'The first release supports same-currency USDT funding only. Cross-currency payout requires a fresh Fincra quote and matching source amount.' })
-    }
-    if (!config.liveConfirmed) {
-      return res.status(403).json({ success: false, error: 'live-stablecoin-payouts-not-confirmed', submissionEnabled: false })
-    }
-    try {
-      await ensureSchema(db)
-      const client = await db.connect()
-      let row
-      let firstAttempt = false
-      try {
-        await client.query('BEGIN')
-        const found = await client.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE id=$1 FOR UPDATE`, [req.params.id])
-        if (!found.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, error: 'sponsor-request-not-found' }) }
-        row = found.rows[0]
-        // The owner's own Fincra account may be used without a third-party sponsor
-        // mandate only for a request authenticated by that same configured owner wallet.
-        // This prevents owner API credentials from becoming a blanket substitute for
-        // third-party sponsor consent.
-        if (ownerAuth.ok && row.requester_address !== ownerAuth.address) {
-          await client.query('ROLLBACK')
-          return res.status(403).json({
-            success: false,
-            error: 'owner-fincra-payout-requires-owner-requester-wallet',
-            transactionSubmitted: false,
-            note: 'The owner-operated Fincra account can only fund a request created by the configured owner wallet. Other requesters require an authorized sponsor standing mandate.',
-          })
-        }
-        if (automaticRequest) {
-          if (row.requester_address !== requesterAuth.address) {
-            await client.query('ROLLBACK')
-            return res.status(403).json({ success: false, error: 'requester-does-not-own-this-payout-request', transactionSubmitted: false })
-          }
-          const mandates = await client.query(
-            `SELECT m.* FROM ${SCHEMA}.sponsor_organization_mandates m
-             JOIN ${SCHEMA}.sponsor_organization_applications a ON a.id=m.application_id
-             WHERE m.status='authorized'
-               AND m.execution_mode='fincra-automatic'
-               AND m.provider_name='fincra'
-               AND m.provider_business_id=$1
-               AND m.purpose IN ('asset-principal','both')
-               AND m.valid_from <= now() AND m.valid_until > now()
-               AND m.per_payout_limit_base_units >= $2
-               AND a.status='accepted-for-due-diligence'
-             ORDER BY m.created_at DESC LIMIT 1
-             FOR UPDATE OF m`,
-            [config.businessId, String(row.amount_base_units)],
-          )
-          const mandate = mandates.rows[0]
-          if (!mandate || typeof mandate.id !== 'string') {
-            await client.query('ROLLBACK')
-            return res.status(403).json({
-              success: false, error: 'authorized-fincra-standing-mandate-required',
-              transactionSubmitted: false,
-              note: 'No active sponsor-signed and independently reviewed standing mandate matches this exact Fincra business ID, Mainnet USDT principal, amount and validity period.',
-            })
-          }
-          const usage = await client.query(
-            `SELECT COALESCE(SUM(amount_base_units),0)::text AS used_base_units
-             FROM ${SCHEMA}.tron_transfer_sponsor_requests
-             WHERE sponsor_mandate_id=$1
-               AND id<>$2
-               AND created_at >= date_trunc('day', now())
-               AND status IN ('fincra-submitting','fincra-outcome-unknown','fincra-processing','fincra-successful')`,
-            [mandate.id, row.id],
-          )
-          const used = BigInt(usage.rows[0]?.used_base_units || '0')
-          const requested = BigInt(String(row.amount_base_units))
-          const dailyLimit = BigInt(String(mandate.daily_limit_base_units))
-          if (used + requested > dailyLimit) {
-            await client.query('ROLLBACK')
-            return res.status(409).json({
-              success: false, error: 'fincra-standing-mandate-daily-limit-exceeded',
-              transactionSubmitted: false,
-            })
-          }
-          if (row.sponsor_mandate_id && row.sponsor_mandate_id !== mandate.id) {
-            await client.query('ROLLBACK')
-            return res.status(409).json({ success: false, error: 'payout-mandate-binding-conflict', transactionSubmitted: false })
-          }
-          await client.query(
-            `UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-             SET sponsor_mandate_id=$2, updated_at=now() WHERE id=$1`,
-            [row.id, mandate.id],
-          )
-          row.sponsor_mandate_id = mandate.id
-        }
-        if (['successful', 'failed'].includes(row.fincra_status)) {
-          await client.query('COMMIT')
-          return res.status(200).json({ success: true, duplicate: true, request: publicRequest(row), note: 'This payout already has a terminal Fincra status.' })
-        }
-        if (row.status === 'fincra-submitting' || row.status === 'fincra-outcome-unknown') {
-          await client.query('COMMIT')
-        } else if (row.status !== 'pending-organization-review') {
-          await client.query('ROLLBACK')
-          return res.status(409).json({ success: false, error: 'sponsor-request-not-submittable', status: row.status })
-        } else {
-          await client.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-            SET status='fincra-submitting',
-                fincra_submitted_at=COALESCE(fincra_submitted_at, now()),
-                updated_at=now() WHERE id=$1`, [row.id])
-          await client.query('COMMIT')
-          row.status = 'fincra-submitting'
-          firstAttempt = true
-        }
-      } catch (error) {
-        try { await client.query('ROLLBACK') } catch {}
-        throw error
-      } finally {
-        client.release()
-      }
-
-      // A prior attempt may have reached Fincra even if our process timed out.
-      // Always requery the exact customerReference before deciding to create anything.
-      const prior = await fetchFincraPayoutByCustomerReference(config, row.customer_reference)
-      if (prior.ok && prior.payload?.success !== false && prior.payload?.data) {
-        const data = prior.payload.data
-        const reconciliation = reconcileFincraPayoutIdentity(data, row)
-        if (!reconciliation.ok) {
-          await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-            SET status='fincra-outcome-unknown',fincra_status='unknown',chain_verification_status='not-verified',
-                chain_verification_reason=$2,updated_at=now() WHERE id=$1`,
-          [row.id, reconciliation.reason])
-          return res.status(202).json({
-            success: false, status: 'fincra-outcome-unknown', error: reconciliation.reason,
-            note: 'Fincra returned an existing payout for this reference, but its recipient, route and settlement amount details could not all be reconciled. No second payout was submitted. Resolve the original payout with Fincra before taking further action.',
-          })
-        }
-        const status = reconciliation.status
-        const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-          SET status=$2,fincra_reference=$3,fincra_status=$4,
-              fincra_amount_received_base_units=COALESCE($5,fincra_amount_received_base_units),
-            fincra_amount_charged_base_units=COALESCE($6,fincra_amount_charged_base_units),
-            fincra_fee_base_units=COALESCE($7,fincra_fee_base_units),
-            fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
-              updated_at=now() WHERE id=$1 RETURNING *`,
-        [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status, reconciliation.amountReceivedBaseUnits, reconciliation.amountChargedBaseUnits, reconciliation.feeBaseUnits])
-        return res.status(200).json({ success: true, duplicate: true, request: publicRequest(updated.rows[0]), note: 'Existing Fincra payout was found by customer reference and its identity was reconciled; no second payout was submitted.' })
-      }
-      if (prior.status !== 404) {
-        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='fincra-outcome-unknown',updated_at=now() WHERE id=$1`, [row.id])
-        return res.status(202).json({ success: false, status: 'fincra-outcome-unknown', error: 'fincra-prior-request-check-unavailable', note: 'The prior request could not be disproved. No duplicate payout was submitted.' })
-      }
-      if (!firstAttempt) {
-        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='fincra-outcome-unknown',updated_at=now() WHERE id=$1`, [row.id])
-        return res.status(202).json({ success: false, status: 'fincra-outcome-unknown', error: 'fincra-retry-requires-manual-reconciliation', note: 'Fincra returned no customer-reference record for a previously submitted or ambiguous request. Automatic resubmission is disabled to prevent duplicate payouts; reconcile with Fincra before creating a new request.' })
-      }
-
-      // Enforce recipient preflight on the server immediately before any live payout.
-      // Frontend inspection is advisory and can be bypassed by direct API callers.
-      const recipientPreflight = await preflightMainnetUsdtRecipient(row.recipient_address)
-      if (!recipientPreflight.checked) {
-        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-          SET status='pending-organization-review',chain_verification_status='not-verified',
-              chain_verification_reason=$2,updated_at=now() WHERE id=$1`,
-        [row.id, recipientPreflight.reason])
-        return res.status(409).json({
-          success: false, error: 'recipient-mainnet-preflight-failed',
-          recipientPreflight, transactionSubmitted: false,
-          note: 'Tatum could not verify the official Mainnet USDT contract for this recipient. No Fincra payout was submitted.',
-        })
-      }
-
-      const balance = await readFincraSourceBalance(config)
-      const availableBaseUnits = balance.checked ? parseUsdtBalanceBaseUnits(balance.availableBalance) : null
-      if (availableBaseUnits === null || availableBaseUnits < BigInt(row.amount_base_units)) {
-        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests SET status='pending-organization-review',updated_at=now() WHERE id=$1`, [row.id])
-        return res.status(409).json({ success: false, error: 'fincra-source-balance-insufficient-or-unverified', sourceBalance: balance, note: 'Fincra must have sufficient available USDT to fund this principal. No payout was submitted.' })
-      }
-
-      // Reserve this request before the provider POST. After a timeout, only the
-      // status-requery path may proceed; the payout call is never blindly retried.
-      const body = {
-        business: config.businessId,
-        sourceCurrency: 'USDT',
-        destinationCurrency: 'USDT',
-        amount: Number(row.amount_decimal),
-        description: 'Authorized USDT TRC20 sponsor payout',
-        paymentDestination: 'crypto_wallet',
-        paymentScheme: 'usdt_trc20',
-        customerReference: row.customer_reference,
-        beneficiary: {
-          walletAddress: row.recipient_address,
-          accountHolderName: row.beneficiary_name,
-          ...(row.beneficiary_email ? { email: row.beneficiary_email } : {}),
-        },
-      }
-      const created = await fincraRequest(config, '/disbursements/payouts', { method: 'POST', body })
-      if (!created.ok || created.payload?.success !== true || !created.payload?.data) {
-        const code = cleanString(created.payload?.errorType || created.payload?.error || 'fincra-payout-rejected', 96)
-        if (code.toUpperCase() === 'DUPLICATE_CUSTOMER_REFERENCE') {
-          await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-            SET status='fincra-outcome-unknown',fincra_status='unknown',
-                chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now()
-            WHERE id=$1`, [row.id, code])
-          return res.status(202).json({
-            success: false, status: 'fincra-outcome-unknown',
-            error: 'fincra-duplicate-customer-reference',
-            providerStatus: created.status, providerCode: code,
-            note: 'Fincra reports this customer reference already exists. No further payout will be submitted automatically; reconcile the existing payout by customer reference.',
-            transactionSubmitted: 'unknown',
-          })
-        }
-        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-          SET status='fincra-rejected',fincra_status='failed',chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now()
-          WHERE id=$1`, [row.id, code])
-        return res.status(400).json({ success: false, error: 'fincra-payout-rejected', providerStatus: created.status, providerCode: code, transactionSubmitted: false })
-      }
-      const data = created.payload.data
-      const immediateReconciliation = reconcileFincraPayoutIdentity(data, row)
-      if (!immediateReconciliation.ok) {
-        await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-          SET status='fincra-outcome-unknown',fincra_status='unknown',
-              chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now()
-          WHERE id=$1`, [row.id, immediateReconciliation.reason])
-        return res.status(202).json({
-          success: false, status: 'fincra-outcome-unknown',
-          error: immediateReconciliation.reason,
-          note: 'Fincra accepted or returned a payout response that does not include enough matching settlement details to mark it successful. Requery the same customer reference or process the verified webhook; do not submit a second payout.',
-          transactionSubmitted: 'provider-accepted-awaiting-reconciliation',
-        })
-      }
-      const status = immediateReconciliation.status
-      const updated = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET status=$2,fincra_reference=$3,fincra_status=$4,
-            fincra_amount_received_base_units=COALESCE($5,fincra_amount_received_base_units),
-            fincra_amount_charged_base_units=COALESCE($6,fincra_amount_charged_base_units),
-            fincra_fee_base_units=COALESCE($7,fincra_fee_base_units),
-            fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
-            updated_at=now() WHERE id=$1 RETURNING *`,
-      [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status, immediateReconciliation.amountReceivedBaseUnits, immediateReconciliation.amountChargedBaseUnits, immediateReconciliation.feeBaseUnits])
-      return res.status(202).json({
-        success: true, request: publicRequest(updated.rows[0]),
-        note: 'Fincra accepted the API request. Check provider status or a verified webhook; acceptance is not settlement or independent chain confirmation.',
-      })
-    } catch {
-      return res.status(202).json({
-        success: false, status: 'fincra-outcome-unknown', error: 'fincra-payout-outcome-unknown',
-        note: 'Provider outcome may be ambiguous. Requery the original customer reference before any retry.',
-      })
-    }
+    if (!ownerAuth.ok) return res.status(ownerAuth.status).json({ success: false, error: ownerAuth.error })
+    return res.status(410).json({
+      success: false,
+      error: 'legacy-fincra-payout-disabled',
+      payoutSubmitted: false,
+      transactionSubmitted: false,
+      message: 'Fincra payouts are disabled for this private owner-only deployment. No Fincra credentials, business account, deposit balance or live payout authorization is assumed. Use the owner-only provider readiness endpoint to inspect the remaining funding requirements.',
+    })
   })
 
   router.post('/sponsor-requests/:id/fincra-status', async (req, res) => {
-    const ownerAuth = await requireOwnerSession(req, env)
-    const requesterAuth = ownerAuth.ok ? null : await requireRequesterWalletSession(req, env)
-    if (!ownerAuth.ok && !requesterAuth?.ok) {
-      return res.status(requesterAuth?.status || ownerAuth.status)
-        .json({ success: false, error: requesterAuth?.error || ownerAuth.error })
-    }
-    const db = getPool(env)
-    const config = fincraConfig(env)
-    if (!db || !config.apiKey) return res.status(503).json({ success: false, error: 'fincra-status-unavailable' })
-    try {
-      await ensureSchema(db)
-      const row = await findRequest(db, req.params.id)
-      if (!row) return res.status(404).json({ success: false, error: 'sponsor-request-not-found' })
-      if (requesterAuth && row.requester_address !== requesterAuth.address) {
-        return res.status(403).json({ success: false, error: 'requester-does-not-own-this-payout-request' })
-      }
-      const result = await fetchFincraPayoutByCustomerReference(config, row.customer_reference)
-      if (!result.ok || result.payload?.success === false || !result.payload?.data) {
-        return res.status(result.status === 404 ? 404 : 502).json({ success: false, error: 'fincra-status-requery-unavailable', providerStatus: result.status })
-      }
-      const data = result.payload.data
-      const reconciliation = reconcileFincraPayoutIdentity(data, row)
-      if (!reconciliation.ok) {
-        const statusCode = ['successful-payout-record-incomplete', 'unsupported-payout-status'].includes(reconciliation.reason) ? 202 : 409
-        return res.status(statusCode).json({
-          success: false, error: reconciliation.reason, request: publicRequest(row),
-          note: 'Fincra status was not applied because the provider record did not reconcile to this exact Mainnet USDT TRC20 recipient and settlement details. The net amount received is recorded separately from the requested payout amount and any fee.',
-        })
-      }
-      const status = reconciliation.status
-      const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET status=$2,fincra_reference=COALESCE($3,fincra_reference),fincra_status=$4,
-            fincra_amount_received_base_units=COALESCE($5,fincra_amount_received_base_units),
-            fincra_amount_charged_base_units=COALESCE($6,fincra_amount_charged_base_units),
-            fincra_fee_base_units=COALESCE($7,fincra_fee_base_units),
-            fincra_successful_at=CASE WHEN $4='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
-            updated_at=now()
-        WHERE id=$1 RETURNING *`,
-      [row.id, 'fincra-' + (status === 'unknown' ? 'processing' : status), cleanString(data.reference,128) || null, status, reconciliation.amountReceivedBaseUnits, reconciliation.amountChargedBaseUnits, reconciliation.feeBaseUnits])
-      return res.json({ success: true, request: publicRequest(saved.rows[0]) })
-    } catch {
-      return res.status(502).json({ success: false, error: 'fincra-status-requery-failed' })
-    }
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    return res.status(410).json({
+      success: false,
+      error: 'legacy-fincra-status-polling-disabled',
+      providerRequestMade: false,
+    })
   })
 
-  router.post('/fincra/webhook', async (req, res) => {
-    const config = fincraConfig(env)
-    const secret = cleanString(env.FINCRA_WEBHOOK_SECRET, 4096)
-    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
-    const signature = cleanString(req.headers?.signature, 256).toLowerCase()
-    if (!secret || !/^[0-9a-f]{128}$/.test(signature) || raw.length === 0) {
-      return res.status(401).json({ success: false, error: 'invalid-fincra-webhook-signature' })
-    }
-    const expected = createHmac('sha512', secret).update(raw).digest()
-    const supplied = Buffer.from(signature, 'hex')
-    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
-      return res.status(401).json({ success: false, error: 'invalid-fincra-webhook-signature' })
-    }
-    if (config.mode !== 'live' || !config.apiKey) {
-      return res.status(503).json({ success: false, error: 'live-fincra-reconciliation-unavailable' })
-    }
-    let payload
-    try { payload = JSON.parse(raw.toString('utf8')) } catch { return res.status(400).json({ success: false, error: 'invalid-webhook-json' }) }
-    const eventData = payload?.data || {}
-    const customerReference = cleanString(eventData.customerReference || eventData.customer_reference, 80)
-    if (!/^[A-Za-z0-9._:-]{12,80}$/.test(customerReference)) {
-      return res.status(400).json({ success: false, error: 'invalid-payout-customer-reference' })
-    }
-    const db = getPool(env)
-    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
-    try {
-      await ensureSchema(db)
-      const found = await db.query(`SELECT * FROM ${SCHEMA}.tron_transfer_sponsor_requests WHERE customer_reference=$1 LIMIT 1`, [customerReference])
-      const row = found.rows[0]
-      if (!row) return res.status(200).json({ success: true, matched: false })
-
-      // A valid signature authenticates the webhook, but status updates are
-      // reconciled against Fincra's own payout record to reject stale or
-      // mismatched notifications before changing the sponsor ledger.
-      const lookup = await fetchFincraPayoutByCustomerReference(config, customerReference)
-      const payout = lookup?.payload?.data
-      if (!lookup?.ok || lookup.payload?.success === false || !payout
-        || cleanString(payout.customerReference || payout.customer_reference, 80) !== customerReference) {
-        return res.status(503).json({
-          success: false, error: 'fincra-webhook-provider-reconciliation-failed',
-          note: 'The signed event was not applied because the authoritative payout record could not be retrieved and matched.',
-        })
-      }
-
-      const signedRecipient = eventData.recipient || {}
-      const destinationCurrency = cleanString(payout.destinationCurrency || eventData.destinationCurrency, 8).toUpperCase()
-      const sourceCurrency = cleanString(payout.sourceCurrency || eventData.sourceCurrency, 8).toUpperCase()
-      const paymentScheme = cleanString(payout.paymentScheme || eventData.paymentScheme, 32).toLowerCase()
-      const paymentDestination = cleanString(payout.paymentDestination || eventData.paymentDestination, 32).toLowerCase()
-      const providerReference = cleanString(payout.reference, 128)
-      const webhookReference = cleanString(eventData.reference, 128)
-      if (sourceCurrency !== 'USDT' || destinationCurrency !== 'USDT'
-        || paymentScheme !== 'usdt_trc20' || paymentDestination !== 'crypto_wallet'
-        || (webhookReference && providerReference && webhookReference !== providerReference)) {
-        return res.status(409).json({
-          success: false, error: 'fincra-webhook-payout-identity-mismatch',
-          note: 'The signed event and authoritative Fincra payout record must identify this exact USDT TRC20 crypto-wallet settlement.',
-        })
-      }
-
-      const providerRecipient = cleanString(
-        payout.beneficiary?.walletAddress || payout.beneficiary?.address || payout.recipient?.walletAddress
-          || payout.recipient?.address || payout.recipient?.accountNumber || payout.walletAddress, 64,
-      )
-      const signedEventRecipient = cleanString(
-        signedRecipient.walletAddress || signedRecipient.address || signedRecipient.accountNumber || eventData.walletAddress, 64,
-      )
-      if ((providerRecipient && providerRecipient !== row.recipient_address)
-        || (signedEventRecipient && signedEventRecipient !== row.recipient_address)) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-recipient-mismatch' })
-      }
-      const parseOptionalAmount = (value) => value === undefined || value === null ? null : parseUsdtBalanceBaseUnits(value)
-      const providerReceived = parseOptionalAmount(payout.amountReceived)
-      const signedReceived = parseOptionalAmount(eventData.amountReceived)
-      const providerCharged = parseOptionalAmount(payout.amountCharged)
-      const signedCharged = parseOptionalAmount(eventData.amountCharged)
-      const providerFee = parseOptionalAmount(payout.fee)
-      const signedFee = parseOptionalAmount(eventData.fee)
-      const parsedAmountPairs = [
-        [payout.amountReceived, providerReceived], [eventData.amountReceived, signedReceived],
-        [payout.amountCharged, providerCharged], [eventData.amountCharged, signedCharged],
-        [payout.fee, providerFee], [eventData.fee, signedFee],
-      ]
-      if (parsedAmountPairs.some(([raw, parsed]) => raw !== undefined && raw !== null && parsed === null)) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-settlement-amount-invalid' })
-      }
-      if (providerReceived !== null && signedReceived !== null && providerReceived !== signedReceived) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-received-amount-conflict' })
-      }
-      if (providerCharged !== null && signedCharged !== null && providerCharged !== signedCharged) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-charged-amount-conflict' })
-      }
-      if (providerFee !== null && signedFee !== null && providerFee !== signedFee) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-provider-event-fee-conflict' })
-      }
-      const verifiedAmount = providerReceived ?? signedReceived
-      const chargedAmount = providerCharged ?? signedCharged
-      const feeAmount = providerFee ?? signedFee
-      if ((verifiedAmount !== null && verifiedAmount <= 0n) || (chargedAmount !== null && chargedAmount <= 0n)
-        || (feeAmount !== null && feeAmount < 0n) || (verifiedAmount !== null && chargedAmount !== null && chargedAmount < verifiedAmount)
-        || (feeAmount !== null && chargedAmount !== null && feeAmount > chargedAmount)) {
-        return res.status(409).json({ success: false, error: 'fincra-webhook-settlement-amount-inconsistent' })
-      }
-      const signedEventHasRecipient = Boolean(signedEventRecipient)
-      const providerHasRecipient = Boolean(providerRecipient)
-      const providerStatus = payoutStatusFromProvider(payout.status)
-      if (providerStatus === 'unknown') {
-        // The payout API has a narrower status contract than generic Fincra
-        // transaction events. Acknowledge a validly signed, reconciled event
-        // but do not mutate payout state for an unsupported status.
-        return res.status(200).json({
-          success: true,
-          matched: true,
-          ignored: true,
-          reason: 'unsupported-payout-status',
-          stateChanged: false,
-        })
-      }
-      if (providerStatus === 'successful' && !providerHasRecipient && !signedEventHasRecipient) {
-        return res.status(503).json({
-          success: false, error: 'fincra-webhook-recipient-unverified',
-          note: 'Neither the authoritative Fincra payout record nor the signed webhook identifies the actual wallet recipient. No successful payout status was applied.',
-        })
-      }
-      if (providerStatus === 'successful' && verifiedAmount === null) {
-        return res.status(503).json({
-          success: false, error: 'fincra-webhook-settlement-amount-unverified',
-          note: 'Fincra did not return a verifiable received USDT amount. The platform will not record a successful payout until provider reconciliation supplies it.',
-        })
-      }
-
-      const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET status=CASE
-              WHEN fincra_status IN ('successful','failed') AND fincra_status<>$3 THEN status
-              ELSE $2 END,
-            fincra_status=CASE
-              WHEN fincra_status IN ('successful','failed') AND fincra_status<>$3 THEN fincra_status
-              ELSE $3 END,
-            fincra_reference=COALESCE($4,fincra_reference),
-            fincra_amount_received_base_units=COALESCE($6,fincra_amount_received_base_units),
-            fincra_amount_charged_base_units=COALESCE($7,fincra_amount_charged_base_units),
-            fincra_fee_base_units=COALESCE($8,fincra_fee_base_units),
-            fincra_successful_at=CASE WHEN $3='successful' THEN COALESCE(fincra_successful_at, now()) ELSE fincra_successful_at END,
-            fincra_webhook_event=$5,fincra_webhook_received_at=now(),updated_at=now()
-        WHERE id=$1 RETURNING id,fincra_status,status`,
-      [row.id, 'fincra-' + providerStatus, providerStatus, providerReference || null, cleanString(payload?.event,128) || null,
-        verifiedAmount?.toString() || null, chargedAmount?.toString() || null, feeAmount?.toString() || null])
-      return res.status(200).json({
-        success: true, matched: saved.rowCount > 0,
-        reconciledStatus: saved.rows[0]?.fincra_status || row.fincra_status || null,
-        note: 'Webhook signature verified and event reconciled against the authoritative Fincra payout record. On-chain recipient delivery remains a separate Tatum verification step.',
-      })
-    } catch {
-      return res.status(503).json({ success: false, error: 'webhook-persistence-or-provider-reconciliation-unavailable' })
-    }
-  })
-
-  router.post('/sponsor-requests/:id/verify-recipient-transfer', async (req, res) => {
-    const ownerAuth = await requireOwnerSession(req, env)
-    const requesterAuth = ownerAuth.ok ? null : await requireRequesterWalletSession(req, env)
-    if (!ownerAuth.ok && !requesterAuth?.ok) {
-      return res.status(requesterAuth?.status || ownerAuth.status)
-        .json({ success: false, error: requesterAuth?.error || ownerAuth.error })
-    }
-    const db = getPool(env)
-    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
-    try {
-      await ensureSchema(db)
-      const row = await findRequest(db, req.params.id)
-      if (!row) return res.status(404).json({ success: false, error: 'sponsor-request-not-found' })
-      if (requesterAuth && row.requester_address !== requesterAuth.address) {
-        return res.status(403).json({ success: false, error: 'requester-does-not-own-this-payout-request' })
-      }
-      if (row.fincra_status !== 'successful') {
-        return res.status(409).json({ success: false, error: 'fincra-payout-not-successful', fincraStatus: row.fincra_status })
-      }
-      const { TronWeb } = await import('tronweb')
-      const tronWeb = new TronWeb({ fullHost: 'https://tron-mainnet.gateway.tatum.io' })
-      const historyResult = await readTronGridIncomingHistory({
-        network: 'mainnet',
-        address: row.recipient_address,
-        tokenContract: MAINNET_USDT,
-        apiKey: cleanString(env.TRONGRID_API_KEY, 2048),
-        decodeAddress: (hex) => tronWeb.address.fromHex(hex),
-      })
-      if (!historyResult.tokenHistoryRead) {
-        return res.status(502).json({ success: false, error: 'recipient-transfer-history-unavailable', providerErrors: historyResult.providerErrors })
-      }
-      const receivedAmountBaseUnits = row.fincra_amount_received_base_units == null ? null : String(row.fincra_amount_received_base_units)
-      if (!receivedAmountBaseUnits) {
-        return res.status(202).json({
-          success: false, error: 'fincra-recipient-amount-not-recorded',
-          note: 'Fincra settlement is marked successful, but its actual net recipient amount has not been reconciled. Refresh the authoritative Fincra status or webhook before checking the exact on-chain transfer amount.',
-        })
-      }
-      const payoutStartMs = new Date(row.fincra_submitted_at || row.created_at).getTime() - 120000
-      const payoutEndMs = new Date(row.fincra_successful_at || row.updated_at).getTime() + 10 * 60 * 1000
-      const rows = historyResult.history.filter((item) => item.to === row.recipient_address
-        && item.tokenContract === MAINNET_USDT && item.amountBaseUnits === receivedAmountBaseUnits
-        && Number.isFinite(Number(item.timestamp)) && Number(item.timestamp) >= payoutStartMs
-        && Number(item.timestamp) <= payoutEndMs)
-      if (rows.length === 1) {
-        const chain = await verifySolidifiedUsdtTransfer(env, {
-          transactionHash: rows[0].txid,
-          from: rows[0].from,
-          to: row.recipient_address,
-          amountBaseUnits: receivedAmountBaseUnits,
-        })
-        if (chain.verified !== true) {
-          await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-            SET transaction_hash=$2,chain_verification_status='not-verified',chain_verification_reason=$3,updated_at=now()
-            WHERE id=$1`, [row.id, rows[0].txid, chain.status])
-          return res.status(202).json({
-            success: false,
-            verification: { ...chain, historyCandidate: rows[0].txid },
-            note: 'TRON confirmed account history found one candidate, but the Tatum solidified transaction body and successful receipt/Transfer event did not all verify. No recipient credit is claimed.',
-          })
-        }
-        const saved = await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-          SET transaction_hash=$2,chain_verification_status='solidified-recipient-transfer-verified',chain_verification_reason='solidified-transaction-body-success-receipt-and-unique-usdt-transfer-event',updated_at=now()
-          WHERE id=$1 RETURNING *`, [row.id, rows[0].txid])
-        return res.json({
-          success: true, request: publicRequest(saved.rows[0]),
-          verification: chain,
-          note: 'The exact official Mainnet USDT contract, sender, recipient and amount matched one successful solidified transaction and one matching Transfer event. This proves on-chain transfer to the recipient address; it does not prove an exchange has posted an internal account credit.',
-        })
-      }
-      const reason = rows.length > 1 ? 'multiple-matching-incoming-transfers' : 'no-matching-confirmed-incoming-transfer'
-      await db.query(`UPDATE ${SCHEMA}.tron_transfer_sponsor_requests
-        SET chain_verification_status='not-verified',chain_verification_reason=$2,updated_at=now() WHERE id=$1`, [row.id, reason])
-      return res.status(202).json({
-        success: false, verification: { status: rows.length > 1 ? 'ambiguous' : 'not-found', reason, candidates: rows.length },
-        note: 'Fincra status and TRON recipient transfer evidence are separate checks. No successful recipient credit is claimed.',
-      })
-    } catch {
-      return res.status(502).json({ success: false, error: 'recipient-transfer-verification-unavailable' })
-    }
+  router.post('/fincra/webhook', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    return res.status(410).json({
+      success: false,
+      error: 'legacy-fincra-webhook-disabled',
+      eventProcessed: false,
+    })
   })
 
   return router
