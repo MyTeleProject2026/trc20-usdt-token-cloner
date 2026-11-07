@@ -43,6 +43,8 @@ test('review decisions require trusted server roles and signatures bound to the 
   assert.match(api, /roles\.has\('compliance-reviewer'\)/)
   assert.match(api, /roles\.has\('security-reviewer'\)/)
   assert.match(api, /distinct\.size >= 2/)
+  assert.match(api, /activeReviewerDecisions\(decisions\.rows, env\)/)
+  assert.match(api, /new Set\(entries\.map\(\(item\) => item\.walletAddress\)\)/)
   assert.match(api, /sponsor-cannot-review-own-evidence/)
   assert.match(api, /reviewer-already-decided-for-evidence-digest/)
 })
