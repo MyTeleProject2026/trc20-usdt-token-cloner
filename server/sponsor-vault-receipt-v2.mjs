@@ -60,7 +60,8 @@ export function verifyMalwareScanAttestation(attestation, {
   if (p.result !== 'CLEAN' || p.completed !== true) return fail('scan-attestation-not-clean')
   if (typeof p.scanner !== 'string' || !p.scanner.trim() || typeof p.scannerVersion !== 'string' || !p.scannerVersion.trim()) return fail('scan-attestation-scanner-identity-missing')
   const scannedAt = Date.parse(p.scannedAt)
-  if (!Number.isFinite(nowMs) || !Number.isFinite(scannedAt) || scannedAt > nowMs || nowMs - scannedAt > maxAgeMs) return fail('scan-attestation-expired-or-invalid-time')
+  if (!Number.isFinite(nowMs) || !Number.isFinite(scannedAt) || scannedAt > nowMs
+    || (maxAgeMs > 0 && nowMs - scannedAt > maxAgeMs)) return fail('scan-attestation-expired-or-invalid-time')
   if (typeof p.attestationId !== 'string' || !p.attestationId.trim()) return fail('scan-attestation-id-missing')
   return { valid: true, status: 'clean-attestation-verified', attestationId: p.attestationId, keyId: verified.keyId,
     scanner:p.scanner, scannerVersion:p.scannerVersion, scannedAt:p.scannedAt }
