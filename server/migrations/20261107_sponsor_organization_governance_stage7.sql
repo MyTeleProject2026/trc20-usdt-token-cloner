@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_revocation_eve
 );
 CREATE INDEX IF NOT EXISTS sponsor_org_revocations_scope_idx
   ON trc20_token_clone.sponsor_organization_revocation_events(scope_type, scope_id, effective_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_revocation_signature_once_idx
+  ON trc20_token_clone.sponsor_organization_revocation_events(actor_signature_hash);
 
 -- Audit rows are append-only. A correction requires a new row, never UPDATE/DELETE.
 CREATE OR REPLACE FUNCTION trc20_token_clone.reject_sponsor_org_audit_mutation()
