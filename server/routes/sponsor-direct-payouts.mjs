@@ -106,6 +106,7 @@ async function ensureSchema(db) {
         'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
         'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
         'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
+        'minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE, ' +
         'status TEXT NOT NULL DEFAULT \'requested\' CHECK (status IN ' +
         '(\'requested\',\'prepared\',\'broadcasting\',\'submitted\',\'outcome-unknown\',\'broadcast-rejected\',\'confirmed\',\'failed\',\'manual-review\',\'cancelled\',\'expired\')), ' +
         'unsigned_transaction JSONB, signed_transaction JSONB, transaction_hash CHAR(64), ' +
@@ -128,7 +129,19 @@ async function ensureSchema(db) {
         'ADD COLUMN IF NOT EXISTS confirmation_evidence JSONB, ' +
         'ADD COLUMN IF NOT EXISTS reconciliation_last_checked_at TIMESTAMPTZ, ' +
         'ADD COLUMN IF NOT EXISTS reconciliation_attempts INTEGER NOT NULL DEFAULT 0, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT'
+        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT, ' +
+        'ADD COLUMN IF NOT EXISTS minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE'
+      )
+      // Preserve historical rows for audit while blocking them from the payout lifecycle.
+      // Backfill the marker before adding a NOT VALID check: new rows are checked immediately.
+      await db.query(
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET minimum_policy_blocked=TRUE ' +
+        'WHERE amount_base_units < ' + MINIMUM_WITHDRAWAL_BASE_UNITS + '::numeric AND minimum_policy_blocked=FALSE'
+      )
+      await db.query(
+        `DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='sponsor_direct_payouts_minimum_amount_check' AND conrelid='${SCHEMA}.sponsor_direct_payouts'::regclass) THEN ` +
+        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ADD CONSTRAINT sponsor_direct_payouts_minimum_amount_check ' +
+        'CHECK (amount_base_units >= ' + MINIMUM_WITHDRAWAL_BASE_UNITS + '::numeric OR minimum_policy_blocked=TRUE) NOT VALID; END IF; END $'
       )
       await db.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
@@ -639,7 +652,7 @@ export function isSponsorDirectAutoRouteEligible({
   const [amount, balance, reserved, perPayout, dailyLimit, dailyUsed] = values.map(BigInt)
   const available = balance > reserved ? balance - reserved : 0n
   return feeCoverage === true
-    && amount > 0n
+    && amount >= BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)
     && amount <= perPayout
     && amount <= available
     && dailyUsed + amount <= dailyLimit
@@ -659,6 +672,9 @@ async function autoAssignSponsorToRequest({
   const amountBaseUnits = String(request.amount_base_units || '')
   if (!/^[1-9][0-9]{0,77}$/.test(amountBaseUnits)) {
     return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+  if (BigInt(amountBaseUnits) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+    return { request, routing: 'below-minimum-policy-blocked' }
   }
   let candidates
   try {
@@ -1501,6 +1517,10 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
       let row = found.rows[0]
+      if (BigInt(String(row.amount_base_units || '0')) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+        await client.query('COMMIT')
+        return res.status(409).json({ success: false, error: 'minimum-withdrawal-1000-usdt', minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS, lifecycleBlocked: true })
+      }
       if (row.status === 'prepared' && row.sponsor_address === auth.address
         && row.expires_at && new Date(row.expires_at).getTime() > now()) {
         await client.query('COMMIT')
@@ -1745,6 +1765,10 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
       row = found.rows[0]
+      if (BigInt(String(row.amount_base_units || '0')) < BigInt(MINIMUM_WITHDRAWAL_BASE_UNITS)) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'minimum-withdrawal-1000-usdt', minimumWithdrawalBaseUnits: MINIMUM_WITHDRAWAL_BASE_UNITS, lifecycleBlocked: true })
+      }
       if (row.sponsor_address !== auth.address) {
         await client.query('ROLLBACK')
         return res.status(403).json({ success: false, error: 'assigned-sponsor-only' })
