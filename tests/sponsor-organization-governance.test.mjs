@@ -130,7 +130,9 @@ test('application-wide and mandate-specific emergency revocation override all ap
     effectiveAt: '2026-11-07T11:30:00.000Z',
   }
   const result = evaluateSponsorOrganizationRevocation({
-    application, mandate, revocationEvents: [event], nowMs,
+    application, mandate, revocationEvents: [event],
+    revocationActorRegistry: [{ walletAddress: reviewerA, role: 'security-officer', active: true }],
+    nowMs,
   })
   assert.equal(result.active, false)
   assert.ok(result.blockers.includes('organization-or-mandate-revoked'))
@@ -146,7 +148,24 @@ test('revocation rejects unverified, future-dated or unrelated events', () => {
     eventReference: 'incident-2026-002', effectiveAt: '2026-11-07T11:30:00.000Z',
   }
   const result = evaluateSponsorOrganizationRevocation({
-    application, mandate, revocationEvents: [event], nowMs,
+    application, mandate, revocationEvents: [event],
+    revocationActorRegistry: [{ walletAddress: reviewerA, role: 'security-officer', active: true }],
+    nowMs,
+  })
+  assert.equal(result.active, true)
+  assert.equal(result.revocationEventCount, 0)
+})
+
+test('revocation rejects a security actor absent from the trusted actor registry', () => {
+  const event = {
+    applicationId: appId, scopeType: 'mandate', scopeId: mandateId,
+    actorWalletAddress: reviewerA, actorRole: 'security-officer',
+    reasonCode: 'suspected-compromise', emergency: true,
+    actorSignatureVerified: true, eventReference: 'incident-2026-003',
+    effectiveAt: '2026-11-07T11:30:00.000Z',
+  }
+  const result = evaluateSponsorOrganizationRevocation({
+    application, mandate, revocationEvents: [event], revocationActorRegistry: [], nowMs,
   })
   assert.equal(result.active, true)
   assert.equal(result.revocationEventCount, 0)
