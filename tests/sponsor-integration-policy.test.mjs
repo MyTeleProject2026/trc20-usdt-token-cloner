@@ -167,3 +167,37 @@ test('rejects funding snapshots whose source environment or network differs from
   }))
   assert.ok(wrongNetwork.blockers.includes('fee-sponsor-network-mismatch'))
 })
+
+
+test('each sandbox or unverified provenance marker independently blocks funding eligibility', () => {
+  const cases = [
+    ['sandbox', { sandbox: true }],
+    ['simulation', { simulated: true }],
+    ['non-live provider mode', { sourceKind: 'provider-live-account', liveMode: false }],
+    ['unverified source', { sourceVerified: false }],
+    ['unverified chain snapshot', { chainVerified: false }],
+    ['missing provenance', { environment: undefined, sourceKind: undefined }],
+  ]
+  for (const [label, patch] of cases) {
+    const result = evaluateSponsorTransferEligibility(evidence({
+      principal: { ...evidence().principal, ...patch },
+    }))
+    assert.equal(result.eligible, false, label)
+    assert.ok(result.blockers.includes('asset-principal-funding-source-not-live-verified'), label)
+  }
+})
+
+test('organization authorization fails closed when provider policy evidence is absent', () => {
+  const result = evaluateSponsorTransferEligibility(evidence({
+    mode: 'sponsor-organization',
+    organization: {
+      identityVerified: true,
+      mandateVerified: true,
+      signerAuthorityVerified: true,
+      providerAccountVerified: true,
+      signingPolicyVerified: false,
+    },
+  }))
+  assert.equal(result.eligible, false)
+  assert.ok(result.blockers.includes('sponsor-organization-signing-policy-unverified'))
+})
