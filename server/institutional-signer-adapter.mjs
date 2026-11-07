@@ -20,7 +20,7 @@ function requiredReference(value) {
 
 export function parseInstitutionalUsdtBaseUnits(value) {
   if (typeof value !== 'string' || value.length > 86
-    || !/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(value)) return null
+    || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)) return null
   const [whole, fraction = ''] = value.split('.')
   if (whole.length > 78) return null
   try {
