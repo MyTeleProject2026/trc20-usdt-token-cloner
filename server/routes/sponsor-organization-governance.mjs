@@ -213,8 +213,11 @@ async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.no
   const scannerKeys = getSponsorScannerAttestationKeyRegistry(env)
   const minRetentionDays = Number(env.SPONSOR_ORG_VAULT_MIN_RETENTION_DAYS)
   const expectedIssuer = clean(env.SPONSOR_ORG_VAULT_RECEIPT_ISSUER, 128)
+  const expectedScannerName = clean(env.SPONSOR_ORG_SCANNER_NAME, 80)
+  const expectedScannerVersionPrefix = clean(env.SPONSOR_ORG_SCANNER_VERSION_PREFIX, 100)
   const trustConfigReady = vaultKeys.configured && scannerKeys.configured
-    && expectedIssuer.length > 0 && Number.isInteger(minRetentionDays) && minRetentionDays >= 1
+    && expectedIssuer.length > 0 && expectedScannerName.length > 0 && expectedScannerVersionPrefix.length > 0
+    && Number.isInteger(minRetentionDays) && minRetentionDays >= 1
   const artifacts = result.rows.map((row) => {
     const receipt = row.vault_receipt_json && typeof row.vault_receipt_json === 'object' ? row.vault_receipt_json : null
     const attestation = row.attestation_json && typeof row.attestation_json === 'object' ? row.attestation_json : null
@@ -244,6 +247,8 @@ async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.no
     const receiptScanSignature = receipt?.malwareScan?.attestation?.signature
     const persistedScanSignature = attestation?.signature
     const persistedScanMatches = scanVerification.valid === true
+      && scanVerification.scanner === expectedScannerName
+      && String(scanVerification.scannerVersion || '').startsWith(expectedScannerVersionPrefix)
       && row.attestation_key_id === scanVerification.keyId
       && row.attestation_scanner_version === scanVerification.scannerVersion
       && row.attestation_scanner_service === 'independent-signed-attestation'
