@@ -35,13 +35,14 @@ export function getDocumentCustodyConfig(env = process.env) {
     && !vaultUrl.search && !vaultUrl.hash && allowedHosts.includes(host)
     && !/^(localhost|127\.|0\.|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(host)
   const token = clean(env.SPONSOR_ORG_VAULT_API_TOKEN, 4096)
-  const scannerHost = clean(env.SPONSOR_ORG_CLAMAV_HOST, 255)
+  const scannerHost = clean(env.SPONSOR_ORG_CLAMAV_HOST, 255).toLowerCase()
+  const scannerAllowedHosts = clean(env.SPONSOR_ORG_CLAMAV_ALLOWED_HOSTS, 2048).split(',').map((v) => v.trim().toLowerCase()).filter(Boolean)
   const scannerPort = Number(env.SPONSOR_ORG_CLAMAV_PORT || 3310)
   const scannerVersion = clean(env.SPONSOR_ORG_CLAMAV_VERSION, 80)
   const scannerTimeoutMs = Number(env.SPONSOR_ORG_CLAMAV_TIMEOUT_MS || 15000)
   const receiptSecret = clean(env.SPONSOR_ORG_VAULT_RECEIPT_HMAC_SECRET, 4096)
   if (!validVault || token.length < 32 || receiptSecret.length < 32) return { ready: false, reason: 'private-vault-configuration-invalid' }
-  if (!scannerHost || !Number.isInteger(scannerPort) || scannerPort < 1 || scannerPort > 65535
+  if (!scannerHost || net.isIP(scannerHost) !== 0 || !scannerAllowedHosts.includes(scannerHost) || !Number.isInteger(scannerPort) || scannerPort < 1 || scannerPort > 65535
     || !scannerVersion || !Number.isInteger(scannerTimeoutMs) || scannerTimeoutMs < 1000 || scannerTimeoutMs > 60000) {
     return { ready: false, reason: 'independent-malware-scanner-not-configured' }
   }
