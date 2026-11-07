@@ -22,6 +22,12 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_evidence_artif
   malware_scan_status TEXT NOT NULL DEFAULT 'pending' CHECK (malware_scan_status IN ('pending','clean')),
   vault_version_id TEXT,
   malware_scanner_version TEXT,
+  vault_receipt_id TEXT,
+  vault_receipt_key_id TEXT,
+  vault_receipt_json JSONB,
+  retention_mode TEXT,
+  retention_until TIMESTAMPTZ,
+  encryption_mode TEXT,
   uploaded_by_wallet TEXT NOT NULL CHECK (uploaded_by_wallet ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'),
   retention_policy_reference TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -30,6 +36,18 @@ ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD COLUMN IF NOT EXISTS vault_version_id TEXT;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD COLUMN IF NOT EXISTS malware_scanner_version TEXT;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS vault_receipt_id TEXT;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS vault_receipt_key_id TEXT;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS vault_receipt_json JSONB;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS retention_mode TEXT;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS retention_until TIMESTAMPTZ;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS encryption_mode TEXT;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   DROP CONSTRAINT IF EXISTS sponsor_organization_evidence_artifacts_malware_scan_status_check;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
@@ -43,10 +61,16 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_malware_scan_a
   content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
   scanner_service TEXT NOT NULL CHECK (scanner_service='clamav-instream'),
   scanner_version TEXT NOT NULL,
+  attestation_key_id TEXT,
+  attestation_json JSONB,
   scan_status TEXT NOT NULL CHECK (scan_status='clean'),
   scanned_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE trc20_token_clone.sponsor_organization_malware_scan_attestations
+  ADD COLUMN IF NOT EXISTS attestation_key_id TEXT;
+ALTER TABLE trc20_token_clone.sponsor_organization_malware_scan_attestations
+  ADD COLUMN IF NOT EXISTS attestation_json JSONB;
 CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx
   ON trc20_token_clone.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC);
 
