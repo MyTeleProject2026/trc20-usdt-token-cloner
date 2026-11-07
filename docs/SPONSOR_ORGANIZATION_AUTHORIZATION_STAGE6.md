@@ -9,6 +9,7 @@ This stage adds a pure, fail-closed evidence contract and isolated tests. It is 
 The evaluator requires all of the following before it can return a non-production preflight pass:
 
 - Application and mandate are bound to the same application ID and sponsor wallet.
+- Every evidence result is bound to that exact application ID, sponsor wallet, agreement digest, provider account ID, and provider signing-policy reference; evidence copied from another case is rejected.
 - Application is in the due-diligence review state and the mandate is explicitly authorized.
 - Agreement digest and the sponsor's signature over the exact mandate intent are independently verified.
 - Legal-entity identity, beneficial ownership and wallet control are independently verified.
@@ -29,4 +30,4 @@ A reference string or owner-entered review status is not evidence by itself. The
 
 ## Verification
 
-The tests exercise missing/false evidence, cross-application and wallet substitution, invalid limits, expired/future mandates, standing-provider mode, and the invariant that preflight never authorizes execution. CI is the verification source; local execution is not claimed unless separately recorded.
+The tests exercise missing/false evidence, cross-application and wallet substitution, cross-case evidence replay, provider-account/policy substitution, invalid limits, expired/future mandates, standing-provider mode, and the invariant that preflight never authorizes execution. CI is the verification source; local execution is not claimed unless separately recorded.
