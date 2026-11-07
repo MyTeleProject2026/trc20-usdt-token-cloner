@@ -45,7 +45,10 @@ const verified = (patch = {}) => ({
   ...patch,
 })
 
-function readOnlyReader({ onRead = () => {}, fail = false, receipt = { payload: 'signed-receipt' } } = {}) {
+function readOnlyReader({ onRead = () => {}, fail = false, receipt = {
+  payload: 'signed-receipt',
+  signature: { algorithm: 'Ed25519', keyId: 'test-key', value: 'A'.repeat(86) },
+} } = {}) {
   return createPrivateTreasuryVaultReadOnlyObservationReader({
     gatewayBaseUrl: 'https://vault.example',
     allowedOrigins: ['https://vault.example'],
@@ -194,7 +197,7 @@ test('integrates one coherent PostgreSQL snapshot with the observation verifier 
     trustSnapshot: configuredTrust,
     vaultId: vault.vaultId,
     expectedIssuer: 'financial-vault.example',
-    readObservation: readOnlyReader({ onRead: () => { observationReads += 1 }, receipt: { payload: 'receipt' } }),
+    readObservation: readOnlyReader({ onRead: () => { observationReads += 1 } }),
     verifyObservation: async (_receipt, options) => {
       verificationOptions = options
       return verified()
