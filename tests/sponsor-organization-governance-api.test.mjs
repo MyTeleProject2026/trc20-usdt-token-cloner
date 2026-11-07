@@ -8,6 +8,7 @@ const index = await readFile(new URL('server/index.mjs', root), 'utf8')
 const migration = await readFile(new URL('server/migrations/20261107_sponsor_organization_governance_stage7.sql', root), 'utf8')
 const portal = await readFile(new URL('Frontend-Tron-Transfer/src/SponsorPortal.jsx', root), 'utf8')
 const panel = await readFile(new URL('Frontend-Tron-Transfer/src/SponsorOrganizationGovernance.jsx', root), 'utf8')
+const onboarding = await readFile(new URL('server/routes/sponsor-organization-onboarding.mjs', root), 'utf8')
 
 test('governance router is mounted before the legacy onboarding router', () => {
   const governanceMount = index.indexOf("app.use('/api/tron', createSponsorOrganizationGovernanceRouter())")
@@ -23,6 +24,15 @@ test('evidence metadata API is sponsor-bound and does not upload or fetch docume
   assert.match(api, /vaultObjectFetched: false/)
   assert.match(api, /pending-independent-review/)
   assert.doesNotMatch(api, /req\.files|multer\(|fetch\(.*objectKey/)
+})
+
+test('legacy mandate verify and authorize transitions cannot bypass the two-role quorum', () => {
+  assert.match(api, /router\.post\('\/organizations\/mandates\/:id\/review'/)
+  assert.match(api, /independent-reviewer-quorum-not-met/)
+  assert.match(api, /roles\.has\('compliance-reviewer'\)/)
+  assert.match(api, /roles\.has\('security-reviewer'\)/)
+  assert.match(onboarding, /payoutAuthorized: false,\s*mandateStatusAuthorized: authorized/)
+  assert.doesNotMatch(onboarding, /payoutAuthorized: authorized/)
 })
 
 test('review decisions require trusted server roles and signatures bound to the evidence digest', () => {
