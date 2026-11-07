@@ -33,6 +33,7 @@ function getDb(env) {
 async function ensureSchema(db) {
   if (!schemaPromise) {
     schemaPromise = (async () => {
+      await db.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_evidence_artifacts (
         id UUID PRIMARY KEY,
         application_id UUID NOT NULL REFERENCES ${SCHEMA}.sponsor_organization_applications(id),
@@ -374,17 +375,27 @@ export function createSponsorOrganizationGovernanceRouter({
       let signer
       try { signer = await verifyMessage(message, body.signature) } catch { signer = null }
       if (signer !== auth.address) return res.status(401).json({ success:false, error:'revocation-signature-address-mismatch' })
-      await db.query(`INSERT INTO ${SCHEMA}.sponsor_organization_revocation_events
-        (id,application_id,mandate_id,scope_type,scope_id,actor_wallet_address,actor_role,reason_code,emergency,actor_signature_hash,event_reference,effective_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [randomUUID(),row.application_id,scopeType === 'mandate' ? row.mandate_id : null,scopeType,scopeId,auth.address,actorRole,reasonCode,emergency,hash(body.signature),eventReference,effectiveAt.toISOString()])
-      if (scopeType === 'mandate') {
-        await db.query(`UPDATE ${SCHEMA}.sponsor_organization_mandates SET status='revoked',updated_at=now()
-          WHERE id=$1 AND status IN ('signed-awaiting-review','verified','authorized')`, [scopeId])
-      } else {
-        await db.query(`UPDATE ${SCHEMA}.sponsor_organization_mandates SET status='revoked',updated_at=now()
-          WHERE application_id=$1 AND status IN ('signed-awaiting-review','verified','authorized')`, [scopeId])
-        await db.query(`UPDATE ${SCHEMA}.sponsor_organization_applications SET status='closed',updated_at=now() WHERE id=$1`, [scopeId])
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(`INSERT INTO ${SCHEMA}.sponsor_organization_revocation_events
+          (id,application_id,mandate_id,scope_type,scope_id,actor_wallet_address,actor_role,reason_code,emergency,actor_signature_hash,event_reference,effective_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [randomUUID(),row.application_id,scopeType === 'mandate' ? row.mandate_id : null,scopeType,scopeId,auth.address,actorRole,reasonCode,emergency,hash(body.signature),eventReference,effectiveAt.toISOString()])
+        if (scopeType === 'mandate') {
+          await client.query(`UPDATE ${SCHEMA}.sponsor_organization_mandates SET status='revoked',updated_at=now()
+            WHERE id=$1 AND status IN ('signed-awaiting-review','verified','authorized')`, [scopeId])
+        } else {
+          await client.query(`UPDATE ${SCHEMA}.sponsor_organization_mandates SET status='revoked',updated_at=now()
+            WHERE application_id=$1 AND status IN ('signed-awaiting-review','verified','authorized')`, [scopeId])
+          await client.query(`UPDATE ${SCHEMA}.sponsor_organization_applications SET status='closed',updated_at=now() WHERE id=$1`, [scopeId])
+        }
+        await client.query('COMMIT')
+      } catch (error) {
+        await client.query('ROLLBACK')
+        throw error
+      } finally {
+        client.release()
       }
       return res.status(201).json({ success:true, revocationRecorded:true, scopeType, scopeId, payoutAuthorized:false,
         signerOperationPerformed:false, transactionBroadcast:false, note:'Signed revocation event recorded append-only; related mandate records were marked revoked.' })
