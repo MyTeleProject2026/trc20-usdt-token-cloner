@@ -16,7 +16,7 @@ test('Stage 7C document-vault receipts cannot be treated as treasury funding or 
   assert.match(fundingLedger, /onChainBalanceRead === true/)
   assert.match(fundingLedger, /verifySponsorDirectMainnetTransfer/)
   assert.match(audit, /evidence-file custody/)
-  assert.match(audit, /not a substitute for this contract/)
+  assert.match(audit, /A receipt does not establish TRON account ownership, a treasury address, official Mainnet USDT balance/)
 })
 
 test('owner treasury funding ledger remains Mainnet-chain-evidence based and does not credit vault object receipts', () => {
