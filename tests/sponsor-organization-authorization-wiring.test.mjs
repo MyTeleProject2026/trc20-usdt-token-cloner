@@ -16,12 +16,14 @@ test('organization evidence evaluator remains isolated from runtime payout and s
   assert.match(evaluator, /transactionBroadcast: false/)
 })
 
-test('organization onboarding remains unmounted until a separately reviewed integration is approved', async () => {
+test('organization onboarding and Stage 7B governance are mounted without payout authorization', async () => {
   const [entrypoint, onboarding] = await Promise.all([
     readFile(new URL('../server/index.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8'),
   ])
-  assert.doesNotMatch(entrypoint, /sponsor-organization-onboarding/)
+  assert.match(entrypoint, /createSponsorOrganizationGovernanceRouter/)
+  assert.match(entrypoint, /createSponsorOrganizationRouter/)
+  assert.ok(entrypoint.indexOf('createSponsorOrganizationGovernanceRouter())') < entrypoint.indexOf('createSponsorOrganizationRouter())'))
   assert.match(onboarding, /payoutAuthorized: false/)
   assert.match(onboarding, /independent legal and funding verification remain separate/i)
 })
