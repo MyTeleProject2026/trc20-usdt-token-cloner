@@ -3,6 +3,7 @@ const UINT_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/
 const BLOCK_ID_PATTERN = /^[0-9a-f]{64}$/i
 const MAX_AGE_MS = 60_000
 const MAX_FUTURE_SKEW_MS = 5_000
+const MIN_PLATFORM_USDT_BASE_UNITS = 1_000_000_000n
 
 function uint(value) {
   if (typeof value !== 'string' || !UINT_PATTERN.test(value)) return null
@@ -54,7 +55,7 @@ export function verifySponsorFundingAndTronResources({
   add(Boolean(organizationId), 'expected-organization-id-missing')
   add(Boolean(vaultId), 'expected-vault-id-missing')
   add(ADDRESS_PATTERN.test(sponsorAddress), 'expected-sponsor-address-invalid')
-  add(minimumUsdt !== null && minimumUsdt > 0n, 'minimum-usdt-threshold-invalid')
+  add(minimumUsdt !== null && minimumUsdt >= MIN_PLATFORM_USDT_BASE_UNITS, 'minimum-usdt-threshold-invalid')
   add(minimumTrx !== null && minimumTrx > 0n, 'minimum-trx-threshold-invalid')
   add(minimumBandwidth !== null, 'minimum-bandwidth-threshold-invalid')
   add(minimumEnergy !== null, 'minimum-energy-threshold-invalid')
