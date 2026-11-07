@@ -16,7 +16,7 @@ import {
   validateOwnerSignedTransaction,
 } from './tron-owner-withdrawals.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
-import { ensureSponsorDirectPayoutArchiveSchema } from '../sponsor-direct-payout-archive.mjs'
+import { ensureSponsorDirectPayoutArchiveSchema, readSponsorDirectPayoutArchiveDiagnostics } from '../sponsor-direct-payout-archive.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -1397,6 +1397,20 @@ export function createSponsorDirectPayoutsRouter({
     }
   })
 
+  router.get('/archive-migration-status', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      const diagnostics = await readSponsorDirectPayoutArchiveDiagnostics(db, { schemaName: SCHEMA })
+      return res.json({ success: true, migration: diagnostics, readOnly: true })
+    } catch {
+      return res.status(503).json({ success: false, error: 'archive-migration-diagnostics-unavailable' })
+    }
+  })
+
   router.get('/my-requests', async (req, res) => {
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
@@ -1420,6 +1434,37 @@ export function createSponsorDirectPayoutsRouter({
       })
     } catch {
       return res.status(503).json({ success: false, error: 'sponsor-withdrawal-history-unavailable' })
+    }
+  })
+
+  router.get('/requests/idempotency/:key', async (req, res) => {
+    setNoStore(res)
+    const auth = await requireWalletSession(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const key = clean(req.params?.key, 64)
+    if (!UUID_RE.test(key)) return res.status(400).json({ success: false, error: 'invalid-idempotency-key' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const found = await db.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE idempotency_key=$1 LIMIT 1',
+        [key],
+      )
+      if (!found.rows.length) return res.status(404).json({ success: false, error: 'payout-request-not-found' })
+      const row = found.rows[0]
+      if (row.requester_address !== auth.address && row.sponsor_address !== auth.address) {
+        return res.status(403).json({ success: false, error: 'payout-request-access-denied' })
+      }
+      return res.json({
+        success: true,
+        duplicate: true,
+        request: publicRequest(row),
+        payoutAuthorized: false,
+        transactionBroadcast: false,
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'sponsor-withdrawal-idempotency-lookup-unavailable' })
     }
   })
 
