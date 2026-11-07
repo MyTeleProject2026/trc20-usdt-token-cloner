@@ -108,8 +108,9 @@ function reviewerRegistry(env) {
   try {
     const parsed = JSON.parse(clean(env.SPONSOR_ORG_REVIEWER_REGISTRY, 12000) || '[]')
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && isValidTronAddress(item.walletAddress)
+    const entries = parsed.filter((item) => item && isValidTronAddress(item.walletAddress)
       && ROLES.has(item.role) && item.active === true)
+    return new Set(entries.map((item) => item.walletAddress)).size === entries.length ? entries : []
   } catch { return [] }
 }
 function activeReviewerDecisions(decisions, env) {
@@ -121,7 +122,8 @@ function revocationRegistry(env) {
   try {
     const parsed = JSON.parse(clean(env.SPONSOR_ORG_SECURITY_OFFICERS, 12000) || '[]')
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && isValidTronAddress(item.walletAddress) && item.active === true)
+    const entries = parsed.filter((item) => item && isValidTronAddress(item.walletAddress) && item.active === true)
+    return new Set(entries.map((item) => item.walletAddress)).size === entries.length ? entries : []
   } catch { return [] }
 }
 async function authenticate(req, env, getSession, now) {
