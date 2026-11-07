@@ -109,6 +109,12 @@ CREATE TRIGGER sponsor_org_evidence_immutable
   BEFORE UPDATE OR DELETE ON trc20_token_clone.sponsor_organization_evidence_artifacts
   FOR EACH ROW EXECUTE FUNCTION trc20_token_clone.reject_sponsor_org_audit_mutation();
 
+DROP TRIGGER IF EXISTS sponsor_org_malware_attestations_immutable
+  ON trc20_token_clone.sponsor_organization_malware_scan_attestations;
+CREATE TRIGGER sponsor_org_malware_attestations_immutable
+  BEFORE UPDATE OR DELETE ON trc20_token_clone.sponsor_organization_malware_scan_attestations
+  FOR EACH ROW EXECUTE FUNCTION trc20_token_clone.reject_sponsor_org_audit_mutation();
+
 DROP TRIGGER IF EXISTS sponsor_org_review_decisions_immutable
   ON trc20_token_clone.sponsor_organization_reviewer_decisions;
 CREATE TRIGGER sponsor_org_review_decisions_immutable
