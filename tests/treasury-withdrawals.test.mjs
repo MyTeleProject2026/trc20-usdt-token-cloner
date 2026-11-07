@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import express from 'express'
 import { createServer } from 'node:http'
 import { createTreasuryWithdrawalsRouter, terminalTreasuryWithdrawalVerification, isUnifiedTreasuryOwnerConfiguration, matchesTreasuryWithdrawalRequest, parsePositiveDecimal, requiredTreasuryFeeReserveSun, treasuryFeeCapCovered, treasuryFeeReserveCovered, treasuryUsdtConfiguration, trxConfiguration, unreservedTreasuryBalance, verifyTreasuryTransferEvidence } from '../server/routes/treasury-withdrawals.mjs'
@@ -563,4 +564,13 @@ test('failed USDT withdrawal is chain-verified only when its failure code came f
     status: 'provider-pending',
     failure_code: 'confirmed-solidified-failed-receipt',
   }).terminal, false)
+})
+
+
+test('treasury readiness never reports withdrawals enabled while build-time execution is disabled', async () => {
+  const source = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
+  assert.match(source, /const executionEnabled = preflightChecksPassed && !REAL_VALUE_PAYOUT_EXECUTION_DISABLED/)
+  assert.match(source, /withdrawalsEnabled: executionEnabled/)
+  assert.match(source, /error: 'real-value-payout-execution-disabled-in-this-build'/)
 })
