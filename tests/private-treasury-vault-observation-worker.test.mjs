@@ -229,7 +229,7 @@ test('PostgreSQL adapter fails closed for inactive or incorrectly bound vaults',
     trustSnapshot: { configured: true },
     vaultId: vault.vaultId,
     expectedIssuer: 'financial-vault.example',
-    readObservation: async () => ({ payload: 'receipt' }),
+    readObservation: readOnlyReader(),
     verifyObservation: async () => verified(),
     nowMs: now,
   })
@@ -255,29 +255,9 @@ test('rejects arbitrary observation callbacks that are not created by the read-o
   assert.equal(called, false)
 })
 
-test('rejects a reader result without the explicit read-only receipt envelope', async () => {
+test('read-only observation reader rejects an incomplete receipt envelope before worker verification', async () => {
   const reader = readOnlyReader({ receipt: { payload: 'receipt' } })
-  const malformed = Object.freeze(async () => ({ receipt: { payload: 'receipt' } }))
-  // The branded reader contract is intentionally not transferable to arbitrary callbacks.
-  const result = await reconcilePrivateTreasuryVaultObservationFromPostgres({
-    repository: { readSnapshot: async () => ({
-      success: true,
-      vault: {
-        vaultId: 'vault-private-001', network: 'mainnet', asset: 'USDT',
-        tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6,
-        treasuryAddress: vault.treasuryAddress, active: true,
-      },
-      replayState, ledgerState: { lastSequence: '7' },
-    }) },
-    trustSnapshot: { configured: true },
-    vaultId: vault.vaultId,
-    expectedIssuer: 'financial-vault.example',
-    readObservation: malformed,
-    verifyObservation: async () => verified(),
-    nowMs: now,
-  })
-  assert.equal(result.status, 'worker-configuration-invalid')
-  assert.equal(typeof reader, 'function')
+  await assert.rejects(reader(vault), /private-vault-observation-envelope-invalid/)
 })
 
 test('rejects verifier results that omit cryptographic-attestation or reservation limitations', async () => {

@@ -340,7 +340,10 @@ export async function fetchPrivateTreasuryVaultObservation({
   }
   let receipt
   try { receipt = JSON.parse(body) } catch { throw new Error('private-vault-observation-response-invalid') }
-  if (!exactKeys(receipt, ['payload', 'signature'])) throw new Error('private-vault-observation-envelope-invalid')
+  if (!exactKeys(receipt, ['payload', 'signature'])
+    || !Object.hasOwn(receipt, 'payload') || !Object.hasOwn(receipt, 'signature')) {
+    throw new Error('private-vault-observation-envelope-invalid')
+  }
   return Object.freeze({ receipt, fetchedAtMs: Date.now(), readOnly: true })
 }
 
