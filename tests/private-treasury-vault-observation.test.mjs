@@ -165,7 +165,7 @@ test('read-only gateway client uses one allowlisted HTTPS GET and rejects redire
     bearerToken: 'test-token-with-sufficient-length',
     fetchImpl: async (url, init) => {
       captured = { url, init }
-      return { ok: true, json: async () => signed() }
+      return { ok: true, headers: { get: () => null }, text: async () => JSON.stringify(signed()) }
     },
     timeoutMs: 1000,
   })
