@@ -31,7 +31,8 @@ test('Mainnet exchange-deposit page clearly routes unfunded test users away from
   assert.match(mainnetPage, /Mainnet transfer execution disabled in this build/)
   assert.match(mainnetPage, /const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'/)
   assert.match(mainnetPage, /checkMainnet\(tronWeb\)/)
-  assert.match(mainnetPage, /Review and sign real Mainnet transfer/)
+  assert.match(mainnetPage, /Mainnet transfer disabled/)
+  assert.match(mainnetPage, /Review only/)
 })
 
 test('sponsor diagnostics remain fail-closed and cannot imply free token principal', () => {
