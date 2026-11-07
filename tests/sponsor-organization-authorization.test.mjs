@@ -12,6 +12,8 @@ const mandate = {
   applicationId: application.id,
   sponsorWalletAddress: application.sponsorWalletAddress,
   agreementDigest: 'a'.repeat(64),
+  providerAccountId: 'org-vault-123',
+  providerSignerPolicyReference: 'policy-456',
   purpose: 'both',
   executionMode: 'per-transfer',
   perPayoutLimitBaseUnits: '1000000',
@@ -21,6 +23,11 @@ const mandate = {
   status: 'authorized',
 }
 const evidence = {
+  applicationId: application.id,
+  sponsorWalletAddress: application.sponsorWalletAddress,
+  agreementDigest: mandate.agreementDigest,
+  providerAccountId: mandate.providerAccountId,
+  providerSignerPolicyReference: mandate.providerSignerPolicyReference,
   agreementDigestVerified: true,
   mandateSignatureVerified: true,
   signatureIntentBindingVerified: true,
@@ -111,4 +118,22 @@ test('owner-entered review status alone cannot substitute for independent eviden
   assert.ok(result.blockers.includes('legal-entity-not-independently-verified'))
   assert.ok(result.blockers.includes('beneficial-ownership-not-independently-verified'))
   assert.ok(result.blockers.includes('mandate-signature-not-cryptographically-verified'))
+})
+
+
+test('rejects evidence copied from another application, wallet, agreement or provider policy', () => {
+  const cases = [
+    ['applicationId', '123e4567-e89b-42d3-a456-426614174001', 'evidence-application-binding-mismatch'],
+    ['sponsorWalletAddress', 'T1111111111111111111111111111111111', 'evidence-sponsor-wallet-binding-mismatch'],
+    ['agreementDigest', 'b'.repeat(64), 'evidence-agreement-digest-binding-mismatch'],
+    ['providerAccountId', 'another-vault', 'evidence-provider-account-binding-mismatch'],
+    ['providerSignerPolicyReference', 'another-policy', 'evidence-provider-signer-policy-binding-mismatch'],
+  ]
+  for (const [key, value, blocker] of cases) {
+    const result = evaluateSponsorOrganizationAuthorization({
+      application, mandate, evidence: { ...evidence, [key]: value }, nowMs,
+    })
+    assert.equal(result.eligibleForNonProductionReview, false, key)
+    assert.ok(result.blockers.includes(blocker), key)
+  }
 })
