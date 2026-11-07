@@ -9,10 +9,10 @@ import {
 
 const appId = '123e4567-e89b-42d3-a456-426614174000'
 const mandateId = '123e4567-e89b-42d3-a456-426614174001'
-const sponsor = 'T123456789ABCDEFGHJKLMNPQRSTUVWXYZab'
-const uploader = 'T1111111111111111111111111111111111'
-const reviewerA = 'T2222222222222222222222222222222222'
-const reviewerB = 'T3333333333333333333333333333333333'
+const sponsor = 'T' + '1'.repeat(33)
+const uploader = 'T' + '2'.repeat(33)
+const reviewerA = 'T' + '3'.repeat(33)
+const reviewerB = 'T' + '4'.repeat(33)
 const nowMs = Date.parse('2026-11-07T12:00:00.000Z')
 const contentDigest = 'a'.repeat(64)
 
