@@ -173,5 +173,5 @@ test('scanner service failures and invalid content fail closed',async()=>{
   let calls=0
   await assert.rejects(scanAndStoreEvidenceV2({...args,fetchImpl:async()=>{calls++;throw new Error('offline')}}),/independent-scanner-service-unavailable/)
   assert.equal(calls,1)
-  await assert.rejects(scanAndStoreEvidenceV2({...args,buffer:Buffer.from('not pdf'),fetchImpl:async()=>{calls++;}}),/evidence-content-type-mismatch/)
+  await assert.rejects(scanAndStoreEvidenceV2({...args,buffer:Buffer.from('not a pdf file'),fetchImpl:async()=>{calls++;}}),/evidence-content-type-mismatch/)
 })
