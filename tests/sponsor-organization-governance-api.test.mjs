@@ -140,10 +140,17 @@ test('sponsor portal exposes governance controls without transaction submission 
 
 test('Mainnet signing and broadcast paths remain hard-disabled in this feature build', async () => {
   const sponsorDirect = await readFile(new URL('server/routes/sponsor-direct-payouts.mjs', root), 'utf8')
+  const ownerDirect = await readFile(new URL('server/routes/tron-owner-withdrawals.mjs', root), 'utf8')
+  const nativeTron = await readFile(new URL('server/routes/native-tron.mjs', root), 'utf8')
   const treasury = await readFile(new URL('server/routes/treasury-withdrawals.mjs', root), 'utf8')
   assert.match(sponsorDirect, /const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true/)
   assert.match(sponsorDirect, /sponsor-direct-mainnet-broadcast-disabled-in-this-build/)
   assert.match(sponsorDirect, /wallet\/broadcasttransaction/)
+  assert.match(sponsorDirect, /payoutExecution: REAL_SPONSOR_DIRECT_BROADCAST_DISABLED \? 'disabled-in-this-build'/)
+  assert.match(ownerDirect, /const REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true/)
+  assert.match(ownerDirect, /owner-direct-mainnet-broadcast-disabled-in-this-build/)
+  assert.match(nativeTron, /SPONSOR_TESTNET_SIGNED_BROADCAST_ENABLED !== 'true'/)
+  assert.match(nativeTron, /!\['shasta', 'nile'\]\.includes\(transfer\.network\)/)
   assert.match(treasury, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
   assert.match(treasury, /error: 'real-value-payout-execution-disabled-in-this-build'/)
   assert.match(treasury, /withdrawalsEnabled: executionEnabled/)
