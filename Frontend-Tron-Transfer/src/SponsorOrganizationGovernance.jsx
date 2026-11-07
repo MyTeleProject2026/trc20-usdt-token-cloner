@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileCheck2, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react'
+import { FileCheck2, RefreshCw, ShieldCheck, AlertTriangle, UploadCloud } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const EVIDENCE_TYPES = ['legal-entity-registration','beneficial-ownership','authorized-representative','sponsor-wallet-control','provider-account-ownership','provider-signer-policy','signed-agreement','source-of-funds','funding-balance','other']
@@ -58,10 +58,7 @@ export default function SponsorOrganizationGovernance({ wallet }) {
   const [config, setConfig] = useState(null)
   const [records, setRecords] = useState(null)
   const [evidenceType, setEvidenceType] = useState('signed-agreement')
-  const [objectKey, setObjectKey] = useState('')
-  const [contentSha256, setContentSha256] = useState('')
-  const [mediaType, setMediaType] = useState('application/pdf')
-  const [byteSize, setByteSize] = useState('')
+  const [evidenceFile, setEvidenceFile] = useState(null)
   const [retentionPolicyReference, setRetentionPolicyReference] = useState('retention-policy-v1')
   const [reviewReference, setReviewReference] = useState('')
   const [revocationReference, setRevocationReference] = useState('')
@@ -110,15 +107,18 @@ export default function SponsorOrganizationGovernance({ wallet }) {
 
   async function submitEvidence() {
     await run(async () => {
-      if (!token) throw new Error('Connect and authenticate the sponsor or reviewer wallet first.')
-      const result = await api('/api/tron/organizations/mandates/' + encodeURIComponent(mandateId.trim()) + '/evidence', token, {
-        method:'POST', body:JSON.stringify({
-          evidenceType, storageProvider:'approved-private-document-vault', objectKey:objectKey.trim(),
-          contentSha256:contentSha256.trim().toLowerCase(), mediaType, byteSize:Number(byteSize),
-          encryptedAtRest:true, retentionPolicyReference:retentionPolicyReference.trim(),
-        }),
+      if (!token || !evidenceFile) throw new Error('Connect the sponsor wallet and choose an evidence file first.')
+      if (evidenceFile.size < 8 || evidenceFile.size > 20 * 1024 * 1024) throw new Error('Choose a PDF, JPEG or PNG file no larger than 20 MB.')
+      if (!['application/pdf','image/jpeg','image/png'].includes(evidenceFile.type)) throw new Error('Only PDF, JPEG and PNG evidence files are accepted.')
+      const response = await fetch(API_BASE + '/api/tron/organizations/mandates/' + encodeURIComponent(mandateId.trim()) + '/evidence/upload', {
+        method:'POST', body:evidenceFile, credentials:'omit', cache:'no-store', redirect:'error',
+        headers:{Accept:'application/json', 'Content-Type':evidenceFile.type, Authorization:'Bearer '+token,
+          'X-Evidence-Type':evidenceType, 'X-Retention-Policy-Reference':retentionPolicyReference.trim()},
       })
-      setNotice('Evidence metadata recorded as pending independent review. No document was uploaded to this platform.')
+      const result = await response.json().catch(()=>null)
+      if (!response.ok || !result || result.success === false) throw new Error(result?.error || 'Private evidence custody upload failed.')
+      setEvidenceFile(null)
+      setNotice('Document passed the configured ClamAV scan and the private-vault receipt was verified. Independent human review is still required.')
       await refresh()
     })
   }
@@ -165,7 +165,7 @@ export default function SponsorOrganizationGovernance({ wallet }) {
     <section className="panel provider-panel sponsor-governance-panel">
       <div className="section-heading">
         <div><span className="eyebrow">STAGE 7 · ORGANIZATIONAL GOVERNANCE</span><h2>Evidence, independent review and revocation</h2>
-          <p>Metadata-only evidence references, trusted wallet signatures and append-only governance records. This panel cannot initiate a payout.</p></div>
+          <p>Encrypted private-vault upload, independent malware scanning, trusted wallet signatures and append-only governance records. This panel cannot initiate a payout.</p></div>
         <div className="panel-icon"><ShieldCheck /></div>
       </div>
       {error && <div className="notice notice-error" role="alert">{error}</div>}
@@ -178,23 +178,23 @@ export default function SponsorOrganizationGovernance({ wallet }) {
       {records && <div className="settings-group">
         <strong>Evidence-set SHA-256</strong><code>{records.evidenceSetDigest || 'No evidence metadata submitted'}</code>
         <p className="fine-print">Independent quorum: {records.independentReview?.quorumMet ? 'met' : 'not met'} · {records.independentReview?.reviewerCount || 0}/2 distinct reviewers</p>
+        <p className="fine-print">Custody scan: {config?.documentCustodyAvailable ? 'configured' : 'not configured'} · reviewer registry: {config?.reviewerRegistryConfigured ? config.reviewerRegistryVersion : 'not configured'} · security registry: {config?.securityOfficerRegistryConfigured ? config.securityOfficerRegistryVersion : 'not configured'}</p>
         <p className="fine-print">Payout authorized: no · Signer operation: none · Transaction broadcast: none</p>
         {(records.evidence || []).map((item)=><article className="transaction-row" key={item.id}>
-          <div className="transaction-main"><strong>{item.evidenceType}</strong><span>{item.id}</span><small>{item.mediaType} · {item.byteSize} bytes · SHA-256 {item.contentSha256}</small><small>Vault reference: {item.objectKey}</small><small>Metadata only · pending independent inspection</small></div>
+          <div className="transaction-main"><strong>{item.evidenceType}</strong><span>{item.id}</span><small>{item.mediaType} · {item.byteSize} bytes · SHA-256 {item.contentSha256}</small><small>Vault reference: {item.objectKey}</small><small>Malware scan: {item.malwareScanStatus || 'pending'} · scanner: {item.malwareScannerVersion || 'not scanned'} · vault version: {item.vaultVersionId || 'metadata reference only'}</small></div>
         </article>)}
         {(records.reviewerDecisions || []).map((item,i)=><p className="fine-print" key={i}>{item.reviewerRole}: {item.decision} · {item.reviewerWalletAddress} · {item.decidedAt}</p>)}
         {(records.revocations || []).map((item,i)=><p className="fine-print" key={i}>Revoked: {item.reasonCode} · {item.eventReference} · {item.effectiveAt}</p>)}
       </div>}
       <div className="settings-group">
-        <h3><FileCheck2 size={17}/> Submit private-vault evidence metadata</h3>
-        <p className="fine-print">Upload the original document only to your approved encrypted private vault. This form records its vault object key and digest; it does not upload, fetch, encrypt or malware-scan the file.</p>
+        <h3><UploadCloud size={17}/> Upload evidence to private custody</h3>
+        <p className="fine-print">The backend scans the file with ClamAV before forwarding it to the allowlisted encrypted vault gateway. Upload is disabled until both services are configured. Files are limited to PDF, JPEG or PNG and 20 MB.</p>
         <label>Evidence type<select value={evidenceType} onChange={(e)=>setEvidenceType(e.target.value)}>{EVIDENCE_TYPES.map((value)=><option key={value} value={value}>{value}</option>)}</select></label>
-        <label>Private vault object key<input value={objectKey} onChange={(e)=>setObjectKey(e.target.value)} placeholder="vault-managed/object-key" /></label>
-        <label>Content SHA-256<input value={contentSha256} onChange={(e)=>setContentSha256(e.target.value)} placeholder="64 hexadecimal characters" /></label>
-        <label>Media type<select value={mediaType} onChange={(e)=>setMediaType(e.target.value)}><option value="application/pdf">PDF</option><option value="image/jpeg">JPEG</option><option value="image/png">PNG</option></select></label>
-        <label>File size in bytes<input type="number" min="1" max="20971520" value={byteSize} onChange={(e)=>setByteSize(e.target.value)} /></label>
+        <label>Evidence document<input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e)=>setEvidenceFile(e.target.files?.[0] || null)} /></label>
+        <p className="fine-print">{evidenceFile ? evidenceFile.name+' · '+evidenceFile.size+' bytes · '+evidenceFile.type : 'No file selected.'}</p>
         <label>Retention policy reference<input value={retentionPolicyReference} onChange={(e)=>setRetentionPolicyReference(e.target.value)} /></label>
-        <button className="secondary-button" disabled={busy || !token || !mandateId.trim()} onClick={()=>void submitEvidence()}>Record evidence metadata</button>
+        <button className="secondary-button" disabled={busy || !token || !mandateId.trim() || !evidenceFile || !config?.documentCustodyAvailable} onClick={()=>void submitEvidence()}><UploadCloud size={15}/> Scan and store evidence</button>
+        {!config?.documentCustodyAvailable && <p className="fine-print">Private vault or independent scanner configuration is unavailable. No upload will be attempted.</p>}
       </div>
       <div className="settings-group">
         <h3><ShieldCheck size={17}/> Independent reviewer approval</h3>
