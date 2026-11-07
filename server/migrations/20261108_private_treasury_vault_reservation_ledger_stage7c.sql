@@ -43,19 +43,41 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_observation_claims
 );
 
 CREATE OR REPLACE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_monotonic()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
+  IF NEW.vault_id IS DISTINCT FROM OLD.vault_id THEN
+    RAISE EXCEPTION 'private Treasury Vault observation-state identity is immutable' USING ERRCODE = '23514';
+  END IF;
+
   IF NEW.last_sequence < OLD.last_sequence THEN
     RAISE EXCEPTION 'private Treasury Vault sequence cannot move backwards' USING ERRCODE = '23514';
   END IF;
-  IF NEW.last_sequence = OLD.last_sequence
-     AND (NEW.last_observation_id IS DISTINCT FROM OLD.last_observation_id
-       OR NEW.last_receipt_id IS DISTINCT FROM OLD.last_receipt_id) THEN
-    RAISE EXCEPTION 'observation identity cannot change without advancing sequence' USING ERRCODE = '23514';
+
+  IF NEW.last_sequence = OLD.last_sequence THEN
+    IF NEW.last_observation_id IS DISTINCT FROM OLD.last_observation_id
+       OR NEW.last_receipt_id IS DISTINCT FROM OLD.last_receipt_id THEN
+      RAISE EXCEPTION 'observation identity cannot change without advancing sequence' USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    IF NEW.last_observation_id IS NULL OR NEW.last_receipt_id IS NULL THEN
+      RAISE EXCEPTION 'advancing observation sequence requires receipt and observation identities' USING ERRCODE = '23514';
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM trc20_token_clone.private_treasury_observation_claims c
+      WHERE c.vault_id = NEW.vault_id
+        AND c.reservation_sequence = NEW.last_sequence
+        AND c.observation_id = NEW.last_observation_id
+        AND c.receipt_id = NEW.last_receipt_id
+    ) THEN
+      RAISE EXCEPTION 'advancing observation sequence requires a matching immutable claim' USING ERRCODE = '23514';
+    END IF;
   END IF;
+
   RETURN NEW;
 END;
-$;
+$function$;
 DROP TRIGGER IF EXISTS private_treasury_sequence_monotonic
   ON trc20_token_clone.private_treasury_observation_state;
 CREATE TRIGGER private_treasury_sequence_monotonic

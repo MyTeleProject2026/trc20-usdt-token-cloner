@@ -143,12 +143,35 @@ test('isolated PostgreSQL Treasury Vault schema enforces atomic claims, replay p
       (error) => error.code === '23514',
       'observation identity must not change at the same sequence',
     )
+    await assert.rejects(
+      pool.query(
+        'UPDATE ' + schema + '.private_treasury_observation_state ' +
+        'SET last_sequence=4, last_observation_id=$2, last_receipt_id=$3 WHERE vault_id=$1',
+        [vaultId, 'unclaimed-observation', 'unclaimed-receipt'],
+      ),
+      (error) => error.code === '23514',
+      'sequence must not advance without a matching immutable claim',
+    )
+    await assert.rejects(
+      pool.query(
+        'UPDATE ' + schema + '.private_treasury_observation_state SET vault_id=$2 WHERE vault_id=$1',
+        [vaultId, randomUUID()],
+      ),
+      (error) => error.code === '23514',
+      'observation-state vault identity must be immutable',
+    )
 
     const crossLink = { receiptId: 'receipt-cross-link', observationId: 'observation-cross-link', sequence: '4' }
     await pool.query(
       'INSERT INTO ' + schema + '.private_treasury_observation_claims (vault_id, receipt_id, observation_id, reservation_sequence, payload_digest) VALUES ($1,$2,$3,$4,$5)',
       [vaultId, crossLink.receiptId, crossLink.observationId, crossLink.sequence, 'c'.repeat(64)],
     )
+    const validAdvance = await pool.query(
+      'UPDATE ' + schema + '.private_treasury_observation_state ' +
+      'SET last_sequence=4, last_observation_id=$2, last_receipt_id=$3 WHERE vault_id=$1',
+      [vaultId, crossLink.observationId, crossLink.receiptId],
+    )
+    assert.equal(validAdvance.rowCount, 1, 'a cursor advance matching its immutable claim must be accepted')
     await assert.rejects(
       pool.query(
         'INSERT INTO ' + schema + '.private_treasury_reservations (reservation_id, vault_id, request_id, receipt_id, observation_id, reservation_sequence, amount_base_units) VALUES ($1,$2,$3,$4,$5,$6,$7)',
