@@ -6,6 +6,7 @@ import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslCon
 import { isValidTronAddress } from '../tron-address.mjs'
 import { computeSponsorOrganizationEvidenceSetDigest } from '../sponsor-organization-governance.mjs'
 import { getDocumentCustodyConfig, scanAndStoreEvidence } from '../sponsor-document-custody.mjs'
+import { getSponsorReviewerRegistry, getSponsorSecurityOfficerRegistry } from '../sponsor-governance-registry.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -115,28 +116,8 @@ async function ensureSchema(db) {
   }
   await schemaPromise
 }
-function reviewerRegistry(env) {
-  try {
-    const parsed = JSON.parse(clean(env.SPONSOR_ORG_REVIEWER_REGISTRY, 12000) || '[]')
-    if (!Array.isArray(parsed)) return []
-    const entries = parsed.filter((item) => item && isValidTronAddress(item.walletAddress)
-      && ROLES.has(item.role) && item.active === true)
-    return new Set(entries.map((item) => item.walletAddress)).size === entries.length ? entries : []
-  } catch { return [] }
-}
-function activeReviewerDecisions(decisions, env) {
-  const active = new Map(reviewerRegistry(env).map((reviewer) => [reviewer.walletAddress, reviewer.role]))
-  return (Array.isArray(decisions) ? decisions : []).filter((decision) =>
-    active.get(decision.reviewer_wallet_address) === decision.reviewer_role)
-}
-function revocationRegistry(env) {
-  try {
-    const parsed = JSON.parse(clean(env.SPONSOR_ORG_SECURITY_OFFICERS, 12000) || '[]')
-    if (!Array.isArray(parsed)) return []
-    const entries = parsed.filter((item) => item && isValidTronAddress(item.walletAddress) && item.active === true)
-    return new Set(entries.map((item) => item.walletAddress)).size === entries.length ? entries : []
-  } catch { return [] }
-}
+function reviewerRegistry(env) { return getSponsorReviewerRegistry(env).entries }
+function revocationRegistry(env) { return getSponsorSecurityOfficerRegistry(env).entries }
 async function authenticate(req, env, getSession, now) {
   const origin = clean(req.headers?.origin, 512)
   let validOrigin = false
@@ -215,9 +196,15 @@ export function createSponsorOrganizationGovernanceRouter({
     noStore(res)
     const auth = await authenticate(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success:false, error:auth.error })
-    const reviewer = reviewerRegistry(env).find((item) => item.walletAddress === auth.address)
-    const securityOfficer = revocationRegistry(env).some((item) => item.walletAddress === auth.address)
-    return res.json({ success:true, reviewerRole:reviewer?.role || null, securityOfficer, payoutAuthorized:false })
+    const reviewerState = getSponsorReviewerRegistry(env)
+    const securityState = getSponsorSecurityOfficerRegistry(env)
+    const reviewer = reviewerState.entries.find((item) => item.walletAddress === auth.address)
+    const securityOfficer = securityState.entries.some((item) => item.walletAddress === auth.address)
+    const custody = getDocumentCustodyConfig(env)
+    return res.json({ success:true, reviewerRole:reviewer?.role || null, securityOfficer,
+      reviewerRegistryConfigured:reviewerState.configured, reviewerRegistryVersion:reviewerState.version,
+      securityOfficerRegistryConfigured:securityState.configured, securityOfficerRegistryVersion:securityState.version,
+      documentCustodyAvailable:custody.ready, payoutAuthorized:false })
   })
 
   router.post('/organizations/mandates/:id/evidence', async (req, res) => {
