@@ -29,9 +29,10 @@ export function createPrivateTreasuryVaultReadOnlyRepository(db, { schema = DEFA
       return { success: false, reason: 'financial-vault-trust-snapshot-unavailable' }
     }
 
-    const client = await db.connect()
+    let client = null
     let transactionOpen = false
     try {
+      client = await db.connect()
       await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
       transactionOpen = true
       const vaultResult = await client.query(
@@ -85,7 +86,7 @@ export function createPrivateTreasuryVaultReadOnlyRepository(db, { schema = DEFA
       if (transactionOpen) { try { await client.query('ROLLBACK') } catch {} }
       return { success: false, reason: 'database-read-failed', databaseCode: error?.code || null }
     } finally {
-      client.release()
+      try { client?.release?.() } catch {}
     }
   }
   return Object.freeze({ readSnapshot })

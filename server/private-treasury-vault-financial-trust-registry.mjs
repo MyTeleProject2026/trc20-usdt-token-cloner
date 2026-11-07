@@ -10,8 +10,29 @@ function sha256(value) {
   return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
+function readOnlyMap(entries = []) {
+  const target = new Map(entries)
+  let view
+  view = new Proxy(target, {
+    get(map, property) {
+      if (property === 'set' || property === 'delete' || property === 'clear') {
+        return () => { throw new TypeError('financial-vault-trust-map-is-read-only') }
+      }
+      if (property === 'forEach') {
+        return (callback, thisArg) => map.forEach((value, key) => callback.call(thisArg, value, key, view))
+      }
+      const value = Reflect.get(map, property, map)
+      return typeof value === 'function' ? value.bind(map) : value
+    },
+  })
+  return Object.freeze(view)
+}
+
 function unavailable(reason, version = null) {
-  return Object.freeze({ configured: false, reason, version, checkedAtMs: Date.now(), trustedKeys: new Map(), revokedKeyIds: Object.freeze([]) })
+  return Object.freeze({
+    configured: false, reason, version, checkedAtMs: Date.now(),
+    trustedKeys: readOnlyMap(), revokedKeyIds: Object.freeze([]),
+  })
 }
 
 function canonicalKeys(raw) {
@@ -73,7 +94,7 @@ export function getPrivateTreasuryVaultFinancialTrustRegistry(env = process.env,
     const revocationsDigest = sha256(JSON.stringify(revocations))
     if (keysDigest !== expectedKeysDigest) return unavailable('financial-vault-trust-digest-mismatch', version)
     if (revocationsDigest !== expectedRevocationsDigest) return unavailable('financial-vault-revocations-digest-mismatch', version)
-    const trustedKeys = new Map(keys.map(({ keyId, ...record }) => [keyId, Object.freeze(record)]))
+    const trustedKeys = readOnlyMap(keys.map(({ keyId, ...record }) => [keyId, Object.freeze({ ...record, audiences: Object.freeze([...record.audiences]) })]))
     return Object.freeze({
       configured: true, reason: null, version, keysDigest, revocationsDigest,
       checkedAtMs: nowMs, trustedKeys, revokedKeyIds: Object.freeze(revocations),

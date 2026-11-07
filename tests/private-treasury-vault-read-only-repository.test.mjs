@@ -59,3 +59,15 @@ test('rejects unsafe schema identifiers before issuing SQL', () => {
   assert.throws(() => createPrivateTreasuryVaultReadOnlyRepository(pool, { schema: 'x; DROP SCHEMA public' }), /Invalid/)
   assert.equal(pool.calls.length, 0)
 })
+
+test('returns a fail-closed result when PostgreSQL connection acquisition fails', async () => {
+  const pool = {
+    async connect() {
+      throw Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' })
+    },
+  }
+  const result = await createPrivateTreasuryVaultReadOnlyRepository(pool).readSnapshot(vaultId, trust)
+  assert.equal(result.success, false)
+  assert.equal(result.reason, 'database-read-failed')
+  assert.equal(result.databaseCode, 'ECONNREFUSED')
+})

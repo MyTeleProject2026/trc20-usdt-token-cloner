@@ -1,3 +1,5 @@
+import { isPrivateTreasuryVaultReadOnlyObservationReader } from './private-treasury-vault-observation.mjs'
+
 /**
  * Provider-independent, read-only Treasury Vault observation reconciler.
  *
@@ -50,7 +52,7 @@ export async function reconcilePrivateTreasuryVaultObservation({
 } = {}) {
   if (!vault || typeof vault.vaultId !== 'string' || !vault.vaultId.trim()
     || typeof vault.treasuryAddress !== 'string' || !vault.treasuryAddress.trim()
-    || typeof readObservation !== 'function'
+    || !isPrivateTreasuryVaultReadOnlyObservationReader(readObservation)
     || typeof readReplayState !== 'function'
     || typeof readLedgerState !== 'function'
     || typeof verifyObservation !== 'function'
@@ -58,11 +60,11 @@ export async function reconcilePrivateTreasuryVaultObservation({
     return result('worker-configuration-invalid')
   }
 
-  let receipt
+  let observationEnvelope
   let replayState
   let ledgerState
   try {
-    [receipt, replayState, ledgerState] = await Promise.all([
+    [observationEnvelope, replayState, ledgerState] = await Promise.all([
       readObservation(vault),
       readReplayState(vault.vaultId),
       readLedgerState(vault.vaultId),
@@ -70,6 +72,11 @@ export async function reconcilePrivateTreasuryVaultObservation({
   } catch {
     return result('read-dependency-unavailable')
   }
+
+  if (!observationEnvelope || observationEnvelope.readOnly !== true || !observationEnvelope.receipt) {
+    return result('read-only-observation-reader-contract-invalid')
+  }
+  const receipt = observationEnvelope.receipt
 
   if (!receipt || !replayState || !ledgerState
     || !Array.isArray(replayState.seenReceiptIds)
@@ -97,8 +104,15 @@ export async function reconcilePrivateTreasuryVaultObservation({
 
   if (!verified || verified.valid !== true
     || verified.payoutAuthorized === true
+    || verified.limitations?.sourceObservationCryptographicallyAttested !== true
+    || verified.limitations?.chainBlockIndependentlyQueriedByThisVerifier !== false
+    || verified.limitations?.vaultOwnershipVerified !== false
+    || verified.limitations?.signerAuthorityVerified !== false
+    || verified.limitations?.creditFacilityVerified !== false
     || verified.limitations?.payoutAuthorized !== false
     || verified.limitations?.ledgerMutationPerformed !== false
+    || verified.limitations?.reservationCreated !== false
+    || verified.limitations?.providerContactedByVerifier !== false
     || verified.limitations?.signingRequestCreated !== false
     || verified.limitations?.signatureProduced !== false
     || verified.limitations?.transactionSigned !== false
@@ -232,7 +246,7 @@ export async function reconcilePrivateTreasuryVaultObservationFromPostgres({
   if (!repository || typeof repository.readSnapshot !== 'function'
     || typeof vaultId !== 'string' || !vaultId.trim()
     || typeof expectedIssuer !== 'string' || !expectedIssuer.trim()
-    || typeof readObservation !== 'function'
+    || !isPrivateTreasuryVaultReadOnlyObservationReader(readObservation)
     || typeof verifyObservation !== 'function'
     || !Number.isSafeInteger(nowMs) || nowMs <= 0) {
     return result('worker-configuration-invalid')

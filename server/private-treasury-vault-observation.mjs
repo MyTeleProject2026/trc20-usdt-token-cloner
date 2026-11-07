@@ -12,6 +12,7 @@ const MAX_OBSERVATION_AGE_MS = 60_000
 const MAX_RECEIPT_LIFETIME_MS = 60_000
 const MAX_CLOCK_SKEW_MS = 5_000
 const MIN_PLATFORM_USDT_BASE_UNITS = 1_000_000_000n
+const READ_ONLY_OBSERVATION_READERS = new WeakSet()
 
 function fail(reason) {
   return Object.freeze({
@@ -341,6 +342,41 @@ export async function fetchPrivateTreasuryVaultObservation({
   try { receipt = JSON.parse(body) } catch { throw new Error('private-vault-observation-response-invalid') }
   if (!exactKeys(receipt, ['payload', 'signature'])) throw new Error('private-vault-observation-envelope-invalid')
   return Object.freeze({ receipt, fetchedAtMs: Date.now(), readOnly: true })
+}
+
+
+/**
+ * Create a worker-compatible observation reader backed only by the bounded,
+ * allowlisted HTTPS GET client above. The WeakSet brand prevents arbitrary
+ * callbacks from being passed as read-only readers by accident.
+ */
+export function createPrivateTreasuryVaultReadOnlyObservationReader({
+  gatewayBaseUrl,
+  allowedOrigins,
+  bearerToken,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 10_000,
+} = {}) {
+  if (!Array.isArray(allowedOrigins)) throw new TypeError('private-vault-read-only-reader-allowlist-required')
+  const config = Object.freeze({
+    gatewayBaseUrl,
+    allowedOrigins: Object.freeze([...allowedOrigins]),
+    bearerToken,
+    fetchImpl,
+    timeoutMs,
+  })
+  const reader = async (vault) => {
+    if (!vault || typeof vault.vaultId !== 'string') {
+      throw new TypeError('private-vault-read-only-reader-vault-required')
+    }
+    return fetchPrivateTreasuryVaultObservation({ ...config, vaultId: vault.vaultId })
+  }
+  READ_ONLY_OBSERVATION_READERS.add(reader)
+  return Object.freeze(reader)
+}
+
+export function isPrivateTreasuryVaultReadOnlyObservationReader(reader) {
+  return typeof reader === 'function' && READ_ONLY_OBSERVATION_READERS.has(reader)
 }
 
 export const PRIVATE_TREASURY_VAULT_OBSERVATION_SCHEMA = SCHEMA

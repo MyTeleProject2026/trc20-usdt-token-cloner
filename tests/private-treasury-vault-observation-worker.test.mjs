@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createPrivateTreasuryVaultReadOnlyObservationReader } from '../server/private-treasury-vault-observation.mjs'
 import {
   PRIVATE_TREASURY_VAULT_WORKER_MINIMUM_USDT_BASE_UNITS,
   reconcilePrivateTreasuryVaultObservation,
@@ -26,8 +27,15 @@ const verified = (patch = {}) => ({
   assets: { usdt: { availableBaseUnits: '2000000000' } },
   expiresAtMs: now + 30_000,
   limitations: {
+    sourceObservationCryptographicallyAttested: true,
+    chainBlockIndependentlyQueriedByThisVerifier: false,
+    vaultOwnershipVerified: false,
+    signerAuthorityVerified: false,
+    creditFacilityVerified: false,
     payoutAuthorized: false,
     ledgerMutationPerformed: false,
+    reservationCreated: false,
+    providerContactedByVerifier: false,
     signingRequestCreated: false,
     signatureProduced: false,
     transactionSigned: false,
@@ -36,12 +44,28 @@ const verified = (patch = {}) => ({
   },
   ...patch,
 })
+
+function readOnlyReader({ onRead = () => {}, fail = false, receipt = { payload: 'signed-receipt' } } = {}) {
+  return createPrivateTreasuryVaultReadOnlyObservationReader({
+    gatewayBaseUrl: 'https://vault.example',
+    allowedOrigins: ['https://vault.example'],
+    bearerToken: 'test-token-value-long-enough',
+    fetchImpl: async (_url, options) => {
+      assert.equal(options.method, 'GET')
+      assert.equal(options.redirect, 'error')
+      onRead()
+      if (fail) throw new Error('offline')
+      return { ok: true, headers: { get: () => null }, text: async () => JSON.stringify(receipt) }
+    },
+  })
+}
+
 async function run({ verification = verified(), ledger = { lastSequence: '7' }, replay = replayState } = {}) {
   const calls = []
   const result = await reconcilePrivateTreasuryVaultObservation({
     vault,
     nowMs: now,
-    readObservation: async () => { calls.push('read-observation'); return { payload: 'signed-receipt' } },
+    readObservation: readOnlyReader({ onRead: () => calls.push('read-observation') }),
     readReplayState: async () => { calls.push('read-replay-state'); return replay },
     readLedgerState: async () => { calls.push('read-ledger-state'); return ledger },
     verifyObservation: async (_receipt, options) => {
@@ -101,7 +125,7 @@ test('fails closed on incomplete trust/replay state and unavailable read depende
   assert.equal(incomplete.result.status, 'trust-or-ledger-snapshot-incomplete')
   const unavailable = await reconcilePrivateTreasuryVaultObservation({
     vault,
-    readObservation: async () => { throw new Error('offline') },
+    readObservation: readOnlyReader({ fail: true }),
     readReplayState: async () => replayState,
     readLedgerState: async () => ({ lastSequence: '0' }),
     verifyObservation: async () => verified(),
@@ -170,7 +194,7 @@ test('integrates one coherent PostgreSQL snapshot with the observation verifier 
     trustSnapshot: configuredTrust,
     vaultId: vault.vaultId,
     expectedIssuer: 'financial-vault.example',
-    readObservation: async () => { observationReads += 1; return { payload: 'receipt' } },
+    readObservation: readOnlyReader({ onRead: () => { observationReads += 1 }, receipt: { payload: 'receipt' } }),
     verifyObservation: async (_receipt, options) => {
       verificationOptions = options
       return verified()
@@ -215,4 +239,54 @@ test('PostgreSQL adapter fails closed for inactive or incorrectly bound vaults',
 test('PostgreSQL adapter requires a configured expected issuer and repository', async () => {
   const result = await reconcilePrivateTreasuryVaultObservationFromPostgres({})
   assert.equal(result.status, 'worker-configuration-invalid')
+})
+
+test('rejects arbitrary observation callbacks that are not created by the read-only GET reader', async () => {
+  let called = false
+  const result = await reconcilePrivateTreasuryVaultObservation({
+    vault,
+    readObservation: async () => { called = true; return { readOnly: true, receipt: {} } },
+    readReplayState: async () => replayState,
+    readLedgerState: async () => ({ lastSequence: '0' }),
+    verifyObservation: async () => verified(),
+    nowMs: now,
+  })
+  assert.equal(result.status, 'worker-configuration-invalid')
+  assert.equal(called, false)
+})
+
+test('rejects a reader result without the explicit read-only receipt envelope', async () => {
+  const reader = readOnlyReader({ receipt: { payload: 'receipt' } })
+  const malformed = Object.freeze(async () => ({ receipt: { payload: 'receipt' } }))
+  // The branded reader contract is intentionally not transferable to arbitrary callbacks.
+  const result = await reconcilePrivateTreasuryVaultObservationFromPostgres({
+    repository: { readSnapshot: async () => ({
+      success: true,
+      vault: {
+        vaultId: 'vault-private-001', network: 'mainnet', asset: 'USDT',
+        tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6,
+        treasuryAddress: vault.treasuryAddress, active: true,
+      },
+      replayState, ledgerState: { lastSequence: '7' },
+    }) },
+    trustSnapshot: { configured: true },
+    vaultId: vault.vaultId,
+    expectedIssuer: 'financial-vault.example',
+    readObservation: malformed,
+    verifyObservation: async () => verified(),
+    nowMs: now,
+  })
+  assert.equal(result.status, 'worker-configuration-invalid')
+  assert.equal(typeof reader, 'function')
+})
+
+test('rejects verifier results that omit cryptographic-attestation or reservation limitations', async () => {
+  const missingAttestation = await run({
+    verification: verified({ limitations: { ...verified().limitations, sourceObservationCryptographicallyAttested: false } }),
+  })
+  assert.equal(missingAttestation.result.status, 'observation-rejected-or-unsafe-verifier-result')
+  const missingReservationBoundary = await run({
+    verification: verified({ limitations: { ...verified().limitations, reservationCreated: true } }),
+  })
+  assert.equal(missingReservationBoundary.result.status, 'observation-rejected-or-unsafe-verifier-result')
 })
