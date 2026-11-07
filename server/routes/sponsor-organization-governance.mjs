@@ -40,7 +40,7 @@ async function ensureSchema(db) {
         mandate_id UUID NOT NULL REFERENCES ${SCHEMA}.sponsor_organization_mandates(id),
         evidence_type TEXT NOT NULL CHECK (evidence_type IN ('legal-entity-registration','beneficial-ownership','authorized-representative','sponsor-wallet-control','provider-account-ownership','provider-signer-policy','signed-agreement','source-of-funds','funding-balance','other')),
         storage_provider TEXT NOT NULL CHECK (storage_provider='approved-private-document-vault'),
-        object_key TEXT NOT NULL CHECK (length(object_key) BETWEEN 1 AND 512 AND object_key !~ '(^/|\.\.|^https?://)'),
+        object_key TEXT NOT NULL CHECK (length(object_key) BETWEEN 1 AND 512 AND object_key !~ '(^/|[.][.]|^https?://)'),
         content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
         media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf','image/jpeg','image/png')),
         byte_size BIGINT NOT NULL CHECK (byte_size BETWEEN 1 AND 20971520),
