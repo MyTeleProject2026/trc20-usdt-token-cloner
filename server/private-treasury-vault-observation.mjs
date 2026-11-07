@@ -328,8 +328,17 @@ export async function fetchPrivateTreasuryVaultObservation({
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response || response.ok !== true) throw new Error('private-vault-observation-read-failed')
+  const contentLength = response.headers?.get?.('content-length')
+  if (contentLength && (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) || Number(contentLength) > 65_536)) {
+    throw new Error('private-vault-observation-response-too-large')
+  }
+  let body
+  try { body = await response.text() } catch { throw new Error('private-vault-observation-response-invalid') }
+  if (typeof body !== 'string' || Buffer.byteLength(body, 'utf8') > 65_536) {
+    throw new Error('private-vault-observation-response-too-large')
+  }
   let receipt
-  try { receipt = await response.json() } catch { throw new Error('private-vault-observation-response-invalid') }
+  try { receipt = JSON.parse(body) } catch { throw new Error('private-vault-observation-response-invalid') }
   if (!exactKeys(receipt, ['payload', 'signature'])) throw new Error('private-vault-observation-envelope-invalid')
   return Object.freeze({ receipt, fetchedAtMs: Date.now(), readOnly: true })
 }
