@@ -18,11 +18,21 @@ function covered(balance, required) {
 // source. Provider sandbox balances and simulated ledger entries are never spendable.
 function verifiedFundingSource(snapshot, network) {
   if (!snapshot || snapshot.network !== network) return false
-  if (snapshot.environment !== network) return false
   if (snapshot.sandbox !== false || snapshot.simulated !== false) return false
   if (snapshot.sourceVerified !== true) return false
-  if (snapshot.sourceKind === 'onchain') return snapshot.chainVerified === true
-  if (snapshot.sourceKind === 'provider-live-account') return snapshot.liveMode === true
+
+  // A chain network (mainnet/nile/shasta) is not a provider environment
+  // (production/live). Keep those namespaces distinct.
+  if (snapshot.sourceKind === 'onchain') {
+    return snapshot.environment === network && snapshot.chainVerified === true
+  }
+  if (snapshot.sourceKind === 'provider-live-account') {
+    return ['live', 'production'].includes(snapshot.environment)
+      && snapshot.liveMode === true
+      && snapshot.accountVerified === true
+      && typeof snapshot.providerAccountId === 'string'
+      && snapshot.providerAccountId.trim().length > 0
+  }
   return false
 }
 
