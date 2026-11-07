@@ -1,8 +1,9 @@
--- Stage 7B reference migration. NOT applied by this change.
--- The runtime governance API can create these tables when first used; production
--- rollout still requires a separately reviewed migration and trusted allowlists.
--- Original documents remain in an independently operated encrypted private vault.
--- PostgreSQL stores metadata, digests, reviewer signature hashes and audit events.
+-- Stage 7B/7C reference migration. NOT applied by this change.
+-- Review and run through the separately approved database migration process.
+-- Raw documents remain in an independently operated private document vault.
+-- This schema stores metadata, signed receipts, scan attestations and governance audit rows.
+
+CREATE SCHEMA IF NOT EXISTS trc20_token_clone;
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_evidence_artifacts (
   id UUID PRIMARY KEY,
@@ -13,21 +14,15 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_evidence_artif
     'sponsor-wallet-control','provider-account-ownership','provider-signer-policy',
     'signed-agreement','source-of-funds','funding-balance','other'
   )),
-  storage_provider TEXT NOT NULL CHECK (storage_provider = 'approved-private-document-vault'),
+  storage_provider TEXT NOT NULL CHECK (storage_provider='approved-private-document-vault'),
   object_key TEXT NOT NULL CHECK (length(object_key) BETWEEN 1 AND 512 AND object_key !~ '(^/|[.][.]|^https?://)'),
   content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
   media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf','image/jpeg','image/png')),
   byte_size BIGINT NOT NULL CHECK (byte_size BETWEEN 1 AND 20971520),
-  encrypted_at_rest BOOLEAN NOT NULL CHECK (encrypted_at_rest = TRUE),
-  malware_scan_status TEXT NOT NULL DEFAULT 'pending' CHECK (malware_scan_status IN ('pending','clean')),
+  encrypted_at_rest BOOLEAN NOT NULL CHECK (encrypted_at_rest=TRUE),
+  malware_scan_status TEXT NOT NULL DEFAULT 'pending',
   vault_version_id TEXT,
   malware_scanner_version TEXT,
-  vault_receipt_id TEXT,
-  vault_receipt_key_id TEXT,
-  vault_receipt_json JSONB,
-  retention_mode TEXT,
-  retention_until TIMESTAMPTZ,
-  encryption_mode TEXT,
   vault_receipt_id TEXT,
   vault_receipt_key_id TEXT,
   vault_receipt_json JSONB,
@@ -38,22 +33,13 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_evidence_artif
   retention_policy_reference TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ADD COLUMN IF NOT EXISTS malware_scan_status TEXT NOT NULL DEFAULT 'pending';
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD COLUMN IF NOT EXISTS vault_version_id TEXT;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD COLUMN IF NOT EXISTS malware_scanner_version TEXT;
-ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
-  ADD COLUMN IF NOT EXISTS vault_receipt_id TEXT;
-ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
-  ADD COLUMN IF NOT EXISTS vault_receipt_key_id TEXT;
-ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
-  ADD COLUMN IF NOT EXISTS vault_receipt_json JSONB;
-ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
-  ADD COLUMN IF NOT EXISTS retention_mode TEXT;
-ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
-  ADD COLUMN IF NOT EXISTS retention_until TIMESTAMPTZ;
-ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
-  ADD COLUMN IF NOT EXISTS encryption_mode TEXT;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD COLUMN IF NOT EXISTS vault_receipt_id TEXT;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
@@ -72,12 +58,14 @@ ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   DROP CONSTRAINT IF EXISTS sponsor_org_evidence_scan_status_check;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD CONSTRAINT sponsor_org_evidence_scan_status_check CHECK (malware_scan_status IN ('pending','clean'));
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  ALTER COLUMN malware_scan_status SET DEFAULT 'pending';
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_malware_scan_attestations (
   id UUID PRIMARY KEY,
   evidence_id UUID NOT NULL UNIQUE REFERENCES trc20_token_clone.sponsor_organization_evidence_artifacts(id),
   content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
-  scanner_service TEXT NOT NULL CHECK (scanner_service='independent-signed-attestation'),
+  scanner_service TEXT NOT NULL,
   scanner_version TEXT NOT NULL,
   attestation_key_id TEXT,
   attestation_json JSONB,
@@ -90,9 +78,10 @@ ALTER TABLE trc20_token_clone.sponsor_organization_malware_scan_attestations
 ALTER TABLE trc20_token_clone.sponsor_organization_malware_scan_attestations
   ADD COLUMN IF NOT EXISTS attestation_json JSONB;
 ALTER TABLE trc20_token_clone.sponsor_organization_malware_scan_attestations
-  ADD COLUMN IF NOT EXISTS attestation_key_id TEXT;
+  DROP CONSTRAINT IF EXISTS sponsor_organization_malware_scan_attestations_scanner_service_check;
 ALTER TABLE trc20_token_clone.sponsor_organization_malware_scan_attestations
-  ADD COLUMN IF NOT EXISTS attestation_json JSONB;
+  ADD CONSTRAINT sponsor_org_scan_service_check CHECK (scanner_service='independent-signed-attestation');
+
 CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx
   ON trc20_token_clone.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC);
 
@@ -104,17 +93,17 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_reviewer_decis
   reviewer_role TEXT NOT NULL CHECK (reviewer_role IN ('compliance-reviewer','security-reviewer')),
   evidence_set_digest CHAR(64) NOT NULL CHECK (evidence_set_digest ~ '^[a-fA-F0-9]{64}$'),
   decision TEXT NOT NULL CHECK (decision IN ('approved','rejected','needs-more-evidence')),
-  independence_attested BOOLEAN NOT NULL CHECK (independence_attested = TRUE),
-  conflict_check_passed BOOLEAN NOT NULL CHECK (conflict_check_passed = TRUE),
+  independence_attested BOOLEAN NOT NULL CHECK (independence_attested=TRUE),
+  conflict_check_passed BOOLEAN NOT NULL CHECK (conflict_check_passed=TRUE),
   reviewer_signature_hash CHAR(64) NOT NULL CHECK (reviewer_signature_hash ~ '^[a-fA-F0-9]{64}$'),
   decision_evidence_reference TEXT NOT NULL,
   decided_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_reviewer_once_per_digest_idx
-  ON trc20_token_clone.sponsor_organization_reviewer_decisions(mandate_id, reviewer_wallet_address, evidence_set_digest);
+  ON trc20_token_clone.sponsor_organization_reviewer_decisions(mandate_id,reviewer_wallet_address,evidence_set_digest);
 CREATE INDEX IF NOT EXISTS sponsor_org_reviewer_decisions_subject_idx
-  ON trc20_token_clone.sponsor_organization_reviewer_decisions(application_id, mandate_id, decided_at DESC);
+  ON trc20_token_clone.sponsor_organization_reviewer_decisions(application_id,mandate_id,decided_at DESC);
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_revocation_events (
   id UUID PRIMARY KEY,
@@ -137,13 +126,12 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_revocation_eve
       OR (scope_type='mandate' AND mandate_id IS NOT NULL AND scope_id=mandate_id))
 );
 CREATE INDEX IF NOT EXISTS sponsor_org_revocations_scope_idx
-  ON trc20_token_clone.sponsor_organization_revocation_events(scope_type, scope_id, effective_at DESC);
+  ON trc20_token_clone.sponsor_organization_revocation_events(scope_type,scope_id,effective_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_revocation_signature_once_idx
   ON trc20_token_clone.sponsor_organization_revocation_events(actor_signature_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_revocation_reference_once_idx
-  ON trc20_token_clone.sponsor_organization_revocation_events(scope_type, scope_id, actor_wallet_address, event_reference);
+  ON trc20_token_clone.sponsor_organization_revocation_events(scope_type,scope_id,actor_wallet_address,event_reference);
 
--- Audit rows are append-only. A correction requires a new row, never UPDATE/DELETE.
 CREATE OR REPLACE FUNCTION trc20_token_clone.reject_sponsor_org_audit_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
