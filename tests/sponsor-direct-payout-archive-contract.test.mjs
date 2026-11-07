@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readSponsorDirectPayoutArchiveDiagnostics } from '../server/sponsor-direct-payout-archive.mjs'
 import { readFile } from 'node:fs/promises'
 
 const routeSource = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
@@ -47,4 +48,31 @@ test('owner archive diagnostics and authenticated idempotency lookup are read-on
   assert.ok(routeSource.includes('sponsor_direct_payouts_history WHERE idempotency_key=$1'))
   assert.ok(routeSource.includes('payoutAuthorized: false'))
   assert.ok(routeSource.includes('transactionBroadcast: false'))
+})
+
+test('archive diagnostics report blocked unresolved legacy rows without running schema changes', async () => {
+  const statements = []
+  const db = {
+    async query(sql) {
+      statements.push(sql)
+      if (sql.includes('to_regclass')) {
+        return { rows: [{
+          active_table: 'trc20_token_clone.sponsor_direct_payouts',
+          archive_table: null,
+          history_view: null,
+          registry_table: null,
+        }] }
+      }
+      if (sql.includes('unresolved_below_minimum')) {
+        return { rows: [{ active: 4, unresolved_below_minimum: 2 }] }
+      }
+      throw new Error('Unexpected diagnostics query')
+    },
+  }
+  const result = await readSponsorDirectPayoutArchiveDiagnostics(db)
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.counts.active, 4)
+  assert.equal(result.counts.unresolvedBelowMinimum, 2)
+  assert.equal(result.checks.archiveTable, false)
+  assert.ok(statements.every((sql) => /^SELECT/i.test(sql.trim())))
 })
