@@ -30,8 +30,8 @@ test('metadata-only evidence remains pending and cannot satisfy independent cust
 })
 
 test('document upload is ClamAV-first, private-vault-only and requires authenticated storage receipts', () => {
-  assert.match(api, /express\\.raw/)
-  assert.match(api, /custodyUpload\\(/)
+  assert.match(api, /express\.raw/)
+  assert.match(api, /custodyUpload\(/)
   assert.match(api, /sponsor_organization_malware_scan_attestations/)
   assert.match(api, /malware_scan_status/)
   assert.match(custody, /zINSTREAM/)
@@ -52,7 +52,7 @@ test('trusted governance registries require pinned digests, versions and disjoin
 })
 
 test('Nile verification is GET-only and refuses Mainnet endpoints', () => {
-  assert.match(testnet, /nile\\.trongrid\\.io/)
+  assert.match(testnet, /nile\.trongrid\.io/)
   assert.match(testnet, /method: 'GET'/)
   assert.match(testnet, /transactionBroadcast: false/)
   assert.doesNotMatch(testnet, /sendRawTransaction|broadcastTransaction|signTransaction/)
