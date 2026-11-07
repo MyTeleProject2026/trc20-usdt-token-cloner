@@ -79,7 +79,7 @@ async function ensureSchema(db) {
         id UUID PRIMARY KEY,
         evidence_id UUID NOT NULL UNIQUE REFERENCES ${SCHEMA}.sponsor_organization_evidence_artifacts(id),
         content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
-        scanner_service TEXT NOT NULL CHECK (scanner_service='clamav-instream'),
+        scanner_service TEXT NOT NULL CHECK (scanner_service='independent-signed-attestation'),
         scanner_version TEXT NOT NULL,
         attestation_key_id TEXT,
         attestation_json JSONB,
@@ -393,15 +393,15 @@ export function createSponsorOrganizationGovernanceRouter({
             stored.vaultReceiptId,stored.vaultReceiptKeyId,JSON.stringify(stored.vaultReceipt),stored.retentionMode,stored.retentionUntil,stored.encryptionMode])
           await client.query(`INSERT INTO ${SCHEMA}.sponsor_organization_malware_scan_attestations
             (id,evidence_id,content_sha256,scanner_service,scanner_version,attestation_key_id,attestation_json,scan_status,scanned_at)
-            VALUES ($1,$2,$3,'clamav-instream',$4,$5,$6::jsonb,'clean',$7)`,
-          [randomUUID(),evidenceId,stored.contentSha256,stored.scanResult.version,stored.scanAttestationKeyId,JSON.stringify(stored.scanAttestation),new Date(now()).toISOString()])
+            VALUES ($1,$2,$3,'independent-signed-attestation',$4,$5,$6::jsonb,'clean',$7)`,
+          [randomUUID(),evidenceId,stored.contentSha256,stored.scanResult.version,stored.scanAttestationKeyId,JSON.stringify(stored.scanAttestation),new Date(stored.scanResult.scannedAt).toISOString()])
           await client.query('COMMIT')
         } catch (error) {
           await client.query('ROLLBACK')
           throw error
         } finally { client.release() }
         return res.status(201).json({ success:true,evidenceId,contentSha256:stored.contentSha256,byteSize:stored.byteSize,
-          mediaType:stored.mediaType,malwareScanStatus:'clean',malwareScanner:'clamav-instream',
+          mediaType:stored.mediaType,malwareScanStatus:'clean',malwareScanner:stored.scanResult.scanner,
           malwareScannerVersion:stored.scanResult.version,vaultObjectStored:true,vaultVersionId:stored.vaultVersionId,
           vaultReceiptV2Verified:true,vaultReceiptId:stored.vaultReceiptId,retentionMode:stored.retentionMode,retentionUntil:stored.retentionUntil,
           encryptionAtRestConfirmed:true,verificationStatus:'pending-independent-review',payoutAuthorized:false,
