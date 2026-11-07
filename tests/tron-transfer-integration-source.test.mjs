@@ -219,3 +219,21 @@ test('Fincra signed payout webhook is mounted before the disabled legacy handler
   assert.match(fincraWebhookRoute, /chainSettlement: 'not-verified'/)
   assert.doesNotMatch(fincraWebhookRoute, /wallet\/broadcasttransaction|sendRawTransaction/i)
 })
+
+
+test('sandbox funding guards remain preflight-only and production sponsored submission stays disabled', async () => {
+  const policy = await readFile(new URL('../server/sponsor-integration-policy.mjs', import.meta.url), 'utf8')
+  const readiness = await readFile(new URL('../server/sponsor-integration-readiness.mjs', import.meta.url), 'utf8')
+  const readinessRoute = await readFile(new URL('../server/routes/sponsor-integration-readiness.mjs', import.meta.url), 'utf8')
+
+  assert.match(policy, /function verifiedFundingSource/)
+  assert.match(policy, /snapshot\.sandbox !== false/)
+  assert.match(policy, /snapshot\.simulated !== false/)
+  assert.match(policy, /sponsor-organization-signer-authority-unverified/)
+  assert.match(policy, /sponsor-organization-signing-policy-unverified/)
+  assert.match(readiness, /enabled: false/)
+  assert.match(readiness, /sandbox-mainnet-source-isolation-not-end-to-end-integrated/)
+  assert.match(readiness, /organization-signer-authority-and-provider-policy-not-connected-to-runtime-payout-path/)
+  assert.match(readinessRoute, /Sponsored submission remains disabled/)
+  assert.match(readinessRoute, /pure preflight module and is not yet connected/)
+})
