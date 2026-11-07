@@ -97,7 +97,7 @@ function buildOrganizationApplicationMessage(input) {
     'Jurisdiction: ' + input.jurisdiction,
     'Website: ' + (input.website || 'not provided'),
     'Requested roles: ' + input.roles.join(', '),
-    'Declarations: authorized representative; controls the sponsor wallet; proposed funds are lawfully controlled; agrees to a separate written mandate defining any provider-managed payout authorization; consents to application-data processing.',
+    'Declarations: authorized representative; controls the sponsor wallet; proposed funds are lawfully controlled; agrees to a separate written mandate requiring per-transfer sponsor approval; consents to application-data processing.',
   ].join('\n')
 }
 
