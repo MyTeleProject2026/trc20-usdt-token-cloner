@@ -416,13 +416,6 @@ export function createOwnerTreasuryFundingLedgerRouter({
 
 export default createOwnerTreasuryFundingLedgerRouter
 
-  )
-  await db.query(
-    'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
-    SCHEMA + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
-  )
-}
-
 function ownerAddress(env) {
   return clean(env.TREASURY_OWNER_ADDRESS || env.OWNER_WALLET_ADDRESS, 64)
 }
