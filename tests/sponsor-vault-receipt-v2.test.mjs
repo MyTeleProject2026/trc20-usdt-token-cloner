@@ -15,18 +15,18 @@ function signed(payload) {
   const signature = sign(null, Buffer.from(canonical(payload)), privateKey).toString('base64url')
   return { ...payload, signature: { algorithm:'Ed25519', keyId:'test-key-01', value:signature } }
 }
-function attestation() {
+function attestation(scannedAt = new Date(now-1000).toISOString()) {
   return signed({schema:'tron-transfer.malware-scan-attestation.v1',attestationId:'scan-01',
     contentSha256:digest,byteSize:123,result:'CLEAN',completed:true,scanner:'isolated-scan-adapter',
-    scannerVersion:'1.0.0',scannedAt:new Date(now-1000).toISOString()})
+    scannerVersion:'1.0.0',scannedAt})
 }
-function receipt() {
+function receipt(scan = attestation(), issuedAt = new Date(now).toISOString()) {
   return signed({schema:'tron-transfer.private-vault-receipt.v2',issuer:'vault-gateway',audience:'tron-transfer-onboarding',
-    receiptId:'receipt-01',organizationId,object:{objectKey:'org/org-test-01/doc-01',versionId:'version-01',
+    receiptId:'receipt-01',organizationId,issuedAt,object:{objectKey:'org/org-test-01/doc-01',versionId:'version-01',
       sha256:digest,byteSize:123,mediaType:'application/pdf'},
     storage:{provider:'aws-s3',encryption:{verified:true,mode:'SSE-KMS',keyReference:'kms-key-alias'},
-      retention:{verified:true,mode:'GOVERNANCE',policyReference:'policy-01',retainUntil:new Date(now+86400000).toISOString()}},
-    malwareScan:{verified:true,result:'CLEAN',attestation:attestation()}})
+      retention:{verified:true,mode:'GOVERNANCE',policyReference:'policy-01',retainUntil:new Date(now+400*86400000).toISOString()}},
+    malwareScan:{verified:true,result:'CLEAN',scanner:'isolated-scan-adapter',scannerVersion:'1.0.0',scannedAt:scan.scannedAt,attestation:scan}})
 }
 const expected = {keyRegistry:registry,scannerKeyRegistry:registry,expectedObjectKey:'org/org-test-01/doc-01',expectedSha256:digest,
   expectedByteSize:123,expectedMediaType:'application/pdf',expectedOrganizationId:organizationId,nowMs:now}
@@ -53,15 +53,25 @@ test('rejects retention or encryption claims that are not independently verified
   const p={...noEncryption}; delete p.signature
   assert.equal(verifyPrivateVaultReceiptV2(signed(p),expected).reason,'vault-receipt-encryption-not-verified')
 })
-test('rejects stale or mismatched scanner attestations',()=>{
-  const old=receipt(); old.malwareScan.attestation.scannedAt=new Date(now-3600000).toISOString()
-  const p={...old}; delete p.signature
-  assert.equal(verifyPrivateVaultReceiptV2(signed(p),expected).reason,'vault-receipt-malware-attestation-invalid')
-  const wrong=receipt(); wrong.malwareScan.attestation.contentSha256='b'.repeat(64)
-  const q={...wrong}; delete q.signature
-  assert.equal(verifyPrivateVaultReceiptV2(signed(q),expected).reason,'vault-receipt-malware-attestation-invalid')
+test('initial acceptance rejects stale or mismatched scanner attestations',()=>{
+  const stale=receipt(attestation(new Date(now-3600000).toISOString()))
+  assert.equal(verifyPrivateVaultReceiptV2(stale,{...expected,scanAttestationMaxAgeMs:5*60*1000}).reason,'vault-receipt-malware-attestation-invalid')
+  const wrongAttestation=attestation()
+  const alteredPayload={...wrongAttestation}; delete alteredPayload.signature
+  alteredPayload.contentSha256='b'.repeat(64)
+  const wrong=receipt(signed(alteredPayload))
+  assert.equal(verifyPrivateVaultReceiptV2(wrong,expected).reason,'vault-receipt-malware-attestation-invalid')
 })
 test('rejects unknown or inactive signing keys',()=>{
   assert.equal(verifyPrivateVaultReceiptV2(receipt(),{...expected,keyRegistry:{}}).reason,'signing-key-not-trusted')
   assert.equal(verifyMalwareScanAttestation(attestation(),{keyRegistry:{'test-key-01':{...registry['test-key-01'],active:false}},expectedSha256:digest,expectedByteSize:123,nowMs:now}).reason,'signing-key-not-trusted')
+})
+
+
+test('historical receipt remains verifiable after the scan freshness window when its signature and retention remain valid',()=>{
+  const scannedAt=new Date(now-24*60*60*1000).toISOString()
+  const historicalScan=attestation(scannedAt)
+  const historicalReceipt=receipt(historicalScan,new Date(now-24*60*60*1000+1000).toISOString())
+  const result=verifyPrivateVaultReceiptV2(historicalReceipt,expected)
+  assert.equal(result.valid,true)
 })
