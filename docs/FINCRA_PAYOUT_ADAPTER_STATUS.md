@@ -8,17 +8,35 @@ Implemented in this branch:
 
 - Server-only Fincra environment parsing with sandbox as the default.
 - Strict builder for same-currency USDT to a TRON crypto wallet using \`paymentDestination=crypto_wallet\` and \`paymentScheme=usdt_trc20\`.
+- Optional beneficiary destination tags are validated, persisted with the owner-only withdrawal intent, and included in the Fincra crypto-wallet payout payload when the exchange or wallet requires a memo/tag.
 - Six-decimal USDT base-unit parsing, bounded numeric amount conversion, Mainnet TRON Base58Check address validation, and unique customer-reference validation.
 - Read-only diagnostics against the authenticated Fincra business profile and its business wallet list.
 - Payout-record normalization that requires exact business payout identity (customer reference, currencies, scheme, destination and recipient). A successful result is accepted by the helper only when the beneficiary's net received amount exactly matches the requested amount; mismatches go to manual review.
 - HMAC-SHA512 webhook-signature verification helper.
-- Sandbox-only payout initiation and customer-reference lookup helpers. The sandbox initiation helper refuses live mode and requires the explicit \`FINCRA_SANDBOX_PAYOUTS_ENABLED=true\` flag.
+- Sandbox-only payout initiation plus read-only customer-reference lookup. The submit helper refuses live mode and requires the explicit \`FINCRA_SANDBOX_PAYOUTS_ENABLED=true\` flag; the reference lookup supports sandbox and live modes and never submits a payout. It distinguishes a provider 404 from other provider failures.
 - Owner-only provider-readiness page now displays the Fincra API/profile and sponsor-account balance diagnostics without enabling submission.
+
+## Durable owner-only withdrawal requests
+
+The owner-only request API now accepts a validated USDT TRC20 withdrawal intent at
+`POST /api/tron-transfer/sponsor-requests`. It requires an authenticated owner
+session, a valid TRON Mainnet recipient, a positive six-decimal USDT amount,
+beneficiary name, optional destination tag, and a stable idempotency key. The database stores a unique
+customer reference and idempotency key; concurrent retries with the same key
+return the original request, while reuse of that key with different request
+details returns HTTP 409. The owner-only history/list routes return stored
+requests without exposing other requester records.
+
+New requests enter `awaiting-provider-authorization`. This is durable request
+intake only: it does not reserve Fincra funds, call Fincra, submit a payout,
+broadcast a transaction, or claim chain settlement. The Fincra payout-submit
+route remains disabled until the account mandate, provider eligibility,
+available liquidity, fee treatment, production submission safeguards and
+independent Mainnet reconciliation have been completed and explicitly enabled.
 
 ## What this does not enable
 
-- Production Fincra payout submission remains disabled.
-- The existing legacy \`/sponsor-requests/:id/fincra-payout\`, \`/sponsor-requests/:id/fincra-status\`, and \`/fincra/webhook\` endpoints remain disabled. The new helper is not a route that can send funds in production.
+- Production Fincra payout submission remains disabled. The owner-only `POST /api/tron-transfer/sponsor-requests` route creates a durable, idempotent withdrawal request; it does not call Fincra, reserve funds, or broadcast a transaction. The `POST /api/tron-transfer/sponsor-requests/:id/fincra-payout` route remains disabled and returns HTTP 410. The owner-only `POST /api/tron-transfer/sponsor-requests/:id/fincra-status` route performs a read-only lookup against the original Fincra customer reference and validates provider identity; it never submits/retries a payout or changes chain-settlement state. Separately, the signed receiver is mounted at `POST /api/tron-transfer/fincra/webhook`; it validates HMAC-SHA512 and records targeted final USDT TRC20 webhook events idempotently. It only applies a provider result when the exact local request is already in `submission-unknown`, `provider-processing`, or `awaiting-chain-verification`; an intake request still awaiting provider authorization is sent to manual review and cannot be advanced by a webhook. A matched successful provider event advances the request only to `awaiting-chain-verification`; a matched failure advances it to `provider-failed`. The receiver cannot initiate/retry a payout or confirm TRON chain settlement.
 - The readiness API does not claim Fincra has donated USDT or granted credit. A positive available balance belongs to the configured Fincra business account and must be attributable to the sponsor under a lawful, documented arrangement.
 - An API key and matching business ID do not prove the operator is legally authorized to use the business account or that the sponsor approved the payout program.
 - Sandbox acceptance is not Mainnet submission, TRON settlement, or exchange deposit credit.
@@ -34,7 +52,7 @@ Keep all credentials on the backend only:
 | \`FINCRA_SECRET_KEY\` | Fincra environment-specific secret API key |
 | \`FINCRA_BUSINESS_ID\` | Exact business ID returned by the authenticated business profile |
 | \`FINCRA_SOURCE_CURRENCY\` | \`USDT\` for this same-currency adapter |
-| \`FINCRA_WEBHOOK_SECRET\` | Webhook HMAC-SHA512 verification key; helper only in this release |
+| \`FINCRA_WEBHOOK_SECRET\` | Backend-only HMAC-SHA512 key used by the mounted signed webhook receiver |
 | \`FINCRA_SANDBOX_PAYOUTS_ENABLED\` | Optional, explicit sandbox-only test gate; does not enable live payouts |
 
 Do not put any of these values in source control, frontend variables, issues, pull requests, or chat. Rotate credentials that have already been exposed outside the provider/Render secret store.
@@ -49,9 +67,56 @@ All of the following remain required before a live payout route may be enabled:
 4. The owner completes independent due diligence and records a durable approval reference; application or wallet signature alone is not KYB, identity verification, source-of-funds evidence, or legal approval.
 5. Live account diagnostics verify the exact business profile and positive available USDT balance. The account owner/sponsor must lawfully fund that account; this integration cannot create principal or credit.
 6. The provider fee model is proven to leave the exact requested net amount at the beneficiary, with any charges separately funded and authorized.
-7. Production request creation reserves principal and fees atomically, pins the exact recipient/contract/network/amount and uses one idempotent customer reference. Timeouts and duplicate submissions must enter reconciliation, not blind retry.
-8. The status worker and webhook receiver verify the provider record, webhook signature, exact mandate/business ID, exact amount and recipient. Webhooks are re-queried against Fincra before state changes.
+7. Production request creation reserves principal and fees atomically, pins the exact recipient/contract/network/amount and uses one stable customer reference. Fincra documents that customer references must be unique and duplicate references are rejected; after a timeout or duplicate-reference response, re-query the original reference rather than creating a different reference to attempt a second payout. A lookup 404 after an ambiguous submission is not by itself permission to replay.
+8. The status worker and webhook receiver verify the provider record, webhook signature, exact mandate/business ID, exact amount and recipient. Webhooks are re-queried against Fincra before state changes; the owner-only status route exposes a read-only lookup; it does not change local payout state.
 9. The Mainnet settlement path independently verifies the solidified TRON transaction, successful receipt and exact official Tether USDT Transfer event. A provider response alone is not chain settlement.
 10. Testnet/sandbox integration tests, PostgreSQL concurrency/replay tests, negative tests, operational pause controls, security review and explicit production release approval pass.
 
 No personal wallet funding, unapproved third-party spending, fabricated balance, or exchange-credit claim is permitted as a fallback.
+
+
+## Webhook state-transition guard
+
+The signed webhook now checks the durable local request state in addition to
+customer reference, recipient, amount, route and destination tag. Only
+`submission-unknown`, `provider-processing`, and `awaiting-chain-verification`
+requests are eligible for provider-status reconciliation. A newly created
+`awaiting-provider-authorization` request cannot be advanced by a webhook,
+even if a signed event happens to carry its customer reference. Such an event
+is retained as review-required without updating the request.
+
+A matching successful Fincra event advances the local workflow to
+`awaiting-chain-verification`, never `settled`; a matching failed event advances
+it to `provider-failed`. The final chain-settlement decision remains separate
+and requires independent solidified TRON Mainnet USDT transfer verification.
+This guard does not create a submission path: the payout endpoint remains
+disabled, and no request is moved into a submitted state by this change.
+## Duplicate and timeout policy
+
+A webhook is a provider notification, not a withdrawal instruction. The receiver deduplicates a repeated signed event, binds any supplied exchange destination tag to the stored request tag, and must never use a duplicate notification to create another payout. If an event was originally stored as unmatched solely because its local request did not yet exist, a later delivery of the same signed event may retry that local matching step after the request is created; once matched or sent to manual review, subsequent duplicates do not reapply it. This replay only reconciles provider metadata and never creates or resubmits a payout. A payout itself is identified by one stable, unique `customerReference`. Fincra documents that reusing a customer reference is rejected as a duplicate; on an ambiguous network timeout, reconcile the original reference rather than creating a new one. Its payout overview describes `RESOURCE_NOT_FOUND` as a response to re-query until a definitive `processing`, `failed`, or `successful` status is returned, so one 404 is not a final-failure signal. See the [Fincra stablecoin payout API](https://docs.fincra.com/reference/initiate-payout-2), [customer-reference status lookup](https://docs.fincra.com/reference/fetch-payout-by-customer-reference), and [payout overview and errors](https://docs.fincra.com/docs/payout-overview).
+
+The new `lookupFincraPayoutByCustomerReference` helper is a read-only building block for reconciliation and supports the configured sandbox or live API base URL. It distinguishes HTTP 404 from other provider failures. It does not retry a payout, submit an API payout request, mark a transfer settled, or enable the disabled withdrawal-request endpoints.
+
+
+## Owner-only status reconciliation route
+
+The owner-authenticated `POST /api/tron-transfer/sponsor-requests/:id/fincra-status` route reads the existing local request and queries Fincra by its stable original `customer_reference`. The separate `fincra_reference` field may hold a provider-generated reference and is not used as the customer-reference lookup key. It validates the returned record against the local customer reference, USDT currencies, `usdt_trc20` crypto-wallet route, recipient address, optional destination tag and requested net amount. The response is sanitized and does not expose the raw provider payload or credentials. The route does not write payout status, submit/retry a payout, or mark TRON settlement. A not-found response is informational and explicitly disallows creating a replacement reference. Independent solidified TRON verification remains required.
+
+
+## Fail-closed live payout evidence gate
+
+A separate policy helper, `server/fincra-live-payout-gate.mjs`, now defines
+the evidence categories a future live payout release would need: verified
+business-account ownership, live USDT TRC20 product enablement, a beneficiary
+payout mandate, independently verified provider liquidity or approved credit,
+and owner approval cryptographically bound to the exact request digest.
+Each evidence item must include a non-empty external evidence reference; a
+configuration flag or a self-asserted boolean is not sufficient evidence.
+
+The helper is deliberately not wired to enable submission. Even when all
+evidence categories are supplied, it returns `submissionAllowed: false` and
+`payoutSubmissionEnabled: false`. This prevents a local approval record,
+environment setting, or incomplete integration from being mistaken for
+Fincra authorization or production funding. Live submission requires a
+separate reviewed implementation after the provider's actual authorization,
+funding and API contract have been independently established.
