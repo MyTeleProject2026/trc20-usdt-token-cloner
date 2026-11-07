@@ -322,3 +322,122 @@ export async function ensureSponsorDirectPayoutArchiveSchema(db, { schemaName = 
     throw error
   }
 }
+
+const DIAGNOSTICS_MINIMUM_BASE_UNITS = '1000000000'
+
+function validateDiagnosticsSchema(value) {
+  if (typeof value !== 'string' || !/^[a-z_][a-z0-9_]{0,62}$/.test(value)) {
+    throw new TypeError('A valid PostgreSQL schema identifier is required.')
+  }
+  return value
+}
+
+/**
+ * Read-only, owner-facing snapshot of archive migration invariants.
+ * This function never initializes, repairs, or mutates schema objects.
+ */
+export async function readSponsorDirectPayoutArchiveDiagnostics(db, { schemaName = 'trc20_token_clone' } = {}) {
+  const schema = validateDiagnosticsSchema(schemaName)
+  if (!db || typeof db.query !== 'function') throw new TypeError('A PostgreSQL query client is required.')
+
+  const relations = await db.query(
+    'SELECT to_regclass($1) AS active_table, to_regclass($2) AS archive_table, ' +
+    'to_regclass($3) AS history_view, to_regclass($4) AS registry_table',
+    [
+      schema + '.sponsor_direct_payouts',
+      schema + '.sponsor_direct_payouts_archive',
+      schema + '.sponsor_direct_payouts_history',
+      schema + '.sponsor_direct_payout_idempotency_registry',
+    ],
+  )
+  const found = relations.rows?.[0] || {}
+  if (!found.active_table) {
+    return {
+      status: 'not-initialized',
+      schema,
+      checks: { activeTable: false, archiveTable: false, historyView: false, idempotencyRegistry: false },
+      counts: { active: 0, archived: 0, unresolvedBelowMinimum: 0, registry: 0, registryMismatches: 0 },
+    }
+  }
+  if (!found.archive_table || !found.history_view || !found.registry_table) {
+    return {
+      status: 'incomplete',
+      schema,
+      checks: {
+        activeTable: true,
+        archiveTable: Boolean(found.archive_table),
+        historyView: Boolean(found.history_view),
+        idempotencyRegistry: Boolean(found.registry_table),
+      },
+      counts: { active: null, archived: null, unresolvedBelowMinimum: null, registry: null, registryMismatches: null },
+    }
+  }
+
+  const [counts, constraints, triggers, registry] = await Promise.all([
+    db.query(
+      'SELECT (SELECT COUNT(*)::int FROM ' + schema + '.sponsor_direct_payouts) AS active, ' +
+      '(SELECT COUNT(*)::int FROM ' + schema + '.sponsor_direct_payouts_archive) AS archived, ' +
+      '(SELECT COUNT(*)::int FROM ' + schema + '.sponsor_direct_payouts ' +
+      'WHERE amount_base_units < $1::numeric AND status NOT IN (' + TERMINAL_STATUSES + ')) AS unresolved_below_minimum, ' +
+      '(SELECT COUNT(*)::int FROM ' + schema + '.sponsor_direct_payout_idempotency_registry) AS registry',
+      [DIAGNOSTICS_MINIMUM_BASE_UNITS],
+    ),
+    db.query(
+      'SELECT convalidated, pg_get_constraintdef(oid) AS definition FROM pg_constraint ' +
+      'WHERE conrelid=$1::regclass AND conname=$2',
+      [schema + '.sponsor_direct_payouts', 'sponsor_direct_payouts_minimum_amount_check'],
+    ),
+    db.query(
+      'SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid ' +
+      'JOIN pg_namespace n ON n.oid=c.relnamespace ' +
+      'WHERE n.nspname=$1 AND NOT t.tgisinternal AND t.tgname IN ' +
+      "('sponsor_direct_payouts_idempotency_registry_trg','sponsor_direct_payouts_archive_immutable_trg','sponsor_direct_payouts_archive_no_truncate_trg')",
+      [schema],
+    ),
+    db.query(
+      'SELECT COUNT(*)::int AS mismatches FROM (' +
+      'SELECT idempotency_key,id,requester_address,recipient_address,amount_base_units FROM ' + schema + '.sponsor_direct_payouts ' +
+      'UNION ALL SELECT idempotency_key,id,requester_address,recipient_address,amount_base_units FROM ' + schema + '.sponsor_direct_payouts_archive' +
+      ') payout LEFT JOIN ' + schema + '.sponsor_direct_payout_idempotency_registry registry ' +
+      'ON registry.idempotency_key=payout.idempotency_key ' +
+      'WHERE registry.idempotency_key IS NULL OR registry.payout_id IS DISTINCT FROM payout.id ' +
+      'OR registry.requester_address IS DISTINCT FROM payout.requester_address ' +
+      'OR registry.recipient_address IS DISTINCT FROM payout.recipient_address ' +
+      'OR registry.amount_base_units IS DISTINCT FROM payout.amount_base_units',
+    ),
+  ])
+
+  const countRow = counts.rows?.[0] || {}
+  const constraint = constraints.rows?.[0]
+  const triggerNames = new Set((triggers.rows || []).map((row) => row.tgname))
+  const checks = {
+    activeTable: true,
+    archiveTable: true,
+    historyView: true,
+    idempotencyRegistry: true,
+    activeMinimumValidated: constraint?.convalidated === true &&
+      String(constraint.definition || '').includes('amount_base_units >=') &&
+      !String(constraint.definition || '').includes('minimum_policy_blocked'),
+    activeIdempotencyTrigger: triggerNames.has('sponsor_direct_payouts_idempotency_registry_trg'),
+    archiveUpdateDeleteProtection: triggerNames.has('sponsor_direct_payouts_archive_immutable_trg'),
+    archiveTruncateProtection: triggerNames.has('sponsor_direct_payouts_archive_no_truncate_trg'),
+    registryConsistent: Number(registry.rows?.[0]?.mismatches || 0) === 0,
+  }
+  const unresolved = Number(countRow.unresolved_below_minimum || 0)
+  const status = unresolved > 0 ? 'blocked' :
+    Object.values(checks).every(Boolean) ? 'ready' : 'incomplete'
+
+  return {
+    status,
+    schema,
+    minimumWithdrawalBaseUnits: DIAGNOSTICS_MINIMUM_BASE_UNITS,
+    checks,
+    counts: {
+      active: Number(countRow.active || 0),
+      archived: Number(countRow.archived || 0),
+      unresolvedBelowMinimum: unresolved,
+      registry: Number(countRow.registry || 0),
+      registryMismatches: Number(registry.rows?.[0]?.mismatches || 0),
+    },
+  }
+}
