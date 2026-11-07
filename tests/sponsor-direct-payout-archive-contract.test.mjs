@@ -39,3 +39,12 @@ test('treasury reservations continue to count active payouts only', () => {
   assert.ok(fundingLedgerSource.includes(".sponsor_direct_payouts WHERE sponsor_address=$1"))
   assert.ok(!/sponsor_direct_payouts_archive|sponsor_direct_payouts_history/.test(fundingLedgerSource))
 })
+
+test('owner archive diagnostics and authenticated idempotency lookup are read-only API surfaces', () => {
+  assert.ok(routeSource.includes("router.get('/archive-migration-status'"))
+  assert.ok(routeSource.includes('readSponsorDirectPayoutArchiveDiagnostics(db'))
+  assert.ok(routeSource.includes("router.get('/requests/idempotency/:key'"))
+  assert.ok(routeSource.includes('sponsor_direct_payouts_history WHERE idempotency_key=$1'))
+  assert.ok(routeSource.includes('payoutAuthorized: false'))
+  assert.ok(routeSource.includes('transactionBroadcast: false'))
+})
