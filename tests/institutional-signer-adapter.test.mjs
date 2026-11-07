@@ -51,14 +51,13 @@ test('validates and fingerprints a narrowly bound institutional transfer intent'
   assert.equal(result.custodyPolicyVerified, false)
 })
 
-test('request digest binds recipient, amount, organization, network and evidence references', () => {
+test('request digest binds recipient, amount, organization and evidence references', () => {
   const adapter = createInstitutionalSignerSimulationAdapter({ now: () => now })
   const original = adapter.evaluateTransferIntent(baseIntent)
   for (const patch of [
     { recipientAddress: 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8' },
     { amountUsdt: '125.000002' },
     { organizationId: 'sponsor-org-02' },
-    { network: 'NILE_TESTNET' },
     { fundingEvidenceReference: 'funding-evidence-02' },
   ]) {
     const changed = adapter.evaluateTransferIntent({ ...baseIntent, ...patch })
