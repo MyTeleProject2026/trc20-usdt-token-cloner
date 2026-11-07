@@ -6,7 +6,7 @@ import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslCon
 import { isValidTronAddress } from '../tron-address.mjs'
 import { computeSponsorOrganizationEvidenceSetDigest } from '../sponsor-organization-governance.mjs'
 import { getDocumentCustodyV2Config, scanAndStoreEvidenceV2 } from '../sponsor-document-custody-v2.mjs'
-import { verifyPrivateVaultReceiptV2 } from '../sponsor-vault-receipt-v2.mjs'
+import { verifyMalwareScanAttestation, verifyPrivateVaultReceiptV2 } from '../sponsor-vault-receipt-v2.mjs'
 import { getSponsorVaultReceiptKeyRegistry, getSponsorScannerAttestationKeyRegistry } from '../sponsor-vault-trust-registry.mjs'
 import { getSponsorReviewerRegistry, getSponsorSecurityOfficerRegistry } from '../sponsor-governance-registry.mjs'
 
@@ -196,28 +196,66 @@ function buildRevocationMessage(input) {
   ].join('\n')
 }
 async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.now()) {
-  const result = await db.query(`SELECT id, application_id, mandate_id, evidence_type, storage_provider, object_key,
-    content_sha256, media_type, byte_size, encrypted_at_rest, uploaded_by_wallet, retention_policy_reference, created_at,
-    malware_scan_status, vault_version_id, malware_scanner_version, vault_receipt_id, vault_receipt_key_id,
-    vault_receipt_json, retention_mode, retention_until, encryption_mode
-    FROM ${SCHEMA}.sponsor_organization_evidence_artifacts WHERE mandate_id=$1 ORDER BY id ASC`, [mandateId])
+  const result = await db.query(`SELECT e.id, e.application_id, e.mandate_id, e.evidence_type, e.storage_provider, e.object_key,
+    e.content_sha256, e.media_type, e.byte_size, e.encrypted_at_rest, e.uploaded_by_wallet, e.retention_policy_reference, e.created_at,
+    e.malware_scan_status, e.vault_version_id, e.malware_scanner_version, e.vault_receipt_id, e.vault_receipt_key_id,
+    e.vault_receipt_json, e.retention_mode, e.retention_until, e.encryption_mode,
+    a.content_sha256 AS attestation_content_sha256, a.scanner_version AS attestation_scanner_version,
+    a.attestation_key_id, a.attestation_json, a.scanned_at
+    FROM ${SCHEMA}.sponsor_organization_evidence_artifacts e
+    LEFT JOIN ${SCHEMA}.sponsor_organization_malware_scan_attestations a ON a.evidence_id=e.id
+    WHERE e.mandate_id=$1 ORDER BY e.id ASC`, [mandateId])
   const vaultKeys = getSponsorVaultReceiptKeyRegistry(env)
   const scannerKeys = getSponsorScannerAttestationKeyRegistry(env)
   const minRetentionDays = Number(env.SPONSOR_ORG_VAULT_MIN_RETENTION_DAYS)
   const expectedIssuer = clean(env.SPONSOR_ORG_VAULT_RECEIPT_ISSUER, 128)
+  const trustConfigReady = vaultKeys.configured && scannerKeys.configured
+    && expectedIssuer.length > 0 && Number.isInteger(minRetentionDays) && minRetentionDays >= 1
   const artifacts = result.rows.map((row) => {
     const receipt = row.vault_receipt_json && typeof row.vault_receipt_json === 'object' ? row.vault_receipt_json : null
-    const receiptVerification = receipt && vaultKeys.configured && scannerKeys.configured
-      ? verifyPrivateVaultReceiptV2(receipt, {
-        keyRegistry:vaultKeys.keys, scannerKeyRegistry:scannerKeys.keys,
-        expectedObjectKey:row.object_key, expectedSha256:row.content_sha256.trim(),
-        expectedByteSize:Number(row.byte_size), expectedMediaType:row.media_type,
-        expectedOrganizationId:row.application_id, expectedIssuer,
-        expectedRetentionPolicyReference:row.retention_policy_reference,
-        minimumRetentionMs:Number.isInteger(minRetentionDays) ? minRetentionDays*24*60*60*1000 : -1,
+    const attestation = row.attestation_json && typeof row.attestation_json === 'object' ? row.attestation_json : null
+    const scanVerification = attestation && scannerKeys.configured
+      ? verifyMalwareScanAttestation(attestation, {
+        keyRegistry: scannerKeys.keys,
+        expectedSha256: row.content_sha256.trim(),
+        expectedByteSize: Number(row.byte_size),
         nowMs,
       })
-      : { valid:false, reason:'vault-receipt-trust-configuration-unavailable' }
+      : { valid:false, reason:'scanner-attestation-or-trust-config-missing' }
+    const receiptVerification = receipt && trustConfigReady && scanVerification.valid
+      ? verifyPrivateVaultReceiptV2(receipt, {
+        keyRegistry: vaultKeys.keys,
+        scannerKeyRegistry: scannerKeys.keys,
+        expectedObjectKey: row.object_key,
+        expectedSha256: row.content_sha256.trim(),
+        expectedByteSize: Number(row.byte_size),
+        expectedMediaType: row.media_type,
+        expectedOrganizationId: row.application_id,
+        expectedIssuer,
+        expectedRetentionPolicyReference: row.retention_policy_reference,
+        minimumRetentionMs: minRetentionDays * 24 * 60 * 60 * 1000,
+        nowMs,
+      })
+      : { valid:false, reason:'vault-receipt-or-independent-attestation-unavailable' }
+    const receiptScanSignature = receipt?.malwareScan?.attestation?.signature
+    const persistedScanSignature = attestation?.signature
+    const persistedScanMatches = scanVerification.valid === true
+      && row.attestation_key_id === scanVerification.keyId
+      && row.attestation_scanner_version === scanVerification.scannerVersion
+      && String(row.attestation_content_sha256 || '').trim() === row.content_sha256.trim()
+      && persistedScanSignature?.keyId === receiptScanSignature?.keyId
+      && persistedScanSignature?.value === receiptScanSignature?.value
+      && row.malware_scanner_version === scanVerification.scannerVersion
+      && row.scanned_at && new Date(row.scanned_at).getTime() === Date.parse(scanVerification.scannedAt)
+    const denormalizedReceiptMatches = receiptVerification.valid === true
+      && row.vault_receipt_id === receiptVerification.receiptId
+      && row.vault_receipt_key_id === receiptVerification.signingKeyId
+      && row.vault_version_id === receiptVerification.objectVersionId
+      && row.retention_mode === receiptVerification.retentionMode
+      && row.retention_until
+      && new Date(row.retention_until).getTime() === Date.parse(receiptVerification.retainUntil)
+      && row.encryption_mode === receiptVerification.encryptionMode
+    const receiptVerified = persistedScanMatches && denormalizedReceiptMatches
     return {
       id: row.id, applicationId: row.application_id, mandateId: row.mandate_id, evidenceType: row.evidence_type,
       storageProvider: row.storage_provider, objectKey: row.object_key, contentSha256: row.content_sha256.trim(),
@@ -228,8 +266,9 @@ async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.no
       vaultReceiptKeyId: row.vault_receipt_key_id || null, retentionMode: row.retention_mode || null,
       retentionUntil: row.retention_until ? new Date(row.retention_until).toISOString() : null,
       encryptionMode: row.encryption_mode || null,
-      vaultReceiptV2Verified: receiptVerification.valid === true,
-      vaultReceiptVerificationReason: receiptVerification.valid ? null : receiptVerification.reason,
+      scannerAttestationVerified: persistedScanMatches,
+      vaultReceiptV2Verified: receiptVerified,
+      vaultReceiptVerificationReason: receiptVerified ? null : (receiptVerification.reason || scanVerification.reason || 'persisted-custody-metadata-mismatch'),
       createdAt: new Date(row.created_at).toISOString(),
     }
   })
