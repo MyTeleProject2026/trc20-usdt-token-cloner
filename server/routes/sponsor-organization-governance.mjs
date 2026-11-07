@@ -89,6 +89,9 @@ async function ensureSchema(db) {
       )`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations ADD COLUMN IF NOT EXISTS attestation_key_id TEXT`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations ADD COLUMN IF NOT EXISTS attestation_json JSONB`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations DROP CONSTRAINT IF EXISTS sponsor_organization_malware_scan_attestations_scanner_service_check`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations DROP CONSTRAINT IF EXISTS sponsor_org_scan_service_check`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations ADD CONSTRAINT sponsor_org_scan_service_check CHECK (scanner_service='independent-signed-attestation')`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx ON ${SCHEMA}.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC)`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_reviewer_decisions (
         id UUID PRIMARY KEY,
