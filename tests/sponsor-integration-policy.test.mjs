@@ -201,3 +201,70 @@ test('organization authorization fails closed when provider policy evidence is a
   assert.equal(result.eligible, false)
   assert.ok(result.blockers.includes('sponsor-organization-signing-policy-unverified'))
 })
+
+
+test('accepts independently verified production provider-account funding with a distinct Mainnet network label', () => {
+  const providerSnapshot = {
+    sponsorId: 'provider-sponsor-1',
+    consentVerified: true,
+    fundingSnapshotFresh: true,
+    network: 'mainnet',
+    environment: 'production',
+    sourceKind: 'provider-live-account',
+    sourceVerified: true,
+    sandbox: false,
+    simulated: false,
+    liveMode: true,
+    accountVerified: true,
+    providerAccountId: 'provider-vault-123',
+    availableBaseUnits: '1200',
+    requiredBaseUnits: '1000',
+  }
+  const feeSnapshot = {
+    sponsorId: 'provider-fee-1',
+    consentVerified: true,
+    fundingSnapshotFresh: true,
+    coverageVerified: true,
+    network: 'mainnet',
+    environment: 'production',
+    sourceKind: 'provider-live-account',
+    sourceVerified: true,
+    sandbox: false,
+    simulated: false,
+    liveMode: true,
+    accountVerified: true,
+    providerAccountId: 'provider-vault-123',
+    availableBaseUnits: '50',
+    requiredBaseUnits: '25',
+  }
+  const result = evaluateSponsorTransferEligibility(evidence({
+    network: 'mainnet',
+    principal: providerSnapshot,
+    fee: feeSnapshot,
+  }))
+  assert.equal(result.eligible, true)
+  assert.equal(result.submissionPerformed, false)
+})
+
+test('rejects provider-account snapshots without a verified account identity', () => {
+  for (const patch of [
+    { accountVerified: false },
+    { providerAccountId: '' },
+    { environment: 'sandbox', liveMode: false },
+    { environment: 'mainnet', liveMode: true },
+  ]) {
+    const principal = {
+      sponsorId: 'provider-sponsor-1', consentVerified: true, fundingSnapshotFresh: true,
+      network: 'mainnet', environment: 'production', sourceKind: 'provider-live-account',
+      sourceVerified: true, sandbox: false, simulated: false, liveMode: true,
+      accountVerified: true, providerAccountId: 'provider-vault-123',
+      availableBaseUnits: '1200', requiredBaseUnits: '1000', ...patch,
+    }
+    const result = evaluateSponsorTransferEligibility(evidence({
+      network: 'mainnet',
+      principal,
+    }))
+    assert.equal(result.eligible, false)
+    assert.ok(result.blockers.includes('asset-principal-funding-source-not-live-verified'))
+  }
+})
