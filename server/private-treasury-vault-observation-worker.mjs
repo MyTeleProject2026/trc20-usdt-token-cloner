@@ -84,6 +84,8 @@ export async function reconcilePrivateTreasuryVaultObservation({
   try {
     verified = await verifyObservation(receipt, {
       ...replayState,
+      expectedIssuer: vault.expectedIssuer,
+      expectedAudience: vault.expectedAudience || 'tron-transfer-private-treasury',
       expectedVaultId: vault.vaultId,
       expectedTreasuryAddress: vault.treasuryAddress,
       minimumUsdtBaseUnits: PRIVATE_TREASURY_VAULT_WORKER_MINIMUM_USDT_BASE_UNITS,
@@ -209,4 +211,68 @@ export function startPrivateTreasuryVaultObservationWorker({
       if (timer !== null) clearTimeoutImpl(timer)
     },
   }
+}
+
+
+/**
+ * Reconcile through one PostgreSQL repeatable-read snapshot. The repository
+ * interface is read-only; the observation fetcher must also be read-only.
+ * This adapter deliberately does not connect to the ledger writer or startup.
+ */
+export async function reconcilePrivateTreasuryVaultObservationFromPostgres({
+  repository,
+  trustSnapshot,
+  vaultId,
+  expectedIssuer,
+  expectedAudience = 'tron-transfer-private-treasury',
+  readObservation,
+  verifyObservation,
+  nowMs = Date.now(),
+} = {}) {
+  if (!repository || typeof repository.readSnapshot !== 'function'
+    || typeof vaultId !== 'string' || !vaultId.trim()
+    || typeof expectedIssuer !== 'string' || !expectedIssuer.trim()
+    || typeof readObservation !== 'function'
+    || typeof verifyObservation !== 'function'
+    || !Number.isSafeInteger(nowMs) || nowMs <= 0) {
+    return result('worker-configuration-invalid')
+  }
+
+  let snapshot
+  try {
+    snapshot = await repository.readSnapshot(vaultId, trustSnapshot)
+  } catch {
+    return result('read-dependency-unavailable')
+  }
+  if (!snapshot || snapshot.success !== true) {
+    return result('read-dependency-unavailable', {
+      reason: snapshot?.reason || 'treasury-vault-snapshot-unavailable',
+    })
+  }
+
+  const storedVault = snapshot.vault
+  if (!storedVault || storedVault.vaultId !== vaultId
+    || storedVault.network !== 'mainnet'
+    || storedVault.asset !== 'USDT'
+    || storedVault.tokenContract !== 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+    || storedVault.decimals !== 6
+    || storedVault.active !== true
+    || typeof storedVault.treasuryAddress !== 'string'
+    || !storedVault.treasuryAddress.trim()) {
+    return result('vault-configuration-unsupported')
+  }
+
+  return reconcilePrivateTreasuryVaultObservation({
+    vault: {
+      vaultId: storedVault.vaultId,
+      treasuryAddress: storedVault.treasuryAddress,
+      expectedIssuer,
+      expectedAudience,
+    },
+    readObservation,
+    readReplayState: async () => snapshot.replayState,
+    readLedgerState: async () => snapshot.ledgerState,
+    verifyObservation,
+    nowMs,
+  })
 }

@@ -4,6 +4,7 @@ import {
   PRIVATE_TREASURY_VAULT_WORKER_MINIMUM_USDT_BASE_UNITS,
   reconcilePrivateTreasuryVaultObservation,
   startPrivateTreasuryVaultObservationWorker,
+  reconcilePrivateTreasuryVaultObservationFromPostgres,
 } from '../server/private-treasury-vault-observation-worker.mjs'
 
 const vault = { vaultId: 'vault-private-001', treasuryAddress: 'T' + 'A'.repeat(33) }
@@ -134,4 +135,84 @@ test('worker source has no sponsor, Fireblocks, Fincra, signing, or broadcast in
   assert.doesNotMatch(source, /sponsor_direct_payouts|fireblocks|fincra|signMessage|broadcastTransaction/i)
   assert.match(source, /ledgerMutationPerformed: false/)
   assert.match(source, /mainnetExecutionEnabled: false/)
+})
+
+
+test('integrates one coherent PostgreSQL snapshot with the observation verifier read-only', async () => {
+  let snapshotReads = 0
+  let observationReads = 0
+  let verificationOptions
+  const snapshot = {
+    success: true,
+    vault: {
+      vaultId: 'vault-private-001',
+      network: 'mainnet',
+      asset: 'USDT',
+      tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      decimals: 6,
+      treasuryAddress: vault.treasuryAddress,
+      active: true,
+    },
+    replayState,
+    ledgerState: { lastSequence: '7', lastReceiptId: null, lastObservationId: null },
+  }
+  const repository = {
+    async readSnapshot(id, trustSnapshot) {
+      snapshotReads += 1
+      assert.equal(id, vault.vaultId)
+      assert.equal(trustSnapshot, configuredTrust)
+      return snapshot
+    },
+  }
+  const configuredTrust = { configured: true, trustedKeys: replayState.trustedKeys, revokedKeyIds: [], checkedAtMs: now }
+  const result = await reconcilePrivateTreasuryVaultObservationFromPostgres({
+    repository,
+    trustSnapshot: configuredTrust,
+    vaultId: vault.vaultId,
+    expectedIssuer: 'financial-vault.example',
+    readObservation: async () => { observationReads += 1; return { payload: 'receipt' } },
+    verifyObservation: async (_receipt, options) => {
+      verificationOptions = options
+      return verified()
+    },
+    nowMs: now,
+  })
+  assert.equal(result.status, 'verified-observation-awaiting-separate-ledger-claim')
+  assert.equal(snapshotReads, 1)
+  assert.equal(observationReads, 1)
+  assert.equal(verificationOptions.expectedIssuer, 'financial-vault.example')
+  assert.equal(verificationOptions.expectedAudience, 'tron-transfer-private-treasury')
+  assert.equal(verificationOptions.minimumUsdtBaseUnits, '1000000000')
+  assert.equal(result.ledgerMutationPerformed, false)
+  assert.equal(result.reservationCreated, false)
+  assert.equal(result.payoutAuthorized, false)
+  assert.equal(result.transactionSigned, false)
+  assert.equal(result.broadcastAttempted, false)
+})
+
+test('PostgreSQL adapter fails closed for inactive or incorrectly bound vaults', async () => {
+  const base = {
+    success: true,
+    vault: {
+      vaultId: 'vault-private-001', network: 'mainnet', asset: 'USDT',
+      tokenContract: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6,
+      treasuryAddress: vault.treasuryAddress, active: false,
+    },
+    replayState, ledgerState: { lastSequence: '0' },
+  }
+  const result = await reconcilePrivateTreasuryVaultObservationFromPostgres({
+    repository: { readSnapshot: async () => base },
+    trustSnapshot: { configured: true },
+    vaultId: vault.vaultId,
+    expectedIssuer: 'financial-vault.example',
+    readObservation: async () => ({ payload: 'receipt' }),
+    verifyObservation: async () => verified(),
+    nowMs: now,
+  })
+  assert.equal(result.status, 'vault-configuration-unsupported')
+})
+
+test('PostgreSQL adapter requires a configured expected issuer and repository', async () => {
+  const result = await reconcilePrivateTreasuryVaultObservationFromPostgres({})
+  assert.equal(result.status, 'worker-configuration-invalid')
 })
