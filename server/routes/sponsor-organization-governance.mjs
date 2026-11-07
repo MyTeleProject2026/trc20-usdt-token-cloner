@@ -51,6 +51,7 @@ async function ensureSchema(db) {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS malware_scan_status TEXT NOT NULL DEFAULT 'pending'`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ALTER COLUMN malware_scan_status SET DEFAULT 'pending'`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx ON ${SCHEMA}.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC)`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_reviewer_decisions (
         id UUID PRIMARY KEY,
