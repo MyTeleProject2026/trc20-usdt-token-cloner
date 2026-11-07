@@ -45,7 +45,6 @@ test('registry validation rejects missing role quorum, duplicate addresses and o
   ])}
   assert.equal(getSponsorReviewerRegistry(duplicate).reason,'registry-wallet-duplicate')
   const overlap={...env,SPONSOR_ORG_SECURITY_OFFICERS:JSON.stringify([{walletAddress:reviewerA,active:true}])}
-  const overlapPins=buildSponsorGovernanceRegistryPins(overlap)
-  overlap.SPONSOR_ORG_SECURITY_OFFICERS_SHA256=overlapPins.securityOfficerDigest
+  overlap.SPONSOR_ORG_SECURITY_OFFICERS_SHA256=createHash('sha256').update(JSON.stringify([{walletAddress:reviewerA,active:true}])).digest('hex')
   assert.equal(getSponsorSecurityOfficerRegistry(overlap).reason,'security-officer-must-be-independent-of-reviewers')
 })
