@@ -9,6 +9,9 @@ const migration = await readFile(new URL('server/migrations/20261107_sponsor_org
 const portal = await readFile(new URL('Frontend-Tron-Transfer/src/SponsorPortal.jsx', root), 'utf8')
 const panel = await readFile(new URL('Frontend-Tron-Transfer/src/SponsorOrganizationGovernance.jsx', root), 'utf8')
 const onboarding = await readFile(new URL('server/routes/sponsor-organization-onboarding.mjs', root), 'utf8')
+const custody = await readFile(new URL('server/sponsor-document-custody.mjs', root), 'utf8')
+const registry = await readFile(new URL('server/sponsor-governance-registry.mjs', root), 'utf8')
+const testnet = await readFile(new URL('scripts/run-sponsor-governance-testnet-check.mjs', root), 'utf8')
 
 test('governance router is mounted before the legacy onboarding router', () => {
   const governanceMount = index.indexOf("app.use('/api/tron', createSponsorOrganizationGovernanceRouter())")
@@ -17,13 +20,42 @@ test('governance router is mounted before the legacy onboarding router', () => {
   assert.ok(onboardingMount > governanceMount)
 })
 
-test('evidence metadata API is sponsor-bound and does not upload or fetch documents', () => {
+test('metadata-only evidence remains pending and cannot satisfy independent custody review', () => {
   assert.match(api, /router\.post\('\/organizations\/mandates\/:id\/evidence'/)
   assert.match(api, /row\.sponsor_wallet_address !== auth\.address/)
   assert.match(api, /rawDocumentStoredHere: false/)
   assert.match(api, /vaultObjectFetched: false/)
   assert.match(api, /pending-independent-review/)
   assert.doesNotMatch(api, /req\.files|multer\(|fetch\(.*objectKey/)
+})
+
+test('document upload is ClamAV-first, private-vault-only and requires authenticated storage receipts', () => {
+  assert.match(api, /express\\.raw/)
+  assert.match(api, /custodyUpload\\(/)
+  assert.match(api, /sponsor_organization_malware_scan_attestations/)
+  assert.match(api, /malware_scan_status/)
+  assert.match(custody, /zINSTREAM/)
+  assert.match(custody, /zVERSION/)
+  assert.match(custody, /X-Encryption-Required/)
+  assert.match(custody, /createHmac/)
+  assert.match(custody, /timingSafeEqual/)
+  assert.match(custody, /vaultHost/)
+  assert.match(api, /document-custody-not-configured/)
+})
+
+test('trusted governance registries require pinned digests, versions and disjoint reviewer/security wallets', () => {
+  assert.match(registry, /SPONSOR_ORG_REVIEWER_REGISTRY_SHA256/)
+  assert.match(registry, /SPONSOR_ORG_SECURITY_OFFICERS_SHA256/)
+  assert.match(registry, /security-officer-must-be-independent-of-reviewers/)
+  assert.match(api, /getSponsorReviewerRegistry/)
+  assert.match(api, /getSponsorSecurityOfficerRegistry/)
+})
+
+test('Nile verification is GET-only and refuses Mainnet endpoints', () => {
+  assert.match(testnet, /nile\\.trongrid\\.io/)
+  assert.match(testnet, /method: 'GET'/)
+  assert.match(testnet, /transactionBroadcast: false/)
+  assert.doesNotMatch(testnet, /sendRawTransaction|broadcastTransaction|signTransaction/)
 })
 
 test('legacy mandate verify and authorize transitions cannot bypass the two-role quorum', () => {
