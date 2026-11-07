@@ -24,8 +24,10 @@ A reference string or owner-entered review status is not evidence by itself. The
 - Only `per-transfer` mandate mode is accepted by this non-production evaluator. Standing provider authorization is blocked pending a separately reviewed provider adapter and authorization model.
 - The evaluator returns `payoutAuthorized: false` even when every check passes.
 - It does not sign, call a provider, create a transaction, broadcast, or verify exchange credit.
-- It is not mounted into `server/index.mjs` or connected to the active sponsor-direct route.
-- The organization onboarding router remains unmounted and its UI remains unconnected, as documented in the prior audit.
+- The evaluator is not imported or mounted by `server/index.mjs` and is not connected to the active sponsor-direct route.
+- The organization onboarding router is mounted at `/api/tron` in `server/index.mjs`; the Stage 7B governance router is mounted immediately before it so its signed revocation and review routes take precedence where paths overlap.
+- The sponsor portal is routed at `#/sponsor` and renders the `SponsorOrganizationGovernance` panel. That panel provides mandate evidence, reviewer decision and revocation controls. The current sponsor portal does not render an organization-application submission form or call the onboarding `/organizations/applications` endpoints; backend onboarding routes and frontend onboarding UI must therefore be treated as separate implementation surfaces.
+- The legacy onboarding route still accepts a `fincra-automatic` mandate declaration and exposes `FINCRA_AUTO_PAYOUTS_ENABLED` as a configuration-status field. This is not a verified execution gate or payout authorization: the Stage 6 evaluator remains isolated, and onboarding responses continue to report `payoutAuthorized: false`. The Fincra-specific path is not approved for operational use and requires a separately scoped removal or hard-disable review.
 - No production database migration or write is part of this stage.
 
 ## Verification
