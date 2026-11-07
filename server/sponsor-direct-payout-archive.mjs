@@ -359,17 +359,40 @@ export async function readSponsorDirectPayoutArchiveDiagnostics(db, { schemaName
       counts: { active: 0, archived: 0, unresolvedBelowMinimum: 0, registry: 0, registryMismatches: 0 },
     }
   }
+  const activeState = await db.query(
+    'SELECT COUNT(*)::int AS active, ' +
+    'COUNT(*) FILTER (WHERE amount_base_units < $1::numeric AND status NOT IN (' + TERMINAL_STATUSES + '))::int AS unresolved_below_minimum ' +
+    'FROM ' + schema + '.sponsor_direct_payouts',
+    [DIAGNOSTICS_MINIMUM_BASE_UNITS],
+  )
+  const activeRow = activeState.rows?.[0] || {}
   if (!found.archive_table || !found.history_view || !found.registry_table) {
+    const [archiveCount, registryCount] = await Promise.all([
+      found.archive_table
+        ? db.query('SELECT COUNT(*)::int AS count FROM ' + schema + '.sponsor_direct_payouts_archive')
+        : Promise.resolve({ rows: [{ count: null }] }),
+      found.registry_table
+        ? db.query('SELECT COUNT(*)::int AS count FROM ' + schema + '.sponsor_direct_payout_idempotency_registry')
+        : Promise.resolve({ rows: [{ count: null }] }),
+    ])
+    const unresolved = Number(activeRow.unresolved_below_minimum || 0)
     return {
-      status: 'incomplete',
+      status: unresolved > 0 ? 'blocked' : 'incomplete',
       schema,
+      minimumWithdrawalBaseUnits: DIAGNOSTICS_MINIMUM_BASE_UNITS,
       checks: {
         activeTable: true,
         archiveTable: Boolean(found.archive_table),
         historyView: Boolean(found.history_view),
         idempotencyRegistry: Boolean(found.registry_table),
       },
-      counts: { active: null, archived: null, unresolvedBelowMinimum: null, registry: null, registryMismatches: null },
+      counts: {
+        active: Number(activeRow.active || 0),
+        archived: archiveCount.rows?.[0]?.count == null ? null : Number(archiveCount.rows[0].count),
+        unresolvedBelowMinimum: unresolved,
+        registry: registryCount.rows?.[0]?.count == null ? null : Number(registryCount.rows[0].count),
+        registryMismatches: null,
+      },
     }
   }
 
