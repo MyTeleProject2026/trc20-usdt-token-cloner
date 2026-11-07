@@ -112,6 +112,11 @@ function reviewerRegistry(env) {
       && ROLES.has(item.role) && item.active === true)
   } catch { return [] }
 }
+function activeReviewerDecisions(decisions, env) {
+  const active = new Map(reviewerRegistry(env).map((reviewer) => [reviewer.walletAddress, reviewer.role]))
+  return (Array.isArray(decisions) ? decisions : []).filter((decision) =>
+    active.get(decision.reviewer_wallet_address) === decision.reviewer_role)
+}
 function revocationRegistry(env) {
   try {
     const parsed = JSON.parse(clean(env.SPONSOR_ORG_SECURITY_OFFICERS, 12000) || '[]')
@@ -272,9 +277,10 @@ export function createSponsorOrganizationGovernanceRouter({
         FROM ${SCHEMA}.sponsor_organization_revocation_events WHERE mandate_id=$1 OR (scope_type='application' AND scope_id=$2) ORDER BY created_at ASC`,
       [mandateId,row.application_id])
       const currentDecisions = decisions.rows.filter((d) => d.evidence_set_digest.trim() === evidence.digest)
-      const approvedRoles = new Set(currentDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_role))
-      const reviewers = new Set(currentDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_wallet_address))
-      const quorumMet = currentDecisions.every((d) => d.decision === 'approved') && reviewers.size >= 2 && approvedRoles.has('compliance-reviewer') && approvedRoles.has('security-reviewer')
+      const activeDecisions = activeReviewerDecisions(currentDecisions, env)
+      const approvedRoles = new Set(activeDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_role))
+      const reviewers = new Set(activeDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_wallet_address))
+      const quorumMet = activeDecisions.every((d) => d.decision === 'approved') && reviewers.size >= 2 && approvedRoles.has('compliance-reviewer') && approvedRoles.has('security-reviewer')
       return res.json({ success: true, applicationId: row.application_id, mandateId, evidence: evidence.artifacts, evidenceSetDigest: evidence.digest,
         reviewerDecisions: decisions.rows.map((d) => ({ reviewerWalletAddress:d.reviewer_wallet_address, reviewerRole:d.reviewer_role,
           evidenceSetDigest:d.evidence_set_digest.trim(), decision:d.decision, decisionEvidenceReference:d.decision_evidence_reference,
@@ -311,10 +317,11 @@ export function createSponsorOrganizationGovernanceRouter({
       const decisions = await db.query(`SELECT reviewer_wallet_address,reviewer_role,decision
         FROM ${SCHEMA}.sponsor_organization_reviewer_decisions
         WHERE mandate_id=$1 AND evidence_set_digest=$2`, [mandateId,evidence.digest])
-      const approved = decisions.rows.filter((d) => d.decision === 'approved')
+      const activeDecisions = activeReviewerDecisions(decisions.rows, env)
+      const approved = activeDecisions.filter((d) => d.decision === 'approved')
       const reviewers = new Set(approved.map((d) => d.reviewer_wallet_address))
       const roles = new Set(approved.map((d) => d.reviewer_role))
-      const quorumMet = decisions.rows.length >= 2 && decisions.rows.every((d) => d.decision === 'approved')
+      const quorumMet = activeDecisions.every((d) => d.decision === 'approved')
         && reviewers.size >= 2 && roles.has('compliance-reviewer') && roles.has('security-reviewer')
       if (!quorumMet) {
         return res.status(409).json({ success:false, error:'independent-reviewer-quorum-not-met',
@@ -369,10 +376,11 @@ export function createSponsorOrganizationGovernanceRouter({
       [randomUUID(),row.application_id,mandateId,auth.address,reviewer.role,evidence.digest,decision,hash(body.signature),reference,decidedAt.toISOString()])
       const decisions = await db.query(`SELECT reviewer_wallet_address,reviewer_role,decision FROM ${SCHEMA}.sponsor_organization_reviewer_decisions
         WHERE mandate_id=$1 AND evidence_set_digest=$2`, [mandateId,evidence.digest])
-      const approved = decisions.rows.filter((d) => d.decision === 'approved')
+      const activeDecisions = activeReviewerDecisions(decisions.rows, env)
+      const approved = activeDecisions.filter((d) => d.decision === 'approved')
       const distinct = new Set(approved.map((d) => d.reviewer_wallet_address))
       const roles = new Set(approved.map((d) => d.reviewer_role))
-      const quorumMet = decisions.rows.every((d) => d.decision === 'approved') && distinct.size >= 2 && roles.has('compliance-reviewer') && roles.has('security-reviewer')
+      const quorumMet = activeDecisions.every((d) => d.decision === 'approved') && distinct.size >= 2 && roles.has('compliance-reviewer') && roles.has('security-reviewer')
       return res.status(201).json({ success:true, decisionId:undefined, evidenceSetDigest:evidence.digest,
         independentReview:{ quorumMet, reviewerCount:distinct.size, requiredRoles:['compliance-reviewer','security-reviewer'] },
         payoutAuthorized:false, signerOperationPerformed:false, transactionBroadcast:false })
