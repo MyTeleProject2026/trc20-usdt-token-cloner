@@ -286,6 +286,46 @@ export function createSponsorOrganizationGovernanceRouter({
     } catch { return res.status(503).json({ success: false, error: 'governance-record-read-failed' }) }
   })
 
+  // Gate the legacy owner state-transition endpoint: it may record verify/authorize
+  // only after the independent two-role quorum approves the exact current digest.
+  router.post('/organizations/mandates/:id/review', async (req, res, next) => {
+    noStore(res)
+    const auth = await authenticate(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success:false, error:auth.error })
+    if (!ownerAddress(env) || auth.address !== ownerAddress(env)) {
+      return res.status(403).json({ success:false, error:'platform-owner-only' })
+    }
+    if (!['verify','authorize'].includes(req.body?.decision)) return next()
+    const mandateId = clean(req.params?.id, 64)
+    if (!UUID_RE.test(mandateId)) return res.status(400).json({ success:false, error:'invalid-mandate-id' })
+    const db = getDb(env)
+    if (!db) return res.status(503).json({ success:false, error:'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const mandate = await db.query(`SELECT id FROM ${SCHEMA}.sponsor_organization_mandates WHERE id=$1 LIMIT 1`, [mandateId])
+      if (!mandate.rows[0]) return res.status(404).json({ success:false, error:'mandate-not-found' })
+      const evidence = await readEvidenceSet(db, mandateId)
+      if (!evidence.digest || evidence.artifacts.length === 0) {
+        return res.status(409).json({ success:false, error:'independent-evidence-quorum-required', payoutAuthorized:false })
+      }
+      const decisions = await db.query(`SELECT reviewer_wallet_address,reviewer_role,decision
+        FROM ${SCHEMA}.sponsor_organization_reviewer_decisions
+        WHERE mandate_id=$1 AND evidence_set_digest=$2`, [mandateId,evidence.digest])
+      const approved = decisions.rows.filter((d) => d.decision === 'approved')
+      const reviewers = new Set(approved.map((d) => d.reviewer_wallet_address))
+      const roles = new Set(approved.map((d) => d.reviewer_role))
+      const quorumMet = decisions.rows.length >= 2 && decisions.rows.every((d) => d.decision === 'approved')
+        && reviewers.size >= 2 && roles.has('compliance-reviewer') && roles.has('security-reviewer')
+      if (!quorumMet) {
+        return res.status(409).json({ success:false, error:'independent-reviewer-quorum-not-met',
+          reviewerCount:reviewers.size, requiredRoles:['compliance-reviewer','security-reviewer'], payoutAuthorized:false })
+      }
+      return next()
+    } catch {
+      return res.status(503).json({ success:false, error:'independent-review-quorum-check-failed', payoutAuthorized:false })
+    }
+  })
+
   router.post('/organizations/mandates/:id/reviews', async (req, res) => {
     noStore(res)
     const auth = await authenticate(req, env, getSession, now)
