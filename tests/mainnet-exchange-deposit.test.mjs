@@ -42,19 +42,16 @@ test('Mainnet USDT asset identity is pinned to the official Tether TRON contract
   assert.doesNotMatch(flow, /userSelectedTokenContract|customUsdtContract/i)
 })
 
-test('Mainnet transfer is locally wallet-signed, validates intent, and broadcasts only that signature', () => {
-  assert.match(flow, /transactionBuilder\.sendTrx\(receiver, baseUnits, sender\)/)
-  assert.match(flow, /transactionBuilder\.triggerSmartContract/)
-  assert.match(flow, /transfer\(address,uint256\)/)
-  assert.match(flow, /tronWeb\.trx\.sign\(unsigned\)/)
-  assert.match(flow, /sendRawTransaction\(signed\)/)
-  assert.match(flow, /value\.owner_address/)
-  assert.match(flow, /receiverHex\.padStart\(64, '0'\)/)
-  assert.match(flow, /destinationConfirmed && irreversibleConfirmed/)
-  assert.match(flow, /A signature was returned/)
-  assert.match(flow, /duplicate send is blocked/)
-  assert.doesNotMatch(flow, /privateKey\s*[:=]/i)
-  assert.doesNotMatch(flow, /mnemonic\s*[:=]/i)
+test('supervised build keeps the exchange deposit page read-only and blocks new Mainnet sends', () => {
+  assert.match(flow, /const REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED = true/)
+  assert.match(flow, /if \(REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED\)/)
+  assert.match(flow, /Mainnet exchange transfers are disabled in this supervised build/)
+  assert.match(flow, /!REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED && sender/)
+  assert.match(flow, /disabled=\{true\} title="Mainnet transaction signing and broadcast are disabled in this build"/)
+  assert.doesNotMatch(flow, /tronWeb\.trx\.sign\(unsigned\)/)
+  assert.doesNotMatch(flow, /sendRawTransaction\(signed\)/)
+  assert.match(flow, /verifyAttempt\(attempt\)/)
+  assert.match(flow, //api\/tron\/verify-trc20-transfer\//)
 })
 
 test('deposit success requires the existing solidified TRX or TRC-20 verifier', () => {
