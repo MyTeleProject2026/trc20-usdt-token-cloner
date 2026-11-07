@@ -133,13 +133,38 @@ test('isolated PostgreSQL Treasury Vault schema enforces atomic claims, replay p
       'observation claims must be immutable',
     )
 
+    await assert.rejects(
+      pool.query('UPDATE ' + schema + '.private_treasury_observation_state SET last_sequence=2 WHERE vault_id=$1', [vaultId]),
+      (error) => error.code === '23514',
+      'direct SQL must not move the sequence cursor backwards',
+    )
+    await assert.rejects(
+      pool.query('UPDATE ' + schema + '.private_treasury_observation_state SET last_observation_id=$2 WHERE vault_id=$1', [vaultId, 'forged-at-same-sequence']),
+      (error) => error.code === '23514',
+      'observation identity must not change at the same sequence',
+    )
+
+    const crossLink = { receiptId: 'receipt-cross-link', observationId: 'observation-cross-link', sequence: '4' }
+    await pool.query(
+      'INSERT INTO ' + schema + '.private_treasury_observation_claims (vault_id, receipt_id, observation_id, reservation_sequence, payload_digest) VALUES ($1,$2,$3,$4,$5)',
+      [vaultId, crossLink.receiptId, crossLink.observationId, crossLink.sequence, 'c'.repeat(64)],
+    )
+    await assert.rejects(
+      pool.query(
+        'INSERT INTO ' + schema + '.private_treasury_reservations (reservation_id, vault_id, request_id, receipt_id, observation_id, reservation_sequence, amount_base_units) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [randomUUID(), vaultId, randomUUID(), first.receiptId, crossLink.observationId, '4', minimum],
+      ),
+      (error) => error.code === '23503',
+      'receipt, observation and sequence must bind to one claim row',
+    )
+
     const counts = await pool.query(
       'SELECT (SELECT COUNT(*) FROM ' + schema + '.private_treasury_observation_claims WHERE vault_id=$1)::int AS claims, ' +
       '(SELECT COUNT(*) FROM ' + schema + '.private_treasury_reservations WHERE vault_id=$1)::int AS reservations, ' +
       '(SELECT COUNT(*) FROM ' + schema + '.private_treasury_reservation_events WHERE vault_id=$1)::int AS events',
       [vaultId],
     )
-    assert.equal(counts.rows[0].claims, 3)
+    assert.equal(counts.rows[0].claims, 4)
     assert.equal(counts.rows[0].reservations, 3)
     assert.equal(counts.rows[0].events, 3)
   } finally {

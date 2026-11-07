@@ -38,8 +38,29 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_observation_claims
   claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (vault_id, receipt_id),
   UNIQUE (vault_id, observation_id),
-  UNIQUE (vault_id, reservation_sequence)
+  UNIQUE (vault_id, reservation_sequence),
+  UNIQUE (vault_id, receipt_id, observation_id, reservation_sequence)
 );
+
+CREATE OR REPLACE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_monotonic()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+  IF NEW.last_sequence < OLD.last_sequence THEN
+    RAISE EXCEPTION 'private Treasury Vault sequence cannot move backwards' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.last_sequence = OLD.last_sequence
+     AND (NEW.last_observation_id IS DISTINCT FROM OLD.last_observation_id
+       OR NEW.last_receipt_id IS DISTINCT FROM OLD.last_receipt_id) THEN
+    RAISE EXCEPTION 'observation identity cannot change without advancing sequence' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$;
+DROP TRIGGER IF EXISTS private_treasury_sequence_monotonic
+  ON trc20_token_clone.private_treasury_observation_state;
+CREATE TRIGGER private_treasury_sequence_monotonic
+  BEFORE UPDATE ON trc20_token_clone.private_treasury_observation_state
+  FOR EACH ROW EXECUTE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_monotonic();
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_reservations (
   reservation_id UUID PRIMARY KEY,
@@ -58,12 +79,11 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_reservations (
     CHECK (amount_base_units >= 1000000000),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (vault_id, request_id),
+  UNIQUE (vault_id, reservation_id),
   UNIQUE (vault_id, reservation_sequence),
-  FOREIGN KEY (vault_id, receipt_id)
-    REFERENCES trc20_token_clone.private_treasury_observation_claims(vault_id, receipt_id)
-    ON DELETE RESTRICT,
-  FOREIGN KEY (vault_id, observation_id)
-    REFERENCES trc20_token_clone.private_treasury_observation_claims(vault_id, observation_id)
+  FOREIGN KEY (vault_id, receipt_id, observation_id, reservation_sequence)
+    REFERENCES trc20_token_clone.private_treasury_observation_claims
+      (vault_id, receipt_id, observation_id, reservation_sequence)
     ON DELETE RESTRICT
 );
 
@@ -72,13 +92,14 @@ CREATE INDEX IF NOT EXISTS private_treasury_reservations_vault_created_idx
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_reservation_events (
   event_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  reservation_id UUID NOT NULL
-    REFERENCES trc20_token_clone.private_treasury_reservations(reservation_id) ON DELETE RESTRICT,
-  vault_id UUID NOT NULL
-    REFERENCES trc20_token_clone.private_treasury_vaults(vault_id) ON DELETE RESTRICT,
+  reservation_id UUID NOT NULL,
+  vault_id UUID NOT NULL,
   event_type TEXT NOT NULL CHECK (event_type = 'reservation-created'),
   event_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (vault_id, reservation_id)
+    REFERENCES trc20_token_clone.private_treasury_reservations(vault_id, reservation_id)
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS private_treasury_reservation_events_vault_created_idx
