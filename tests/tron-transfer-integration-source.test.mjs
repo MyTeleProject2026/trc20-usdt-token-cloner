@@ -237,3 +237,18 @@ test('sandbox funding guards remain preflight-only and production sponsored subm
   assert.match(readinessRoute, /Sponsored submission remains disabled/)
   assert.match(readinessRoute, /pure preflight module and is not yet connected/)
 })
+
+
+test('organization mandate documentation accurately states that onboarding is not mounted or payout-connected', async () => {
+  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
+  const organizationDoc = await readFile(new URL('../docs/SPONSOR_ORGANIZATION_MANDATES.md', import.meta.url), 'utf8')
+  const organizationRoute = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(entry, /createSponsorOrganizationRouter/)
+  assert.doesNotMatch(app, /SponsorOrganizationOnboarding/)
+  assert.match(organizationRoute, /createSponsorOrganizationRouter/)
+  assert.match(organizationDoc, /not import or mount/)
+  assert.match(organizationDoc, /does not join organization applications or mandate records/)
+  assert.match(organizationDoc, /not a claim that organizational sponsorship is available/)
+  assert.doesNotMatch(organizationDoc, /This workflow is integrated into the deployed/)
+})
