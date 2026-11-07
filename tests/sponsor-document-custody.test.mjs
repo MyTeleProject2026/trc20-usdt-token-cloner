@@ -108,9 +108,9 @@ test('ClamAV handshake verifies the configured daemon version before scanning by
   const server = net.createServer((socket) => {
     socket.once('data', (data) => {
       const command = data.subarray(0, 10).toString('utf8')
-      if (command.startsWith('zVERSION')) socket.end('ClamAV 1.4.2/123/test-db\\n')
-      else if (command.startsWith('zINSTREAM')) socket.end('stream: OK\\n')
-      else socket.end('UNKNOWN COMMAND\\n')
+      if (command.startsWith('zVERSION')) socket.end('ClamAV 1.4.2/123/test-db\n')
+      else if (command.startsWith('zINSTREAM')) socket.end('stream: OK\n')
+      else socket.end('UNKNOWN COMMAND\n')
     })
   })
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -126,7 +126,7 @@ test('ClamAV handshake verifies the configured daemon version before scanning by
 })
 
 test('ClamAV version mismatch fails closed before file scanning', async () => {
-  const server = net.createServer((socket) => socket.once('data', () => socket.end('ClamAV 1.3.0/123/test-db\\n')))
+  const server = net.createServer((socket) => socket.once('data', () => socket.end('ClamAV 1.3.0/123/test-db\n')))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   try {
