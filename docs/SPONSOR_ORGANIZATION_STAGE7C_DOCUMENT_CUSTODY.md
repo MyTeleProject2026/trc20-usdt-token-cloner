@@ -53,6 +53,7 @@ The backend does not currently implement a vendor-specific vault. A compatible g
 Required server configuration:
 
 - `SPONSOR_ORG_CLAMAV_HOST`: private-network DNS name reachable only by the backend.
+- `SPONSOR_ORG_CLAMAV_ALLOWED_HOSTS`: comma-separated exact ClamAV host allowlist.
 - `SPONSOR_ORG_CLAMAV_PORT`: normally 3310.
 - `SPONSOR_ORG_CLAMAV_VERSION`: expected version prefix, for example `ClamAV 1.4.2`.
 - `SPONSOR_ORG_CLAMAV_TIMEOUT_MS`: bounded timeout from 1000 to 60000 ms.
@@ -71,6 +72,7 @@ Vault gateway:
 ClamAV:
 
 - `SPONSOR_ORG_CLAMAV_HOST`
+- `SPONSOR_ORG_CLAMAV_ALLOWED_HOSTS`
 - `SPONSOR_ORG_CLAMAV_PORT`
 - `SPONSOR_ORG_CLAMAV_VERSION`
 - `SPONSOR_ORG_CLAMAV_TIMEOUT_MS`
