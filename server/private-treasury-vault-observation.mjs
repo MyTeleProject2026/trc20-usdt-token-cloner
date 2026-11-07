@@ -215,9 +215,15 @@ export function verifyPrivateTreasuryVaultObservation(receipt, {
     'freeBandwidthLimit', 'freeBandwidthUsed', 'stakedBandwidthLimit',
     'stakedBandwidthUsed', 'energyLimit', 'energyUsed',
   ])) return fail('network-resource-observation-shape-invalid')
-  const resourceValues = Object.values(p.resources).map(uint)
-  if (resourceValues.some((value) => value === null)) return fail('network-resource-observation-invalid')
-  const [freeLimit, freeUsed, stakedLimit, stakedUsed, energyLimit, energyUsed] = resourceValues
+  const freeLimit = uint(p.resources.freeBandwidthLimit)
+  const freeUsed = uint(p.resources.freeBandwidthUsed)
+  const stakedLimit = uint(p.resources.stakedBandwidthLimit)
+  const stakedUsed = uint(p.resources.stakedBandwidthUsed)
+  const energyLimit = uint(p.resources.energyLimit)
+  const energyUsed = uint(p.resources.energyUsed)
+  if ([freeLimit, freeUsed, stakedLimit, stakedUsed, energyLimit, energyUsed].some((value) => value === null)) {
+    return fail('network-resource-observation-invalid')
+  }
   const freeAvailable = freeLimit > freeUsed ? freeLimit - freeUsed : 0n
   const stakedAvailable = stakedLimit > stakedUsed ? stakedLimit - stakedUsed : 0n
   const energyAvailable = energyLimit > energyUsed ? energyLimit - energyUsed : 0n
