@@ -414,6 +414,59 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(requesterHistory.response.status, 200)
     const requesterCopy = requesterHistory.payload.requests.find((item) => item.id === first.payload.request.id)
     assert.equal(requesterCopy.unsignedTransaction, undefined)
+
+    // Seed one already-terminal legacy payout in the immutable archive. The API
+    // must expose it as history only, including by its globally reserved key.
+    const archivedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const archivedKey = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    await db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_payouts_archive ' +
+      '(id,idempotency_key,requester_address,sponsor_address,recipient_address,token_contract,' +
+      'amount_base_units,status,created_at,updated_at,archived_at,archive_reason,archive_schema_version) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,\'failed\',now(),now(),now(),\'below-minimum-terminal-record\',1) ' +
+      'ON CONFLICT (id) DO NOTHING',
+      [archivedId, archivedKey, requesterAddress, sponsorAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999'],
+    )
+    await db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_payout_idempotency_registry ' +
+      '(idempotency_key,payout_id,requester_address,recipient_address,amount_base_units) ' +
+      'VALUES ($1,$2,$3,$4,$5) ON CONFLICT (idempotency_key) DO NOTHING',
+      [archivedKey, archivedId, requesterAddress, recipientAddress, '999999999'],
+    )
+
+    const archivedHistory = await call('/my-requests', requesterToken)
+    assert.equal(archivedHistory.response.status, 200)
+    const archivedCopy = archivedHistory.payload.requests.find((item) => item.id === archivedId)
+    assert.equal(archivedCopy.archived, true)
+    assert.equal(archivedCopy.readOnly, true)
+    assert.equal(archivedCopy.amountBaseUnits, '999999999')
+    assert.equal(archivedCopy.unsignedTransaction, undefined)
+
+    const archivedDetail = await call('/requests/' + archivedId, requesterToken)
+    assert.equal(archivedDetail.response.status, 200)
+    assert.equal(archivedDetail.payload.request.archived, true)
+    assert.equal(archivedDetail.payload.request.readOnly, true)
+    assert.equal(archivedDetail.payload.request.status, 'failed')
+
+    const archivedDuplicate = await call('/requests/idempotency/' + archivedKey, requesterToken)
+    assert.equal(archivedDuplicate.response.status, 200)
+    assert.equal(archivedDuplicate.payload.duplicate, true)
+    assert.equal(archivedDuplicate.payload.payoutAuthorized, false)
+    assert.equal(archivedDuplicate.payload.transactionBroadcast, false)
+    assert.equal(archivedDuplicate.payload.request.id, archivedId)
+    assert.equal(archivedDuplicate.payload.request.archived, true)
+
+    const archiveDiagnostics = await call('/archive-migration-status', ownerToken)
+    assert.equal(archiveDiagnostics.response.status, 200)
+    assert.equal(archiveDiagnostics.payload.readOnly, true)
+    assert.equal(archiveDiagnostics.payload.migration.status, 'ready')
+    assert.ok(archiveDiagnostics.payload.migration.counts.archived >= 1)
+    assert.equal(archiveDiagnostics.payload.migration.counts.unresolvedBelowMinimum, 0)
+    assert.equal(archiveDiagnostics.payload.migration.checks.activeMinimumValidated, true)
+    assert.equal(archiveDiagnostics.payload.migration.checks.registryConsistent, true)
+
+    const forbiddenDiagnostics = await call('/archive-migration-status', outsiderToken)
+    assert.equal(forbiddenDiagnostics.response.status, 403)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
     await db.query(
