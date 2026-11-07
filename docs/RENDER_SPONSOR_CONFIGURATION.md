@@ -31,8 +31,6 @@ Set values only for resources and agreements the project is authorized to use.
 | `FINCRA_SOURCE_CURRENCY` | Defaults to `USDT` | The automatic path currently permits same-currency USDT source and destination only. |
 | `FINCRA_PAYOUTS_ENABLED` | Keep `false` until the account is approved, funded and authorized for this use | Enables the owner-operated payout endpoint after all other release gates pass. The owner path is restricted to requests whose authenticated requester wallet matches the configured platform owner wallet. |
 | `FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED` | Keep `false` until Fincra enables live stablecoin payouts | Explicit operator assertion; this flag does not itself enable the feature with Fincra or prove funds. |
-| `FINCRA_AUTO_PAYOUTS_ENABLED` | **Keep `false` until a standing sponsor mandate is independently verified and authorized** | Additional fail-closed gate for automatic requester-initiated provider submission. |
-| `FINCRA_AUTO_PAYOUT_REQUESTER_ADDRESSES` | Required only for automatic mode | Comma-separated exact TRON Mainnet requester wallet addresses allowed to trigger automatic submissions. Do not use `*`, wildcards or an unrestricted public list. |
 | `DATABASE_URL` | Required for persistent history/ledger features | Render PostgreSQL's **Internal Database URL** when services are in the same region/workspace. Never commit the URL. |
 | `DATABASE_SSL` | Usually leave `false` for the internal Render connection | Only set `true` if the database endpoint and certificate configuration support the backend's strict TLS validation. Verify readiness after changing it. |
 | `FRONTEND_ORIGIN` | Required for browser API requests | Exact frontend origin, for example `https://trc20-usdt-token-cloner.onrender.com` (no path; use comma-separated origins only if intentionally supporting multiple). |
@@ -44,16 +42,19 @@ Set values only for resources and agreements the project is authorized to use.
 | `TREASURY_OWNER_ADDRESS` | Required for the owner-only treasury check | Public Mainnet address used to authenticate the owner. The matching wallet must sign the one-time identity message in Wallet Vault. Never enter a key here. |
 | `TREASURY_MAINNET_ADDRESS` | Recommended for the owner-only treasury check | Public watch-only address whose actual TRX and official USDT balance should be read. If blank, the backend falls back to `SPONSOR_MAINNET_ADDRESS`, then `TREASURY_OWNER_ADDRESS`. This does not authorize spending. |
 
-### Fincra standing automatic payout mode
+### Retired sponsor-organization automatic mandate mode
 
-There are two separate authorization paths for **one configured Fincra business account**:
+The legacy sponsor-organization mode `fincra-automatic` is disabled. The retired
+`FINCRA_AUTO_PAYOUTS_ENABLED` and `FINCRA_AUTO_PAYOUT_REQUESTER_ADDRESSES` variables are not
+read by the organization onboarding API and must not be configured. Organization mandates now
+support only per-transfer sponsor approval. Historical database rows remain readable for audit,
+but cannot be verified or authorized through the organization review API; they may be declined
+or revoked. This is not a payout activation path, and setting old environment variables cannot
+enable it.
 
-1. **Owner-operated account:** the authenticated platform owner can use their own Fincra business account for a withdrawal request only when the requester's verified TRON wallet address exactly matches the configured owner wallet address. This path uses the owner session and does not require a separate sponsor wallet mandate. It must only be used with an account the owner controls or is expressly authorized by Fincra to operate. It is not a way to spend an unrelated organization's balance.
-2. **Third-party sponsor account:** a sponsor signs one bounded standing mandate for the exact `FINCRA_BUSINESS_ID`, agreement digest, Mainnet USDT principal purpose, per-payout and daily limits, and validity period. The owner independently reviews the organization, agreement, provider-account relationship and funding evidence. The mandate can be revoked. No new sponsor wallet signature is requested for each payout inside that approved scope.
-
-The requester wallet signs only a Mainnet identity message. After that, the requester can submit a recipient and USDT amount; the backend attempts provider submission only when all applicable gates pass. Fincra's business-account API key must be authorized for the exact business ID and the account must have available USDT. The daily cap is reserved against requests linked to a third-party mandate. Provider acceptance, provider success, a solidified Tether Transfer, and exchange-account credit are distinct states.
-
-**Do not set these automatic flags to true as a shortcut.** Fincra live stablecoin access, the legitimate business relationship, written sponsor consent, independently reviewed mandate, matching server business ID, requester allowlist, funded available balance, database and Tatum Mainnet readiness are all required. This is an integration gate, not a way around Fincra onboarding or business verification.
+This retirement is specific to the organization mandate mode. Any separate legacy Fincra
+provider endpoints remain subject to their own hard-disabled execution guards and must not be
+treated as an available withdrawal route.
 
 ### Sponsor addresses (public addresses only)
 
