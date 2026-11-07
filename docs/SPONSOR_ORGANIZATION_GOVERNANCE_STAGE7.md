@@ -12,7 +12,8 @@
 
 ## API routes
 
-- `POST /api/tron/organizations/mandates/:id/evidence`
+- `POST /api/tron/organizations/mandates/:id/evidence` (metadata-only; remains pending)
+- `POST /api/tron/organizations/mandates/:id/evidence/upload` (ClamAV-first private-vault upload; unavailable until configured)
 - `GET /api/tron/organizations/mandates/:id/governance`
 - `GET /api/tron/organizations/governance/config`
 - `POST /api/tron/organizations/mandates/:id/reviews`
@@ -30,9 +31,15 @@ The API fails closed when these allowlists are absent or malformed:
 
 These values must be provisioned by the organization through an approved, controlled secrets/configuration process. Do not put reviewer keys, seed phrases or private keys in these variables. Only public TRON addresses and roles belong here. No reviewer identities are provisioned by this commit.
 
-## Evidence-custody limitation
+## Evidence-custody status after Stage 7C
 
-This is a metadata API, **not a document-vault integration**. The service does not upload, download, inspect, encrypt or malware-scan the referenced object, and cannot prove the object exists. The API labels the submitted metadata as pending independent review. Reviewers must inspect the source object in the approved vault and attest to that inspection before signing. A hash proves file identity, not truth, legal validity, KYB completion or lawful source of funds.
+Stage 7C adds a fail-closed custody client and raw upload route. A sponsor upload is scanned by the configured ClamAV daemon before the backend forwards it to an exact-host-allowlisted HTTPS private-vault gateway. The gateway must return an HMAC-authenticated receipt confirming the object key, digest, byte size, encryption-at-rest flag, retention reference and immutable version ID.
+
+The backend records the scan result in a separate append-only attestation table. Metadata-only references from the legacy endpoint remain pending and cannot be approved or satisfy quorum. Reviewer approvals require every evidence artifact to have a clean scan result, scanner version and verified vault version.
+
+No actual vault vendor, compatible gateway, ClamAV service, reviewer registry, security-officer registry or secrets have been provisioned by this branch. Until they are configured, upload and reviewer workflows fail closed. The provider-neutral gateway contract and required configuration are documented in `docs/SPONSOR_ORGANIZATION_STAGE7C_DOCUMENT_CUSTODY.md`.
+
+A SHA-256 digest proves file identity, not truth, legal validity, KYB completion or lawful source of funds. Human reviewers must independently inspect the original object in the private vault.
 
 ## Persistence and migration
 
