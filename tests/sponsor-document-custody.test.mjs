@@ -21,7 +21,7 @@ const config = {
 function signedVaultFetch(calls = []) {
   return async (url, options) => {
     calls.push({url,options})
-    const objectKey = new URL(url).pathname.split('/').slice(4).map(decodeURIComponent).join('/')
+    const objectKey = new URL(url).pathname.split('/').slice(3).map(decodeURIComponent).join('/')
     const fields = {
       stored:true, objectKey,
       contentSha256:options.headers['X-Content-SHA256'],
