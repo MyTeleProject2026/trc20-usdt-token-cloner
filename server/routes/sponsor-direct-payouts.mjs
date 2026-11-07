@@ -139,9 +139,7 @@ async function ensureSchema(db) {
         'WHERE amount_base_units < ' + MINIMUM_WITHDRAWAL_BASE_UNITS + '::numeric AND minimum_policy_blocked=FALSE'
       )
       await db.query(
-        `DO $minimum_policy$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='sponsor_direct_payouts_minimum_amount_check' AND conrelid='${SCHEMA}.sponsor_direct_payouts'::regclass) THEN ` +
-        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ADD CONSTRAINT sponsor_direct_payouts_minimum_amount_check ' +
-        'CHECK (amount_base_units >= ' + MINIMUM_WITHDRAWAL_BASE_UNITS + '::numeric OR minimum_policy_blocked=TRUE) NOT VALID; END IF; END $minimum_policy
+        `DO 'BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname=''sponsor_direct_payouts_minimum_amount_check'' AND conrelid=''${SCHEMA}.sponsor_direct_payouts''::regclass) THEN ALTER TABLE ${SCHEMA}.sponsor_direct_payouts ADD CONSTRAINT sponsor_direct_payouts_minimum_amount_check CHECK (amount_base_units >= ${MINIMUM_WITHDRAWAL_BASE_UNITS}::numeric OR minimum_policy_blocked=TRUE) NOT VALID; END IF; END'`
       )
       await db.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
