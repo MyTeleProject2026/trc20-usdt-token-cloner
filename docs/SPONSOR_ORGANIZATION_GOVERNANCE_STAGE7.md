@@ -16,7 +16,8 @@ Real payouts remain disabled. Every evaluator returns `payoutAuthorized: false`;
 
 ## Independent reviewer approval
 
-- Reviewer identities and roles must come from a trusted server-side allowlist, not request fields.
+- Reviewer identities and roles must come from a trusted server-side allowlist, not request fields. The exact artifact-set digest is recomputed from sorted artifact IDs and content hashes before approvals are accepted.
+- The quorum must include at least one active compliance reviewer and one active security reviewer. Emergency revocation by a reviewer/security officer also requires a trusted active actor-registry entry; a wallet signature alone is insufficient.
 - The evaluator requires at least two distinct active reviewers (compliance and/or security roles), neither the sponsor nor the application submitter.
 - Each approval is bound to the exact application, optional mandate, evidence-set digest and a verified reviewer signature.
 - Reviewers must attest independence and pass a conflict check. An evidence reference alone is not proof of review.
