@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_evidence_artif
   media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf','image/jpeg','image/png')),
   byte_size BIGINT NOT NULL CHECK (byte_size BETWEEN 1 AND 20971520),
   encrypted_at_rest BOOLEAN NOT NULL CHECK (encrypted_at_rest = TRUE),
+  malware_scan_status TEXT NOT NULL DEFAULT 'pending' CHECK (malware_scan_status = 'pending'),
   uploaded_by_wallet TEXT NOT NULL CHECK (uploaded_by_wallet ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'),
   retention_policy_reference TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
