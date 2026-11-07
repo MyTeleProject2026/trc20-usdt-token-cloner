@@ -163,7 +163,10 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(entry.includes('createSponsorDirectPayoutsRouter'))
   assert.ok(entry.includes("app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())"))
   assert.ok(entry.includes('startSponsorDirectPayoutReconciliationWorker({ env: process.env })'))
-  assert.doesNotMatch(entry, /createSponsorOrganizationRouter|treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
+  assert.ok(entry.includes('createSponsorOrganizationGovernanceRouter'))
+  assert.ok(entry.includes('createSponsorOrganizationRouter'))
+  assert.ok(entry.indexOf('createSponsorOrganizationGovernanceRouter())') < entry.indexOf('createSponsorOrganizationRouter())'))
+  assert.doesNotMatch(entry, /treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
   assert.doesNotMatch(entry, /ownerSponsorLiquidityRoutes/)
 
   const requestIntake = sponsorRoute.slice(
@@ -239,16 +242,17 @@ test('sandbox funding guards remain preflight-only and production sponsored subm
 })
 
 
-test('organization mandate documentation accurately states that onboarding is not mounted or payout-connected', async () => {
+test('organization mandate documentation accurately separates mounted governance from payout execution', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   const organizationDoc = await readFile(new URL('../docs/SPONSOR_ORGANIZATION_MANDATES.md', import.meta.url), 'utf8')
   const organizationRoute = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
 
-  assert.doesNotMatch(entry, /createSponsorOrganizationRouter/)
+  assert.match(entry, /createSponsorOrganizationGovernanceRouter/)
+  assert.match(entry, /createSponsorOrganizationRouter/)
   assert.doesNotMatch(app, /SponsorOrganizationOnboarding/)
   assert.match(organizationRoute, /createSponsorOrganizationRouter/)
-  assert.match(organizationDoc, /not import or mount/)
   assert.match(organizationDoc, /does not join organization applications or mandate records/)
   assert.match(organizationDoc, /not a claim that organizational sponsorship is available/)
+  assert.match(organizationDoc, /feature branch only/)
   assert.doesNotMatch(organizationDoc, /This workflow is integrated into the deployed/)
 })
