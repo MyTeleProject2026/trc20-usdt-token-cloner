@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import net from 'node:net'
 
 const MAX_BYTES = 20 * 1024 * 1024
@@ -39,7 +39,8 @@ export function getDocumentCustodyConfig(env = process.env) {
   const scannerPort = Number(env.SPONSOR_ORG_CLAMAV_PORT || 3310)
   const scannerVersion = clean(env.SPONSOR_ORG_CLAMAV_VERSION, 80)
   const scannerTimeoutMs = Number(env.SPONSOR_ORG_CLAMAV_TIMEOUT_MS || 15000)
-  if (!validVault || token.length < 32) return { ready: false, reason: 'private-vault-configuration-invalid' }
+  const receiptSecret = clean(env.SPONSOR_ORG_VAULT_RECEIPT_HMAC_SECRET, 4096)
+  if (!validVault || token.length < 32 || receiptSecret.length < 32) return { ready: false, reason: 'private-vault-configuration-invalid' }
   if (!scannerHost || !Number.isInteger(scannerPort) || scannerPort < 1 || scannerPort > 65535
     || !scannerVersion || !Number.isInteger(scannerTimeoutMs) || scannerTimeoutMs < 1000 || scannerTimeoutMs > 60000) {
     return { ready: false, reason: 'independent-malware-scanner-not-configured' }
@@ -48,6 +49,7 @@ export function getDocumentCustodyConfig(env = process.env) {
     ready: true,
     vaultBase: vaultUrl.origin + vaultUrl.pathname.replace(/\/$/, ''),
     vaultToken: token,
+    receiptSecret,
     vaultHost: host,
     scannerHost,
     scannerPort,
@@ -123,11 +125,21 @@ export async function storeInPrivateVault({ buffer, mediaType, retentionPolicyRe
   if (!response.ok) throw new Error('private-vault-upload-rejected')
   let receipt
   try { receipt = await response.json() } catch { throw new Error('private-vault-receipt-invalid') }
+  const receiptFields = {
+    stored:true, objectKey, contentSha256:metadata.contentSha256, byteSize:metadata.byteSize,
+    encryptedAtRest:true, retentionPolicyReference, versionId:receipt?.versionId,
+  }
+  const canonicalReceipt = JSON.stringify(receiptFields)
+  const expectedSignature = createHmac('sha256', config.receiptSecret).update(canonicalReceipt, 'utf8').digest()
+  let suppliedSignature
+  try { suppliedSignature = Buffer.from(String(receipt?.receiptSignature || ''), 'hex') } catch { suppliedSignature = Buffer.alloc(0) }
   if (receipt?.stored !== true || receipt.objectKey !== objectKey
     || String(receipt.contentSha256 || '').toLowerCase() !== metadata.contentSha256
     || Number(receipt.byteSize) !== metadata.byteSize || receipt.encryptedAtRest !== true
     || receipt.retentionPolicyReference !== retentionPolicyReference
-    || typeof receipt.versionId !== 'string' || !receipt.versionId.trim()) {
+    || typeof receipt.versionId !== 'string' || !receipt.versionId.trim()
+    || suppliedSignature.length !== expectedSignature.length
+    || !timingSafeEqual(suppliedSignature, expectedSignature)) {
     throw new Error('private-vault-receipt-mismatch')
   }
   return {
