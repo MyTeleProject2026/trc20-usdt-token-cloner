@@ -652,11 +652,10 @@ export function createSponsorOrganizationRouter({
       return res.json({
         success: true,
         mandate: publicMandate(result.rows[0]),
-        payoutAuthorized: authorized,
+        payoutAuthorized: false,
+        mandateStatusAuthorized: authorized,
         note: authorized
-          ? result.rows[0].execution_mode === 'fincra-automatic'
-            ? 'Standing Fincra authorization recorded against the independently reviewed business-account and agreement evidence. Automatic submission remains separately disabled until the backend live-payout gates, requester allowlist, exact business ID and funded USDT balance all pass.'
-            : 'Internal sponsor mandate authorization recorded against the evidence reference. Payout preparation still checks the sponsor’s live Mainnet USDT balance, resources, limits, validity and sponsor signature.'
+          ? 'Internal mandate status recorded after independent reviewer quorum. This is not a payout authorization; real payout execution remains disabled.'
           : body.decision === 'verify'
             ? 'Agreement review recorded. A separate owner authorization decision is still required before this mandate can be used by the payout workflow.'
             : 'Mandate declined. No payout was activated.',
