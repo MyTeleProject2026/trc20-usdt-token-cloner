@@ -353,12 +353,13 @@ export function createSponsorOrganizationGovernanceRouter({
       const activeDecisions = activeReviewerDecisions(currentDecisions, env)
       const approvedRoles = new Set(activeDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_role))
       const reviewers = new Set(activeDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_wallet_address))
-      const quorumMet = activeDecisions.every((d) => d.decision === 'approved') && reviewers.size >= 2 && approvedRoles.has('compliance-reviewer') && approvedRoles.has('security-reviewer')
+      const custodyMet = evidence.artifacts.length > 0 && evidence.artifacts.every((artifact) => artifact.malwareScanStatus === 'clean' && artifact.vaultVersionId && artifact.malwareScannerVersion)
+      const quorumMet = custodyMet && activeDecisions.every((d) => d.decision === 'approved') && reviewers.size >= 2 && approvedRoles.has('compliance-reviewer') && approvedRoles.has('security-reviewer')
       return res.json({ success: true, applicationId: row.application_id, mandateId, evidence: evidence.artifacts, evidenceSetDigest: evidence.digest,
         reviewerDecisions: decisions.rows.map((d) => ({ reviewerWalletAddress:d.reviewer_wallet_address, reviewerRole:d.reviewer_role,
           evidenceSetDigest:d.evidence_set_digest.trim(), decision:d.decision, decisionEvidenceReference:d.decision_evidence_reference,
           decidedAt:new Date(d.decided_at).toISOString() })),
-        independentReview: { quorumMet, reviewerCount: reviewers.size, requiredRoles:['compliance-reviewer','security-reviewer'] },
+        independentReview: { quorumMet, custodyVerified:custodyMet, reviewerCount: reviewers.size, requiredRoles:['compliance-reviewer','security-reviewer'] },
         revocations: revocations.rows.map((e) => ({ scopeType:e.scope_type,scopeId:e.scope_id,actorWalletAddress:e.actor_wallet_address,
           actorRole:e.actor_role,reasonCode:e.reason_code,emergency:e.emergency,eventReference:e.event_reference,effectiveAt:new Date(e.effective_at).toISOString() })),
         payoutAuthorized: false, signerOperationPerformed: false, transactionBroadcast: false })
@@ -440,6 +441,9 @@ export function createSponsorOrganizationGovernanceRouter({
       if (auth.address === row.sponsor_wallet_address || auth.address === row.app_sponsor) return res.status(403).json({ success: false, error: 'sponsor-cannot-review-own-evidence' })
       const evidence = await readEvidenceSet(db, mandateId)
       if (!evidence.digest || evidence.artifacts.length === 0) return res.status(409).json({ success: false, error: 'evidence-set-empty' })
+      if (evidence.artifacts.some((artifact) => artifact.malwareScanStatus !== 'clean' || !artifact.vaultVersionId || !artifact.malwareScannerVersion)) {
+        return res.status(409).json({ success:false, error:'evidence-custody-and-malware-scan-required', payoutAuthorized:false })
+      }
       if (evidence.artifacts.some((artifact) => artifact.malwareScanStatus !== 'clean' || !artifact.vaultVersionId || !artifact.malwareScannerVersion)) {
         return res.status(409).json({ success:false, error:'evidence-custody-and-malware-scan-required', payoutAuthorized:false })
       }
