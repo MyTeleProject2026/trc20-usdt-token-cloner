@@ -3,10 +3,13 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const route = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+const frontend = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorOrganizationOnboarding.jsx', import.meta.url), 'utf8')
 
 test('organization config advertises only per-transfer mandates and no Fincra feature flag', () => {
   assert.match(route, /supportedExecutionModes: \['per-transfer'\]/)
   assert.doesNotMatch(route, /fincraAutomaticModeGateConfigured|FINCRA_AUTO_PAYOUTS_ENABLED|FINCRA_BUSINESS_ID/)
+  assert.doesNotMatch(frontend, /fincra-automatic|Fincra business|providerBusinessId|FINCRA_AUTO_PAYOUTS_ENABLED/)
+  assert.match(frontend, /Execution mode: per-transfer/)
 })
 
 test('new organization mandate submissions reject the legacy automatic mode and provider fields', () => {
