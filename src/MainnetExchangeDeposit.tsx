@@ -513,7 +513,7 @@ export default function MainnetExchangeDeposit() {
               <div>
                 <p className="studio-eyebrow">Practice without real funds</p>
                 <h2 id="no-real-usdt-heading">No real USDT needed for testnet practice</h2>
-                <p>Use the testnet workspace to learn the flow with faucet-provided test tokens. Those tokens have no monetary value and cannot be credited to a Mainnet exchange. This Mainnet page still requires genuine USDT or TRX in the connected sender wallet.</p>
+                <p>Use the testnet workspace to learn the flow with faucet-provided test tokens. Those tokens have no monetary value and cannot be credited to a Mainnet exchange. It can inspect public balances, but it will not use or move those funds in this build.</p>
               </div>
             </div>
             <div className="studio-inline-actions">
@@ -587,14 +587,14 @@ export default function MainnetExchangeDeposit() {
               <div className="studio-amount-entry"><input id="exchange-deposit-amount" value={amount} onChange={(event) => { setAmount(event.target.value); setIrreversibleConfirmed(false); setSendError('') }} inputMode="decimal" placeholder="0.00" /><span>{asset}</span></div>
               {amount && !amountBaseUnits && <p className="studio-inline-error">Enter a positive amount with no more than 6 decimal places.</p>}
             </div>
-            {asset === 'USDT' && <div className="studio-notice studio-notice--warning"><AlertTriangle size={18} aria-hidden="true" /><div><strong>Network fee cap</strong><p>The USDT transaction is built with a maximum feeLimit of 30 TRX. Actual fees depend on available Energy/Bandwidth and can vary. Make sure the wallet has enough Mainnet TRX; carefully review any fee shown by TronLink before approving.</p></div></div>}
+            {asset === 'USDT' && <div className="studio-notice studio-notice--warning"><AlertTriangle size={18} aria-hidden="true" /><div><strong>Network fee cap</strong><p>Historical implementation note only: a future approved USDT sender would need a bounded Energy fee limit and sufficient Energy/Bandwidth or TRX. This read-only build does not construct a transaction or request a TronLink signature.</p></div></div>}
             <label className="studio-inline-note" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <input style={{ width: 18, flex: "0 0 auto", marginTop: 3 }} type="checkbox" checked={destinationConfirmed} onChange={(event) => setDestinationConfirmed(event.target.checked)} />
               <span>I copied this address and any required memo from the exchange’s official deposit page, selected the TRON/TRC-20 network for this exact asset, checked minimum deposits and deposit availability, and confirmed these details are correct.</span>
             </label>
             <label className="studio-inline-note" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <input style={{ width: 18, flex: "0 0 auto", marginTop: 3 }} type="checkbox" checked={irreversibleConfirmed} onChange={(event) => setIrreversibleConfirmed(event.target.checked)} />
-              <span>I understand this sends real funds irreversibly from my connected Mainnet wallet. I will review the exact recipient, asset, amount and fees in TronLink before signing.</span>
+              <span>I understand this screen is read-only in this build. It does not create a transaction, request a signature, or move real funds.</span>
             </label>
           </section>
 
@@ -604,7 +604,7 @@ export default function MainnetExchangeDeposit() {
               <div><p className="studio-eyebrow">Step 3</p><h2>Review only</h2><p>The wallet signing and broadcast path is disabled in this build. The exchange name is a note only; no exchange deposit is pre-credited or simulated by this app.</p></div>
             </div>
             <div className="studio-review-list">
-              <div className="studio-review-row"><span>Network</span><strong>TRON Mainnet</strong><span className="studio-pill studio-pill--good">Mainnet only</span></div>
+              <div className="studio-review-row"><span>Network</span><strong>TRON Mainnet</strong><span className="studio-pill studio-pill--warning">Read-only</span></div>
               <div className="studio-review-row"><span>Exchange label</span><strong>{exchangeName.trim() || 'Not entered'}</strong></div>
               <div className="studio-review-row"><span>Asset</span><strong>{asset === 'USDT' ? 'Official Tether USDT (TRC-20)' : 'Native TRX'}</strong></div>
               {asset === 'USDT' && <div className="studio-review-row"><span>Token contract</span><code>{MAINNET_USDT}</code></div>}
