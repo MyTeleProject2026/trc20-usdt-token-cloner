@@ -5,7 +5,9 @@ import { Trx } from 'tronweb'
 import { getWalletAuthSession, normalizeDatabaseConnectionString, databaseSslConfig } from '../database.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { computeSponsorOrganizationEvidenceSetDigest } from '../sponsor-organization-governance.mjs'
-import { getDocumentCustodyConfig, scanAndStoreEvidence } from '../sponsor-document-custody.mjs'
+import { getDocumentCustodyV2Config, scanAndStoreEvidenceV2 } from '../sponsor-document-custody-v2.mjs'
+import { verifyPrivateVaultReceiptV2 } from '../sponsor-vault-receipt-v2.mjs'
+import { getSponsorVaultReceiptKeyRegistry, getSponsorScannerAttestationKeyRegistry } from '../sponsor-vault-trust-registry.mjs'
 import { getSponsorReviewerRegistry, getSponsorSecurityOfficerRegistry } from '../sponsor-governance-registry.mjs'
 
 const { Pool } = pg
@@ -50,6 +52,12 @@ async function ensureSchema(db) {
         malware_scan_status TEXT NOT NULL DEFAULT 'pending' CHECK (malware_scan_status IN ('pending','clean')),
         vault_version_id TEXT,
         malware_scanner_version TEXT,
+        vault_receipt_id TEXT,
+        vault_receipt_key_id TEXT,
+        vault_receipt_json JSONB,
+        retention_mode TEXT,
+        retention_until TIMESTAMPTZ,
+        encryption_mode TEXT,
         uploaded_by_wallet TEXT NOT NULL CHECK (uploaded_by_wallet ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'),
         retention_policy_reference TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -57,6 +65,12 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS malware_scan_status TEXT NOT NULL DEFAULT 'pending'`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS vault_version_id TEXT`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS malware_scanner_version TEXT`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS vault_receipt_id TEXT`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS vault_receipt_key_id TEXT`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS vault_receipt_json JSONB`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS retention_mode TEXT`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS retention_until TIMESTAMPTZ`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS encryption_mode TEXT`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts DROP CONSTRAINT IF EXISTS sponsor_organization_evidence_artifacts_malware_scan_status_check`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts DROP CONSTRAINT IF EXISTS sponsor_org_evidence_scan_status_check`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD CONSTRAINT sponsor_org_evidence_scan_status_check CHECK (malware_scan_status IN ('pending','clean'))`)
@@ -67,10 +81,14 @@ async function ensureSchema(db) {
         content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
         scanner_service TEXT NOT NULL CHECK (scanner_service='clamav-instream'),
         scanner_version TEXT NOT NULL,
+        attestation_key_id TEXT,
+        attestation_json JSONB,
         scan_status TEXT NOT NULL CHECK (scan_status='clean'),
         scanned_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations ADD COLUMN IF NOT EXISTS attestation_key_id TEXT`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_malware_scan_attestations ADD COLUMN IF NOT EXISTS attestation_json JSONB`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx ON ${SCHEMA}.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC)`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_reviewer_decisions (
         id UUID PRIMARY KEY,
@@ -177,26 +195,51 @@ function buildRevocationMessage(input) {
     'This signature records a governance revocation only. It does not submit or authorize a transaction.',
   ].join('\n')
 }
-async function readEvidenceSet(db, mandateId) {
+async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.now()) {
   const result = await db.query(`SELECT id, application_id, mandate_id, evidence_type, storage_provider, object_key,
     content_sha256, media_type, byte_size, encrypted_at_rest, uploaded_by_wallet, retention_policy_reference, created_at,
-    malware_scan_status, vault_version_id, malware_scanner_version
+    malware_scan_status, vault_version_id, malware_scanner_version, vault_receipt_id, vault_receipt_key_id,
+    vault_receipt_json, retention_mode, retention_until, encryption_mode
     FROM ${SCHEMA}.sponsor_organization_evidence_artifacts WHERE mandate_id=$1 ORDER BY id ASC`, [mandateId])
-  const artifacts = result.rows.map((row) => ({
-    id: row.id, applicationId: row.application_id, mandateId: row.mandate_id, evidenceType: row.evidence_type,
-    storageProvider: row.storage_provider, objectKey: row.object_key, contentSha256: row.content_sha256.trim(),
-    mediaType: row.media_type, byteSize: Number(row.byte_size), encryptedAtRest: row.encrypted_at_rest,
-    malwareScanStatus: row.malware_scan_status, vaultVersionId: row.vault_version_id || null,
-    malwareScannerVersion: row.malware_scanner_version || null, uploadedByWallet: row.uploaded_by_wallet, retentionPolicyReference: row.retention_policy_reference,
-    createdAt: new Date(row.created_at).toISOString(),
-  }))
-  return { artifacts, digest: computeSponsorOrganizationEvidenceSetDigest(artifacts.map((a) => ({ id: a.id, contentSha256: a.contentSha256 }))) }
+  const vaultKeys = getSponsorVaultReceiptKeyRegistry(env)
+  const scannerKeys = getSponsorScannerAttestationKeyRegistry(env)
+  const minRetentionDays = Number(env.SPONSOR_ORG_VAULT_MIN_RETENTION_DAYS)
+  const expectedIssuer = clean(env.SPONSOR_ORG_VAULT_RECEIPT_ISSUER, 128)
+  const artifacts = result.rows.map((row) => {
+    const receipt = row.vault_receipt_json && typeof row.vault_receipt_json === 'object' ? row.vault_receipt_json : null
+    const receiptVerification = receipt && vaultKeys.configured && scannerKeys.configured
+      ? verifyPrivateVaultReceiptV2(receipt, {
+        keyRegistry:vaultKeys.keys, scannerKeyRegistry:scannerKeys.keys,
+        expectedObjectKey:row.object_key, expectedSha256:row.content_sha256.trim(),
+        expectedByteSize:Number(row.byte_size), expectedMediaType:row.media_type,
+        expectedOrganizationId:row.application_id, expectedIssuer,
+        expectedRetentionPolicyReference:row.retention_policy_reference,
+        minimumRetentionMs:Number.isInteger(minRetentionDays) ? minRetentionDays*24*60*60*1000 : -1,
+        nowMs,
+      })
+      : { valid:false, reason:'vault-receipt-trust-configuration-unavailable' }
+    return {
+      id: row.id, applicationId: row.application_id, mandateId: row.mandate_id, evidenceType: row.evidence_type,
+      storageProvider: row.storage_provider, objectKey: row.object_key, contentSha256: row.content_sha256.trim(),
+      mediaType: row.media_type, byteSize: Number(row.byte_size), encryptedAtRest: row.encrypted_at_rest,
+      malwareScanStatus: row.malware_scan_status, vaultVersionId: row.vault_version_id || null,
+      malwareScannerVersion: row.malware_scanner_version || null, uploadedByWallet: row.uploaded_by_wallet,
+      retentionPolicyReference: row.retention_policy_reference, vaultReceiptId: row.vault_receipt_id || null,
+      vaultReceiptKeyId: row.vault_receipt_key_id || null, retentionMode: row.retention_mode || null,
+      retentionUntil: row.retention_until ? new Date(row.retention_until).toISOString() : null,
+      encryptionMode: row.encryption_mode || null,
+      vaultReceiptV2Verified: receiptVerification.valid === true,
+      vaultReceiptVerificationReason: receiptVerification.valid ? null : receiptVerification.reason,
+      createdAt: new Date(row.created_at).toISOString(),
+    }
+  })
+  return { artifacts, digest: computeSponsorOrganizationEvidenceSetDigest(artifacts.map((a) => ({ id:a.id, contentSha256:a.contentSha256 }))) }
 }
 
 export function createSponsorOrganizationGovernanceRouter({
   env = process.env, getSession = getWalletAuthSession, now = () => Date.now(),
   verifyMessage = async (message, signature) => Trx.verifyMessageV2(message, signature),
-  custodyUpload = scanAndStoreEvidence,
+  custodyUpload = scanAndStoreEvidenceV2,
 } = {}) {
   const router = Router()
 
@@ -208,11 +251,11 @@ export function createSponsorOrganizationGovernanceRouter({
     const securityState = getSponsorSecurityOfficerRegistry(env)
     const reviewer = reviewerState.entries.find((item) => item.walletAddress === auth.address)
     const securityOfficer = securityState.entries.some((item) => item.walletAddress === auth.address)
-    const custody = getDocumentCustodyConfig(env)
+    const custody = getDocumentCustodyV2Config(env)
     return res.json({ success:true, reviewerRole:reviewer?.role || null, securityOfficer,
       reviewerRegistryConfigured:reviewerState.configured, reviewerRegistryVersion:reviewerState.version,
       securityOfficerRegistryConfigured:securityState.configured, securityOfficerRegistryVersion:securityState.version,
-      documentCustodyAvailable:custody.ready, payoutAuthorized:false })
+      documentCustodyAvailable:custody.ready, documentCustodyMissing:custody.missing, payoutAuthorized:false })
   })
 
   router.post('/organizations/mandates/:id/evidence', async (req, res) => {
@@ -296,21 +339,23 @@ export function createSponsorOrganizationGovernanceRouter({
         if (row.sponsor_wallet_address !== auth.address || row.app_sponsor !== auth.address) return res.status(403).json({ success:false, error:'sponsor-wallet-required' })
         if (!['signed-awaiting-review','verified','authorized'].includes(row.status)) return res.status(409).json({ success:false, error:'mandate-not-open-for-evidence' })
         const stored = await custodyUpload({ buffer:req.body, mediaType, retentionPolicyReference, applicationId:row.application_id,
-          mandateId, config:custody })
+          mandateId, config:custody, now })
         const evidenceId = randomUUID()
         const client = await db.connect()
         try {
           await client.query('BEGIN')
           await client.query(`INSERT INTO ${SCHEMA}.sponsor_organization_evidence_artifacts
             (id,application_id,mandate_id,evidence_type,storage_provider,object_key,content_sha256,media_type,byte_size,
-             encrypted_at_rest,malware_scan_status,uploaded_by_wallet,retention_policy_reference,vault_version_id,malware_scanner_version)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,'clean',$10,$11,$12,$13)`,
+             encrypted_at_rest,malware_scan_status,uploaded_by_wallet,retention_policy_reference,vault_version_id,malware_scanner_version,
+             vault_receipt_id,vault_receipt_key_id,vault_receipt_json,retention_mode,retention_until,encryption_mode)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,'clean',$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19)`,
           [evidenceId,row.application_id,mandateId,evidenceType,stored.storageProvider,stored.objectKey,stored.contentSha256,
-            stored.mediaType,stored.byteSize,auth.address,stored.retentionPolicyReference,stored.vaultVersionId,stored.scanResult.version])
+            stored.mediaType,stored.byteSize,auth.address,stored.retentionPolicyReference,stored.vaultVersionId,stored.scanResult.version,
+            stored.vaultReceiptId,stored.vaultReceiptKeyId,JSON.stringify(stored.vaultReceipt),stored.retentionMode,stored.retentionUntil,stored.encryptionMode])
           await client.query(`INSERT INTO ${SCHEMA}.sponsor_organization_malware_scan_attestations
-            (id,evidence_id,content_sha256,scanner_service,scanner_version,scan_status,scanned_at)
-            VALUES ($1,$2,$3,'clamav-instream',$4,'clean',$5)`,
-          [randomUUID(),evidenceId,stored.contentSha256,stored.scanResult.version,new Date(now()).toISOString()])
+            (id,evidence_id,content_sha256,scanner_service,scanner_version,attestation_key_id,attestation_json,scan_status,scanned_at)
+            VALUES ($1,$2,$3,'clamav-instream',$4,$5,$6::jsonb,'clean',$7)`,
+          [randomUUID(),evidenceId,stored.contentSha256,stored.scanResult.version,stored.scanAttestationKeyId,JSON.stringify(stored.scanAttestation),new Date(now()).toISOString()])
           await client.query('COMMIT')
         } catch (error) {
           await client.query('ROLLBACK')
@@ -319,12 +364,14 @@ export function createSponsorOrganizationGovernanceRouter({
         return res.status(201).json({ success:true,evidenceId,contentSha256:stored.contentSha256,byteSize:stored.byteSize,
           mediaType:stored.mediaType,malwareScanStatus:'clean',malwareScanner:'clamav-instream',
           malwareScannerVersion:stored.scanResult.version,vaultObjectStored:true,vaultVersionId:stored.vaultVersionId,
+          vaultReceiptV2Verified:true,vaultReceiptId:stored.vaultReceiptId,retentionMode:stored.retentionMode,retentionUntil:stored.retentionUntil,
           encryptionAtRestConfirmed:true,verificationStatus:'pending-independent-review',payoutAuthorized:false,
           transactionBroadcast:false })
       } catch (error) {
-        const reason = ['malware-detected','malware-scanner-timeout','malware-scanner-unavailable','malware-scanner-version-mismatch','malware-scan-indeterminate',
-          'private-vault-upload-unavailable','private-vault-upload-rejected','private-vault-receipt-invalid','private-vault-receipt-mismatch',
-          'evidence-size-out-of-range','evidence-media-type-not-allowed','evidence-content-type-mismatch'].includes(error?.message)
+        const reason = ['document-custody-v2-not-configured','independent-scanner-service-unavailable','independent-scanner-service-rejected',
+          'independent-scan-attestation-invalid','independent-scan-identity-mismatch','private-vault-upload-unavailable','private-vault-upload-rejected',
+          'private-vault-receipt-v2-invalid','vault-receipt-scanner-attestation-substitution','evidence-size-out-of-range',
+          'evidence-media-type-not-allowed','evidence-content-type-mismatch'].includes(error?.message)
           ? error.message : 'evidence-custody-operation-failed'
         const status = reason === 'malware-detected' ? 422 : 503
         return res.status(status).json({ success:false,error:reason,payoutAuthorized:false,transactionBroadcast:false })
@@ -351,7 +398,7 @@ export function createSponsorOrganizationGovernanceRouter({
       if (auth.address !== row.sponsor_wallet_address && auth.address !== ownerAddress(env) && !isReviewer && !isSecurity) {
         return res.status(403).json({ success: false, error: 'governance-record-access-denied' })
       }
-      const evidence = await readEvidenceSet(db, mandateId)
+      const evidence = await readEvidenceSet(db, mandateId, env, now())
       const decisions = await db.query(`SELECT reviewer_wallet_address,reviewer_role,evidence_set_digest,decision,decision_evidence_reference,decided_at
         FROM ${SCHEMA}.sponsor_organization_reviewer_decisions WHERE mandate_id=$1 ORDER BY created_at ASC`, [mandateId])
       const revocations = await db.query(`SELECT scope_type,scope_id,actor_wallet_address,actor_role,reason_code,emergency,event_reference,effective_at
@@ -361,7 +408,7 @@ export function createSponsorOrganizationGovernanceRouter({
       const activeDecisions = activeReviewerDecisions(currentDecisions, env)
       const approvedRoles = new Set(activeDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_role))
       const reviewers = new Set(activeDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_wallet_address))
-      const custodyMet = evidence.artifacts.length > 0 && evidence.artifacts.every((artifact) => artifact.malwareScanStatus === 'clean' && artifact.vaultVersionId && artifact.malwareScannerVersion)
+      const custodyMet = evidence.artifacts.length > 0 && evidence.artifacts.every((artifact) => artifact.malwareScanStatus === 'clean' && artifact.vaultVersionId && artifact.malwareScannerVersion && artifact.vaultReceiptV2Verified === true)
       const quorumMet = custodyMet && activeDecisions.every((d) => d.decision === 'approved') && reviewers.size >= 2 && approvedRoles.has('compliance-reviewer') && approvedRoles.has('security-reviewer')
       return res.json({ success: true, applicationId: row.application_id, mandateId, evidence: evidence.artifacts, evidenceSetDigest: evidence.digest,
         reviewerDecisions: decisions.rows.map((d) => ({ reviewerWalletAddress:d.reviewer_wallet_address, reviewerRole:d.reviewer_role,
@@ -396,7 +443,7 @@ export function createSponsorOrganizationGovernanceRouter({
       if (!evidence.digest || evidence.artifacts.length === 0) {
         return res.status(409).json({ success:false, error:'independent-evidence-quorum-required', payoutAuthorized:false })
       }
-      if (evidence.artifacts.some((artifact) => artifact.malwareScanStatus !== 'clean' || !artifact.vaultVersionId || !artifact.malwareScannerVersion)) {
+      if (evidence.artifacts.some((artifact) => artifact.malwareScanStatus !== 'clean' || !artifact.vaultVersionId || !artifact.malwareScannerVersion || artifact.vaultReceiptV2Verified !== true)) {
         return res.status(409).json({ success:false, error:'evidence-custody-and-malware-scan-required', payoutAuthorized:false })
       }
       const decisions = await db.query(`SELECT reviewer_wallet_address,reviewer_role,decision
