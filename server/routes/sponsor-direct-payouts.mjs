@@ -1991,20 +1991,6 @@ export function createSponsorDirectPayoutsRouter({
 
 export default createSponsorDirectPayoutsRouter()
 
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (updated_at ASC) ' +
-        "WHERE status IN ('broadcasting','submitted','outcome-unknown')"
-      )
-    })().catch((error) => {
-      schemaPromise = null
-      throw error
-    })
-  }
-  await schemaPromise
-}
-
 export function parseSponsorDirectUsdtAmount(value) {
   return parseOwnerUsdtAmount(value)
 }
