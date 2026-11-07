@@ -16,6 +16,7 @@ import {
   validateOwnerSignedTransaction,
 } from './tron-owner-withdrawals.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
+import { ensureSponsorDirectPayoutSchema } from '../sponsor-direct-payout-schema.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -101,51 +102,7 @@ async function ensureSchema(db) {
         'CREATE INDEX IF NOT EXISTS sponsor_direct_applications_status_idx ON ' +
         SCHEMA + '.sponsor_direct_applications (status, created_at ASC)'
       )
-      await db.query(
-        'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.sponsor_direct_payouts (' +
-        'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
-        'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
-        'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
-        'minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE, ' +
-        'status TEXT NOT NULL DEFAULT \'requested\' CHECK (status IN ' +
-        '(\'requested\',\'prepared\',\'broadcasting\',\'submitted\',\'outcome-unknown\',\'broadcast-rejected\',\'confirmed\',\'failed\',\'manual-review\',\'cancelled\',\'expired\')), ' +
-        'unsigned_transaction JSONB, signed_transaction JSONB, transaction_hash CHAR(64), ' +
-        'failure_code TEXT, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
-        'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_requester_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (requester_address, created_at DESC)'
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
-      )
-      await db.query(
-        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_block_number BIGINT, ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_log_index INTEGER, ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_verified_at TIMESTAMPTZ, ' +
-        'ADD COLUMN IF NOT EXISTS confirmation_evidence JSONB, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_last_checked_at TIMESTAMPTZ, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_attempts INTEGER NOT NULL DEFAULT 0, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT, ' +
-        'ADD COLUMN IF NOT EXISTS minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE'
-      )
-      // Preserve historical rows for audit while blocking them from the payout lifecycle.
-      // Backfill the marker before adding a NOT VALID check: new rows are checked immediately.
-      await db.query(
-        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET minimum_policy_blocked=TRUE ' +
-        'WHERE amount_base_units < ' + MINIMUM_WITHDRAWAL_BASE_UNITS + '::numeric AND minimum_policy_blocked=FALSE'
-      )
-      await db.query(
-        `DO 'BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname=''sponsor_direct_payouts_minimum_amount_check'' AND conrelid=''${SCHEMA}.sponsor_direct_payouts''::regclass) THEN ALTER TABLE ${SCHEMA}.sponsor_direct_payouts ADD CONSTRAINT sponsor_direct_payouts_minimum_amount_check CHECK (amount_base_units >= ${MINIMUM_WITHDRAWAL_BASE_UNITS}::numeric OR minimum_policy_blocked=TRUE) NOT VALID; END IF; END'`
-      )
-      await db.query(
-        'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (updated_at ASC) ' +
-        "WHERE status IN ('broadcasting','submitted','outcome-unknown')"
-      )
+      await ensureSponsorDirectPayoutSchema(db)
     })().catch((error) => {
       schemaPromise = null
       throw error
