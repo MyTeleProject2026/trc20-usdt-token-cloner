@@ -394,7 +394,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     await assert.rejects(db.query(
       'INSERT INTO trc20_token_clone.sponsor_direct_payouts ' +
       '(id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,\\'requested\\')',
+      'VALUES ($1,$2,$3,$4,$5,$6,\'requested\')',
       [randomUUID(), randomUUID(), ownerAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999'],
     ))
 

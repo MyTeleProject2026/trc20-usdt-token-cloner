@@ -143,6 +143,23 @@ export async function ensureSponsorDirectPayoutArchiveSchema(db, { schemaName = 
         [MINIMUM_WITHDRAWAL_BASE_UNITS],
       )
 
+      const invalidArchiveRows = await client.query(
+        'SELECT COUNT(*)::text AS count FROM ' + schema + '.sponsor_direct_payouts_archive ' +
+        'WHERE amount_base_units >= $1::numeric OR status NOT IN (' + TERMINAL_STATUSES + ')',
+        [MINIMUM_WITHDRAWAL_BASE_UNITS],
+      )
+      if (String(invalidArchiveRows.rows?.[0]?.count ?? '0') !== '0') {
+        throw new Error('Sponsor payout archive migration blocked: archive contains a non-historical or non-terminal record.')
+      }
+      const overlappingRows = await client.query(
+        'SELECT COUNT(*)::text AS count FROM ' + schema + '.sponsor_direct_payouts active ' +
+        'JOIN ' + schema + '.sponsor_direct_payouts_archive archived ' +
+        'ON active.id=archived.id OR active.idempotency_key=archived.idempotency_key'
+      )
+      if (String(overlappingRows.rows?.[0]?.count ?? '0') !== '0') {
+        throw new Error('Sponsor payout archive migration blocked: active and archive records overlap.')
+      }
+
       await client.query(
         'CREATE TABLE IF NOT EXISTS ' + schema + '.sponsor_direct_payout_idempotency_registry (' +
         'idempotency_key UUID PRIMARY KEY, payout_id UUID NOT NULL UNIQUE, ' +
@@ -192,6 +209,10 @@ export async function ensureSponsorDirectPayoutArchiveSchema(db, { schemaName = 
            VALUES (NEW.idempotency_key,NEW.id,NEW.requester_address,NEW.recipient_address,NEW.amount_base_units,NEW.created_at)
            ON CONFLICT DO NOTHING;
            IF NOT FOUND THEN
+             IF TG_OP = 'INSERT' THEN
+               RAISE EXCEPTION 'Payout idempotency key is already reserved by an existing request.'
+                 USING ERRCODE='23505', CONSTRAINT='sponsor_direct_payout_idempotency_registry_key';
+             END IF;
              SELECT payout_id,requester_address,recipient_address,amount_base_units
                INTO existing
                FROM ${schema}.sponsor_direct_payout_idempotency_registry

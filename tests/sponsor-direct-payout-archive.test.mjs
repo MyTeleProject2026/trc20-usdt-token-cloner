@@ -182,6 +182,11 @@ test('archive migration fails closed on unresolved legacy rows, then preserves t
       (error) => error.code === '55000',
     )
 
+    await assert.rejects(
+      db.query('TRUNCATE TABLE ' + schemaName + '.sponsor_direct_payouts_archive'),
+      (error) => error.code === '55000',
+    )
+
     const rerunDb = new Pool({ connectionString: databaseUrl, max: 2 })
     try {
       await ensureSponsorDirectPayoutArchiveSchema(rerunDb, { schemaName })
