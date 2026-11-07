@@ -184,6 +184,15 @@ export function createSponsorOrganizationGovernanceRouter({
 } = {}) {
   const router = Router()
 
+  router.get('/organizations/governance/config', async (req, res) => {
+    noStore(res)
+    const auth = await authenticate(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success:false, error:auth.error })
+    const reviewer = reviewerRegistry(env).find((item) => item.walletAddress === auth.address)
+    const securityOfficer = revocationRegistry(env).some((item) => item.walletAddress === auth.address)
+    return res.json({ success:true, reviewerRole:reviewer?.role || null, securityOfficer, payoutAuthorized:false })
+  })
+
   router.post('/organizations/mandates/:id/evidence', async (req, res) => {
     noStore(res)
     const auth = await authenticate(req, env, getSession, now)
@@ -260,7 +269,7 @@ export function createSponsorOrganizationGovernanceRouter({
       const approvedRoles = new Set(currentDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_role))
       const reviewers = new Set(currentDecisions.filter((d) => d.decision === 'approved').map((d) => d.reviewer_wallet_address))
       const quorumMet = reviewers.size >= 2 && approvedRoles.has('compliance-reviewer') && approvedRoles.has('security-reviewer')
-      return res.json({ success: true, evidence: evidence.artifacts, evidenceSetDigest: evidence.digest,
+      return res.json({ success: true, applicationId: row.application_id, mandateId, evidence: evidence.artifacts, evidenceSetDigest: evidence.digest,
         reviewerDecisions: decisions.rows.map((d) => ({ reviewerWalletAddress:d.reviewer_wallet_address, reviewerRole:d.reviewer_role,
           evidenceSetDigest:d.evidence_set_digest.trim(), decision:d.decision, decisionEvidenceReference:d.decision_evidence_reference,
           decidedAt:new Date(d.decided_at).toISOString() })),
