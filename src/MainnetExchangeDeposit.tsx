@@ -27,7 +27,6 @@ const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_HOST = 'api.trongrid.io'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-fA-F]{64}$/
-const FEE_LIMIT_SUN = '30000000'
 // Supervised feature build: preserve read-only balance/receipt checks, but do not sign or broadcast Mainnet deposits.
 const REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED = true
 const STORAGE_KEY = 'tron-token-studio:mainnet-exchange-deposit:v1'
@@ -338,7 +337,6 @@ export default function MainnetExchangeDeposit() {
 
   const amountBaseUnits = amountToBaseUnits(amount, 6)
   const destinationValid = ADDRESS_PATTERN.test(destination.trim()) && destination.trim() !== sender
-  const formReady = Boolean(!REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED && sender && walletSession?.address === sender && walletSession?.network === 'mainnet' && walletSession?.expiresAt && walletSession.expiresAt > Date.now() && destinationValid && amountBaseUnits && destinationConfirmed && irreversibleConfirmed && !sending && !verifying && !attempt)
 
   const connectWallet = async () => {
     setWalletBusy(true)
