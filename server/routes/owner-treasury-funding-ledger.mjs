@@ -10,7 +10,7 @@ import { createSponsorFundingReader } from '../sponsor-funding.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { parseSponsorDirectUsdtAmount, verifySponsorDirectMainnetTransfer } from './sponsor-direct-payouts.mjs'
 import { resolveOwnerTreasuryFundingAddress } from './owner-treasury.mjs'
-import { ensureSponsorDirectPayoutSchema } from '../sponsor-direct-payout-schema.mjs'
+import { ensureSponsorDirectPayoutArchiveSchema } from '../sponsor-direct-payout-archive.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -72,7 +72,7 @@ async function ensureSchema(db) {
     'CREATE INDEX IF NOT EXISTS owner_treasury_verified_inflows_created_idx ON ' +
     SCHEMA + '.owner_treasury_verified_inflows (created_at DESC)'
   )
-  await ensureSponsorDirectPayoutSchema(db)
+  await ensureSponsorDirectPayoutArchiveSchema(db)
 }
 
 function ownerAddress(env) {

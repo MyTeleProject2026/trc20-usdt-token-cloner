@@ -29,6 +29,14 @@ The private platform enforces a **1,000 USDT minimum per withdrawal request** (1
 7. The sponsor reviews the details in TronLink and explicitly signs that exact transaction. The backend validates the signed transaction against the stored intent before asking Tatum to broadcast it.
 8. A broadcast acceptance is only a submitted/pending state. The reconciliation worker checks the solidified Mainnet transaction, successful receipt, and exact official Tether USDT Transfer event before marking the transfer confirmed. A transaction hash alone is not confirmation.
 
+## Historical payout archive and minimum policy
+
+The active `sponsor_direct_payouts` table accepts only requests at or above the 1,000 USDT application minimum. A versioned, transactional schema migration moves only below-minimum records in terminal states (`confirmed`, `failed`, `broadcast-rejected`, `cancelled`, or `expired`) into the separate `sponsor_direct_payouts_archive` table. Original request IDs, idempotency keys, requester/sponsor/recipient addresses, amounts, statuses, transaction hashes, timestamps, confirmation evidence, and reconciliation metadata are retained.
+
+The migration fails closed before changing payout rows if any below-minimum request is still `requested`, `prepared`, `broadcasting`, `submitted`, `outcome-unknown`, or `manual-review`. Such a row must be explicitly resolved and reconciled; expiry timestamps alone do not make an unresolved transaction safe to archive. The migration verifies copied rows and the global idempotency registry before deleting any source row. It then installs and validates an unconditional active-table minimum constraint and removes the legacy `minimum_policy_blocked` bypass column.
+
+A global idempotency registry preserves duplicate detection across active and archived records. Reusing an archived key with the same request details returns the historical request as a duplicate; changing the requester, recipient, or amount returns a conflict. History and detail APIs include archived records with `archived: true`, `archivedAt`, and `readOnly: true`. Archived records are not returned in sponsor queues, cannot be prepared or broadcast, are excluded from reservations and reconciliation, and are protected against updates and deletes at the database layer. Owner overview totals distinguish active requests from archived historical records.
+
 ## Asset and fee rules
 
 - The token is fixed to official TRON Mainnet Tether USDT: `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`.

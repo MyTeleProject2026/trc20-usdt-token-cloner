@@ -1,20 +1,32 @@
-const SCHEMA = 'trc20_token_clone'
-const MINIMUM_WITHDRAWAL_BASE_UNITS = '1000000000'
-const MIGRATION_LOCK_KEY = 'trc20_token_clone:sponsor_direct_payouts:schema:v1'
+const DEFAULT_SCHEMA = 'trc20_token_clone'
+const MIGRATION_LOCK_SUFFIX = ':sponsor_direct_payouts:schema:v1'
 
 const inFlightByDatabase = new WeakMap()
 
+function validatedSchemaName(value) {
+  if (typeof value !== 'string' || !/^[a-z_][a-z0-9_]{0,62}$/.test(value)) {
+    throw new TypeError('A valid PostgreSQL schema identifier is required.')
+  }
+  return value
+}
+
 /**
- * The single schema owner for sponsor_direct_payouts.
- * A transaction-scoped advisory lock serializes this migration across processes.
- * An exclusive table lock prevents concurrent writers slipping rows between the
- * historical backfill and installation of the minimum-policy constraint.
+ * Canonical base-table initializer for sponsor_direct_payouts.
+ * Historical minimum-policy conversion is owned by
+ * ensureSponsorDirectPayoutArchiveSchema, which runs after this initializer.
  */
-export async function ensureSponsorDirectPayoutSchema(db) {
+export async function ensureSponsorDirectPayoutSchema(db, { schemaName = DEFAULT_SCHEMA } = {}) {
+  const schema = validatedSchemaName(schemaName)
   if (!db || (typeof db !== 'object' && typeof db !== 'function')) {
     throw new TypeError('A PostgreSQL database pool or client is required.')
   }
-  const existing = inFlightByDatabase.get(db)
+
+  let migrations = inFlightByDatabase.get(db)
+  if (!migrations) {
+    migrations = new Map()
+    inFlightByDatabase.set(db, migrations)
+  }
+  const existing = migrations.get(schema)
   if (existing) return existing
 
   const migration = (async () => {
@@ -26,14 +38,13 @@ export async function ensureSponsorDirectPayoutSchema(db) {
     try {
       await client.query('BEGIN')
       transactionStarted = true
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [MIGRATION_LOCK_KEY])
-      await client.query('CREATE SCHEMA IF NOT EXISTS ' + SCHEMA)
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [schema + MIGRATION_LOCK_SUFFIX])
+      await client.query('CREATE SCHEMA IF NOT EXISTS ' + schema)
       await client.query(
-        'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.sponsor_direct_payouts (' +
+        'CREATE TABLE IF NOT EXISTS ' + schema + '.sponsor_direct_payouts (' +
         'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
         'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
         'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
-        'minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE, ' +
         'status TEXT NOT NULL DEFAULT \'requested\' CHECK (status IN ' +
         '(\'requested\',\'prepared\',\'broadcasting\',\'submitted\',\'outcome-unknown\',\'broadcast-rejected\',\'confirmed\',\'failed\',\'manual-review\',\'cancelled\',\'expired\')), ' +
         'unsigned_transaction JSONB, signed_transaction JSONB, transaction_hash CHAR(64), ' +
@@ -41,45 +52,27 @@ export async function ensureSponsorDirectPayoutSchema(db) {
         'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
       )
       await client.query(
-        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ' +
+        'ALTER TABLE ' + schema + '.sponsor_direct_payouts ' +
         'ADD COLUMN IF NOT EXISTS confirmation_block_number BIGINT, ' +
         'ADD COLUMN IF NOT EXISTS confirmation_log_index INTEGER, ' +
         'ADD COLUMN IF NOT EXISTS confirmation_verified_at TIMESTAMPTZ, ' +
         'ADD COLUMN IF NOT EXISTS confirmation_evidence JSONB, ' +
         'ADD COLUMN IF NOT EXISTS reconciliation_last_checked_at TIMESTAMPTZ, ' +
         'ADD COLUMN IF NOT EXISTS reconciliation_attempts INTEGER NOT NULL DEFAULT 0, ' +
-        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT, ' +
-        'ADD COLUMN IF NOT EXISTS minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE'
+        'ADD COLUMN IF NOT EXISTS reconciliation_last_error TEXT'
       )
-      await client.query('LOCK TABLE ' + SCHEMA + '.sponsor_direct_payouts IN ACCESS EXCLUSIVE MODE')
+      await client.query('LOCK TABLE ' + schema + '.sponsor_direct_payouts IN ACCESS EXCLUSIVE MODE')
       await client.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_requester_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (requester_address, created_at DESC)'
+        schema + '.sponsor_direct_payouts (requester_address, created_at DESC)'
       )
       await client.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
-      )
-      await client.query(
-        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET minimum_policy_blocked=TRUE ' +
-        'WHERE amount_base_units < ' + MINIMUM_WITHDRAWAL_BASE_UNITS + '::numeric AND minimum_policy_blocked=FALSE'
-      )
-      await client.query(
-        `DO $sponsor_payout_minimum$ BEGIN
-          IF NOT EXISTS (
-            SELECT 1 FROM pg_constraint
-            WHERE conname = 'sponsor_direct_payouts_minimum_amount_check'
-              AND conrelid = '${SCHEMA}.sponsor_direct_payouts'::regclass
-          ) THEN
-            ALTER TABLE ${SCHEMA}.sponsor_direct_payouts
-              ADD CONSTRAINT sponsor_direct_payouts_minimum_amount_check
-              CHECK (amount_base_units >= ${MINIMUM_WITHDRAWAL_BASE_UNITS}::numeric OR minimum_policy_blocked=TRUE) NOT VALID;
-          END IF;
-        END; $sponsor_payout_minimum$`
+        schema + '.sponsor_direct_payouts (sponsor_address, status, created_at DESC)'
       )
       await client.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_reconciliation_idx ON ' +
-        SCHEMA + '.sponsor_direct_payouts (updated_at ASC) ' +
+        schema + '.sponsor_direct_payouts (updated_at ASC) ' +
         "WHERE status IN ('broadcasting','submitted','outcome-unknown')"
       )
       await client.query('COMMIT')
@@ -94,11 +87,11 @@ export async function ensureSponsorDirectPayoutSchema(db) {
     }
   })()
 
-  inFlightByDatabase.set(db, migration)
+  migrations.set(schema, migration)
   try {
     await migration
   } catch (error) {
-    inFlightByDatabase.delete(db)
+    migrations.delete(schema)
     throw error
   }
 }

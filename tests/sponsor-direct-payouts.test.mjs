@@ -236,7 +236,6 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     [createHash('sha256').update(outsiderToken).digest('hex'), recipientAddress],
   ])
   let sponsorApplicationId = null
-  let legacyIds = []
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
   const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
@@ -320,6 +319,11 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(initialized.response.status, 200)
     assert.equal(initialized.payload.application, null)
 
+    await db.query(
+      'DELETE FROM trc20_token_clone.sponsor_direct_payout_idempotency_registry ' +
+      'WHERE idempotency_key IN (SELECT idempotency_key FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2)',
+      [requesterAddress, sponsorAddress],
+    )
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2', [requesterAddress, sponsorAddress])
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
     const registration = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
@@ -355,6 +359,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(first.payload.transactionBroadcast, false)
     assert.equal(first.payload.request.sponsorAddress, sponsorAddress)
 
+    const duplicateFirst = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '1000',
+      idempotencyKey: firstIdempotencyKey,
+    })
+    assert.equal(duplicateFirst.response.status, 200)
+    assert.equal(duplicateFirst.payload.duplicate, true)
+    assert.equal(duplicateFirst.payload.request.archived, false)
+
     const second = await call('/requests', requesterToken, {
       recipientAddress,
       amount: '1000',
@@ -376,43 +389,12 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(prepared.payload.feeCoverage.covered, true)
     assert.equal(prepared.payload.feeCoverage.totalTrxReserveSun, '0')
 
-    // Historical below-minimum rows stay auditable but cannot re-enter processing.
-    const legacyRequestedId = randomUUID()
-    const legacyPreparedId = randomUUID()
-    const legacyExpiredId = randomUUID()
-    legacyIds = [legacyRequestedId, legacyPreparedId, legacyExpiredId]
-    for (const [legacyId, status, expiresAt] of [
-      [legacyRequestedId, 'requested', new Date(Date.now() + 60_000)],
-      [legacyPreparedId, 'prepared', new Date(Date.now() + 60_000)],
-      [legacyExpiredId, 'prepared', new Date(Date.now() - 60_000)],
-    ]) {
-      await db.query(
-        'INSERT INTO trc20_token_clone.sponsor_direct_payouts ' +
-        '(id,idempotency_key,requester_address,sponsor_address,recipient_address,token_contract,amount_base_units,status,minimum_policy_blocked,unsigned_transaction,expires_at) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,$9::jsonb,$10)',
-        [legacyId, randomUUID(), ownerAddress, sponsorAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999', status,
-          status === 'prepared' ? JSON.stringify(unsignedTransfer()) : null, expiresAt.toISOString()],
-      )
-    }
-    const legacyRequestedPrepare = await call('/requests/' + legacyRequestedId + '/prepare', sponsorToken, {})
-    assert.equal(legacyRequestedPrepare.response.status, 409)
-    assert.equal(legacyRequestedPrepare.payload.error, 'minimum-withdrawal-1000-usdt')
-    const legacyPreparedDuplicate = await call('/requests/' + legacyPreparedId + '/prepare', sponsorToken, {})
-    assert.equal(legacyPreparedDuplicate.response.status, 409)
-    assert.equal(legacyPreparedDuplicate.payload.error, 'minimum-withdrawal-1000-usdt')
-    const legacyPreparedBroadcast = await call('/requests/' + legacyPreparedId + '/broadcast', sponsorToken, { signedTransaction: { raw_data: {} } })
-    assert.equal(legacyPreparedBroadcast.response.status, 409)
-    assert.equal(legacyPreparedBroadcast.payload.error, 'minimum-withdrawal-1000-usdt')
-    const legacyExpiredPrepare = await call('/requests/' + legacyExpiredId + '/prepare', sponsorToken, {})
-    assert.equal(legacyExpiredPrepare.response.status, 409)
-    assert.equal(legacyExpiredPrepare.payload.error, 'minimum-withdrawal-1000-usdt')
-    const legacyStates = await db.query('SELECT id,status,minimum_policy_blocked FROM trc20_token_clone.sponsor_direct_payouts WHERE id=ANY($1::uuid[])', [legacyIds])
-    assert.equal(legacyStates.rows.length, 3)
-    assert.ok(legacyStates.rows.every((row) => row.minimum_policy_blocked === true))
-    assert.ok(legacyStates.rows.every((row) => ['requested','prepared'].includes(row.status)))
+    // The active table now has an unconditional minimum constraint.
+    // Legacy terminal records and unresolved-row blocking are covered by the isolated archive migration suite.
     await assert.rejects(db.query(
-      'INSERT INTO trc20_token_clone.sponsor_direct_payouts (id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,\'requested\')',
+      'INSERT INTO trc20_token_clone.sponsor_direct_payouts ' +
+      '(id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,\\'requested\\')',
       [randomUUID(), randomUUID(), ownerAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999'],
     ))
 
@@ -434,7 +416,10 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(requesterCopy.unsignedTransaction, undefined)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
-    if (legacyIds.length) await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE id=ANY($1::uuid[])', [legacyIds]).catch(() => {})
+    await db.query(
+      'DELETE FROM trc20_token_clone.sponsor_direct_payout_idempotency_registry WHERE idempotency_key = ANY($1::uuid[])',
+      [idempotencyKeys],
+    ).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
     if (server) await new Promise((resolve) => server.close(resolve))
     await db.end()
@@ -474,11 +459,13 @@ test('owner-only funding overview reports zero approved sponsors without implyin
         && sql.includes('sponsor_direct_applications')) {
         return { rows: [{ total: 0, approved: 0, pending_review: 0, declined: 0, suspended: 0 }] }
       }
-      if (sql.startsWith('SELECT COUNT(*)::int AS total')
+      if (sql.startsWith('SELECT COUNT(*)::int AS active_total')
         && sql.includes('sponsor_direct_payouts')) {
         return {
           rows: [{
-            total: 0,
+            total: 6,
+            active_total: 4,
+            archived_historical: 2,
             awaiting_sponsor: 0,
             matched_awaiting_signature: 0,
             prepared: 0,
@@ -517,6 +504,9 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(payload.network, 'mainnet')
   assert.equal(payload.sponsorProfiles.approved, 0)
   assert.equal(payload.sponsorProfiles.pendingReview, 0)
+  assert.equal(payload.withdrawals.total, 6)
+  assert.equal(payload.withdrawals.activeTotal, 4)
+  assert.equal(payload.withdrawals.archivedHistorical, 2)
   assert.equal(payload.funding.status, 'no-approved-sponsor-wallets')
   assert.equal(payload.funding.approvedSponsorProfilesExist, false)
   assert.equal(payload.funding.liveSponsorFundingVerified, false)

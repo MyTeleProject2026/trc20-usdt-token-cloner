@@ -819,6 +819,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       <strong>{formatUnits(item.amountBaseUnits)} USDT</strong>
                       <span>To {item.recipientAddress}</span>
                       <small>Status: {statusLabel(item.status)}</small>
+                      {item.archived && <small className="fine-print">Historical archive · read-only{item.archivedAt ? ' · archived ' + new Date(item.archivedAt).toLocaleString() : ''}</small>}
                       <small>Sponsor: {item.sponsorAddress ? shorten(item.sponsorAddress) : 'Not assigned'}</small>
                       {item.status === 'requested' && <small>{item.sponsorAddress
                         ? 'Automatically matched using current sponsor funding and fee checks. Waiting for the sponsor to prepare and sign this payout.'

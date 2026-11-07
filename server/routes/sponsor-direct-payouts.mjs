@@ -16,7 +16,7 @@ import {
   validateOwnerSignedTransaction,
 } from './tron-owner-withdrawals.mjs'
 import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
-import { ensureSponsorDirectPayoutSchema } from '../sponsor-direct-payout-schema.mjs'
+import { ensureSponsorDirectPayoutArchiveSchema } from '../sponsor-direct-payout-archive.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -102,7 +102,7 @@ async function ensureSchema(db) {
         'CREATE INDEX IF NOT EXISTS sponsor_direct_applications_status_idx ON ' +
         SCHEMA + '.sponsor_direct_applications (status, created_at ASC)'
       )
-      await ensureSponsorDirectPayoutSchema(db)
+      await ensureSponsorDirectPayoutArchiveSchema(db)
     })().catch((error) => {
       schemaPromise = null
       throw error
@@ -433,6 +433,12 @@ function publicRequest(row) {
     lastReconciledAt: row.reconciliation_last_checked_at ? new Date(row.reconciliation_last_checked_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    archived: row.is_archived === true,
+    ...(row.is_archived === true ? {
+      archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+      archiveReason: row.archive_reason || 'historical-record',
+      readOnly: true,
+    } : {}),
   }
 }
 
@@ -1197,7 +1203,9 @@ export function createSponsorDirectPayoutsRouter({
           'FROM ' + SCHEMA + '.sponsor_direct_applications',
         ),
         db.query(
-          'SELECT COUNT(*)::int AS total, ' +
+          'SELECT COUNT(*)::int AS active_total, ' +
+          '(SELECT COUNT(*)::int FROM ' + SCHEMA + '.sponsor_direct_payouts_archive)::int AS archived_historical, ' +
+          '(COUNT(*)::int + (SELECT COUNT(*)::int FROM ' + SCHEMA + '.sponsor_direct_payouts_archive)) AS total, ' +
           "COUNT(*) FILTER (WHERE status='requested' AND sponsor_address IS NULL)::int AS awaiting_sponsor, " +
           "COUNT(*) FILTER (WHERE status='requested' AND sponsor_address IS NOT NULL)::int AS matched_awaiting_signature, " +
           "COUNT(*) FILTER (WHERE status='prepared')::int AS prepared, " +
@@ -1231,6 +1239,8 @@ export function createSponsorDirectPayoutsRouter({
         },
         withdrawals: {
           total: count(payoutRow.total),
+          activeTotal: count(payoutRow.active_total),
+          archivedHistorical: count(payoutRow.archived_historical),
           awaitingSponsor: count(payoutRow.awaiting_sponsor),
           matchedAwaitingSignature: count(payoutRow.matched_awaiting_signature),
           prepared: count(payoutRow.prepared),
@@ -1347,7 +1357,7 @@ export function createSponsorDirectPayoutsRouter({
     try {
       await ensureSchema(db)
       const existing = await db.query(
-        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE idempotency_key=$1 LIMIT 1',
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE idempotency_key=$1 LIMIT 1',
         [idempotencyKey],
       )
       if (existing.rows[0]) {
@@ -1396,14 +1406,14 @@ export function createSponsorDirectPayoutsRouter({
     try {
       await ensureSchema(db)
       const result = await db.query(
-        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 50',
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE requester_address=$1 ORDER BY created_at DESC LIMIT 50',
         [auth.address],
       )
       return res.json({
         success: true,
         requests: result.rows.map((row) => ({
           ...publicRequest(row),
-          ...(row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
+          ...(row.is_archived !== true && row.status === 'prepared' && row.sponsor_address === auth.address && row.unsigned_transaction
             ? { unsignedTransaction: row.unsigned_transaction }
             : {}),
         })),
@@ -1894,13 +1904,13 @@ export function createSponsorDirectPayoutsRouter({
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
       await ensureSchema(db)
-      const found = await db.query('SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 LIMIT 1', [id])
+      const found = await db.query('SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts_history WHERE id=$1 LIMIT 1', [id])
       if (!found.rows.length) return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       let row = found.rows[0]
       if (row.requester_address !== auth.address && row.sponsor_address !== auth.address) {
         return res.status(403).json({ success: false, error: 'payout-request-access-denied' })
       }
-      if (['submitted', 'outcome-unknown', 'broadcasting'].includes(row.status)) {
+      if (row.is_archived !== true && ['submitted', 'outcome-unknown', 'broadcasting'].includes(row.status)) {
         const verification = await verifyTransfer(env, {
           transactionHash: String(row.transaction_hash || '').trim(),
           from: row.sponsor_address,

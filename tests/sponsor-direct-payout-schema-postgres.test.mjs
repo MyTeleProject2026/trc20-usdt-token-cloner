@@ -70,12 +70,11 @@ test('independent PostgreSQL pools serialize the payout schema migration on the 
     blockerTransactionOpen = false
     await migrationPromise
 
-    const constraint = await blockerPool.query(
-      'SELECT convalidated FROM pg_constraint ' +
-      'WHERE conname=\'sponsor_direct_payouts_minimum_amount_check\' ' +
-      'AND conrelid=\'trc20_token_clone.sponsor_direct_payouts\'::regclass',
+    const table = await blockerPool.query(
+      "SELECT to_regclass('trc20_token_clone.sponsor_direct_payouts') AS table_name",
     )
-    assert.equal(constraint.rows.length, 1, 'the migration should finish with the minimum-policy constraint installed')
+    assert.equal(table.rows[0]?.table_name, 'trc20_token_clone.sponsor_direct_payouts',
+      'the base schema migration should finish after the advisory lock is released')
   } finally {
     if (blockerTransactionOpen) {
       await blocker.query('ROLLBACK').catch(() => {})
