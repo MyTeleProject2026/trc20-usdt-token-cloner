@@ -1708,7 +1708,7 @@ export function createSponsorDirectPayoutsRouter({
   router.post('/requests/:id/broadcast', async (req, res) => {
     setNoStore(res)
     if (REAL_SPONSOR_DIRECT_BROADCAST_DISABLED) {
-      return res.status(503).json({ success:false, error:'sponsor-direct-mainnet-broadcast-disabled-in-this-build', transactionBroadcast:false })
+      return res.status(503).json({ success:false, error:'sponsor-direct-mainnet-broadcast-disabled-in-this-build', canSubmitSponsoredTransfer:false, submissionEnabled:false, providerSubmissionAttempted:false, transactionBroadcast:false })
     }
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
