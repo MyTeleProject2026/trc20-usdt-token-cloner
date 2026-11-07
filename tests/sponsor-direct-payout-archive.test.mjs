@@ -151,7 +151,7 @@ test('archive migration fails closed on unresolved legacy rows, then preserves t
     )
     assert.equal(minimumConstraint.rows.length, 1)
     assert.equal(minimumConstraint.rows[0].convalidated, true)
-    assert.match(minimumConstraint.rows[0].definition, /amount_base_units >= 1000000000/)
+    assert.ok(minimumConstraint.rows[0].definition.includes('amount_base_units >= (1000000000)'))
     const markerColumn = await db.query(
       'SELECT 1 FROM information_schema.columns WHERE table_schema=$1 ' +
       'AND table_name=\'sponsor_direct_payouts\' AND column_name=\'minimum_policy_blocked\'',

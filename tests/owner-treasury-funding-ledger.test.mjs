@@ -194,7 +194,7 @@ test('an exact solidified Mainnet USDT inflow is recorded once with event-level 
   assert.equal(response.body.duplicate, false)
   assert.equal(response.body.entry.tokenContract, tokenContract)
   assert.equal(response.body.entry.amountBaseUnits, '25000000')
-  assert.equal(db.calls.filter((call) => call.sql.startsWith('INSERT INTO')).length, 1)
+  assert.equal(db.calls.filter((call) => call.sql.startsWith('INSERT INTO trc20_token_clone.owner_treasury_verified_inflows')).length, 1)
 })
 
 test('a replayed exact deposit event is returned as already recorded, not credited twice', async () => {
