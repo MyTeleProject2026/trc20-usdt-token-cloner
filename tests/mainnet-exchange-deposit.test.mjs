@@ -51,7 +51,7 @@ test('supervised build keeps the exchange deposit page read-only and blocks new 
   assert.match(flow, /screen is read-only in this build/)
   assert.match(flow, /Historical implementation note only/)
   assert.match(flow, /studio-pill--warning">Read-only/)
-  assert.match(flow, /Mainnet transfer execution is disabled in this build/)
+  assert.match(flow, /Mainnet exchange transfers are disabled in this supervised build/)
   assert.match(flow, /disabled=\{true\} title="Mainnet transaction signing and broadcast are disabled in this build"/)
   const sender = flow.slice(flow.indexOf('const sendDeposit = async'), flow.indexOf('const statusTitle'))
   assert.ok(sender.includes('if (REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED)'))
