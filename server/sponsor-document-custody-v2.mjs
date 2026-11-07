@@ -64,8 +64,27 @@ export function getDocumentCustodyV2Config(env = process.env) {
 }
 
 async function readJson(response, errorCode) {
-  if (!response.ok) throw new Error(errorCode)
-  try { return await response.json() } catch { throw new Error(errorCode) }
+  if (!response.ok || !response.body?.getReader) throw new Error(errorCode)
+  const reader = response.body.getReader()
+  const chunks = []
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > 256 * 1024) {
+        await reader.cancel().catch(() => {})
+        throw new Error(errorCode)
+      }
+      chunks.push(Buffer.from(value))
+    }
+    return JSON.parse(Buffer.concat(chunks, total).toString('utf8'))
+  } catch {
+    throw new Error(errorCode)
+  } finally {
+    try { reader.releaseLock() } catch {}
+  }
 }
 
 export async function scanAndStoreEvidenceV2({
