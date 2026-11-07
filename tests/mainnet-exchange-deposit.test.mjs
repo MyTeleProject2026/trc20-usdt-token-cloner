@@ -17,7 +17,7 @@ test('real deposit page is separate from the existing testnet-only workspace', (
   assert.ok(flow.includes('Testnet assets'))
 })
 
-test('Mainnet deposit wallet has a real signed identity session and revalidates it before send', () => {
+test('Mainnet read-only balance page authenticates wallet identity without enabling transfer signing', () => {
   assert.match(flow, /const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'/)
   assert.match(flow, /authenticateMainnetWallet\(address, tronWeb\)/)
   assert.match(flow, /tronWeb\.trx\.signMessageV2\(challenge\.message\)/)
@@ -27,7 +27,7 @@ test('Mainnet deposit wallet has a real signed identity session and revalidates 
   assert.match(flow, /apiGet\('\/api\/auth\/tron\/session', storedToken\)/)
   assert.match(flow, /const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'/)
   assert.match(flow, /existing\.payload\.address === address/)
-  assert.match(flow, /verified\.address === address/)
+  assert.match(flow, /verified\.address !== address/)
   assert.match(flow, /Sign out wallet identity/)
   assert.match(authRoute, /const NETWORKS = new Set\(\['mainnet', 'shasta', 'nile'\]\)/)
   assert.match(authRoute, /wallet-identity-only/)
@@ -51,7 +51,11 @@ test('supervised build keeps the exchange deposit page read-only and blocks new 
   assert.match(flow, /screen is read-only in this build/)
   assert.match(flow, /Historical implementation note only/)
   assert.match(flow, /studio-pill--warning">Read-only/)
-  assert.match(flow, /!REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED && sender/)
+  assert.match(flow, /Mainnet transfer execution is disabled in this build/)
+  assert.match(flow, /disabled=\{true\} title="Mainnet transaction signing and broadcast are disabled in this build"/)
+  const sender = flow.slice(flow.indexOf('const sendDeposit = async'), flow.indexOf('const statusTitle'))
+  assert.ok(sender.includes('if (REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED)'))
+  assert.doesNotMatch(sender, /trx\.sign\(|sendRawTransaction\(/)
   assert.match(flow, /disabled=\{true\} title="Mainnet transaction signing and broadcast are disabled in this build"/)
   assert.doesNotMatch(flow, /tronWeb\.trx\.sign\(unsigned\)/)
   assert.doesNotMatch(flow, /sendRawTransaction\(signed\)/)
