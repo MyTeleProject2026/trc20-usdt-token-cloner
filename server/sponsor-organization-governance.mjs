@@ -164,6 +164,7 @@ export function evaluateSponsorOrganizationRevocation({
   application = {},
   mandate = {},
   revocationEvents = [],
+  revocationActorRegistry = [],
   nowMs = Date.now(),
 } = {}) {
   const blockers = []
@@ -172,6 +173,14 @@ export function evaluateSponsorOrganizationRevocation({
   if (!UUID_RE.test(String(appId || ''))) blockers.push('revocation-application-id-invalid')
   if (!UUID_RE.test(String(mandateId || ''))) blockers.push('revocation-mandate-id-invalid')
   if (!Number.isFinite(nowMs)) blockers.push('revocation-time-invalid')
+
+  const trustedActors = new Map()
+  for (const actor of Array.isArray(revocationActorRegistry) ? revocationActorRegistry : []) {
+    if (TRON_ADDRESS_RE.test(String(actor?.walletAddress || ''))
+      && REVOCATION_ACTOR_ROLES.has(actor?.role) && actor?.active === true) {
+      trustedActors.set(actor.walletAddress, actor.role)
+    }
+  }
 
   const applicable = (Array.isArray(revocationEvents) ? revocationEvents : []).filter((event) => {
     if (event?.applicationId !== appId) return false
@@ -182,6 +191,9 @@ export function evaluateSponsorOrganizationRevocation({
     return Number.isFinite(effectiveAt) && effectiveAt <= nowMs
       && REVOCATION_ACTOR_ROLES.has(event.actorRole)
       && TRON_ADDRESS_RE.test(String(event.actorWalletAddress || ''))
+      && (event.actorRole === 'sponsor-representative'
+        ? event.actorWalletAddress === application.sponsorWalletAddress
+        : trustedActors.get(event.actorWalletAddress) === event.actorRole)
       && REVOCATION_REASONS.has(event.reasonCode)
       && event.actorSignatureVerified === true
       && nonEmpty(event.eventReference)
