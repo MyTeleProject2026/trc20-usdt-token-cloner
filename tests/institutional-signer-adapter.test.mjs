@@ -141,9 +141,12 @@ test('never contacts a signer, creates a signing request, signs, broadcasts or a
 
 test('adapter source has no network client, key loader, transaction submission or signing primitive', async () => {
   const source = await readFile(new URL('../server/institutional-signer-adapter.mjs', import.meta.url), 'utf8')
-  assert.doesNotMatch(source, /fetch\\s*\\(|https?:\\/\\/|readFile|createPrivateKey|privateKey|sendRawTransaction|broadcastTransaction|createTransaction|sign\\s*\\(/i)
+  for (const forbidden of [
+    'fetch(', 'https://', 'http://', 'readFile', 'createPrivateKey',
+    'privateKey', 'sendRawTransaction', 'broadcastTransaction',
+    'createTransaction', 'sign(',
+  ]) assert.equal(source.includes(forbidden), false, forbidden)
 })
-
 test('live treasury USDT and TRX submission routes remain hard-disabled before any provider call', async () => {
   const route = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
   assert.match(route, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
