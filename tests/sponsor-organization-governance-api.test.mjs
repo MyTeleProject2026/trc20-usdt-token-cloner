@@ -113,9 +113,11 @@ test('governance API responses never authorize or broadcast payouts', () => {
 
 test('sponsor portal exposes governance controls without transaction submission controls', () => {
   assert.match(portal, /SponsorOrganizationGovernance/)
-  assert.match(panel, /Record evidence metadata/)
+  assert.match(panel, /Scan and store evidence/)
+  assert.match(panel, /documentCustodyAvailable/)
+  assert.match(panel, /malwareScanStatus/)
   assert.match(panel, /Sign and submit independent approval/)
   assert.match(panel, /Sign and revoke mandate/)
-  assert.match(panel, /pending independent review/)
+  assert.match(panel, /Independent human review is still required/)
   assert.doesNotMatch(panel, /sendRawTransaction|signTransaction|broadcastTransaction/)
 })
