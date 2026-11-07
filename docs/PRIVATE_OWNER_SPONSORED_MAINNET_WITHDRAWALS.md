@@ -85,3 +85,12 @@ Do not place API keys, passwords, wallet private keys, recovery phrases, or OTPs
 Deployment does not create a sponsor, approve an application, add USDT, pay TRX, grant an organization mandate, or create a provider credit facility. The implementation can be reachable while the request queue remains empty. Real withdrawals require a willing sponsor wallet owner who has independently agreed to fund and sign the exact transfer, and the owner must make an informed review decision. Any applicable legal, regulatory, sanctions, and source-of-funds obligations remain in force; this wallet-participation workflow must not be used to evade them.
 
 The current provider-readiness page remains a separate diagnostic: provider-managed payouts are not enabled. This sponsor-direct wallet route is the only active withdrawal submission design in this release.
+
+
+## Stage 18 archive diagnostics and history lookup
+
+The owner-authenticated `GET /api/tron/sponsor-direct/archive-migration-status` endpoint reports a read-only snapshot of the archive migration invariants: active/archive/history/registry object presence, validated active minimum constraint, active idempotency trigger, archive immutability triggers, unresolved below-minimum active rows, and registry consistency. It does not run or repair a migration. A `blocked` result means unresolved below-minimum records remain; an `incomplete` result means one or more required objects or invariants are absent.
+
+Authenticated requester/sponsor sessions can retrieve a prior request by its globally reserved idempotency key through `GET /api/tron/sponsor-direct/requests/idempotency/:key`. The endpoint reads the active/archive history view, applies the same requester-or-sponsor access check as detail, and marks archived records read-only. It does not authorize, prepare, sign, or broadcast a payout.
+
+The isolated PostgreSQL API regression coverage exercises archived requester history, archived detail, duplicate-key lookup, owner-only diagnostics, and denial of diagnostics to a non-owner. These endpoints are inspection surfaces only; they do not make historical records active again.
