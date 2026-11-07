@@ -61,8 +61,15 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD CONSTRAINT sponsor_org_evidence_scan_status_check CHECK (malware_scan_status IN ('pending','clean'))`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ALTER COLUMN malware_scan_status SET DEFAULT 'pending'`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_malware_scan_attestations (
-        id UUID PRIMARY KEY, evidence_id UUID NOT NULL UNIQUE REFERENCES ${SCHEMA}.sponsor_organization_evidence_artifacts(id),
-        content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}
+        id UUID PRIMARY KEY,
+        evidence_id UUID NOT NULL UNIQUE REFERENCES ${SCHEMA}.sponsor_organization_evidence_artifacts(id),
+        content_sha256 CHAR(64) NOT NULL CHECK (content_sha256 ~ '^[a-fA-F0-9]{64}$'),
+        scanner_service TEXT NOT NULL CHECK (scanner_service='clamav-instream'),
+        scanner_version TEXT NOT NULL,
+        scan_status TEXT NOT NULL CHECK (scan_status='clean'),
+        scanned_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx ON ${SCHEMA}.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC)`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_reviewer_decisions (
         id UUID PRIMARY KEY,
