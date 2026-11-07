@@ -20,6 +20,7 @@ const TRANSFER_SELECTOR = 'a9059cbb'
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
+export const MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS = '1000000000'
 
 let pool
 let schemaPromise
@@ -84,6 +85,12 @@ export function parseOwnerUsdtAmount(value) {
     throw new Error('The USDT amount is outside the permitted transfer range.')
   }
   return baseUnits.toString()
+}
+
+export function isOwnerWithdrawalAmountAtLeastMinimum(amountBaseUnits) {
+  return typeof amountBaseUnits === 'string'
+    && /^(?:0|[1-9][0-9]*)$/.test(amountBaseUnits)
+    && BigInt(amountBaseUnits) >= BigInt(MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS)
 }
 
 export function calculateOwnerWithdrawableUsdtBaseUnits(balanceBaseUnits, reservedBaseUnits) {
@@ -390,6 +397,14 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
     let amountBaseUnits
     try { amountBaseUnits = parseOwnerUsdtAmount(body.amount) } catch (error) {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount', message: error.message })
+    }
+    if (!isOwnerWithdrawalAmountAtLeastMinimum(amountBaseUnits)) {
+      return res.status(400).json({
+        success: false,
+        error: 'owner-withdrawal-below-1000-usdt-minimum',
+        minimumAmount: '1000',
+        minimumBaseUnits: MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS,
+      })
     }
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })

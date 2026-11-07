@@ -11,6 +11,7 @@ const BASE64URL_RE = /^[A-Za-z0-9_-]+$/
 const MAX_OBSERVATION_AGE_MS = 60_000
 const MAX_RECEIPT_LIFETIME_MS = 60_000
 const MAX_CLOCK_SKEW_MS = 5_000
+const MAX_OBSERVATION_RESPONSE_BYTES = 65_536
 const MIN_PLATFORM_USDT_BASE_UNITS = 1_000_000_000n
 const READ_ONLY_OBSERVATION_READERS = new WeakSet()
 const VERIFIED_OBSERVATIONS = new WeakSet()
@@ -339,13 +340,32 @@ export async function fetchPrivateTreasuryVaultObservation({
   })
   if (!response || response.ok !== true) throw new Error('private-vault-observation-read-failed')
   const contentLength = response.headers?.get?.('content-length')
-  if (contentLength && (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) || Number(contentLength) > 65_536)) {
+  if (contentLength && (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) || Number(contentLength) > MAX_OBSERVATION_RESPONSE_BYTES)) {
     throw new Error('private-vault-observation-response-too-large')
   }
-  let body
-  try { body = await response.text() } catch { throw new Error('private-vault-observation-response-invalid') }
-  if (typeof body !== 'string' || Buffer.byteLength(body, 'utf8') > 65_536) {
-    throw new Error('private-vault-observation-response-too-large')
+  let body = ''
+  const reader = response.body?.getReader?.()
+  if (!reader) throw new Error('private-vault-observation-response-invalid')
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  let receivedBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!(value instanceof Uint8Array)) throw new Error('private-vault-observation-response-invalid')
+      receivedBytes += value.byteLength
+      if (receivedBytes > MAX_OBSERVATION_RESPONSE_BYTES) {
+        try { await reader.cancel() } catch {}
+        throw new Error('private-vault-observation-response-too-large')
+      }
+      body += decoder.decode(value, { stream: true })
+    }
+    body += decoder.decode()
+  } catch (error) {
+    if (error?.message === 'private-vault-observation-response-too-large') throw error
+    throw new Error('private-vault-observation-response-invalid')
+  } finally {
+    try { reader.releaseLock() } catch {}
   }
   let receipt
   try { receipt = JSON.parse(body) } catch { throw new Error('private-vault-observation-response-invalid') }

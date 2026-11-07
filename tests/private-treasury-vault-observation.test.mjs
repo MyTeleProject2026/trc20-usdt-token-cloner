@@ -170,7 +170,12 @@ test('read-only gateway client uses one allowlisted HTTPS GET and rejects redire
     bearerToken: 'test-token-with-sufficient-length',
     fetchImpl: async (url, init) => {
       captured = { url, init }
-      return { ok: true, headers: { get: () => null }, text: async () => JSON.stringify(signed()) }
+      const bytes = new TextEncoder().encode(JSON.stringify(signed()))
+      return {
+        ok: true,
+        headers: { get: () => null },
+        body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
+      }
     },
     timeoutMs: 1000,
   })
@@ -193,6 +198,45 @@ test('read-only gateway client uses one allowlisted HTTPS GET and rejects redire
     bearerToken: 'test-token-with-sufficient-length',
     fetchImpl: async () => { throw new Error('must-not-fetch') },
   }), /private-vault-gateway-origin-not-allowlisted/)
+})
+
+
+test('rejects oversized streamed observation bodies before buffering the complete response', async () => {
+  let cancelled = false
+  const oversized = new Uint8Array(65_537).fill(0x20)
+  await assert.rejects(() => fetchPrivateTreasuryVaultObservation({
+    gatewayBaseUrl: 'https://vault.example.test/',
+    allowedOrigins: ['https://vault.example.test'],
+    vaultId,
+    bearerToken: 'test-token-with-sufficient-length',
+    fetchImpl: async () => ({
+      ok: true,
+      headers: { get: () => null },
+      body: new ReadableStream({
+        start(controller) { controller.enqueue(oversized) },
+        cancel() { cancelled = true },
+      }),
+    }),
+    timeoutMs: 1000,
+  }), /private-vault-observation-response-too-large/)
+  assert.equal(cancelled, true)
+})
+
+test('rejects an oversized declared content length before reading the response stream', async () => {
+  let read = false
+  await assert.rejects(() => fetchPrivateTreasuryVaultObservation({
+    gatewayBaseUrl: 'https://vault.example.test/',
+    allowedOrigins: ['https://vault.example.test'],
+    vaultId,
+    bearerToken: 'test-token-with-sufficient-length',
+    fetchImpl: async () => ({
+      ok: true,
+      headers: { get: (name) => name === 'content-length' ? '65537' : null },
+      body: new ReadableStream({ pull() { read = true } }),
+    }),
+    timeoutMs: 1000,
+  }), /private-vault-observation-response-too-large/)
+  assert.equal(read, false)
 })
 
 test('financial vault observation adapter is provider-independent and contains no signing or broadcast path', async () => {

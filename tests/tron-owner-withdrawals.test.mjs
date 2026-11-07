@@ -6,6 +6,8 @@ import express from 'express'
 import { createServer } from 'node:http'
 import {
   MAINNET_USDT_CONTRACT,
+  MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS,
+  isOwnerWithdrawalAmountAtLeastMinimum,
   parseOwnerUsdtAmount,
   calculateOwnerWithdrawableUsdtBaseUnits,
   buildOwnerUsdtTransferParameter,
@@ -21,6 +23,18 @@ test('owner USDT amount parser converts exact six-decimal base units', () => {
   assert.equal(parseOwnerUsdtAmount('1'), '1000000')
   assert.equal(parseOwnerUsdtAmount('12.340056'), '12340056')
   assert.equal(parseOwnerUsdtAmount('0.000001'), '1')
+})
+
+
+test('owner withdrawal minimum is exactly 1,000 USDT and is isolated from the shared amount parser', () => {
+  assert.equal(MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS, '1000000000')
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('999999999'), false)
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('1000000000'), true)
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('1000000001'), true)
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('not-an-integer'), false)
+  // The shared parser remains generic because the legacy sponsor adapter imports it;
+  // only the owner-withdrawal preparation route applies the platform minimum.
+  assert.equal(parseOwnerUsdtAmount('999.999999'), '999999999')
 })
 
 test('owner USDT amount parser rejects zero, excess precision and non-decimal values', () => {
