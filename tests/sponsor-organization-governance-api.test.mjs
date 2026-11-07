@@ -68,7 +68,7 @@ test('legacy mandate verify and authorize transitions cannot bypass the two-role
 })
 
 test('review decisions require trusted server roles and signatures bound to the evidence digest', () => {
-  assert.match(api, /SPONSOR_ORG_REVIEWER_REGISTRY/)
+  assert.match(registry, /SPONSOR_ORG_REVIEWER_REGISTRY/)
   assert.match(api, /verifyMessage\(message, body\.signature\)/)
   assert.match(api, /reviewer-signature-address-mismatch/)
   assert.match(api, /evidence\.digest/)
@@ -76,13 +76,13 @@ test('review decisions require trusted server roles and signatures bound to the 
   assert.match(api, /roles\.has\('security-reviewer'\)/)
   assert.match(api, /distinct\.size >= 2/)
   assert.match(api, /activeReviewerDecisions\(decisions\.rows, env\)/)
-  assert.match(api, /new Set\(entries\.map\(\(item\) => item\.walletAddress\)\)/)
+  assert.match(registry, /new Set\(entries\.map\(\(entry\) => entry\.walletAddress\)\)/)
   assert.match(api, /sponsor-cannot-review-own-evidence/)
   assert.match(api, /reviewer-already-decided-for-evidence-digest/)
 })
 
 test('revocation requires sponsor or trusted security officer signature and commits atomically', () => {
-  assert.match(api, /SPONSOR_ORG_SECURITY_OFFICERS/)
+  assert.match(registry, /SPONSOR_ORG_SECURITY_OFFICERS/)
   assert.match(api, /trusted-security-officer-required/)
   assert.match(api, /sponsor-wallet-required-for-revocation/)
   assert.match(api, /revocation-signature-address-mismatch/)
