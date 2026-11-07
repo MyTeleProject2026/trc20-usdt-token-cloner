@@ -1,48 +1,52 @@
-# Stage 7 — evidence custody, independent review and emergency revocation
+# Stage 7B — organizational evidence, independent review and revocation
 
-## Scope and status
+## Implemented in the feature branch
 
-Stage 7 adds a governance contract, regression tests and a reference PostgreSQL migration. The migration is **not applied**, the new module is **not mounted**, no evidence object is uploaded, and no reviewer allowlist is configured by this change. This is not a production approval workflow.
+- A governance router is mounted before the existing organization-onboarding router at the same `/api/tron` prefix. This makes the signed Stage 7B revocation endpoint handle mandate revocation instead of the earlier unsigned status-only endpoint.
+- Evidence metadata can be recorded against an existing sponsor mandate. PostgreSQL stores only a vault object key, file digest, MIME type, bounded size, encryption declaration, uploader wallet and retention-policy reference. It does not accept document bytes or fetch the referenced object.
+- Reviewer decisions are signed with TRON message signatures. The server recovers the signing wallet and checks that the wallet and role are in a trusted server-side reviewer registry.
+- A current evidence-set digest is recomputed from sorted artifact IDs and SHA-256 values. Each reviewer signature binds the application, mandate, exact digest, decision, reviewer wallet and role, independence/conflict attestations, reference and timestamp.
+- Two distinct reviewers are required, including both the compliance-reviewer and security-reviewer roles. The sponsor wallet is excluded. A reviewer can submit only one decision per mandate and evidence digest.
+- Sponsor revocation and trusted security-officer emergency revocation are signed and appended to an immutable event table. The append and associated mandate/application status changes are performed in one database transaction.
+- The sponsor portal now contains a governance panel for metadata submission, reviewer approval and signed mandate revocation. It does not expose any transaction signing or payout action.
 
-Real payouts remain disabled. Every evaluator returns `payoutAuthorized: false`; no signer, provider, transaction preparation, broadcast or exchange-credit path is called.
+## API routes
 
-## Evidence custody model
+- `POST /api/tron/organizations/mandates/:id/evidence`
+- `GET /api/tron/organizations/mandates/:id/governance`
+- `GET /api/tron/organizations/governance/config`
+- `POST /api/tron/organizations/mandates/:id/reviews`
+- `POST /api/tron/organizations/mandates/:id/revoke`
+- `POST /api/tron/organizations/applications/:id/revoke`
 
-- Keep original identity, ownership, authority, agreement and funding documents in an approved private document vault with encryption at rest and access logging.
-- Store only metadata in PostgreSQL: application/mandate binding, evidence type, private object key, SHA-256 digest, MIME type, bounded size, malware scan state, uploader wallet and retention-policy reference.
-- Never store public document URLs, raw identity documents in ordinary application rows, seed phrases, private keys, API credentials, session tokens or provider signing material.
-- Verify document integrity against the digest and independently inspect the underlying source. A digest proves file identity, not truth, legal validity or KYB completion.
-- Evidence metadata, reviewer decisions and revocation events are append-only in the reference migration. Corrections are new events, not edits to history.
+All routes require a valid TRON Mainnet wallet-auth session and an allowlisted HTTPS origin. Review and revocation mutations additionally require a cryptographically verified wallet signature over the exact server-defined message.
 
-## Independent reviewer approval
+## Trusted server configuration still required
 
-- Reviewer identities and roles must come from a trusted server-side allowlist, not request fields. The exact artifact-set digest is recomputed from sorted artifact IDs and content hashes before approvals are accepted.
-- The quorum must include at least one active compliance reviewer and one active security reviewer. Emergency revocation by a reviewer/security officer also requires a trusted active actor-registry entry; a wallet signature alone is insufficient.
-- The evaluator requires at least two distinct active reviewers (compliance and/or security roles), neither the sponsor nor the application submitter.
-- Each approval is bound to the exact application, optional mandate, evidence-set digest and a verified reviewer signature.
-- Reviewers must attest independence and pass a conflict check. An evidence reference alone is not proof of review.
-- Reviewer decisions are not provider KYB approval and do not create signing authority.
+The API fails closed when these allowlists are absent or malformed:
 
-## Emergency revocation
+- `SPONSOR_ORG_REVIEWER_REGISTRY`: JSON array of active `{ "walletAddress": "...", "role": "compliance-reviewer" | "security-reviewer", "active": true }` entries.
+- `SPONSOR_ORG_SECURITY_OFFICERS`: JSON array of active `{ "walletAddress": "...", "active": true }` entries.
 
-- A sponsor representative can request revocation; an independent reviewer or security officer can record an emergency hold where compromise, authority withdrawal, invalid evidence, provider-account change or a compliance hold is suspected.
-- Events are signed, timestamped, append-only and scoped either to one mandate or the entire organization application.
-- An application-scoped revocation invalidates every mandate under that application. A mandate-scoped revocation invalidates only that mandate.
-- Revocation is monotonic for this stage: no event can be deleted or silently reversed. Reinstatement, if ever designed, must be a new reviewed workflow and must not erase the revocation history.
-- Any future payout consumer must check current application status, mandate status, all applicable revocation events and emergency holds immediately before any approval/signing step. Cache-only checks are not sufficient.
+These values must be provisioned by the organization through an approved, controlled secrets/configuration process. Do not put reviewer keys, seed phrases or private keys in these variables. Only public TRON addresses and roles belong here. No reviewer identities are provisioned by this commit.
 
-## Reference database migration
+## Evidence-custody limitation
 
-`server/migrations/20261107_sponsor_organization_governance_stage7.sql` defines metadata-only evidence, reviewer-decision and revocation-event tables with append-only triggers. It is a reference migration only. It has not been run against Render or any database and must receive separate migration review before use.
+This is a metadata API, **not a document-vault integration**. The service does not upload, download, inspect, encrypt or malware-scan the referenced object, and cannot prove the object exists. The API labels the submitted metadata as pending independent review. Reviewers must inspect the source object in the approved vault and attest to that inspection before signing. A hash proves file identity, not truth, legal validity, KYB completion or lawful source of funds.
 
-## Explicit non-goals
+## Persistence and migration
 
-- No evidence upload/download endpoint or document-vault connector.
-- No production reviewer identity provisioning or cryptographic reviewer-signature adapter.
-- No route mounting, frontend wiring, live database migration, provider integration or signer integration.
-- No real payout authorization, transaction preparation, signing, provider request, broadcast or transfer.
-- No KYC/KYB exemption and no claim that internal reviewer approval replaces provider or legal verification.
+The governance router creates the metadata, reviewer-decision and revocation tables and append-only triggers when the first governance API request is made, provided the existing organization application and mandate tables are already present. The SQL migration at `server/migrations/20261107_sponsor_organization_governance_stage7.sql` mirrors that schema for separately managed migration workflows. The migration has **not** been applied to Render or any live database by this work.
 
-## Verification
+Evidence metadata, reviewer decisions and revocation events reject UPDATE and DELETE. Corrections require new records. A new evidence digest invalidates approvals against an older digest.
 
-The Stage 7 unit tests cover evidence metadata restrictions, private storage constraints, two-person independent review, reviewer exclusion, exact evidence binding, application/mandate revocation, and emergency holds. CI must pass on the new commit; no local or live database verification is claimed by this change.
+## Payout and deployment boundary
+
+- Every Stage 7B response explicitly reports `payoutAuthorized: false`.
+- The governance quorum is not a payout authorization and is not connected to any signer, provider payout adapter, transaction preparation, broadcast or exchange-credit path.
+- This work does not enable real-value payout execution, change provider configuration, apply a production database migration, deploy Render services, or transfer funds.
+- The existing separate sponsor-direct payout capability remains governed by its own authorization and execution controls; Stage 7B does not silently change that system.
+
+## Verification status
+
+Regression tests were added for route mounting/order, signature binding, trusted reviewer roles, quorum requirements, append-only storage, atomic revocation and frontend safety assertions. GitHub Actions results must be checked on the latest branch head before describing the implementation as verified. No live database, vault or reviewer-registry verification is claimed.
