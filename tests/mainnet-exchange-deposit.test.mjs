@@ -51,7 +51,7 @@ test('supervised build keeps the exchange deposit page read-only and blocks new 
   assert.doesNotMatch(flow, /tronWeb\.trx\.sign\(unsigned\)/)
   assert.doesNotMatch(flow, /sendRawTransaction\(signed\)/)
   assert.match(flow, /verifyAttempt\(attempt\)/)
-  assert.match(flow, //api\/tron\/verify-trc20-transfer\//)
+  assert.match(flow, /\/api\/tron\/verify-trc20-transfer\//)
 })
 
 test('deposit success requires the existing solidified TRX or TRC-20 verifier', () => {
