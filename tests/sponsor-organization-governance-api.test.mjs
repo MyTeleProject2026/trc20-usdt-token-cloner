@@ -96,7 +96,7 @@ test('revocation requires sponsor or trusted security officer signature and comm
 })
 
 test('governance audit tables have immutable update and delete triggers', () => {
-  for (const name of ['sponsor_organization_evidence_artifacts','sponsor_organization_reviewer_decisions','sponsor_organization_revocation_events']) {
+  for (const name of ['sponsor_organization_evidence_artifacts','sponsor_organization_malware_scan_attestations','sponsor_organization_reviewer_decisions','sponsor_organization_revocation_events']) {
     assert.ok(api.includes(name))
     assert.ok(migration.includes(name))
   }
