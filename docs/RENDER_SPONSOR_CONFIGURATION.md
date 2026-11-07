@@ -26,11 +26,11 @@ Set values only for resources and agreements the project is authorized to use.
 | `TATUM_API_BASE` | Optional | Keep the default `https://api.tatum.io`; the backend only accepts the approved HTTPS Tatum origin. |
 | `FINCRA_ENVIRONMENT` | Keep `sandbox` until the provider has enabled the live business account | Set to `live` only for an approved business account with stablecoin payouts enabled by Fincra. |
 | `FINCRA_SECRET_KEY` | Required for Fincra API access | Store the business account API key only in the backend secret environment. Never commit it or expose it as a frontend variable. |
-| `FINCRA_BUSINESS_ID` | Required for payout source account selection | Exact Fincra business ID associated with the configured API credentials. The standing mandate's signed business ID must match this value exactly. |
+| `FINCRA_BUSINESS_ID` | Optional for read-only account diagnostics | Exact Fincra business ID associated with the configured API credentials. It does not establish sponsor authority or enable a payout. |
 | `FINCRA_WEBHOOK_SECRET` | Required for verified payout webhooks | Store the Fincra webhook signing secret only in Render. The backend verifies HMAC-SHA512 and re-queries the provider record before applying status. |
-| `FINCRA_SOURCE_CURRENCY` | Defaults to `USDT` | The automatic path currently permits same-currency USDT source and destination only. |
-| `FINCRA_PAYOUTS_ENABLED` | Keep `false` until the account is approved, funded and authorized for this use | Enables the owner-operated payout endpoint after all other release gates pass. The owner path is restricted to requests whose authenticated requester wallet matches the configured platform owner wallet. |
-| `FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED` | Keep `false` until Fincra enables live stablecoin payouts | Explicit operator assertion; this flag does not itself enable the feature with Fincra or prove funds. |
+| `FINCRA_SOURCE_CURRENCY` | Defaults to `USDT` | Read-only account diagnostics are scoped to USDT. This setting does not enable payout submission. |
+| `FINCRA_PAYOUTS_ENABLED` | Retired; do not configure | The legacy `/sponsor-requests/:id/fincra-payout` route is hard-disabled and returns HTTP 410. This flag cannot enable payout submission. |
+| `FINCRA_LIVE_STABLECOIN_PAYOUTS_CONFIRMED` | Retired for payout activation; do not configure | A legacy operator assertion only. It cannot enable the hard-disabled payout route or prove funds or provider authorization. |
 | `DATABASE_URL` | Required for persistent history/ledger features | Render PostgreSQL's **Internal Database URL** when services are in the same region/workspace. Never commit the URL. |
 | `DATABASE_SSL` | Usually leave `false` for the internal Render connection | Only set `true` if the database endpoint and certificate configuration support the backend's strict TLS validation. Verify readiness after changing it. |
 | `FRONTEND_ORIGIN` | Required for browser API requests | Exact frontend origin, for example `https://trc20-usdt-token-cloner.onrender.com` (no path; use comma-separated origins only if intentionally supporting multiple). |
