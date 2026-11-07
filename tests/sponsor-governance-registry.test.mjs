@@ -5,9 +5,9 @@ import {
   buildSponsorGovernanceRegistryPins, getSponsorReviewerRegistry, getSponsorSecurityOfficerRegistry,
 } from '../server/sponsor-governance-registry.mjs'
 
-const reviewerA='T'+'1'.repeat(33)
-const reviewerB='T'+'2'.repeat(33)
-const officer='T'+'3'.repeat(33)
+const reviewerA='TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+const reviewerB='TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
+const officer='T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
 
 function envWithRegistries() {
   const env={
