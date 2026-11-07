@@ -102,7 +102,7 @@ export async function recordPrivateTreasuryVaultReservation(db, input, options =
     await client.query('BEGIN')
     transactionOpen = true
     const locked = await client.query(
-      'SELECT v.network, v.asset, v.token_contract, v.decimals, v.active, s.last_sequence ' +
+      'SELECT v.network, v.asset, v.token_contract, v.decimals, v.vault_address, v.active, s.last_sequence ' +
       'FROM ' + schema + '.private_treasury_vaults v ' +
       'JOIN ' + schema + '.private_treasury_observation_state s ON s.vault_id=v.vault_id ' +
       'WHERE v.vault_id=$1 FOR UPDATE OF s',
@@ -110,7 +110,8 @@ export async function recordPrivateTreasuryVaultReservation(db, input, options =
     )
     const vault = locked.rows?.[0]
     if (!vault || vault.active !== true || vault.network !== 'mainnet' || vault.asset !== 'USDT'
-      || vault.token_contract !== PRIVATE_TREASURY_VAULT_USDT_CONTRACT || Number(vault.decimals) !== 6) {
+      || vault.token_contract !== PRIVATE_TREASURY_VAULT_USDT_CONTRACT || Number(vault.decimals) !== 6
+      || vault.vault_address !== verifiedObservation.treasuryAddress) {
       const error = new Error('Treasury Vault is missing, inactive, or has an unsupported asset binding.')
       error.code = 'PRIVATE_TREASURY_VAULT_UNAVAILABLE'
       throw error

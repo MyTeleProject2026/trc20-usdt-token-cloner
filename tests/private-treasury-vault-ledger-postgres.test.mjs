@@ -81,6 +81,11 @@ test('isolated PostgreSQL Treasury Vault schema enforces verified claims and exa
     assert.equal(created.executionEnabled, false)
     assert.equal(created.amountBaseUnits, minimum)
 
+    await pool.query('UPDATE ' + schema + '.private_treasury_vaults SET vault_address=$2 WHERE vault_id=$1', [vaultId, 'T' + 'B'.repeat(33)])
+    await assert.rejects(recordPrivateTreasuryVaultReservation(pool, input(2, 'wrong-vault-address'), { schema, nowMs: now }),
+      (error) => error.code === 'PRIVATE_TREASURY_VAULT_UNAVAILABLE', 'verified treasury address must match the stored vault')
+    await pool.query('UPDATE ' + schema + '.private_treasury_vaults SET vault_address=$2 WHERE vault_id=$1', [vaultId, address])
+
     await assert.rejects(recordPrivateTreasuryVaultReservation(pool, input(3, 'gap'), { schema, nowMs: now }),
       (error) => error.code === 'PRIVATE_TREASURY_VAULT_SEQUENCE_NOT_NEXT', 'writer must reject 1 to 3')
     await assert.rejects(recordPrivateTreasuryVaultReservation(pool, {
