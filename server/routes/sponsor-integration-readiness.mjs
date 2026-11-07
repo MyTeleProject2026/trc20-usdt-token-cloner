@@ -137,6 +137,8 @@ export function createSponsorIntegrationReadinessRouter(options = {}) {
         'Provider discovery reachability is not sponsor funding proof, spend authority, zero-fee eligibility, transaction authorization, signing, broadcast, or exchange deposit credit.',
         'Sponsor addresses and allowlists report configuration and format only. They do not verify live account ownership or spendable chain balances.',
         'Sponsored submission remains disabled and user-funded fallback is prohibited until a separately approved signer/provider adapter, explicit sponsor mandate, funded budgets, tested settlement and operator approval exist.',
+        'The sandbox/Mainnet funding provenance evaluator is a pure preflight module and is not yet connected to the active sponsor-direct execution route.',
+        'Organization signer authority, provider-account identity, and provider signing-policy evidence are not yet connected to the runtime payout authorization path.',
       ],
     })
   })

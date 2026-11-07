@@ -89,24 +89,21 @@ test('private owner provider payout readiness stays fail-closed until a provider
 })
 
 
-test('standing Fincra mandate is sponsor-signed, business-account-bound and separately reviewed', async () => {
+test('organization mandate API and UI expose only per-transfer approval', async () => {
   const source = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
   const frontend = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorOrganizationOnboarding.jsx', import.meta.url), 'utf8')
-  assert.match(source, /execution_mode TEXT NOT NULL DEFAULT 'per-transfer'/)
-  assert.match(source, /execution_mode='fincra-automatic'/)
-  assert.match(source, /provider_business_id ~ '\^\[A-Za-z0-9\._:-\]\{4,128\}\$'/)
-  assert.match(source, /Fincra business ID: ' \+ input\.providerBusinessId/)
-  assert.match(source, /without a fresh sponsor wallet signature for each payout/)
-  assert.match(source, /fincra-business-id-does-not-match-server-configuration/)
-  assert.match(frontend, /Standing Fincra authorization \(no per-withdrawal sponsor signature\)/)
-  assert.match(frontend, /providerBusinessId: executionMode === 'fincra-automatic'/)
+  assert.match(source, /supportedExecutionModes: \['per-transfer'\]/)
+  assert.match(source, /executionMode !== 'per-transfer'/)
+  assert.match(source, /payoutAuthorized: false/)
+  assert.match(frontend, /Execution mode: per-transfer/)
+  assert.match(frontend, /Each transfer requires a separate sponsor-authorized approval/)
+  assert.match(frontend, /Disabled historical mode/)
+  assert.doesNotMatch(frontend, /fincra-automatic|Fincra business|providerBusinessId|FINCRA_AUTO_PAYOUTS_ENABLED|Standing authorization:/)
 })
 
-test('Fincra automatic mode is not authorized by application or mandate signature alone', async () => {
+test('legacy automatic mandates cannot be promoted by owner review', async () => {
   const source = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
-  assert.match(source, /payoutEnabledByApplication: false/)
-  assert.match(source, /organizationReviewRequired: true/)
-  assert.match(source, /independentVerificationRequired: true/)
-  assert.match(source, /sponsorFundingRequired: true/)
-  assert.match(source, /payoutAuthorized: false/)
+  assert.match(source, /pendingMandate\.execution_mode !== 'per-transfer' && body\.decision !== 'decline'/)
+  assert.match(source, /legacy-mandate-execution-mode-disabled/)
+  assert.match(source, /This historical mandate mode is disabled/)
 })

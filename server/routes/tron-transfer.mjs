@@ -541,7 +541,7 @@ transaction_hash CHAR(64),
       ...(fincra.apiAuthenticated ? [] : ['fincra-api-authentication-not-verified']),
       ...(fincra.businessIdMatches ? [] : ['fincra-business-id-not-matched-to-api-profile']),
       ...(sponsorBusinessBalanceVerified ? [] : ['sponsor-fincra-usdt-account-funding-not-verified']),
-      'sponsor-standing-fincra-mandate-not-independently-authorized',
+      'fincra-automatic-sponsor-mandate-mode-disabled',
       'fincra-live-stablecoin-payout-approval-not-verified',
       'fincra-fee-and-exact-beneficiary-amount-policy-not-verified',
       'production-payout-and-chain-reconciliation-not-enabled',
@@ -570,7 +570,7 @@ transaction_hash CHAR(64),
       blockers,
       payoutSubmissionEnabled: false,
       transactionSubmitted: false,
-      note: 'Fincra is selected as the initial payout adapter. Any displayed USDT is the sponsor business account balance, not Fincra-donated liquidity or an approved credit line. No live payout is submitted until the exact business account, standing sponsor mandate, legal/provider eligibility, available funds, fee treatment, and independent TRON settlement path are verified.',
+      note: 'Fincra is used here only for optional read-only account diagnostics. The legacy Fincra payout route and automatic sponsor-mandate mode are disabled; this readiness response cannot authorize or submit a payout. Any displayed USDT is the configured business account balance, not Fincra-donated liquidity or an approved credit line.',
     })
   })
 

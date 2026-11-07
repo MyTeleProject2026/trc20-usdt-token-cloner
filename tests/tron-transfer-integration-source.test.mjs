@@ -155,15 +155,20 @@ test('provider readiness is private, performs only read-only Fincra diagnostics,
   assert.match(recipientRoute, /payoutSubmissionEnabled: false/)
   assert.match(recipientRoute, /transactionSubmitted: false/)
   assert.match(recipientRoute, /sponsorBusinessBalanceIsSponsorOwnedAccountFunds: true/)
-  assert.match(recipientRoute, /sponsor-standing-fincra-mandate-not-independently-authorized/)
+  assert.match(recipientRoute, /fincra-automatic-sponsor-mandate-mode-disabled/)
   assert.match(recipientRoute, /production-payout-and-chain-reconciliation-not-enabled/)
+  assert.match(recipientRoute, /Fincra is used here only for optional read-only account diagnostics/)
+  assert.doesNotMatch(recipientRoute, /standing sponsor mandate/)
 })
 
 test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow and reconciliation worker', () => {
   assert.ok(entry.includes('createSponsorDirectPayoutsRouter'))
   assert.ok(entry.includes("app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter())"))
   assert.ok(entry.includes('startSponsorDirectPayoutReconciliationWorker({ env: process.env })'))
-  assert.doesNotMatch(entry, /createSponsorOrganizationRouter|treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
+  assert.ok(entry.includes('createSponsorOrganizationGovernanceRouter'))
+  assert.ok(entry.includes('createSponsorOrganizationRouter'))
+  assert.ok(entry.indexOf('createSponsorOrganizationGovernanceRouter())') < entry.indexOf('createSponsorOrganizationRouter())'))
+  assert.doesNotMatch(entry, /treasuryWithdrawalsRoutes|fireblocksInventorySyncRoutes|fireblocksInventoryStatusRoutes/)
   assert.doesNotMatch(entry, /ownerSponsorLiquidityRoutes/)
 
   const requestIntake = sponsorRoute.slice(
@@ -173,9 +178,17 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(requestIntake.includes('requirePlatformOwner(req, env, getSession, now)'))
   assert.ok(!requestIntake.includes('requireWalletSession(req, env, getSession, now)'))
   assert.ok(sponsorRoute.includes('sponsorWalletSignatureRequired: true'))
-  assert.ok(sponsorRoute.includes("payoutExecution: 'conditional-on-approved-funded-sponsor'"))
+  assert.ok(sponsorRoute.includes('const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true'))
+  assert.ok(sponsorRoute.includes("payoutExecution: REAL_SPONSOR_DIRECT_BROADCAST_DISABLED ? 'disabled-in-this-build'"))
+  assert.ok(sponsorRoute.includes('broadcastDisabledInBuild: REAL_SPONSOR_DIRECT_BROADCAST_DISABLED'))
   assert.ok(sponsorRoute.includes('verifySponsorDirectMainnetTransfer'))
-  assert.ok(sponsorFrontend.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsorFrontend.includes("api('/api/tron/sponsor-direct/config', null)"))
+  assert.ok(sponsorFrontend.includes('const mainnetBroadcastEnabled = payoutConfig?.broadcastDisabledInBuild === false'))
+  const signHandler = sponsorFrontend.slice(sponsorFrontend.indexOf('async function signAndBroadcast'), sponsorFrontend.indexOf('async function refreshRequest'))
+  assert.ok(signHandler.indexOf('if (!mainnetBroadcastEnabled) throw') >= 0)
+  assert.ok(signHandler.indexOf('if (!mainnetBroadcastEnabled) throw') < signHandler.indexOf('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsorFrontend.includes('!mainnetBroadcastEnabled || !identityMatchesWallet'))
+  assert.ok(sponsorFrontend.includes('Mainnet signing disabled'))
   assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
@@ -218,4 +231,38 @@ test('Fincra signed payout webhook is mounted before the disabled legacy handler
   assert.match(fincraWebhookRoute, /fincra_status=\$3/)
   assert.match(fincraWebhookRoute, /chainSettlement: 'not-verified'/)
   assert.doesNotMatch(fincraWebhookRoute, /wallet\/broadcasttransaction|sendRawTransaction/i)
+})
+
+
+test('sandbox funding guards remain preflight-only and production sponsored submission stays disabled', async () => {
+  const policy = await readFile(new URL('../server/sponsor-integration-policy.mjs', import.meta.url), 'utf8')
+  const readiness = await readFile(new URL('../server/sponsor-integration-readiness.mjs', import.meta.url), 'utf8')
+  const readinessRoute = await readFile(new URL('../server/routes/sponsor-integration-readiness.mjs', import.meta.url), 'utf8')
+
+  assert.match(policy, /function verifiedFundingSource/)
+  assert.match(policy, /snapshot\.sandbox !== false/)
+  assert.match(policy, /snapshot\.simulated !== false/)
+  assert.match(policy, /sponsor-organization-signer-authority-unverified/)
+  assert.match(policy, /sponsor-organization-signing-policy-unverified/)
+  assert.match(readiness, /enabled: false/)
+  assert.match(readiness, /sandbox-mainnet-source-isolation-not-end-to-end-integrated/)
+  assert.match(readiness, /organization-signer-authority-and-provider-policy-not-connected-to-runtime-payout-path/)
+  assert.match(readinessRoute, /Sponsored submission remains disabled/)
+  assert.match(readinessRoute, /pure preflight module and is not yet connected/)
+})
+
+
+test('organization mandate documentation accurately separates mounted governance from payout execution', async () => {
+  const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
+  const organizationDoc = await readFile(new URL('../docs/SPONSOR_ORGANIZATION_MANDATES.md', import.meta.url), 'utf8')
+  const organizationRoute = await readFile(new URL('../server/routes/sponsor-organization-onboarding.mjs', import.meta.url), 'utf8')
+
+  assert.match(entry, /createSponsorOrganizationGovernanceRouter/)
+  assert.match(entry, /createSponsorOrganizationRouter/)
+  assert.doesNotMatch(app, /SponsorOrganizationOnboarding/)
+  assert.match(organizationRoute, /createSponsorOrganizationRouter/)
+  assert.match(organizationDoc, /does not join organization applications or mandate records/)
+  assert.match(organizationDoc, /not evidence that organizational sponsorship is available in production/)
+  assert.match(organizationDoc, /feature branch only/)
+  assert.doesNotMatch(organizationDoc, /This workflow is integrated into the deployed/)
 })

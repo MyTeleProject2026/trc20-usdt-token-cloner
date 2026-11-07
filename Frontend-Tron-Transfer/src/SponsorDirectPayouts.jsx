@@ -79,6 +79,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [identitySession, setIdentitySession] = useState(null)
   const [application, setApplication] = useState(null)
   const [snapshot, setSnapshot] = useState(null)
+  const [payoutConfig, setPayoutConfig] = useState(null)
   const [myRequests, setMyRequests] = useState([])
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
@@ -108,11 +109,23 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const identityToken = identitySession?.sessionToken || ''
   const identityMatchesWallet = Boolean(identityToken && identitySession?.address === walletAddress)
   const activeSponsor = application?.status === 'active'
+  // Fail closed: this build must not ask a sponsor to sign a Mainnet transaction
+  // while the backend broadcast gate is hard-disabled or the config could not be read.
+  const mainnetBroadcastEnabled = payoutConfig?.broadcastDisabledInBuild === false
+    && payoutConfig?.payoutExecution === 'conditional-on-approved-funded-sponsor'
   // Owner review is available only when both the private owner session and the exact
   // configured owner wallet identity are present. The API token for review is the
   // wallet-auth session, not the separate password-only owner-console session.
   const isOwnerAdmin = Boolean(ownerSession?.sessionToken && identityMatchesWallet
     && walletAddress === ownerSession.address)
+
+  useEffect(() => {
+    let current = true
+    api('/api/tron/sponsor-direct/config', null)
+      .then((result) => { if (current) setPayoutConfig(result) })
+      .catch(() => { if (current) setPayoutConfig(null) })
+    return () => { current = false }
+  }, [])
 
   useEffect(() => {
     let current = true
@@ -422,6 +435,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setNotice('')
     try {
       const item = request || prepared
+      if (!mainnetBroadcastEnabled) throw new Error('Mainnet sponsor payout execution is disabled in this build. No transaction was signed or broadcast.')
       if (!item?.id || !item?.unsignedTransaction) throw new Error('Prepare the sponsor payout before signing.')
       if (!identityMatchesWallet || !activeSponsor || walletAddress !== item.sponsorAddress) {
         throw new Error('Only the approved sponsor address that prepared this payment can sign it.')
@@ -714,7 +728,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           {prepared?.unsignedTransaction && prepared.sponsorAddress === walletAddress && (
             <div className="prepared-review-panel">
               <div className="section-heading compact">
-                <div><span className="eyebrow">SPONSOR SIGNATURE REQUIRED</span><h3>Review exact USDT transfer</h3></div>
+                <div><span className="eyebrow">{mainnetBroadcastEnabled ? 'SPONSOR SIGNATURE REQUIRED' : 'MAINNET BROADCAST DISABLED'}</span><h3>Review exact USDT transfer</h3></div>
                 <div className="panel-icon"><ShieldCheck /></div>
               </div>
               <div className="readiness-checks">
@@ -737,10 +751,10 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
               </div>
               <p className="fine-print">The sponsor wallet supplies the USDT principal and its own TRON network resources or TRX. The fee_limit caps the caller's Energy budget only; it is not a total network fee quote or an upfront charge. The backend separately estimates Energy and Bandwidth shortfalls from current Mainnet chain prices. Actual usage can differ, and failed contract execution can still consume resources. The requester’s zero-balance wallet is not charged.</p>
-              <p className="fine-print">Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Signing is blocked unless the latest fee preflight passes. Nothing is broadcast until the sponsor explicitly signs this exact transaction.</p>
+              <p className="fine-print">{mainnetBroadcastEnabled ? 'Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Signing is blocked unless the latest fee preflight passes. Nothing is broadcast until the sponsor explicitly signs this exact transaction.' : 'This supervised build does not permit Mainnet transaction signing or broadcasting. The unsigned preparation is shown for review only; no sponsor signature will be requested.'}</p>
               {hasExpiredPreparation(prepared)
                 ? <button className="secondary-button" disabled={busy || !identityMatchesWallet} onClick={() => void prepareRequest(prepared)}><RefreshCw size={16} /> Refresh expired preparation</button>
-                : <button className="primary-button" disabled={busy || !identityMatchesWallet || prepared.feeCoverage?.covered !== true} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
+                : <button className="primary-button" disabled={busy || !mainnetBroadcastEnabled || !identityMatchesWallet || prepared.feeCoverage?.covered !== true} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> {mainnetBroadcastEnabled ? 'Continue to sponsor TronLink approval' : 'Mainnet signing disabled'}</button>}
             </div>
           )}
           <div className="section-heading compact"><div><span className="eyebrow">SPONSOR REQUEST QUEUE</span><h3>Requests awaiting sponsor action</h3></div></div>

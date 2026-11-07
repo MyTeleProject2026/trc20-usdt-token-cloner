@@ -416,7 +416,8 @@ test('public sponsor-direct configuration allows a zero-balance requester but re
   assert.equal(payload.requestIntakeEnabled, true)
   assert.equal(payload.requesterWalletFundingRequired, false)
   assert.equal(payload.payoutMode, 'sponsor-direct')
-  assert.equal(payload.payoutExecution, 'conditional-on-approved-funded-sponsor')
+  assert.equal(payload.payoutExecution, 'disabled-in-this-build')
+  assert.equal(payload.broadcastDisabledInBuild, true)
   assert.equal(payload.sponsorApprovalRequired, true)
 })
 
@@ -483,3 +484,22 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+
+
+test('Mainnet sponsor-direct broadcast is hard-disabled on the supervised feature build', async (t) => {
+  const app = express()
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({ env: {} }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/sponsor-direct/requests/123e4567-e89b-42d3-a456-426614174000/broadcast', {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({signedTransaction:{signature:[]}}),
+  })
+  const payload=await response.json()
+  assert.equal(response.status,503)
+  assert.equal(payload.success,false)
+  assert.equal(payload.error,'sponsor-direct-mainnet-broadcast-disabled-in-this-build')
+  assert.equal(payload.transactionBroadcast,false)
+})

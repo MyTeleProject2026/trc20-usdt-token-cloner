@@ -11,6 +11,8 @@ const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
 export const MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_GATEWAY = 'https://tron-mainnet.gateway.tatum.io'
+// Explicit non-production safety gate. Owner-signed Mainnet withdrawal broadcasts remain disabled.
+const REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -536,6 +538,9 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
 
   router.post('/:id/broadcast', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
+    if (REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED) {
+      return res.status(503).json({ success:false, error:'owner-direct-mainnet-broadcast-disabled-in-this-build', transactionBroadcast:false })
+    }
     const auth = await requireOwner(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params.id, 64)

@@ -14,6 +14,28 @@ function covered(balance, required) {
   return BigInt(balance) >= BigInt(required)
 }
 
+// Funding evidence must identify the exact requested network and a non-simulated
+// source. Provider sandbox balances and simulated ledger entries are never spendable.
+function verifiedFundingSource(snapshot, network) {
+  if (!snapshot || snapshot.network !== network) return false
+  if (snapshot.sandbox !== false || snapshot.simulated !== false) return false
+  if (snapshot.sourceVerified !== true) return false
+
+  // A chain network (mainnet/nile/shasta) is not a provider environment
+  // (production/live). Keep those namespaces distinct.
+  if (snapshot.sourceKind === 'onchain') {
+    return snapshot.environment === network && snapshot.chainVerified === true
+  }
+  if (snapshot.sourceKind === 'provider-live-account') {
+    return ['live', 'production'].includes(snapshot.environment)
+      && snapshot.liveMode === true
+      && snapshot.accountVerified === true
+      && typeof snapshot.providerAccountId === 'string'
+      && snapshot.providerAccountId.trim().length > 0
+  }
+  return false
+}
+
 /**
  * Pure fail-closed policy evaluator for the dual sponsor model.
  *
@@ -44,6 +66,7 @@ export function evaluateSponsorTransferEligibility(evidence = {}) {
   if (principal?.consentVerified !== true) blockers.push('asset-sponsor-consent-unverified')
   if (principal?.fundingSnapshotFresh !== true) blockers.push('asset-sponsor-funding-snapshot-not-fresh')
   if (principal?.network !== network) blockers.push('asset-sponsor-network-mismatch')
+  if (!verifiedFundingSource(principal, network)) blockers.push('asset-principal-funding-source-not-live-verified')
   if (!covered(principal?.availableBaseUnits, principal?.requiredBaseUnits)) {
     blockers.push('asset-principal-funding-insufficient-or-unverified')
   }
@@ -51,6 +74,7 @@ export function evaluateSponsorTransferEligibility(evidence = {}) {
   if (fee?.consentVerified !== true) blockers.push('fee-sponsor-consent-unverified')
   if (fee?.fundingSnapshotFresh !== true) blockers.push('fee-sponsor-funding-snapshot-not-fresh')
   if (fee?.network !== network) blockers.push('fee-sponsor-network-mismatch')
+  if (!verifiedFundingSource(fee, network)) blockers.push('network-fee-funding-source-not-live-verified')
   if (fee?.coverageVerified !== true
     || !covered(fee?.availableBaseUnits, fee?.requiredBaseUnits)) {
     blockers.push('network-fee-coverage-insufficient-or-unverified')
@@ -78,6 +102,15 @@ export function evaluateSponsorTransferEligibility(evidence = {}) {
   }
   if (mode === 'sponsor-organization' && evidence.organization?.mandateVerified !== true) {
     blockers.push('sponsor-organization-spending-mandate-unverified')
+  }
+  if (mode === 'sponsor-organization' && evidence.organization?.signerAuthorityVerified !== true) {
+    blockers.push('sponsor-organization-signer-authority-unverified')
+  }
+  if (mode === 'sponsor-organization' && evidence.organization?.providerAccountVerified !== true) {
+    blockers.push('sponsor-organization-provider-account-unverified')
+  }
+  if (mode === 'sponsor-organization' && evidence.organization?.signingPolicyVerified !== true) {
+    blockers.push('sponsor-organization-signing-policy-unverified')
   }
 
   const uniqueBlockers = [...new Set(blockers)]

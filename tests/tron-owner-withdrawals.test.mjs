@@ -2,12 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { TronWeb } from 'tronweb'
+import express from 'express'
+import { createServer } from 'node:http'
 import {
   MAINNET_USDT_CONTRACT,
   parseOwnerUsdtAmount,
   calculateOwnerWithdrawableUsdtBaseUnits,
   buildOwnerUsdtTransferParameter,
   validateOwnerSignedTransaction,
+  createTronOwnerWithdrawalsRouter,
 } from '../server/routes/tron-owner-withdrawals.mjs'
 
 const ownerAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
@@ -108,4 +111,22 @@ test('signed withdrawal rejects a missing or multiple-signature payload', () => 
   const item = preparedTransfer()
   assert.equal(validateOwnerSignedTransaction({ ...item.signed, signature: [] }, item.unsigned, item.intent).reason, 'owner-signature-required')
   assert.equal(validateOwnerSignedTransaction({ ...item.signed, signature: ['a'.repeat(130), 'b'.repeat(130)] }, item.unsigned, item.intent).reason, 'owner-signature-required')
+})
+
+
+test('owner-direct Mainnet broadcast is hard-disabled even before owner authentication or database access', async (t) => {
+  const app=express()
+  app.use(express.json())
+  app.use('/api/tron/owner-withdrawals',createTronOwnerWithdrawalsRouter({env:{}}))
+  const server=createServer(app)
+  await new Promise((resolve)=>server.listen(0,'127.0.0.1',resolve))
+  t.after(()=>new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve())))
+  const response=await fetch('http://127.0.0.1:'+server.address().port+'/api/tron/owner-withdrawals/123e4567-e89b-42d3-a456-426614174000/broadcast',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({signedTransaction:{signature:[]}}),
+  })
+  const payload=await response.json()
+  assert.equal(response.status,503)
+  assert.equal(payload.success,false)
+  assert.equal(payload.error,'owner-direct-mainnet-broadcast-disabled-in-this-build')
+  assert.equal(payload.transactionBroadcast,false)
 })
