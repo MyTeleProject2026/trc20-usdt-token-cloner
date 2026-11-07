@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { LockKeyhole, Wallet } from 'lucide-react'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
+import SponsorOrganizationGovernance from './SponsorOrganizationGovernance.jsx'
 
 function isValidMainnetAddress(address, tronWeb) {
   try {
@@ -104,6 +105,7 @@ export default function SponsorPortal() {
             <p className="fine-print">Wallet approval in this platform is not KYC, KYB, sanctions screening or source-of-funds verification. Any legal or compliance requirements remain applicable and must not be bypassed.</p>
           </section>
           <SponsorDirectPayouts wallet={wallet} ownerSession={null} mode="sponsor" />
+          <SponsorOrganizationGovernance wallet={wallet} />
         </div>
         <footer className="app-footer">TRON TRANSFER · SPONSOR WALLET SURFACE · TRON MAINNET · OFFICIAL USDT TRC20</footer>
       </main>
