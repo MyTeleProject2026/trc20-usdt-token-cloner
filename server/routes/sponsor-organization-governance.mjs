@@ -87,6 +87,7 @@ async function ensureSchema(db) {
         CHECK ((scope_type='application' AND scope_id=application_id AND mandate_id IS NULL) OR (scope_type='mandate' AND mandate_id IS NOT NULL AND scope_id=mandate_id))
       )`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_revocations_scope_idx ON ${SCHEMA}.sponsor_organization_revocation_events(scope_type, scope_id, effective_at DESC)`)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_revocation_signature_once_idx ON ${SCHEMA}.sponsor_organization_revocation_events(actor_signature_hash)`)
       await db.query(`CREATE OR REPLACE FUNCTION ${SCHEMA}.reject_sponsor_org_audit_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'sponsor organization governance records are append-only'; END;
       $$`)
@@ -402,7 +403,10 @@ export function createSponsorOrganizationGovernanceRouter({
       }
       return res.status(201).json({ success:true, revocationRecorded:true, scopeType, scopeId, payoutAuthorized:false,
         signerOperationPerformed:false, transactionBroadcast:false, note:'Signed revocation event recorded append-only; related mandate records were marked revoked.' })
-    } catch { return res.status(503).json({ success:false, error:'revocation-event-storage-failed' }) }
+    } catch (error) {
+      if (error?.code === '23505') return res.status(409).json({ success:false, error:'revocation-signature-already-recorded' })
+      return res.status(503).json({ success:false, error:'revocation-event-storage-failed' })
+    }
   }
   router.post('/organizations/mandates/:id/revoke', (req,res) => recordRevocation(req,res,'mandate'))
   router.post('/organizations/applications/:id/revoke', (req,res) => recordRevocation(req,res,'application'))
