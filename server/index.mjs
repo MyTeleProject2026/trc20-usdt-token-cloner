@@ -20,6 +20,7 @@ import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
 import { createOwnerTreasuryFundingLedgerRouter } from './routes/owner-treasury-funding-ledger.mjs'
 import { createSponsorIntegrationReadinessRouter } from './routes/sponsor-integration-readiness.mjs'
 import { createSponsorOrganizationRouter } from './routes/sponsor-organization-onboarding.mjs'
+import { createSponsorOrganizationGovernanceRouter } from './routes/sponsor-organization-governance.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
@@ -143,6 +144,8 @@ app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api/tron', createSponsorIntegrationReadinessRouter())
+// Append-only governance APIs are mounted first so signed revocations supersede the legacy route.
+app.use('/api/tron', createSponsorOrganizationGovernanceRouter())
 // Organizational sponsor onboarding is governance-only; its records do not authorize payouts.
 app.use('/api/tron', createSponsorOrganizationRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
