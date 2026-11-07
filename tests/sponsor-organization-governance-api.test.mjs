@@ -47,7 +47,8 @@ test('revocation requires sponsor or trusted security officer signature and comm
   assert.match(api, /await client\.query\('ROLLBACK'\)/)
   assert.match(api, /sponsor_organization_revocation_events/)
   assert.match(api, /sponsor_org_revocation_signature_once_idx/)
-  assert.match(api, /revocation-signature-already-recorded/)
+  assert.match(api, /sponsor_org_revocation_reference_once_idx/)
+  assert.match(api, /revocation-event-already-recorded/)
 })
 
 test('governance audit tables have immutable update and delete triggers', () => {
