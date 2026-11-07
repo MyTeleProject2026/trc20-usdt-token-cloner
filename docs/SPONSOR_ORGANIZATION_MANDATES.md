@@ -1,42 +1,81 @@
 # Sponsor organization onboarding and mandate controls
 
-This workflow is integrated into the deployed `Frontend-Tron-Transfer` application and existing API. It introduces no new Render environment-variable requirements; it reuses the current database URL, Mainnet wallet-authentication origins, owner-wallet configuration, and Tatum Mainnet key.
+## Status in the audited runtime
 
-## Workflow
+**This document describes the organization-onboarding design and the current source module. It is not a claim that organizational sponsorship is available in the deployed application.**
 
-1. A proposed sponsor connects its own TRON Mainnet wallet and completes the existing wallet-identity challenge.
-2. The wallet signs the canonical organization application message. The API derives the sponsor address from the authenticated session and stores only the signature digest.
-3. The configured platform owner moves the application through `in-review` and `accepted-for-due-diligence`. This is an internal workflow state, not external KYC or a legal conclusion.
-4. Only after due-diligence acceptance can the sponsor submit a signed payout mandate. The sponsor selects the roles and provides the reference and SHA-256 digest of the signed agreement file. The PDF itself is hashed locally in the browser and is not uploaded to this API.
-5. The owner records an agreement-evidence review, then makes a separate `authorize` decision with an external verification/case reference. The mandate must explicitly cover both USDT principal and network fees for this current direct-wallet payout path.
-6. The existing sponsor wallet application must also be active under its separately configured payout caps.
-7. At payout readiness and preparation, the API requires an authorized, unexpired mandate bound to the same sponsor wallet and accepted organization. The effective per-payout and daily limits are the lower of the wallet approval caps and mandate caps.
-8. When a requester submits a withdrawal, the API attempts to match it to an active wallet sponsor with an accepted organization application, an authorized unexpired mandate covering both principal and fees, a current Mainnet USDT balance sufficient for the request, unreserved/daily capacity, and a successful Tatum transfer simulation with verified fee coverage. It atomically assigns the request to at most one sponsor wallet. A live match reserves its amount and expires after 15 minutes if the sponsor does not prepare it; an expired match is released back to the unassigned queue. A sponsor can have only one unprepared matched request at a time. If no candidate passes, the request stays unassigned in the sponsor queue.
-9. The assigned sponsor opens its queue and explicitly signs the exact transfer in its own TronLink wallet. The API validates the signed payload before broadcasting through Tatum and verifies a solidified receipt and exact Transfer event.
+At the audited `main` baseline and the safe hardening branch:
 
-## Fail-closed rules
+- `server/routes/sponsor-organization-onboarding.mjs` contains organization application and mandate handlers.
+- `server/index.mjs` does not import or mount `createSponsorOrganizationRouter`; these route handlers are therefore not reachable through the deployed Express API.
+- `Frontend-Tron-Transfer/src/SponsorOrganizationOnboarding.jsx` exists, but `Frontend-Tron-Transfer/src/App.jsx` does not import or render it.
+- The active `/api/tron/sponsor-direct` flow uses individual wallet sponsor application and payout records. It does not join organization applications or mandate records during sponsor matching.
+- The organization mandate module does not provide an institutional signing adapter and does not authorize Fireblocks or another provider to sign a transaction.
 
-- An application alone never authorizes payout.
-- A sponsor declaration or wallet message signature is not proof of incorporation, beneficial ownership, source of funds, or independent signer authority.
-- A signed mandate digest is an audit binding, not independent legal verification. Review references must point to separately retained evidence checked by the operator.
-- A mandate marked `verified` is not yet spend-authorized; a distinct `authorized` review state is required.
-- Payout preparation and broadcast fail closed if the mandate is missing, expired, not authorized, does not cover both principal and fees, or is for another wallet.
-- Fresh Tatum Mainnet balance and resource checks remain mandatory. No balance is inferred from an application, agreement or owner setting.
-- Automatic matching selects a sponsor; it does not sign or broadcast. Every transaction still requires the sponsor's explicit wallet signature. This implementation does not create unattended signing or custody.
-- Automatic matching uses fresh USDT/resource reads and exact transfer simulation. Active matched requests count against the sponsor's reserved USDT and daily limit, and a per-sponsor database advisory lock plus an in-transaction pending-request check prevents concurrent assignment overbooking. The sponsor's live balances and resources are checked again at preparation and broadcast. A request is not paid merely because it was matched.
-- The sponsor queue returns the saved unsigned transaction only to the authenticated sponsor wallet for its own prepared request, so the sponsor can resume review after reloading the page.
-- Requester wallet USDT is not used. A genuine sponsor must provide all USDT principal and network-fee resources.
-- On-chain settlement is not treated as exchange account credit.
+Do not use the presence of this module, database schema, UI component, documentation, or unit tests as evidence that an organization is approved, funded, or able to submit payouts.
 
-## Current limitations / operational steps
+## Intended organization workflow (design only)
 
-- The workflow does not independently perform KYC, validate legal documents, establish a lawful funding source, or obtain a provider's authorization. Those checks must be completed by a qualified operator/provider outside this app and recorded by reference before the mandate is authorized.
-- The organization PDF is not uploaded. The sponsor and operator must keep the signed original in a suitable document-management location and use its SHA-256 digest to bind the record.
-- The existing wallet sponsor approval remains a separate step and must be activated by the owner with limits no greater than the signed mandate.
-- No automatic provider payout API is wired. Sponsor-owned TronLink signing remains interactive.
-- A real sponsor and genuine funding are still required. If no sponsor is willing and funded, withdrawal requests remain queued and cannot be paid.
+The following is the target workflow for a later, separately reviewed integration:
 
-## Routes
+1. A proposed sponsor organization submits its real legal identity and authorized-representative information through an authenticated onboarding process.
+2. A wallet or provider account is bound to the organization using an independently verified ownership/authority process. A wallet challenge proves control of that wallet at that time; it does not prove incorporation, beneficial ownership, or authority to bind the organization.
+3. A qualified reviewer records the result of independent identity, authority, jurisdiction, and source-of-funds checks. An application state such as `accepted-for-due-diligence` is an internal workflow state, not external KYB approval.
+4. The organization supplies a signed mandate. The original agreement must be retained in an appropriate document-management system; a digest/reference is an audit binding, not proof that the agreement is legally valid.
+5. The organization and provider independently establish which representatives, provider accounts, vaults, assets, networks, destinations, limits, and approval quorum are authorized.
+6. A separate signer authorization record binds the organization, provider account, signer/policy reference, scope, validity, and revocation state.
+7. The payout service must revalidate the mandate, organization status, provider account, signer authority, policy, funding evidence, recipient and amount at the time of each proposed operation.
+8. Any transaction approval must apply to the exact immutable transaction intent. A provider-side approval is distinct from broadcast and from on-chain settlement.
+9. Settlement is confirmed only through independently verified solidified chain evidence. Exchange account credit remains a separate exchange-controlled state.
+
+## Current source module semantics and limitations
+
+The existing organization module contains application and mandate state handlers, including internal review states such as `in-review`, `accepted-for-due-diligence`, `signed-awaiting-review`, `verified`, `authorized`, and revocation.
+
+Those states must be interpreted narrowly:
+
+- A signature over an application message proves wallet control, not legal-entity identity.
+- An application or owner review status is not a provider's KYB decision.
+- A mandate digest and evidence reference do not independently verify the signed original, the signer's corporate authority, beneficial ownership, or source of funds.
+- A reviewer-entered `verified` or `authorized` status is an application record. It must not be treated as proof unless the underlying evidence was actually checked by an appropriately authorized reviewer.
+- The route module does not implement a provider-managed signing policy or prove that a custody provider will accept a transaction.
+- No current organization-to-institutional-signer connection has been demonstrated.
+
+## Relationship to the active individual sponsor-direct flow
+
+The active sponsor-direct route is a separate individual self-custody model. It has its own wallet application, owner approval, per-payout/daily limits, live chain balance and resource checks, exact transaction preparation, sponsor wallet signature validation, broadcast checks and settlement reconciliation.
+
+The active route currently requires the assigned sponsor wallet to sign its own prepared transaction. The organization mandate module is not a replacement for that signature, and its records are not currently consumed by the sponsor-direct matcher.
+
+Until a separately reviewed integration exists, an organization mandate must not be used to make an individual wallet sponsor eligible or to infer institutional signer authority.
+
+## Relationship to institutional custody providers
+
+Fireblocks and other institutional signers are separate provider integrations. An organization must complete the provider's own eligibility, identity, legal-entity, contractual, account, vault, asset, signer, and transaction-policy requirements.
+
+A provider API credential is not a blockchain signing key and does not override the provider's transaction policy. The application must use least-privilege provider access and must not store wallet seed phrases or provider signing private keys in application records.
+
+The currently inspected Fireblocks treasury route is a separate module, is not mounted in the runtime, and has a hard-disabled real-value execution constant. It is not a functioning organization signer for this onboarding module.
+
+## Production prerequisites
+
+Before any organizational payout path can be considered:
+
+- The organization and its legal authority must be independently verified.
+- The provider account and vault must be confirmed to belong to that organization.
+- The signing policy and authorized approver threshold must be independently read from the provider.
+- The mandate must explicitly cover the intended asset, network, principal, fees, destinations, limits, purpose, expiry and revocation conditions.
+- Genuine, unreserved asset principal and separately sufficient fee resources must be independently verified.
+- The exact payout intent must be approved under the provider's real policy.
+- Duplicate/replay prevention, atomic reservations, emergency pause, ambiguous-outcome reconciliation and solidified settlement verification must pass review.
+- A successful testnet end-to-end run and independent security review must be recorded.
+- Production release must be a separate, explicit authorization decision.
+
+No application setting, owner status, sandbox balance, API key, wallet label, or fabricated evidence can substitute for these prerequisites.
+
+## Route declarations in the source module
+
+The organization route module defines the following intended paths, but they are **not mounted in the currently audited backend runtime**:
 
 - `GET /api/tron/organizations/config`
 - `POST /api/tron/organizations/applications`
@@ -48,8 +87,8 @@ This workflow is integrated into the deployed `Frontend-Tron-Transfer` applicati
 - `POST /api/tron/organizations/mandates/:id/review` (owner)
 - `POST /api/tron/organizations/mandates/:id/revoke` (sponsor wallet)
 
-No additional Render environment variables are required by this feature.
+These are route declarations, not evidence of deployed availability.
 
-## Automatic routing validation
+## Test interpretation
 
-The sponsor-direct route tests include a PostgreSQL-backed integration scenario in the isolated CI `sponsor_test` database. It checks that a funded and authorized sponsor is matched to one request, that a second live request is not concurrently assigned to the same sponsor, that pending principal is counted as reserved and daily usage, and that the persisted unsigned transaction is returned only to the authenticated sponsor wallet. Tatum calls are mocked in this test; it does not sign or broadcast a Mainnet transaction.
+Unit and source tests can validate handler logic, status transitions, and integration boundaries. They do not establish external KYB, legal authority, provider approval, funded balances, a working institutional signer, or exchange deposit credit. A test fixture must never be presented as a real sponsor or a real payout.
