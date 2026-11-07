@@ -40,20 +40,19 @@ The current treasury funding ledger and Fireblocks withdrawal route also use dif
 
 The required product policy remains **1,000 USDT** (1,000,000,000 six-decimal base units). The inspected Fireblocks treasury withdrawal route does not contain that minimum check. Since execution is hard-disabled, this audit does not enable a route that could bypass it. The minimum must be enforced in the future provider-independent withdrawal-intent boundary and covered by positive/negative tests before any operational review.
 
-## Financial-vault gateway contract: not yet specified by existing source
+## Financial-vault gateway contract: specified and implemented as a read-only verifier/client
 
-The repository does not provide a financial-vault API contract or signed financial observation schema that can safely be wired to the funding ledger. In particular, no existing receipt schema binds all of:
+The earlier repository gap is now addressed at the contract/library layer:
 
-- a unique vault identity and exact TRON Mainnet treasury address;
-- official USDT contract and six-decimal token units;
-- independently observed spendable USDT balance and native TRX balance;
-- observation block number/hash and solidification/finality state;
-- Energy and Bandwidth availability and observation time;
-- source-of-truth identity, signer authority scope, and revocation state;
-- receipt ID, issue/expiry times, idempotency/replay identifier, signing key ID, and a verifiable signature;
-- reservation version or ledger sequence needed to prevent stale balance snapshots from releasing already-reserved funds.
+- `server/private-treasury-vault-observation.mjs` defines the provider-neutral GET client and Ed25519 receipt verifier.
+- `tests/private-treasury-vault-observation.test.mjs` covers valid signatures, tampering, issuer/audience/vault/address/network binding, revoked/unknown keys, stale/expired receipts, replay-state requirements, arithmetic consistency, the 1,000-USDT minimum, and HTTPS allowlisting/GET-only behavior.
+- `docs/PRIVATE_TREASURY_VAULT_OBSERVATION_API_V1.md` specifies the endpoint, signed payload, canonicalization, key lifecycle, trust requirements, replay rules, and operational boundary.
 
-The document-vault receipt v2 is not a substitute for this contract. Inventing a financial receipt format or treating a file-storage receipt as financial evidence would create a false-funding vulnerability. Therefore no financial-vault HTTP adapter, ledger credit path, or withdrawal authorization path is added here.
+The receipt binds issuer, audience, vault ID, exact TRON Mainnet address, official USDT contract/decimals, USDT/TRX balances and reservations, solidified block metadata, Energy/Bandwidth, receipt/observation IDs, timestamps, and reservation sequence/snapshot ID. It requires a fresh caller-supplied trust/revocation snapshot and prior-seen receipt/observation IDs. The verifier returns `payoutAuthorized: false` and never mutates a ledger.
+
+This is not yet a configured or mounted production API integration. No gateway origin, credential, financial-vault trust key, revocation registry, or live route exists in this change. The HTTP client has not been invoked against a provider. The receipt proves only that a trusted key signed the stated observation; it does not prove legal ownership, independent chain truth, credit availability, or signer authority.
+
+The replay check is read-only and uses caller-supplied prior-seen IDs. Any later state-changing consumer must add durable atomic uniqueness/claiming for both IDs and monotonic reservation-sequence handling before relying on an observation. That ledger integration is not part of this stage.
 
 ## Required next implementation sequence
 
