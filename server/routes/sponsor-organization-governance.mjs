@@ -405,7 +405,7 @@ export function createSponsorOrganizationGovernanceRouter({
       return res.status(201).json({ success:true, revocationRecorded:true, scopeType, scopeId, payoutAuthorized:false,
         signerOperationPerformed:false, transactionBroadcast:false, note:'Signed revocation event recorded append-only; related mandate records were marked revoked.' })
     } catch (error) {
-      if (error?.code === '23505') return res.status(409).json({ success:false, error:'revocation-signature-already-recorded' })
+      if (error?.code === '23505') return res.status(409).json({ success:false, error:'revocation-event-already-recorded' })
       return res.status(503).json({ success:false, error:'revocation-event-storage-failed' })
     }
   }
