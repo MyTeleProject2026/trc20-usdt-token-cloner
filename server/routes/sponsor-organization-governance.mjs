@@ -201,6 +201,7 @@ async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.no
     e.malware_scan_status, e.vault_version_id, e.malware_scanner_version, e.vault_receipt_id, e.vault_receipt_key_id,
     e.vault_receipt_json, e.retention_mode, e.retention_until, e.encryption_mode,
     a.content_sha256 AS attestation_content_sha256, a.scanner_version AS attestation_scanner_version,
+    a.scanner_service AS attestation_scanner_service, a.scan_status AS attestation_scan_status,
     a.attestation_key_id, a.attestation_json, a.scanned_at
     FROM ${SCHEMA}.sponsor_organization_evidence_artifacts e
     LEFT JOIN ${SCHEMA}.sponsor_organization_malware_scan_attestations a ON a.evidence_id=e.id
@@ -242,12 +243,17 @@ async function readEvidenceSet(db, mandateId, env = process.env, nowMs = Date.no
     const persistedScanMatches = scanVerification.valid === true
       && row.attestation_key_id === scanVerification.keyId
       && row.attestation_scanner_version === scanVerification.scannerVersion
+      && row.attestation_scanner_service === 'independent-signed-attestation'
+      && row.attestation_scan_status === 'clean'
       && String(row.attestation_content_sha256 || '').trim() === row.content_sha256.trim()
       && persistedScanSignature?.keyId === receiptScanSignature?.keyId
       && persistedScanSignature?.value === receiptScanSignature?.value
       && row.malware_scanner_version === scanVerification.scannerVersion
       && row.scanned_at && new Date(row.scanned_at).getTime() === Date.parse(scanVerification.scannedAt)
     const denormalizedReceiptMatches = receiptVerification.valid === true
+      && row.storage_provider === 'approved-private-document-vault'
+      && row.encrypted_at_rest === true
+      && row.malware_scan_status === 'clean'
       && row.vault_receipt_id === receiptVerification.receiptId
       && row.vault_receipt_key_id === receiptVerification.signingKeyId
       && row.vault_version_id === receiptVerification.objectVersionId
