@@ -50,19 +50,20 @@ test('sponsor-direct USDT amount parser accepts exact six-decimal amounts', () =
 
 test('automatic sponsor routing requires available sponsor USDT, approved wallet limits, daily capacity and verified fee coverage', () => {
   const eligible = {
-    amountBaseUnits: '25000000',
-    balanceBaseUnits: '100000000',
-    reservedBaseUnits: '25000000',
-    perPayoutLimitBaseUnits: '50000000',
-    dailyLimitBaseUnits: '100000000',
-    dailyUsedBaseUnits: '25000000',
+    amountBaseUnits: '1000000000',
+    balanceBaseUnits: '2000000000',
+    reservedBaseUnits: '1000000000',
+    perPayoutLimitBaseUnits: '1500000000',
+    dailyLimitBaseUnits: '2000000000',
+    dailyUsedBaseUnits: '1000000000',
     feeCoverage: true,
   }
   assert.equal(isSponsorDirectAutoRouteEligible(eligible), true)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, balanceBaseUnits: '40000000' }), false)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, reservedBaseUnits: '80000000' }), false)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, perPayoutLimitBaseUnits: '20000000' }), false)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '80000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: '999999999' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, balanceBaseUnits: '1000000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, reservedBaseUnits: '1500000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, perPayoutLimitBaseUnits: '999999999' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '1500000000' }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, feeCoverage: false }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: 'not-an-integer' }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: '0' }), false)
@@ -235,6 +236,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     [createHash('sha256').update(outsiderToken).digest('hex'), recipientAddress],
   ])
   let sponsorApplicationId = null
+  let legacyIds = []
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
   const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
@@ -374,6 +376,46 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(prepared.payload.feeCoverage.covered, true)
     assert.equal(prepared.payload.feeCoverage.totalTrxReserveSun, '0')
 
+    // Historical below-minimum rows stay auditable but cannot re-enter processing.
+    const legacyRequestedId = randomUUID()
+    const legacyPreparedId = randomUUID()
+    const legacyExpiredId = randomUUID()
+    legacyIds = [legacyRequestedId, legacyPreparedId, legacyExpiredId]
+    for (const [legacyId, status, expiresAt] of [
+      [legacyRequestedId, 'requested', new Date(Date.now() + 60_000)],
+      [legacyPreparedId, 'prepared', new Date(Date.now() + 60_000)],
+      [legacyExpiredId, 'prepared', new Date(Date.now() - 60_000)],
+    ]) {
+      await db.query(
+        'INSERT INTO trc20_token_clone.sponsor_direct_payouts ' +
+        '(id,idempotency_key,requester_address,sponsor_address,recipient_address,token_contract,amount_base_units,status,minimum_policy_blocked,unsigned_transaction,expires_at) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,$9::jsonb,$10)',
+        [legacyId, randomUUID(), ownerAddress, sponsorAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999', status,
+          status === 'prepared' ? JSON.stringify(unsignedTransfer()) : null, expiresAt.toISOString()],
+      )
+    }
+    const legacyRequestedPrepare = await call('/requests/' + legacyRequestedId + '/prepare', sponsorToken, {})
+    assert.equal(legacyRequestedPrepare.response.status, 409)
+    assert.equal(legacyRequestedPrepare.payload.error, 'minimum-withdrawal-1000-usdt')
+    const legacyPreparedDuplicate = await call('/requests/' + legacyPreparedId + '/prepare', sponsorToken, {})
+    assert.equal(legacyPreparedDuplicate.response.status, 409)
+    assert.equal(legacyPreparedDuplicate.payload.error, 'minimum-withdrawal-1000-usdt')
+    const legacyPreparedBroadcast = await call('/requests/' + legacyPreparedId + '/broadcast', sponsorToken, { signedTransaction: { raw_data: {} } })
+    assert.equal(legacyPreparedBroadcast.response.status, 409)
+    assert.equal(legacyPreparedBroadcast.payload.error, 'minimum-withdrawal-1000-usdt')
+    const legacyExpiredPrepare = await call('/requests/' + legacyExpiredId + '/prepare', sponsorToken, {})
+    assert.equal(legacyExpiredPrepare.response.status, 409)
+    assert.equal(legacyExpiredPrepare.payload.error, 'minimum-withdrawal-1000-usdt')
+    const legacyStates = await db.query('SELECT id,status,minimum_policy_blocked FROM trc20_token_clone.sponsor_direct_payouts WHERE id=ANY($1::uuid[])', [legacyIds])
+    assert.equal(legacyStates.rows.length, 3)
+    assert.ok(legacyStates.rows.every((row) => row.minimum_policy_blocked === true))
+    assert.ok(legacyStates.rows.every((row) => ['requested','prepared'].includes(row.status)))
+    await assert.rejects(db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_payouts (id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,\'requested\')',
+      [randomUUID(), randomUUID(), ownerAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999'],
+    ))
+
     const reusedPreparation = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
     assert.equal(reusedPreparation.response.status, 200)
     assert.equal(reusedPreparation.payload.duplicate, true)
@@ -392,6 +434,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(requesterCopy.unsignedTransaction, undefined)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
+    if (legacyIds.length) await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE id=ANY($1::uuid[])', [legacyIds]).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
     if (server) await new Promise((resolve) => server.close(resolve))
     await db.end()
