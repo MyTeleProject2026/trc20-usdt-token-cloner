@@ -98,11 +98,11 @@ function clamdRequest(payload, config) {
 }
 
 export async function scanWithClamAv(buffer, config) {
-  const versionReply = await clamdRequest(Buffer.from('zVERSION\\0'), config)
+  const versionReply = await clamdRequest(Buffer.from('zVERSION\0'), config)
   if (!versionReply.startsWith(config.scannerVersion)) throw new Error('malware-scanner-version-mismatch')
   const reply = await clamdRequest(clamavFrame(buffer), config)
-  if (/\\bOK$/.test(reply)) return { status:'clean', scanner:'clamav-instream', version:versionReply }
-  if (/\\bFOUND$/.test(reply)) throw new Error('malware-detected')
+  if (/\bOK$/.test(reply)) return { status:'clean', scanner:'clamav-instream', version:versionReply }
+  if (/\bFOUND$/.test(reply)) throw new Error('malware-detected')
   throw new Error('malware-scan-indeterminate')
 }
 
