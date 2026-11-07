@@ -78,11 +78,22 @@ async function ensureSchema(db) {
     'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
     'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
     'amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0), ' +
+    'minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE, ' +
     'status TEXT NOT NULL DEFAULT \'requested\' CHECK (status IN ' +
     '(\'requested\',\'prepared\',\'broadcasting\',\'submitted\',\'outcome-unknown\',\'broadcast-rejected\',\'confirmed\',\'failed\',\'manual-review\',\'cancelled\',\'expired\')), ' +
     'unsigned_transaction JSONB, signed_transaction JSONB, transaction_hash CHAR(64), ' +
     'failure_code TEXT, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
     'updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+  )
+  await db.query(
+    'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ADD COLUMN IF NOT EXISTS minimum_policy_blocked BOOLEAN NOT NULL DEFAULT FALSE'
+  )
+  await db.query(
+    'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET minimum_policy_blocked=TRUE WHERE amount_base_units < 1000000000::numeric AND minimum_policy_blocked=FALSE'
+  )
+  await db.query(
+    `DO $ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='sponsor_direct_payouts_minimum_amount_check' AND conrelid='${SCHEMA}.sponsor_direct_payouts'::regclass) THEN ` +
+    'ALTER TABLE ' + SCHEMA + '.sponsor_direct_payouts ADD CONSTRAINT sponsor_direct_payouts_minimum_amount_check CHECK (amount_base_units >= 1000000000::numeric OR minimum_policy_blocked=TRUE) NOT VALID; END IF; END $'
   )
   await db.query(
     'CREATE INDEX IF NOT EXISTS sponsor_direct_payouts_sponsor_status_idx ON ' +
