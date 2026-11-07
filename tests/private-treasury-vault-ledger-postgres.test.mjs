@@ -89,7 +89,8 @@ test('isolated PostgreSQL Treasury Vault schema enforces verified claims and exa
     await assert.rejects(recordPrivateTreasuryVaultReservation(pool, input(3, 'gap'), { schema, nowMs: now }),
       (error) => error.code === 'PRIVATE_TREASURY_VAULT_SEQUENCE_NOT_NEXT', 'writer must reject 1 to 3')
     await assert.rejects(recordPrivateTreasuryVaultReservation(pool, {
-      ...input(2, 'duplicate-receipt'), verifiedObservation: first.verifiedObservation,
+      ...input(2, 'duplicate-receipt'),
+      verifiedObservation: verifiedObservation(vaultId, 2, 'duplicate-receipt', '1500000000', { receiptId: first.verifiedObservation.receiptId }),
     }, { schema, nowMs: now }), (error) => error.code === '23505', 'receipt replay must fail')
     await assert.rejects(recordPrivateTreasuryVaultReservation(pool, {
       ...input(2, 'duplicate-observation'),
