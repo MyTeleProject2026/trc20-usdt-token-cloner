@@ -14,7 +14,8 @@
     "check:env": "node scripts/check-production-env.mjs",
     "testnet:preflight": "node scripts/run-testnet-preflight.mjs",
     "sponsor:registry:check": "node scripts/prepare-sponsor-governance-registry.mjs",
-    "sponsor:testnet:check": "node scripts/run-sponsor-governance-testnet-check.mjs"
+    "sponsor:testnet:check": "node scripts/run-sponsor-governance-testnet-check.mjs",
+    "sponsor:vault-keys:check": "node scripts/prepare-sponsor-vault-trust-keys.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.1",
