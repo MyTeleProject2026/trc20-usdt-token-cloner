@@ -1,4 +1,5 @@
 import net from 'node:net'
+import { randomUUID } from 'node:crypto'
 import {
   getSponsorVaultReceiptKeyRegistry,
   getSponsorScannerAttestationKeyRegistry,
@@ -95,7 +96,7 @@ export async function scanAndStoreEvidenceV2({
     || !String(attestationPayload.scannerVersion || '').startsWith(config.scannerVersionPrefix)) {
     throw new Error('independent-scan-identity-mismatch')
   }
-  const objectKey = 'sponsor-evidence/' + applicationId + '/' + mandateId + '/' + scanVerification.attestationId
+  const objectKey = 'sponsor-evidence/' + applicationId + '/' + mandateId + '/' + randomUUID()
   const attestationHeader = Buffer.from(JSON.stringify(attestation), 'utf8').toString('base64url')
   const vaultResponse = await fetchImpl(config.vaultBase + '/v2/objects/' + objectKey.split('/').map(encodeURIComponent).join('/'), {
     method: 'PUT',
