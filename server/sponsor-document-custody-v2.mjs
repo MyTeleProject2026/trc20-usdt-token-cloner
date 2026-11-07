@@ -156,7 +156,7 @@ export async function scanAndStoreEvidenceV2({
     scanAttestationMaxAgeMs: 5 * 60 * 1000,
     nowMs: now(),
   })
-  if (!verification.valid) throw new Error('private-vault-receipt-v2-invalid')
+  if (!verification.valid) throw new Error('private-vault-receipt-v2-invalid:' + String(verification.reason || 'unknown'))
   if (receipt.malwareScan?.attestation?.signature?.value !== attestation.signature.value
     || receipt.malwareScan?.attestation?.signature?.keyId !== attestation.signature.keyId) {
     throw new Error('vault-receipt-scanner-attestation-substitution')
