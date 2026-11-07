@@ -52,6 +52,7 @@ test('document custody config fails closed until vault, receipt key and scanner 
     SPONSOR_ORG_VAULT_API_TOKEN:'v'.repeat(40),
     SPONSOR_ORG_VAULT_RECEIPT_HMAC_SECRET:'r'.repeat(40),
     SPONSOR_ORG_CLAMAV_HOST:'clamav.internal',
+    SPONSOR_ORG_CLAMAV_ALLOWED_HOSTS:'clamav.internal',
     SPONSOR_ORG_CLAMAV_VERSION:'ClamAV 1.4.2',
   })
   assert.equal(ready.ready, true)
