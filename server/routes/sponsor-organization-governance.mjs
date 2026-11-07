@@ -499,9 +499,6 @@ export function createSponsorOrganizationGovernanceRouter({
       if (evidence.artifacts.some((artifact) => artifact.malwareScanStatus !== 'clean' || !artifact.vaultVersionId || !artifact.malwareScannerVersion || artifact.vaultReceiptV2Verified !== true)) {
         return res.status(409).json({ success:false, error:'evidence-custody-and-malware-scan-required', payoutAuthorized:false })
       }
-      if (evidence.artifacts.some((artifact) => artifact.malwareScanStatus !== 'clean' || !artifact.vaultVersionId || !artifact.malwareScannerVersion || artifact.vaultReceiptV2Verified !== true)) {
-        return res.status(409).json({ success:false, error:'evidence-custody-and-malware-scan-required', payoutAuthorized:false })
-      }
       const messageInput = { applicationId:row.application_id, mandateId, evidenceSetDigest:evidence.digest, decision,
         reviewerWalletAddress:auth.address, reviewerRole:reviewer.role, decisionEvidenceReference:reference, decidedAt:decidedAt.toISOString() }
       const message = buildEvidenceReviewMessage(messageInput)
