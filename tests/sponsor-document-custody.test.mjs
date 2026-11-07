@@ -119,7 +119,7 @@ test('ClamAV handshake verifies the configured daemon version before scanning by
     const result = await scanWithClamAv(pdf, {...config,scannerHost:'127.0.0.1',scannerPort:address.port})
     assert.equal(result.status,'clean')
     assert.equal(result.scanner,'clamav-instream')
-    assert.match(result.version,/^ClamAV 1\\.4\\.2/)
+    assert.match(result.version,/^ClamAV 1\.4\.2/)
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
