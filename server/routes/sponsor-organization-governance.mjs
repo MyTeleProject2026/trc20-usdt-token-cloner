@@ -58,6 +58,7 @@ async function ensureSchema(db) {
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS vault_version_id TEXT`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS malware_scanner_version TEXT`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts DROP CONSTRAINT IF EXISTS sponsor_organization_evidence_artifacts_malware_scan_status_check`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts DROP CONSTRAINT IF EXISTS sponsor_org_evidence_scan_status_check`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD CONSTRAINT sponsor_org_evidence_scan_status_check CHECK (malware_scan_status IN ('pending','clean'))`)
       await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ALTER COLUMN malware_scan_status SET DEFAULT 'pending'`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_malware_scan_attestations (
