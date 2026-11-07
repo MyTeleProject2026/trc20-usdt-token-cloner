@@ -88,6 +88,7 @@ async function ensureSchema(db) {
       )`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_revocations_scope_idx ON ${SCHEMA}.sponsor_organization_revocation_events(scope_type, scope_id, effective_at DESC)`)
       await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_revocation_signature_once_idx ON ${SCHEMA}.sponsor_organization_revocation_events(actor_signature_hash)`)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS sponsor_org_revocation_reference_once_idx ON ${SCHEMA}.sponsor_organization_revocation_events(scope_type,scope_id,actor_wallet_address,event_reference)`)
       await db.query(`CREATE OR REPLACE FUNCTION ${SCHEMA}.reject_sponsor_org_audit_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'sponsor organization governance records are append-only'; END;
       $$`)
