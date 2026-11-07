@@ -143,3 +143,23 @@ test('adapter source has no network client, key loader, transaction submission o
   const source = await readFile(new URL('../server/institutional-signer-adapter.mjs', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /fetch\\s*\\(|https?:\\/\\/|readFile|createPrivateKey|privateKey|sendRawTransaction|broadcastTransaction|createTransaction|sign\\s*\\(/i)
 })
+
+test('live treasury USDT and TRX submission routes remain hard-disabled before any provider call', async () => {
+  const route = await readFile(new URL('../server/routes/treasury-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.match(route, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
+  for (const [path, providerCall] of [
+    ["router.post('/withdrawals',", 'fireblocks.createUsdtTransfer('],
+    ["router.post('/trx-withdrawals',", 'fireblocks.createTrxTransfer('],
+  ]) {
+    const start = route.indexOf(path)
+    assert.notEqual(start, -1, path)
+    const handler = route.slice(start, route.indexOf("\n  router.", start + path.length) < 0
+      ? route.length : route.indexOf("\n  router.", start + path.length))
+    const hardGate = handler.indexOf('if (REAL_VALUE_PAYOUT_EXECUTION_DISABLED)')
+    const auth = handler.indexOf('authenticateOwner(')
+    const submission = handler.indexOf(providerCall)
+    assert.ok(hardGate >= 0, 'hard execution gate must exist')
+    assert.ok(auth > hardGate, 'hard execution gate must run before owner-auth processing')
+    assert.ok(submission > hardGate, 'provider submission must remain downstream of the hard gate')
+  }
+})
