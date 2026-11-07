@@ -155,8 +155,10 @@ test('provider readiness is private, performs only read-only Fincra diagnostics,
   assert.match(recipientRoute, /payoutSubmissionEnabled: false/)
   assert.match(recipientRoute, /transactionSubmitted: false/)
   assert.match(recipientRoute, /sponsorBusinessBalanceIsSponsorOwnedAccountFunds: true/)
-  assert.match(recipientRoute, /sponsor-standing-fincra-mandate-not-independently-authorized/)
+  assert.match(recipientRoute, /fincra-automatic-sponsor-mandate-mode-disabled/)
   assert.match(recipientRoute, /production-payout-and-chain-reconciliation-not-enabled/)
+  assert.match(recipientRoute, /Fincra is used here only for optional read-only account diagnostics/)
+  assert.doesNotMatch(recipientRoute, /standing sponsor mandate/)
 })
 
 test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow and reconciliation worker', () => {
