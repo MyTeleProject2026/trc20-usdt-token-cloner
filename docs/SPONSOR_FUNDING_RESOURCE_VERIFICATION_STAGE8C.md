@@ -8,6 +8,7 @@
 - The reconciler binds both observations to the same sponsor address, organization, vault, network and official USDT contract.
 - It rejects stale or future-dated observations, non-solidified blocks, malformed amounts, mismatched vault/address/token metadata, sandbox source labels, provider balances exceeding on-chain balances, and insufficient balances, bandwidth or energy.
 - Reconciled spendable amounts are the lower of the independently reported chain balance and custody-provider available balance. This prevents a provider ledger from overstating assets visible on-chain.
+- The requested USDT funding threshold cannot be configured below the platform's preserved 1,000 USDT minimum (1,000,000,000 base units).
 - The result is a reconciliation result only, not cryptographically verified proof. The module deliberately returns `verified: false` even when both observations reconcile, because it does not authenticate or cryptographically attest the upstream readers. It never authorizes a payout.
 
 ## Trust boundary / not yet provisioned
