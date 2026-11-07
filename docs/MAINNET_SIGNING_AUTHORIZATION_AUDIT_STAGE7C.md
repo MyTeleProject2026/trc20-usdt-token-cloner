@@ -32,6 +32,13 @@ The source has configuration checks for a Fireblocks signer/vault and asset iden
 - A hard build-time constant `REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true` was added as defense in depth. If the router is mounted in a future build, `POST /:id/broadcast` returns HTTP 503 before owner session verification, database access or Tatum broadcast.
 - The preparation code can build an unsigned official-USDT transaction after its Mainnet simulation/resource checks. Preparation is not a transfer.
 
+### Standalone Mainnet exchange-deposit page
+
+- `src/main.tsx` mounts `src/MainnetExchangeDeposit.tsx` at `#/exchange-deposit`.
+- The original page contained a direct TronLink `trx.sign` followed by `sendRawTransaction` for native TRX and official USDT.
+- This supervised feature branch now sets `REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED = true`, removes the signing/broadcast implementation from the page, disables the send button and keeps only public balance inspection plus verification of previously recorded transaction IDs.
+- This page cannot be used to send real Mainnet deposits in the current build.
+
 ### Sponsored native transfer route
 
 - The separate `server/routes/native-tron.mjs` submission handler is restricted to stored transfer networks `shasta` or `nile`.
@@ -69,6 +76,7 @@ The branch adds/updates tests proving:
 - owner-direct Mainnet broadcast returns 503 before session or provider access;
 - treasury readiness never reports withdrawals enabled while its hard execution gate is closed;
 - the sponsored native route only accepts Shasta/Nile for signed submission;
+- the standalone Mainnet exchange-deposit page is read-only and cannot sign or broadcast;
 - governance responses never claim payout authorization or broadcast.
 
 ## Current conclusion
