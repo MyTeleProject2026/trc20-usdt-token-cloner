@@ -33,6 +33,8 @@ ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   DROP CONSTRAINT IF EXISTS sponsor_organization_evidence_artifacts_malware_scan_status_check;
 ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
+  DROP CONSTRAINT IF EXISTS sponsor_org_evidence_scan_status_check;
+ALTER TABLE trc20_token_clone.sponsor_organization_evidence_artifacts
   ADD CONSTRAINT sponsor_org_evidence_scan_status_check CHECK (malware_scan_status IN ('pending','clean'));
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.sponsor_organization_malware_scan_attestations (
