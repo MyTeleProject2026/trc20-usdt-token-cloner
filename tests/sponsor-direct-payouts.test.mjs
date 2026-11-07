@@ -416,7 +416,8 @@ test('public sponsor-direct configuration allows a zero-balance requester but re
   assert.equal(payload.requestIntakeEnabled, true)
   assert.equal(payload.requesterWalletFundingRequired, false)
   assert.equal(payload.payoutMode, 'sponsor-direct')
-  assert.equal(payload.payoutExecution, 'conditional-on-approved-funded-sponsor')
+  assert.equal(payload.payoutExecution, 'disabled-in-this-build')
+  assert.equal(payload.broadcastDisabledInBuild, true)
   assert.equal(payload.sponsorApprovalRequired, true)
 })
 
