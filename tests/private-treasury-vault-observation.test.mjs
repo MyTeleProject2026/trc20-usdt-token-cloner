@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, sign } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import {
   canonicalizePrivateTreasuryVaultObservationPayload,
   fetchPrivateTreasuryVaultObservation,
@@ -188,4 +189,14 @@ test('read-only gateway client uses one allowlisted HTTPS GET and rejects redire
     bearerToken: 'test-token-with-sufficient-length',
     fetchImpl: async () => { throw new Error('must-not-fetch') },
   }), /private-vault-gateway-origin-not-allowlisted/)
+})
+
+test('financial vault observation adapter is provider-independent and contains no signing or broadcast path', async () => {
+  const source = await readFile(new URL('../server/private-treasury-vault-observation.mjs', import.meta.url), 'utf8')
+  assert.match(source, /method: 'GET'/)
+  assert.match(source, /redirect: 'error'/)
+  assert.doesNotMatch(source, /fireblocks|fincra|sponsor_direct_payouts|signMessage|broadcastTransaction/i)
+  assert.match(source, /payoutAuthorized: false/)
+  assert.match(source, /transactionSigned: false/)
+  assert.match(source, /broadcastAttempted: false/)
 })
