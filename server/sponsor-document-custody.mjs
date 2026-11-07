@@ -71,7 +71,7 @@ function clamavFrame(buffer) {
   return Buffer.concat(chunks)
 }
 
-export function scanWithClamAv(buffer, config) {
+function clamdRequest(payload, config) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: config.scannerHost, port: config.scannerPort })
     const chunks = []
@@ -84,17 +84,25 @@ export function scanWithClamAv(buffer, config) {
       else resolve(result)
     }
     socket.setTimeout(config.scannerTimeoutMs)
-    socket.once('connect', () => socket.end(clamavFrame(buffer)))
+    socket.once('connect', () => socket.end(payload))
     socket.on('data', (chunk) => chunks.push(chunk))
     socket.once('timeout', () => finish(new Error('malware-scanner-timeout')))
     socket.once('error', () => finish(new Error('malware-scanner-unavailable')))
     socket.once('end', () => {
       const reply = Buffer.concat(chunks).toString('utf8').trim()
-      if (/\bOK$/.test(reply)) return finish(null, { status: 'clean', scanner: 'clamav-instream', version: config.scannerVersion })
-      if (/\bFOUND$/.test(reply)) return finish(new Error('malware-detected'))
-      return finish(new Error('malware-scan-indeterminate'))
+      if (!reply) return finish(new Error('malware-scan-indeterminate'))
+      finish(null, reply)
     })
   })
+}
+
+export async function scanWithClamAv(buffer, config) {
+  const versionReply = await clamdRequest(Buffer.from('zVERSION\\0'), config)
+  if (!versionReply.startsWith(config.scannerVersion)) throw new Error('malware-scanner-version-mismatch')
+  const reply = await clamdRequest(clamavFrame(buffer), config)
+  if (/\\bOK$/.test(reply)) return { status:'clean', scanner:'clamav-instream', version:versionReply }
+  if (/\\bFOUND$/.test(reply)) throw new Error('malware-detected')
+  throw new Error('malware-scan-indeterminate')
 }
 
 export async function storeInPrivateVault({ buffer, mediaType, retentionPolicyReference, applicationId, mandateId, config, fetchImpl = fetch }) {
