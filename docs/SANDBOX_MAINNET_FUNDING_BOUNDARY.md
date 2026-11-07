@@ -18,7 +18,9 @@ This document defines a strict accounting and authorization boundary between sim
 
 `server/sponsor-integration-policy.mjs` now requires both the principal-funding snapshot and fee-funding snapshot to include:
 
-- the exact requested `network` and matching `environment`;
+- the exact requested `network`;
+- for on-chain evidence, `environment` equal to that chain network and `chainVerified: true`;
+- for provider-account evidence, `environment: "live" | "production"`, `liveMode: true`, `accountVerified: true`, and a non-empty trusted `providerAccountId`;
 - `sandbox: false` and `simulated: false`;
 - `sourceVerified: true`;
 - either `sourceKind: "onchain"` with `chainVerified: true`, or `sourceKind: "provider-live-account"` with `liveMode: true`.
