@@ -19,6 +19,7 @@ import treasuryPayoutReadinessRoutes from './routes/treasury-payout-readiness.mj
 import ownerTreasuryRoutes from './routes/owner-treasury.mjs'
 import { createOwnerTreasuryFundingLedgerRouter } from './routes/owner-treasury-funding-ledger.mjs'
 import { createSponsorIntegrationReadinessRouter } from './routes/sponsor-integration-readiness.mjs'
+import { createSponsorOrganizationRouter } from './routes/sponsor-organization-onboarding.mjs'
 import { credentialGuard } from './credential-guard.mjs'
 import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
@@ -142,6 +143,8 @@ app.use('/api/okx', okxDepositStatusRoutes)
 app.use('/api/tron', createTokenAuthenticityRouter())
 app.use('/api/tron', createChainTokenInspectionRouter())
 app.use('/api/tron', createSponsorIntegrationReadinessRouter())
+// Organizational sponsor onboarding is governance-only; its records do not authorize payouts.
+app.use('/api/tron', createSponsorOrganizationRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/treasury/owner', createOwnerTreasuryFundingLedgerRouter())
