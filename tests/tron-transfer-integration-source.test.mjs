@@ -252,7 +252,7 @@ test('organization mandate documentation accurately separates mounted governance
   assert.doesNotMatch(app, /SponsorOrganizationOnboarding/)
   assert.match(organizationRoute, /createSponsorOrganizationRouter/)
   assert.match(organizationDoc, /does not join organization applications or mandate records/)
-  assert.match(organizationDoc, /not a claim that organizational sponsorship is available/)
+  assert.match(organizationDoc, /not evidence that organizational sponsorship is available in production/)
   assert.match(organizationDoc, /feature branch only/)
   assert.doesNotMatch(organizationDoc, /This workflow is integrated into the deployed/)
 })
