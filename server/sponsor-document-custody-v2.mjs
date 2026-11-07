@@ -95,6 +95,7 @@ export async function scanAndStoreEvidenceV2({
     expectedSha256: metadata.contentSha256,
     expectedByteSize: metadata.byteSize,
     nowMs: now(),
+    maxAgeMs: 5 * 60 * 1000,
   })
   if (!scanVerification.valid) throw new Error('independent-scan-attestation-invalid')
   const attestationPayload = attestation
