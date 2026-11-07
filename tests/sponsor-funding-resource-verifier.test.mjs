@@ -154,7 +154,7 @@ test('rejects missing resource readings, stale custody data and invalid threshol
   })
   assert.ok(staleCustody.reasons.includes('custody-observation-stale-or-future-dated'))
   const invalidThresholds = verify({
-    expected: { ...expected, minimumUsdtBaseUnits: '1.000001', minimumTrxSun: '-1' },
+    expected: { ...expected, minimumUsdtBaseUnits: '999999999', minimumTrxSun: '-1' },
   })
   assert.ok(invalidThresholds.reasons.includes('minimum-usdt-threshold-invalid'))
   assert.ok(invalidThresholds.reasons.includes('minimum-trx-threshold-invalid'))
