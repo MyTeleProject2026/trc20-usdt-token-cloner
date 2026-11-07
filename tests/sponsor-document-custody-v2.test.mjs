@@ -158,6 +158,17 @@ test('vault receipt must be signed by a pinned key and bind the exact scan attes
   await assert.rejects(scanAndStoreEvidenceV2({...args,fetchImpl:wrongSignature.fetchImpl}),/private-vault-receipt-v2-invalid/)
 })
 
+test('oversized scanner and vault metadata responses fail closed within the bounded response reader',async()=>{
+  let calls=0
+  const large='x'.repeat(300*1024)
+  const fetchImpl=async()=>{
+    calls++
+    return new Response(large,{status:200,headers:{'content-type':'application/json'}})
+  }
+  await assert.rejects(scanAndStoreEvidenceV2({...args,fetchImpl}),/independent-scanner-service-rejected/)
+  assert.equal(calls,1)
+})
+
 test('scanner service failures and invalid content fail closed',async()=>{
   let calls=0
   await assert.rejects(scanAndStoreEvidenceV2({...args,fetchImpl:async()=>{calls++;throw new Error('offline')}}),/independent-scanner-service-unavailable/)
