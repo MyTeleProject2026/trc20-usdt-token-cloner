@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
+import net from 'node:net'
 import {
-  getDocumentCustodyConfig, scanAndStoreEvidence, validateEvidenceBytes,
+  getDocumentCustodyConfig, scanAndStoreEvidence, scanWithClamAv, validateEvidenceBytes,
 } from '../server/sponsor-document-custody.mjs'
 
 const pdf = Buffer.from('%PDF-1.7\ntrusted test document\n%%EOF')
@@ -99,4 +100,36 @@ test('unsigned or mismatched vault receipts fail closed', async () => {
       byteSize:pdf.length,encryptedAtRest:true,retentionPolicyReference:'retention-policy-v1',
       versionId:'v1',receiptSignature:'0'.repeat(64)}),{status:201}),
   }),/private-vault-receipt-mismatch/)
+})
+
+test('ClamAV handshake verifies the configured daemon version before scanning bytes', async () => {
+  const server = net.createServer((socket) => {
+    socket.once('data', (data) => {
+      const command = data.subarray(0, 10).toString('utf8')
+      if (command.startsWith('zVERSION')) socket.end('ClamAV 1.4.2/123/test-db\\n')
+      else if (command.startsWith('zINSTREAM')) socket.end('stream: OK\\n')
+      else socket.end('UNKNOWN COMMAND\\n')
+    })
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  try {
+    const result = await scanWithClamAv(pdf, {...config,scannerHost:'127.0.0.1',scannerPort:address.port})
+    assert.equal(result.status,'clean')
+    assert.equal(result.scanner,'clamav-instream')
+    assert.match(result.version,/^ClamAV 1\\.4\\.2/)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
+test('ClamAV version mismatch fails closed before file scanning', async () => {
+  const server = net.createServer((socket) => socket.once('data', () => socket.end('ClamAV 1.3.0/123/test-db\\n')))
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  try {
+    await assert.rejects(scanWithClamAv(pdf,{...config,scannerHost:'127.0.0.1',scannerPort:address.port}),/malware-scanner-version-mismatch/)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
 })
