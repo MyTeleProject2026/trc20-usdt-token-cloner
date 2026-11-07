@@ -545,7 +545,7 @@ export function createSponsorOrganizationRouter({
          (id,application_id,sponsor_wallet_address,agreement_reference,agreement_digest,purpose,
           per_payout_limit_base_units,daily_limit_base_units,valid_from,valid_until,sponsor_signature_hash,
           execution_mode,provider_name,provider_business_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULL,NULL) RETURNING *`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL) RETURNING *`,
         [randomUUID(), id, auth.address, agreementReference, agreementDigest, purpose,
           perPayoutBaseUnits, dailyBaseUnits, validFrom.toISOString(), validUntil.toISOString(),
           digest(body.mandateSignature), executionMode],
