@@ -14,7 +14,7 @@ test('real deposit page is separate from the existing testnet-only workspace', (
   assert.ok(entry.includes('<MainnetExchangeDeposit />'))
   assert.ok(workspace.includes('href="#/exchange-deposit"'))
   assert.ok(flow.includes('TRON Mainnet'))
-  assert.ok(flow.includes('testnet assets'))
+  assert.ok(flow.includes('Testnet assets'))
 })
 
 test('Mainnet deposit wallet has a real signed identity session and revalidates it before send', () => {
@@ -26,7 +26,8 @@ test('Mainnet deposit wallet has a real signed identity session and revalidates 
   assert.match(flow, /JSON\.stringify\(\{ address, network: 'mainnet', nonce: challenge\.nonce, signature \}\)/)
   assert.match(flow, /apiGet\('\/api\/auth\/tron\/session', storedToken\)/)
   assert.match(flow, /const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'/)
-  assert.match(flow, /walletSession\?\.address === sender/)
+  assert.match(flow, /existing\.payload\.address === address/)
+  assert.match(flow, /verified\.address === address/)
   assert.match(flow, /Sign out wallet identity/)
   assert.match(authRoute, /const NETWORKS = new Set\(\['mainnet', 'shasta', 'nile'\]\)/)
   assert.match(authRoute, /wallet-identity-only/)
