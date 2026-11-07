@@ -147,6 +147,7 @@ export async function scanAndStoreEvidenceV2({
     scanAttestation: attestation,
     scanAttestationId: scanVerification.attestationId,
     scanAttestationKeyId: scanVerification.keyId,
+    scanAttestationKeyId: scanVerification.keyId,
     scanResult: {
       status: 'clean',
       scanner: attestationPayload.scanner,
