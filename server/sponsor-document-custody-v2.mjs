@@ -130,7 +130,10 @@ export async function scanAndStoreEvidenceV2({
     expectedMediaType: mediaType,
     expectedOrganizationId: applicationId,
     expectedIssuer: config.vaultIssuer,
+    expectedRetentionPolicyReference: retentionPolicyReference,
     minimumRetentionMs: config.minRetentionDays * 24 * 60 * 60 * 1000,
+    maxReceiptAgeMs: 10 * 60 * 1000,
+    scanAttestationMaxAgeMs: 5 * 60 * 1000,
     nowMs: now(),
   })
   if (!verification.valid) throw new Error('private-vault-receipt-v2-invalid')
@@ -140,7 +143,7 @@ export async function scanAndStoreEvidenceV2({
   }
   return {
     ...metadata,
-    storageProvider: 'aws-s3',
+    storageProvider: 'approved-private-document-vault',
     objectKey,
     vaultVersionId: verification.objectVersionId,
     vaultReceiptId: verification.receiptId,
@@ -153,7 +156,6 @@ export async function scanAndStoreEvidenceV2({
     retentionPolicyReference,
     scanAttestation: attestation,
     scanAttestationId: scanVerification.attestationId,
-    scanAttestationKeyId: scanVerification.keyId,
     scanAttestationKeyId: scanVerification.keyId,
     scanResult: {
       status: 'clean',
