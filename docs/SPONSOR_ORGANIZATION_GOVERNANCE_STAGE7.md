@@ -43,7 +43,7 @@ Evidence metadata, reviewer decisions and revocation events reject UPDATE and DE
 ## Payout and deployment boundary
 
 - Every Stage 7B response explicitly reports `payoutAuthorized: false`.
-- The governance quorum is not a payout authorization and is not connected to any signer, provider payout adapter, transaction preparation, broadcast or exchange-credit path.
+- The governance quorum is not a payout authorization and is not connected to any signer, provider payout adapter, transaction preparation, broadcast or exchange-credit path. The legacy mandate endpoint now returns `payoutAuthorized: false` even when its internal mandate status becomes `authorized`.
 - This work does not enable real-value payout execution, change provider configuration, apply a production database migration, deploy Render services, or transfer funds.
 - The existing separate sponsor-direct payout capability remains governed by its own authorization and execution controls; Stage 7B does not silently change that system.
 
