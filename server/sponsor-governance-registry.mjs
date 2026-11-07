@@ -71,6 +71,10 @@ export function getSponsorSecurityOfficerRegistry(env = process.env) {
   return result
 }
 export function buildSponsorGovernanceRegistryPins(env = process.env) {
+  if (!/^[A-Za-z0-9._-]{3,64}$/.test(String(env.SPONSOR_ORG_REVIEWER_REGISTRY_VERSION || '').trim())
+    || !/^[A-Za-z0-9._-]{3,64}$/.test(String(env.SPONSOR_ORG_SECURITY_OFFICERS_VERSION || '').trim())) {
+    throw new Error('governance-registry-version-required')
+  }
   const reviewers = parseEntries(env.SPONSOR_ORG_REVIEWER_REGISTRY, 'reviewer')
   const officers = parseEntries(env.SPONSOR_ORG_SECURITY_OFFICERS, 'security')
   if (reviewers.reason) throw new Error('reviewer-' + reviewers.reason)
