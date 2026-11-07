@@ -3,7 +3,6 @@ import { createPublicKey, verify as verifySignature } from 'node:crypto'
 const SHA256_RE = /^[a-f0-9]{64}$/
 const BASE64URL_RE = /^[A-Za-z0-9_-]+$/
 const KEY_ID_RE = /^[A-Za-z0-9._-]{3,128}$/
-const MAX_SAFE = Number.MAX_SAFE_INTEGER
 
 function fail(reason) {
   return { valid: false, reason }
@@ -67,7 +66,7 @@ export function verifyMalwareScanAttestation(attestation, {
 
 export function verifyPrivateVaultReceiptV2(receipt, {
   keyRegistry, expectedObjectKey, expectedSha256, expectedByteSize, expectedMediaType,
-  expectedOrganizationId, expectedAudience = 'tron-transfer-onboarding', nowMs = Date.now(),
+  expectedOrganizationId, scannerKeyRegistry, expectedAudience = 'tron-transfer-onboarding', nowMs = Date.now(),
 } = {}) {
   const verified = verifyEnvelope(receipt, keyRegistry, 'tron-transfer.private-vault-receipt.v2')
   if (!verified.valid) return verified
@@ -89,7 +88,7 @@ export function verifyPrivateVaultReceiptV2(receipt, {
   const retainUntil = Date.parse(retention.retainUntil)
   if (!Number.isFinite(retainUntil) || !Number.isFinite(nowMs) || retainUntil <= nowMs) return fail('vault-receipt-retention-expired-or-invalid')
   const scan = verifyMalwareScanAttestation(p.malwareScan?.attestation, {
-    keyRegistry: p.malwareScan?.keyRegistry || keyRegistry,
+    keyRegistry: scannerKeyRegistry,
     expectedSha256, expectedByteSize, nowMs,
   })
   if (!scan.valid) return fail('vault-receipt-malware-attestation-invalid')
