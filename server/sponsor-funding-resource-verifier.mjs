@@ -115,8 +115,9 @@ export function verifySponsorFundingAndTronResources({
   const passed = reasons.length === 0
   return Object.freeze({
     schema: 'tron-transfer.sponsor-funding-resource-verification.v1',
-    status: passed ? 'readiness-evidence-passed' : 'blocked-unverified-or-insufficient',
-    verified: passed,
+    status: passed ? 'observations-reconciled-not-cryptographically-attested' : 'blocked-unverified-or-insufficient',
+    reconciled: passed,
+    verified: false,
     reasons: Object.freeze(reasons),
     evidence: Object.freeze({
       chainSource: chain.source || null,
