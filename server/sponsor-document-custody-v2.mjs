@@ -1,4 +1,5 @@
 import net from 'node:net'
+import { createPublicKey } from 'node:crypto'
 import { randomUUID } from 'node:crypto'
 import {
   getSponsorVaultReceiptKeyRegistry,
@@ -47,6 +48,11 @@ export function getDocumentCustodyV2Config(env = process.env) {
   if (!Number.isInteger(minRetentionDays) || minRetentionDays < 1 || minRetentionDays > 3650) missing.push('vault-minimum-retention-days-invalid')
   if (!vaultKeys.configured) missing.push('vault-receipt-public-key-registry-not-ready')
   if (!scannerKeys.configured) missing.push('scanner-attestation-public-key-registry-not-ready')
+  if (vaultKeys.configured && scannerKeys.configured) {
+    const vaultKeyMaterial = new Set([...vaultKeys.keys.values()].map((item) => createPublicKey(item.publicKeyPem).export({type:'spki',format:'der'}).toString('base64')))
+    const scannerKeyMaterial = [...scannerKeys.keys.values()].map((item) => createPublicKey(item.publicKeyPem).export({type:'spki',format:'der'}).toString('base64'))
+    if (scannerKeyMaterial.some((value) => vaultKeyMaterial.has(value))) missing.push('vault-and-scanner-signing-keys-must-be-independent')
+  }
   return {
     ready: missing.length === 0,
     missing,
