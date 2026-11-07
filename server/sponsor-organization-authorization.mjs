@@ -32,6 +32,16 @@ export function evaluateSponsorOrganizationAuthorization({
 
   if (mandate.status !== 'authorized') blockers.push('organization-mandate-not-authorized')
   if (!DIGEST_RE.test(String(mandate.agreementDigest || ''))) blockers.push('agreement-digest-invalid')
+  if (evidence.applicationId !== applicationId) blockers.push('evidence-application-binding-mismatch')
+  if (evidence.sponsorWalletAddress !== wallet) blockers.push('evidence-sponsor-wallet-binding-mismatch')
+  if (evidence.agreementDigest !== mandate.agreementDigest) blockers.push('evidence-agreement-digest-binding-mismatch')
+  if (!nonEmpty(mandate.providerAccountId) || evidence.providerAccountId !== mandate.providerAccountId) {
+    blockers.push('evidence-provider-account-binding-mismatch')
+  }
+  if (!nonEmpty(mandate.providerSignerPolicyReference)
+    || evidence.providerSignerPolicyReference !== mandate.providerSignerPolicyReference) {
+    blockers.push('evidence-provider-signer-policy-binding-mismatch')
+  }
   if (evidence.agreementDigestVerified !== true) blockers.push('agreement-document-digest-not-independently-verified')
   if (evidence.mandateSignatureVerified !== true) blockers.push('mandate-signature-not-cryptographically-verified')
   if (evidence.signatureIntentBindingVerified !== true) blockers.push('mandate-signature-intent-binding-unverified')
