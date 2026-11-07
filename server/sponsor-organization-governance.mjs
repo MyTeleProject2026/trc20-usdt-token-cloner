@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SHA256_RE = /^[a-f0-9]{64}$/i
 const TRON_ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
@@ -12,6 +14,17 @@ const REVOCATION_REASONS = new Set([
   'sponsor-request', 'suspected-compromise', 'authority-withdrawn', 'provider-account-changed',
   'evidence-invalidated', 'policy-breach', 'legal-or-compliance-hold', 'other',
 ])
+
+export function computeSponsorOrganizationEvidenceSetDigest(artifacts = []) {
+  if (!Array.isArray(artifacts) || artifacts.length === 0) return null
+  const entries = artifacts.map((artifact) => {
+    if (!UUID_RE.test(String(artifact?.id || '')) || !SHA256_RE.test(String(artifact?.contentSha256 || ''))) return null
+    return artifact.id + ':' + artifact.contentSha256.toLowerCase()
+  })
+  if (entries.some((entry) => entry === null) || new Set(entries).size !== entries.length) return null
+  entries.sort()
+  return createHash('sha256').update(entries.join('\\n'), 'utf8').digest('hex')
+}
 
 function nonEmpty(value) {
   return typeof value === 'string' && value.trim().length > 0
@@ -75,7 +88,11 @@ export function evaluateIndependentSponsorOrganizationReview({
   if (!UUID_RE.test(String(application.id || ''))) blockers.push('review-application-id-invalid')
   if (!TRON_ADDRESS_RE.test(String(application.sponsorWalletAddress || ''))) blockers.push('review-sponsor-wallet-invalid')
   if (!Number.isInteger(requiredApprovals) || requiredApprovals < 2 || requiredApprovals > 5) blockers.push('review-quorum-invalid')
-  if (!SHA256_RE.test(String(expectedEvidenceSetDigest || ''))) blockers.push('review-evidence-set-digest-invalid')
+  const calculatedEvidenceSetDigest = computeSponsorOrganizationEvidenceSetDigest(artifacts)
+  if (!SHA256_RE.test(String(expectedEvidenceSetDigest || ''))
+    || calculatedEvidenceSetDigest !== String(expectedEvidenceSetDigest).toLowerCase()) {
+    blockers.push('review-evidence-set-digest-mismatch')
+  }
   if (!Number.isFinite(nowMs)) blockers.push('review-time-invalid')
   if (!Array.isArray(artifacts) || artifacts.length === 0) blockers.push('review-evidence-set-empty')
 
@@ -84,6 +101,7 @@ export function evaluateIndependentSponsorOrganizationReview({
     if (!UUID_RE.test(String(artifact?.id || '')) || artifactIds.has(artifact.id)) blockers.push('review-evidence-id-invalid-or-duplicated')
     artifactIds.add(artifact?.id)
     if (artifact?.applicationId !== application.id) blockers.push('review-evidence-application-mismatch')
+    if (mandate && artifact?.mandateId !== mandate.id) blockers.push('review-evidence-mandate-mismatch')
     if (artifact?.verificationStatus !== 'verified' || artifact?.malwareScanStatus !== 'clean') blockers.push('review-evidence-not-independently-verified')
     if (!SHA256_RE.test(String(artifact?.contentSha256 || ''))) blockers.push('review-evidence-content-digest-invalid')
   }
@@ -97,6 +115,7 @@ export function evaluateIndependentSponsorOrganizationReview({
   }
 
   const accepted = []
+  const acceptedRoles = new Set()
   for (const approval of Array.isArray(approvals) ? approvals : []) {
     if (approval?.decision !== 'approved') continue
     const reviewer = reviewers.get(approval.reviewerWalletAddress)
@@ -113,15 +132,20 @@ export function evaluateIndependentSponsorOrganizationReview({
       || approval.reviewerWalletAddress === application.submittedByWalletAddress) continue
     if (mandate && approval.mandateId !== mandate.id) continue
     accepted.push(approval.reviewerWalletAddress)
+    acceptedRoles.add(reviewer.role)
   }
 
   const distinctReviewers = unique(accepted)
   if (distinctReviewers.length < requiredApprovals) blockers.push('independent-reviewer-quorum-not-met')
+  if (!acceptedRoles.has('compliance-reviewer') || !acceptedRoles.has('security-reviewer')) {
+    blockers.push('compliance-and-security-reviewer-roles-required')
+  }
   const reasons = unique(blockers)
   return {
     independentlyApproved: reasons.length === 0,
     status: reasons.length === 0 ? 'independent-review-quorum-met-not-payout-authorized' : 'blocked',
     reviewerCount: distinctReviewers.length,
+    evidenceSetDigest: calculatedEvidenceSetDigest,
     requiredApprovals: Number.isInteger(requiredApprovals) ? requiredApprovals : null,
     blockers: reasons,
     payoutAuthorized: false,
