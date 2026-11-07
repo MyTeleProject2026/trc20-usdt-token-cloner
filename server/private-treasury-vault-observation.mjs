@@ -1,4 +1,4 @@
-import { createPublicKey, verify as verifySignature } from 'node:crypto'
+import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto'
 import { isValidTronAddress } from './tron-address.mjs'
 
 const SCHEMA = 'tron-transfer.private-treasury-vault-observation.v1'
@@ -13,6 +13,7 @@ const MAX_RECEIPT_LIFETIME_MS = 60_000
 const MAX_CLOCK_SKEW_MS = 5_000
 const MIN_PLATFORM_USDT_BASE_UNITS = 1_000_000_000n
 const READ_ONLY_OBSERVATION_READERS = new WeakSet()
+const VERIFIED_OBSERVATIONS = new WeakSet()
 
 function fail(reason) {
   return Object.freeze({
@@ -235,7 +236,7 @@ export function verifyPrivateTreasuryVaultObservation(receipt, {
     return fail('reservation-snapshot-binding-invalid')
   }
 
-  return Object.freeze({
+  const verified = Object.freeze({
     valid: true,
     status: 'cryptographically-attested-read-only-vault-observation',
     schema: SCHEMA,
@@ -245,6 +246,8 @@ export function verifyPrivateTreasuryVaultObservation(receipt, {
     treasuryAddress: p.treasuryAddress,
     receiptId: p.receiptId,
     observationId: p.observationId,
+    payloadDigest: createHash('sha256').update(canonicalJson(p), 'utf8').digest('hex'),
+    trustRegistryCheckedAtMs,
     signingKeyId: signature.keyId,
     chain: Object.freeze({ ...p.chain }),
     assets: Object.freeze({
@@ -288,6 +291,12 @@ export function verifyPrivateTreasuryVaultObservation(receipt, {
       mainnetExecutionEnabled: false,
     }),
   })
+  VERIFIED_OBSERVATIONS.add(verified)
+  return verified
+}
+
+export function isVerifiedPrivateTreasuryVaultObservation(value) {
+  return Boolean(value && typeof value === 'object' && VERIFIED_OBSERVATIONS.has(value))
 }
 
 /**

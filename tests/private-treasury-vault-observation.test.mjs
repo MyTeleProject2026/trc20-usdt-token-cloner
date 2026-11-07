@@ -6,6 +6,7 @@ import {
   canonicalizePrivateTreasuryVaultObservationPayload,
   fetchPrivateTreasuryVaultObservation,
   verifyPrivateTreasuryVaultObservation,
+  isVerifiedPrivateTreasuryVaultObservation,
   PRIVATE_TREASURY_VAULT_MINIMUM_USDT_BASE_UNITS,
 } from '../server/private-treasury-vault-observation.mjs'
 
@@ -91,6 +92,9 @@ test('verifies a fresh, signed Mainnet vault observation without granting payout
   assert.equal(result.resources.totalBandwidthAvailable, '2200')
   assert.equal(result.resources.energyAvailable, '4000')
   assert.equal(result.reservation.sequence, 42)
+  assert.equal(isVerifiedPrivateTreasuryVaultObservation(result), true)
+  assert.match(result.payloadDigest, /^[a-f0-9]{64}$/)
+  assert.equal(result.trustRegistryCheckedAtMs, now)
   assert.equal(result.limitations.payoutAuthorized, false)
   assert.equal(result.limitations.ledgerMutationPerformed, false)
   assert.equal(result.limitations.signingRequestCreated, false)
@@ -199,4 +203,20 @@ test('financial vault observation adapter is provider-independent and contains n
   assert.match(source, /payoutAuthorized: false/)
   assert.match(source, /transactionSigned: false/)
   assert.match(source, /broadcastAttempted: false/)
+})
+
+
+test('brands only genuine verifier results and rejects reconstructed or invalid results', () => {
+  const receipt = signed()
+  const verified = verify(receipt)
+  assert.equal(isVerifiedPrivateTreasuryVaultObservation(verified), true)
+  assert.equal(isVerifiedPrivateTreasuryVaultObservation({ ...verified }), false)
+  assert.equal(isVerifiedPrivateTreasuryVaultObservation({ valid: true }), false)
+  const invalidSignature = { ...receipt, signature: { ...receipt.signature, value: Buffer.alloc(64).toString('base64url') } }
+  const rejected = verify(invalidSignature)
+  assert.equal(rejected.valid, false)
+  assert.equal(isVerifiedPrivateTreasuryVaultObservation(rejected), false)
+  const altered = signed()
+  altered.payload.assets.usdt.availableBaseUnits = '1400000000'
+  assert.equal(isVerifiedPrivateTreasuryVaultObservation(verify(altered)), false)
 })

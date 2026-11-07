@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_observation_claims
   UNIQUE (vault_id, receipt_id, observation_id, reservation_sequence)
 );
 
-CREATE OR REPLACE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_monotonic()
+CREATE OR REPLACE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_exact_next()
 RETURNS trigger LANGUAGE plpgsql AS $function$
 BEGIN
   IF NEW.vault_id IS DISTINCT FROM OLD.vault_id THEN
@@ -59,6 +59,10 @@ BEGIN
       RAISE EXCEPTION 'observation identity cannot change without advancing sequence' USING ERRCODE = '23514';
     END IF;
   ELSE
+    IF NEW.last_sequence <> OLD.last_sequence + 1 THEN
+      RAISE EXCEPTION 'private Treasury Vault sequence must advance exactly one step' USING ERRCODE = '23514';
+    END IF;
+
     IF NEW.last_observation_id IS NULL OR NEW.last_receipt_id IS NULL THEN
       RAISE EXCEPTION 'advancing observation sequence requires receipt and observation identities' USING ERRCODE = '23514';
     END IF;
@@ -82,7 +86,7 @@ DROP TRIGGER IF EXISTS private_treasury_sequence_monotonic
   ON trc20_token_clone.private_treasury_observation_state;
 CREATE TRIGGER private_treasury_sequence_monotonic
   BEFORE UPDATE ON trc20_token_clone.private_treasury_observation_state
-  FOR EACH ROW EXECUTE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_monotonic();
+  FOR EACH ROW EXECUTE FUNCTION trc20_token_clone.enforce_private_treasury_sequence_exact_next();
 
 CREATE TABLE IF NOT EXISTS trc20_token_clone.private_treasury_reservations (
   reservation_id UUID PRIMARY KEY,
