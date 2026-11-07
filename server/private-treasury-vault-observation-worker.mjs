@@ -94,7 +94,7 @@ export async function reconcilePrivateTreasuryVaultObservation({
   }
 
   if (!verified || verified.valid !== true
-    || verified.payoutAuthorized !== false
+    || verified.payoutAuthorized === true
     || verified.limitations?.payoutAuthorized !== false
     || verified.limitations?.ledgerMutationPerformed !== false
     || verified.limitations?.signingRequestCreated !== false

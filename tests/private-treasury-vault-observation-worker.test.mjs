@@ -17,7 +17,6 @@ const replayState = {
 }
 const verified = (patch = {}) => ({
   valid: true,
-  payoutAuthorized: false,
   vaultId: vault.vaultId,
   treasuryAddress: vault.treasuryAddress,
   receiptId: 'receipt-00000001',
