@@ -314,7 +314,7 @@ export function createSponsorOrganizationGovernanceRouter({
           encryptionAtRestConfirmed:true,verificationStatus:'pending-independent-review',payoutAuthorized:false,
           transactionBroadcast:false })
       } catch (error) {
-        const reason = ['malware-detected','malware-scanner-timeout','malware-scanner-unavailable','malware-scan-indeterminate',
+        const reason = ['malware-detected','malware-scanner-timeout','malware-scanner-unavailable','malware-scanner-version-mismatch','malware-scan-indeterminate',
           'private-vault-upload-unavailable','private-vault-upload-rejected','private-vault-receipt-invalid','private-vault-receipt-mismatch',
           'evidence-size-out-of-range','evidence-media-type-not-allowed','evidence-content-type-mismatch'].includes(error?.message)
           ? error.message : 'evidence-custody-operation-failed'
