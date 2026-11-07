@@ -61,17 +61,24 @@ export function verifyMalwareScanAttestation(attestation, {
   if (typeof p.scanner !== 'string' || !p.scanner.trim() || typeof p.scannerVersion !== 'string' || !p.scannerVersion.trim()) return fail('scan-attestation-scanner-identity-missing')
   const scannedAt = Date.parse(p.scannedAt)
   if (!Number.isFinite(nowMs) || !Number.isFinite(scannedAt) || scannedAt > nowMs || nowMs - scannedAt > maxAgeMs) return fail('scan-attestation-expired-or-invalid-time')
-  return { valid: true, status: 'clean-attestation-verified', attestationId: p.attestationId, keyId: verified.keyId }
+  if (typeof p.attestationId !== 'string' || !p.attestationId.trim()) return fail('scan-attestation-id-missing')
+  return { valid: true, status: 'clean-attestation-verified', attestationId: p.attestationId, keyId: verified.keyId,
+    scanner:p.scanner, scannerVersion:p.scannerVersion, scannedAt:p.scannedAt }
 }
 
 export function verifyPrivateVaultReceiptV2(receipt, {
   keyRegistry, expectedObjectKey, expectedSha256, expectedByteSize, expectedMediaType,
-  expectedOrganizationId, scannerKeyRegistry, expectedAudience = 'tron-transfer-onboarding', nowMs = Date.now(),
+  expectedOrganizationId, expectedIssuer, expectedRetentionPolicyReference, minimumRetentionMs = 0,
+  scannerKeyRegistry, expectedAudience = 'tron-transfer-onboarding', nowMs = Date.now(),
 } = {}) {
   const verified = verifyEnvelope(receipt, keyRegistry, 'tron-transfer.private-vault-receipt.v2')
   if (!verified.valid) return verified
   const p = verified.payload
-  if (p.audience !== expectedAudience || typeof p.issuer !== 'string' || !p.issuer.trim()) return fail('vault-receipt-issuer-or-audience-invalid')
+  if (p.audience !== expectedAudience || typeof p.issuer !== 'string' || !p.issuer.trim()
+    || (expectedIssuer && p.issuer !== expectedIssuer)) return fail('vault-receipt-issuer-or-audience-invalid')
+  if (typeof p.receiptId !== 'string' || !p.receiptId.trim()) return fail('vault-receipt-id-missing')
+  const issuedAt = Date.parse(p.issuedAt)
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(nowMs) || issuedAt > nowMs + 30000 || nowMs - issuedAt > 10 * 60 * 1000) return fail('vault-receipt-issued-at-invalid-or-stale')
   if (p.organizationId !== expectedOrganizationId) return fail('vault-receipt-organization-mismatch')
   if (!p.object || p.object.objectKey !== expectedObjectKey || p.object.sha256 !== expectedSha256
     || p.object.byteSize !== expectedByteSize || p.object.mediaType !== expectedMediaType) return fail('vault-receipt-object-binding-mismatch')
@@ -84,15 +91,20 @@ export function verifyPrivateVaultReceiptV2(receipt, {
   }
   const retention = p.storage.retention
   if (!retention || retention.verified !== true || !['GOVERNANCE', 'COMPLIANCE'].includes(retention.mode)
-    || typeof retention.policyReference !== 'string' || !retention.policyReference.trim()) return fail('vault-receipt-retention-not-verified')
+    || typeof retention.policyReference !== 'string' || !retention.policyReference.trim()
+    || (expectedRetentionPolicyReference && retention.policyReference !== expectedRetentionPolicyReference)) return fail('vault-receipt-retention-not-verified')
   const retainUntil = Date.parse(retention.retainUntil)
-  if (!Number.isFinite(retainUntil) || !Number.isFinite(nowMs) || retainUntil <= nowMs) return fail('vault-receipt-retention-expired-or-invalid')
+  if (!Number.isFinite(retainUntil) || retainUntil <= nowMs
+    || !Number.isFinite(minimumRetentionMs) || minimumRetentionMs < 0
+    || retainUntil < issuedAt + minimumRetentionMs) return fail('vault-receipt-retention-expired-or-insufficient')
   const scan = verifyMalwareScanAttestation(p.malwareScan?.attestation, {
     keyRegistry: scannerKeyRegistry,
     expectedSha256, expectedByteSize, nowMs,
   })
   if (!scan.valid) return fail('vault-receipt-malware-attestation-invalid')
-  if (p.malwareScan?.verified !== true || p.malwareScan?.result !== 'CLEAN') return fail('vault-receipt-malware-scan-not-verified')
+  if (p.malwareScan?.verified !== true || p.malwareScan?.result !== 'CLEAN'
+    || p.malwareScan.scanner !== scan.scanner || p.malwareScan.scannerVersion !== scan.scannerVersion
+    || p.malwareScan.scannedAt !== scan.scannedAt) return fail('vault-receipt-malware-scan-not-verified')
   return {
     valid: true,
     status: 'private-vault-receipt-v2-verified',
