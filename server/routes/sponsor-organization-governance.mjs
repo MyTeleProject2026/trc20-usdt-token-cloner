@@ -45,10 +45,12 @@ async function ensureSchema(db) {
         media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf','image/jpeg','image/png')),
         byte_size BIGINT NOT NULL CHECK (byte_size BETWEEN 1 AND 20971520),
         encrypted_at_rest BOOLEAN NOT NULL CHECK (encrypted_at_rest=TRUE),
+        malware_scan_status TEXT NOT NULL DEFAULT 'pending' CHECK (malware_scan_status='pending'),
         uploaded_by_wallet TEXT NOT NULL CHECK (uploaded_by_wallet ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'),
         retention_policy_reference TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`)
+      await db.query(`ALTER TABLE ${SCHEMA}.sponsor_organization_evidence_artifacts ADD COLUMN IF NOT EXISTS malware_scan_status TEXT NOT NULL DEFAULT 'pending'`)
       await db.query(`CREATE INDEX IF NOT EXISTS sponsor_org_evidence_mandate_idx ON ${SCHEMA}.sponsor_organization_evidence_artifacts(mandate_id, created_at DESC)`)
       await db.query(`CREATE TABLE IF NOT EXISTS ${SCHEMA}.sponsor_organization_reviewer_decisions (
         id UUID PRIMARY KEY,
@@ -327,7 +329,7 @@ export function createSponsorOrganizationGovernanceRouter({
       const approved = decisions.rows.filter((d) => d.decision === 'approved')
       const distinct = new Set(approved.map((d) => d.reviewer_wallet_address))
       const roles = new Set(approved.map((d) => d.reviewer_role))
-      const quorumMet = distinct.size >= 2 && roles.has('compliance-reviewer') && roles.has('security-reviewer')
+      const quorumMet = decisions.rows.every((d) => d.decision === 'approved') && distinct.size >= 2 && roles.has('compliance-reviewer') && roles.has('security-reviewer')
       return res.status(201).json({ success:true, decisionId:undefined, evidenceSetDigest:evidence.digest,
         independentReview:{ quorumMet, reviewerCount:distinct.size, requiredRoles:['compliance-reviewer','security-reviewer'] },
         payoutAuthorized:false, signerOperationPerformed:false, transactionBroadcast:false })
