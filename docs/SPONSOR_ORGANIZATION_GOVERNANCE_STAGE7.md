@@ -6,7 +6,7 @@
 - Evidence metadata can be recorded against an existing sponsor mandate. PostgreSQL stores only a vault object key, file digest, MIME type, bounded size, encryption declaration, uploader wallet and retention-policy reference. It does not accept document bytes or fetch the referenced object.
 - Reviewer decisions are signed with TRON message signatures. The server recovers the signing wallet and checks that the wallet and role are in a trusted server-side reviewer registry.
 - A current evidence-set digest is recomputed from sorted artifact IDs and SHA-256 values. Each reviewer signature binds the application, mandate, exact digest, decision, reviewer wallet and role, independence/conflict attestations, reference and timestamp.
-- Two distinct reviewers are required, including both the compliance-reviewer and security-reviewer roles. The sponsor wallet is excluded. A reviewer can submit only one decision per mandate and evidence digest.
+- Two distinct reviewers are required, including both the compliance-reviewer and security-reviewer roles. The sponsor wallet is excluded. A reviewer can submit only one decision per mandate and evidence digest. Revocation signature hashes are unique, preventing replay of the same signed revocation.
 - Sponsor revocation and trusted security-officer emergency revocation are signed and appended to an immutable event table. The append and associated mandate/application status changes are performed in one database transaction.
 - The sponsor portal now contains a governance panel for metadata submission, reviewer approval and signed mandate revocation. It does not expose any transaction signing or payout action.
 
@@ -36,7 +36,7 @@ This is a metadata API, **not a document-vault integration**. The service does n
 
 ## Persistence and migration
 
-The governance router creates the metadata, reviewer-decision and revocation tables and append-only triggers when the first governance API request is made, provided the existing organization application and mandate tables are already present. The SQL migration at `server/migrations/20261107_sponsor_organization_governance_stage7.sql` mirrors that schema for separately managed migration workflows. The migration has **not** been applied to Render or any live database by this work.
+The governance router creates the metadata, reviewer-decision and revocation tables and append-only triggers on the first persistence API request, provided the existing organization application and mandate tables are already present. The read-only governance-config endpoint does not create database tables. The SQL migration at `server/migrations/20261107_sponsor_organization_governance_stage7.sql` mirrors that schema for separately managed migration workflows. The migration has **not** been applied to Render or any live database by this work.
 
 Evidence metadata, reviewer decisions and revocation events reject UPDATE and DELETE. Corrections require new records. A new evidence digest invalidates approvals against an older digest.
 
