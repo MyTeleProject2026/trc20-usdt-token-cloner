@@ -108,6 +108,16 @@ test('V2 custody configuration requires separate pinned scanner and vault trust 
   assert.equal(getDocumentCustodyV2Config(tampered).ready,false)
 })
 
+test('custody config rejects shared signing keys between vault receipts and scanner attestations',()=>{
+  const shared={...env,SPONSOR_ORG_SCANNER_ATTESTATION_PUBLIC_KEYS:registryJson}
+  const sharedPins=buildSponsorVaultTrustRegistryPins(shared)
+  shared.SPONSOR_ORG_VAULT_RECEIPT_KEYS_SHA256=sharedPins.vaultReceiptKeysSha256
+  shared.SPONSOR_ORG_SCANNER_ATTESTATION_KEYS_SHA256=sharedPins.scannerAttestationKeysSha256
+  const result=getDocumentCustodyV2Config(shared)
+  assert.equal(result.ready,false)
+  assert.ok(result.missing.includes('vault-and-scanner-signing-keys-must-be-independent'))
+})
+
 test('scanner attestation is obtained and verified before the V2 vault upload',async()=>{
   const {calls,fetchImpl}=gatewayFetch()
   const result=await scanAndStoreEvidenceV2({...args,fetchImpl})
