@@ -62,8 +62,9 @@ function verify(patch = {}) {
 
 test('passes only when fresh solidified chain and custody observations reconcile', () => {
   const result = verify()
-  assert.equal(result.status, 'readiness-evidence-passed')
-  assert.equal(result.verified, true)
+  assert.equal(result.status, 'observations-reconciled-not-cryptographically-attested')
+  assert.equal(result.reconciled, true)
+  assert.equal(result.verified, false)
   assert.equal(result.balances.reconciledSpendableUsdtBaseUnits, '4000000000')
   assert.equal(result.balances.reconciledSpendableTrxSun, '8000000')
   assert.equal(result.resources.availableBandwidthUnits, '2200')
