@@ -90,7 +90,7 @@ function gatewayFetch({tamperReceipt=false,scanAttestationOverride=null}={}) {
         retention:{verified:true,mode:'GOVERNANCE',policyReference:'approved-policy-001',retainUntil:retentionUntil,legalHold:false},
       },
       malwareScan:{
-        verified:true,result:'CLEAN',scanner:'ClamAV',scannerVersion:'1.4.2-123-test-signatures',
+        verified:true,result:'CLEAN',scanner:'ClamAV',scannerVersion:'1.4.2-123-test-signatures',scannedAt:attestation.scannedAt,
         attestation:tamperReceipt?{...attestation,contentSha256:'b'.repeat(64)}:attestation,
       },
     },vault,'vault-key-v1')
