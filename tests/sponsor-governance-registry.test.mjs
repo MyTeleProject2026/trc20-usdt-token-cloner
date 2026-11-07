@@ -35,9 +35,9 @@ test('reviewer and security registries require valid versioned digest pins and i
 
 test('registry validation rejects missing role quorum, duplicate addresses and overlapping security officers',()=>{
   const env=envWithRegistries()
-  const oneRole={...env,SPONSOR_ORG_REVIEWER_REGISTRY:JSON.stringify([{walletAddress:reviewerA,role:'compliance-reviewer',active:true}])}
+  const oneRole={...env,SPONSOR_ORG_REVIEWER_REGISTRY:JSON.stringify([{walletAddress:reviewerA,role:'compliance-reviewer',active:true},{walletAddress:reviewerB,role:'compliance-reviewer',active:true}])}
   assert.equal(buildSponsorGovernanceRegistryPins(oneRole).reviewerCount,1)
-  oneRole.SPONSOR_ORG_REVIEWER_REGISTRY_SHA256=createHash('sha256').update(JSON.stringify([{walletAddress:reviewerA,role:'compliance-reviewer',active:true}])).digest('hex')
+  oneRole.SPONSOR_ORG_REVIEWER_REGISTRY_SHA256=createHash('sha256').update(JSON.stringify([{walletAddress:reviewerA,role:'compliance-reviewer',active:true},{walletAddress:reviewerB,role:'compliance-reviewer',active:true}])).digest('hex')
   assert.equal(getSponsorReviewerRegistry(oneRole).reason,'reviewer-role-quorum-not-configured')
   const duplicate={...env,SPONSOR_ORG_REVIEWER_REGISTRY:JSON.stringify([
     {walletAddress:reviewerA,role:'compliance-reviewer',active:true},
