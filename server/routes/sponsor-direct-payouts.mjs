@@ -20,6 +20,9 @@ import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
 const MAINNET_GATEWAY = 'https://tron-mainnet.gateway.tatum.io'
+// Keep sponsor-direct Mainnet broadcasts disabled on this supervised feature branch.
+// Preparation remains read-only with respect to assets: it creates only an unsigned transaction.
+const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const TXID_RE = /^[0-9a-f]{64}$/i
@@ -1703,6 +1706,9 @@ export function createSponsorDirectPayoutsRouter({
 
   router.post('/requests/:id/broadcast', async (req, res) => {
     setNoStore(res)
+    if (REAL_SPONSOR_DIRECT_BROADCAST_DISABLED) {
+      return res.status(503).json({ success:false, error:'sponsor-direct-mainnet-broadcast-disabled-in-this-build', transactionBroadcast:false })
+    }
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params?.id, 64)
