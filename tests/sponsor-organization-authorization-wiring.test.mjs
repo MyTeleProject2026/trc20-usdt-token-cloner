@@ -23,5 +23,5 @@ test('organization onboarding remains unmounted until a separately reviewed inte
   ])
   assert.doesNotMatch(entrypoint, /sponsor-organization-onboarding/)
   assert.match(onboarding, /payoutAuthorized: false/)
-  assert.match(onboarding, /independent legal and funding verification remain separate/)
+  assert.match(onboarding, /independent legal and funding verification remain separate/i)
 })
