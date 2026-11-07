@@ -14,7 +14,7 @@ test('real deposit page is separate from the existing testnet-only workspace', (
   assert.ok(entry.includes('<MainnetExchangeDeposit />'))
   assert.ok(workspace.includes('href="#/exchange-deposit"'))
   assert.ok(flow.includes('TRON Mainnet'))
-  assert.ok(flow.includes('Nile/Shasta assets'))
+  assert.ok(flow.includes('testnet assets'))
 })
 
 test('Mainnet deposit wallet has a real signed identity session and revalidates it before send', () => {
@@ -24,7 +24,8 @@ test('Mainnet deposit wallet has a real signed identity session and revalidates 
   assert.match(flow, /JSON\.stringify\(\{ address, network: 'mainnet' \}\)/)
   assert.match(flow, /\/api\/auth\/tron\/verify/)
   assert.match(flow, /JSON\.stringify\(\{ address, network: 'mainnet', nonce: challenge\.nonce, signature \}\)/)
-  assert.match(flow, /apiGet\('\/api\/auth\/tron\/session', walletSession\.sessionToken\)/)
+  assert.match(flow, /apiGet\('\/api\/auth\/tron\/session', storedToken\)/)
+  assert.match(flow, /const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'/)
   assert.match(flow, /walletSession\?\.address === sender/)
   assert.match(flow, /Sign out wallet identity/)
   assert.match(authRoute, /const NETWORKS = new Set\(\['mainnet', 'shasta', 'nile'\]\)/)
@@ -48,7 +49,7 @@ test('supervised build keeps the exchange deposit page read-only and blocks new 
   assert.match(flow, /Mainnet exchange transfers are disabled in this supervised build/)
   assert.match(flow, /screen is read-only in this build/)
   assert.match(flow, /Historical implementation note only/)
-  assert.match(flow, /studio-pill--warning\\">Read-only/)
+  assert.match(flow, /studio-pill--warning">Read-only/)
   assert.match(flow, /!REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED && sender/)
   assert.match(flow, /disabled=\{true\} title="Mainnet transaction signing and broadcast are disabled in this build"/)
   assert.doesNotMatch(flow, /tronWeb\.trx\.sign\(unsigned\)/)
