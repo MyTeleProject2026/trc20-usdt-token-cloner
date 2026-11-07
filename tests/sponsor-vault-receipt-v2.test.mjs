@@ -28,7 +28,7 @@ function receipt() {
       retention:{verified:true,mode:'GOVERNANCE',policyReference:'policy-01',retainUntil:new Date(now+86400000).toISOString()}},
     malwareScan:{verified:true,result:'CLEAN',attestation:attestation()}})
 }
-const expected = {keyRegistry:registry,expectedObjectKey:'org/org-test-01/doc-01',expectedSha256:digest,
+const expected = {keyRegistry:registry,scannerKeyRegistry:registry,expectedObjectKey:'org/org-test-01/doc-01',expectedSha256:digest,
   expectedByteSize:123,expectedMediaType:'application/pdf',expectedOrganizationId:organizationId,nowMs:now}
 
 test('accepts correctly signed and bound v2 receipt with fresh independent scan attestation',()=>{
