@@ -40,6 +40,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
   const [snapshot, setSnapshot] = useState(null)
   const [withdrawals, setWithdrawals] = useState([])
   const [recipient, setRecipient] = useState('')
+  const [recipientNetworkConfirmed, setRecipientNetworkConfirmed] = useState(false)
   const [amount, setAmount] = useState('')
   const [prepared, setPrepared] = useState(null)
   const [notice, setNotice] = useState('')
@@ -98,6 +99,8 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         method: 'POST',
         body: JSON.stringify({
           recipientAddress: recipient.trim(),
+          recipientNetwork: 'TRON_MAINNET_TRC20',
+          recipientNetworkConfirmed,
           amount: parsed,
           idempotencyKey: crypto.randomUUID(),
         }),
@@ -207,10 +210,14 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <label>External recipient TRON Mainnet address
               <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setPrepared(null) }} placeholder="Exchange or external wallet address (T…)" autoComplete="off" spellCheck="false" />
             </label>
-            <label>USDT amount
-              <input value={amount} onChange={(event) => { setAmount(event.target.value); setPrepared(null) }} placeholder="e.g. 10.00" inputMode="decimal" />
+            <label className="recipient-network-confirmation">
+              <input type="checkbox" checked={recipientNetworkConfirmed} onChange={(event) => { setRecipientNetworkConfirmed(event.target.checked); setPrepared(null) }} />
+              I confirm this destination accepts official TRON Mainnet TRC20 USDT and I have checked the exchange's network, minimum deposit and memo/tag requirements.
             </label>
-            <button className="primary-button" disabled={!canInteract || busy || refreshing || !snapshot || BigInt(snapshot.availableForWithdrawalBaseUnits ?? snapshot.usdtBalanceBaseUnits ?? '0') <= 0n || Boolean(prepared)} onClick={() => void prepareWithdrawal()}>
+            <label>USDT amount
+              <input value={amount} onChange={(event) => { setAmount(event.target.value); setPrepared(null) }} placeholder="e.g. 1000.00" inputMode="decimal" />
+            </label>
+            <button className="primary-button" disabled={!canInteract || !recipientNetworkConfirmed || busy || refreshing || !snapshot || BigInt(snapshot.availableForWithdrawalBaseUnits ?? snapshot.usdtBalanceBaseUnits ?? '0') <= 0n || Boolean(prepared)} onClick={() => void prepareWithdrawal()}>
               <ArrowUpRight size={16} /> Prepare direct withdrawal
             </button>
             {!canInteract && <p className="fine-print">A matching owner login and TronLink connection are both required. Requester identity login alone is not enough.</p>}
@@ -257,6 +264,8 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <span>To {item.recipientAddress} · {new Date(item.createdAt).toLocaleString()}</span>
             <small>Status: {item.status}</small>
             {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
+            {item.confirmationBlockNumber !== null && item.confirmationBlockNumber !== undefined && <small>Solidified block: {item.confirmationBlockNumber} · Transfer event index: {item.confirmationEventIndex}</small>}
+            {item.status === 'confirmed' && <small>Exchange credit: {item.exchangeCreditStatus || 'not-verifiable'} — on-chain confirmation does not prove exchange-account credit.</small>}
             {item.failureCode && <small>Detail: {item.failureCode}</small>}
           </div>
           <div className="transaction-actions">
