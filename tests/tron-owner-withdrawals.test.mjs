@@ -193,7 +193,7 @@ test('recipient assurance requires explicit TRON Mainnet TRC20 network acknowled
 
 test('owner withdrawal code persists solidified block and event evidence separately from exchange credit status', async () => {
   const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
-  assert.match(source, /confirmation_block_number=\\$4,confirmation_event_index=\\$5,confirmation_verified_at=now\\(\\)/)
-  assert.match(source, /exchangeCreditStatus: row\\.exchange_credit_status \\|\\| 'not-verifiable'/)
-  assert.match(source, /REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true/)
+  assert.ok(source.includes('confirmation_block_number=$4,confirmation_event_index=$5,confirmation_verified_at=now()'))
+  assert.ok(source.includes("exchangeCreditStatus: row.exchange_credit_status || 'not-verifiable'"))
+  assert.ok(source.includes('REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true'))
 })
