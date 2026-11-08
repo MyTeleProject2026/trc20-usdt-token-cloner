@@ -278,7 +278,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         sponsorAddress: address,
         network: 'mainnet',
         tokenContract: MAINNET_USDT_CONTRACT,
-        usdtBalanceBaseUnits: '100000000',
+        usdtBalanceBaseUnits: '3000000000',
         trxBalanceSun: '0',
         energyAvailable: 100000,
         stakedBandwidthAvailable: 100000,
@@ -338,8 +338,8 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
-      perPayoutLimit: '50',
-      dailyLimit: '100',
+      perPayoutLimit: '1000',
+      dailyLimit: '1000',
     })
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
@@ -354,7 +354,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const first = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: firstIdempotencyKey,
     })
     assert.equal(first.response.status, 201)
@@ -365,7 +365,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const second = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: secondIdempotencyKey,
     })
     assert.equal(second.response.status, 201)
@@ -374,9 +374,9 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const readiness = await call('/readiness', sponsorToken)
     assert.equal(readiness.response.status, 200)
-    assert.equal(readiness.payload.reservedUsdtBaseUnits, '25000000')
-    assert.equal(readiness.payload.availableUsdtBaseUnits, '75000000')
-    assert.equal(readiness.payload.dailyUsedBaseUnits, '25000000')
+    assert.equal(readiness.payload.reservedUsdtBaseUnits, '1000000000')
+    assert.equal(readiness.payload.availableUsdtBaseUnits, '2000000000')
+    assert.equal(readiness.payload.dailyUsedBaseUnits, '1000000000')
 
     const prepared = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
     assert.equal(prepared.response.status, 201)
