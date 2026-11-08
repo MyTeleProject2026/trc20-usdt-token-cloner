@@ -197,3 +197,15 @@ test('owner withdrawal code persists solidified block and event evidence separat
   assert.ok(source.includes("exchangeCreditStatus: row.exchange_credit_status || 'not-verifiable'"))
   assert.ok(source.includes('REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true'))
 })
+
+test('owner withdrawal UI never requests a wallet signature while execution is disabled', async () => {
+  const source = await readFile(new URL('../Frontend-Tron-Transfer/src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
+  assert.ok(source.includes('const OWNER_WITHDRAWAL_SIGNING_ENABLED = false'))
+  assert.ok(source.includes('disabled={!OWNER_WITHDRAWAL_SIGNING_ENABLED}>Signing disabled in this build</button>'))
+  assert.ok(!source.includes('function signAndBroadcast'))
+  assert.ok(!source.includes('wallet.tronWeb.trx.sign('))
+  assert.ok(!source.includes("'/broadcast'"))
+  assert.ok(source.includes("recipientNetwork: 'TRON_MAINNET_TRC20'"))
+  assert.ok(source.includes('recipientNetworkConfirmed'))
+})
+

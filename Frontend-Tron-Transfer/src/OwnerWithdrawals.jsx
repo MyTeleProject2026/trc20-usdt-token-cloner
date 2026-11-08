@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw, ShieldCheck } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+// This build is intentionally read-only with respect to wallet signing and transaction broadcast.
+const OWNER_WITHDRAWAL_SIGNING_ENABLED = false
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
 function isAddress(value, tronWeb) {
@@ -121,37 +123,6 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
     }
   }
 
-  async function signAndBroadcast() {
-    setBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      if (!prepared?.withdrawal?.id || !prepared?.unsignedTransaction) throw new Error('Prepare a new withdrawal first.')
-      if (!canInteract) throw new Error(apiStatus)
-      const currentAddress = wallet.tronWeb.defaultAddress?.base58 || ''
-      if (currentAddress !== ownerSession.address || currentAddress !== walletAddress) {
-        throw new Error('The TronLink account changed. Reconnect the configured owner wallet before signing.')
-      }
-      // TronLink owns the signing key. Only its injected signer is used here.
-      const signedTransaction = await wallet.tronWeb.trx.sign(prepared.unsignedTransaction)
-      if (!signedTransaction || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1) {
-        throw new Error('TronLink did not return a single owner signature. No broadcast was attempted.')
-      }
-      const result = await api('/api/tron-owner-withdrawals/' + encodeURIComponent(prepared.withdrawal.id) + '/broadcast', token, {
-        method: 'POST',
-        body: JSON.stringify({ signedTransaction }),
-      })
-      setNotice(result.note || 'Tatum accepted the signed transaction. Final confirmation is still pending.')
-      setPrepared(null)
-      setAmount('')
-      await refresh()
-    } catch (cause) {
-      const message = typeof cause === 'string' ? cause : cause?.message
-      setError(message || 'Signing or broadcast failed. Check the saved withdrawal status before retrying.')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function refreshOne(id) {
     setBusy(true)
@@ -245,9 +216,9 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <div><span>Estimated energy</span><b>{prepared.estimatedEnergy === null ? 'Not returned' : Number(prepared.estimatedEnergy).toLocaleString()}</b></div>
             <div><span>Transaction ID</span><b>{prepared.withdrawal.transactionHash}</b></div>
           </div>
-          <p className="fine-print">No funds have moved at this stage. Review the exact address and amount in this page and in the TronLink confirmation prompt. TronLink may ask for permission to sign this smart-contract transaction.</p>
+          <p className="fine-print">This build permits unsigned preparation and review only. Wallet signing and transaction broadcast are disabled; no TronLink signature will be requested from this screen.</p>
           <div className="button-row">
-            <button className="primary-button" disabled={!canInteract || busy} onClick={() => void signAndBroadcast()}><Wallet size={16} /> Sign with TronLink and broadcast</button>
+            <button className="primary-button" disabled={!OWNER_WITHDRAWAL_SIGNING_ENABLED}>Signing disabled in this build</button>
             <button className="outline-button" disabled={busy} onClick={() => setPrepared(null)}>Cancel prepared review</button>
           </div>
         </div>}
