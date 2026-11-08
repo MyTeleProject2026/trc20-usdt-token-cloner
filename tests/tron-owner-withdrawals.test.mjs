@@ -13,6 +13,7 @@ import {
   calculateOwnerWithdrawableUsdtBaseUnits,
   buildOwnerUsdtTransferParameter,
   validateOwnerSignedTransaction,
+  assessOwnerRecipientAssurance,
   createTronOwnerWithdrawalsRouter,
 } from '../server/routes/tron-owner-withdrawals.mjs'
 
@@ -167,4 +168,32 @@ test('owner-direct Mainnet broadcast is hard-disabled even before owner authenti
   assert.equal(payload.success,false)
   assert.equal(payload.error,'owner-direct-mainnet-broadcast-disabled-in-this-build')
   assert.equal(payload.transactionBroadcast,false)
+})
+
+
+test('recipient assurance requires explicit TRON Mainnet TRC20 network acknowledgement', () => {
+  assert.deepEqual(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: true,
+  }), {
+    ok: true,
+    recipientNetwork: 'TRON_MAINNET_TRC20',
+    recipientNetworkConfirmed: true,
+    exchangeCreditStatus: 'not-verifiable',
+  })
+  assert.equal(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress, recipientNetwork: 'ETHEREUM', recipientNetworkConfirmed: true,
+  }).reason, 'recipient-network-must-be-tron-mainnet-trc20')
+  assert.equal(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: false,
+  }).reason, 'recipient-network-confirmation-required')
+  assert.equal(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress: ownerAddress, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: true,
+  }).reason, 'invalid-or-self-recipient-address')
+})
+
+test('owner withdrawal code persists solidified block and event evidence separately from exchange credit status', async () => {
+  const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.match(source, /confirmation_block_number=\\$4,confirmation_event_index=\\$5,confirmation_verified_at=now\\(\\)/)
+  assert.match(source, /exchangeCreditStatus: row\\.exchange_credit_status \\|\\| 'not-verifiable'/)
+  assert.match(source, /REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true/)
 })
