@@ -201,9 +201,30 @@ test('read-only gateway client uses one allowlisted HTTPS GET and rejects redire
 })
 
 
+test('accepts an observation response exactly at the 65,536-byte limit', async () => {
+  const json = JSON.stringify(signed())
+  const paddingBytes = 65_536 - Buffer.byteLength(json, 'utf8')
+  assert.ok(paddingBytes >= 0)
+  const bytes = new TextEncoder().encode(json + ' '.repeat(paddingBytes))
+  assert.equal(bytes.byteLength, 65_536)
+  const result = await fetchPrivateTreasuryVaultObservation({
+    gatewayBaseUrl: 'https://vault.example.test/',
+    allowedOrigins: ['https://vault.example.test'],
+    vaultId,
+    bearerToken: 'test-token-with-sufficient-length',
+    fetchImpl: async () => ({
+      ok: true,
+      headers: { get: (name) => name === 'content-length' ? '65536' : null },
+      body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
+    }),
+    timeoutMs: 1000,
+  })
+  assert.equal(result.readOnly, true)
+})
+
 test('rejects oversized streamed observation bodies before buffering the complete response', async () => {
   let cancelled = false
-  const oversized = new Uint8Array(65_537).fill(0x20)
+  const chunks = [new Uint8Array(32_768).fill(0x20), new Uint8Array(32_769).fill(0x20)]
   await assert.rejects(() => fetchPrivateTreasuryVaultObservation({
     gatewayBaseUrl: 'https://vault.example.test/',
     allowedOrigins: ['https://vault.example.test'],
@@ -213,7 +234,7 @@ test('rejects oversized streamed observation bodies before buffering the complet
       ok: true,
       headers: { get: () => null },
       body: new ReadableStream({
-        start(controller) { controller.enqueue(oversized) },
+        start(controller) { for (const chunk of chunks) controller.enqueue(chunk) },
         cancel() { cancelled = true },
       }),
     }),
@@ -232,7 +253,7 @@ test('rejects an oversized declared content length before reading the response s
     fetchImpl: async () => ({
       ok: true,
       headers: { get: (name) => name === 'content-length' ? '65537' : null },
-      body: new ReadableStream({ pull() { read = true } }),
+      body: { getReader() { read = true; throw new Error('stream-must-not-be-read') } },
     }),
     timeoutMs: 1000,
   }), /private-vault-observation-response-too-large/)

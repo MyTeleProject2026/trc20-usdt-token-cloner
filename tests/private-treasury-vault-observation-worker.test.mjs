@@ -58,7 +58,12 @@ function readOnlyReader({ onRead = () => {}, fail = false, receipt = {
       assert.equal(options.redirect, 'error')
       onRead()
       if (fail) throw new Error('offline')
-      return { ok: true, headers: { get: () => null }, text: async () => JSON.stringify(receipt) }
+      const bytes = new TextEncoder().encode(JSON.stringify(receipt))
+      return {
+        ok: true,
+        headers: { get: () => null },
+        body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
+      }
     },
   })
 }

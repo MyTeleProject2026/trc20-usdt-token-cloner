@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { TronWeb } from 'tronweb'
 import express from 'express'
 import { createServer } from 'node:http'
@@ -63,7 +64,7 @@ test('TRC20 ABI parameter encodes recipient and six-decimal amount exactly', () 
 })
 
 function preparedTransfer(overrides = {}) {
-  const amountBaseUnits = '25000000'
+  const amountBaseUnits = MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS
   const parameter = buildOwnerUsdtTransferParameter(recipientAddress, amountBaseUnits, tronWeb)
   const rawData = {
     contract: [{
@@ -95,6 +96,29 @@ function preparedTransfer(overrides = {}) {
     ...overrides,
   }
 }
+
+test('signed withdrawal validation independently rejects amounts below the 1,000 USDT minimum', () => {
+  const item = preparedTransfer()
+  assert.deepEqual(validateOwnerSignedTransaction(item.signed, item.unsigned, {
+    ...item.intent,
+    amountBaseUnits: '999999999',
+  }), { ok: false, reason: 'owner-withdrawal-below-1000-usdt-minimum' })
+  assert.deepEqual(validateOwnerSignedTransaction(item.signed, item.unsigned, item.intent), { ok: true })
+})
+
+test('owner preparation route applies the minimum before database or provider access', async () => {
+  const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
+  const prepareStart = source.indexOf("router.post('/prepare'")
+  const broadcastStart = source.indexOf("router.post('/:id/broadcast'")
+  assert.ok(prepareStart >= 0 && broadcastStart > prepareStart)
+  const prepareRoute = source.slice(prepareStart, broadcastStart)
+  const minimumGuard = prepareRoute.indexOf('if (!isOwnerWithdrawalAmountAtLeastMinimum(amountBaseUnits))')
+  const databaseAccess = prepareRoute.indexOf('const db = getPool(env)')
+  const providerAccess = prepareRoute.indexOf('tatumApiKey(env)')
+  assert.ok(minimumGuard >= 0)
+  assert.ok(databaseAccess > minimumGuard)
+  assert.ok(providerAccess > minimumGuard)
+})
 
 test('signed withdrawal must preserve the persisted owner, recipient, contract and amount intent', () => {
   const item = preparedTransfer()

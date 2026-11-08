@@ -168,6 +168,9 @@ function sameUnsignedTransaction(signed, unsigned) {
 }
 
 export function validateOwnerSignedTransaction(signed, unsigned, intent) {
+  if (!isOwnerWithdrawalAmountAtLeastMinimum(intent?.amountBaseUnits)) {
+    return { ok: false, reason: 'owner-withdrawal-below-1000-usdt-minimum' }
+  }
   if (!sameUnsignedTransaction(signed, unsigned)) return { ok: false, reason: 'signed-transaction-does-not-match-prepared-intent' }
   if (!Array.isArray(signed.signature) || signed.signature.length !== 1
     || typeof signed.signature[0] !== 'string' || !/^[0-9a-f]{130}$/i.test(signed.signature[0])) {

@@ -362,6 +362,7 @@ export async function fetchPrivateTreasuryVaultObservation({
     }
     body += decoder.decode()
   } catch (error) {
+    try { await reader.cancel() } catch {}
     if (error?.message === 'private-vault-observation-response-too-large') throw error
     throw new Error('private-vault-observation-response-invalid')
   } finally {
