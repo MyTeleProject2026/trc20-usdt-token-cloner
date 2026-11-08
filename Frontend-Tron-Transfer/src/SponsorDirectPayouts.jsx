@@ -6,6 +6,7 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const MIN_WITHDRAWAL_USDT_BASE_UNITS = 1000000000n
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const SESSION_KEY_PREFIX = 'tron-transfer:wallet-identity:v1:'
 
@@ -22,6 +23,14 @@ function formatUnits(value, decimals = 6) {
   } catch {
     return 'Unavailable'
   }
+}
+
+function isAtLeastMinimumWithdrawalAmount(value) {
+  const normalized = String(value || '').trim()
+  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(normalized)) return false
+  const [whole, fraction = ''] = normalized.split('.')
+  const baseUnits = BigInt(whole) * 1000000n + BigInt(fraction.padEnd(6, '0') || '0')
+  return baseUnits >= MIN_WITHDRAWAL_USDT_BASE_UNITS
 }
 
 async function api(path, token, options = {}) {
@@ -352,8 +361,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       if (!identityMatchesWallet) throw new Error('Verify your connected wallet identity first.')
       if (ownerSession?.address && walletAddress !== ownerSession.address) throw new Error('Connect the configured platform-owner wallet before submitting a withdrawal request.')
       if (!isValidAddress(recipient.trim(), wallet?.tronWeb)) throw new Error('Enter a valid TRON Mainnet recipient address.')
-      if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
-        throw new Error('Enter a positive USDT amount with no more than six decimal places.')
+      if (!isAtLeastMinimumWithdrawalAmount(amount)) {
+        throw new Error('Minimum withdrawal amount is 1,000 USDT. Enter at least 1,000 USDT with no more than six decimal places.')
       }
       const result = await api('/api/tron/sponsor-direct/requests', identityToken, {
         method: 'POST',
@@ -638,7 +647,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
               </label>
               <label>USDT withdrawal amount
-                <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
+                <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Minimum 1,000 USDT" min="1000" step="0.000001" inputMode="decimal" />
+                <small className="fine-print">Minimum withdrawal: 1,000 USDT.</small>
               </label>
               <button className="primary-button" disabled={!identityMatchesWallet || busy} onClick={() => void submitRequest()}>
                 <ArrowUpRight size={16} /> Submit sponsored withdrawal request
