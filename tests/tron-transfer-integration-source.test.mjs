@@ -94,9 +94,14 @@ test('self-funded direct owner wallet withdrawal route and page are not exposed 
   assert.match(withdrawalRoute, /validateOwnerSignedTransaction/)
 })
 
-test('frontend requests TronLink to sign and never sends a raw transaction itself', () => {
-  assert.match(frontend, /wallet\.tronWeb\.trx\.sign\(prepared\.unsignedTransaction\)/)
-  assert.ok(frontend.includes('/broadcast'))
+test('owner withdrawal frontend keeps wallet signing and transaction broadcast disabled in this build', () => {
+  assert.ok(frontend.includes('const OWNER_WITHDRAWAL_SIGNING_ENABLED = false'))
+  assert.ok(frontend.includes('disabled={!OWNER_WITHDRAWAL_SIGNING_ENABLED}>Signing disabled in this build</button>'))
+  assert.doesNotMatch(frontend, /wallet\.tronWeb\.trx\.sign\s*\(/)
+  assert.doesNotMatch(frontend, /function signAndBroadcast/)
+  assert.doesNotMatch(frontend, /\/broadcast/)
+  assert.match(frontend, /Signer: disabled in this build/)
+  assert.match(frontend, /Broadcast: disabled in this build/)
   assert.doesNotMatch(frontend, /sendRawTransaction|privateKey\\s*[:=]/i)
 })
 

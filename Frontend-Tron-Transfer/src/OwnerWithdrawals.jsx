@@ -144,7 +144,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         <div>
           <span className="eyebrow">TATUM MAINNET · TRONLINK OWNER SIGNING</span>
           <h2>{historyOnly ? 'Direct USDT withdrawal history' : 'Send official USDT to an external TRON address'}</h2>
-          <p>USDT moves directly from the configured owner wallet. Tatum prepares and broadcasts; TronLink signs the exact transaction after your approval.</p>
+          <p>Review unsigned transfer details only. This build does not request wallet signatures or broadcast transactions.</p>
         </div>
         <div className="panel-icon"><ArrowUpRight /></div>
       </div>
@@ -199,8 +199,8 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <div className="readiness-checks">
               <span>Network: TRON Mainnet</span>
               <span>Contract: {MAINNET_USDT}</span>
-              <span>Signer: configured owner via TronLink</span>
-              <span>Broadcast: Tatum Mainnet Gateway</span>
+              <span>Signer: disabled in this build</span>
+              <span>Broadcast: disabled in this build</span>
               <span>Confirmation: solidified receipt + exact Transfer event</span>
             </div>
             <p className="fine-print">The sending wallet must hold the requested USDT after pending-withdrawal reservations, plus enough TRON resources or TRX for network fees. Tatum does not provide the USDT principal.</p>
@@ -208,7 +208,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         </div>
 
         {prepared && <div className="prepared-withdrawal">
-          <div className="section-heading compact"><div><span className="eyebrow">REVIEW BEFORE WALLET APPROVAL</span><h3>Withdrawal prepared · not sent</h3></div></div>
+          <div className="section-heading compact"><div><span className="eyebrow">UNSIGNED REVIEW ONLY</span><h3>Withdrawal prepared · not sent</h3></div></div>
           <div className="prepared-details">
             <div><span>Recipient</span><b>{prepared.withdrawal.recipientAddress}</b></div>
             <div><span>Amount</span><b>{formatUnits(prepared.withdrawal.amountBaseUnits)} USDT</b></div>
