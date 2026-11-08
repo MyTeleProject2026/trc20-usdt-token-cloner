@@ -29,6 +29,7 @@ const TXID_RE = /^[0-9a-f]{64}$/i
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
+const MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS = '1000000000'
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
 const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
@@ -147,6 +148,12 @@ async function ensureSchema(db) {
 
 export function parseSponsorDirectUsdtAmount(value) {
   return parseOwnerUsdtAmount(value)
+}
+
+export function isSponsorDirectWithdrawalMinimumMet(amountBaseUnits) {
+  const amount = String(amountBaseUnits ?? '')
+  return /^[1-9][0-9]{0,77}$/.test(amount)
+    && BigInt(amount) >= BigInt(MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS)
 }
 
 export function calculateSponsorDirectAvailableBaseUnits(balanceBaseUnits, reservedBaseUnits) {
@@ -1364,6 +1371,14 @@ export function createSponsorDirectPayoutsRouter({
     try { amountBaseUnits = parseSponsorDirectUsdtAmount(body.amount) } catch {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
     }
+    if (!isSponsorDirectWithdrawalMinimumMet(amountBaseUnits)) {
+      return res.status(400).json({
+        success: false,
+        error: 'minimum-withdrawal-1000-usdt',
+        minimumAmount: '1000',
+        minimumAmountBaseUnits: MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS,
+      })
+    }
     const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
@@ -1494,6 +1509,17 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
       let row = found.rows[0]
+      // Reject legacy or manually inserted below-minimum requests before any
+      // saved preparation can be returned or a new unsigned transaction built.
+      if (!isSponsorDirectWithdrawalMinimumMet(row.amount_base_units)) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'withdrawal-below-1000-usdt-minimum',
+          minimumAmount: '1000',
+          minimumAmountBaseUnits: MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS,
+        })
+      }
       if (row.status === 'prepared' && row.sponsor_address === auth.address
         && row.expires_at && new Date(row.expires_at).getTime() > now()) {
         await client.query('COMMIT')
