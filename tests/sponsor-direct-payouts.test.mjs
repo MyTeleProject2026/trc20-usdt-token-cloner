@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { TronWeb } from 'tronweb'
 import {
   parseSponsorDirectUsdtAmount,
+  isSponsorDirectWithdrawalMinimumMet,
   calculateSponsorDirectAvailableBaseUnits,
   parseSponsorDirectFeeParameters,
   calculateSponsorDirectFeeCoverage,
@@ -45,6 +46,16 @@ test('sponsor-direct USDT amount parser accepts exact six-decimal amounts', () =
   assert.throws(() => parseSponsorDirectUsdtAmount('-1'))
   assert.throws(() => parseSponsorDirectUsdtAmount('1e2'))
   assert.throws(() => parseSponsorDirectUsdtAmount(1))
+})
+
+test('sponsor-direct withdrawal minimum is 1,000 USDT while the generic amount parser remains reusable', () => {
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('999.999999')), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('1000')), true)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('1000.000001')), true)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('0.000001')), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet('0'), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet('not-an-integer'), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet('1000000000.0'), false)
 })
 
 test('automatic sponsor routing requires available sponsor USDT, approved wallet limits, daily capacity and verified fee coverage', () => {
