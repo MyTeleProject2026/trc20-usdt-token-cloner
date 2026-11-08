@@ -197,6 +197,25 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
+test('active sponsor-direct withdrawal intake and preparation enforce the 1,000 USDT minimum', () => {
+  const requestIntake = sponsorRoute.slice(
+    sponsorRoute.indexOf("router.post('/requests'"),
+    sponsorRoute.indexOf("router.get('/my-requests'"),
+  )
+  const preparation = sponsorRoute.slice(
+    sponsorRoute.indexOf("router.post('/requests/:id/prepare'"),
+  )
+  assert.ok(requestIntake.includes('isSponsorDirectWithdrawalMinimumMet(amountBaseUnits)'))
+  assert.ok(requestIntake.includes("error: 'minimum-withdrawal-1000-usdt'"))
+  assert.ok(preparation.includes('isSponsorDirectWithdrawalMinimumMet(row.amount_base_units)'))
+  assert.ok(preparation.includes("error: 'withdrawal-below-1000-usdt-minimum'"))
+  assert.ok(sponsorRoute.includes("const MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS = '1000000000'"))
+  assert.ok(sponsorRoute.includes('const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true'))
+  assert.ok(sponsorFrontend.includes('const MIN_WITHDRAWAL_USDT_BASE_UNITS = 1000000000n'))
+  assert.ok(sponsorFrontend.includes('function isAtLeastMinimumWithdrawalAmount(value)'))
+  assert.ok(sponsorFrontend.includes('Minimum withdrawal: 1,000 USDT.'))
+})
+
 test('private owner console exposes sponsor withdrawals and keeps provider readiness separate', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
