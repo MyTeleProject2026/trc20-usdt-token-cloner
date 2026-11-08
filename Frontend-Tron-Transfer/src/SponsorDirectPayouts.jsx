@@ -27,7 +27,7 @@ function formatUnits(value, decimals = 6) {
 
 function isAtLeastMinimumWithdrawalAmount(value) {
   const normalized = String(value || '').trim()
-  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(normalized)) return false
+  if (!/^(?:0|[1-9][0-9]*)(?:[.][0-9]{1,6})?$/.test(normalized)) return false
   const [whole, fraction = ''] = normalized.split('.')
   const baseUnits = BigInt(whole) * 1000000n + BigInt(fraction.padEnd(6, '0') || '0')
   return baseUnits >= MIN_WITHDRAWAL_USDT_BASE_UNITS
