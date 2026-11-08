@@ -178,7 +178,8 @@ test('Mainnet sponsor fee coverage fails closed when fee_limit does not cover En
 })
 
 function unsignedTransfer(overrides = {}) {
-  const amountBaseUnits = '25000000'
+  const amountBaseUnits = String(overrides.amountBaseUnits || '25000000')
+  const { amountBaseUnits: _amountBaseUnits, ...transactionOverrides } = overrides
   const parameter = buildOwnerUsdtTransferParameter(recipientAddress, amountBaseUnits, tronWeb)
   const rawDataHex = 'deadbeef'
   return {
@@ -199,7 +200,7 @@ function unsignedTransfer(overrides = {}) {
         },
       }],
     },
-    ...overrides,
+    ...transactionOverrides,
   }
 }
 
@@ -299,7 +300,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
           return { result: { result: true }, energy_used: 100, energy_penalty: 0 }
         }
         if (providerPath === 'wallet/triggersmartcontract') {
-          return { result: { result: true }, transaction: unsignedTransfer() }
+          return { result: { result: true }, transaction: unsignedTransfer({ amountBaseUnits: '1000000000' }) }
         }
         throw new Error('Unexpected Tatum integration-test path: ' + providerPath)
       },
