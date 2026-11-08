@@ -208,7 +208,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         <div className="withdrawal-form-grid">
           <div className="form-stack">
             <label>External recipient TRON Mainnet address
-              <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setPrepared(null) }} placeholder="Exchange or external wallet address (T…)" autoComplete="off" spellCheck="false" />
+              <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setRecipientNetworkConfirmed(false); setPrepared(null) }} placeholder="Exchange or external wallet address (T…)" autoComplete="off" spellCheck="false" />
             </label>
             <label className="recipient-network-confirmation">
               <input type="checkbox" checked={recipientNetworkConfirmed} onChange={(event) => { setRecipientNetworkConfirmed(event.target.checked); setPrepared(null) }} />
