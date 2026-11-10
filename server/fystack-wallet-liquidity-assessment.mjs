@@ -1,5 +1,5 @@
 const UINT = /^(0|[1-9][0-9]*)$/
-const DECIMAL = /^(0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/
+const DECIMAL = /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/
 
 function toBaseUnits(value) {
   if (typeof value !== 'string' || value.length > 40 || !DECIMAL.test(value)) return null
