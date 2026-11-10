@@ -8,7 +8,6 @@ const REQUIRED_EVIDENCE = Object.freeze([
   ['recipientScreeningCleared', 'recipient-kyt-screening-not-cleared'],
   ['withdrawalApprovalSatisfied', 'withdrawal-approval-not-satisfied'],
   ['settlementReconciliationReady', 'settlement-reconciliation-not-ready'],
-  ['creditFacilityApproved', 'credit-facility-not-approved'],
 ])
 
 export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } = {}) {
