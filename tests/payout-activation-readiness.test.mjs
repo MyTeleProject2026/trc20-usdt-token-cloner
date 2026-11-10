@@ -72,3 +72,22 @@ test('rejects credit flags without traceable approval, permitted-use, expiry and
   assert.ok(insufficient.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
   assert.equal(insufficient.executionEnabled, false)
 })
+
+
+test('rejects expired, malformed and insufficient approved credit limits', () => {
+  const base = {
+    creditFacilityApproved: true,
+    creditFacilityUsePermittedForTronUsdtWithdrawals: true,
+    creditFacilityApprovalReference: 'approval-2026-003',
+    creditFacilityUseAuthorizationReference: 'use-auth-2026-003',
+    creditFacilityValidUntil: '2099-12-31T23:59:59.000Z',
+    creditFacilityApprovedLimitUsdt: '1000.000000',
+  }
+  const expired = evaluatePayoutActivationReadiness({ ...base, creditFacilityValidUntil: '2000-01-01T00:00:00.000Z' }, { amountUsdt: '1000' })
+  assert.ok(expired.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+  const malformed = evaluatePayoutActivationReadiness({ ...base, creditFacilityApprovedLimitUsdt: '1e3' }, { amountUsdt: '1000' })
+  assert.ok(malformed.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+  const exact = evaluatePayoutActivationReadiness(base, { amountUsdt: '1000' })
+  assert.ok(!exact.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+  assert.equal(exact.executionEnabled, false)
+})
