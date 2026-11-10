@@ -12,14 +12,22 @@ const REQUIRED_EVIDENCE = Object.freeze([
 
 export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } = {}) {
   const blockers = []
-  const amount = typeof amountUsdt === 'string' && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
-    ? Number(amountUsdt) : NaN
-  if (!Number.isFinite(amount) || amount < 1000) blockers.push('minimum-withdrawal-1000-usdt-not-met')
+  // USDT has six decimals. BigInt base-unit comparison avoids floating-point
+  // rounding at the 1,000 USDT policy boundary, including very large inputs.
+  const validAmount = typeof amountUsdt === 'string'
+    && /^(0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(amountUsdt)
+  const [whole = '', fraction = ''] = validAmount ? amountUsdt.split('.') : []
+  const amountBaseUnits = validAmount
+    ? BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
+    : null
+  if (amountBaseUnits === null || amountBaseUnits < 1_000_000_000n) {
+    blockers.push('minimum-withdrawal-1000-usdt-not-met')
+  }
   for (const [field, reason] of REQUIRED_EVIDENCE) {
     if (evidence[field] !== true) blockers.push(reason)
   }
-  // Either verified spendable provider funds or an explicitly approved credit
-  // facility must cover the request. A credit facility is not inferred from a plan limit.
+  // Credit approval is distinct from wallet liquidity; neither is inferred
+  // from plan limits, displayed USD value, or aggregate workspace balances.
   if (evidence.providerOwnedLiquidityVerified !== true && evidence.creditFacilityApproved !== true) {
     blockers.push('neither-provider-owned-liquidity-nor-approved-credit-is-available')
   }
