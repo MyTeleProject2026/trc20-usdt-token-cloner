@@ -15,6 +15,8 @@ function connectedProviderAccount(value) {
   return Boolean(
     value
     && typeof value === 'object'
+    && value.source === 'trusted-provider-adapter'
+    && value.authenticated === true
     && value.connected === true
     && nonEmptyReference(value.providerAccountId),
   )
