@@ -128,9 +128,6 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
           <article className="metric-card"><span>Held USDT</span><strong>Not verified</strong></article>
         </div>
         <p className="fine-print">Workspace totals aggregate across wallets and networks. Displayed USD value is not spendable USDT. Wallet-specific available/held USDT and provider funding authorization remain unverified.</p>
-          <article className="metric-card"><span>Held USDT</span><strong>Not verified</strong></article>
-        </div>
-        <p className="fine-print">Workspace totals aggregate across wallets and networks. Displayed USD value is not spendable USDT. Wallet-specific available/held USDT and provider funding authorization remain unverified.</p>
         {blockers.length > 0 && <ul className="fine-print provider-blocker-list">
           {blockers.map((blocker) => <li key={blocker}>{blockerLabels[blocker] || blocker}</li>)}
         </ul>}
