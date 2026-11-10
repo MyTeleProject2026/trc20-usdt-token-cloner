@@ -34,7 +34,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   const creditExpiry = typeof evidence.creditFacilityValidUntil === 'string'
     ? Date.parse(evidence.creditFacilityValidUntil) : NaN
   const creditLimit = typeof evidence.creditFacilityApprovedLimitUsdt === 'string'
-    && /^(0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(evidence.creditFacilityApprovedLimitUsdt)
+    && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(evidence.creditFacilityApprovedLimitUsdt)
     ? (() => { const [w, f = ''] = evidence.creditFacilityApprovedLimitUsdt.split('.'); return BigInt(w) * 1_000_000n + BigInt((f + '000000').slice(0, 6)) })()
     : null
   const approvedCreditUseReady = evidence.creditFacilityApproved === true
