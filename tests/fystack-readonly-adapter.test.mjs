@@ -23,3 +23,18 @@ test('preserves exact large integer base-unit strings without numeric coercion',
  assert.equal(r.payoutAuthorized,false)
  assert.equal(r.executionEnabled,false)
 })
+
+test('binds provider snapshots to the configured workspace and wallet identifiers',()=>{
+ const raw=valid()
+ const expected={workspaceId:raw.workspaceId,walletId:raw.walletId,walletAddress:raw.walletAddress}
+ assert.ok(normalizeFystackUsdtSnapshot(raw,expected).snapshot)
+ for(const patch of [{workspaceId:'ws_other123'},{walletId:'wal_other123'},{walletAddress:'TQ9k4W8v2h7x3p6m5n4b1c8d9e2f7g6h5j'}]){
+  const r=normalizeFystackUsdtSnapshot({...raw,...patch},expected)
+  assert.equal(r.snapshot,null)
+  assert.ok(r.blockers.length>0)
+ }
+})
+test('read-only adapter exposes no provider mutation capability',()=>{
+ const adapter=createFystackReadOnlyAdapter({client:{getWalletUsdtSnapshot:async()=>valid(),send:async()=>{},withdraw:async()=>{},sign:async()=>{},broadcast:async()=>{}}})
+ assert.deepEqual(Object.keys(adapter),['getUsdtSnapshot'])
+})
