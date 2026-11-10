@@ -39,7 +39,7 @@ test('blocks insufficient, wrong-wallet, wrong-network and non-available snapsho
     [{ ...wallet, snapshot: { ...wallet.snapshot, balanceKind: 'total' } }, { ...expected, amountUsdt: '1000' }, 'wallet-specific-snapshot-not-available-balance'],
   ]
   for (const [snapshot, options, blocker] of cases) {
-    const result = assessFystackWalletUsdtLiquidity(snapshot, options)
+    const result = assessFystackWalletUsdtLiquidity(snapshot, { ...options, nowMs: Date.parse('2026-11-11T00:01:00.000Z') })
     assert.ok(result.blockers.includes(blocker))
     assert.equal(result.executionEnabled, false)
   }
@@ -47,7 +47,7 @@ test('blocks insufficient, wrong-wallet, wrong-network and non-available snapsho
 
 test('enforces 1000 USDT minimum and strict six-decimal amount parsing', () => {
   for (const amountUsdt of ['999.999999', '1000.0000001', '1e3', 'NaN']) {
-    const result = assessFystackWalletUsdtLiquidity(wallet, { ...expected, amountUsdt })
+    const result = assessFystackWalletUsdtLiquidity(wallet, { ...expected, amountUsdt, nowMs: Date.parse('2026-11-11T00:01:00.000Z') })
     assert.ok(result.blockers.length)
     assert.equal(result.payoutAuthorized, false)
   }
@@ -59,7 +59,7 @@ test('never treats a workspace aggregate as wallet-specific liquidity', () => {
     workspaceTotalBalance: '50000',
     tronMainnetNetworkBalances: [{ balance: '50000' }],
   }
-  const result = assessFystackWalletUsdtLiquidity(aggregate, { ...expected, amountUsdt: '1000' })
+  const result = assessFystackWalletUsdtLiquidity(aggregate, { ...expected, amountUsdt: '1000', nowMs: Date.parse('2026-11-11T00:01:00.000Z') })
   assert.ok(result.blockers.includes('wallet-specific-provider-snapshot-unavailable'))
   assert.equal(result.observedAvailableBaseUnits, null)
   assert.equal(result.executionEnabled, false)
