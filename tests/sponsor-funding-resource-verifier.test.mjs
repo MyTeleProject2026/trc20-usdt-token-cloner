@@ -182,3 +182,29 @@ test('verifier source has no network, key, signing or transaction-submission cap
     'sendRawTransaction', 'broadcastTransaction', 'createTransaction', 'sign(',
   ]) assert.equal(source.includes(forbidden), false, forbidden)
 })
+
+test('enforces the exact 1,000 USDT threshold in six-decimal base units', () => {
+  const exact = verify({
+    expected: { ...expected, minimumUsdtBaseUnits: '1000000000' },
+    custodyObservation: { ...custodyObservation, usdtAvailableBaseUnits: '1000000000' },
+    chainObservation: { ...chainObservation, usdtBalanceBaseUnits: '1000000000' },
+  })
+  assert.equal(exact.reconciled, true)
+  assert.equal(exact.balances.reconciledSpendableUsdtBaseUnits, '1000000000')
+
+  const below = verify({
+    expected: { ...expected, minimumUsdtBaseUnits: '1000000000' },
+    custodyObservation: { ...custodyObservation, usdtAvailableBaseUnits: '999999999' },
+    chainObservation: { ...chainObservation, usdtBalanceBaseUnits: '999999999' },
+  })
+  assert.equal(below.reconciled, false)
+  assert.ok(below.reasons.includes('verified-spendable-usdt-below-required-minimum'))
+})
+
+test('rejects any configured platform minimum below 1,000 USDT', () => {
+  for (const minimumUsdtBaseUnits of ['999999999', '999000000', '1', '0']) {
+    const result = verify({ expected: { ...expected, minimumUsdtBaseUnits } })
+    assert.equal(result.reconciled, false)
+    assert.ok(result.reasons.includes('minimum-usdt-threshold-invalid'))
+  }
+})
