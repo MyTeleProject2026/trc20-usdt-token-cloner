@@ -14,6 +14,7 @@ const wallet = {
     decimals: 6,
     balanceKind: 'available',
     balanceBaseUnits: '1500000000',
+    checkedAt: '2026-11-11T00:00:00.000Z',
   },
   verified: false,
   executionEnabled: false,
@@ -21,7 +22,7 @@ const wallet = {
 const expected = { expectedWalletId: 'wallet-1', expectedWalletAddress: wallet.snapshot.walletAddress }
 
 test('observes sufficient wallet-specific balance without granting payout authority', () => {
-  const result = assessFystackWalletUsdtLiquidity(wallet, { ...expected, amountUsdt: '1000' })
+  const result = assessFystackWalletUsdtLiquidity(wallet, { ...expected, amountUsdt: '1000', nowMs: Date.parse('2026-11-11T00:01:00.000Z') })
   assert.equal(result.status, 'wallet-liquidity-observed-only')
   assert.deepEqual(result.blockers, [])
   assert.equal(result.observedAvailableBaseUnits, '1500000000')
@@ -62,4 +63,18 @@ test('never treats a workspace aggregate as wallet-specific liquidity', () => {
   assert.ok(result.blockers.includes('wallet-specific-provider-snapshot-unavailable'))
   assert.equal(result.observedAvailableBaseUnits, null)
   assert.equal(result.executionEnabled, false)
+})
+
+
+test('rejects stale and future-dated wallet snapshots', () => {
+  const stale = assessFystackWalletUsdtLiquidity(wallet, { ...expected, amountUsdt: '1000', nowMs: Date.parse('2026-11-11T00:10:00.000Z') })
+  assert.ok(stale.blockers.includes('wallet-specific-snapshot-stale-or-invalid'))
+  const future = {
+    ...wallet,
+    snapshot: { ...wallet.snapshot, checkedAt: '2026-11-11T00:05:00.000Z' },
+  }
+  const futureResult = assessFystackWalletUsdtLiquidity(future, { ...expected, amountUsdt: '1000', nowMs: Date.parse('2026-11-11T00:01:00.000Z') })
+  assert.ok(futureResult.blockers.includes('wallet-specific-snapshot-stale-or-invalid'))
+  assert.equal(stale.executionEnabled, false)
+  assert.equal(futureResult.executionEnabled, false)
 })
