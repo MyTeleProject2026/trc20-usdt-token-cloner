@@ -28,8 +28,11 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   }
   // Credit approval is distinct from wallet liquidity; neither is inferred
   // from plan limits, displayed USD value, or aggregate workspace balances.
-  if (evidence.providerOwnedLiquidityVerified !== true && evidence.creditFacilityApproved !== true) {
-    blockers.push('neither-provider-owned-liquidity-nor-approved-credit-is-available')
+  const providerOwnedLiquidityReady = evidence.providerOwnedLiquidityVerified === true
+  const approvedCreditUseReady = evidence.creditFacilityApproved === true
+    && evidence.creditFacilityUsePermittedForTronUsdtWithdrawals === true
+  if (!providerOwnedLiquidityReady && !approvedCreditUseReady) {
+    blockers.push('neither-provider-owned-liquidity-nor-approved-credit-permitted-for-tron-usdt-withdrawals-is-available')
   }
   return Object.freeze({
     schema: 'tron-transfer.payout-activation-readiness.v1',
