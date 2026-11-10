@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { assessProviderCreditFacilityReadiness } from '../server/provider-credit-facility-readiness.mjs'
 
 const connectedAccount = {
+  source: 'trusted-provider-adapter',
+  authenticated: true,
   connected: true,
   providerAccountId: 'provider-account-123',
 }
@@ -60,7 +62,7 @@ test('an approval reference without a permitted-use reference remains blocked', 
 
 test('short strings and browser-claimed status flags are not accepted as evidence', () => {
   const result = assessProviderCreditFacilityReadiness({
-    providerAccount: { connected: true, providerAccountId: 'x', approved: true, balance: '5000' },
+    providerAccount: { connected: true, providerAccountId: 'provider-account-123', approved: true, balance: '5000' },
     approvalReference: 'yes',
     permittedUseReference: 'ok',
     creditFacilityApproved: true,
