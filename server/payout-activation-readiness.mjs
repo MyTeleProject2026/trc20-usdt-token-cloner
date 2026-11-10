@@ -15,7 +15,6 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   // USDT has six decimals. BigInt base-unit comparison avoids floating-point
   // rounding at the 1,000 USDT policy boundary, including very large inputs.
   const validAmount = typeof amountUsdt === 'string'
-    && amountUsdt.length <= 40
     && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
   const [whole = '', fraction = ''] = validAmount ? amountUsdt.split('.') : []
   const amountBaseUnits = validAmount
