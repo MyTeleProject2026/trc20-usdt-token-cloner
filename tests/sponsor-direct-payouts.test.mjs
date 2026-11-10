@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import pg from 'pg'
