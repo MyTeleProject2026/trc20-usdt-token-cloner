@@ -529,6 +529,7 @@ transaction_hash CHAR(64),
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
 
+    // Fincra is used here only for optional read-only account diagnostics.
     // Read-only provider diagnostics. FYStack workspace balances are aggregate
     // observations and wallet inventory is identity metadata only; neither proves
     // wallet-specific available USDT, approved credit, or payout authorization.
