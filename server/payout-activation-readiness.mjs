@@ -15,7 +15,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   // USDT has six decimals. BigInt base-unit comparison avoids floating-point
   // rounding at the 1,000 USDT policy boundary, including very large inputs.
   const validAmount = typeof amountUsdt === 'string'
-    && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
+    && amountUsdt.length <= 40
   const [whole = '', fraction = ''] = validAmount ? amountUsdt.split('.') : []
   const amountBaseUnits = validAmount
     ? BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
@@ -34,7 +34,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   const creditExpiry = typeof evidence.creditFacilityValidUntil === 'string'
     ? Date.parse(evidence.creditFacilityValidUntil) : NaN
   const creditLimit = typeof evidence.creditFacilityApprovedLimitUsdt === 'string'
-    && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(evidence.creditFacilityApprovedLimitUsdt)
+    && evidence.creditFacilityApprovedLimitUsdt.length <= 40
     ? (() => { const [w, f = ''] = evidence.creditFacilityApprovedLimitUsdt.split('.'); return BigInt(w) * 1_000_000n + BigInt((f + '000000').slice(0, 6)) })()
     : null
   const approvedCreditUseReady = evidence.creditFacilityApproved === true
