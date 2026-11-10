@@ -12,7 +12,7 @@ const REQUIRED_EVIDENCE = Object.freeze([
 
 export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } = {}) {
   const blockers = []
-  const amount = typeof amountUsdt === 'string' && /^(0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(amountUsdt)
+  const amount = typeof amountUsdt === 'string' && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
     ? Number(amountUsdt) : NaN
   if (!Number.isFinite(amount) || amount < 1000) blockers.push('minimum-withdrawal-1000-usdt-not-met')
   for (const [field, reason] of REQUIRED_EVIDENCE) {
