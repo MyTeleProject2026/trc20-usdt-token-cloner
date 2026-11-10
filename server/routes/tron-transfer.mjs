@@ -8,6 +8,8 @@ import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
 import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
+import { createFystackWorkspaceBalanceReader } from '../fystack-workspace-balance-reader.mjs'
+import { createFystackWalletListReader } from '../fystack-wallet-list-reader.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -527,9 +529,58 @@ transaction_hash CHAR(64),
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
 
-    // Read-only Fincra profile and USDT-wallet diagnostics. These checks do
-    // not prove sponsor authority, legal eligibility, credit, or payout consent.
+    // Read-only provider diagnostics. FYStack workspace balances are aggregate
+    // observations and wallet inventory is identity metadata only; neither proves
+    // wallet-specific available USDT, approved credit, or payout authorization.
     const fincra = await readFincraAccountDiagnostics(env)
+    const fystackConfigured = Boolean(env.FYSTACK_API_KEY && env.FYSTACK_API_SECRET
+      && env.FYSTACK_WORKSPACE_ID && env.FYSTACK_WALLET_ID)
+    let fystack = {
+      configured: fystackConfigured,
+      status: fystackConfigured ? 'observation-unavailable' : 'credentials-or-wallet-selection-missing',
+      wallet: null,
+      workspaceUsdt: null,
+      walletSpecificAvailableUsdtVerified: false,
+      heldUsdtVerified: false,
+      providerOwnedLiquidityVerified: false,
+      approvedCreditVerified: false,
+      payoutAuthorizationGranted: false,
+      executionEnabled: false,
+    }
+    if (fystackConfigured) {
+      const options = {
+        apiKey: env.FYSTACK_API_KEY,
+        apiSecret: env.FYSTACK_API_SECRET,
+        workspaceId: env.FYSTACK_WORKSPACE_ID,
+      }
+      const [walletInventory, workspaceBalances] = await Promise.all([
+        createFystackWalletListReader(options).getWorkspaceWallets({ expectedWalletId: env.FYSTACK_WALLET_ID }),
+        createFystackWorkspaceBalanceReader(options).getWorkspaceUsdtBalances(),
+      ])
+      const walletMatched = walletInventory.walletIdentityMatched === true
+      fystack = {
+        configured: true,
+        status: walletMatched ? 'wallet-identity-observed' : walletInventory.status,
+        wallet: walletMatched ? {
+          walletId: walletInventory.matchedWallet.walletId,
+          name: walletInventory.matchedWallet.name,
+          walletType: walletInventory.matchedWallet.walletType,
+          displayedValueUsd: walletInventory.matchedWallet.displayedValueUsd,
+        } : null,
+        workspaceUsdt: {
+          status: workspaceBalances.status,
+          totalBalance: workspaceBalances.workspaceTotalBalance,
+          tronMainnetNetworkBalances: workspaceBalances.tronMainnetNetworkBalances,
+          scope: 'workspace-aggregate-across-wallets',
+        },
+        walletSpecificAvailableUsdtVerified: false,
+        heldUsdtVerified: false,
+        providerOwnedLiquidityVerified: false,
+        approvedCreditVerified: false,
+        payoutAuthorizationGranted: false,
+        executionEnabled: false,
+      }
+    }
     const unconfiguredReadiness = getUnconfiguredProviderPayoutReadiness()
     const sponsorBusinessBalanceVerified = fincra.apiAuthenticated
       && fincra.businessIdMatches
@@ -551,6 +602,7 @@ transaction_hash CHAR(64),
       ownerAddress: auth.address,
       selectedProvider: 'Fincra',
       fincra,
+      fystack,
       readiness: {
         ...unconfiguredReadiness,
         provider: { name: 'Fincra', selected: true },
@@ -570,7 +622,7 @@ transaction_hash CHAR(64),
       blockers,
       payoutSubmissionEnabled: false,
       transactionSubmitted: false,
-      note: 'Fincra is used here only for optional read-only account diagnostics. The legacy Fincra payout route and automatic sponsor-mandate mode are disabled; this readiness response cannot authorize or submit a payout. Any displayed USDT is the configured business account balance, not Fincra-donated liquidity or an approved credit line.',
+      note: 'FYStack observations are read-only. Workspace balances aggregate across wallets and networks; wallet inventory metadata does not establish wallet-specific available or held USDT. Neither observation authorizes payouts or proves a credit facility. Fincra payout execution remains disabled.',
     })
   })
 
