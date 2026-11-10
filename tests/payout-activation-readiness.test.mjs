@@ -7,7 +7,7 @@ test('blocks activation by default and preserves all execution safeguards', () =
   assert.equal(result.status, 'payout-activation-blocked')
   assert.ok(result.blockers.includes('provider-payout-authorization-not-verified'))
   assert.ok(result.blockers.includes('wallet-specific-available-usdt-not-verified'))
-  assert.ok(result.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-is-available'))
+  assert.ok(result.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-permitted-for-tron-usdt-withdrawals-is-available'))
   assert.equal(result.executionEnabled, false)
   assert.equal(result.signingEnabled, false)
   assert.equal(result.broadcastingEnabled, false)
@@ -28,9 +28,17 @@ test('uses exact six-decimal integer arithmetic at the minimum boundary', () => 
 
 test('does not confuse credit approval with provider-owned wallet liquidity', () => {
   const result = evaluatePayoutActivationReadiness({ creditFacilityApproved: true }, { amountUsdt: '1000' })
-  assert.ok(!result.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-is-available'))
+  assert.ok(result.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-permitted-for-tron-usdt-withdrawals-is-available'))
   assert.ok(result.blockers.includes('wallet-specific-available-usdt-not-verified'))
   assert.equal(result.executionEnabled, false)
+})
+
+test('requires explicit TRON USDT withdrawal permitted-use scope for an approved credit facility', () => {
+  const approvedButUnscoped = evaluatePayoutActivationReadiness({ creditFacilityApproved: true }, { amountUsdt: '1000' })
+  assert.ok(approvedButUnscoped.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-permitted-for-tron-usdt-withdrawals-is-available'))
+  const permitted = evaluatePayoutActivationReadiness({ creditFacilityApproved: true, creditFacilityUsePermittedForTronUsdtWithdrawals: true }, { amountUsdt: '1000' })
+  assert.ok(!permitted.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-permitted-for-tron-usdt-withdrawals-is-available'))
+  assert.equal(permitted.executionEnabled, false)
 })
 
 test('requires all provider, asset, gas, screening, approval and settlement evidence', () => {
