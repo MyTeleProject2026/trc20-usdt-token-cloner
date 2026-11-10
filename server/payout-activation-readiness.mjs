@@ -16,6 +16,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   // rounding at the 1,000 USDT policy boundary, including very large inputs.
   const validAmount = typeof amountUsdt === 'string'
     && amountUsdt.length <= 40
+    && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amountUsdt)
   const [whole = '', fraction = ''] = validAmount ? amountUsdt.split('.') : []
   const amountBaseUnits = validAmount
     ? BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
@@ -35,6 +36,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
     ? Date.parse(evidence.creditFacilityValidUntil) : NaN
   const creditLimit = typeof evidence.creditFacilityApprovedLimitUsdt === 'string'
     && evidence.creditFacilityApprovedLimitUsdt.length <= 40
+    && /^(0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(evidence.creditFacilityApprovedLimitUsdt)
     ? (() => { const [w, f = ''] = evidence.creditFacilityApprovedLimitUsdt.split('.'); return BigInt(w) * 1_000_000n + BigInt((f + '000000').slice(0, 6)) })()
     : null
   const approvedCreditUseReady = evidence.creditFacilityApproved === true
