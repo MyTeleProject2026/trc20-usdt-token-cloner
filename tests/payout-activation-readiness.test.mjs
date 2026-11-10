@@ -20,6 +20,12 @@ test('requires the 1000 USDT minimum and rejects malformed amounts', () => {
   }
 })
 
+test('uses exact six-decimal integer arithmetic at the minimum boundary', () => {
+  assert.ok(evaluatePayoutActivationReadiness({}, { amountUsdt: '999.999999' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
+  assert.ok(!evaluatePayoutActivationReadiness({}, { amountUsdt: '1000.000000' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
+  assert.ok(evaluatePayoutActivationReadiness({}, { amountUsdt: '999999999999999999999999999999999999999999999999999999999999999999999999999999.999999' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met') === false)
+})
+
 test('does not confuse credit approval with provider-owned wallet liquidity', () => {
   const result = evaluatePayoutActivationReadiness({ creditFacilityApproved: true }, { amountUsdt: '1000' })
   assert.ok(!result.blockers.includes('neither-provider-owned-liquidity-nor-approved-credit-is-available'))
