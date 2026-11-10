@@ -1,33 +1,11 @@
-/** Server-side read-only boundary for an injected, independently authenticated FYStack client. */
-const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-const UINT = /^(0|[1-9][0-9]*)$/
-const ADDRESS = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
-const MAX_AGE_MS = 120_000
-function iso(value) { return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null }
-export function normalizeFystackUsdtSnapshot(raw, expected = {}, nowMs = Date.now()) {
- const blockers = []; const add = (ok, reason) => { if (!ok) blockers.push(reason) }
- const value = raw && typeof raw === 'object' ? raw : {}
- add(value.authenticated === true, 'provider-authentication-not-confirmed')
- add(typeof value.workspaceId === 'string' && value.workspaceId.length > 0, 'provider-workspace-id-missing')
- add(typeof value.walletId === 'string' && value.walletId.length > 0, 'provider-wallet-id-missing')
- add(value.network === 'TRON_MAINNET', 'provider-network-not-tron-mainnet')
- add(value.tokenContract === USDT, 'provider-token-not-official-tron-usdt')
- add(value.decimals === 6, 'provider-token-decimals-mismatch')
- add(ADDRESS.test(String(value.walletAddress || '')), 'provider-wallet-address-invalid')
- if (expected.walletAddress) add(value.walletAddress === expected.walletAddress, 'provider-wallet-address-unexpected')
- if (expected.workspaceId) add(value.workspaceId === expected.workspaceId, 'provider-workspace-mismatch')
- if (expected.walletId) add(value.walletId === expected.walletId, 'provider-wallet-id-mismatch')
- add(value.balanceKind === 'available', 'provider-balance-semantics-not-available')
- add(UINT.test(String(value.availableBalanceBaseUnits ?? '')), 'provider-available-usdt-balance-invalid')
- const checkedAt = iso(value.checkedAt); const checkedMs = checkedAt ? Date.parse(checkedAt) : NaN
- add(Number.isFinite(checkedMs) && checkedMs <= nowMs && nowMs - checkedMs <= MAX_AGE_MS, 'provider-snapshot-stale-or-invalid')
- return Object.freeze({ schema: 'tron-transfer.fystack-readonly-usdt-snapshot.v1', status: blockers.length ? 'blocked-unverified-provider-snapshot' : 'normalized-read-only-provider-snapshot', verified: false, blockers: Object.freeze(blockers), snapshot: blockers.length ? null : Object.freeze({ source: 'fystack-readonly-adapter', authenticated: true, workspaceId: value.workspaceId, walletId: value.walletId, walletAddress: value.walletAddress, network: 'TRON_MAINNET', tokenContract: USDT, decimals: 6, balanceKind: 'available', balanceBaseUnits: String(value.availableBalanceBaseUnits), checkedAt }), ledgerMutationPerformed: false, spendableBalanceImpact: 'none', creditApproved: false, payoutAuthorized: false, signingEnabled: false, broadcastEnabled: false, executionEnabled: false })
+const USDT='TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',UINT=/^(0|[1-9][0-9]*)$/,ADDRESS=/^T[1-9A-HJ-NP-Za-km-z]{33}$/
+const nonEmpty=v=>typeof v==='string'&&v.trim().length>0
+export function normalizeFystackUsdtSnapshot(raw,expected={}, {nowMs=Date.now(),maxAgeMs=120000}={}) {
+ const blockers=[],add=(ok,reason)=>{if(!ok)blockers.push(reason)},v=raw&&typeof raw==='object'?raw:{}
+ add(v.authenticated===true,'provider-authentication-not-confirmed');add(v.network==='TRON_MAINNET','provider-network-not-tron-mainnet');add(v.tokenContract===USDT,'provider-token-not-official-tron-usdt');add(v.decimals===6,'provider-token-decimals-mismatch');add(ADDRESS.test(String(v.walletAddress||'')),'provider-wallet-address-invalid');add(nonEmpty(v.workspaceId),'provider-workspace-id-missing');add(nonEmpty(v.walletId),'provider-wallet-id-missing')
+ if(expected.walletAddress)add(v.walletAddress===expected.walletAddress,'provider-wallet-address-unexpected');if(expected.workspaceId)add(v.workspaceId===expected.workspaceId,'provider-workspace-mismatch');if(expected.walletId)add(v.walletId===expected.walletId,'provider-wallet-id-mismatch')
+ add(UINT.test(String(v.availableBalanceBaseUnits??'')),'provider-available-usdt-balance-invalid')
+ const time=typeof v.checkedAt==='string'?Date.parse(v.checkedAt):NaN;add(Number.isFinite(time)&&time<=nowMs&&nowMs-time<=maxAgeMs,'provider-snapshot-stale-or-invalid')
+ return Object.freeze({schema:'tron-transfer.fystack-readonly-usdt-snapshot.v1',status:blockers.length?'blocked-unverified-provider-snapshot':'normalized-read-only-provider-snapshot',verified:false,blockers:Object.freeze(blockers),snapshot:blockers.length?null:Object.freeze({source:'fystack-readonly-adapter',authenticated:true,workspaceId:v.workspaceId,walletId:v.walletId,walletAddress:v.walletAddress,network:'TRON_MAINNET',tokenContract:USDT,decimals:6,balanceBaseUnits:String(v.availableBalanceBaseUnits),checkedAt:new Date(time).toISOString()}),ledgerMutationPerformed:false,spendableBalanceImpact:'none',creditApproved:false,payoutAuthorized:false,signingEnabled:false,broadcastEnabled:false,executionEnabled:false})
 }
-/** Requires an injected client with a documented read-only getWalletUsdtSnapshot method. No guessed URL or write operation. */
-export function createFystackReadOnlyAdapter({ client, expected = {} } = {}) {
- return Object.freeze({ async getUsdtSnapshot() {
-  if (!client || typeof client.getWalletUsdtSnapshot !== 'function') return normalizeFystackUsdtSnapshot(null, expected)
-  try { return normalizeFystackUsdtSnapshot(await client.getWalletUsdtSnapshot(), expected) }
-  catch { return normalizeFystackUsdtSnapshot(null, expected) }
- } })
-}
+export function createFystackReadOnlyAdapter({client,expected={},clock=()=>Date.now(),maxAgeMs=120000}={}) {return Object.freeze({async getUsdtSnapshot(){if(!client||typeof client.getWalletUsdtSnapshot!=='function')return normalizeFystackUsdtSnapshot(null,expected,{nowMs:clock(),maxAgeMs});try{return normalizeFystackUsdtSnapshot(await client.getWalletUsdtSnapshot(),expected,{nowMs:clock(),maxAgeMs})}catch{return normalizeFystackUsdtSnapshot(null,expected,{nowMs:clock(),maxAgeMs})}}})}
