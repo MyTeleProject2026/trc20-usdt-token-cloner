@@ -96,7 +96,7 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
       <div className="notice notice-warning">
         <AlertTriangle size={17} />
         <div>
-          <b>Fincra account diagnostics are separate from payout authorization</b>
+          <b>No approved payout funding source is currently verified</b>
           <p>The platform will not ask you to deposit USDT or TRX. A sponsor organization must authorize the exact Fincra business account and hold spendable USDT in that account. A displayed account balance is sponsor business funds; it is not Fincra-donated liquidity or a credit facility. Live payouts remain disabled until Fincra and the sponsor have independently approved the arrangement.</p>
         </div>
       </div>
