@@ -29,10 +29,24 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
   // Credit approval is distinct from wallet liquidity; neither is inferred
   // from plan limits, displayed USD value, or aggregate workspace balances.
   const providerOwnedLiquidityReady = evidence.providerOwnedLiquidityVerified === true
+    && typeof evidence.providerLiquidityEvidenceReference === 'string'
+    && evidence.providerLiquidityEvidenceReference.trim().length >= 8
+  const creditExpiry = typeof evidence.creditFacilityValidUntil === 'string'
+    ? Date.parse(evidence.creditFacilityValidUntil) : NaN
+  const creditLimit = typeof evidence.creditFacilityApprovedLimitUsdt === 'string'
+    && /^(0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(evidence.creditFacilityApprovedLimitUsdt)
+    ? (() => { const [w, f = ''] = evidence.creditFacilityApprovedLimitUsdt.split('.'); return BigInt(w) * 1_000_000n + BigInt((f + '000000').slice(0, 6)) })()
+    : null
   const approvedCreditUseReady = evidence.creditFacilityApproved === true
     && evidence.creditFacilityUsePermittedForTronUsdtWithdrawals === true
+    && typeof evidence.creditFacilityApprovalReference === 'string'
+    && evidence.creditFacilityApprovalReference.trim().length >= 8
+    && typeof evidence.creditFacilityUseAuthorizationReference === 'string'
+    && evidence.creditFacilityUseAuthorizationReference.trim().length >= 8
+    && Number.isFinite(creditExpiry) && creditExpiry > Date.now()
+    && creditLimit !== null && amountBaseUnits !== null && creditLimit >= amountBaseUnits
   if (!providerOwnedLiquidityReady && !approvedCreditUseReady) {
-    blockers.push('neither-provider-owned-liquidity-nor-approved-credit-permitted-for-tron-usdt-withdrawals-is-available')
+    blockers.push('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available')
   }
   return Object.freeze({
     schema: 'tron-transfer.payout-activation-readiness.v1',
