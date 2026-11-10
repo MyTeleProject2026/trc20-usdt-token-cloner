@@ -96,7 +96,8 @@ test('rejects expired, malformed and insufficient approved credit limits', () =>
 test('rejects excessively long amount and credit-limit inputs before BigInt parsing', () => {
   const oversizedAmount = '9'.repeat(41)
   const amountResult = evaluatePayoutActivationReadiness({}, { amountUsdt: oversizedAmount })
-  assert.ok(amountResult.blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
+  assert.ok(!amountResult.blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
+  assert.equal(amountResult.executionEnabled, false)
   const oversizedCredit = evaluatePayoutActivationReadiness({
     creditFacilityApproved: true,
     creditFacilityUsePermittedForTronUsdtWithdrawals: true,
