@@ -7,3 +7,19 @@ test('rejects missing identity and ambiguous balance semantics',()=>{for(const p
 test('rejects stale and future snapshots',()=>{const now=Date.now();for(const checkedAt of [new Date(now-121000).toISOString(),new Date(now+1000).toISOString()]){assert.equal(normalizeFystackUsdtSnapshot({...valid(),checkedAt},{},now).snapshot,null)}});
 test('missing client fails closed and exposes no write methods',async()=>{const a=createFystackReadOnlyAdapter();const r=await a.getUsdtSnapshot();assert.equal(r.snapshot,null);assert.equal(r.executionEnabled,false);assert.deepEqual(Object.keys(a),['getUsdtSnapshot'])});
 test('client errors fail closed',async()=>{const a=createFystackReadOnlyAdapter({client:{getWalletUsdtSnapshot:async()=>{throw Error('offline')}}});const r=await a.getUsdtSnapshot();assert.equal(r.snapshot,null);assert.equal(r.ledgerMutationPerformed,false)});
+
+test('rejects numeric base-unit values to prevent precision loss',()=>{
+ for(const availableBalanceBaseUnits of [0,1,Number.MAX_SAFE_INTEGER,1e30]){
+  const r=normalizeFystackUsdtSnapshot({...valid(),availableBalanceBaseUnits})
+  assert.equal(r.snapshot,null)
+  assert.ok(r.blockers.includes('provider-available-usdt-balance-invalid'))
+ }
+})
+test('preserves exact large integer base-unit strings without numeric coercion',()=>{
+ const value='999999999999999999999999999999999999999999999999'
+ const r=normalizeFystackUsdtSnapshot({...valid(),availableBalanceBaseUnits:value})
+ assert.equal(r.snapshot.balanceBaseUnits,value)
+ assert.equal(r.verified,false)
+ assert.equal(r.payoutAuthorized,false)
+ assert.equal(r.executionEnabled,false)
+})
