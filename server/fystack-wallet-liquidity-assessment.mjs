@@ -12,17 +12,20 @@ function toBaseUnits(value) {
  * This is an observation only: the upstream public API contract for wallet-level
  * available/held USDT is not yet documented, so this function cannot authorize payout.
  */
-export function assessFystackWalletUsdtLiquidity(snapshotResult, { amountUsdt, expectedWalletId, expectedWalletAddress } = {}) {
+export function assessFystackWalletUsdtLiquidity(snapshotResult, { amountUsdt, expectedWalletId, expectedWalletAddress, nowMs = Date.now(), maxAgeMs = 120000 } = {}) {
   const blockers = []
   const add = (ok, reason) => { if (!ok) blockers.push(reason) }
   const snapshot = snapshotResult?.snapshot
   const requested = toBaseUnits(amountUsdt)
+  add(snapshotResult?.schema === 'tron-transfer.fystack-readonly-usdt-snapshot.v1', 'wallet-specific-provider-snapshot-schema-mismatch')
   add(Boolean(snapshot), 'wallet-specific-provider-snapshot-unavailable')
   add(snapshotResult?.status === 'normalized-read-only-provider-snapshot', 'wallet-specific-provider-snapshot-not-normalized')
   add(snapshot?.network === 'TRON_MAINNET', 'wallet-specific-snapshot-not-tron-mainnet')
   add(snapshot?.tokenContract === 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', 'wallet-specific-snapshot-not-official-tron-usdt')
   add(snapshot?.decimals === 6, 'wallet-specific-snapshot-decimals-mismatch')
   add(snapshot?.balanceKind === 'available', 'wallet-specific-snapshot-not-available-balance')
+  const checkedAt = typeof snapshot?.checkedAt === 'string' ? Date.parse(snapshot.checkedAt) : NaN
+  add(Number.isFinite(checkedAt) && checkedAt <= nowMs && nowMs - checkedAt <= maxAgeMs, 'wallet-specific-snapshot-stale-or-invalid')
   add(typeof expectedWalletId === 'string' && snapshot?.walletId === expectedWalletId, 'wallet-specific-snapshot-wallet-id-mismatch')
   add(typeof expectedWalletAddress === 'string' && snapshot?.walletAddress === expectedWalletAddress, 'wallet-specific-snapshot-wallet-address-mismatch')
   add(requested !== null && requested >= 1_000_000_000n, 'minimum-withdrawal-1000-usdt-not-met')
