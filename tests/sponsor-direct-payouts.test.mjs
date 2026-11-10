@@ -515,3 +515,12 @@ test('Mainnet sponsor-direct broadcast is hard-disabled on the supervised featur
   assert.equal(payload.error,'sponsor-direct-mainnet-broadcast-disabled-in-this-build')
   assert.equal(payload.transactionBroadcast,false)
 })
+
+
+test('supervised feature branch hard-disables sponsor-direct Mainnet broadcast before provider submission', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true/)
+  assert.match(source, /router\.post\('\/requests\/:id\/broadcast'/)
+  assert.match(source, /if \(REAL_SPONSOR_DIRECT_BROADCAST_DISABLED\) \{\s*return res\.status\(503\)\.json\(/)
+  assert.match(source, /canSubmitSponsoredTransfer:false, submissionEnabled:false, providerSubmissionAttempted:false, transactionBroadcast:false/)
+})
