@@ -28,7 +28,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
     status: blockers.length ? 'payout-activation-blocked' : 'payout-activation-ready-for-authorized-operator-review',
     blockers: Object.freeze([...new Set(blockers)]),
     minimumWithdrawalUsdt: '1000',
-    amountUsdt: Number.isFinite(amount) ? String(amountUsdt) : null,
+    amountUsdt: validAmount ? amountUsdt : null,
     executionEnabled: false,
     signingEnabled: false,
     broadcastingEnabled: false,
