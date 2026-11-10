@@ -10,6 +10,7 @@ import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readi
 import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
 import { createFystackWorkspaceBalanceReader } from '../fystack-workspace-balance-reader.mjs'
 import { createFystackWalletListReader } from '../fystack-wallet-list-reader.mjs'
+import { evaluatePayoutActivationReadiness } from '../payout-activation-readiness.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -583,6 +584,19 @@ transaction_hash CHAR(64),
       }
     }
     const unconfiguredReadiness = getUnconfiguredProviderPayoutReadiness()
+    const payoutActivation = evaluatePayoutActivationReadiness({
+      providerAuthorizationVerified: false,
+      providerWalletIdentityVerified: fystack.wallet?.walletId === cleanString(env.FYSTACK_WALLET_ID, 128),
+      walletSpecificAvailableUsdtVerified: fystack.walletSpecificAvailableUsdtVerified,
+      availableUsdtCoversRequestedAmount: false,
+      tronMainnetUsdtContractVerified: false,
+      tronMainnetGasAvailable: false,
+      recipientScreeningCleared: false,
+      withdrawalApprovalSatisfied: false,
+      settlementReconciliationReady: false,
+      providerOwnedLiquidityVerified: fystack.providerOwnedLiquidityVerified,
+      creditFacilityApproved: fystack.approvedCreditVerified,
+    }, { amountUsdt: '1000' })
     const sponsorBusinessBalanceVerified = fincra.apiAuthenticated
       && fincra.businessIdMatches
       && fincra.usdtWalletFound
@@ -604,6 +618,7 @@ transaction_hash CHAR(64),
       selectedProvider: 'Fincra',
       fincra,
       fystack,
+      payoutActivation,
       readiness: {
         ...unconfiguredReadiness,
         provider: { name: 'Fincra', selected: true },
