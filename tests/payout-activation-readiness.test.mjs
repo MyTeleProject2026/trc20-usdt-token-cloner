@@ -91,3 +91,20 @@ test('rejects expired, malformed and insufficient approved credit limits', () =>
   assert.ok(!exact.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
   assert.equal(exact.executionEnabled, false)
 })
+
+
+test('rejects excessively long amount and credit-limit inputs before BigInt parsing', () => {
+  const oversizedAmount = '9'.repeat(41)
+  const amountResult = evaluatePayoutActivationReadiness({}, { amountUsdt: oversizedAmount })
+  assert.ok(amountResult.blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
+  const oversizedCredit = evaluatePayoutActivationReadiness({
+    creditFacilityApproved: true,
+    creditFacilityUsePermittedForTronUsdtWithdrawals: true,
+    creditFacilityApprovalReference: 'approval-2026-004',
+    creditFacilityUseAuthorizationReference: 'use-auth-2026-004',
+    creditFacilityValidUntil: '2099-12-31T23:59:59.000Z',
+    creditFacilityApprovedLimitUsdt: '9'.repeat(41),
+  }, { amountUsdt: '1000' })
+  assert.ok(oversizedCredit.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+  assert.equal(oversizedCredit.executionEnabled, false)
+})
