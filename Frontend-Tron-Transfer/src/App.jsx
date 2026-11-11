@@ -335,6 +335,32 @@ export default function App() {
             <article className="funding-status-item"><span className="eyebrow">USDT PRINCIPAL</span><strong>Sponsor-funded</strong><p>The sponsor must already hold the exact official TRC20 USDT amount.</p></article>
             <article className="funding-status-item"><span className="eyebrow">TRON NETWORK RESOURCES</span><strong>Sponsor-funded</strong><p>The sponsor covers Energy, Bandwidth or the required TRX reserve.</p></article>
           </div>
+          <div className="funding-pathway-heading">
+            <span className="eyebrow">TWO INDEPENDENT FUNDING PATHS</span>
+            <h3>Build funding without pretending it is already available</h3>
+            <p>Grant applications support eligible development work. Individual sponsors separately volunteer their own wallet assets for specific payouts. Neither route is assumed approved or funded.</p>
+          </div>
+          <div className="funding-pathway-grid">
+            <article className="funding-pathway-card">
+              <span className="eyebrow">PATH 1 · DEVELOPMENT FUNDING</span>
+              <h3>TRON ecosystem grants</h3>
+              <p>Prepare a milestone-based application for eligible product development, security, documentation and ecosystem work. Funding decisions, eligibility, award size and permitted expenses are determined by the program.</p>
+              <a href="https://trondao.org/tron-builders-league" target="_blank" rel="noreferrer">TRON Builders League <ExternalLink size={13}/></a>
+              <a href="https://tether.dev" target="_blank" rel="noreferrer">Tether developer grants <ExternalLink size={13}/></a>
+              <small>Application status: not submitted / not verified here. Do not count a proposed or awarded development grant as withdrawal liquidity unless its written terms expressly allow that use and the funds have actually been disbursed.</small>
+            </article>
+            <article className="funding-pathway-card">
+              <span className="eyebrow">PATH 2 · PER-TRANSFER PAYOUT FUNDING</span>
+              <h3>Voluntary individual sponsors</h3>
+              <p>A separate wallet owner applies, is reviewed by the platform owner, checks live Mainnet USDT and fee resources, and signs each exact recipient-and-amount transaction in their own TronLink wallet.</p>
+              <button type="button" className="secondary-button" onClick={()=>setTab('sponsors')}><ShieldCheck size={15}/> Review sponsor wallets</button>
+              <small>Approval is not proof of current funds. A payout remains blocked until the sponsor has sufficient real USDT and network resources and the signed transfer passes Mainnet verification.</small>
+            </article>
+          </div>
+          <div className="funding-pathway-note">
+            <b>Wallet tooling is not funding:</b> Tether WDK can support wallet and signing integration, but it does not provide USDT, a credit line or access to Tether treasury funds.
+            <a href="https://wdk.tether.io/" target="_blank" rel="noreferrer">WDK documentation <ExternalLink size={13}/></a>
+          </div>
           <div className="funding-flow-panel">
             <div className="section-heading compact"><div><span className="eyebrow">HOW A REQUEST COMPLETES</span><h3>Four clear steps</h3></div></div>
             <ol className="funding-flow-list">
