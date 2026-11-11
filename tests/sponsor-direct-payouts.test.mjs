@@ -582,3 +582,67 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+
+test('owner-only partner prospect API persists contact tracking without granting payout eligibility', async (t) => {
+  const ownerToken = 'p'.repeat(43)
+  const origin = 'https://tron-transfer.integration.test'
+  const saved = new Map()
+  const database = {
+    async query(sql, values = []) {
+      if (sql.startsWith('INSERT INTO trc20_token_clone.payout_partner_prospects')) {
+        const [id,name,type,contact,notes] = values
+        const row = { id, name, prospect_type:type, public_contact:contact, notes, status:'identified', created_at:new Date(), updated_at:new Date() }
+        saved.set(id,row)
+        return { rows:[row], rowCount:1 }
+      }
+      if (sql.startsWith('SELECT id,name,prospect_type,public_contact,notes,status,created_at,updated_at')) return { rows:[...saved.values()] }
+      if (sql.startsWith('UPDATE trc20_token_clone.payout_partner_prospects')) {
+        const [id,status] = values, row=saved.get(id)
+        if (!row) return { rows:[], rowCount:0 }
+        row.status=status
+        return { rows:[{id,status}], rowCount:1 }
+      }
+      if (sql.startsWith('DELETE FROM trc20_token_clone.payout_partner_prospects')) {
+        const deleted=saved.delete(values[0])
+        return { rows:[], rowCount:deleted?1:0 }
+      }
+      return { rows:[], rowCount:0 }
+    },
+  }
+  const app = express()
+  app.use(express.json())
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
+    env:{ FRONTEND_ORIGIN:origin, OWNER_WALLET_ADDRESS:requesterAddress },
+    getSession:async ({origin:requestOrigin})=>({success:true,session:{
+      address:requesterAddress,network:'mainnet',origin:requestOrigin,expiresAt:Date.now()+3600000,
+    }}),
+    getDatabase:()=>database,
+  }))
+  const server=createServer(app)
+  await new Promise((resolve)=>server.listen(0,'127.0.0.1',resolve))
+  t.after(()=>new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve())))
+  const base='http://127.0.0.1:'+server.address().port+'/api/tron/sponsor-direct/partner-prospects'
+  const headers={Origin:origin,Authorization:'Bearer '+ownerToken,'Content-Type':'application/json'}
+  const created=await fetch(base,{method:'POST',headers,body:JSON.stringify({
+    name:'Example Treasury Desk',type:'treasury-partner',contact:'https://example.test/contact',notes:'Ask for official API specification.',
+  })})
+  const createdPayload=await created.json()
+  assert.equal(created.status,201)
+  assert.equal(createdPayload.prospect.status,'identified')
+  assert.equal(createdPayload.payoutEligible,false)
+  const id=createdPayload.prospect.id
+  const listed=await fetch(base,{headers})
+  const listedPayload=await listed.json()
+  assert.equal(listed.status,200)
+  assert.equal(listedPayload.prospects.length,1)
+  const changed=await fetch(base+'/'+id+'/status',{method:'POST',headers,body:JSON.stringify({status:'due-diligence'})})
+  assert.equal(changed.status,200)
+  assert.equal((await changed.json()).payoutEligible,false)
+  const removed=await fetch(base+'/'+id,{method:'DELETE',headers})
+  assert.equal(removed.status,200)
+  assert.equal((await removed.json()).deleted,true)
+  const invalid=await fetch(base,{method:'POST',headers,body:JSON.stringify({
+    name:'Bad URL',type:'payout-provider',contact:'http://untrusted.test',
+  })})
+  assert.equal(invalid.status,400)
+})
