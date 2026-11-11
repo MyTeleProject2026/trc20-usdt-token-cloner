@@ -432,6 +432,29 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     }
   }
 
+  async function copySponsorOutreachMessage() {
+    const inviteUrl = window.location.origin + window.location.pathname + '#/sponsor'
+    const message = [
+      'Hello,',
+      '',
+      'I am looking for a voluntary, independent TRON Mainnet USDT sponsor to review a proposed owner-operated payout workflow.',
+      'There is no guaranteed return, reimbursement, grant award, or payment. You remain in full control of your own TronLink wallet and may decline any request.',
+      'If you choose to participate, the platform will check your actual USDT and network resources, show the exact recipient and amount, and require you to review and sign each payout yourself in TronLink. Connecting a wallet or signing an identity message does not transfer funds.',
+      'Please do not share a seed phrase, private key, password, OTP, or remote access. We will not ask for them.',
+      '',
+      'Sponsor information and application portal:',
+      inviteUrl,
+      '',
+      'Please review the terms and independently verify the project before deciding. Participation is entirely optional.',
+    ].join('\\n')
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.')
+      await navigator.clipboard.writeText(message)
+      setInviteMessage('Transparent sponsor outreach message copied. Send it only to people who may genuinely wish to participate.')
+    } catch (cause) {
+      setInviteMessage(cause?.message || 'Could not copy the outreach message.')
+    }
+  }
   async function copySponsorInvitation() {
     const inviteUrl = window.location.origin + window.location.pathname + '#/sponsor'
     try {
@@ -1007,9 +1030,14 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         <div className="sponsor-funding-destination">
           <div className="section-heading compact">
             <div><span className="eyebrow">EXTERNAL PARTNER MANAGEMENT</span><h3>Partner and sponsor prospect tracker</h3></div>
-            <span className="status-pill">Local notes only</span>
+            <span className="status-pill">Owner database</span>
           </div>
           <p>Track prospective payout providers, treasury partners, grant programs and individual sponsors. Entries are saved in the owner-authenticated application database. They are not verified, contracted, funded, connected to an API or eligible to send payouts.</p>
+          <div className="button-row">
+            <button className="secondary-button" type="button" onClick={() => void copySponsorInvitation()}><Send size={15} /> Copy sponsor portal link</button>
+            <button className="outline-button" type="button" onClick={() => void copySponsorOutreachMessage()}><ClipboardCheck size={15} /> Copy transparent outreach message</button>
+          </div>
+          {inviteMessage && <p className="fine-print" role="status">{inviteMessage}</p>}
           <div className="form-stack">
             <label>Organization or sponsor name<input value={partnerName} onChange={(event) => setPartnerName(event.target.value)} maxLength={100} placeholder="Name of provider, program or willing sponsor" /></label>
             <label>Prospect type<select value={partnerType} onChange={(event) => setPartnerType(event.target.value)}><option value="payout-provider">Payout provider</option><option value="treasury-partner">Treasury / liquidity partner</option><option value="grant-program">Development grant program</option><option value="individual-sponsor">Individual self-custody sponsor</option></select></label>
