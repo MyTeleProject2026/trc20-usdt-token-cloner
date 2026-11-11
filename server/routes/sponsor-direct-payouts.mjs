@@ -106,6 +106,18 @@ async function ensureSchema(db) {
         SCHEMA + '.sponsor_direct_applications (status, created_at ASC)'
       )
       await db.query(
+        'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.payout_partner_prospects (' +
+        'id UUID PRIMARY KEY, name TEXT NOT NULL, prospect_type TEXT NOT NULL CHECK (prospect_type IN ' +
+        '(\'payout-provider\',\'treasury-partner\',\'grant-program\',\'individual-sponsor\')), ' +
+        'public_contact TEXT, notes TEXT, status TEXT NOT NULL DEFAULT \'identified\' CHECK (status IN ' +
+        '(\'identified\',\'contacted\',\'due-diligence\',\'agreement-pending\',\'sandbox-pending\',\'declined\')), ' +
+        'created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+      )
+      await db.query(
+        'CREATE INDEX IF NOT EXISTS payout_partner_prospects_created_idx ON ' +
+        SCHEMA + '.payout_partner_prospects (created_at DESC)'
+      )
+      await db.query(
         'CREATE TABLE IF NOT EXISTS ' + SCHEMA + '.sponsor_direct_payouts (' +
         'id UUID PRIMARY KEY, idempotency_key UUID NOT NULL UNIQUE, requester_address TEXT NOT NULL, ' +
         'sponsor_address TEXT, recipient_address TEXT NOT NULL, token_contract TEXT NOT NULL, ' +
@@ -1052,6 +1064,78 @@ export function createSponsorDirectPayoutsRouter({
   getDatabase = getPool,
 } = {}) {
   const router = Router()
+
+  // Owner-only prospect CRM. Contact notes never grant payout authority.
+  router.get('/partner-prospects', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('SELECT id,name,prospect_type,public_contact,notes,status,created_at,updated_at FROM ' + SCHEMA + '.payout_partner_prospects ORDER BY created_at DESC LIMIT 100')
+      return res.json({ success: true, prospects: result.rows.map((row) => ({ id: row.id, name: row.name, type: row.prospect_type, contact: row.public_contact, notes: row.notes, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at })), fundingVerified: false, payoutEligible: false })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-list-unavailable' })
+    }
+  })
+
+  router.post('/partner-prospects', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
+    if (Object.keys(body).some((key) => !['name','type','contact','notes'].includes(key))) return res.status(400).json({ success: false, error: 'unexpected-fields' })
+    const name = clean(body.name, 100), type = clean(body.type, 32), contact = clean(body.contact, 160), notes = clean(body.notes, 1000)
+    if (name.length < 2 || !['payout-provider','treasury-partner','grant-program','individual-sponsor'].includes(type)) return res.status(400).json({ success: false, error: 'invalid-partner-prospect' })
+    if (contact && !/^https:\/\//i.test(contact) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) return res.status(400).json({ success: false, error: 'contact-must-be-public-https-url-or-email' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('INSERT INTO ' + SCHEMA + '.payout_partner_prospects (id,name,prospect_type,public_contact,notes) VALUES ($1,$2,$3,$4,$5) RETURNING id,name,prospect_type,public_contact,notes,status,created_at,updated_at', [randomUUID(),name,type,contact || null,notes || null])
+      const row = result.rows[0]
+      return res.status(201).json({ success: true, prospect: { id: row.id, name: row.name, type: row.prospect_type, contact: row.public_contact, notes: row.notes, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }, fundingVerified: false, payoutEligible: false })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-create-failed' })
+    }
+  })
+
+  router.post('/partner-prospects/:id/status', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64), status = clean(req.body?.status, 32)
+    if (!UUID_RE.test(id) || !['identified','contacted','due-diligence','agreement-pending','sandbox-pending','declined'].includes(status)) return res.status(400).json({ success: false, error: 'invalid-prospect-status' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('UPDATE ' + SCHEMA + '.payout_partner_prospects SET status=$2,updated_at=now() WHERE id=$1 RETURNING id,status', [id,status])
+      if (!result.rowCount) return res.status(404).json({ success: false, error: 'partner-prospect-not-found' })
+      return res.json({ success: true, id: result.rows[0].id, status: result.rows[0].status, payoutEligible: false })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-update-failed' })
+    }
+  })
+
+  router.delete('/partner-prospects/:id', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64)
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-prospect-id' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query('DELETE FROM ' + SCHEMA + '.payout_partner_prospects WHERE id=$1', [id])
+      return result.rowCount ? res.json({ success: true, deleted: true }) : res.status(404).json({ success: false, error: 'partner-prospect-not-found' })
+    } catch {
+      return res.status(503).json({ success: false, error: 'partner-prospect-delete-failed' })
+    }
+  })
 
   router.get('/config', (_req, res) => {
     setNoStore(res)
