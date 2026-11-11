@@ -209,3 +209,12 @@ test('owner withdrawal UI never requests a wallet signature while execution is d
   assert.ok(source.includes('recipientNetworkConfirmed'))
 })
 
+
+
+test('settlement refresh uses compare-and-set status guards and rereads concurrent terminal results', async () => {
+  const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.ok(source.includes("const unresolved = ['submitted', 'outcome-unknown', 'broadcasting']"))
+  assert.ok(source.includes('WHERE id=$1 AND status = ANY($6::text[]) RETURNING *'))
+  assert.ok(source.includes('WHERE id=$1 AND status = ANY($4::text[]) RETURNING *'))
+  assert.ok(source.includes("SELECT * FROM ' + SCHEMA + '.owner_direct_withdrawals WHERE id=$1 LIMIT 1"))
+})
