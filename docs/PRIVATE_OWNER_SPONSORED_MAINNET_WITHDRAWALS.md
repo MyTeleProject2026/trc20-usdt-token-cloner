@@ -86,3 +86,14 @@ The current provider-readiness page remains a separate diagnostic: provider-mana
 - A successful Tatum broadcast response means `submitted`, not `confirmed`. Only the solidified transaction body, successful receipt, and one exact official USDT Transfer event can result in `confirmed`.
 - `confirmed` means the token transfer reached the specified TRON address. It does not prove an exchange credited a customer's internal exchange account. Confirm exchange credit separately using the recipient's own exchange deposit history or authorized exchange account integration.
 - The current UI reports a confirmed chain transfer separately from exchange-credit verification. It must never display an exchange deposit as credited solely from a transaction hash or a successful broadcast response.
+
+
+## External exchange deposit preflight
+
+Before submitting a withdrawal request, the owner UI requires explicit confirmation that the exact recipient address accepts official USDT on TRON Mainnet (TRC20), and that the receiving service's minimum-deposit and memo/tag instructions have been checked.
+
+This flow sends only the official USDT TRC20 transfer to the supplied TRON address. It does **not** attach a memo, destination tag, payment ID, or exchange-specific reference. If the receiving exchange requires such an identifier for that deposit address, do not use this flow for that exchange deposit. A valid TRON address and a solidified Transfer event prove delivery to the address, not that the exchange credited a particular customer account.
+
+Changing the recipient address clears both UI confirmations. The owner must confirm the network and deposit instructions again for the new destination.
+
+The owner UI also retains an idempotency key for retries of the same exact recipient/amount request intent. The backend binds that key to the original requester, recipient, and amount and returns the original request for a repeated identical submission. It rejects reuse of the key for a different intent.
