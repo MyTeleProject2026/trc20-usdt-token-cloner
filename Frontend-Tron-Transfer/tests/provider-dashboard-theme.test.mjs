@@ -150,7 +150,7 @@ test('owner can cancel only unsigned requested or prepared payouts from the with
   assert.ok(sponsor.includes("['requested', 'prepared'].includes(item.status)"))
   assert.ok(sponsor.includes('Cancel unsigned request'))
   assert.ok(sponsor.includes('payout-can-no-longer-be-cancelled-safely'))
-  assert.ok(sponsor.includes('cancelled-by-platform-owner'))
+  assert.ok(sponsorRoute.includes('cancelled-by-platform-owner'))
 })
 
 test('sponsor-direct broadcast integration covers signature rejection, one accepted broadcast, and non-credit status', () => {
