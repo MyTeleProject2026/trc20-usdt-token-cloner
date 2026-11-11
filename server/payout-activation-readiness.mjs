@@ -10,7 +10,7 @@ const REQUIRED_EVIDENCE = Object.freeze([
   ['settlementReconciliationReady', 'settlement-reconciliation-not-ready'],
 ])
 
-export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } = {}) {
+export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt, nowMs = Date.now() } = {}) {
   const blockers = []
   // USDT has six decimals. BigInt base-unit comparison avoids floating-point
   // rounding at the 1,000 USDT policy boundary, including very large inputs.
@@ -44,7 +44,7 @@ export function evaluatePayoutActivationReadiness(evidence = {}, { amountUsdt } 
     && evidence.creditFacilityApprovalReference.trim().length >= 8
     && typeof evidence.creditFacilityUseAuthorizationReference === 'string'
     && evidence.creditFacilityUseAuthorizationReference.trim().length >= 8
-    && Number.isFinite(creditExpiry) && creditExpiry > Date.now()
+    && Number.isFinite(creditExpiry) && Number.isFinite(nowMs) && creditExpiry > nowMs
     && creditLimit !== null && amountBaseUnits !== null && creditLimit >= amountBaseUnits
   if (!providerOwnedLiquidityReady && !approvedCreditUseReady) {
     blockers.push('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available')
