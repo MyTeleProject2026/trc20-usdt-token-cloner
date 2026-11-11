@@ -99,6 +99,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [recipientDepositRequirementsConfirmed, setRecipientDepositRequirementsConfirmed] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
+  const [sponsorConsent, setSponsorConsent] = useState(false)
   const [reviewReference, setReviewReference] = useState('')
   const [dailyLimit, setDailyLimit] = useState('')
   const [perPayoutLimit, setPerPayoutLimit] = useState('')
@@ -433,7 +434,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       if (!identityMatchesWallet) throw new Error('Verify the sponsor wallet identity first.')
       const result = await api('/api/tron/sponsor-direct/application', identityToken, {
         method: 'POST',
-        body: JSON.stringify({ displayName: displayName.trim(), contactEmail: contactEmail.trim() }),
+        body: JSON.stringify({ displayName: displayName.trim(), contactEmail: contactEmail.trim(), participationConsent: sponsorConsent }),
       })
       setApplication(result.application || null)
       setNotice(result.note || 'Sponsor application submitted for platform review.')
@@ -786,7 +787,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
               <label>Contact email (optional)
                 <input value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} type="email" placeholder="you@example.com" autoComplete="email" />
               </label>
-              <button className="primary-button" disabled={busy || displayName.trim().length < 2} onClick={() => void applyAsSponsor()}>
+              <label className="sponsor-consent-row">
+                <input type="checkbox" checked={sponsorConsent} onChange={(event) => setSponsorConsent(event.target.checked)} />
+                <span>I voluntarily offer this self-custody wallet for sponsor participation. I understand my wallet supplies any USDT and network resources, I review and sign every exact payout in TronLink, no private key or recovery phrase is shared, and applying does not guarantee a payout or require me to accept any request.</span>
+              </label>
+              <button className="primary-button" disabled={busy || displayName.trim().length < 2 || !sponsorConsent} onClick={() => void applyAsSponsor()}>
                 <Building2 size={16} /> Apply as an individual wallet sponsor
               </button>
             </div>
