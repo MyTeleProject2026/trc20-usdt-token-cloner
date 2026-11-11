@@ -103,6 +103,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshAt, setLastRefreshAt] = useState(null)
   const refreshInFlightRef = useRef(null)
+  const requestIdempotencyRef = useRef({ intent: '', key: '' })
 
   const walletAddress = wallet?.address || ''
   const identityToken = identitySession?.sessionToken || ''
@@ -342,14 +343,19 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
         throw new Error('Enter a positive USDT amount with no more than six decimal places.')
       }
+      const requestIntent = JSON.stringify({ recipientAddress: recipient.trim(), amount: amount.trim() })
+      if (requestIdempotencyRef.current.intent !== requestIntent || !requestIdempotencyRef.current.key) {
+        requestIdempotencyRef.current = { intent: requestIntent, key: crypto.randomUUID() }
+      }
       const result = await api('/api/tron/sponsor-direct/requests', identityToken, {
         method: 'POST',
         body: JSON.stringify({
           recipientAddress: recipient.trim(),
           amount: amount.trim(),
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: requestIdempotencyRef.current.key,
         }),
       })
+      requestIdempotencyRef.current = { intent: '', key: '' }
       setRecipient('')
       setAmount('')
       setNotice(result.note || 'Withdrawal request submitted. A sponsor must authorize and fund it.')
@@ -459,6 +465,29 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       setNotice(result.note || 'Payout status refreshed.')
     } catch (cause) {
       setError(cause?.message || 'Could not refresh the payout status.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancelRequest(id) {
+    if (!window.confirm('Cancel this unsigned payout request? The sponsor reservation will be released.')) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      if (!identityMatchesWallet || walletAddress !== ownerSession?.address) {
+        throw new Error('Reconnect the configured platform-owner wallet to cancel this request.')
+      }
+      const result = await api('/api/tron/sponsor-direct/requests/' + encodeURIComponent(id) + '/cancel', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      setNotice(result.note || 'Unsigned withdrawal request cancelled; no funds moved.')
+      await refresh()
+    } catch (cause) {
+      setError(cause?.message || 'Could not safely cancel this request.')
+      await refresh().catch(() => {})
     } finally {
       setBusy(false)
     }
@@ -826,6 +855,9 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                     </div>
                     <div className="transaction-actions">
                       <button className="secondary-button" disabled={busy} onClick={() => void refreshRequest(item.id)}><RefreshCw size={15} /> Refresh status</button>
+                      {['requested', 'prepared'].includes(item.status) && (
+                        <button className="outline-button" disabled={busy || !identityMatchesWallet || walletAddress !== ownerSession?.address} onClick={() => void cancelRequest(item.id)}>Cancel unsigned request</button>
+                      )}
                     </div>
                   </article>
                 ))}
