@@ -3,7 +3,7 @@ import ProviderPayoutReadiness from './ProviderPayoutReadiness.jsx'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, MoreHorizontal, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
@@ -37,6 +37,7 @@ async function api(path, options = {}) {
 
 export default function App() {
   const [tab,setTab]=useState('overview')
+  const [moreOpen,setMoreOpen]=useState(false)
   const [unlocked,setUnlocked]=useState(null)
   const [monitorAddress,setMonitorAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [monitorData,setMonitorData]=useState(null)
@@ -178,6 +179,14 @@ export default function App() {
     {id:'transactions',label:'Transactions',icon:History},
     {id:'settings',label:'Settings',icon:Settings},
   ]
+  const mobilePrimaryNav = nav.filter(item => ['overview','assets','recipients','withdrawals'].includes(item.id))
+  const mobileMoreNav = nav.filter(item => ['provider','sponsors','transactions','settings'].includes(item.id))
+  const mobileMoreDescriptions = {
+    provider: 'Funding status and readiness checks',
+    sponsors: 'Review sponsor wallets and approvals',
+    transactions: 'Track submitted and confirmed payouts',
+    settings: 'Network, owner and platform configuration',
+  }
 
   if (!ownerSessionResolved) return (
     <div className="app-shell auth-shell">
@@ -210,10 +219,19 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
       <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
-      <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>setTab(item.id)}><item.icon size={17}/>{item.label}</button>)}</nav>
+      <nav aria-label="Desktop navigation">{nav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={17}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
+    <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+      {mobilePrimaryNav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={19} strokeWidth={2}/><span>{({overview:'Home',assets:'Assets',recipients:'Recipients',withdrawals:'Withdraw'})[item.id]}</span></button>)}
+      <button type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
+    </nav>
     <main className="main-content">
+      {moreOpen&&<button type="button" className="mobile-more-backdrop" aria-label="Close more navigation" onClick={()=>setMoreOpen(false)}/>}
+      {moreOpen&&<section className="mobile-more-menu" id="mobile-more-menu" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
+        <div className="mobile-more-heading"><div><span className="eyebrow">MORE WORKSPACE</span><h2 id="mobile-more-title">More sections</h2></div><button type="button" className="icon-button" aria-label="Close menu" onClick={()=>setMoreOpen(false)}><X size={17}/></button></div>
+        <div className="mobile-more-grid">{mobileMoreNav.map(item=><button type="button" key={item.id} className={tab===item.id?'selected':''} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><span className="mobile-more-icon"><item.icon size={18}/></span><span className="mobile-more-copy"><b>{item.label}</b><small>{mobileMoreDescriptions[item.id]}</small></span><span className="mobile-more-arrow">›</span></button>)}</div>
+      </section>}
       <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'External payout funding',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
       <div className="content">
         <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
