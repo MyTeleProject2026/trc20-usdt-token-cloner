@@ -24,7 +24,7 @@ test('active withdrawal tab uses the zero-balance owner sponsor-direct request f
   assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />'))
   assert.ok(sponsor.includes("api('/api/tron/sponsor-direct/requests'"))
   assert.ok(sponsor.includes('A sponsor must authorize and fund it.'))
-  assert.ok(sponsor.includes('zero-balance owner identity wallet is supported'))
+  assert.ok(sponsor.includes('The owner identity wallet does not need USDT or TRX to submit a request.'))
   assert.ok(!app.includes("import OwnerWithdrawals"))
 })
 
@@ -109,7 +109,7 @@ test('Funding status tab explains sponsor funding and links to the correct owner
 
 
 test('owner dashboard copy consistently explains sponsor-direct funding rather than a provider credit facility', () => {
-  assert.ok(app.includes('A separate owner-approved sponsor wallet must hold the actual USDT'))
+  assert.ok(app.includes('A real withdrawal uses the sponsor-direct route'))
   assert.ok(app.includes('sponsor-direct route'))
   assert.ok(!app.includes('provider-owned liquidity or an approved credit facility'))
 })
@@ -122,7 +122,7 @@ test('Mainnet sponsor broadcast revalidates the exact signed payout and live fun
   assert.ok(sponsorRoute.includes('readSnapshot(env, auth.address)'))
   assert.ok(sponsorRoute.includes('calculateSponsorDirectFeeCoverage'))
   assert.ok(sponsorRoute.includes("'wallet/broadcasttransaction'"))
-  assert.ok(sponsorRoute.includes("status='submitted'"))
+  assert.ok(sponsorRoute.includes("status=\\'submitted\\'"))
   assert.ok(sponsorRoute.includes('verifyTransfer(env,'))
   assert.ok(sponsorRoute.includes('startSponsorDirectPayoutReconciliationWorker'))
 })
