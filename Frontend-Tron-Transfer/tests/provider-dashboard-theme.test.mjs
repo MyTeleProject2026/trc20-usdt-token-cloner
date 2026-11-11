@@ -247,10 +247,10 @@ test('payout partner integration is documented as gated groundwork, not a config
 })
 
 
-test('owner partner prospect tracker is local-only and cannot imply provider funding or authorization', () => {
+test('owner partner prospect tracker uses owner-authenticated persistent API without implying funding or authorization', () => {
   assert.ok(sponsor.includes('EXTERNAL PARTNER MANAGEMENT'))
   assert.ok(sponsor.includes('Partner and sponsor prospect tracker'))
-  assert.ok(sponsor.includes("tron-transfer:partner-prospects:v1"))
+  assert.ok(sponsor.includes("/api/tron/sponsor-direct/partner-prospects"))
   assert.ok(sponsor.includes('function addPartnerProspect()'))
   assert.ok(sponsor.includes('function updatePartnerProspect(id, status)'))
   assert.ok(sponsor.includes('Prospect status only — no funding or authorization is implied.'))
