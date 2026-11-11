@@ -91,6 +91,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [fundingDepositAmount, setFundingDepositAmount] = useState('')
   const [fundingLedgerBusy, setFundingLedgerBusy] = useState(false)
   const [recipient, setRecipient] = useState('')
+  const [recipientLabel, setRecipientLabel] = useState('')
+  const [savedRecipients, setSavedRecipients] = useState([])
   const [amount, setAmount] = useState('')
   const [recipientNetworkConfirmed, setRecipientNetworkConfirmed] = useState(false)
   const [recipientDepositRequirementsConfirmed, setRecipientDepositRequirementsConfirmed] = useState(false)
@@ -107,6 +109,50 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [lastRefreshAt, setLastRefreshAt] = useState(null)
   const refreshInFlightRef = useRef(null)
   const requestIdempotencyRef = useRef({ intent: '', key: '' })
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('tron-transfer:recipient-book:v1')
+      const parsed = raw ? JSON.parse(raw) : []
+      setSavedRecipients(Array.isArray(parsed) ? parsed.filter((item) =>
+        item && typeof item.id === 'string' && typeof item.label === 'string'
+        && ADDRESS_RE.test(item.address || '')) : [])
+    } catch {
+      setSavedRecipients([])
+    }
+  }, [])
+
+  function saveRecipient() {
+    const address = recipient.trim()
+    const label = recipientLabel.trim()
+    if (!isValidAddress(address, wallet?.tronWeb)) {
+      setError('Connect TronLink and enter a valid TRON Mainnet recipient address before saving.')
+      return
+    }
+    if (label.length < 2 || label.length > 48) {
+      setError('Enter a recipient label between 2 and 48 characters.')
+      return
+    }
+    const next = [{ id: address, address, label }, ...savedRecipients.filter((item) => item.address !== address)].slice(0, 30)
+    try {
+      localStorage.setItem('tron-transfer:recipient-book:v1', JSON.stringify(next))
+      setSavedRecipients(next)
+      setNotice('Recipient saved on this device. It is not an exchange-verified address.')
+      setError('')
+    } catch {
+      setError('Could not save the recipient on this device. Check browser storage settings.')
+    }
+  }
+
+  function removeRecipient(address) {
+    const next = savedRecipients.filter((item) => item.address !== address)
+    try {
+      localStorage.setItem('tron-transfer:recipient-book:v1', JSON.stringify(next))
+      setSavedRecipients(next)
+    } catch {
+      setError('Could not update the recipient book on this device.')
+    }
+  }
 
   const walletAddress = wallet?.address || ''
   const identityToken = identitySession?.sessionToken || ''
@@ -657,9 +703,29 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           <p>The address receives official Tether USDT TRC20 directly from the sponsor's wallet. Check the exchange's TRON/TRC20 network, minimum deposit and memo/tag instructions before submitting.</p>
           <div className="withdrawal-form-grid">
             <div className="form-stack">
+              {savedRecipients.length > 0 && (
+                <label>Saved recipient
+                  <select value={savedRecipients.some((item) => item.address === recipient) ? recipient : ''} onChange={(event) => { const selected = savedRecipients.find((item) => item.address === event.target.value); setRecipient(selected?.address || ''); setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false) }}>
+                    <option value="">Choose a saved TRON address</option>
+                    {savedRecipients.map((item) => <option key={item.id} value={item.address}>{item.label} · {shorten(item.address)}</option>)}
+                  </select>
+                </label>
+              )}
               <label>External recipient TRON Mainnet address
                 <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false) }} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
               </label>
+              <div className="button-row">
+                <label>Save recipient label
+                  <input value={recipientLabel} onChange={(event) => setRecipientLabel(event.target.value)} placeholder="e.g. My exchange deposit" maxLength={48} />
+                </label>
+                <button className="secondary-button" type="button" disabled={!recipient.trim() || recipientLabel.trim().length < 2} onClick={saveRecipient}>Save address</button>
+              </div>
+              {savedRecipients.length > 0 && <div className="transaction-list" aria-label="Saved recipients">
+                {savedRecipients.map((item) => <div className="transaction-row" key={item.id}>
+                  <div className="transaction-main"><strong>{item.label}</strong><span>{item.address}</span><small>Stored locally in this browser only · not verified by the receiving exchange</small></div>
+                  <button className="outline-button" type="button" onClick={() => removeRecipient(item.address)}>Remove</button>
+                </div>)}
+              </div>}
               <label>USDT withdrawal amount
                 <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
               </label>
