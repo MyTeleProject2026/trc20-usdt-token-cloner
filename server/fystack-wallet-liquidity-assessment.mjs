@@ -25,7 +25,7 @@ export function assessFystackWalletUsdtLiquidity(snapshotResult, { amountUsdt, e
   add(snapshot?.decimals === 6, 'wallet-specific-snapshot-decimals-mismatch')
   add(snapshot?.balanceKind === 'available', 'wallet-specific-snapshot-not-available-balance')
   const checkedAt = typeof snapshot?.checkedAt === 'string' ? Date.parse(snapshot.checkedAt) : NaN
-  add(Number.isFinite(checkedAt) && checkedAt <= nowMs && nowMs - checkedAt <= maxAgeMs, 'wallet-specific-snapshot-stale-or-invalid')
+  add(Number.isFinite(checkedAt) && Number.isFinite(nowMs) && Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && checkedAt <= nowMs && nowMs - checkedAt <= maxAgeMs, 'wallet-specific-snapshot-stale-or-invalid')
   add(typeof expectedWalletId === 'string' && snapshot?.walletId === expectedWalletId, 'wallet-specific-snapshot-wallet-id-mismatch')
   add(typeof expectedWalletAddress === 'string' && snapshot?.walletAddress === expectedWalletAddress, 'wallet-specific-snapshot-wallet-address-mismatch')
   add(requested !== null && requested >= 1_000_000_000n, 'minimum-withdrawal-1000-usdt-not-met')
