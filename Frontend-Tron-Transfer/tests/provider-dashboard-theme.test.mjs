@@ -196,7 +196,7 @@ test('withdrawal recipient book stores validated TRON addresses locally and neve
 })
 
 
-test('owner can identify approved sponsor wallets without mistaking approval for live funding', () => {
+test('separate sponsor portal is reachable without opening the private owner console', () => {\n  assert.ok(app.includes("window.location.hash === '#/sponsor'"))\n  assert.ok(app.includes("window.addEventListener('hashchange', syncPortalRoute)"))\n  assert.ok(app.includes('Voluntary sponsor participation'))\n  assert.ok(app.includes('Connect sponsor TronLink wallet'))\n  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={null} mode="sponsor" />'))\n})\n\ntest('owner can identify approved sponsor wallets without mistaking approval for live funding', () => {
   assert.ok(sponsorRoute.includes("router.get('/approved-sponsors'"))
   assert.ok(sponsorRoute.includes("WHERE status=$1 ORDER BY reviewed_at DESC NULLS LAST"))
   assert.ok(sponsorRoute.includes("liveFundingStatus: 'not-checked'"))
