@@ -50,6 +50,15 @@ export default function App() {
   const [ownerPassword,setOwnerPassword]=useState('')
   const [ownerSession,setOwnerSession]=useState(null)
   const [ownerSessionResolved,setOwnerSessionResolved]=useState(false)
+
+  useEffect(() => {
+    if (!moreOpen) return undefined
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') setMoreOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [moreOpen])
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
 
   useEffect(()=>{
@@ -104,6 +113,7 @@ export default function App() {
     const invalidateWallet=()=>{
       setUnlocked(null)
       setTab('overview')
+      setMoreOpen(false)
       setNotice('The TronLink account or network changed. Reconnect and verify the configured owner wallet before continuing.')
     }
     const events=['accountsChanged','chainChanged','disconnect']
@@ -118,6 +128,7 @@ export default function App() {
   function lockWallet() {
     setUnlocked(null)
     setTab('overview')
+    setMoreOpen(false)
     setNotice('TronLink disconnected from this application. Your wallet remains in TronLink.')
   }
   async function inspectAddress(address=monitorAddress) {
@@ -159,6 +170,7 @@ export default function App() {
     setUnlocked(null)
     setMonitorData(null)
     setTab('overview')
+    setMoreOpen(false)
     if (!token) return
     try {
       await api('/api/auth/owner/logout', {
@@ -224,11 +236,11 @@ export default function App() {
     </aside>
     <nav className="mobile-bottom-nav" aria-label="Primary navigation">
       {mobilePrimaryNav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={19} strokeWidth={2}/><span>{({overview:'Home',assets:'Assets',recipients:'Recipients',withdrawals:'Withdraw'})[item.id]}</span></button>)}
-      <button type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
+      <button type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-current={mobileMoreNav.some(item=>item.id===tab)?'page':undefined} aria-haspopup="true" aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
     </nav>
     <main className="main-content">
       {moreOpen&&<button type="button" className="mobile-more-backdrop" aria-label="Close more navigation" onClick={()=>setMoreOpen(false)}/>}
-      {moreOpen&&<section className="mobile-more-menu" id="mobile-more-menu" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
+      {moreOpen&&<section className="mobile-more-menu" id="mobile-more-menu" role="region" aria-label="More navigation sections" aria-labelledby="mobile-more-title">
         <div className="mobile-more-heading"><div><span className="eyebrow">MORE WORKSPACE</span><h2 id="mobile-more-title">More sections</h2></div><button type="button" className="icon-button" aria-label="Close menu" onClick={()=>setMoreOpen(false)}><X size={17}/></button></div>
         <div className="mobile-more-grid">{mobileMoreNav.map(item=><button type="button" key={item.id} className={tab===item.id?'selected':''} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><span className="mobile-more-icon"><item.icon size={18}/></span><span className="mobile-more-copy"><b>{item.label}</b><small>{mobileMoreDescriptions[item.id]}</small></span><span className="mobile-more-arrow">›</span></button>)}</div>
       </section>}
