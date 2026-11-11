@@ -80,6 +80,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [application, setApplication] = useState(null)
   const [snapshot, setSnapshot] = useState(null)
   const [myRequests, setMyRequests] = useState([])
+  const [requestEvidence, setRequestEvidence] = useState({})
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
   const [ownerOverview, setOwnerOverview] = useState(null)
@@ -466,6 +467,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     try {
       const result = await api('/api/tron/sponsor-direct/requests/' + encodeURIComponent(id), identityToken)
       const request = result.request
+      setRequestEvidence((items) => ({ ...items, [id]: { confirmation: result.confirmation || null, exchangeCreditStatus: result.exchangeCreditStatus || 'not-verified-by-tron-chain', note: result.note || '' } }))
       setMyRequests((items) => items.map((item) => item.id === id ? request : item))
       setQueue((items) => items.map((item) => item.id === id ? { ...item, ...request } : item))
       setNotice(result.note || 'Payout status refreshed.')
@@ -862,7 +864,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       {item.status === 'requested' && item.sponsorAddress && item.expiresAt && <small>Temporary sponsor reservation expires {new Date(item.expiresAt).toLocaleString()}. If it expires, the request returns to the available sponsor queue.</small>}
 
                       {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
-                      {item.status === 'confirmed' && <small>On-chain transfer confirmed; exchange account credit is not independently verified.</small>}
+                      {requestEvidence[item.id]?.confirmation?.verified === true && <small role="status">Blockchain evidence: verified solidified Mainnet receipt and exact official-USDT Transfer event.</small>}
+                      {item.status === 'confirmed' && <small>Exchange deposit credit: {requestEvidence[item.id]?.exchangeCreditStatus === 'not-verified-by-tron-chain' ? 'Not verified by the TRON blockchain. Check the receiving exchange account or its deposit support.' : 'Awaiting independent exchange-side confirmation.'}</small>}
                     </div>
                     <div className="transaction-actions">
                       <button className="secondary-button" disabled={busy} onClick={() => void refreshRequest(item.id)}><RefreshCw size={15} /> Refresh status</button>
