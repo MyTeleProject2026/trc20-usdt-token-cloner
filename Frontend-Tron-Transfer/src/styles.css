@@ -1893,3 +1893,40 @@ td { color: #d2e1f5; }
   .funding-flow-panel { padding: 14px; }
   .funding-status-actions > button { flex: 1 1 180px; }
 }
+
+
+/* Explicit recipient-deposit checks before an external TRC20 payout request. */
+.recipient-deposit-checklist {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(226, 184, 105, .22);
+  border-radius: 13px;
+  background: rgba(62, 48, 25, .26);
+}
+.recipient-confirmation {
+  display: grid !important;
+  grid-template-columns: 19px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px !important;
+  color: #d7e2f1 !important;
+  font-size: 10px !important;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.recipient-confirmation input[type="checkbox"] {
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  min-height: 17px;
+  margin: 1px 0 0;
+  accent-color: #62bfff;
+  cursor: pointer;
+}
+.recipient-deposit-checklist .fine-print {
+  margin: 0;
+  padding-top: 9px;
+  border-top: 1px solid rgba(226, 184, 105, .15);
+  color: #d7bd8e;
+  line-height: 1.7;
+}
