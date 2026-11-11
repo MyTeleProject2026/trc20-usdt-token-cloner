@@ -180,7 +180,7 @@ export default function App() {
   ]
 
   if (!ownerSessionResolved) return (
-    <div className="app-shell">
+    <div className="app-shell auth-shell">
       <main className="main-content">
         <div className="content"><section className="panel"><div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER WORKSPACE</span><h2>Checking owner session</h2><p>Verifying the configured platform-owner session before opening Tron Transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div></section></div>
       </main>
@@ -188,7 +188,7 @@ export default function App() {
   )
 
   if (!ownerSession) return (
-    <div className="app-shell">
+    <div className="app-shell auth-shell">
       <main className="main-content">
         <div className="content">
           <section className="panel provider-panel">
