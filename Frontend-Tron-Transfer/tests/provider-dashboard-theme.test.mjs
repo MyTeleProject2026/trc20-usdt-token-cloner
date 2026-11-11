@@ -205,3 +205,16 @@ test('owner can identify approved sponsor wallets without mistaking approval for
   assert.ok(sponsor.includes('Live USDT and TRON resources: Not checked by this owner list.'))
   assert.ok(sponsor.includes('No approved sponsor wallets registered'))
 })
+
+
+test('funding status separates discretionary development grants from funded sponsor payouts', () => {
+  assert.ok(app.includes('TWO INDEPENDENT FUNDING PATHS'))
+  assert.ok(app.includes('TRON Builders League'))
+  assert.ok(app.includes('Tether developer grants'))
+  assert.ok(app.includes('Do not count a proposed or awarded development grant as withdrawal liquidity'))
+  assert.ok(app.includes('Voluntary individual sponsors'))
+  assert.ok(app.includes('WDK can support wallet and signing integration'))
+  assert.ok(app.includes('https://wdk.tether.io/'))
+  assert.ok(css.includes('.funding-pathway-grid'))
+  assert.ok(css.includes('.funding-pathway-note'))
+})
