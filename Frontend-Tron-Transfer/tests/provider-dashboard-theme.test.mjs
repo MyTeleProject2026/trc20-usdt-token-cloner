@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
 const sponsor = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
 const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+const sponsorRoute = await readFile(new URL('../../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
 
 test('recipient inspection uses the read-only Mainnet API path', () => {
   assert.ok(app.includes('/api/tron-transfer/recipient'))
@@ -111,4 +112,26 @@ test('owner dashboard copy consistently explains sponsor-direct funding rather t
   assert.ok(app.includes('A separate owner-approved sponsor wallet must hold the actual USDT'))
   assert.ok(app.includes('sponsor-direct route'))
   assert.ok(!app.includes('provider-owned liquidity or an approved credit facility'))
+})
+
+
+test('Mainnet sponsor broadcast revalidates the exact signed payout and live funding before sending', () => {
+  assert.ok(sponsorRoute.includes("router.post('/requests/:id/broadcast'"))
+  assert.ok(sponsorRoute.includes('validateOwnerSignedTransaction(signedTransaction, row.unsigned_transaction, intent)'))
+  assert.ok(sponsorRoute.includes("'wallet/getapprovedlist'"))
+  assert.ok(sponsorRoute.includes('readSnapshot(env, auth.address)'))
+  assert.ok(sponsorRoute.includes('calculateSponsorDirectFeeCoverage'))
+  assert.ok(sponsorRoute.includes("'wallet/broadcasttransaction'"))
+  assert.ok(sponsorRoute.includes("status='submitted'"))
+  assert.ok(sponsorRoute.includes('verifyTransfer(env,'))
+  assert.ok(sponsorRoute.includes('startSponsorDirectPayoutReconciliationWorker'))
+})
+
+test('sponsor payout route never substitutes requester funds or claims exchange-account credit', () => {
+  assert.ok(sponsorRoute.includes('Only the approved sponsor address can sign this exact transfer'))
+  assert.ok(sponsorRoute.includes('sponsor-insufficient-mainnet-usdt-balance'))
+  assert.ok(sponsorRoute.includes('sponsor-network-fee-resources-insufficient'))
+  assert.ok(sponsorRoute.includes('Do not sign or submit a replacement payment'))
+  assert.ok(sponsorRoute.includes('solidified Mainnet receipt and official USDT Transfer event'))
+  assert.ok(sponsorRoute.includes('No funds move until that sponsor approves in its own TronLink wallet'))
 })
