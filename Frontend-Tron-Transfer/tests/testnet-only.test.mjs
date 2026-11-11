@@ -34,7 +34,7 @@ test('the entire dashboard is gated by the configured platform-owner session', (
 })
 
 test('private owner dashboard uses per-transfer approved sponsor wallets for Mainnet withdrawals', () => {
-  assert.ok(app.includes("id:'provider',label:'Funding provider'"))
+  assert.ok(app.includes("id:'provider',label:'Funding status'"))
   assert.ok(app.includes("id:'sponsors',label:'Sponsor approvals'"))
   assert.ok(app.includes("tab==='provider'"))
   assert.ok(app.includes("tab==='sponsors'"))
