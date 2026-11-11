@@ -1203,6 +1203,35 @@ export function createSponsorDirectPayoutsRouter({
     }
   })
 
+  // Owner-only list of approved sponsor wallet profiles. Approval is not proof of
+  // current USDT or TRON resource sufficiency; each sponsor's own live readiness
+  // endpoint and the pre-sign/broadcast checks remain authoritative.
+  router.get('/approved-sponsors', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    try {
+      await ensureSchema(db)
+      const result = await db.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_applications WHERE status=\\'active\\' ORDER BY reviewed_at DESC NULLS LAST, created_at ASC LIMIT 100',
+      )
+      return res.json({
+        success: true,
+        sponsors: result.rows.map((row) => ({
+          ...publicApplication(row),
+          contactEmail: row.contact_email || null,
+          liveFundingStatus: 'not-checked',
+          liveFundingVerified: false,
+        })),
+        note: 'Approval permits wallet participation only. Current USDT balance and TRON resources must be checked live by the sponsor and again before each payout.',
+      })
+    } catch {
+      return res.status(503).json({ success: false, error: 'approved-sponsor-list-unavailable' })
+    }
+  })
+
   // Owner-only aggregate view: report profile/queue counts without leaking sponsor
   // addresses or pretending that an approved profile proves current funding.
   router.get('/owner-overview', async (req, res) => {
