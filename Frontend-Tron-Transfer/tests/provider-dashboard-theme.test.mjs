@@ -135,3 +135,28 @@ test('sponsor payout route never substitutes requester funds or claims exchange-
   assert.ok(sponsorRoute.includes('solidified Mainnet receipt and official USDT Transfer event'))
   assert.ok(sponsorRoute.includes('No funds move until that sponsor approves in its own TronLink wallet'))
 })
+
+
+test('withdrawal retries reuse one idempotency key per exact recipient and amount', () => {
+  assert.ok(sponsor.includes('requestIdempotencyRef = useRef({ intent: \'\', key: \'\' })'))
+  assert.ok(sponsor.includes('requestIdempotencyRef.current.intent !== requestIntent'))
+  assert.ok(sponsor.includes('idempotencyKey: requestIdempotencyRef.current.key'))
+  assert.ok(sponsor.includes("requestIdempotencyRef.current = { intent: '', key: '' }"))
+})
+
+test('owner can cancel only unsigned requested or prepared payouts from the withdrawal history', () => {
+  assert.ok(sponsor.includes("'/cancel'"))
+  assert.ok(sponsor.includes('walletAddress !== ownerSession?.address'))
+  assert.ok(sponsor.includes("['requested', 'prepared'].includes(item.status)"))
+  assert.ok(sponsor.includes('Cancel unsigned request'))
+  assert.ok(sponsor.includes('payout-can-no-longer-be-cancelled-safely'))
+  assert.ok(sponsor.includes('cancelled-by-platform-owner'))
+})
+
+test('sponsor-direct broadcast integration covers signature rejection, one accepted broadcast, and non-credit status', () => {
+  assert.ok(sponsorRoute.includes("router.post('/requests/:id/broadcast'"))
+  assert.ok(sponsorRoute.includes("router.post('/requests/:id/cancel'"))
+  assert.ok(sponsorRoute.includes("wallet/broadcasttransaction"))
+  assert.ok(sponsorRoute.includes('sponsor-signature-not-approved-by-tron-network'))
+  assert.ok(sponsorRoute.includes('solidified Mainnet receipt and official USDT Transfer event'))
+})
