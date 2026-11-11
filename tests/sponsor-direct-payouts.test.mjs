@@ -237,6 +237,8 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
   const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
+  let approvedAddresses = [requesterAddress]
+  let broadcastAttempts = 0
   let server
 
   try {
@@ -263,6 +265,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         } : { success: true, session: null }
       },
       getDatabase: () => db,
+      verifyTransfer: async (_env, intent) => ({ verified: false, status: 'awaiting-solidified-receipt', transactionHash: intent.transactionHash }),
       readSnapshot: async (_env, address) => ({
         sponsorAddress: address,
         network: 'mainnet',
@@ -289,6 +292,13 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         }
         if (providerPath === 'wallet/triggersmartcontract') {
           return { result: { result: true }, transaction: unsignedTransfer() }
+        }
+        if (providerPath === 'wallet/getapprovedlist') {
+          return { result: { result: true }, approved_list: approvedAddresses }
+        }
+        if (providerPath === 'wallet/broadcasttransaction') {
+          broadcastAttempts += 1
+          return { result: true }
         }
         throw new Error('Unexpected Tatum integration-test path: ' + providerPath)
       },
@@ -352,6 +362,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(first.payload.transactionBroadcast, false)
     assert.equal(first.payload.request.sponsorAddress, sponsorAddress)
 
+    const duplicateFirst = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '25',
+      idempotencyKey: firstIdempotencyKey,
+    })
+    assert.equal(duplicateFirst.response.status, 200)
+    assert.equal(duplicateFirst.payload.duplicate, true)
+    assert.equal(duplicateFirst.payload.request.id, first.payload.request.id)
+
     const second = await call('/requests', requesterToken, {
       recipientAddress,
       amount: '25',
@@ -389,6 +408,41 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(requesterHistory.response.status, 200)
     const requesterCopy = requesterHistory.payload.requests.find((item) => item.id === first.payload.request.id)
     assert.equal(requesterCopy.unsignedTransaction, undefined)
+
+    const unsignedSignedTransaction = {
+      ...prepared.payload.unsignedTransaction,
+      signature: ['a'.repeat(130)],
+    }
+    const rejectedBroadcast = await call('/requests/' + first.payload.request.id + '/broadcast', sponsorToken, {
+      signedTransaction: unsignedSignedTransaction,
+    })
+    assert.equal(rejectedBroadcast.response.status, 401)
+    assert.equal(rejectedBroadcast.payload.error, 'sponsor-signature-not-approved-by-tron-network')
+    assert.equal(broadcastAttempts, 0)
+
+    approvedAddresses = [sponsorAddress]
+    const submitted = await call('/requests/' + first.payload.request.id + '/broadcast', sponsorToken, {
+      signedTransaction: unsignedSignedTransaction,
+    })
+    assert.equal(submitted.response.status, 202)
+    assert.equal(submitted.payload.status, 'submitted')
+    assert.equal(submitted.payload.transactionHash, prepared.payload.unsignedTransaction.txID)
+    assert.equal(broadcastAttempts, 1)
+
+    const statusAfterBroadcast = await call('/requests/' + first.payload.request.id, requesterToken)
+    assert.equal(statusAfterBroadcast.response.status, 200)
+    assert.equal(statusAfterBroadcast.payload.request.status, 'submitted')
+    assert.equal(statusAfterBroadcast.payload.confirmation, null)
+    assert.equal(statusAfterBroadcast.payload.exchangeCreditStatus, 'not-verified-by-tron-chain')
+
+    const cannotCancelSubmitted = await call('/requests/' + first.payload.request.id + '/cancel', requesterToken, {})
+    assert.equal(cannotCancelSubmitted.response.status, 409)
+    assert.equal(cannotCancelSubmitted.payload.error, 'payout-can-no-longer-be-cancelled-safely')
+
+    const cancelledPending = await call('/requests/' + second.payload.request.id + '/cancel', requesterToken, {})
+    assert.equal(cancelledPending.response.status, 200)
+    assert.equal(cancelledPending.payload.request.status, 'cancelled')
+    assert.equal(cancelledPending.payload.transactionBroadcast, false)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
