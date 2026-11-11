@@ -78,3 +78,14 @@ test('rejects stale and future-dated wallet snapshots', () => {
   assert.equal(stale.executionEnabled, false)
   assert.equal(futureResult.executionEnabled, false)
 })
+
+
+test('rejects invalid clock and freshness-window overrides', () => {
+  const options = { ...expected, amountUsdt: '1000' }
+  for (const override of [{ nowMs: NaN }, { nowMs: Infinity }, { maxAgeMs: Infinity }, { maxAgeMs: -1 }]) {
+    const result = assessFystackWalletUsdtLiquidity(wallet, { ...options, ...override })
+    assert.ok(result.blockers.includes('wallet-specific-snapshot-stale-or-invalid'))
+    assert.equal(result.providerBalanceVerified, false)
+    assert.equal(result.executionEnabled, false)
+  }
+})
