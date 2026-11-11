@@ -90,3 +90,15 @@ test('More navigation locks background scroll and restores keyboard focus', () =
   assert.ok(app.includes("moreMenuRef.current?.querySelector('button')?.focus()"))
   assert.ok(app.includes('moreTriggerRef.current?.focus()'))
 })
+
+
+test('Funding status tab explains sponsor funding and links to the correct owner actions', () => {
+  assert.ok(app.includes("label:'Funding status'"))
+  assert.ok(app.includes('Funding status & payout requirements'))
+  assert.ok(app.includes("setTab('sponsors')"))
+  assert.ok(app.includes("setTab('withdrawals')"))
+  assert.ok(app.includes('Sponsor-funded'))
+  assert.ok(!app.includes('ProviderPayoutReadiness'))
+  assert.ok(css.includes('.funding-status-grid'))
+  assert.ok(css.includes('.funding-flow-list'))
+})
