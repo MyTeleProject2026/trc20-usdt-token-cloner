@@ -104,6 +104,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [dailyLimit, setDailyLimit] = useState('')
   const [perPayoutLimit, setPerPayoutLimit] = useState('')
   const [inviteMessage, setInviteMessage] = useState('')
+  const [partnerName, setPartnerName] = useState('')
+  const [partnerType, setPartnerType] = useState('payout-provider')
+  const [partnerContact, setPartnerContact] = useState('')
+  const [partnerNotes, setPartnerNotes] = useState('')
+  const [partnerLeads, setPartnerLeads] = useState([])
   const [prepared, setPrepared] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -437,6 +442,65 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       setInviteMessage(cause?.message || 'Could not copy the link. Open the portal below and copy its address manually.')
     }
   }
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('tron-transfer:partner-prospects:v1') || '[]')
+      setPartnerLeads(Array.isArray(parsed) ? parsed.filter((item) =>
+        item && typeof item.id === 'string' && typeof item.name === 'string'
+        && ['payout-provider', 'treasury-partner', 'grant-program', 'individual-sponsor'].includes(item.type)
+        && ['identified', 'contacted', 'due-diligence', 'agreement-pending', 'sandbox-pending', 'declined'].includes(item.status)) : [])
+    } catch { setPartnerLeads([]) }
+  }, [])
+
+  function persistPartnerLeads(next) {
+    try {
+      localStorage.setItem('tron-transfer:partner-prospects:v1', JSON.stringify(next))
+      setPartnerLeads(next)
+      setError('')
+      return true
+    } catch {
+      setError('Could not save partner prospect notes in this browser. Check local storage availability.')
+      return false
+    }
+  }
+
+  function addPartnerProspect() {
+    const name = partnerName.trim()
+    if (name.length < 2 || name.length > 100) {
+      setError('Enter a partner or sponsor name between 2 and 100 characters.')
+      return
+    }
+    if (partnerContact.trim().length > 160 || partnerNotes.trim().length > 1000) {
+      setError('Contact and notes are too long.')
+      return
+    }
+    const next = [{
+      id: crypto.randomUUID(),
+      name,
+      type: partnerType,
+      contact: partnerContact.trim(),
+      notes: partnerNotes.trim(),
+      status: 'identified',
+      createdAt: new Date().toISOString(),
+    }, ...partnerLeads].slice(0, 100)
+    if (persistPartnerLeads(next)) {
+      setPartnerName('')
+      setPartnerContact('')
+      setPartnerNotes('')
+      setNotice('Prospect saved locally. This is a contact tracker only, not partner approval or payout eligibility.')
+    }
+  }
+
+  function updatePartnerProspect(id, status) {
+    const allowed = ['identified', 'contacted', 'due-diligence', 'agreement-pending', 'sandbox-pending', 'declined']
+    if (!allowed.includes(status)) return
+    persistPartnerLeads(partnerLeads.map((item) => item.id === id ? { ...item, status, updatedAt: new Date().toISOString() } : item))
+  }
+
+  function removePartnerProspect(id) {
+    persistPartnerLeads(partnerLeads.filter((item) => item.id !== id))
+  }
+
   async function applyAsSponsor() {
     setBusy(true)
     setError('')
@@ -915,6 +979,43 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           <p className="fine-print">Wallet-message authentication proves control of an address only. It does not establish identity, source of funds, solvency, legal authority or willingness to fund. Never request a seed phrase, private key, password or OTP.</p>
         </div>
       )}
+      {mode === 'sponsor' && isOwnerAdmin && (
+        <div className="sponsor-funding-destination">
+          <div className="section-heading compact">
+            <div><span className="eyebrow">EXTERNAL PARTNER MANAGEMENT</span><h3>Partner and sponsor prospect tracker</h3></div>
+            <span className="status-pill">Local notes only</span>
+          </div>
+          <p>Track prospective payout providers, treasury partners, grant programs and individual sponsors. Entries are saved only in this browser. They are not verified, contracted, funded, connected to an API or eligible to send payouts.</p>
+          <div className="form-stack">
+            <label>Organization or sponsor name<input value={partnerName} onChange={(event) => setPartnerName(event.target.value)} maxLength={100} placeholder="Name of provider, program or willing sponsor" /></label>
+            <label>Prospect type<select value={partnerType} onChange={(event) => setPartnerType(event.target.value)}><option value="payout-provider">Payout provider</option><option value="treasury-partner">Treasury / liquidity partner</option><option value="grant-program">Development grant program</option><option value="individual-sponsor">Individual self-custody sponsor</option></select></label>
+            <label>Public contact or application URL<input value={partnerContact} onChange={(event) => setPartnerContact(event.target.value)} maxLength={160} placeholder="Official website or public contact (no credentials)" /></label>
+            <label>Due-diligence notes<textarea value={partnerNotes} onChange={(event) => setPartnerNotes(event.target.value)} maxLength={1000} rows={3} placeholder="Eligibility, permitted use, network support, funding terms, response date…" /></label>
+            <div className="button-row"><button className="primary-button" type="button" disabled={!partnerName.trim()} onClick={addPartnerProspect}><Building2 size={15} /> Add prospect</button></div>
+          </div>
+          <div className="section-heading compact"><div><span className="eyebrow">OUTREACH PIPELINE</span><h3>{partnerLeads.length} saved prospects</h3></div></div>
+          {!partnerLeads.length ? <div className="empty-state"><Building2 size={22} /><b>No partner prospects tracked yet</b><p>Add a public provider or sponsor contact to organize your outreach.</p></div> : <div className="transaction-list">
+            {partnerLeads.map((item) => (
+              <article className="transaction-row" key={item.id}>
+                <div className="transaction-main">
+                  <strong>{item.name}</strong>
+                  <small>{({ 'payout-provider': 'Payout provider', 'treasury-partner': 'Treasury / liquidity partner', 'grant-program': 'Development grant program', 'individual-sponsor': 'Individual sponsor' })[item.type]}</small>
+                  {item.contact && <a href={/^https:\/\//i.test(item.contact) ? item.contact : undefined} target="_blank" rel="noreferrer">{item.contact}</a>}
+                  {item.notes && <small>{item.notes}</small>}
+                  <small>Added {new Date(item.createdAt).toLocaleDateString()}</small>
+                  <small>Prospect status only — no funding or authorization is implied.</small>
+                </div>
+                <div className="transaction-actions">
+                  <label>Outreach status<select value={item.status} onChange={(event) => updatePartnerProspect(item.id, event.target.value)}><option value="identified">Identified</option><option value="contacted">Contacted</option><option value="due-diligence">Due diligence</option><option value="agreement-pending">Agreement pending</option><option value="sandbox-pending">Sandbox pending</option><option value="declined">Declined / closed</option></select></label>
+                  <button className="outline-button" type="button" onClick={() => removePartnerProspect(item.id)}>Remove prospect</button>
+                </div>
+              </article>
+            ))}
+          </div>}
+          <p className="fine-print">Never store API keys, passwords, wallet secrets, private keys, seed phrases, identity documents or payment credentials here. A partner becomes eligible for a separate reviewed integration only after verified legal authority, written agreement, documented API specification, sandbox testing, confirmed funding and independent Mainnet reconciliation.</p>
+        </div>
+      )}
+
       {mode === 'sponsor' && isOwnerAdmin && (
         <div className="sponsor-funding-destination">
           <div className="section-heading compact">
