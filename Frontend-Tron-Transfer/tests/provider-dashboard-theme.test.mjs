@@ -239,7 +239,7 @@ test('owner sponsor workspace exposes a safe invitation to the independent spons
 
 test('payout partner integration is documented as gated groundwork, not a configured provider', async () => {
   const { readFile } = await import('node:fs/promises')
-  const partnerGuide = await readFile(new URL('../../../docs/PAYOUT_PARTNER_INTEGRATION_AND_SPONSOR_RECRUITMENT.md', import.meta.url), 'utf8')
+  const partnerGuide = await readFile(new URL('../../docs/PAYOUT_PARTNER_INTEGRATION_AND_SPONSOR_RECRUITMENT.md', import.meta.url), 'utf8')
   assert.ok(partnerGuide.includes('not currently implemented'))
   assert.ok(partnerGuide.includes('signed API specification and sandbox credentials'))
   assert.ok(partnerGuide.includes('solidified Mainnet transaction and exact USDT Transfer event'))
