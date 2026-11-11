@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ProviderPayoutReadiness from './ProviderPayoutReadiness.jsx'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
 import { TronWeb } from 'tronweb'
@@ -38,6 +38,9 @@ async function api(path, options = {}) {
 export default function App() {
   const [tab,setTab]=useState('overview')
   const [moreOpen,setMoreOpen]=useState(false)
+  const moreTriggerRef=useRef(null)
+  const moreMenuRef=useRef(null)
+  const wasMoreOpen=useRef(false)
   const [unlocked,setUnlocked]=useState(null)
   const [monitorAddress,setMonitorAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [monitorData,setMonitorData]=useState(null)
@@ -52,12 +55,22 @@ export default function App() {
   const [ownerSessionResolved,setOwnerSessionResolved]=useState(false)
 
   useEffect(() => {
-    if (!moreOpen) return undefined
+    const previousOverflow = document.body.style.overflow
     const closeOnEscape = event => {
       if (event.key === 'Escape') setMoreOpen(false)
     }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
+    if (moreOpen) {
+      document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', closeOnEscape)
+      moreMenuRef.current?.querySelector('button')?.focus()
+    } else if (wasMoreOpen.current) {
+      moreTriggerRef.current?.focus()
+    }
+    wasMoreOpen.current = moreOpen
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
   }, [moreOpen])
   const addressLink=useMemo(()=>isValidAddress(monitorAddress)?'https://tronscan.org/#/address/'+encodeURIComponent(monitorAddress):null,[monitorAddress])
 
@@ -236,11 +249,11 @@ export default function App() {
     </aside>
     <nav className="mobile-bottom-nav" aria-label="Primary navigation">
       {mobilePrimaryNav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={19} strokeWidth={2}/><span>{({overview:'Home',assets:'Assets',recipients:'Recipients',withdrawals:'Withdraw'})[item.id]}</span></button>)}
-      <button type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-haspopup="true" aria-expanded={moreOpen} aria-controls="mobile-more-menu" aria-label={mobileMoreNav.some(item=>item.id===tab)?`More menu, current section ${mobileMoreNav.find(item=>item.id===tab).label}`:'Open more sections'} onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
+      <button ref={moreTriggerRef} type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-haspopup="true" aria-expanded={moreOpen} aria-controls="mobile-more-menu" aria-label={mobileMoreNav.some(item=>item.id===tab)?`More menu, current section ${mobileMoreNav.find(item=>item.id===tab).label}`:'Open more sections'} onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
     </nav>
     <main className="main-content">
       {moreOpen&&<button type="button" className="mobile-more-backdrop" aria-label="Close more navigation" onClick={()=>setMoreOpen(false)}/>}
-      {moreOpen&&<section className="mobile-more-menu" id="mobile-more-menu" role="region" aria-label="More navigation sections" aria-labelledby="mobile-more-title">
+      {moreOpen&&<section ref={moreMenuRef} className="mobile-more-menu" id="mobile-more-menu" role="region" aria-label="More navigation sections" aria-labelledby="mobile-more-title">
         <div className="mobile-more-heading"><div><span className="eyebrow">MORE WORKSPACE</span><h2 id="mobile-more-title">More sections</h2></div><button type="button" className="icon-button" aria-label="Close menu" onClick={()=>setMoreOpen(false)}><X size={17}/></button></div>
         <div className="mobile-more-grid">{mobileMoreNav.map(item=><button type="button" key={item.id} className={tab===item.id?'selected':''} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><span className="mobile-more-icon"><item.icon size={18}/></span><span className="mobile-more-copy"><b>{item.label}</b><small>{mobileMoreDescriptions[item.id]}</small></span><span className="mobile-more-arrow">›</span></button>)}</div>
       </section>}
