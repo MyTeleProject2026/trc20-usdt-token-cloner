@@ -83,6 +83,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [requestEvidence, setRequestEvidence] = useState({})
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
+  const [approvedSponsors, setApprovedSponsors] = useState([])
   const [ownerOverview, setOwnerOverview] = useState(null)
   const [ownerFundingLedger, setOwnerFundingLedger] = useState(null)
   const [fundingLedgerError, setFundingLedgerError] = useState('')
@@ -261,15 +262,18 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             setPrepared(null)
           }
           if (isOwnerAdmin) {
-            const [adminResult, overviewResult] = await Promise.all([
+            const [adminResult, approvedResult, overviewResult] = await Promise.all([
               api('/api/tron/sponsor-direct/applications', identityToken),
+              api('/api/tron/sponsor-direct/approved-sponsors', identityToken),
               api('/api/tron/sponsor-direct/owner-overview', identityToken),
             ])
             setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
+            setApprovedSponsors(Array.isArray(approvedResult.sponsors) ? approvedResult.sponsors : [])
             setOwnerOverview(overviewResult)
             await refreshOwnerFundingLedger()
           } else {
             setApplications([])
+            setApprovedSponsors([])
             setOwnerOverview(null)
             setOwnerFundingLedger(null)
             setFundingLedgerError('')
@@ -282,6 +286,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           setQueue([])
           setPrepared(null)
           setApplications([])
+          setApprovedSponsors([])
           setOwnerOverview(null)
           setOwnerFundingLedger(null)
           setLastRefreshAt(null)
@@ -905,6 +910,22 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             </article>
           ))}
           <p className="fine-print">Platform approval confirms only that the owner has allowed this wallet to participate under the displayed spending limits. It does not verify company registration, beneficial ownership, regulatory status or sponsor solvency.</p>
+          <div className="section-heading compact">
+            <div><span className="eyebrow">APPROVED SPONSOR WALLETS</span><h3>Approved participants</h3></div>
+            <span>{approvedSponsors.length} approved</span>
+          </div>
+          {!approvedSponsors.length ? <div className="empty-state"><Wallet size={22} /><b>No approved sponsor wallets registered</b><p>At present there is no approved sponsor available through this platform.</p></div> : approvedSponsors.map((item) => (
+            <article className="transaction-row" key={item.id}>
+              <div className="transaction-main">
+                <strong>{item.displayName}</strong>
+                <span>{item.sponsorAddress}</span>
+                <small>{item.contactEmail || 'No contact email supplied'}</small>
+                <small>Approved payout cap: {formatUnits(item.perPayoutLimitBaseUnits)} USDT · daily cap: {formatUnits(item.dailyLimitBaseUnits)} USDT</small>
+                <small>Live USDT and TRON resources: Not checked by this owner list. Sponsor must connect this wallet and refresh its own live readiness; every payout is checked again before signing and broadcast.</small>
+              </div>
+            </article>
+          ))}
+          <p className="fine-print">The approved list identifies wallet participants only. It does not indicate which wallet currently has sufficient USDT, TRX, Energy or Bandwidth. No sponsor is eligible to sign until live funding and resource checks pass.</p>
         </div>
       )}
 
