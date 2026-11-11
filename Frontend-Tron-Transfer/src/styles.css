@@ -1591,3 +1591,208 @@ td { color: #d2e1f5; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+
+
+/* ─────────────────────────────────────────────────────────────
+   Mobile bottom navigation + simplified action hierarchy
+   Five fixed destinations: Home, Assets, Recipients, Withdraw, More.
+   Secondary workspace sections live in the More sheet.
+   ───────────────────────────────────────────────────────────── */
+.mobile-bottom-nav { display: none; }
+.mobile-more-backdrop, .mobile-more-menu { display: none; }
+
+@media (max-width: 720px) {
+  .sidebar { display: none !important; }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    z-index: 70;
+    inset-inline: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(129, 177, 231, .2);
+    background: rgba(7, 14, 27, .94);
+    box-shadow: 0 -14px 42px rgba(0, 0, 0, .35), inset 0 1px rgba(255,255,255,.035);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+  }
+
+  .mobile-bottom-nav > button {
+    display: flex;
+    min-width: 0;
+    min-height: 56px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 2px;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    background: transparent;
+    color: #8295b3;
+    font-family: var(--font-ui);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .015em;
+    line-height: 1.1;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .mobile-bottom-nav > button svg { flex: 0 0 auto; }
+  .mobile-bottom-nav > button span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-bottom-nav > button.active {
+    border-color: rgba(92, 184, 255, .2);
+    background: linear-gradient(180deg, rgba(42, 126, 205, .25), rgba(18, 55, 96, .24));
+    color: #a9ddff;
+    box-shadow: inset 0 1px rgba(255,255,255,.035);
+  }
+
+  .mobile-bottom-nav > button:focus-visible {
+    outline: 2px solid #83d0ff;
+    outline-offset: -2px;
+  }
+
+  .main-content {
+    min-width: 0;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-more-backdrop {
+    position: fixed;
+    z-index: 68;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgba(2, 7, 16, .62);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+
+  .mobile-more-menu {
+    position: fixed;
+    z-index: 69;
+    inset-inline: 12px;
+    bottom: calc(83px + env(safe-area-inset-bottom, 0px));
+    display: grid;
+    gap: 14px;
+    width: auto;
+    max-width: 520px;
+    max-height: min(64vh, 470px);
+    margin-inline: auto;
+    overflow-y: auto;
+    padding: 18px;
+    border: 1px solid rgba(113, 179, 244, .27);
+    border-radius: 21px;
+    background:
+      radial-gradient(ellipse at 100% 0%, rgba(49, 132, 215, .19), transparent 18rem),
+      linear-gradient(145deg, rgba(18, 34, 57, .99), rgba(7, 16, 31, .99));
+    box-shadow: 0 25px 75px rgba(0, 0, 0, .54), inset 0 1px rgba(255,255,255,.055);
+  }
+
+  .mobile-more-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .mobile-more-heading h2 {
+    margin: 5px 0 0;
+    color: #eef6ff;
+    font-family: var(--font-display);
+    font-size: 21px;
+  }
+  .mobile-more-heading .icon-button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .mobile-more-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .mobile-more-grid > button {
+    display: grid;
+    grid-template-columns: 39px minmax(0, 1fr) 12px;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+    min-height: 70px;
+    padding: 11px;
+    border: 1px solid rgba(130, 166, 215, .17);
+    border-radius: 13px;
+    background: rgba(9, 22, 40, .78);
+    color: #dceaff;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .mobile-more-grid > button.selected {
+    border-color: rgba(92, 184, 255, .45);
+    background: rgba(32, 91, 148, .35);
+  }
+  .mobile-more-icon {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid rgba(91, 174, 255, .22);
+    border-radius: 11px;
+    background: rgba(28, 78, 126, .45);
+    color: #85ceff;
+  }
+  .mobile-more-copy { display: grid; min-width: 0; gap: 4px; }
+  .mobile-more-copy b {
+    color: #e6f2ff;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  .mobile-more-copy small {
+    color: #899fbe;
+    font-size: 9px;
+    line-height: 1.4;
+  }
+  .mobile-more-arrow { color: #70c6ff; font-size: 20px; text-align: right; }
+
+  /* Reduce competing actions: one dominant primary action per form. */
+  .form-stack > .primary-button,
+  .transfer-form > .button-row > .primary-button,
+  .withdrawal-form-grid .primary-button,
+  .prepared-withdrawal .primary-button {
+    min-height: 48px;
+  }
+  .button-row { gap: 9px; }
+  .button-row > button, .transaction-actions > button { min-height: 44px; }
+  .form-stack label, .transfer-form label { gap: 7px; }
+  .form-stack input, .transfer-form input, .transfer-form select, .form-stack textarea { min-height: 46px; }
+  .history-item, .transaction-row { gap: 12px; }
+}
+
+@media (max-width: 390px) {
+  .mobile-bottom-nav { gap: 2px; padding-inline: 6px; }
+  .mobile-bottom-nav > button { font-size: 8px; }
+  .mobile-more-menu { inset-inline: 8px; padding: 14px; }
+  .mobile-more-grid { grid-template-columns: minmax(0, 1fr); }
+  .mobile-more-grid > button { min-height: 62px; }
+}
+
+@media (min-width: 721px) {
+  .mobile-bottom-nav, .mobile-more-backdrop, .mobile-more-menu { display: none !important; }
+}
