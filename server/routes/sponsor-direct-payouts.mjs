@@ -93,8 +93,13 @@ async function ensureSchema(db) {
         'contact_email TEXT, status TEXT NOT NULL DEFAULT \'pending-review\' ' +
         'CHECK (status IN (\'pending-review\',\'active\',\'declined\',\'suspended\')), ' +
         'per_payout_limit_base_units NUMERIC(78,0), daily_limit_base_units NUMERIC(78,0), ' +
-        'review_reference TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
+        'review_reference TEXT, participation_consent_at TIMESTAMPTZ, participation_terms_version TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), ' +
         'updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), reviewed_at TIMESTAMPTZ)'
+      )
+      await db.query(
+        'ALTER TABLE ' + SCHEMA + '.sponsor_direct_applications ' +
+        'ADD COLUMN IF NOT EXISTS participation_consent_at TIMESTAMPTZ, ' +
+        'ADD COLUMN IF NOT EXISTS participation_terms_version TEXT'
       )
       await db.query(
         'CREATE INDEX IF NOT EXISTS sponsor_direct_applications_status_idx ON ' +
@@ -436,6 +441,8 @@ function publicApplication(row) {
     perPayoutLimitBaseUnits: row.per_payout_limit_base_units == null ? null : String(row.per_payout_limit_base_units),
     dailyLimitBaseUnits: row.daily_limit_base_units == null ? null : String(row.daily_limit_base_units),
     reviewReference: row.review_reference || null,
+    participationConsentAt: row.participation_consent_at ? new Date(row.participation_consent_at).toISOString() : null,
+    participationTermsVersion: row.participation_terms_version || null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     ...(row.reviewed_at ? { reviewedAt: new Date(row.reviewed_at).toISOString() } : {}),
@@ -1091,11 +1098,14 @@ export function createSponsorDirectPayoutsRouter({
       return res.status(403).json({ success: false, error: 'platform-owner-wallet-cannot-act-as-third-party-sponsor' })
     }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['displayName', 'contactEmail'].includes(key))) {
+    if (Object.keys(body).some((key) => !['displayName', 'contactEmail', 'participationConsent'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
     const displayName = clean(body.displayName, 120)
     const contactEmail = clean(body.contactEmail, 254).toLowerCase()
+    if (body.participationConsent !== true) {
+      return res.status(400).json({ success: false, error: 'sponsor-participation-consent-required' })
+    }
     if (displayName.length < 2
       || (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contactEmail))) {
       return res.status(400).json({ success: false, error: 'invalid-sponsor-profile' })
@@ -1109,8 +1119,9 @@ export function createSponsorDirectPayoutsRouter({
       const id = randomUUID()
       const result = await db.query(
         'INSERT INTO ' + SCHEMA + '.sponsor_direct_applications ' +
-        '(id,sponsor_address,display_name,contact_email,status) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-        [id, auth.address, displayName, contactEmail || null, 'pending-review'],
+        '(id,sponsor_address,display_name,contact_email,status,participation_consent_at,participation_terms_version) ' +
+        'VALUES ($1,$2,$3,$4,$5,now(),$6) RETURNING *',
+        [id, auth.address, displayName, contactEmail || null, 'pending-review', 'sponsor-participation-v1'],
       )
       return res.status(201).json({
         success: true,
