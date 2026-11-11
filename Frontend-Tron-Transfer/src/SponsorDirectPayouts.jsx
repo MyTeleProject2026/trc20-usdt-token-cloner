@@ -103,6 +103,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [reviewReference, setReviewReference] = useState('')
   const [dailyLimit, setDailyLimit] = useState('')
   const [perPayoutLimit, setPerPayoutLimit] = useState('')
+  const [inviteMessage, setInviteMessage] = useState('')
   const [prepared, setPrepared] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -426,6 +427,16 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     }
   }
 
+  async function copySponsorInvitation() {
+    const inviteUrl = window.location.origin + window.location.pathname + '#/sponsor'
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.')
+      await navigator.clipboard.writeText(inviteUrl)
+      setInviteMessage('Sponsor invitation link copied. Share it only with independently verified contacts.')
+    } catch (cause) {
+      setInviteMessage(cause?.message || 'Could not copy the link. Open the portal below and copy its address manually.')
+    }
+  }
   async function applyAsSponsor() {
     setBusy(true)
     setError('')
@@ -889,6 +900,21 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
         </div>
       )}
 
+      {mode === 'sponsor' && isOwnerAdmin && (
+        <div className="sponsor-funding-destination">
+          <div className="section-heading compact">
+            <div><span className="eyebrow">SPONSOR RECRUITMENT</span><h3>Invite an independent sponsor</h3></div>
+            <span className="status-pill">No automatic funding</span>
+          </div>
+          <p>Share this separate application portal with a willing self-custody wallet owner or a legitimate payout-partner contact. Applicants connect their own TronLink wallet, prove wallet control with a message signature, and choose whether to apply. This link does not grant owner access or authorize a transfer.</p>
+          <div className="button-row">
+            <a className="outline-button" href={window.location.origin + window.location.pathname + '#/sponsor'} target="_blank" rel="noreferrer">Open sponsor application portal <ExternalLink size={13} /></a>
+            <button className="secondary-button" type="button" onClick={() => void copySponsorInvitation()}><Send size={15} /> Copy invitation link</button>
+          </div>
+          {inviteMessage && <p className="fine-print" role="status">{inviteMessage}</p>}
+          <p className="fine-print">Wallet-message authentication proves control of an address only. It does not establish identity, source of funds, solvency, legal authority or willingness to fund. Never request a seed phrase, private key, password or OTP.</p>
+        </div>
+      )}
       {mode === 'sponsor' && isOwnerAdmin && (
         <div className="sponsor-funding-destination">
           <div className="section-heading compact">
