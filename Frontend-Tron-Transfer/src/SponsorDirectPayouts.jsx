@@ -656,7 +656,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           <div className="withdrawal-form-grid">
             <div className="form-stack">
               <label>External recipient TRON Mainnet address
-                <input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
+                <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false) }} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
               </label>
               <label>USDT withdrawal amount
                 <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
