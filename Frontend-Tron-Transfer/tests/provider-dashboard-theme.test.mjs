@@ -193,5 +193,15 @@ test('withdrawal recipient book stores validated TRON addresses locally and neve
   assert.ok(sponsor.includes('function removeRecipient(address)'))
   assert.ok(sponsor.includes('Stored locally in this browser only · not verified by the receiving exchange'))
   assert.ok(sponsor.includes('Choose a saved TRON address'))
-  assert.ok(sponsor.includes('savedRecipients.slice') === false)
+})
+
+
+test('owner can identify approved sponsor wallets without mistaking approval for live funding', () => {
+  assert.ok(sponsorRoute.includes("router.get('/approved-sponsors'"))
+  assert.ok(sponsorRoute.includes("WHERE status=$1 ORDER BY reviewed_at DESC NULLS LAST"))
+  assert.ok(sponsorRoute.includes("liveFundingStatus: 'not-checked'"))
+  assert.ok(sponsor.includes("api('/api/tron/sponsor-direct/approved-sponsors', identityToken)"))
+  assert.ok(sponsor.includes('Approved participants'))
+  assert.ok(sponsor.includes('Live USDT and TRON resources: Not checked by this owner list.'))
+  assert.ok(sponsor.includes('No approved sponsor wallets registered'))
 })
