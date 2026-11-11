@@ -42,9 +42,9 @@ test('direct withdrawal requires a connected owner wallet matching the backend o
   assert.ok(withdrawals.includes('Owner wallet and owner session match.'))
 })
 
-test('forest emerald glass theme and responsive breakpoints remain', () => {
-  assert.ok(css.includes('--bg: #07100d'))
-  assert.ok(css.includes('--mint-bright: #65dfa1'))
+test('modern midnight blue dashboard theme and responsive breakpoints remain', () => {
+  assert.ok(css.includes('--bg: #080d18'))
+  assert.ok(css.includes('--mint-bright: #48b5ff'))
   assert.ok(css.includes('backdrop-filter: blur'))
   assert.ok(css.includes('@media (max-width: 820px)'))
   assert.ok(css.includes('@media (max-width: 560px)'))
@@ -70,4 +70,14 @@ test('mobile bottom navigation stays separate from owner authentication and wall
   assert.ok(app.includes('className="mobile-bottom-nav"'))
   assert.ok(app.includes('SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw"'))
   assert.ok(app.includes("requestTronLinkConnection(provider,window)"))
+})
+
+
+test('brand control navigates home and More is an accessible menu trigger', () => {
+  assert.ok(app.includes('className="brand brand-home"'))
+  assert.ok(app.includes("setTab('overview');setMoreOpen(false)"))
+  assert.ok(!app.includes('href="#">'))
+  assert.ok(app.includes('aria-haspopup="true"'))
+  assert.ok(app.includes('aria-expanded={moreOpen}'))
+  assert.ok(app.includes("aria-label={mobileMoreNav.some(item=>item.id===tab)"))
 })
