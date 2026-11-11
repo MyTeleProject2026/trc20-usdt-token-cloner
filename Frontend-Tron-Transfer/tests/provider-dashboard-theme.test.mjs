@@ -226,3 +226,22 @@ test('funding status separates discretionary development grants from funded spon
   assert.ok(css.includes('.funding-pathway-grid'))
   assert.ok(css.includes('.funding-pathway-note'))
 })
+
+
+test('owner sponsor workspace exposes a safe invitation to the independent sponsor portal', () => {
+  assert.ok(sponsor.includes('SPONSOR RECRUITMENT'))
+  assert.ok(sponsor.includes('Invite an independent sponsor'))
+  assert.ok(sponsor.includes("window.location.pathname + '#/sponsor'"))
+  assert.ok(sponsor.includes('copySponsorInvitation'))
+  assert.ok(sponsor.includes('Wallet-message authentication proves control of an address only') || sponsor.includes('proves control of an address only'))
+  assert.ok(sponsor.includes('No automatic funding'))
+})
+
+test('payout partner integration is documented as gated groundwork, not a configured provider', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const partnerGuide = await readFile(new URL('../../../docs/PAYOUT_PARTNER_INTEGRATION_AND_SPONSOR_RECRUITMENT.md', import.meta.url), 'utf8')
+  assert.ok(partnerGuide.includes('not currently implemented'))
+  assert.ok(partnerGuide.includes('signed API specification and sandbox credentials'))
+  assert.ok(partnerGuide.includes('solidified Mainnet transaction and exact USDT Transfer event'))
+  assert.ok(partnerGuide.includes('No partner API credentials or production partner endpoint'))
+})
