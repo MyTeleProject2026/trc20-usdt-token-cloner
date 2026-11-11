@@ -1215,7 +1215,8 @@ export function createSponsorDirectPayoutsRouter({
     try {
       await ensureSchema(db)
       const result = await db.query(
-        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_applications WHERE status=\\'active\\' ORDER BY reviewed_at DESC NULLS LAST, created_at ASC LIMIT 100',
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_applications WHERE status=$1 ORDER BY reviewed_at DESC NULLS LAST, created_at ASC LIMIT 100',
+        ['active'],
       )
       return res.json({
         success: true,
