@@ -175,3 +175,12 @@ test('external deposit request requires network and exchange deposit-instruction
 test('changing the recipient clears prior exchange-network and deposit-instruction confirmations', () => {
   assert.ok(sponsor.includes('setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false)'))
 })
+
+
+test('withdrawal history distinguishes verified solidified Mainnet evidence from exchange account credit', () => {
+  assert.ok(sponsor.includes("setRequestEvidence((items) => ({ ...items, [id]: { confirmation: result.confirmation || null"))
+  assert.ok(sponsor.includes("exchangeCreditStatus: result.exchangeCreditStatus || 'not-verified-by-tron-chain'"))
+  assert.ok(sponsor.includes('Blockchain evidence: verified solidified Mainnet receipt and exact official-USDT Transfer event.'))
+  assert.ok(sponsor.includes('Exchange deposit credit:'))
+  assert.ok(sponsor.includes('Not verified by the TRON blockchain. Check the receiving exchange account or its deposit support.'))
+})
