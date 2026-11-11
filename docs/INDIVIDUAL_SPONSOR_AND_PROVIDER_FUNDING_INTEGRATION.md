@@ -47,7 +47,7 @@ Do not label any prospect as an approved provider, available balance, credit fac
 Before implementing a provider-specific adapter, obtain and independently verify:
 
 1. **Provider identity and authority:** legal entity, contracting entity, regulated status where applicable, authorized signatory, and the exact legal entity serving the user's jurisdiction.
-2. **Geographic eligibility:** written confirmation that the provider can onboard an individual resident in Myanmar for the intended business model. Do not route around restricted jurisdictions or KYC/KYB requirements.
+2. **Geographic eligibility:** written confirmation that the provider can onboard an individual resident in the applicant's actual country of legal residence for the intended business model. Do not route around restricted jurisdictions or KYC/KYB requirements.
 3. **Written funding permission:** contract clause authorizing this platform and this exact use—USDT TRC20 payouts to third-party wallet/exchange deposit addresses. Ordinary merchant settlement, exchange withdrawals, grant funding or generic API access is not equivalent.
 4. **Funding model:** identify whether the provider supplies (a) its own prefunded USDT liquidity, (b) an explicitly approved credit facility, or (c) only payment-processing rails that require the customer to pre-fund. Record repayment, fees, collateral, reserves, recourse, expiry and termination terms.
 5. **Asset and network:** verify that the provider supports genuine TRON Mainnet USDT at contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`, not another chain, bridged token, testnet asset or internal display balance.
