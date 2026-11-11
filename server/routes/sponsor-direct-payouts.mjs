@@ -1936,7 +1936,7 @@ export function createSponsorDirectPayoutsRouter({
       const updated = await client.query(
         "UPDATE " + SCHEMA + ".sponsor_direct_payouts SET status='cancelled', " +
         "failure_code='cancelled-by-platform-owner', unsigned_transaction=NULL, " +
-        'transaction_hash=NULL, expires_at=NULL, updated_at=now() ' +
+        'transaction_hash=NULL, expires_at=NULL, sponsor_address=NULL, updated_at=now() ' +
         "WHERE id=$1 AND requester_address=$2 AND status IN ('requested','prepared') " +
         'AND signed_transaction IS NULL RETURNING *',
         [id, auth.address],
