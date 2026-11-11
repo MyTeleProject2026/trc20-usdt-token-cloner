@@ -4,7 +4,7 @@
 
 Tron Transfer supports two separate ways to obtain lawful payout funding:
 
-1. **Individual self-custody sponsors.** A person worldwide may apply with their own TRON Mainnet wallet, subject to the platform's applicable eligibility, identity, source-of-funds and sanctions checks. The platform owner manually reviews the application. If approved, the sponsor's wallet remains the USDT sender and the sponsor signs each exact transfer in TronLink.
+1. **Individual self-custody sponsors.** Individuals may apply with their own TRON Mainnet wallet through the sponsor portal, subject to applicable geographic eligibility, identity, source-of-funds and sanctions checks. The current application flow does not establish that every country—including Myanmar—is eligible. The platform owner manually reviews the application. If approved, the sponsor's wallet remains the USDT sender and the sponsor signs each exact transfer in TronLink.
 2. **Contracted payout or treasury providers.** A provider may supply its own funded payout account or a specifically authorized credit facility under a signed agreement. This is a separate integration from individual wallet sponsorship. A payment API, wallet SDK, exchange account, grant programme or account registration is not itself a source of liquidity.
 
 The two routes must not be blended into a single assumed balance. They must retain separate authorization, limits, evidence, audit trails and settlement reconciliation.
