@@ -117,7 +117,7 @@ export default function App() {
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
     if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; this wallet proves requester identity only. Payout execution depends on a provider-approved funding arrangement; your wallet is not the source of payout principal.')
+    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; this wallet proves owner identity only. A separate owner-approved sponsor wallet must hold the real USDT and network resources and sign each exact payout.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
@@ -172,7 +172,7 @@ export default function App() {
     sessionStorage.setItem(OWNER_SESSION_KEY,p.sessionToken);setOwnerPassword('')
     setOwnerSession({address:p.address,expiresAt:p.expiresAt,sessionToken:p.sessionToken})
     setOwnerSessionResolved(true)
-    setNotice('Private platform-owner session active. Your TronLink wallet is not used as the source of payout funds. External payouts remain disabled until a provider authorizes provider-owned liquidity or an approved credit facility for this account.')
+    setNotice('Private platform-owner session active. Your wallet can submit withdrawal requests with zero USDT. Each real payout still requires a separate owner-approved sponsor wallet with sufficient Mainnet USDT and network resources, plus that sponsor’s signature.')
   }
   async function signOutOwner() {
     const token = ownerSession?.sessionToken
@@ -258,7 +258,7 @@ export default function App() {
       </section>}
       <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'Funding source & payout readiness',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
       <div className="content">
-        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
+        <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal uses the sponsor-direct route: an owner-approved individual sponsor wallet must hold the actual USDT and cover TRON network resources, then sign the exact recipient and amount in its own TronLink wallet. Tatum supplies blockchain infrastructure and independent chain verification, not payout funds.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
         {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
 
