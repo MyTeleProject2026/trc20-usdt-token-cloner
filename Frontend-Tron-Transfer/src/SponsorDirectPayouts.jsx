@@ -91,6 +91,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [fundingLedgerBusy, setFundingLedgerBusy] = useState(false)
   const [recipient, setRecipient] = useState('')
   const [amount, setAmount] = useState('')
+  const [recipientNetworkConfirmed, setRecipientNetworkConfirmed] = useState(false)
+  const [recipientDepositRequirementsConfirmed, setRecipientDepositRequirementsConfirmed] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [reviewReference, setReviewReference] = useState('')
@@ -339,6 +341,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     try {
       if (!identityMatchesWallet) throw new Error('Verify your connected wallet identity first.')
       if (ownerSession?.address && walletAddress !== ownerSession.address) throw new Error('Connect the configured platform-owner wallet before submitting a withdrawal request.')
+      if (!recipientNetworkConfirmed) throw new Error('Confirm that the receiving address accepts official USDT on TRON Mainnet (TRC20).')
+      if (!recipientDepositRequirementsConfirmed) throw new Error('Confirm the exchange minimum deposit and that no memo or tag is required for this TRC20 address.')
       if (!isValidAddress(recipient.trim(), wallet?.tronWeb)) throw new Error('Enter a valid TRON Mainnet recipient address.')
       if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
         throw new Error('Enter a positive USDT amount with no more than six decimal places.')
@@ -358,6 +362,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       requestIdempotencyRef.current = { intent: '', key: '' }
       setRecipient('')
       setAmount('')
+      setRecipientNetworkConfirmed(false)
+      setRecipientDepositRequirementsConfirmed(false)
       setNotice(result.note || 'Withdrawal request submitted. A sponsor must authorize and fund it.')
       await refresh()
     } catch (cause) {
@@ -655,7 +661,12 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
               <label>USDT withdrawal amount
                 <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
               </label>
-              <button className="primary-button" disabled={!identityMatchesWallet || busy} onClick={() => void submitRequest()}>
+              <div className="recipient-deposit-checklist">
+                <label className="recipient-confirmation"><input type="checkbox" checked={recipientNetworkConfirmed} onChange={(event) => setRecipientNetworkConfirmed(event.target.checked)} /><span>I verified that this exact address accepts official USDT on TRON Mainnet (TRC20).</span></label>
+                <label className="recipient-confirmation"><input type="checkbox" checked={recipientDepositRequirementsConfirmed} onChange={(event) => setRecipientDepositRequirementsConfirmed(event.target.checked)} /><span>I checked the exchange's minimum deposit and confirmed no memo/tag is required for this address.</span></label>
+                <p className="fine-print">This transfer sends the USDT TRC20 token only. It does not attach an exchange memo/tag. A valid address alone does not guarantee that the exchange will credit its internal account.</p>
+              </div>
+              <button className="primary-button" disabled={!identityMatchesWallet || busy || !recipientNetworkConfirmed || !recipientDepositRequirementsConfirmed} onClick={() => void submitRequest()}>
                 <ArrowUpRight size={16} /> Submit sponsored withdrawal request
               </button>
             </div>
