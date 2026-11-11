@@ -170,3 +170,8 @@ test('external deposit request requires network and exchange deposit-instruction
   assert.ok(sponsor.includes('This transfer sends the USDT TRC20 token only. It does not attach an exchange memo/tag.'))
   assert.ok(css.includes('.recipient-deposit-checklist'))
 })
+
+
+test('changing the recipient clears prior exchange-network and deposit-instruction confirmations', () => {
+  assert.ok(sponsor.includes('setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false)'))
+})
