@@ -1483,6 +1483,35 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sponsor-portal-shell .provider-panel { border-color: rgba(95, 166, 244, .23); }
 .sponsor-portal-shell .app-footer { margin: 0; }
 .sponsor-direct-page .sponsor-funding-destination { display: grid; gap: 14px; }
+.sponsor-direct-page .sponsor-consent-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid rgba(95, 166, 244, .24);
+  border-radius: 12px;
+  background: rgba(18, 37, 61, .48);
+  color: #b8c8df;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.7;
+  cursor: pointer;
+}
+.sponsor-direct-page .sponsor-consent-row input[type="checkbox"] {
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  min-height: 17px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: #62bfff;
+  cursor: pointer;
+}
+.sponsor-direct-page .sponsor-consent-row:focus-within {
+  border-color: rgba(98, 191, 255, .7);
+  box-shadow: 0 0 0 3px rgba(98, 191, 255, .1);
+}
 .sponsor-direct-page .sponsor-review-form { min-width: min(100%, 320px); margin-top: 0; }
 .sponsor-direct-page .transaction-row { align-items: flex-start; }
 .sponsor-direct-page .status-pill { width: fit-content; }
