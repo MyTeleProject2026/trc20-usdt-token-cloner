@@ -111,6 +111,15 @@ test('rejects excessively long amount and credit-limit inputs before BigInt pars
 })
 
 
+test('rejects non-finite injected clocks for credit expiry evidence', () => {
+  const evidence = { creditFacilityApproved: true, creditFacilityUsePermittedForTronUsdtWithdrawals: true, creditFacilityApprovalReference: 'approval-invalid-clock', creditFacilityUseAuthorizationReference: 'use-auth-invalid-clock', creditFacilityValidUntil: '2099-12-31T23:59:59.000Z', creditFacilityApprovedLimitUsdt: '5000' }
+  for (const nowMs of [NaN, Infinity, -Infinity]) {
+    const result = evaluatePayoutActivationReadiness(evidence, { amountUsdt: '1000', nowMs })
+    assert.ok(result.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+    assert.equal(result.executionEnabled, false)
+  }
+})
+
 test('uses an injected clock for approved-credit expiry boundaries', () => {
   const evidence = {
     creditFacilityApproved: true,
