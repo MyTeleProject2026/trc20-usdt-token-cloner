@@ -184,3 +184,14 @@ test('withdrawal history distinguishes verified solidified Mainnet evidence from
   assert.ok(sponsor.includes('Exchange deposit credit:'))
   assert.ok(sponsor.includes('Not verified by the TRON blockchain. Check the receiving exchange account or its deposit support.'))
 })
+
+
+test('withdrawal recipient book stores validated TRON addresses locally and never treats them as exchange-verified', () => {
+  assert.ok(sponsor.includes("tron-transfer:recipient-book:v1"))
+  assert.ok(sponsor.includes("localStorage.setItem('tron-transfer:recipient-book:v1'"))
+  assert.ok(sponsor.includes('function saveRecipient()'))
+  assert.ok(sponsor.includes('function removeRecipient(address)'))
+  assert.ok(sponsor.includes('Stored locally in this browser only · not verified by the receiving exchange'))
+  assert.ok(sponsor.includes('Choose a saved TRON address'))
+  assert.ok(sponsor.includes('savedRecipients.slice') === false)
+})
