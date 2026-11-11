@@ -31,5 +31,5 @@ test('repository landing page links the sponsor brief and accurately labels the 
   assert.match(readme, /\[Read the individual sponsor brief\]\(docs\/SPONSOR_BRIEF\.md\)/)
   assert.match(readme, /not merged or verified as deployed to production/i)
   assert.match(readme, /No individual sponsor is currently verified as approved and funded/i)
-  assert.match(readme, /$5,000–$10,000 equivalent in sponsor-controlled/i)
+  assert.match(readme, /\\$5,000–$10,000 equivalent in sponsor-controlled/i)
 })
