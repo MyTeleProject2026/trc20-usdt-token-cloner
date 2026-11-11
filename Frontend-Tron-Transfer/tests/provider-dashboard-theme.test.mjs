@@ -81,3 +81,12 @@ test('brand control navigates home and More is an accessible menu trigger', () =
   assert.ok(app.includes('aria-expanded={moreOpen}'))
   assert.ok(app.includes("aria-label={mobileMoreNav.some(item=>item.id===tab)"))
 })
+
+
+test('More navigation locks background scroll and restores keyboard focus', () => {
+  assert.ok(app.includes('moreTriggerRef=useRef(null)'))
+  assert.ok(app.includes('moreMenuRef=useRef(null)'))
+  assert.ok(app.includes("document.body.style.overflow = 'hidden'"))
+  assert.ok(app.includes("moreMenuRef.current?.querySelector('button')?.focus()"))
+  assert.ok(app.includes('moreTriggerRef.current?.focus()'))
+})
