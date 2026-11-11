@@ -443,28 +443,22 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     }
   }
   useEffect(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('tron-transfer:partner-prospects:v1') || '[]')
-      setPartnerLeads(Array.isArray(parsed) ? parsed.filter((item) =>
-        item && typeof item.id === 'string' && typeof item.name === 'string'
-        && ['payout-provider', 'treasury-partner', 'grant-program', 'individual-sponsor'].includes(item.type)
-        && ['identified', 'contacted', 'due-diligence', 'agreement-pending', 'sandbox-pending', 'declined'].includes(item.status)) : [])
-    } catch { setPartnerLeads([]) }
-  }, [])
-
-  function persistPartnerLeads(next) {
-    try {
-      localStorage.setItem('tron-transfer:partner-prospects:v1', JSON.stringify(next))
-      setPartnerLeads(next)
-      setError('')
-      return true
-    } catch {
-      setError('Could not save partner prospect notes in this browser. Check local storage availability.')
-      return false
+    let active = true
+    if (!isOwnerAdmin || !identityToken) {
+      setPartnerLeads([])
+      return () => { active = false }
     }
-  }
+    api('/api/tron/sponsor-direct/partner-prospects', identityToken)
+      .then((result) => {
+        if (active) setPartnerLeads(Array.isArray(result.prospects) ? result.prospects : [])
+      })
+      .catch((cause) => {
+        if (active) setError(cause?.message || 'Could not load saved partner prospects.')
+      })
+    return () => { active = false }
+  }, [isOwnerAdmin, identityToken])
 
-  function addPartnerProspect() {
+  async function addPartnerProspect() {
     const name = partnerName.trim()
     if (name.length < 2 || name.length > 100) {
       setError('Enter a partner or sponsor name between 2 and 100 characters.')
@@ -474,31 +468,61 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       setError('Contact and notes are too long.')
       return
     }
-    const next = [{
-      id: crypto.randomUUID(),
-      name,
-      type: partnerType,
-      contact: partnerContact.trim(),
-      notes: partnerNotes.trim(),
-      status: 'identified',
-      createdAt: new Date().toISOString(),
-    }, ...partnerLeads].slice(0, 100)
-    if (persistPartnerLeads(next)) {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({ name, type: partnerType, contact: partnerContact.trim(), notes: partnerNotes.trim() }),
+      })
+      if (!result.success || !result.prospect) throw new Error('The server did not confirm saving this prospect.')
+      setPartnerLeads((current) => [result.prospect, ...current].slice(0, 100))
       setPartnerName('')
       setPartnerContact('')
       setPartnerNotes('')
-      setNotice('Prospect saved locally. This is a contact tracker only, not partner approval or payout eligibility.')
+      setNotice('Prospect saved to the authenticated owner database. It is not partner approval or payout eligibility.')
+    } catch (cause) {
+      setError(cause?.message || 'Could not save partner prospect.')
+    } finally {
+      setBusy(false)
     }
   }
 
-  function updatePartnerProspect(id, status) {
+  async function updatePartnerProspect(id, status) {
     const allowed = ['identified', 'contacted', 'due-diligence', 'agreement-pending', 'sandbox-pending', 'declined']
     if (!allowed.includes(status)) return
-    persistPartnerLeads(partnerLeads.map((item) => item.id === id ? { ...item, status, updatedAt: new Date().toISOString() } : item))
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects/' + encodeURIComponent(id) + '/status', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      })
+      if (!result.success) throw new Error('The server did not confirm the status update.')
+      setPartnerLeads((current) => current.map((item) => item.id === id ? { ...item, status: result.status } : item))
+      setError('')
+    } catch (cause) {
+      setError(cause?.message || 'Could not update partner prospect.')
+      void refreshPartnerProspects()
+    }
   }
 
-  function removePartnerProspect(id) {
-    persistPartnerLeads(partnerLeads.filter((item) => item.id !== id))
+  async function refreshPartnerProspects() {
+    if (!isOwnerAdmin || !identityToken) return
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects', identityToken)
+      setPartnerLeads(Array.isArray(result.prospects) ? result.prospects : [])
+    } catch (cause) {
+      setError(cause?.message || 'Could not refresh partner prospects.')
+    }
+  }
+
+  async function removePartnerProspect(id) {
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects/' + encodeURIComponent(id), identityToken, { method: 'DELETE' })
+      if (!result.success || result.deleted !== true) throw new Error('The server did not confirm deleting this prospect.')
+      setPartnerLeads((current) => current.filter((item) => item.id !== id))
+    } catch (cause) {
+      setError(cause?.message || 'Could not remove partner prospect.')
+    }
   }
 
   async function applyAsSponsor() {
@@ -985,7 +1009,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             <div><span className="eyebrow">EXTERNAL PARTNER MANAGEMENT</span><h3>Partner and sponsor prospect tracker</h3></div>
             <span className="status-pill">Local notes only</span>
           </div>
-          <p>Track prospective payout providers, treasury partners, grant programs and individual sponsors. Entries are saved only in this browser. They are not verified, contracted, funded, connected to an API or eligible to send payouts.</p>
+          <p>Track prospective payout providers, treasury partners, grant programs and individual sponsors. Entries are saved in the owner-authenticated application database. They are not verified, contracted, funded, connected to an API or eligible to send payouts.</p>
           <div className="form-stack">
             <label>Organization or sponsor name<input value={partnerName} onChange={(event) => setPartnerName(event.target.value)} maxLength={100} placeholder="Name of provider, program or willing sponsor" /></label>
             <label>Prospect type<select value={partnerType} onChange={(event) => setPartnerType(event.target.value)}><option value="payout-provider">Payout provider</option><option value="treasury-partner">Treasury / liquidity partner</option><option value="grant-program">Development grant program</option><option value="individual-sponsor">Individual self-custody sponsor</option></select></label>
