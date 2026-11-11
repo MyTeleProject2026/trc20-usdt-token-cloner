@@ -30,6 +30,7 @@ const base = {
   walletSnapshot,
   expectedWalletId: 'wallet-1',
   expectedWalletAddress: walletSnapshot.snapshot.walletAddress,
+  recipientAddress: 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2',
   tronResourceSnapshot,
   recipientAddressValid: true,
   recipientNetworkConfirmed: true,
@@ -70,6 +71,15 @@ test('blocks stale, wrong-address and non-mainnet resource observations', () => 
   ]) {
     const result = assessTronWithdrawalPreflight({ ...base, tronResourceSnapshot: snapshot })
     assert.ok(result.blockers.includes('tron-mainnet-resource-snapshot-missing-stale-or-invalid'))
+    assert.equal(result.executionEnabled, false)
+  }
+})
+
+test('rejects malformed and self-directed recipient addresses even when caller flags validation', () => {
+  for (const recipientAddress of ['not-an-address', walletSnapshot.snapshot.walletAddress]) {
+    const result = assessTronWithdrawalPreflight({ ...base, recipientAddress, recipientAddressValid: true })
+    assert.ok(result.blockers.includes('recipient-address-not-validated'))
+    assert.equal(result.recipient.addressValid, false)
     assert.equal(result.executionEnabled, false)
   }
 })
