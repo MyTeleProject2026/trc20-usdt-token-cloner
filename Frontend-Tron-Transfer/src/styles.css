@@ -1796,3 +1796,18 @@ td { color: #d2e1f5; }
 @media (min-width: 721px) {
   .mobile-bottom-nav, .mobile-more-backdrop, .mobile-more-menu { display: none !important; }
 }
+
+
+/* Brand mark is a real Home action, not an empty-page anchor. */
+.brand-home {
+  align-self: flex-start;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #eef4ff;
+  text-align: left;
+  cursor: pointer;
+}
+.brand-home:hover { filter: brightness(1.08); }
+.brand-home:focus-visible { outline: 2px solid #83d0ff; outline-offset: 5px; border-radius: 12px; }
