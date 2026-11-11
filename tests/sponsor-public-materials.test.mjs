@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises'
 
 const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
 const brief = await readFile(new URL('../docs/SPONSOR_BRIEF.md', import.meta.url), 'utf8')
-const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')\nconst issueForm = await readFile(new URL('../.github/ISSUE_TEMPLATE/individual-sponsor-inquiry.yml', import.meta.url), 'utf8')
+const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+const issueForm = await readFile(new URL('../.github/ISSUE_TEMPLATE/individual-sponsor-inquiry.yml', import.meta.url), 'utf8')
 
 test('public sponsor portal explains sponsor custody, target capacity and non-production status', () => {
   assert.match(portal, /NO DEPOSIT TO THE PROJECT/)
