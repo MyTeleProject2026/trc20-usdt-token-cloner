@@ -1196,11 +1196,15 @@ export function createSponsorDirectPayoutsRouter({
       const result = await db.query(
         'UPDATE ' + SCHEMA + '.sponsor_direct_applications SET status=$2, review_reference=$3, ' +
         'per_payout_limit_base_units=$4, daily_limit_base_units=$5, updated_at=now(), reviewed_at=now() ' +
-        'WHERE id=$1 AND status=\'pending-review\' RETURNING *',
+        'WHERE id=$1 AND status=\'pending-review\' ' +
+        'AND ($6::boolean = false OR (participation_consent_at IS NOT NULL AND participation_terms_version=$7)) RETURNING *',
         [id, decision === 'approve' ? 'active' : 'declined', reviewReference,
-          perPayoutBaseUnits, dailyBaseUnits],
+          perPayoutBaseUnits, dailyBaseUnits, decision === 'approve', 'sponsor-participation-v1'],
       )
-      if (!result.rowCount) return res.status(409).json({ success: false, error: 'application-not-pending-or-not-found' })
+      if (!result.rowCount) return res.status(409).json({
+        success: false,
+        error: decision === 'approve' ? 'application-not-pending-or-current-consent-required' : 'application-not-pending-or-not-found',
+      })
       return res.json({
         success: true,
         application: publicApplication(result.rows[0]),
