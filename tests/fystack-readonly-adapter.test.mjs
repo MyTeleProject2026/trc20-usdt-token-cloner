@@ -38,3 +38,14 @@ test('read-only adapter exposes no provider mutation capability',()=>{
  const adapter=createFystackReadOnlyAdapter({client:{getWalletUsdtSnapshot:async()=>valid(),send:async()=>{},withdraw:async()=>{},sign:async()=>{},broadcast:async()=>{}}})
  assert.deepEqual(Object.keys(adapter),['getUsdtSnapshot'])
 })
+
+
+test('rejects invalid clocks and freshness windows instead of accepting snapshots',()=>{
+ const raw=valid(), nowMs=Date.parse(raw.checkedAt)
+ for(const options of [{nowMs:NaN},{nowMs:Infinity},{maxAgeMs:Infinity},{maxAgeMs:-1}]){
+  const r=normalizeFystackUsdtSnapshot(raw,{},options)
+  assert.equal(r.snapshot,null)
+  assert.ok(r.blockers.includes('provider-snapshot-stale-or-invalid'))
+  assert.equal(r.executionEnabled,false)
+ }
+})
