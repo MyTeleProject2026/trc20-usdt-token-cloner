@@ -459,7 +459,11 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(cancelledPrepared.response.status, 200)
     assert.equal(cancelledPrepared.payload.request.status, 'cancelled')
     assert.equal(cancelledPrepared.payload.request.transactionHash, null)
+    assert.equal(cancelledPrepared.payload.request.sponsorAddress, null)
     assert.equal(cancelledPrepared.payload.transactionBroadcast, false)
+    const queueAfterCancellation = await call('/queue', sponsorToken)
+    assert.equal(queueAfterCancellation.response.status, 200)
+    assert.equal(queueAfterCancellation.payload.requests.some((item) => item.id === third.payload.request.id), false)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
