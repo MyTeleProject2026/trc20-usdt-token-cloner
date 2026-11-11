@@ -1,13 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { TronWeb } from 'tronweb'
+import express from 'express'
+import { createServer } from 'node:http'
 import {
   MAINNET_USDT_CONTRACT,
+  MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS,
+  isOwnerWithdrawalAmountAtLeastMinimum,
   parseOwnerUsdtAmount,
   calculateOwnerWithdrawableUsdtBaseUnits,
   buildOwnerUsdtTransferParameter,
   validateOwnerSignedTransaction,
+  assessOwnerRecipientAssurance,
+  createTronOwnerWithdrawalsRouter,
 } from '../server/routes/tron-owner-withdrawals.mjs'
 
 const ownerAddress = 'TKbcs8dYuaZT1VdtrKxnVswNg3DKjSs7u2'
@@ -18,6 +25,18 @@ test('owner USDT amount parser converts exact six-decimal base units', () => {
   assert.equal(parseOwnerUsdtAmount('1'), '1000000')
   assert.equal(parseOwnerUsdtAmount('12.340056'), '12340056')
   assert.equal(parseOwnerUsdtAmount('0.000001'), '1')
+})
+
+
+test('owner withdrawal minimum is exactly 1,000 USDT and is isolated from the shared amount parser', () => {
+  assert.equal(MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS, '1000000000')
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('999999999'), false)
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('1000000000'), true)
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('1000000001'), true)
+  assert.equal(isOwnerWithdrawalAmountAtLeastMinimum('not-an-integer'), false)
+  // The shared parser remains generic because the legacy sponsor adapter imports it;
+  // only the owner-withdrawal preparation route applies the platform minimum.
+  assert.equal(parseOwnerUsdtAmount('999.999999'), '999999999')
 })
 
 test('owner USDT amount parser rejects zero, excess precision and non-decimal values', () => {
@@ -46,7 +65,7 @@ test('TRC20 ABI parameter encodes recipient and six-decimal amount exactly', () 
 })
 
 function preparedTransfer(overrides = {}) {
-  const amountBaseUnits = '25000000'
+  const amountBaseUnits = MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS
   const parameter = buildOwnerUsdtTransferParameter(recipientAddress, amountBaseUnits, tronWeb)
   const rawData = {
     contract: [{
@@ -79,6 +98,29 @@ function preparedTransfer(overrides = {}) {
   }
 }
 
+test('signed withdrawal validation independently rejects amounts below the 1,000 USDT minimum', () => {
+  const item = preparedTransfer()
+  assert.deepEqual(validateOwnerSignedTransaction(item.signed, item.unsigned, {
+    ...item.intent,
+    amountBaseUnits: '999999999',
+  }), { ok: false, reason: 'owner-withdrawal-below-1000-usdt-minimum' })
+  assert.deepEqual(validateOwnerSignedTransaction(item.signed, item.unsigned, item.intent), { ok: true })
+})
+
+test('owner preparation route applies the minimum before database or provider access', async () => {
+  const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
+  const prepareStart = source.indexOf("router.post('/prepare'")
+  const broadcastStart = source.indexOf("router.post('/:id/broadcast'")
+  assert.ok(prepareStart >= 0 && broadcastStart > prepareStart)
+  const prepareRoute = source.slice(prepareStart, broadcastStart)
+  const minimumGuard = prepareRoute.indexOf('if (!isOwnerWithdrawalAmountAtLeastMinimum(amountBaseUnits))')
+  const databaseAccess = prepareRoute.indexOf('const db = getPool(env)')
+  const providerAccess = prepareRoute.indexOf('tatumApiKey(env)')
+  assert.ok(minimumGuard >= 0)
+  assert.ok(databaseAccess > minimumGuard)
+  assert.ok(providerAccess > minimumGuard)
+})
+
 test('signed withdrawal must preserve the persisted owner, recipient, contract and amount intent', () => {
   const item = preparedTransfer()
   assert.deepEqual(validateOwnerSignedTransaction(item.signed, item.unsigned, item.intent), { ok: true })
@@ -108,4 +150,71 @@ test('signed withdrawal rejects a missing or multiple-signature payload', () => 
   const item = preparedTransfer()
   assert.equal(validateOwnerSignedTransaction({ ...item.signed, signature: [] }, item.unsigned, item.intent).reason, 'owner-signature-required')
   assert.equal(validateOwnerSignedTransaction({ ...item.signed, signature: ['a'.repeat(130), 'b'.repeat(130)] }, item.unsigned, item.intent).reason, 'owner-signature-required')
+})
+
+
+test('owner-direct Mainnet broadcast is hard-disabled even before owner authentication or database access', async (t) => {
+  const app=express()
+  app.use(express.json())
+  app.use('/api/tron/owner-withdrawals',createTronOwnerWithdrawalsRouter({env:{}}))
+  const server=createServer(app)
+  await new Promise((resolve)=>server.listen(0,'127.0.0.1',resolve))
+  t.after(()=>new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve())))
+  const response=await fetch('http://127.0.0.1:'+server.address().port+'/api/tron/owner-withdrawals/123e4567-e89b-42d3-a456-426614174000/broadcast',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({signedTransaction:{signature:[]}}),
+  })
+  const payload=await response.json()
+  assert.equal(response.status,503)
+  assert.equal(payload.success,false)
+  assert.equal(payload.error,'owner-direct-mainnet-broadcast-disabled-in-this-build')
+  assert.equal(payload.transactionBroadcast,false)
+})
+
+
+test('recipient assurance requires explicit TRON Mainnet TRC20 network acknowledgement', () => {
+  assert.deepEqual(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: true,
+  }), {
+    ok: true,
+    recipientNetwork: 'TRON_MAINNET_TRC20',
+    recipientNetworkConfirmed: true,
+    exchangeCreditStatus: 'not-verifiable',
+  })
+  assert.equal(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress, recipientNetwork: 'ETHEREUM', recipientNetworkConfirmed: true,
+  }).reason, 'recipient-network-must-be-tron-mainnet-trc20')
+  assert.equal(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: false,
+  }).reason, 'recipient-network-confirmation-required')
+  assert.equal(assessOwnerRecipientAssurance({
+    ownerAddress, recipientAddress: ownerAddress, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: true,
+  }).reason, 'invalid-or-self-recipient-address')
+})
+
+test('owner withdrawal code persists solidified block and event evidence separately from exchange credit status', async () => {
+  const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.ok(source.includes('confirmation_block_number=$4,confirmation_event_index=$5,confirmation_verified_at=now()'))
+  assert.ok(source.includes("exchangeCreditStatus: row.exchange_credit_status || 'not-verifiable'"))
+  assert.ok(source.includes('REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true'))
+})
+
+test('owner withdrawal UI never requests a wallet signature while execution is disabled', async () => {
+  const source = await readFile(new URL('../Frontend-Tron-Transfer/src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
+  assert.ok(source.includes('const OWNER_WITHDRAWAL_SIGNING_ENABLED = false'))
+  assert.ok(source.includes('disabled={!OWNER_WITHDRAWAL_SIGNING_ENABLED}>Signing disabled in this build</button>'))
+  assert.ok(!source.includes('function signAndBroadcast'))
+  assert.ok(!source.includes('wallet.tronWeb.trx.sign('))
+  assert.ok(!source.includes("'/broadcast'"))
+  assert.ok(source.includes("recipientNetwork: 'TRON_MAINNET_TRC20'"))
+  assert.ok(source.includes('recipientNetworkConfirmed'))
+})
+
+
+
+test('settlement refresh uses compare-and-set status guards and rereads concurrent terminal results', async () => {
+  const source = await readFile(new URL('../server/routes/tron-owner-withdrawals.mjs', import.meta.url), 'utf8')
+  assert.ok(source.includes("const unresolved = ['submitted', 'outcome-unknown', 'broadcasting']"))
+  assert.ok(source.includes('WHERE id=$1 AND status = ANY($6::text[]) RETURNING *'))
+  assert.ok(source.includes('WHERE id=$1 AND status = ANY($4::text[]) RETURNING *'))
+  assert.ok(source.includes("SELECT * FROM ' + SCHEMA + '.owner_direct_withdrawals WHERE id=$1 LIMIT 1"))
 })

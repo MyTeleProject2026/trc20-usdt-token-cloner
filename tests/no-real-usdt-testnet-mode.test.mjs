@@ -27,10 +27,12 @@ test('testnet token flow does not misidentify user-supplied contracts as Mainnet
 test('Mainnet exchange-deposit page clearly routes unfunded test users away from real transfers', () => {
   assert.match(mainnetPage, /No real USDT needed for testnet practice/)
   assert.match(mainnetPage, /Open testnet workspace/)
-  assert.match(mainnetPage, /requires genuine USDT or TRX in the connected sender wallet/)
+  assert.match(mainnetPage, /It can inspect public balances, but it will not use or move those funds in this build/)
+  assert.match(mainnetPage, /Mainnet transfer execution disabled in this build/)
   assert.match(mainnetPage, /const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'/)
   assert.match(mainnetPage, /checkMainnet\(tronWeb\)/)
-  assert.match(mainnetPage, /Review and sign real Mainnet transfer/)
+  assert.match(mainnetPage, /Mainnet transfer disabled/)
+  assert.match(mainnetPage, /Review only/)
 })
 
 test('sponsor diagnostics remain fail-closed and cannot imply free token principal', () => {

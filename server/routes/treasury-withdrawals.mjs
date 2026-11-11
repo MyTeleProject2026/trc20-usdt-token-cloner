@@ -908,7 +908,7 @@ export function createTreasuryWithdrawalsRouter({
       : null
     return res.json({
       success: true, network: 'mainnet', asset: 'USDT', tokenContract: USDT_MAINNET,
-      withdrawalsEnabled: preflightChecksPassed,
+      withdrawalsEnabled: executionEnabled,
       preflightChecksPassed,
       executionEnabled,
       executionBlocker,

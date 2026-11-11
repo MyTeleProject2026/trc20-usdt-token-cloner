@@ -27,7 +27,8 @@ const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_HOST = 'api.trongrid.io'
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TX_PATTERN = /^[0-9a-fA-F]{64}$/
-const FEE_LIMIT_SUN = '30000000'
+// Supervised feature build: preserve read-only balance/receipt checks, but do not sign or broadcast Mainnet deposits.
+const REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED = true
 const STORAGE_KEY = 'tron-token-studio:mainnet-exchange-deposit:v1'
 const AUTH_SESSION_KEY = 'tron-token-studio:mainnet-auth-session:v1'
 
@@ -336,7 +337,6 @@ export default function MainnetExchangeDeposit() {
 
   const amountBaseUnits = amountToBaseUnits(amount, 6)
   const destinationValid = ADDRESS_PATTERN.test(destination.trim()) && destination.trim() !== sender
-  const formReady = Boolean(sender && walletSession?.address === sender && walletSession?.network === 'mainnet' && walletSession?.expiresAt && walletSession.expiresAt > Date.now() && destinationValid && amountBaseUnits && destinationConfirmed && irreversibleConfirmed && !sending && !verifying && !attempt)
 
   const connectWallet = async () => {
     setWalletBusy(true)
@@ -454,137 +454,11 @@ export default function MainnetExchangeDeposit() {
 
   const sendDeposit = async () => {
     setSendError('')
-    if (attempt) {
-      setSendError('A transaction already exists for this request. Verify that same transaction first; a duplicate send is blocked.')
+    if (REAL_MAINNET_EXCHANGE_DEPOSIT_DISABLED) {
+      setSendError('Mainnet exchange transfers are disabled in this supervised build. No transaction was signed or broadcast.')
       return
     }
-    if (!formReady || !amountBaseUnits || !walletSession) {
-      setSendError('Connect and authenticate a Mainnet wallet, enter a valid amount/address, and confirm the official exchange deposit instructions first.')
-      return
-    }
-
-    setSending(true)
-    let txId = ''
-    let pendingAttempt: DepositAttempt | null = null
-    try {
-      const sessionResult = await apiGet('/api/auth/tron/session', walletSession.sessionToken)
-      if (!sessionResult.ok || sessionResult.payload?.success !== true || sessionResult.payload?.authenticated !== true
-        || sessionResult.payload?.address !== sender || sessionResult.payload?.network !== 'mainnet'
-        || !Number.isFinite(sessionResult.payload?.expiresAt) || sessionResult.payload.expiresAt <= Date.now()) {
-        throw new Error('The Mainnet wallet login expired or is invalid. Reconnect and sign in before preparing a transfer.')
-      }
-      const provider = getProvider()
-      const tronWeb = provider?.tronWeb || (window as any).tronWeb
-      if (!provider || !tronWeb) throw new Error('TronLink is unavailable. Reconnect the intended Mainnet wallet.')
-      checkMainnet(tronWeb)
-      if (String(tronWeb?.defaultAddress?.base58 || '') !== sender || !tronWeb.isAddress(destination.trim())) {
-        throw new Error('The active wallet changed or the destination is invalid. Reconnect and review all fields.')
-      }
-      const receiver = destination.trim()
-      const senderHex = canonicalAddressHex(tronWeb, sender)
-      const receiverHex = canonicalAddressHex(tronWeb, receiver)
-      if (!senderHex || !receiverHex || senderHex === receiverHex) throw new Error('The sender and destination must be valid, different TRON addresses.')
-
-      const amountDecimals = 6
-      const baseUnits = amountBaseUnits
-      let unsigned: any
-      if (asset === 'TRX') {
-        const freshTrx = String(await tronWeb.trx.getBalance(sender))
-        if (!/^(0|[1-9][0-9]*)$/.test(freshTrx) || BigInt(freshTrx) < BigInt(baseUnits)) {
-          throw new Error('The latest Mainnet TRX balance is below the requested transfer amount. Fees are additional.')
-        }
-        unsigned = await tronWeb.transactionBuilder.sendTrx(receiver, baseUnits, sender)
-      } else {
-        const contract = await tronWeb.contract().at(MAINNET_USDT)
-        const symbol = String(await contract.symbol().call())
-        const decimals = Number(await contract.decimals().call())
-        const freshUsdt = String(await contract.balanceOf(sender).call())
-        const freshTrx = String(await tronWeb.trx.getBalance(sender))
-        if (!['USDT', 'USD₮'].includes(symbol) || decimals !== 6) throw new Error('The exact official Mainnet USDT contract could not be verified immediately before signing.')
-        if (!/^(0|[1-9][0-9]*)$/.test(freshUsdt) || BigInt(freshUsdt) < BigInt(baseUnits)) throw new Error('The latest official USDT balance is below the requested amount.')
-        if (!/^(0|[1-9][0-9]*)$/.test(freshTrx) || BigInt(freshTrx) <= 0n) throw new Error('The wallet has no verified Mainnet TRX available for token-transfer network fees.')
-        const built = await tronWeb.transactionBuilder.triggerSmartContract(
-          MAINNET_USDT,
-          'transfer(address,uint256)',
-          { feeLimit: Number(FEE_LIMIT_SUN), callValue: 0 },
-          [{ type: 'address', value: receiver }, { type: 'uint256', value: baseUnits }],
-          sender,
-        )
-        if (built?.result?.result !== true || !built?.transaction) throw new Error('The official USDT contract did not produce a valid transaction. Nothing was signed.')
-        unsigned = built.transaction
-      }
-
-      if (memo.trim()) {
-        if (memo.trim().length > 200 || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(memo)) {
-          throw new Error('Memo must be at most 200 characters and cannot contain control characters.')
-        }
-        if (typeof tronWeb?.transactionBuilder?.addUpdateData !== 'function') throw new Error('This TronLink build cannot safely encode the exchange memo. Do not send without a required memo.')
-        unsigned = await tronWeb.transactionBuilder.addUpdateData(unsigned, memo, 'utf8')
-        if (String(unsigned?.raw_data?.data || '').replace(/^0x/i, '').toLowerCase() !== utf8Hex(memo)) {
-          throw new Error('The built transaction memo did not match the exact text entered. Nothing was signed.')
-        }
-      }
-
-      txId = String(unsigned?.txID || '')
-      if (!TX_PATTERN.test(txId)) throw new Error('The unsigned transaction has no valid transaction ID.')
-      const operations = unsigned?.raw_data?.contract
-      if (!Array.isArray(operations) || operations.length !== 1) throw new Error('The transaction contains unexpected operations. Nothing was signed.')
-      const operation = operations[0]
-      const value = operation?.parameter?.value || {}
-      if (canonicalAddressHex(tronWeb, value.owner_address) !== senderHex) throw new Error('The transaction sender does not match the connected wallet.')
-      if (asset === 'TRX') {
-        if (operation.type !== 'TransferContract' || canonicalAddressHex(tronWeb, value.to_address) !== receiverHex || String(value.amount) !== baseUnits) {
-          throw new Error('The transaction did not match the exact TRX receiver and amount. Nothing was signed.')
-        }
-      } else {
-        const data = String(value.data || '').replace(/^0x/i, '').toLowerCase()
-        const expectedData = 'a9059cbb' + receiverHex.padStart(64, '0') + BigInt(baseUnits).toString(16).padStart(64, '0')
-        if (operation.type !== 'TriggerSmartContract' || canonicalAddressHex(tronWeb, value.contract_address) !== canonicalAddressHex(tronWeb, MAINNET_USDT) || data !== expectedData) {
-          throw new Error('The transaction did not match the official USDT contract, exact receiver and amount. Nothing was signed.')
-        }
-      }
-
-      const signed = await tronWeb.trx.sign(unsigned)
-      if (!signed || String(signed.txID || '').toLowerCase() !== txId.toLowerCase() || !Array.isArray(signed.signature) || signed.signature.length === 0) {
-        throw new Error('TronLink did not return a valid signature for this exact transaction. Nothing was broadcast.')
-      }
-      const activeTronWeb = provider.tronWeb || (window as any).tronWeb
-      checkMainnet(activeTronWeb)
-      if (String(activeTronWeb?.defaultAddress?.base58 || '') !== sender) throw new Error('The wallet account changed after signing. The transaction was not broadcast.')
-
-      pendingAttempt = {
-        txId,
-        asset,
-        amountBaseUnits: baseUnits,
-        decimals: amountDecimals,
-        sender,
-        receiver,
-        exchangeName: exchangeName.trim(),
-        memo: memo.trim(),
-        status: 'broadcast-outcome-unknown',
-        message: 'A signature was returned. Broadcast and solidified confirmation are being checked. Keep this transaction ID and do not send another until reconciled.',
-        createdAt: Date.now(),
-      }
-      setAttempt(pendingAttempt)
-      const broadcast = await tronWeb.trx.sendRawTransaction(signed)
-      const returnedId = String(broadcast?.txid || broadcast?.transaction?.txID || '')
-      if (broadcast?.result !== true || (returnedId && returnedId.toLowerCase() !== txId.toLowerCase())) {
-        setAttempt({ ...pendingAttempt, status: 'broadcast-outcome-unknown', message: 'The node did not unambiguously acknowledge the broadcast. Verify this same transaction ID; do not duplicate the transfer.' })
-        return
-      }
-      const queued = { ...pendingAttempt, status: 'awaiting-solidification' as const, message: 'The node acknowledged broadcast. Waiting for exact solidified Mainnet transaction and receipt verification.' }
-      setAttempt(queued)
-      await verifyAttempt(queued)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'The transfer could not be prepared.'
-      if (txId && pendingAttempt) {
-        setAttempt((current) => current?.txId === txId ? { ...current, status: 'broadcast-outcome-unknown', message: message + ' Keep this transaction ID and verify it before another send.' } : current)
-      } else {
-        setSendError(message)
-      }
-    } finally {
-      setSending(false)
-    }
+    setSendError('Mainnet exchange transfer execution is unavailable in this build.')
   }
 
   const statusTitle = attempt?.status === 'verified-on-chain'
@@ -605,7 +479,7 @@ export default function MainnetExchangeDeposit() {
             <div className="studio-brand-mark"><Wallet size={23} aria-hidden="true" /></div>
             <div>
               <h1>TRON Token Studio</h1>
-              <p>Real Mainnet exchange deposit</p>
+              <p>Mainnet exchange deposit · read-only</p>
             </div>
           </div>
           <div>
@@ -619,17 +493,17 @@ export default function MainnetExchangeDeposit() {
           <section className="studio-page-heading">
             <div>
               <p className="studio-eyebrow">Genuine on-chain transfer</p>
-              <h1>Exchange deposit</h1>
-              <p>Send actual Mainnet TRX or official TRON USDT to an address copied from the exchange’s official deposit page.</p>
+              <h1>Exchange deposit · read-only</h1>
+              <p>Review public Mainnet balances and verify previously recorded transfers. New Mainnet transaction signing and broadcasting are disabled in this build.</p>
             </div>
-            <span className="studio-pill studio-pill--warning">Irreversible transfer</span>
+            <span className="studio-pill studio-pill--warning">Transfers disabled</span>
           </section>
 
           <div className="studio-notice studio-notice--warning" role="note">
             <AlertTriangle size={18} aria-hidden="true" />
             <div>
-              <strong>Real funds only — no testnet or simulated credits</strong>
-              <p>This page can only send from your connected Mainnet wallet. Nile/Shasta assets, custom tokens, displayed balances and sponsor budgets are not accepted as real deposits. A transaction confirmed on-chain does not prove an exchange credited your account.</p>
+              <strong>Mainnet transfer execution disabled in this build</strong>
+              <p>This page can still inspect public Mainnet balances and verify a previously recorded transaction. It cannot sign or broadcast a new TRX or USDT transfer. Testnet assets, simulated balances and internal sponsor budgets are not real deposits.</p>
             </div>
           </div>
 
@@ -639,7 +513,7 @@ export default function MainnetExchangeDeposit() {
               <div>
                 <p className="studio-eyebrow">Practice without real funds</p>
                 <h2 id="no-real-usdt-heading">No real USDT needed for testnet practice</h2>
-                <p>Use the testnet workspace to learn the flow with faucet-provided test tokens. Those tokens have no monetary value and cannot be credited to a Mainnet exchange. This Mainnet page still requires genuine USDT or TRX in the connected sender wallet.</p>
+                <p>Use the testnet workspace to learn the flow with faucet-provided test tokens. Those tokens have no monetary value and cannot be credited to a Mainnet exchange. It can inspect public balances, but it will not use or move those funds in this build.</p>
               </div>
             </div>
             <div className="studio-inline-actions">
@@ -713,24 +587,24 @@ export default function MainnetExchangeDeposit() {
               <div className="studio-amount-entry"><input id="exchange-deposit-amount" value={amount} onChange={(event) => { setAmount(event.target.value); setIrreversibleConfirmed(false); setSendError('') }} inputMode="decimal" placeholder="0.00" /><span>{asset}</span></div>
               {amount && !amountBaseUnits && <p className="studio-inline-error">Enter a positive amount with no more than 6 decimal places.</p>}
             </div>
-            {asset === 'USDT' && <div className="studio-notice studio-notice--warning"><AlertTriangle size={18} aria-hidden="true" /><div><strong>Network fee cap</strong><p>The USDT transaction is built with a maximum feeLimit of 30 TRX. Actual fees depend on available Energy/Bandwidth and can vary. Make sure the wallet has enough Mainnet TRX; carefully review any fee shown by TronLink before approving.</p></div></div>}
+            {asset === 'USDT' && <div className="studio-notice studio-notice--warning"><AlertTriangle size={18} aria-hidden="true" /><div><strong>Network fee cap</strong><p>Historical implementation note only: a future approved USDT sender would need a bounded Energy fee limit and sufficient Energy/Bandwidth or TRX. This read-only build does not construct a transaction or request a TronLink signature.</p></div></div>}
             <label className="studio-inline-note" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <input style={{ width: 18, flex: "0 0 auto", marginTop: 3 }} type="checkbox" checked={destinationConfirmed} onChange={(event) => setDestinationConfirmed(event.target.checked)} />
               <span>I copied this address and any required memo from the exchange’s official deposit page, selected the TRON/TRC-20 network for this exact asset, checked minimum deposits and deposit availability, and confirmed these details are correct.</span>
             </label>
             <label className="studio-inline-note" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <input style={{ width: 18, flex: "0 0 auto", marginTop: 3 }} type="checkbox" checked={irreversibleConfirmed} onChange={(event) => setIrreversibleConfirmed(event.target.checked)} />
-              <span>I understand this sends real funds irreversibly from my connected Mainnet wallet. I will review the exact recipient, asset, amount and fees in TronLink before signing.</span>
+              <span>I understand this screen is read-only in this build. It does not create a transaction, request a signature, or move real funds.</span>
             </label>
           </section>
 
           <section className="studio-panel">
             <div className="studio-panel-heading">
               <div className="studio-panel-icon"><ShieldCheck size={19} aria-hidden="true" /></div>
-              <div><p className="studio-eyebrow">Step 3</p><h2>Review and send</h2><p>The wallet must sign this exact transaction. The exchange name is a note only; no exchange deposit is pre-credited or simulated by this app.</p></div>
+              <div><p className="studio-eyebrow">Step 3</p><h2>Review only</h2><p>The wallet signing and broadcast path is disabled in this build. The exchange name is a note only; no exchange deposit is pre-credited or simulated by this app.</p></div>
             </div>
             <div className="studio-review-list">
-              <div className="studio-review-row"><span>Network</span><strong>TRON Mainnet</strong><span className="studio-pill studio-pill--good">Mainnet only</span></div>
+              <div className="studio-review-row"><span>Network</span><strong>TRON Mainnet</strong><span className="studio-pill studio-pill--warning">Read-only</span></div>
               <div className="studio-review-row"><span>Exchange label</span><strong>{exchangeName.trim() || 'Not entered'}</strong></div>
               <div className="studio-review-row"><span>Asset</span><strong>{asset === 'USDT' ? 'Official Tether USDT (TRC-20)' : 'Native TRX'}</strong></div>
               {asset === 'USDT' && <div className="studio-review-row"><span>Token contract</span><code>{MAINNET_USDT}</code></div>}
@@ -741,8 +615,8 @@ export default function MainnetExchangeDeposit() {
             </div>
             {sendError && <p className="studio-inline-error" role="alert">{sendError}</p>}
             <div className="studio-inline-actions">
-              <button type="button" className="studio-button studio-button--primary" onClick={() => void sendDeposit()} disabled={!formReady}>
-                <Wallet size={16} aria-hidden="true" /> {sending ? 'Waiting for wallet / network…' : 'Review and sign real Mainnet transfer'}
+              <button type="button" className="studio-button studio-button--primary" onClick={() => void sendDeposit()} disabled={true} title="Mainnet transaction signing and broadcast are disabled in this build">
+                <ShieldCheck size={16} aria-hidden="true" /> Mainnet transfer disabled
               </button>
             </div>
             <p className="studio-footnote">Signing stays inside TronLink. Private keys and recovery phrases are never sent to this app’s backend. A successful broadcast is not a final receipt.</p>

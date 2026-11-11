@@ -80,6 +80,8 @@ export function getSponsorIntegrationReadiness({
     'successful-supported-testnet-end-to-end-run-not-recorded',
     'independent-security-review-not-recorded',
     'mainnet-operator-release-approval-not-recorded',
+    'sandbox-mainnet-source-isolation-not-end-to-end-integrated',
+    'organization-signer-authority-and-provider-policy-not-connected-to-runtime-payout-path',
   ]
 
   return {

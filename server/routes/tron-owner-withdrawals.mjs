@@ -11,6 +11,8 @@ const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
 export const MAINNET_USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 const MAINNET_GATEWAY = 'https://tron-mainnet.gateway.tatum.io'
+// Explicit non-production safety gate. Owner-signed Mainnet withdrawal broadcasts remain disabled.
+const REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED = true
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -18,6 +20,7 @@ const TRANSFER_SELECTOR = 'a9059cbb'
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
+export const MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS = '1000000000'
 
 let pool
 let schemaPromise
@@ -52,6 +55,12 @@ async function ensureSchema(db) {
           owner_address TEXT NOT NULL,
           recipient_address TEXT NOT NULL,
           token_contract TEXT NOT NULL,
+          recipient_network TEXT NOT NULL DEFAULT 'TRON_MAINNET_TRC20' CHECK (recipient_network = 'TRON_MAINNET_TRC20'),
+          recipient_network_confirmed BOOLEAN NOT NULL DEFAULT false,
+          confirmation_block_number BIGINT,
+          confirmation_event_index INTEGER,
+          confirmation_verified_at TIMESTAMPTZ,
+          exchange_credit_status TEXT NOT NULL DEFAULT 'not-verifiable',
           amount_base_units NUMERIC(78,0) NOT NULL CHECK (amount_base_units > 0),
           unsigned_transaction JSONB NOT NULL,
           transaction_hash CHAR(64) NOT NULL,
@@ -82,6 +91,19 @@ export function parseOwnerUsdtAmount(value) {
     throw new Error('The USDT amount is outside the permitted transfer range.')
   }
   return baseUnits.toString()
+}
+
+export function assessOwnerRecipientAssurance({ ownerAddress, recipientAddress, recipientNetwork, recipientNetworkConfirmed }) {
+  if (recipientNetwork !== 'TRON_MAINNET_TRC20') return { ok: false, reason: 'recipient-network-must-be-tron-mainnet-trc20' }
+  if (recipientNetworkConfirmed !== true) return { ok: false, reason: 'recipient-network-confirmation-required' }
+  if (!isValidTronAddress(recipientAddress) || recipientAddress === ownerAddress) return { ok: false, reason: 'invalid-or-self-recipient-address' }
+  return { ok: true, recipientNetwork: 'TRON_MAINNET_TRC20', recipientNetworkConfirmed: true, exchangeCreditStatus: 'not-verifiable' }
+}
+
+export function isOwnerWithdrawalAmountAtLeastMinimum(amountBaseUnits) {
+  return typeof amountBaseUnits === 'string'
+    && /^(?:0|[1-9][0-9]*)$/.test(amountBaseUnits)
+    && BigInt(amountBaseUnits) >= BigInt(MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS)
 }
 
 export function calculateOwnerWithdrawableUsdtBaseUnits(balanceBaseUnits, reservedBaseUnits) {
@@ -159,6 +181,9 @@ function sameUnsignedTransaction(signed, unsigned) {
 }
 
 export function validateOwnerSignedTransaction(signed, unsigned, intent) {
+  if (!isOwnerWithdrawalAmountAtLeastMinimum(intent?.amountBaseUnits)) {
+    return { ok: false, reason: 'owner-withdrawal-below-1000-usdt-minimum' }
+  }
   if (!sameUnsignedTransaction(signed, unsigned)) return { ok: false, reason: 'signed-transaction-does-not-match-prepared-intent' }
   if (!Array.isArray(signed.signature) || signed.signature.length !== 1
     || typeof signed.signature[0] !== 'string' || !/^[0-9a-f]{130}$/i.test(signed.signature[0])) {
@@ -306,6 +331,12 @@ function publicWithdrawal(row) {
     network: 'mainnet',
     asset: 'USDT',
     tokenContract: row.token_contract,
+    recipientNetwork: row.recipient_network || 'TRON_MAINNET_TRC20',
+    recipientNetworkConfirmed: row.recipient_network_confirmed === true,
+    confirmationBlockNumber: row.confirmation_block_number == null ? null : Number(row.confirmation_block_number),
+    confirmationEventIndex: row.confirmation_event_index == null ? null : Number(row.confirmation_event_index),
+    confirmationVerifiedAt: row.confirmation_verified_at ? new Date(row.confirmation_verified_at).toISOString() : null,
+    exchangeCreditStatus: row.exchange_credit_status || 'not-verifiable',
     ownerAddress: row.owner_address,
     recipientAddress: row.recipient_address,
     amountBaseUnits: String(row.amount_base_units),
@@ -376,18 +407,27 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
     const auth = await requireOwner(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}
-    if (Object.keys(body).some((key) => !['recipientAddress', 'amount', 'idempotencyKey'].includes(key))) {
+    if (Object.keys(body).some((key) => !['recipientAddress', 'recipientNetwork', 'recipientNetworkConfirmed', 'amount', 'idempotencyKey'].includes(key))) {
       return res.status(400).json({ success: false, error: 'unexpected-fields' })
     }
     const recipientAddress = clean(body.recipientAddress, 64)
     const idempotencyKey = clean(body.idempotencyKey, 64)
-    if (!ADDRESS_RE.test(recipientAddress) || !isValidTronAddress(recipientAddress) || recipientAddress === auth.address) {
-      return res.status(400).json({ success: false, error: 'invalid-or-self-recipient-address' })
+    const recipientAssurance = assessOwnerRecipientAssurance({ ownerAddress: auth.address, recipientAddress, recipientNetwork: body.recipientNetwork, recipientNetworkConfirmed: body.recipientNetworkConfirmed })
+    if (!ADDRESS_RE.test(recipientAddress) || !recipientAssurance.ok) {
+      return res.status(400).json({ success: false, error: recipientAssurance.reason || 'invalid-or-self-recipient-address' })
     }
     if (!UUID_RE.test(idempotencyKey)) return res.status(400).json({ success: false, error: 'valid-idempotency-key-required' })
     let amountBaseUnits
     try { amountBaseUnits = parseOwnerUsdtAmount(body.amount) } catch (error) {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount', message: error.message })
+    }
+    if (!isOwnerWithdrawalAmountAtLeastMinimum(amountBaseUnits)) {
+      return res.status(400).json({
+        success: false,
+        error: 'owner-withdrawal-below-1000-usdt-minimum',
+        minimumAmount: '1000',
+        minimumBaseUnits: MIN_OWNER_WITHDRAWAL_USDT_BASE_UNITS,
+      })
     }
     const db = getPool(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
@@ -505,8 +545,8 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
           })
         }
         const saved = await client.query(
-          'INSERT INTO ' + SCHEMA + '.owner_direct_withdrawals (id,idempotency_key,owner_address,recipient_address,token_contract,amount_base_units,unsigned_transaction,transaction_hash,status,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10) RETURNING *',
-          [id, idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits, JSON.stringify(unsignedTransaction), unsignedTransaction.txID, 'prepared', new Date(expiration).toISOString()],
+          'INSERT INTO ' + SCHEMA + '.owner_direct_withdrawals (id,idempotency_key,owner_address,recipient_address,token_contract,recipient_network,recipient_network_confirmed,exchange_credit_status,amount_base_units,unsigned_transaction,transaction_hash,status,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13) RETURNING *',
+          [id, idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, recipientAssurance.recipientNetwork, recipientAssurance.recipientNetworkConfirmed, recipientAssurance.exchangeCreditStatus, amountBaseUnits, JSON.stringify(unsignedTransaction), unsignedTransaction.txID, 'prepared', new Date(expiration).toISOString()],
         )
         savedRow = saved.rows[0]
         await client.query('COMMIT')
@@ -536,6 +576,9 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
 
   router.post('/:id/broadcast', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, private')
+    if (REAL_OWNER_DIRECT_MAINNET_BROADCAST_DISABLED) {
+      return res.status(503).json({ success:false, error:'owner-direct-mainnet-broadcast-disabled-in-this-build', transactionBroadcast:false })
+    }
     const auth = await requireOwner(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params.id, 64)
@@ -677,11 +720,22 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
       failureCode = verification.status
     }
     if (status !== row.status || failureCode !== row.failure_code) {
-      const updated = await db.query(
-        'UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,updated_at=now() WHERE id=$1 RETURNING *',
-        [row.id, status, failureCode],
-      )
-      return updated.rows[0] || row
+      // Multiple dashboard refreshes can verify the same transaction concurrently.
+      // Only transition rows that are still in an unresolved chain-observation state;
+      // never let a stale poll overwrite a newer terminal result.
+      const unresolved = ['submitted', 'outcome-unknown', 'broadcasting']
+      const updated = verification.verified
+        ? await db.query(
+          'UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,confirmation_block_number=$4,confirmation_event_index=$5,confirmation_verified_at=now(),updated_at=now() WHERE id=$1 AND status = ANY($6::text[]) RETURNING *',
+          [row.id, status, failureCode, verification.blockNumber, verification.logIndex, unresolved],
+        )
+        : await db.query(
+          'UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,updated_at=now() WHERE id=$1 AND status = ANY($4::text[]) RETURNING *',
+          [row.id, status, failureCode, unresolved],
+        )
+      if (updated.rows[0]) return updated.rows[0]
+      const latest = await db.query('SELECT * FROM ' + SCHEMA + '.owner_direct_withdrawals WHERE id=$1 LIMIT 1', [row.id])
+      return latest.rows[0] || row
     }
     return row
   }
@@ -702,7 +756,7 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
       return res.json({
         success: true,
         withdrawal: publicWithdrawal(row),
-        confirmation: row.status === 'confirmed' ? { verified: true, source: 'Tatum solidified Mainnet transaction and receipt plus exact USDT Transfer event' } : null,
+        confirmation: row.status === 'confirmed' ? { verified: true, source: 'Tatum solidified Mainnet transaction body and receipt plus exact official USDT Transfer event', blockNumber: row.confirmation_block_number == null ? null : Number(row.confirmation_block_number), eventIndex: row.confirmation_event_index == null ? null : Number(row.confirmation_event_index), verifiedAt: row.confirmation_verified_at ? new Date(row.confirmation_verified_at).toISOString() : null, exchangeCreditStatus: row.exchange_credit_status || 'not-verifiable' } : null,
         note: row.status === 'confirmed'
           ? 'The exact official USDT transfer is confirmed in the solidified TRON Mainnet chain.'
           : 'Broadcast acceptance or a pending transaction is not confirmation. Refresh again to check solidified chain state.',

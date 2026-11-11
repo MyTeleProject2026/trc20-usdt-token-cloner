@@ -96,7 +96,7 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
       <div className="notice notice-warning">
         <AlertTriangle size={17} />
         <div>
-          <b>Fincra account diagnostics are separate from payout authorization</b>
+          <b>No approved payout funding source is currently verified</b>
           <p>The platform will not ask you to deposit USDT or TRX. A sponsor organization must authorize the exact Fincra business account and hold spendable USDT in that account. A displayed account balance is sponsor business funds; it is not Fincra-donated liquidity or a credit facility. Live payouts remain disabled until Fincra and the sponsor have independently approved the arrangement.</p>
         </div>
       </div>
@@ -116,12 +116,18 @@ export default function ProviderPayoutReadiness({ ownerSession, mode = 'withdraw
 
       <div className="sponsor-funding-destination">
         <div className="section-heading">
-          <div><span className="eyebrow">FUNDING AND AUTHORIZATION CHECKS</span><h3>{busy ? 'Checking readiness…' : readiness?.status === 'provider-payout-ready' ? 'Provider readiness passed' : 'Requirements not yet satisfied'}</h3></div>
-          <button className="secondary-button" disabled={busy || !ownerSession?.sessionToken} onClick={() => void refresh()}><RefreshCw size={15} /> Refresh</button>
+          <div><span className="eyebrow">FYSTACK · READ-ONLY PROVIDER OBSERVATION</span><h3>{result?.fystack?.status === 'wallet-identity-observed' ? 'FYStack wallet identity observed' : 'FYStack funding evidence not verified'}</h3></div>
+          <span className="fine-print">{result?.fystack?.configured ? 'API configuration detected' : 'API configuration missing'}</span>
         </div>
-        {readiness?.executionEnabled
-          ? <div className="notice notice-success"><CheckCircle2 size={16} /><span>All provider funding and execution checks passed. This page still does not initiate a transfer.</span></div>
-          : <div className="empty-state"><Wallet size={24} /><b>No approved payout funding source</b><p>The API directory and a provider API description are not proof of an account, available liquidity, or a credit agreement.</p></div>}
+        <div className="recipient-balance-grid">
+          <article className="metric-card"><span>Configured MPC wallet</span><strong>{result?.fystack?.wallet?.name || 'Not matched'}</strong></article>
+          <article className="metric-card"><span>Wallet type</span><strong>{result?.fystack?.wallet?.walletType || 'Unknown'}</strong></article>
+          <article className="metric-card"><span>Displayed wallet value</span><strong>{result?.fystack?.wallet?.displayedValueUsd != null ? '$' + result.fystack.wallet.displayedValueUsd : 'Unavailable'}</strong></article>
+          <article className="metric-card"><span>Workspace USDT total</span><strong>{result?.fystack?.workspaceUsdt?.totalBalance ?? 'Unavailable'}</strong></article>
+          <article className="metric-card"><span>Wallet available USDT</span><strong>Not verified</strong></article>
+          <article className="metric-card"><span>Held USDT</span><strong>Not verified</strong></article>
+        </div>
+        <p className="fine-print">Workspace totals aggregate across wallets and networks. Displayed USD value is not spendable USDT. Wallet-specific available/held USDT and provider funding authorization remain unverified.</p>
         {blockers.length > 0 && <ul className="fine-print provider-blocker-list">
           {blockers.map((blocker) => <li key={blocker}>{blockerLabels[blocker] || blocker}</li>)}
         </ul>}

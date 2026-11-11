@@ -9,11 +9,15 @@ function evidence(overrides = {}) {
     provider: { adapterVerified: true, accountVerified: true },
     principal: {
       sponsorId: 'asset-sponsor-1', consentVerified: true, fundingSnapshotFresh: true,
-      network: 'nile', availableBaseUnits: '1200', requiredBaseUnits: '1000',
+      network: 'nile', environment: 'nile', sourceKind: 'onchain', sourceVerified: true,
+      chainVerified: true, sandbox: false, simulated: false,
+      availableBaseUnits: '1200', requiredBaseUnits: '1000',
     },
     fee: {
       sponsorId: 'fee-sponsor-1', consentVerified: true, fundingSnapshotFresh: true,
-      coverageVerified: true, network: 'nile', availableBaseUnits: '50', requiredBaseUnits: '25',
+      coverageVerified: true, network: 'nile', environment: 'nile', sourceKind: 'onchain',
+      sourceVerified: true, chainVerified: true, sandbox: false, simulated: false,
+      availableBaseUnits: '50', requiredBaseUnits: '25',
     },
     authorization: {
       verifiedIntentDigest: 'a'.repeat(64), signatureVerified: true,
@@ -39,11 +43,15 @@ test('provider model can pass preflight only with separately verified principal 
 test('organization model requires independently verified organization identity and mandate', () => {
   const base = evidence({
     mode: 'sponsor-organization',
-    organization: { identityVerified: true, mandateVerified: true },
+    organization: { identityVerified: true, mandateVerified: true, signerAuthorityVerified: true,
+      providerAccountVerified: true, signingPolicyVerified: true },
   })
   assert.equal(evaluateSponsorTransferEligibility(base).eligible, true)
-  assert.ok(evaluateSponsorTransferEligibility(evidence({ mode: 'sponsor-organization' }))
-    .blockers.includes('sponsor-organization-identity-unverified'))
+  const missing = evaluateSponsorTransferEligibility(evidence({ mode: 'sponsor-organization' }))
+  assert.ok(missing.blockers.includes('sponsor-organization-identity-unverified'))
+  assert.ok(missing.blockers.includes('sponsor-organization-signer-authority-unverified'))
+  assert.ok(missing.blockers.includes('sponsor-organization-provider-account-unverified'))
+  assert.ok(missing.blockers.includes('sponsor-organization-signing-policy-unverified'))
 })
 
 test('rejects missing sponsor consent even when on-chain balances are sufficient', () => {
@@ -130,5 +138,133 @@ test('rejects amounts outside positive canonical uint256 base-unit strings', () 
     }))
     assert.equal(result.eligible, false, `expected invalid balance ${invalid} to be rejected`)
     assert.ok(result.blockers.includes('asset-principal-funding-insufficient-or-unverified'))
+  }
+})
+
+test('rejects simulated and sandbox principal or fee balances regardless of displayed amount', () => {
+  const sandboxPrincipal = evaluateSponsorTransferEligibility(evidence({
+    principal: { ...evidence().principal, environment: 'sandbox', sourceKind: 'provider-live-account',
+      liveMode: false, sandbox: true, simulated: true, sourceVerified: false, chainVerified: false },
+  }))
+  assert.equal(sandboxPrincipal.eligible, false)
+  assert.ok(sandboxPrincipal.blockers.includes('asset-principal-funding-source-not-live-verified'))
+
+  const sandboxFee = evaluateSponsorTransferEligibility(evidence({
+    fee: { ...evidence().fee, environment: 'sandbox', sourceKind: 'provider-live-account',
+      liveMode: false, sandbox: true, simulated: true, sourceVerified: false, chainVerified: false },
+  }))
+  assert.equal(sandboxFee.eligible, false)
+  assert.ok(sandboxFee.blockers.includes('network-fee-funding-source-not-live-verified'))
+})
+
+test('rejects funding snapshots whose source environment or network differs from the requested network', () => {
+  const wrongEnvironment = evaluateSponsorTransferEligibility(evidence({
+    principal: { ...evidence().principal, environment: 'mainnet' },
+  }))
+  assert.ok(wrongEnvironment.blockers.includes('asset-principal-funding-source-not-live-verified'))
+  const wrongNetwork = evaluateSponsorTransferEligibility(evidence({
+    fee: { ...evidence().fee, network: 'mainnet', environment: 'mainnet' },
+  }))
+  assert.ok(wrongNetwork.blockers.includes('fee-sponsor-network-mismatch'))
+})
+
+
+test('each sandbox or unverified provenance marker independently blocks funding eligibility', () => {
+  const cases = [
+    ['sandbox', { sandbox: true }],
+    ['simulation', { simulated: true }],
+    ['non-live provider mode', { sourceKind: 'provider-live-account', liveMode: false }],
+    ['unverified source', { sourceVerified: false }],
+    ['unverified chain snapshot', { chainVerified: false }],
+    ['missing provenance', { environment: undefined, sourceKind: undefined }],
+  ]
+  for (const [label, patch] of cases) {
+    const result = evaluateSponsorTransferEligibility(evidence({
+      principal: { ...evidence().principal, ...patch },
+    }))
+    assert.equal(result.eligible, false, label)
+    assert.ok(result.blockers.includes('asset-principal-funding-source-not-live-verified'), label)
+  }
+})
+
+test('organization authorization fails closed when provider policy evidence is absent', () => {
+  const result = evaluateSponsorTransferEligibility(evidence({
+    mode: 'sponsor-organization',
+    organization: {
+      identityVerified: true,
+      mandateVerified: true,
+      signerAuthorityVerified: true,
+      providerAccountVerified: true,
+      signingPolicyVerified: false,
+    },
+  }))
+  assert.equal(result.eligible, false)
+  assert.ok(result.blockers.includes('sponsor-organization-signing-policy-unverified'))
+})
+
+
+test('accepts independently verified production provider-account funding with a distinct Mainnet network label', () => {
+  const providerSnapshot = {
+    sponsorId: 'provider-sponsor-1',
+    consentVerified: true,
+    fundingSnapshotFresh: true,
+    network: 'mainnet',
+    environment: 'production',
+    sourceKind: 'provider-live-account',
+    sourceVerified: true,
+    sandbox: false,
+    simulated: false,
+    liveMode: true,
+    accountVerified: true,
+    providerAccountId: 'provider-vault-123',
+    availableBaseUnits: '1200',
+    requiredBaseUnits: '1000',
+  }
+  const feeSnapshot = {
+    sponsorId: 'provider-fee-1',
+    consentVerified: true,
+    fundingSnapshotFresh: true,
+    coverageVerified: true,
+    network: 'mainnet',
+    environment: 'production',
+    sourceKind: 'provider-live-account',
+    sourceVerified: true,
+    sandbox: false,
+    simulated: false,
+    liveMode: true,
+    accountVerified: true,
+    providerAccountId: 'provider-vault-123',
+    availableBaseUnits: '50',
+    requiredBaseUnits: '25',
+  }
+  const result = evaluateSponsorTransferEligibility(evidence({
+    network: 'mainnet',
+    principal: providerSnapshot,
+    fee: feeSnapshot,
+  }))
+  assert.equal(result.eligible, true)
+  assert.equal(result.submissionPerformed, false)
+})
+
+test('rejects provider-account snapshots without a verified account identity', () => {
+  for (const patch of [
+    { accountVerified: false },
+    { providerAccountId: '' },
+    { environment: 'sandbox', liveMode: false },
+    { environment: 'mainnet', liveMode: true },
+  ]) {
+    const principal = {
+      sponsorId: 'provider-sponsor-1', consentVerified: true, fundingSnapshotFresh: true,
+      network: 'mainnet', environment: 'production', sourceKind: 'provider-live-account',
+      sourceVerified: true, sandbox: false, simulated: false, liveMode: true,
+      accountVerified: true, providerAccountId: 'provider-vault-123',
+      availableBaseUnits: '1200', requiredBaseUnits: '1000', ...patch,
+    }
+    const result = evaluateSponsorTransferEligibility(evidence({
+      network: 'mainnet',
+      principal,
+    }))
+    assert.equal(result.eligible, false)
+    assert.ok(result.blockers.includes('asset-principal-funding-source-not-live-verified'))
   }
 })

@@ -23,6 +23,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sponsor_test
       SPONSOR_PG_INTEGRATION: "1"
+      PRIVATE_TREASURY_VAULT_PG_INTEGRATION: "1"
     services:
       postgres:
         image: postgres:16

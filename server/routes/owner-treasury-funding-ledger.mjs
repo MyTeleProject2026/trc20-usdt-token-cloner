@@ -10,6 +10,7 @@ import { createSponsorFundingReader } from '../sponsor-funding.mjs'
 import { isValidTronAddress } from '../tron-address.mjs'
 import { parseSponsorDirectUsdtAmount, verifySponsorDirectMainnetTransfer } from './sponsor-direct-payouts.mjs'
 import { resolveOwnerTreasuryFundingAddress } from './owner-treasury.mjs'
+import { createTronMainnetWatchAddressObserver } from '../tron-mainnet-watch-address-observer.mjs'
 
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
@@ -142,6 +143,7 @@ export function createOwnerTreasuryFundingLedgerRouter({
   getSession = getWalletAuthSession,
   getDatabase = () => getPool(env),
   readFunding = null,
+  readWatchAddresses = null,
   verifyTransfer = verifySponsorDirectMainnetTransfer,
   isValidAddress = isValidTronAddress,
   now = () => Date.now(),
@@ -151,6 +153,7 @@ export function createOwnerTreasuryFundingLedgerRouter({
   const readFundingStatus = readFunding || createSponsorFundingReader({
     env: { ...env, SPONSOR_MAINNET_ADDRESS: treasuryAddress },
   })
+  const watchAddressObserver = readWatchAddresses || createTronMainnetWatchAddressObserver({ env, verifyTransfer })
 
   async function ownerContext(req, res) {
     noStore(res)
@@ -170,6 +173,35 @@ export function createOwnerTreasuryFundingLedgerRouter({
     }
     return auth
   }
+
+  router.get('/funding-ledger/watch-addresses', async (req, res) => {
+    const auth = await ownerContext(req, res)
+    if (!auth) return
+    if (req.query?.network !== 'mainnet') {
+      return res.status(400).json({ success: false, error: 'mainnet-required', submissionEnabled: false })
+    }
+    try {
+      const observation = await watchAddressObserver()
+      return res.json({
+        success: true,
+        status: 'read-only-external-address-observations',
+        ...observation,
+        ownerAccessVerified: true,
+        ownershipVerified: false,
+        ledgerMutationPerformed: false,
+        spendableBalanceImpact: 'none',
+        payoutSubmissionEnabled: false,
+      })
+    } catch {
+      return res.status(503).json({
+        success: false,
+        error: 'watch-address-observation-unavailable',
+        ledgerMutationPerformed: false,
+        spendableBalanceImpact: 'none',
+        payoutSubmissionEnabled: false,
+      })
+    }
+  })
 
   router.get('/funding-ledger', async (req, res) => {
     const auth = await ownerContext(req, res)

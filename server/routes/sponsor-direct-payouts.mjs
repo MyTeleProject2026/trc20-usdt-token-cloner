@@ -20,12 +20,16 @@ import { verifySolidifiedTrc20Transfer } from '../tron-verification.mjs'
 const { Pool } = pg
 const SCHEMA = 'trc20_token_clone'
 const MAINNET_GATEWAY = 'https://tron-mainnet.gateway.tatum.io'
+// Keep sponsor-direct Mainnet broadcasts disabled on this supervised feature branch.
+// Preparation remains read-only with respect to assets: it creates only an unsigned transaction.
+const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const TXID_RE = /^[0-9a-f]{64}$/i
 const MAX_SIGNED_TRANSACTION_BYTES = 128 * 1024
 const MAX_PREPARED_LIFETIME_MS = 10 * 60 * 1000
 const SPONSOR_MATCH_LIFETIME_MS = 15 * 60 * 1000
+const MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS = '1000000000'
 const DEFAULT_FEE_LIMIT_SUN = '100000000'
 const USDT_TRANSFER_EVENT_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
@@ -144,6 +148,12 @@ async function ensureSchema(db) {
 
 export function parseSponsorDirectUsdtAmount(value) {
   return parseOwnerUsdtAmount(value)
+}
+
+export function isSponsorDirectWithdrawalMinimumMet(amountBaseUnits) {
+  const amount = String(amountBaseUnits ?? '')
+  return /^[1-9][0-9]{0,77}$/.test(amount)
+    && BigInt(amount) >= BigInt(MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS)
 }
 
 export function calculateSponsorDirectAvailableBaseUnits(balanceBaseUnits, reservedBaseUnits) {
@@ -1059,7 +1069,8 @@ export function createSponsorDirectPayoutsRouter({
       requestIntakeEnabled: true,
       sponsorWalletFundingRequired: true,
       sponsorWalletSignatureRequired: true,
-      payoutExecution: 'conditional-on-approved-funded-sponsor',
+      payoutExecution: REAL_SPONSOR_DIRECT_BROADCAST_DISABLED ? 'disabled-in-this-build' : 'conditional-on-approved-funded-sponsor',
+      broadcastDisabledInBuild: REAL_SPONSOR_DIRECT_BROADCAST_DISABLED,
       sponsorApprovalRequired: true,
       sponsorOrganizationVerification: 'not-required-for-individual-per-transfer-wallet-sponsorship',
       sponsorComplianceStatus: 'platform wallet review only; this application does not perform identity, KYC, KYB or source-of-funds verification',
@@ -1360,6 +1371,14 @@ export function createSponsorDirectPayoutsRouter({
     try { amountBaseUnits = parseSponsorDirectUsdtAmount(body.amount) } catch {
       return res.status(400).json({ success: false, error: 'invalid-usdt-amount' })
     }
+    if (!isSponsorDirectWithdrawalMinimumMet(amountBaseUnits)) {
+      return res.status(400).json({
+        success: false,
+        error: 'minimum-withdrawal-1000-usdt',
+        minimumAmount: '1000',
+        minimumAmountBaseUnits: MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS,
+      })
+    }
     const db = getDatabase(env)
     if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
     try {
@@ -1490,6 +1509,17 @@ export function createSponsorDirectPayoutsRouter({
         return res.status(404).json({ success: false, error: 'payout-request-not-found' })
       }
       let row = found.rows[0]
+      // Reject legacy or manually inserted below-minimum requests before any
+      // saved preparation can be returned or a new unsigned transaction built.
+      if (!isSponsorDirectWithdrawalMinimumMet(row.amount_base_units)) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'withdrawal-below-1000-usdt-minimum',
+          minimumAmount: '1000',
+          minimumAmountBaseUnits: MIN_SPONSOR_DIRECT_WITHDRAWAL_BASE_UNITS,
+        })
+      }
       if (row.status === 'prepared' && row.sponsor_address === auth.address
         && row.expires_at && new Date(row.expires_at).getTime() > now()) {
         await client.query('COMMIT')
@@ -1703,6 +1733,9 @@ export function createSponsorDirectPayoutsRouter({
 
   router.post('/requests/:id/broadcast', async (req, res) => {
     setNoStore(res)
+    if (REAL_SPONSOR_DIRECT_BROADCAST_DISABLED) {
+      return res.status(503).json({ success:false, error:'sponsor-direct-mainnet-broadcast-disabled-in-this-build', canSubmitSponsoredTransfer:false, submissionEnabled:false, providerSubmissionAttempted:false, transactionBroadcast:false })
+    }
     const auth = await requireWalletSession(req, env, getSession, now)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const id = clean(req.params?.id, 64)

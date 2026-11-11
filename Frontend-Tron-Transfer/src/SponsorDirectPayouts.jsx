@@ -6,6 +6,7 @@ import {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+const MIN_WITHDRAWAL_USDT_BASE_UNITS = 1000000000n
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 const SESSION_KEY_PREFIX = 'tron-transfer:wallet-identity:v1:'
 
@@ -22,6 +23,14 @@ function formatUnits(value, decimals = 6) {
   } catch {
     return 'Unavailable'
   }
+}
+
+function isAtLeastMinimumWithdrawalAmount(value) {
+  const normalized = String(value || '').trim()
+  if (!/^(?:0|[1-9][0-9]*)(?:[.][0-9]{1,6})?$/.test(normalized)) return false
+  const [whole, fraction = ''] = normalized.split('.')
+  const baseUnits = BigInt(whole) * 1000000n + BigInt(fraction.padEnd(6, '0') || '0')
+  return baseUnits >= MIN_WITHDRAWAL_USDT_BASE_UNITS
 }
 
 async function api(path, token, options = {}) {
@@ -79,6 +88,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [identitySession, setIdentitySession] = useState(null)
   const [application, setApplication] = useState(null)
   const [snapshot, setSnapshot] = useState(null)
+  const [payoutConfig, setPayoutConfig] = useState(null)
   const [myRequests, setMyRequests] = useState([])
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
@@ -108,11 +118,23 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const identityToken = identitySession?.sessionToken || ''
   const identityMatchesWallet = Boolean(identityToken && identitySession?.address === walletAddress)
   const activeSponsor = application?.status === 'active'
+  // Fail closed: this build must not ask a sponsor to sign a Mainnet transaction
+  // while the backend broadcast gate is hard-disabled or the config could not be read.
+  const mainnetBroadcastEnabled = payoutConfig?.broadcastDisabledInBuild === false
+    && payoutConfig?.payoutExecution === 'conditional-on-approved-funded-sponsor'
   // Owner review is available only when both the private owner session and the exact
   // configured owner wallet identity are present. The API token for review is the
   // wallet-auth session, not the separate password-only owner-console session.
   const isOwnerAdmin = Boolean(ownerSession?.sessionToken && identityMatchesWallet
     && walletAddress === ownerSession.address)
+
+  useEffect(() => {
+    let current = true
+    api('/api/tron/sponsor-direct/config', null)
+      .then((result) => { if (current) setPayoutConfig(result) })
+      .catch(() => { if (current) setPayoutConfig(null) })
+    return () => { current = false }
+  }, [])
 
   useEffect(() => {
     let current = true
@@ -339,8 +361,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       if (!identityMatchesWallet) throw new Error('Verify your connected wallet identity first.')
       if (ownerSession?.address && walletAddress !== ownerSession.address) throw new Error('Connect the configured platform-owner wallet before submitting a withdrawal request.')
       if (!isValidAddress(recipient.trim(), wallet?.tronWeb)) throw new Error('Enter a valid TRON Mainnet recipient address.')
-      if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
-        throw new Error('Enter a positive USDT amount with no more than six decimal places.')
+      if (!isAtLeastMinimumWithdrawalAmount(amount)) {
+        throw new Error('Minimum withdrawal amount is 1,000 USDT. Enter at least 1,000 USDT with no more than six decimal places.')
       }
       const result = await api('/api/tron/sponsor-direct/requests', identityToken, {
         method: 'POST',
@@ -422,6 +444,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     setNotice('')
     try {
       const item = request || prepared
+      if (!mainnetBroadcastEnabled) throw new Error('Mainnet sponsor payout execution is disabled in this build. No transaction was signed or broadcast.')
       if (!item?.id || !item?.unsignedTransaction) throw new Error('Prepare the sponsor payout before signing.')
       if (!identityMatchesWallet || !activeSponsor || walletAddress !== item.sponsorAddress) {
         throw new Error('Only the approved sponsor address that prepared this payment can sign it.')
@@ -624,7 +647,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
               </label>
               <label>USDT withdrawal amount
-                <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
+                <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Minimum 1,000 USDT" min="1000" step="0.000001" inputMode="decimal" />
+                <small className="fine-print">Minimum withdrawal: 1,000 USDT.</small>
               </label>
               <button className="primary-button" disabled={!identityMatchesWallet || busy} onClick={() => void submitRequest()}>
                 <ArrowUpRight size={16} /> Submit sponsored withdrawal request
@@ -714,7 +738,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           {prepared?.unsignedTransaction && prepared.sponsorAddress === walletAddress && (
             <div className="prepared-review-panel">
               <div className="section-heading compact">
-                <div><span className="eyebrow">SPONSOR SIGNATURE REQUIRED</span><h3>Review exact USDT transfer</h3></div>
+                <div><span className="eyebrow">{mainnetBroadcastEnabled ? 'SPONSOR SIGNATURE REQUIRED' : 'MAINNET BROADCAST DISABLED'}</span><h3>Review exact USDT transfer</h3></div>
                 <div className="panel-icon"><ShieldCheck /></div>
               </div>
               <div className="readiness-checks">
@@ -737,10 +761,10 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <span>Preparation expires: {prepared.expiresAt ? new Date(prepared.expiresAt).toLocaleString() : 'See TronLink transaction prompt'}</span>
               </div>
               <p className="fine-print">The sponsor wallet supplies the USDT principal and its own TRON network resources or TRX. The fee_limit caps the caller's Energy budget only; it is not a total network fee quote or an upfront charge. The backend separately estimates Energy and Bandwidth shortfalls from current Mainnet chain prices. Actual usage can differ, and failed contract execution can still consume resources. The requester’s zero-balance wallet is not charged.</p>
-              <p className="fine-print">Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Signing is blocked unless the latest fee preflight passes. Nothing is broadcast until the sponsor explicitly signs this exact transaction.</p>
+              <p className="fine-print">{mainnetBroadcastEnabled ? 'Check the sender, recipient, exact USDT amount and fee_limit in TronLink before approving. Signing is blocked unless the latest fee preflight passes. Nothing is broadcast until the sponsor explicitly signs this exact transaction.' : 'This supervised build does not permit Mainnet transaction signing or broadcasting. The unsigned preparation is shown for review only; no sponsor signature will be requested.'}</p>
               {hasExpiredPreparation(prepared)
                 ? <button className="secondary-button" disabled={busy || !identityMatchesWallet} onClick={() => void prepareRequest(prepared)}><RefreshCw size={16} /> Refresh expired preparation</button>
-                : <button className="primary-button" disabled={busy || !identityMatchesWallet || prepared.feeCoverage?.covered !== true} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> Continue to sponsor TronLink approval</button>}
+                : <button className="primary-button" disabled={busy || !mainnetBroadcastEnabled || !identityMatchesWallet || prepared.feeCoverage?.covered !== true} onClick={() => void signAndBroadcast(prepared)}><Wallet size={16} /> {mainnetBroadcastEnabled ? 'Continue to sponsor TronLink approval' : 'Mainnet signing disabled'}</button>}
             </div>
           )}
           <div className="section-heading compact"><div><span className="eyebrow">SPONSOR REQUEST QUEUE</span><h3>Requests awaiting sponsor action</h3></div></div>

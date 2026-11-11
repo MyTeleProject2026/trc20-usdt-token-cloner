@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, CheckCircle2, ExternalLink, History, RefreshCw, ShieldCheck } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
+// This build is intentionally read-only with respect to wallet signing and transaction broadcast.
+const OWNER_WITHDRAWAL_SIGNING_ENABLED = false
 const ADDRESS_RE = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
 function isAddress(value, tronWeb) {
@@ -40,6 +42,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
   const [snapshot, setSnapshot] = useState(null)
   const [withdrawals, setWithdrawals] = useState([])
   const [recipient, setRecipient] = useState('')
+  const [recipientNetworkConfirmed, setRecipientNetworkConfirmed] = useState(false)
   const [amount, setAmount] = useState('')
   const [prepared, setPrepared] = useState(null)
   const [notice, setNotice] = useState('')
@@ -98,6 +101,8 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         method: 'POST',
         body: JSON.stringify({
           recipientAddress: recipient.trim(),
+          recipientNetwork: 'TRON_MAINNET_TRC20',
+          recipientNetworkConfirmed,
           amount: parsed,
           idempotencyKey: crypto.randomUUID(),
         }),
@@ -118,37 +123,6 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
     }
   }
 
-  async function signAndBroadcast() {
-    setBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      if (!prepared?.withdrawal?.id || !prepared?.unsignedTransaction) throw new Error('Prepare a new withdrawal first.')
-      if (!canInteract) throw new Error(apiStatus)
-      const currentAddress = wallet.tronWeb.defaultAddress?.base58 || ''
-      if (currentAddress !== ownerSession.address || currentAddress !== walletAddress) {
-        throw new Error('The TronLink account changed. Reconnect the configured owner wallet before signing.')
-      }
-      // TronLink owns the signing key. Only its injected signer is used here.
-      const signedTransaction = await wallet.tronWeb.trx.sign(prepared.unsignedTransaction)
-      if (!signedTransaction || !Array.isArray(signedTransaction.signature) || signedTransaction.signature.length !== 1) {
-        throw new Error('TronLink did not return a single owner signature. No broadcast was attempted.')
-      }
-      const result = await api('/api/tron-owner-withdrawals/' + encodeURIComponent(prepared.withdrawal.id) + '/broadcast', token, {
-        method: 'POST',
-        body: JSON.stringify({ signedTransaction }),
-      })
-      setNotice(result.note || 'Tatum accepted the signed transaction. Final confirmation is still pending.')
-      setPrepared(null)
-      setAmount('')
-      await refresh()
-    } catch (cause) {
-      const message = typeof cause === 'string' ? cause : cause?.message
-      setError(message || 'Signing or broadcast failed. Check the saved withdrawal status before retrying.')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function refreshOne(id) {
     setBusy(true)
@@ -170,7 +144,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         <div>
           <span className="eyebrow">TATUM MAINNET · TRONLINK OWNER SIGNING</span>
           <h2>{historyOnly ? 'Direct USDT withdrawal history' : 'Send official USDT to an external TRON address'}</h2>
-          <p>USDT moves directly from the configured owner wallet. Tatum prepares and broadcasts; TronLink signs the exact transaction after your approval.</p>
+          <p>Review unsigned transfer details only. This build does not request wallet signatures or broadcast transactions.</p>
         </div>
         <div className="panel-icon"><ArrowUpRight /></div>
       </div>
@@ -205,12 +179,16 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         <div className="withdrawal-form-grid">
           <div className="form-stack">
             <label>External recipient TRON Mainnet address
-              <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setPrepared(null) }} placeholder="Exchange or external wallet address (T…)" autoComplete="off" spellCheck="false" />
+              <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setRecipientNetworkConfirmed(false); setPrepared(null) }} placeholder="Exchange or external wallet address (T…)" autoComplete="off" spellCheck="false" />
+            </label>
+            <label className="recipient-network-confirmation">
+              <input type="checkbox" checked={recipientNetworkConfirmed} onChange={(event) => { setRecipientNetworkConfirmed(event.target.checked); setPrepared(null) }} />
+              I confirm this destination accepts official TRON Mainnet TRC20 USDT and I have checked the exchange's network, minimum deposit and memo/tag requirements.
             </label>
             <label>USDT amount
-              <input value={amount} onChange={(event) => { setAmount(event.target.value); setPrepared(null) }} placeholder="e.g. 10.00" inputMode="decimal" />
+              <input value={amount} onChange={(event) => { setAmount(event.target.value); setPrepared(null) }} placeholder="e.g. 1000.00" inputMode="decimal" />
             </label>
-            <button className="primary-button" disabled={!canInteract || busy || refreshing || !snapshot || BigInt(snapshot.availableForWithdrawalBaseUnits ?? snapshot.usdtBalanceBaseUnits ?? '0') <= 0n || Boolean(prepared)} onClick={() => void prepareWithdrawal()}>
+            <button className="primary-button" disabled={!canInteract || !recipientNetworkConfirmed || busy || refreshing || !snapshot || BigInt(snapshot.availableForWithdrawalBaseUnits ?? snapshot.usdtBalanceBaseUnits ?? '0') <= 0n || Boolean(prepared)} onClick={() => void prepareWithdrawal()}>
               <ArrowUpRight size={16} /> Prepare direct withdrawal
             </button>
             {!canInteract && <p className="fine-print">A matching owner login and TronLink connection are both required. Requester identity login alone is not enough.</p>}
@@ -221,8 +199,8 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <div className="readiness-checks">
               <span>Network: TRON Mainnet</span>
               <span>Contract: {MAINNET_USDT}</span>
-              <span>Signer: configured owner via TronLink</span>
-              <span>Broadcast: Tatum Mainnet Gateway</span>
+              <span>Signer: disabled in this build</span>
+              <span>Broadcast: disabled in this build</span>
               <span>Confirmation: solidified receipt + exact Transfer event</span>
             </div>
             <p className="fine-print">The sending wallet must hold the requested USDT after pending-withdrawal reservations, plus enough TRON resources or TRX for network fees. Tatum does not provide the USDT principal.</p>
@@ -230,7 +208,7 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
         </div>
 
         {prepared && <div className="prepared-withdrawal">
-          <div className="section-heading compact"><div><span className="eyebrow">REVIEW BEFORE WALLET APPROVAL</span><h3>Withdrawal prepared · not sent</h3></div></div>
+          <div className="section-heading compact"><div><span className="eyebrow">UNSIGNED REVIEW ONLY</span><h3>Withdrawal prepared · not sent</h3></div></div>
           <div className="prepared-details">
             <div><span>Recipient</span><b>{prepared.withdrawal.recipientAddress}</b></div>
             <div><span>Amount</span><b>{formatUnits(prepared.withdrawal.amountBaseUnits)} USDT</b></div>
@@ -238,9 +216,9 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <div><span>Estimated energy</span><b>{prepared.estimatedEnergy === null ? 'Not returned' : Number(prepared.estimatedEnergy).toLocaleString()}</b></div>
             <div><span>Transaction ID</span><b>{prepared.withdrawal.transactionHash}</b></div>
           </div>
-          <p className="fine-print">No funds have moved at this stage. Review the exact address and amount in this page and in the TronLink confirmation prompt. TronLink may ask for permission to sign this smart-contract transaction.</p>
+          <p className="fine-print">This build permits unsigned preparation and review only. Wallet signing and transaction broadcast are disabled; no TronLink signature will be requested from this screen.</p>
           <div className="button-row">
-            <button className="primary-button" disabled={!canInteract || busy} onClick={() => void signAndBroadcast()}><Wallet size={16} /> Sign with TronLink and broadcast</button>
+            <button className="primary-button" disabled={!OWNER_WITHDRAWAL_SIGNING_ENABLED}>Signing disabled in this build</button>
             <button className="outline-button" disabled={busy} onClick={() => setPrepared(null)}>Cancel prepared review</button>
           </div>
         </div>}
@@ -257,6 +235,8 @@ export default function OwnerWithdrawals({ wallet, ownerSession, historyOnly = f
             <span>To {item.recipientAddress} · {new Date(item.createdAt).toLocaleString()}</span>
             <small>Status: {item.status}</small>
             {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
+            {item.confirmationBlockNumber !== null && item.confirmationBlockNumber !== undefined && <small>Solidified block: {item.confirmationBlockNumber} · Transfer event index: {item.confirmationEventIndex}</small>}
+            {item.status === 'confirmed' && <small>Exchange credit: {item.exchangeCreditStatus || 'not-verifiable'} — on-chain confirmation does not prove exchange-account credit.</small>}
             {item.failureCode && <small>Detail: {item.failureCode}</small>}
           </div>
           <div className="transaction-actions">

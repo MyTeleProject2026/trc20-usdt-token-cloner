@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import pg from 'pg'
@@ -7,6 +8,7 @@ import { createServer } from 'node:http'
 import { TronWeb } from 'tronweb'
 import {
   parseSponsorDirectUsdtAmount,
+  isSponsorDirectWithdrawalMinimumMet,
   calculateSponsorDirectAvailableBaseUnits,
   parseSponsorDirectFeeParameters,
   calculateSponsorDirectFeeCoverage,
@@ -45,6 +47,16 @@ test('sponsor-direct USDT amount parser accepts exact six-decimal amounts', () =
   assert.throws(() => parseSponsorDirectUsdtAmount('-1'))
   assert.throws(() => parseSponsorDirectUsdtAmount('1e2'))
   assert.throws(() => parseSponsorDirectUsdtAmount(1))
+})
+
+test('sponsor-direct withdrawal minimum is 1,000 USDT while the generic amount parser remains reusable', () => {
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('999.999999')), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('1000')), true)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('1000.000001')), true)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet(parseSponsorDirectUsdtAmount('0.000001')), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet('0'), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet('not-an-integer'), false)
+  assert.equal(isSponsorDirectWithdrawalMinimumMet('1000000000.0'), false)
 })
 
 test('automatic sponsor routing requires available sponsor USDT, approved wallet limits, daily capacity and verified fee coverage', () => {
@@ -167,7 +179,8 @@ test('Mainnet sponsor fee coverage fails closed when fee_limit does not cover En
 })
 
 function unsignedTransfer(overrides = {}) {
-  const amountBaseUnits = '25000000'
+  const amountBaseUnits = String(overrides.amountBaseUnits || '25000000')
+  const { amountBaseUnits: _amountBaseUnits, ...transactionOverrides } = overrides
   const parameter = buildOwnerUsdtTransferParameter(recipientAddress, amountBaseUnits, tronWeb)
   const rawDataHex = 'deadbeef'
   return {
@@ -188,7 +201,7 @@ function unsignedTransfer(overrides = {}) {
         },
       }],
     },
-    ...overrides,
+    ...transactionOverrides,
   }
 }
 
@@ -267,7 +280,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         sponsorAddress: address,
         network: 'mainnet',
         tokenContract: MAINNET_USDT_CONTRACT,
-        usdtBalanceBaseUnits: '100000000',
+        usdtBalanceBaseUnits: '3000000000',
         trxBalanceSun: '0',
         energyAvailable: 100000,
         stakedBandwidthAvailable: 100000,
@@ -288,7 +301,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
           return { result: { result: true }, energy_used: 100, energy_penalty: 0 }
         }
         if (providerPath === 'wallet/triggersmartcontract') {
-          return { result: { result: true }, transaction: unsignedTransfer() }
+          return { result: { result: true }, transaction: unsignedTransfer({ amountBaseUnits: '1000000000' }) }
         }
         throw new Error('Unexpected Tatum integration-test path: ' + providerPath)
       },
@@ -327,8 +340,8 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
-      perPayoutLimit: '50',
-      dailyLimit: '100',
+      perPayoutLimit: '1000',
+      dailyLimit: '1000',
     })
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
@@ -343,7 +356,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const first = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: firstIdempotencyKey,
     })
     assert.equal(first.response.status, 201)
@@ -354,7 +367,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const second = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: secondIdempotencyKey,
     })
     assert.equal(second.response.status, 201)
@@ -363,9 +376,9 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const readiness = await call('/readiness', sponsorToken)
     assert.equal(readiness.response.status, 200)
-    assert.equal(readiness.payload.reservedUsdtBaseUnits, '25000000')
-    assert.equal(readiness.payload.availableUsdtBaseUnits, '75000000')
-    assert.equal(readiness.payload.dailyUsedBaseUnits, '25000000')
+    assert.equal(readiness.payload.reservedUsdtBaseUnits, '1000000000')
+    assert.equal(readiness.payload.availableUsdtBaseUnits, '2000000000')
+    assert.equal(readiness.payload.dailyUsedBaseUnits, '1000000000')
 
     const prepared = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
     assert.equal(prepared.response.status, 201)
@@ -416,7 +429,8 @@ test('public sponsor-direct configuration allows a zero-balance requester but re
   assert.equal(payload.requestIntakeEnabled, true)
   assert.equal(payload.requesterWalletFundingRequired, false)
   assert.equal(payload.payoutMode, 'sponsor-direct')
-  assert.equal(payload.payoutExecution, 'conditional-on-approved-funded-sponsor')
+  assert.equal(payload.payoutExecution, 'disabled-in-this-build')
+  assert.equal(payload.broadcastDisabledInBuild, true)
   assert.equal(payload.sponsorApprovalRequired, true)
 })
 
@@ -483,3 +497,31 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+
+
+test('Mainnet sponsor-direct broadcast is hard-disabled on the supervised feature build', async (t) => {
+  const app = express()
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({ env: {} }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/sponsor-direct/requests/123e4567-e89b-42d3-a456-426614174000/broadcast', {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({signedTransaction:{signature:[]}}),
+  })
+  const payload=await response.json()
+  assert.equal(response.status,503)
+  assert.equal(payload.success,false)
+  assert.equal(payload.error,'sponsor-direct-mainnet-broadcast-disabled-in-this-build')
+  assert.equal(payload.transactionBroadcast,false)
+})
+
+
+test('supervised feature branch hard-disables sponsor-direct Mainnet broadcast before provider submission', async () => {
+  const source = await readFile(new URL('../server/routes/sponsor-direct-payouts.mjs', import.meta.url), 'utf8')
+  assert.match(source, /const REAL_SPONSOR_DIRECT_BROADCAST_DISABLED = true/)
+  assert.match(source, /router\.post\('\/requests\/:id\/broadcast'/)
+  assert.match(source, /if \(REAL_SPONSOR_DIRECT_BROADCAST_DISABLED\) \{\s*return res\.status\(503\)\.json\(/)
+  assert.match(source, /canSubmitSponsoredTransfer:false, submissionEnabled:false, providerSubmissionAttempted:false, transactionBroadcast:false/)
+})

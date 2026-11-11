@@ -37,9 +37,12 @@ test('owner session is restored and used independently from TronLink account con
 })
 
 test('direct withdrawal requires a connected owner wallet matching the backend owner session', () => {
+  assert.ok(withdrawals.includes('const isOwnerWallet = Boolean(ownerSession?.address && walletAddress && ownerSession.address === walletAddress)'))
+  assert.ok(withdrawals.includes('const canInteract = Boolean(token && isOwnerWallet && wallet?.tronWeb?.trx)'))
   assert.ok(withdrawals.includes('The connected TronLink address does not match the configured owner address.'))
-  assert.ok(withdrawals.includes('currentAddress !== ownerSession.address'))
   assert.ok(withdrawals.includes('Owner wallet and owner session match.'))
+  assert.ok(!withdrawals.includes('function signAndBroadcast'))
+  assert.ok(!withdrawals.includes('wallet.tronWeb.trx.sign('))
 })
 
 test('forest emerald glass theme and responsive breakpoints remain', () => {
