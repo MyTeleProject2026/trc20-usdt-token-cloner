@@ -1930,3 +1930,20 @@ td { color: #d2e1f5; }
   color: #d7bd8e;
   line-height: 1.7;
 }
+
+
+/* Separate development-grant preparation from actual sponsor payout liquidity. */
+.funding-pathway-heading { display: grid; gap: 6px; margin: 24px 0 12px; }
+.funding-pathway-heading h3 { margin: 0; color: #e8f3ff; font: 700 17px var(--font-display); }
+.funding-pathway-heading p { margin: 0; max-width: 760px; color: #91a7c6; font-size: 11px; line-height: 1.7; }
+.funding-pathway-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.funding-pathway-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; padding: 17px; border: 1px solid rgba(103, 174, 245, .2); border-radius: 15px; background: linear-gradient(145deg, rgba(22, 43, 71, .72), rgba(9, 20, 37, .88)); }
+.funding-pathway-card h3 { margin: 0; color: #e8f3ff; font: 700 15px var(--font-display); }
+.funding-pathway-card p { margin: 0; color: #91a7c6; font-size: 10px; line-height: 1.75; }
+.funding-pathway-card a, .funding-pathway-note a { display: inline-flex; align-items: center; gap: 6px; color: #91d1ff; font-size: 10px; font-weight: 700; text-decoration: none; }
+.funding-pathway-card a:hover, .funding-pathway-note a:hover { text-decoration: underline; }
+.funding-pathway-card small { margin-top: auto; padding-top: 9px; border-top: 1px solid rgba(125, 163, 210, .14); color: #d4bd91; font-size: 9px; line-height: 1.7; }
+.funding-pathway-card .secondary-button { min-height: 38px; }
+.funding-pathway-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid rgba(125, 163, 210, .14); border-radius: 12px; background: rgba(8, 18, 33, .56); color: #9cb0ca; font-size: 10px; line-height: 1.7; }
+.funding-pathway-note b { color: #e4eefb; }
+@media (max-width: 720px) { .funding-pathway-grid { grid-template-columns: minmax(0, 1fr); } }
