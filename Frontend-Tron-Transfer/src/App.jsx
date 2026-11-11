@@ -229,14 +229,14 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
+      <button type="button" className="brand brand-home" aria-label="Go to dashboard home" onClick={()=>{setTab('overview');setMoreOpen(false)}}><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></button>
       <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
       <nav aria-label="Desktop navigation">{nav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={17}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <nav className="mobile-bottom-nav" aria-label="Primary navigation">
       {mobilePrimaryNav.map(item=><button type="button" key={item.id} className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><item.icon size={19} strokeWidth={2}/><span>{({overview:'Home',assets:'Assets',recipients:'Recipients',withdrawals:'Withdraw'})[item.id]}</span></button>)}
-      <button type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-current={mobileMoreNav.some(item=>item.id===tab)?'page':undefined} aria-haspopup="true" aria-expanded={moreOpen} aria-controls="mobile-more-menu" onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
+      <button type="button" className={moreOpen||mobileMoreNav.some(item=>item.id===tab)?'active':''} aria-haspopup="true" aria-expanded={moreOpen} aria-controls="mobile-more-menu" aria-label={mobileMoreNav.some(item=>item.id===tab)?`More menu, current section ${mobileMoreNav.find(item=>item.id===tab).label}`:'Open more sections'} onClick={()=>setMoreOpen(open=>!open)}><MoreHorizontal size={20} strokeWidth={2}/><span>More</span></button>
     </nav>
     <main className="main-content">
       {moreOpen&&<button type="button" className="mobile-more-backdrop" aria-label="Close more navigation" onClick={()=>setMoreOpen(false)}/>}
