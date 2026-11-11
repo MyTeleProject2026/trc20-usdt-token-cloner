@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
-const withdrawals = await readFile(new URL('../src/OwnerWithdrawals.jsx', import.meta.url), 'utf8')
+const sponsor = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
 const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
 
 test('recipient inspection uses the read-only Mainnet API path', () => {
@@ -19,27 +19,30 @@ test('recipient monitor defaults to the public monitored address and official Te
   assert.ok(app.includes('TRON Mainnet'))
 })
 
-test('direct withdrawal panel reads balances and status using Tatum owner endpoints', () => {
-  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/readiness'))
-  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/prepare'))
-  assert.ok(withdrawals.includes('/api/tron-owner-withdrawals/'))
-  assert.ok(withdrawals.includes('Tatum Mainnet'))
-  assert.ok(!withdrawals.includes('Fincra'))
+test('active withdrawal tab uses the zero-balance owner sponsor-direct request flow', () => {
+  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />'))
+  assert.ok(sponsor.includes("api('/api/tron/sponsor-direct/requests'"))
+  assert.ok(sponsor.includes('A sponsor must authorize and fund it.'))
+  assert.ok(sponsor.includes('zero-balance owner identity wallet is supported'))
+  assert.ok(!app.includes("import OwnerWithdrawals"))
 })
 
-test('owner session is restored and used independently from TronLink account connection', () => {
+test('owner password session and wallet identity session are distinct', () => {
   assert.ok(app.includes('/api/auth/owner/session'))
   assert.ok(app.includes('/api/auth/owner/login'))
   assert.ok(app.includes('OWNER_SESSION_KEY'))
   assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
-  assert.ok(app.includes('/api/auth/owner/login'))
-  assert.ok(withdrawals.includes('ownerSession.address === walletAddress'))
+  assert.ok(sponsor.includes('/api/auth/tron/challenge'))
+  assert.ok(sponsor.includes('/api/auth/tron/verify'))
+  assert.ok(sponsor.includes('identityMatchesWallet'))
 })
 
-test('direct withdrawal requires a connected owner wallet matching the backend owner session', () => {
-  assert.ok(withdrawals.includes('The connected TronLink address does not match the configured owner address.'))
-  assert.ok(withdrawals.includes('currentAddress !== ownerSession.address'))
-  assert.ok(withdrawals.includes('Owner wallet and owner session match.'))
+test('sponsor payout signing is restricted to the approved sponsor wallet', () => {
+  assert.ok(sponsor.includes("walletAddress !== item.sponsorAddress"))
+  assert.ok(sponsor.includes("wallet?.tronWeb?.defaultAddress?.base58 !== item.sponsorAddress"))
+  assert.ok(sponsor.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
+  assert.ok(sponsor.includes("'/broadcast'"))
+  assert.ok(sponsor.includes('Only the approved sponsor address that prepared this payment can sign it.'))
 })
 
 test('modern midnight blue dashboard theme and responsive breakpoints remain', () => {
@@ -101,4 +104,11 @@ test('Funding status tab explains sponsor funding and links to the correct owner
   assert.ok(!app.includes('ProviderPayoutReadiness'))
   assert.ok(css.includes('.funding-status-grid'))
   assert.ok(css.includes('.funding-flow-list'))
+})
+
+
+test('owner dashboard copy consistently explains sponsor-direct funding rather than a provider credit facility', () => {
+  assert.ok(app.includes('A separate owner-approved sponsor wallet must hold the actual USDT'))
+  assert.ok(app.includes('sponsor-direct route'))
+  assert.ok(!app.includes('provider-owned liquidity or an approved credit facility'))
 })
