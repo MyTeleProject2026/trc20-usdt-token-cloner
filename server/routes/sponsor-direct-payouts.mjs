@@ -1894,6 +1894,75 @@ export function createSponsorDirectPayoutsRouter({
     })
   })
 
+
+  // The platform owner may cancel only a request that has not been signed or
+  // submitted. Once broadcasting begins, only reconciliation/manual review is
+  // safe; a cancellation must never be treated as proof that funds did not move.
+  router.post('/requests/:id/cancel', async (req, res) => {
+    setNoStore(res)
+    const auth = await requirePlatformOwner(req, env, getSession, now)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const id = clean(req.params?.id, 64)
+    if (!UUID_RE.test(id)) return res.status(400).json({ success: false, error: 'invalid-payout-request-id' })
+    const db = getDatabase(env)
+    if (!db) return res.status(503).json({ success: false, error: 'database-not-configured' })
+    let client
+    try {
+      await ensureSchema(db)
+      client = await db.connect()
+      await client.query('BEGIN')
+      const found = await client.query(
+        'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 FOR UPDATE',
+        [id],
+      )
+      if (!found.rows.length) {
+        await client.query('ROLLBACK')
+        return res.status(404).json({ success: false, error: 'payout-request-not-found' })
+      }
+      const row = found.rows[0]
+      if (row.requester_address !== auth.address) {
+        await client.query('ROLLBACK')
+        return res.status(403).json({ success: false, error: 'payout-request-owner-only' })
+      }
+      if (!['requested', 'prepared'].includes(row.status) || row.signed_transaction) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({
+          success: false,
+          error: 'payout-can-no-longer-be-cancelled-safely',
+          request: publicRequest(row),
+          note: 'This request has reached signing or broadcast processing. Refresh and reconcile its existing transaction instead of cancelling or creating a replacement.',
+        })
+      }
+      const updated = await client.query(
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\\'cancelled\\', ' +
+        'failure_code=\\'cancelled-by-platform-owner\\', unsigned_transaction=NULL, ' +
+        'transaction_hash=NULL, expires_at=NULL, updated_at=now() ' +
+        'WHERE id=$1 AND requester_address=$2 AND status IN (\\'requested\\',\\'prepared\\') ' +
+        'AND signed_transaction IS NULL RETURNING *',
+        [id, auth.address],
+      )
+      if (!updated.rowCount) {
+        await client.query('ROLLBACK')
+        return res.status(409).json({ success: false, error: 'payout-cancellation-raced-with-signing-or-broadcast' })
+      }
+      await client.query('COMMIT')
+      return res.json({
+        success: true,
+        request: publicRequest(updated.rows[0]),
+        payoutAuthorized: false,
+        transactionBroadcast: false,
+        note: 'The unsigned payout request was cancelled. Its sponsor reservation is released. No funds were moved.',
+      })
+    } catch {
+      if (client) {
+        try { await client.query('ROLLBACK') } catch {}
+      }
+      return res.status(503).json({ success: false, error: 'payout-cancellation-unavailable' })
+    } finally {
+      client?.release()
+    }
+  })
+
   router.get('/requests/:id', async (req, res) => {
     setNoStore(res)
     const auth = await requireWalletSession(req, env, getSession, now)
