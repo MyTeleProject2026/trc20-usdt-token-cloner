@@ -1,4 +1,5 @@
 import { assessFystackWalletUsdtLiquidity } from './fystack-wallet-liquidity-assessment.mjs'
+import { isValidTronAddress } from './tron-address.mjs'
 import { evaluatePayoutActivationReadiness } from './payout-activation-readiness.mjs'
 
 /**
@@ -10,6 +11,7 @@ export function assessTronWithdrawalPreflight({
   walletSnapshot,
   expectedWalletId,
   expectedWalletAddress,
+  recipientAddress,
   tronResourceSnapshot,
   recipientAddressValid = false,
   recipientNetworkConfirmed = false,
@@ -29,8 +31,10 @@ export function assessTronWithdrawalPreflight({
     && ['energyAvailable', 'bandwidthAvailable', 'trxBalanceSun'].every((key) =>
       typeof tronResourceSnapshot[key] === 'string' && /^(0|[1-9][0-9]*)$/.test(tronResourceSnapshot[key]))
   const blockers = [...liquidity.blockers]
+  const recipientAddressVerified = isValidTronAddress(recipientAddress)
+    && recipientAddress !== expectedWalletAddress
   if (!resource) blockers.push('tron-mainnet-resource-snapshot-missing-stale-or-invalid')
-  if (recipientAddressValid !== true) blockers.push('recipient-address-not-validated')
+  if (recipientAddressValid !== true || !recipientAddressVerified) blockers.push('recipient-address-not-validated')
   if (recipientNetworkConfirmed !== true) blockers.push('recipient-network-not-confirmed-as-tron-mainnet-trc20')
   if (screeningCleared !== true) blockers.push('recipient-screening-not-cleared')
   if (approvalSatisfied !== true) blockers.push('withdrawal-approval-not-satisfied')
@@ -51,7 +55,8 @@ export function assessTronWithdrawalPreflight({
       feeSufficiencyVerified: false,
     }),
     recipient: Object.freeze({
-      addressValid: recipientAddressValid === true,
+      addressValid: recipientAddressValid === true && recipientAddressVerified,
+      recipientAddress: recipientAddressVerified ? recipientAddress : null,
       tronMainnetTrc20Confirmed: recipientNetworkConfirmed === true,
       screeningCleared: screeningCleared === true,
       approvalSatisfied: approvalSatisfied === true,
