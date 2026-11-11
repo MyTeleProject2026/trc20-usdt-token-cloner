@@ -236,7 +236,8 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
   let sponsorApplicationId = null
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
-  const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey]
+  const thirdIdempotencyKey = randomUUID()
+  const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey, thirdIdempotencyKey]
   let approvedAddresses = [requesterAddress]
   let broadcastAttempts = 0
   let server
@@ -443,6 +444,22 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(cancelledPending.response.status, 200)
     assert.equal(cancelledPending.payload.request.status, 'cancelled')
     assert.equal(cancelledPending.payload.transactionBroadcast, false)
+
+    const third = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '25',
+      idempotencyKey: thirdIdempotencyKey,
+    })
+    assert.equal(third.response.status, 201)
+    assert.equal(third.payload.sponsorRouting, 'auto-assigned-awaiting-sponsor-signature')
+    const thirdPrepared = await call('/requests/' + third.payload.request.id + '/prepare', sponsorToken, {})
+    assert.equal(thirdPrepared.response.status, 201)
+    assert.equal(thirdPrepared.payload.request.status, 'prepared')
+    const cancelledPrepared = await call('/requests/' + third.payload.request.id + '/cancel', requesterToken, {})
+    assert.equal(cancelledPrepared.response.status, 200)
+    assert.equal(cancelledPrepared.payload.request.status, 'cancelled')
+    assert.equal(cancelledPrepared.payload.request.transactionHash, null)
+    assert.equal(cancelledPrepared.payload.transactionBroadcast, false)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
