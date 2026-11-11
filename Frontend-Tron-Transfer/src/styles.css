@@ -1811,3 +1811,85 @@ td { color: #d2e1f5; }
 }
 .brand-home:hover { filter: brightness(1.08); }
 .brand-home:focus-visible { outline: 2px solid #83d0ff; outline-offset: 5px; border-radius: 12px; }
+
+
+/* Funding status: clearly separate owner identity from sponsor principal and fees. */
+.funding-status-page { display: grid; gap: 18px; }
+.funding-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.funding-status-item {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-width: 0;
+  min-height: 132px;
+  padding: 17px;
+  border: 1px solid rgba(124, 167, 220, .18);
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(22, 43, 71, .78), rgba(9, 20, 37, .88));
+}
+.funding-status-item > strong {
+  color: #e8f3ff;
+  font-family: var(--font-display);
+  font-size: 17px;
+  line-height: 1.35;
+}
+.funding-status-item > p {
+  margin: 0;
+  color: #91a7c6;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.funding-flow-panel {
+  padding: 19px;
+  border: 1px solid rgba(103, 174, 245, .2);
+  border-radius: 16px;
+  background: rgba(8, 19, 36, .68);
+}
+.funding-flow-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: funding-step;
+}
+.funding-flow-list > li {
+  counter-increment: funding-step;
+  display: grid;
+  grid-template-columns: 35px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 3px;
+  min-height: 57px;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 163, 210, .14);
+  border-radius: 12px;
+  background: rgba(8, 18, 33, .62);
+}
+.funding-flow-list > li::before {
+  content: counter(funding-step, decimal-leading-zero);
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(93, 178, 255, .28);
+  border-radius: 10px;
+  background: rgba(29, 83, 137, .46);
+  color: #99d6ff;
+  font: 700 11px var(--font-display);
+}
+.funding-flow-list > li > b { color: #e7f2ff; font-size: 11px; }
+.funding-flow-list > li > span { color: #94a9c6; font-size: 10px; line-height: 1.55; }
+.funding-status-actions { flex-wrap: wrap; }
+.funding-status-actions > button { min-height: 45px; }
+@media (max-width: 720px) {
+  .funding-status-grid { grid-template-columns: minmax(0, 1fr); }
+  .funding-status-item { min-height: 0; }
+  .funding-flow-panel { padding: 14px; }
+  .funding-status-actions > button { flex: 1 1 180px; }
+}
