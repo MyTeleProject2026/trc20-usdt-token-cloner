@@ -245,3 +245,15 @@ test('payout partner integration is documented as gated groundwork, not a config
   assert.ok(partnerGuide.includes('solidified Mainnet transaction and exact USDT Transfer event'))
   assert.ok(partnerGuide.includes('No partner API credentials or production partner endpoint'))
 })
+
+
+test('owner partner prospect tracker is local-only and cannot imply provider funding or authorization', () => {
+  assert.ok(sponsor.includes('EXTERNAL PARTNER MANAGEMENT'))
+  assert.ok(sponsor.includes('Partner and sponsor prospect tracker'))
+  assert.ok(sponsor.includes("tron-transfer:partner-prospects:v1"))
+  assert.ok(sponsor.includes('function addPartnerProspect()'))
+  assert.ok(sponsor.includes('function updatePartnerProspect(id, status)'))
+  assert.ok(sponsor.includes('Prospect status only — no funding or authorization is implied.'))
+  assert.ok(sponsor.includes('Never store API keys, passwords, wallet secrets, private keys, seed phrases'))
+  assert.ok(sponsor.includes('sandbox-pending'))
+})
