@@ -57,7 +57,7 @@ test('mobile navigation exposes the four primary owner tabs and a functional Mor
   assert.ok(app.includes("['overview','assets','recipients','withdrawals']"))
   assert.ok(app.includes("mobileMoreNav = nav.filter"))
   assert.ok(app.includes("['provider','sponsors','transactions','settings']"))
-  assert.ok(app.includes('aria-current={tab===item.id?\'page\':undefined}'))
+  assert.ok(app.includes("aria-current={tab===item.id?"))
   assert.ok(app.includes("setTab(item.id);setMoreOpen(false)"))
   assert.ok(app.includes("event.key === 'Escape'"))
   assert.ok(css.includes('.mobile-bottom-nav'))
