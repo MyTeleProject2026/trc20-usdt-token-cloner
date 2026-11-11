@@ -720,10 +720,22 @@ export function createTronOwnerWithdrawalsRouter({ env = process.env } = {}) {
       failureCode = verification.status
     }
     if (status !== row.status || failureCode !== row.failure_code) {
+      // Multiple dashboard refreshes can verify the same transaction concurrently.
+      // Only transition rows that are still in an unresolved chain-observation state;
+      // never let a stale poll overwrite a newer terminal result.
+      const unresolved = ['submitted', 'outcome-unknown', 'broadcasting']
       const updated = verification.verified
-        ? await db.query('UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,confirmation_block_number=$4,confirmation_event_index=$5,confirmation_verified_at=now(),updated_at=now() WHERE id=$1 RETURNING *', [row.id, status, failureCode, verification.blockNumber, verification.logIndex])
-        : await db.query('UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,updated_at=now() WHERE id=$1 RETURNING *', [row.id, status, failureCode])
-      return updated.rows[0] || row
+        ? await db.query(
+          'UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,confirmation_block_number=$4,confirmation_event_index=$5,confirmation_verified_at=now(),updated_at=now() WHERE id=$1 AND status = ANY($6::text[]) RETURNING *',
+          [row.id, status, failureCode, verification.blockNumber, verification.logIndex, unresolved],
+        )
+        : await db.query(
+          'UPDATE ' + SCHEMA + '.owner_direct_withdrawals SET status=$2,failure_code=$3,updated_at=now() WHERE id=$1 AND status = ANY($4::text[]) RETURNING *',
+          [row.id, status, failureCode, unresolved],
+        )
+      if (updated.rows[0]) return updated.rows[0]
+      const latest = await db.query('SELECT * FROM ' + SCHEMA + '.owner_direct_withdrawals WHERE id=$1 LIMIT 1', [row.id])
+      return latest.rows[0] || row
     }
     return row
   }
