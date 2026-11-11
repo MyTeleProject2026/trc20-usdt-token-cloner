@@ -343,6 +343,22 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(registration.payload.complianceVerified, false)
     assert.equal(registration.payload.application.participationTermsVersion, 'sponsor-participation-v1')
     assert.ok(registration.payload.application.participationConsentAt)
+    const legacyApplicationId = randomUUID()
+    await db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_applications ' +
+      '(id,sponsor_address,display_name,status) VALUES ($1,$2,$3,$4)',
+      [legacyApplicationId, recipientAddress, 'Legacy application without consent', 'pending-review'],
+    )
+    const legacyApproval = await call('/applications/' + legacyApplicationId + '/review', ownerToken, {
+      decision: 'approve',
+      reviewReference: 'legacy-no-consent',
+      perPayoutLimit: '10',
+      dailyLimit: '20',
+    })
+    assert.equal(legacyApproval.response.status, 409)
+    assert.equal(legacyApproval.payload.error, 'application-not-pending-or-current-consent-required')
+    await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [legacyApplicationId])
+
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
