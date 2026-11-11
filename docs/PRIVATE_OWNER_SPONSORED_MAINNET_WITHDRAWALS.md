@@ -75,3 +75,14 @@ Do not place API keys, passwords, wallet private keys, recovery phrases, or OTPs
 Deployment does not create a sponsor, approve an application, add USDT, pay TRX, grant an organization mandate, or create a provider credit facility. The implementation can be reachable while the request queue remains empty. Real withdrawals require a willing sponsor wallet owner who has independently agreed to fund and sign the exact transfer, and the owner must make an informed review decision. Any applicable legal, regulatory, sanctions, and source-of-funds obligations remain in force; this wallet-participation workflow must not be used to evade them.
 
 The current provider-readiness page remains a separate diagnostic: provider-managed payouts are not enabled. This sponsor-direct wallet route is the only active withdrawal submission design in this release.
+
+
+## Request retry, cancellation, and uncertain-broadcast handling
+
+- The owner UI retains the same idempotency key for retries of the same recipient/amount intent. A changed recipient or amount receives a new key. The backend also enforces idempotency and rejects reuse of one key for a different intent.
+- The owner may cancel only a request in `requested` or `prepared` state and only while no signed transaction has been stored. Cancellation clears the unsigned transaction and its transaction ID, releases the active sponsor reservation, and records `cancelled`.
+- Cancellation is rejected once a request reaches `broadcasting`, `submitted`, `outcome-unknown`, `confirmed`, `failed`, or `manual-review`. Do not create a replacement payment when a broadcast response is uncertain.
+- If Tatum times out after the signed transaction is committed for broadcast, the request is stored as `outcome-unknown`. The reconciliation worker checks the same fixed transaction ID against solidified Mainnet evidence. It does not sign, replace, or rebroadcast a payment.
+- A successful Tatum broadcast response means `submitted`, not `confirmed`. Only the solidified transaction body, successful receipt, and one exact official USDT Transfer event can result in `confirmed`.
+- `confirmed` means the token transfer reached the specified TRON address. It does not prove an exchange credited a customer's internal exchange account. Confirm exchange credit separately using the recipient's own exchange deposit history or authorized exchange account integration.
+- The current UI reports a confirmed chain transfer separately from exchange-credit verification. It must never display an exchange deposit as credited solely from a transaction hash or a successful broadcast response.
