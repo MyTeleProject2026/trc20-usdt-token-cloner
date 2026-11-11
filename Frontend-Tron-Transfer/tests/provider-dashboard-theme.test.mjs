@@ -50,3 +50,24 @@ test('forest emerald glass theme and responsive breakpoints remain', () => {
   assert.ok(css.includes('@media (max-width: 560px)'))
   assert.ok(css.includes('.owner-withdrawals-page'))
 })
+
+
+test('mobile navigation exposes the four primary owner tabs and a functional More menu', () => {
+  assert.ok(app.includes("mobilePrimaryNav = nav.filter"))
+  assert.ok(app.includes("['overview','assets','recipients','withdrawals']"))
+  assert.ok(app.includes("mobileMoreNav = nav.filter"))
+  assert.ok(app.includes("['provider','sponsors','transactions','settings']"))
+  assert.ok(app.includes('aria-current={tab===item.id?\'page\':undefined}'))
+  assert.ok(app.includes("setTab(item.id);setMoreOpen(false)"))
+  assert.ok(app.includes("event.key === 'Escape'"))
+  assert.ok(css.includes('.mobile-bottom-nav'))
+  assert.ok(css.includes('.mobile-more-menu'))
+  assert.ok(css.includes('env(safe-area-inset-bottom'))
+})
+
+test('mobile bottom navigation stays separate from owner authentication and wallet payout logic', () => {
+  assert.ok(app.includes('className="app-shell auth-shell"'))
+  assert.ok(app.includes('className="mobile-bottom-nav"'))
+  assert.ok(app.includes('SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw"'))
+  assert.ok(app.includes("requestTronLinkConnection(provider,window)"))
+})
