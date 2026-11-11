@@ -330,11 +330,19 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2', [requesterAddress, sponsorAddress])
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
-    const registration = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
+    const missingConsent = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
+    assert.equal(missingConsent.response.status, 400)
+    assert.equal(missingConsent.payload.error, 'sponsor-participation-consent-required')
+    const registration = await call('/application', sponsorToken, {
+      displayName: 'Individual sponsor',
+      participationConsent: true,
+    })
     assert.equal(registration.response.status, 201)
     sponsorApplicationId = registration.payload.application.id
     assert.equal(registration.payload.application.status, 'pending-review')
     assert.equal(registration.payload.complianceVerified, false)
+    assert.equal(registration.payload.application.participationTermsVersion, 'sponsor-participation-v1')
+    assert.ok(registration.payload.application.participationConsentAt)
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
