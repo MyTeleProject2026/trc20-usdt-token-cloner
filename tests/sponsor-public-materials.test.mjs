@@ -20,7 +20,7 @@ test('public sponsor portal explains sponsor custody, target capacity and non-pr
 test('sponsor brief distinguishes development support from payout capacity and never promises returns', () => {
   assert.match(brief, /sponsor-controlled capacity/i)
   assert.match(brief, /not a request to send \$5,000–\$10,000 to the project owner/i)
-  assert.match(brief, /every exact payout separately/i)
+  assert.match(brief, /approves each exact payout separately/i)
   assert.match(brief, /No return, interest, reimbursement, profit share or repayment is promised/i)
   assert.match(brief, /No individual sponsor is confirmed approved and funded/i)
   assert.match(brief, /exchange credits its internal deposit balance/i)
@@ -31,5 +31,5 @@ test('repository landing page links the sponsor brief and accurately labels the 
   assert.match(readme, /\[Read the individual sponsor brief\]\(docs\/SPONSOR_BRIEF\.md\)/)
   assert.match(readme, /not merged or verified as deployed to production/i)
   assert.match(readme, /No individual sponsor is currently verified as approved and funded/i)
-  assert.match(readme, /\\$5,000–$10,000 equivalent in sponsor-controlled/i)
+  assert.match(readme, /\$5,000–$10,000 equivalent in sponsor-controlled/i)
 })
