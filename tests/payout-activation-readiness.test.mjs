@@ -23,7 +23,7 @@ test('requires the 1000 USDT minimum and rejects malformed amounts', () => {
 test('uses exact six-decimal integer arithmetic at the minimum boundary', () => {
   assert.ok(evaluatePayoutActivationReadiness({}, { amountUsdt: '999.999999' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
   assert.ok(!evaluatePayoutActivationReadiness({}, { amountUsdt: '1000.000000' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
-  assert.ok(evaluatePayoutActivationReadiness({}, { amountUsdt: '999999999999999999999999999999999999999999999999999999999999999999999999999999.999999' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met') === false)
+  assert.ok(evaluatePayoutActivationReadiness({}, { amountUsdt: '999999999999999999999999999999999999999999999999999999999999999999999999999999.999999' }).blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
 })
 
 test('does not confuse credit approval with provider-owned wallet liquidity', () => {
@@ -96,7 +96,7 @@ test('rejects expired, malformed and insufficient approved credit limits', () =>
 test('rejects excessively long amount and credit-limit inputs before BigInt parsing', () => {
   const oversizedAmount = '9'.repeat(41)
   const amountResult = evaluatePayoutActivationReadiness({}, { amountUsdt: oversizedAmount })
-  assert.ok(!amountResult.blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
+  assert.ok(amountResult.blockers.includes('minimum-withdrawal-1000-usdt-not-met'))
   assert.equal(amountResult.executionEnabled, false)
   const oversizedCredit = evaluatePayoutActivationReadiness({
     creditFacilityApproved: true,
@@ -108,4 +108,25 @@ test('rejects excessively long amount and credit-limit inputs before BigInt pars
   }, { amountUsdt: '1000' })
   assert.ok(oversizedCredit.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
   assert.equal(oversizedCredit.executionEnabled, false)
+})
+
+
+test('uses an injected clock for approved-credit expiry boundaries', () => {
+  const evidence = {
+    creditFacilityApproved: true,
+    creditFacilityUsePermittedForTronUsdtWithdrawals: true,
+    creditFacilityApprovalReference: 'approval-clock-test',
+    creditFacilityUseAuthorizationReference: 'use-auth-clock-test',
+    creditFacilityValidUntil: '2026-11-11T00:02:00.000Z',
+    creditFacilityApprovedLimitUsdt: '1000',
+  }
+  const current = evaluatePayoutActivationReadiness(evidence, {
+    amountUsdt: '1000', nowMs: Date.parse('2026-11-11T00:01:00.000Z'),
+  })
+  assert.ok(!current.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+  const expiredAtBoundary = evaluatePayoutActivationReadiness(evidence, {
+    amountUsdt: '1000', nowMs: Date.parse('2026-11-11T00:02:00.000Z'),
+  })
+  assert.ok(expiredAtBoundary.blockers.includes('neither-provider-owned-liquidity-nor-evidenced-approved-credit-permitted-for-requested-tron-usdt-withdrawal-is-available'))
+  assert.equal(expiredAtBoundary.executionEnabled, false)
 })
