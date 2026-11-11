@@ -1,4 +1,5 @@
 import { isValidTronAddress } from './tron-address.mjs'
+import { isPositiveUint256 } from './base-units.mjs'
 
 export const OFFICIAL_MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
 
@@ -17,7 +18,6 @@ export const WDK_TRON_NETWORKS = Object.freeze({
   },
 })
 
-const AMOUNT = /^[1-9][0-9]{0,77}$/
 
 function asDecimal(value) {
   if (typeof value === 'bigint') return value.toString()
@@ -55,8 +55,7 @@ export function createWdkTronReadOnlyService({
     const hasQuote = recipientAddress !== undefined || amountBaseUnits !== undefined
     if (hasQuote && (!isValidTronAddress(recipientAddress)
       || recipientAddress === address
-      || typeof amountBaseUnits !== 'string'
-      || !AMOUNT.test(amountBaseUnits))) {
+      || !isPositiveUint256(amountBaseUnits))) {
       throw new TypeError('A fee quote requires a distinct valid recipient and positive base-unit amount')
     }
 
@@ -111,14 +110,18 @@ export function createWdkTronReadOnlyService({
               serviceProvider,
               verifyingContract: networkConfig.verifyingContract,
               ...(typeof env.GASFREE_MAINNET_API_KEY === 'string'
+                && env.GASFREE_MAINNET_API_KEY.trim()
                 && typeof env.GASFREE_MAINNET_API_SECRET === 'string'
+                && env.GASFREE_MAINNET_API_SECRET.trim()
                 && network === 'mainnet'
-                ? { gasFreeApiKey: env.GASFREE_MAINNET_API_KEY, gasFreeApiSecret: env.GASFREE_MAINNET_API_SECRET }
+                ? { gasFreeApiKey: env.GASFREE_MAINNET_API_KEY.trim(), gasFreeApiSecret: env.GASFREE_MAINNET_API_SECRET }
                 : {}),
               ...(typeof env.GASFREE_NILE_API_KEY === 'string'
+                && env.GASFREE_NILE_API_KEY.trim()
                 && typeof env.GASFREE_NILE_API_SECRET === 'string'
+                && env.GASFREE_NILE_API_SECRET.trim()
                 && network === 'nile'
-                ? { gasFreeApiKey: env.GASFREE_NILE_API_KEY, gasFreeApiSecret: env.GASFREE_NILE_API_SECRET }
+                ? { gasFreeApiKey: env.GASFREE_NILE_API_KEY.trim(), gasFreeApiSecret: env.GASFREE_NILE_API_SECRET }
                 : {}),
             }
             const account = new module.WalletAccountReadOnlyTronGasfree(address, gasFreeConfig)
