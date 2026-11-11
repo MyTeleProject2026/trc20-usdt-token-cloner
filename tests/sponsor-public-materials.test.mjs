@@ -14,7 +14,7 @@ test('public sponsor portal explains sponsor custody, target capacity and non-pr
   assert.match(portal, /signs every exact payout in TronLink/i)
   assert.match(portal, /not merged or verified as deployed to production/i)
   assert.match(portal, /no individual sponsor is currently confirmed approved and funded/i)
-  assert.match(portal, /never share private keys, seed phrases, passwords, OTPs/i)
+  assert.match(portal, /Do not share seed phrases, private keys, passwords, OTPs/i)
   assert.match(portal, /SPONSOR_BRIEF\.md/)
 })
 
