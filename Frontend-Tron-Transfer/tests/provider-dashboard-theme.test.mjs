@@ -149,7 +149,7 @@ test('owner can cancel only unsigned requested or prepared payouts from the with
   assert.ok(sponsor.includes('walletAddress !== ownerSession?.address'))
   assert.ok(sponsor.includes("['requested', 'prepared'].includes(item.status)"))
   assert.ok(sponsor.includes('Cancel unsigned request'))
-  assert.ok(sponsor.includes('payout-can-no-longer-be-cancelled-safely'))
+  assert.ok(sponsorRoute.includes('payout-can-no-longer-be-cancelled-safely'))
   assert.ok(sponsorRoute.includes('cancelled-by-platform-owner'))
 })
 
@@ -159,4 +159,14 @@ test('sponsor-direct broadcast integration covers signature rejection, one accep
   assert.ok(sponsorRoute.includes("wallet/broadcasttransaction"))
   assert.ok(sponsorRoute.includes('sponsor-signature-not-approved-by-tron-network'))
   assert.ok(sponsorRoute.includes('solidified Mainnet receipt and official USDT Transfer event'))
+})
+
+
+test('external deposit request requires network and exchange deposit-instruction confirmation', () => {
+  assert.ok(sponsor.includes('recipientNetworkConfirmed'))
+  assert.ok(sponsor.includes('recipientDepositRequirementsConfirmed'))
+  assert.ok(sponsor.includes('Confirm that the receiving address accepts official USDT on TRON Mainnet (TRC20).'))
+  assert.ok(sponsor.includes('Confirm the exchange minimum deposit and that no memo or tag is required'))
+  assert.ok(sponsor.includes('This transfer sends the USDT TRC20 token only. It does not attach an exchange memo/tag.'))
+  assert.ok(css.includes('.recipient-deposit-checklist'))
 })
