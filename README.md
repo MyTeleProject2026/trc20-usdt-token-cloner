@@ -6,7 +6,7 @@ TRON Transfer is a TRON Mainnet application project for wallet-authenticated wor
 
 ## Public sponsor information
 
-- **[Read the individual sponsor brief](docs/SPONSOR_BRIEF.md)** — funding target, custody model, milestones, controls and current limitations.
+- **[Read the individual sponsor brief](docs/SPONSOR_BRIEF.md)** — funding target, custody model, milestones, controls and current limitations.\n- Open a [public, non-sensitive individual sponsor inquiry](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/new?template=individual-sponsor-inquiry.yml). Do not post wallet addresses, personal documents, or private financial details.
 - **[Sponsor operating rules](docs/EXTERNAL_SPONSOR_OPERATING_CONTRACT.md)** — what is required before sponsor funds can be used.
 - **[Sponsor recruitment and payout-partner design](docs/PAYOUT_PARTNER_INTEGRATION_AND_SPONSOR_RECRUITMENT.md)** — self-custody sponsor workflow and future provider requirements.
 - **[Sponsor/provider due diligence](docs/GLOBAL_INDIVIDUAL_FUNDING_PROVIDER_DUE_DILIGENCE.md)** — why provider APIs and grant awards are not automatically payout liquidity.

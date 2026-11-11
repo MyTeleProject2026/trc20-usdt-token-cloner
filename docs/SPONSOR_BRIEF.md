@@ -103,6 +103,10 @@ This is a project overview and discussion brief, not a signed sponsor agreement,
 
 A sponsor should independently review the code, obtain its own legal/compliance advice where appropriate, and never rely on a chat message or an unverified deployment as authorization to transfer funds.
 
+## Public sponsor inquiry
+
+Use the [GitHub sponsor inquiry form](https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/new?template=individual-sponsor-inquiry.yml) to express interest without sending an email. The issue is public and collects only non-sensitive project-interest information. Do not post wallet addresses, identity documents, personal contact details, legal-residence details, source-of-funds material or wallet secrets. Any private due diligence must happen later through an independently verified and appropriate channel.
+
 ## Project links
 
 - Repository: https://github.com/MyTeleProject2026/trc20-usdt-token-cloner
