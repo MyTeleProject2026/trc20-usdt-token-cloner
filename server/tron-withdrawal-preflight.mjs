@@ -15,16 +15,17 @@ export function assessTronWithdrawalPreflight({
   recipientNetworkConfirmed = false,
   screeningCleared = false,
   approvalSatisfied = false,
+  nowMs = Date.now(),
 } = {}) {
   const liquidity = assessFystackWalletUsdtLiquidity(walletSnapshot, {
-    amountUsdt, expectedWalletId, expectedWalletAddress,
+    amountUsdt, expectedWalletId, expectedWalletAddress, nowMs,
   })
   const resource = tronResourceSnapshot?.network === 'TRON_MAINNET'
     && tronResourceSnapshot?.address === expectedWalletAddress
     && typeof tronResourceSnapshot?.checkedAt === 'string'
     && Number.isFinite(Date.parse(tronResourceSnapshot.checkedAt))
-    && Date.parse(tronResourceSnapshot.checkedAt) <= Date.now()
-    && Date.now() - Date.parse(tronResourceSnapshot.checkedAt) <= 120000
+    && Date.parse(tronResourceSnapshot.checkedAt) <= nowMs
+    && nowMs - Date.parse(tronResourceSnapshot.checkedAt) <= 120000
     && ['energyAvailable', 'bandwidthAvailable', 'trxBalanceSun'].every((key) =>
       typeof tronResourceSnapshot[key] === 'string' && /^(0|[1-9][0-9]*)$/.test(tronResourceSnapshot[key]))
   const blockers = [...liquidity.blockers]
