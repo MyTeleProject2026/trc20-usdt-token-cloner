@@ -28,6 +28,7 @@ import { tatumFetch, MissingApiKeyError } from './tatum-client.mjs'
 import { getRestrictedTrxProviderReadiness, getRestrictedTrxProviderComparison } from './restricted-trx-provider.mjs'
 import publicTronReadRoutes from './routes/public-tron-read.mjs'
 import restrictedTrxEscrowVerificationRoutes from './routes/restricted-trx-escrow-verification.mjs'
+import bitpieInternalRestrictedCreditsRoutes from './routes/bitpie-internal-restricted-credits.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
@@ -57,6 +58,7 @@ app.use(corsPolicy)
 app.use(credentialGuard)
 app.use('/api/public-tron', publicTronReadRoutes)
 app.use('/api/restricted-trx/escrow', restrictedTrxEscrowVerificationRoutes)
+app.use('/api/owner/bitpie-internal-credits', bitpieInternalRestrictedCreditsRoutes)
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'tron-token-studio-api' }))
 app.get('/', (_req, res) => res.json({ service: 'TRON Token Studio API', health: '/health' }))
 app.get('/api/restricted-trx/provider-comparison', (_req, res) => {
