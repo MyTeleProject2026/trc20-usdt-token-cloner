@@ -73,3 +73,13 @@ The permission assessment validates every key as a TRON address, rejects duplica
 
 
 The account permission assessment validates every signer address, rejects duplicate addresses, enforces that total signer weight can reach the threshold, checks active permission IDs 2–9, and evaluates value-moving or control operations including TRX transfers, TRC-10 transfers and purchases, staking/unfreezing, reward withdrawals, resource delegation, smart-contract calls, on-chain exchange/market operations, and permission updates. A positive restricted result means no single configured key can meet the threshold for the checked operations; it does not prove the keys are controlled by different humans.
+
+
+### Permission audit safety rule
+
+The read-only account permission audit scans every bit in all 256 positions of each active permission operations bitmap. It treats only VoteWitness (contract type 4) and WitnessUpdate (contract type 8) as explicitly non-value-moving for this specific transfer-restriction check. All other enabled operations are flagged, including unknown/future IDs, so protocol additions do not silently pass as safe. This is intentionally conservative and can produce false-positive restriction warnings; it never changes account permissions.
+
+
+### Beneficiary address verification
+
+The previously supplied address is not hard-coded as a fallback in the UI or server. TronWeb Base58Check validation rejected it in the repository's automated tests. Set the actual address copied from Bitpie's Receive screen (or the newly created Bitpie multisig address) explicitly in both frontend and server configuration. The application refuses to query or verify a beneficiary until the configured address passes validation.
