@@ -36,3 +36,12 @@ test('server mounts the owner-only ledger and UI labels it as non-asset bookkeep
   assert.match(ui, /not backed by blockchain TRX/)
   assert.match(ui, /No Bitpie endpoint is called/)
 })
+
+
+test('owner panel defaults to the confirmed Bitpie recipient without claiming Bitpie connectivity', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const ui = await readFile(new URL('../Frontend-Tron-Transfer/src/BitpieInternalRestrictedCredits.jsx', import.meta.url), 'utf8')
+  assert.match(ui, /VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS \|\| 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'/)
+  assert.match(ui, /Not a Bitpie wallet credit/)
+  assert.match(ui, /Bitpie API status/)
+})
