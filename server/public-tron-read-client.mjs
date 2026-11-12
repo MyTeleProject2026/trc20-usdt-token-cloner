@@ -89,6 +89,36 @@ export function createPublicTronReadClient(options = {}) {
         source: 'tron-solidified-node',
       })
     },
+    async triggerSolidifiedConstantContract({ contractAddress, functionSelector, parameter = '', ownerAddress }) {
+      assertAddress(contractAddress)
+      assertAddress(ownerAddress)
+      if (typeof functionSelector !== 'string' || !/^[A-Za-z0-9_]+\([^)]*\)$/.test(functionSelector)) {
+        const error = new Error('A valid constant contract function selector is required')
+        error.status = 400
+        throw error
+      }
+      if (typeof parameter !== 'string' || !/^(?:[0-9a-fA-F]{2})*$/.test(parameter)) {
+        const error = new Error('Contract parameters must be even-length ABI hex')
+        error.status = 400
+        throw error
+      }
+      const result = await postNode('/walletsolidity/triggerconstantcontract', {
+        contract_address: contractAddress,
+        function_selector: functionSelector,
+        parameter,
+        owner_address: ownerAddress,
+        visible: true,
+      }, common)
+      if (result?.result?.result !== true || !Array.isArray(result?.constant_result) || typeof result.constant_result[0] !== 'string') {
+        const error = new Error('Solidified contract read did not return a constant result')
+        error.status = 502
+        throw error
+      }
+      return Object.freeze({
+        resultHex: result.constant_result[0].replace(/^0x/i, ''),
+        source: 'tron-solidified-node',
+      })
+    },
     async getSolidifiedTransaction(txid) {
       assertTxid(txid)
       const [transaction, receipt] = await Promise.all([
