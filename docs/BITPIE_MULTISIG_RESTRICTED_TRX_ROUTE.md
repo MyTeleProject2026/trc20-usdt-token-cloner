@@ -45,7 +45,8 @@ This repository now includes a read-only account permission assessment:
 The audit checks:
 - the owner permission threshold;
 - each active permission and its operations bitmap;
-- whether any single configured key alone can authorize direct TRX transfers (`TransferContract`), TRC-10 transfers (`TransferAssetContract`), contract creation/calls (`CreateSmartContract`, `TriggerSmartContract`), or permission changes (`AccountPermissionUpdateContract`).
+- whether any single configured key alone can authorize direct TRX/TRC-10 transfers, staking/unfreezing and rewards (`FreezeBalance`, `UnfreezeBalance`, `WithdrawBalance`, Stake 2.0, and resource delegation types), contract creation/calls (`CreateSmartContract`, `TriggerSmartContract`), or permission changes (`AccountPermissionUpdateContract`).
+- whether the permission key list has valid TRON addresses, distinct signer addresses, positive weights, reachable thresholds, and valid active permission IDs.
 
 The audit is read-only. It does not change account permissions, create a multisig, or sign a transaction. It cannot know whether one human controls multiple keys; the signer identities and their recovery arrangements must be checked by the wallet participants. A permission audit that is unavailable or malformed is not considered restricted.
 
