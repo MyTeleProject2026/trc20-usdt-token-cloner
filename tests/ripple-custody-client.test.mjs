@@ -9,7 +9,7 @@ test('legacy bearer-token configuration is no longer accepted', () => {
   })
   assert.equal(config.configured, false)
   assert.equal(config.authMode, 'client_credentials')
-  assert.ok(config.missing.includes('RC_CLIENT_ID'))
+  assert.ok(config.missing.includes('RC_CLIENT_ID or client_id in config file'))
   assert.ok(config.missing.includes('RC_CLIENT_SECRET'))
 })
 
