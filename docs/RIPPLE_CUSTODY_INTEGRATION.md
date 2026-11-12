@@ -65,7 +65,7 @@ The owner workspace includes a Restricted credits tab. The platform owner can lo
 
 Customer account identity is the verified TRON Mainnet wallet address. The customer view is available at the frontend route `#/credits`. It uses the existing one-time wallet-signature challenge and calls `GET /api/ripple-custody/credits/me`; the server derives the customer address from the authenticated session rather than accepting an arbitrary customer ID. This is only a view of the internal ledger. It does not enable a withdrawal or change an external wallet balance.
 
-The owner workspace route `#/ ` (normal app entry) includes the restricted-credit allocation and lookup panel. Admin operations are protected by the existing owner session. The customer endpoint is protected by a separate wallet ownership session.
+The owner workspace route (normal app entry) includes the restricted-credit allocation and lookup panel. Admin operations are protected by the existing owner session. The customer endpoint is protected by a separate wallet ownership session.
 
 ## What is not delivered by this ledger
 
