@@ -11,7 +11,7 @@ interface IOneTraxReserveVault {
 /// @notice A separate 6-decimal TRC-20 token, never native TRX and not the official native TRX asset. Holder transfers and approvals are disabled.
 /// @dev Each mint must be fully backed by native TRX in the separately deployed reserve vault.
 contract Restricted1TRAX {
-    string public constant name = "TRӾ";
+    string public constant name = unicode"TRӾ";
     string public constant symbol = "TRX";
     uint8 public constant decimals = 6;
     address public immutable owner;
