@@ -7,7 +7,7 @@ const validAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 test('1TRAX accounting keeps native TRX reserve and token liability in separate fields', async () => {
   let host = ''
   const fake = {
-    trx: { getBalance: async () => '150000000' },
+    trx: { raw: { getBalance: async () => '150000000' } },
     contract: () => ({ at: async () => ({
       totalSupply: () => ({ call: async () => '100000000' }),
       decimals: () => ({ call: async () => 6 }),
