@@ -57,7 +57,7 @@ if (!receipt?.id) throw new Error('Deployment is broadcast but not yet solidifie
 if (receipt.result === 'FAILED' || receipt.receipt?.result !== 'SUCCESS') {
   throw new Error('Solidified deployment failed. Inspect transaction ' + txID)
 }
-const deployedInfo = await post('/walletsolidity/getcontractinfo', { value: contractAddress, visible: true })
+const deployedInfo = await post('/wallet/getcontractinfo', { value: contractAddress, visible: true })
 if (!deployedInfo?.bytecode) throw new Error('Receipt succeeded but deployed contract bytecode was not confirmed.')
 console.log(JSON.stringify({
   network, deployer, contractAddress, transactionId: txID,
