@@ -183,7 +183,7 @@ export default function RestrictedTRXEscrow() {
               <p>{bitpieAccount.permissionAssessment.restrictedAgainstSingleKey
                 ? 'The solidified account permissions require multiple keys for the checked transfer, contract-call, and permission-update operations. This is an on-chain restriction, not a Bitpie credit annotation.'
                 : 'At least one permission can authorize a value-moving or permission-update operation with one configured key. This address is not restricted against single-key spending.'}</p>
-              <small>Owner threshold: {bitpieAccount.permissionAssessment.ownerThreshold}; checked active permissions: {bitpieAccount.permissionAssessment.activePermissions.length}.</small>
+              <small>Owner threshold: {bitpieAccount.permissionAssessment.ownerThreshold}; checked active permissions: {bitpieAccount.permissionAssessment.activePermissions.length}; single-key value authority: {bitpieAccount.permissionAssessment.singleSignerCanMoveNativeTrx ? 'possible' : 'not detected'}.</small>
             </div>
           </div>
         ) : (
