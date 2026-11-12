@@ -107,6 +107,13 @@ export function createRippleCustodyRouter({
   router.get('/domains/:domainId/accounts/:accountId/sponsor', (req, res) => providerRead(res, (client) => client.read.getAccountSponsor(req.params.accountId, req.params.domainId)))
   router.get('/domains/:domainId/sponsors/account/:accountId/valid-sponsors', (req, res) => providerRead(res, (client) => client.read.listValidSponsors(req.params.accountId, req.params.domainId)))
   router.get('/domains/:domainId/omnibus/:omnibusId/internal-transfers', (req, res) => providerRead(res, (client) => client.read.getOmnibusInternalTransfers(req.params.omnibusId, req.params.domainId)))
+  router.get('/domains/:domainId/transactions', (req, res) => providerRead(res, (client) => client.read.listTransactions(req.params.domainId)))
+  router.get('/domains/:domainId/transactions/transfers', (req, res) => providerRead(res, (client) => client.read.listTransfers(req.params.domainId)))
+  router.get('/domains/:domainId/transactions/transfers/:transferId', (req, res) => providerRead(res, (client) => client.read.getTransfer(req.params.transferId, req.params.domainId)))
+  router.get('/domains/:domainId/transactions/orders', (req, res) => providerRead(res, (client) => client.read.listTransactionOrders(req.params.domainId)))
+  router.get('/domains/:domainId/transactions/orders/:orderId', (req, res) => providerRead(res, (client) => client.read.getTransactionOrder(req.params.orderId, req.params.domainId)))
+  router.get('/domains/:domainId/transactions/:transactionId', (req, res) => providerRead(res, (client) => client.read.getTransaction(req.params.transactionId, req.params.domainId)))
+  router.get('/domains/:domainId/events', (req, res) => providerRead(res, (client) => client.read.listEvents(req.params.domainId)))
 
 
   // Mutation endpoints are present as explicit fail-closed responses so clients
