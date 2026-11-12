@@ -191,6 +191,26 @@ export default function RestrictedTRXEscrow() {
         )}
       </div>
       <div className="settings-group">
+        <div className="section-heading">
+          <div><span className="eyebrow">BITPIE MULTISIGNATURE ROUTE</span><h3>Show real TRX in Bitpie with multi-party authorization</h3><p>For a native TRX balance to appear inside Bitpie while preventing one key from spending alone, investigate Bitpie's own multisignature wallet. This may generate a new multisig address; it may not preserve the existing address above.</p></div>
+        </div>
+        <div className="notice notice-warning">
+          <AlertTriangle size={16}/>
+          <div>
+            <b>Confirm native TRX support in your current Bitpie app first</b>
+            <p>Bitpie's help article lists TRX as supported at the top, but its detailed currency selector list and worked creation example focus on USDT-TRC20. Do not send funds until the app visibly lets you create a TRX multisig account, shows its address, and confirms native TRX receive/display.</p>
+          </div>
+        </div>
+        <ul className="fine-print">
+          <li>Use only trusted participants; never invite strangers as signers.</li>
+          <li>A 2-of-3 threshold prevents any one key from spending alone, but any two signers can authorize transfers. Choose signers who understand the arrangement.</li>
+          <li>Bitpie warns about 2-of-2 or 3-of-3 key-loss lockout. Avoid those settings unless you fully understand recovery.</li>
+          <li>Bitpie's guide describes a 100 TRX network creation fee and recommends at least 200 TRX available for that creation step. This is a real fee, not free public API funding.</li>
+        </ul>
+        <a href="https://bitpie.zendesk.com/hc/en-001/articles/10142742328591-Bitpie-Multisignature-Usage-Tutorial" target="_blank" rel="noreferrer">Open Bitpie's official multisignature tutorial <ExternalLink size={13}/></a>
+        <p className="fine-print">After Bitpie creates the multisig address, set <code>VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS</code> in the frontend build and <code>RESTRICTED_TRX_BENEFICIARY_ADDRESS</code> on the backend to that exact address. Then refresh this page and require the on-chain permission audit to report that one key cannot authorize value movement. This panel does not create the Bitpie multisig or change account permissions.</p>
+      </div>
+      <div className="settings-group">
         <span className="eyebrow">ESCROW CONTRACT</span>
         <div className="address-box"><span>Configured Mainnet contract</span><b>{ESCROW_ADDRESS || 'Not deployed / not configured'}</b></div>
         {ESCROW_ADDRESS && <a href={'https://tronscan.org/#/address/'+ESCROW_ADDRESS} target="_blank" rel="noreferrer">View escrow contract on TRONSCAN <ExternalLink size={13}/></a>}
