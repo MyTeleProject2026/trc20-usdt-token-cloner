@@ -58,3 +58,21 @@ The supplied OpenAPI file has no server URL and does not provide an actual deplo
 ## Accounting boundary
 
 Ripple Omnibus virtual-account balances are provider accounting records. Tron Transfer restricted credits are separate application-ledger entries. Actual TRX is held by the configured custody provider or observed on-chain. Do not add these values together or describe internal credits as a Bitpie deposit.
+
+## Restricted credit user experience
+
+The owner workspace includes a Restricted credits tab. The platform owner can look up a customer account by customer ID or TRON Mainnet address and allocate an internal credit amount denominated in TRX (stored as integer SUN). Every allocation requires an audit reason and a unique idempotency key. The ledger is append-only; an allocation does not create, reserve, or transfer TRX.
+
+Customer account identity is the verified TRON Mainnet wallet address. The customer view is available at the frontend route `#/credits`. It uses the existing one-time wallet-signature challenge and calls `GET /api/ripple-custody/credits/me`; the server derives the customer address from the authenticated session rather than accepting an arbitrary customer ID. This is only a view of the internal ledger. It does not enable a withdrawal or change an external wallet balance.
+
+The owner workspace route `#/ ` (normal app entry) includes the restricted-credit allocation and lookup panel. Admin operations are protected by the existing owner session. The customer endpoint is protected by a separate wallet ownership session.
+
+## What is not delivered by this ledger
+
+- It does not transfer real TRX.
+- It does not make a Bitpie app display a restricted balance.
+- It does not prove the customer owns a Bitpie account or that the destination address belongs to Bitpie.
+- It does not provide a TRX withdrawal or gas fee funding path.
+- A Bitpie balance can only reflect blockchain assets Bitpie recognizes at the actual address, subject to its own wallet implementation and network support.
+
+For actual TRX custody/deposits/withdrawals and fees, Ripple must provision the deployment and service identity and the exact SDK package must be installed. Provider-side account/tenant, asset ticker, intent-signing and Gas Station APIs must then be implemented and verified. No live Mainnet writes are enabled.
