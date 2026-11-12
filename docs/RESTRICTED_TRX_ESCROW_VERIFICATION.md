@@ -1,24 +1,46 @@
 # Restricted TRX escrow verification and collateral reconciliation
 
-The owner panel must not mark a Bitpie-linked restricted position as credited from a dashboard entry, a normal address balance, or a transaction broadcast response.
+## Implemented read-only verification
 
-The pure fail-closed verifier is `server/restricted-trx-escrow-verifier.mjs`. It requires:
-- transaction ID and matching solidified receipt with a positive block number;
-- successful contract execution;
-- a native TRX `TriggerSmartContract` call with nonzero `call_value`;
-- beneficiary-specific contract position, positive amount, valid unlock time, and unclaimed status;
-- actual escrow contract TRX balance greater than or equal to aggregate locked liabilities.
+The backend route is `GET /api/restricted-trx/escrow/verify/:requestId/:txid`. It is mounted in `server/index.mjs` and requires the existing Mainnet owner wallet session. It reads the Bitpie beneficiary, audited escrow contract address, provider address stored immutably in the contract, transaction body and receipt, contract position, aggregate liabilities, and actual contract account balance from TRON solidified state.
 
-Any missing evidence or under-collateralization returns `verified: false` and `creditableAmountSun: "0"`.
+The strict verifier in `server/restricted-trx-escrow-verifier.mjs` binds the evidence end to end:
+- a matching transaction ID and positive solidified block receipt;
+- successful smart-contract execution;
+- exactly one native-TRX `TriggerSmartContract` calling `fundPosition(bytes32,address,uint64)`;
+- exact escrow contract destination and the provider address returned by the contract's immutable `provider()` getter;
+- matching request ID and beneficiary in the transaction calldata;
+- matching `PositionFunded(bytes32,address,uint256,uint64)` event emitted by the escrow contract;
+- exact equality of transaction `call_value`, event amount, and stored position amount;
+- exact equality of event unlock time and contract position unlock time;
+- unclaimed beneficiary position; and
+- actual escrow contract TRX balance greater than or equal to `totalLockedSun()`.
 
-Important limitation: this is a pure evidence-validation building block, not a complete live chain fetcher, deployed contract, custody system, or Bitpie integration. The current contract ABI must be checked against the deployed audited contract before wiring it to production. Aggregate liabilities must come from an independently reconciled on-chain source, not an operator-entered number.
+Any missing, inconsistent, failed, or under-collateralized evidence is rejected and returns zero creditable amount. The UI now asks for both request ID and funding transaction ID and displays explorer links only after server-side verification.
 
-## Can this be funded without spendable TRX?
+## Owner and Mainnet configuration
 
-No. A contract-held TRX position requires actual TRX to be transferred into the contract. It can then be locked and non-spendable by the beneficiary until contract-defined conditions permit release. But the depositor/provider must supply real TRX, and the transaction needs Bandwidth/Energy or TRX fees paid by the sender or an authorized sponsor.
+Set server-side environment variables:
+- `TREASURY_OWNER_ADDRESS`: must match the Mainnet address used to sign in to the private owner panel.
+- `RESTRICTED_TRX_ESCROW_CONTRACT`: deployed and audited Mainnet contract address.
+- `RESTRICTED_TRX_BENEFICIARY_ADDRESS`: exact recipient address (defaults in the route to the Bitpie address currently configured in the UI).
+- `TRONGRID_API_ORIGIN=https://api.trongrid.io`.
+- `TRONGRID_API_KEY`: optional for development, recommended for production quota and service reliability.
 
-A public TRON API cannot mint principal, create a restricted Bitpie balance, or pay fees. A public explorer can verify existing on-chain state only.
+Never put TronGrid or provider keys in a `VITE_*` variable or commit their values. The public API adapter restricts requests to the approved HTTPS TronGrid origin and uses `/walletsolidity/` endpoints.
 
-## Bitpie display
+## Important limitation
 
-An external TRON smart contract cannot change the ordinary balance displayed inside Bitpie for an address. The contract can hold TRX and expose a beneficiary-specific locked position that Tron Transfer displays. Bitpie's own app would need to add explicit support for that contract/token/position to show it natively. Do not claim a normal Bitpie wallet deposit has occurred.
+This verifier proves a **contract-held restricted TRX position linked to the Bitpie address**. It does not create a normal Bitpie wallet deposit, change Bitpie's spendable account balance, or cause the Bitpie app to display an internal restricted balance. A separate Bitpie integration would require explicit support from Bitpie itself.
+
+A contract-held TRX position requires real TRX principal deposited into the contract. The payable contract call also consumes network resources; the provider or another explicitly authorized sender/sponsor must pay the actual costs. A public TRON API cannot mint principal or pay fees.
+
+## Not yet enabled
+
+- No audited Mainnet escrow address is configured by this repository.
+- No Ripple principal-credit agreement or native-TRX escrow fee-credit agreement is verified.
+- No Ripple-specific signing/submission adapter is implemented.
+- No escrow funding, direct payout, or release transaction is broadcast by the verification route.
+- The existing live payout hard gate remains in place.
+
+Do not mark a position funded until the API returns `verified: true` after solidified chain reads; do not treat a provider balance field or a normal Bitpie address balance as escrow credit.
