@@ -1,4 +1,5 @@
 import { access, readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { constants } from 'node:fs'
 import path from 'node:path'
 
@@ -25,8 +26,11 @@ export function rippleCustodyConfiguration(env = process.env) {
   const configFile = String(env.RC_CONFIG_FILE || path.resolve('config/ripple-custody.toml')).trim()
   const clientId = String(env.RC_CLIENT_ID || '').trim()
   const clientSecret = String(env.RC_CLIENT_SECRET || '').trim()
-  if (!clientId && !configFile) missing.push('RC_CLIENT_ID or client_id in config file')
+  let fileClientId = ''
+  try { fileClientId = /^\\s*client_id\\s*=\\s*[\"']([^\"']+)[\"']/m.exec(readFileSync(configFile, 'utf8'))?.[1]?.trim() || '' } catch { /* reported below as missing config */ }
+  if (!clientId && !fileClientId) missing.push('RC_CLIENT_ID or client_id in config file')
   if (!clientSecret) missing.push('RC_CLIENT_SECRET')
+  try { readFileSync(configFile, 'utf8') } catch { missing.push('RC_CONFIG_FILE (readable TOML required)') }
   return {
     configured: missing.length === 0,
     missing,
