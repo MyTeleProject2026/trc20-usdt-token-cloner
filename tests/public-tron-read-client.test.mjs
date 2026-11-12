@@ -102,3 +102,25 @@ test('solidified contract reader rejects malformed selectors and ABI parameters'
     contractAddress: ADDRESS, functionSelector: 'getPosition(bytes32)', parameter: 'xyz', ownerAddress: ADDRESS,
   }), (error) => error.status === 400)
 })
+
+test('public TRON read client retrieves contract runtime bytecode for audit pinning', async () => {
+  const { fetchImpl, calls } = fakeFetchFor({
+    '/wallet/getcontractinfo': {
+      runtimecode: '60016000',
+      smart_contract: { code_hash: 'abcd' },
+    },
+  })
+  const client = createPublicTronReadClient({ fetchImpl })
+  const result = await client.getContractRuntimeCode(ADDRESS)
+  assert.equal(result.runtimeCode, '60016000')
+  assert.equal(result.providerCodeHash, 'abcd')
+  assert.match(calls[0].url, /wallet\/getcontractinfo$/)
+})
+
+test('contract runtime lookup rejects addresses and empty bytecode', async () => {
+  const client = createPublicTronReadClient({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ runtimecode: '' }) }),
+  })
+  await assert.rejects(client.getContractRuntimeCode('bad-address'), (error) => error.status === 400)
+  await assert.rejects(client.getContractRuntimeCode(ADDRESS), /runtime bytecode/)
+})
