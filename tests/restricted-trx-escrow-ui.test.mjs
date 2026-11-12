@@ -16,6 +16,10 @@ test('Bitpie beneficiary balance and on-chain permission status are displayed se
   assert.match(component, /whether one key can spend it depends on the on-chain permission thresholds below/)
   assert.match(component, /On-chain multisignature restriction detected/)
   assert.match(component, /A single signer may be able to move funds/)
+  assert.match(component, /single-key value authority:/)
+  assert.match(component, /BITPIE MULTISIGNATURE ROUTE/)
+  assert.match(component, /10142742328591-Bitpie-Multisignature-Usage-Tutorial/)
+  assert.match(component, /Confirm native TRX support in your current Bitpie app first/)
   assert.match(component, /This is not a Bitpie wallet deposit or spendable Bitpie balance/)
 })
 
