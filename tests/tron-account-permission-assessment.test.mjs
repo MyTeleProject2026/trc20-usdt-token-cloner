@@ -101,3 +101,17 @@ test('flags account-creation and TRC10 unfreeze permissions as value-capable',()
   assert.equal(result.singleSignerCanMoveFunds,true)
  }
 })
+
+test('fails closed if a permission has more than five keys',()=>{
+ const bad=account()
+ bad.owner_permission.keys = Array.from({length:6},(_,index)=>key(String(index+1).repeat(40)))
+ assert.equal(assessTronAccountPermissions(bad).available,false)
+})
+test('fails closed for more than eight active permissions or duplicate active IDs',()=>{
+ const many=account()
+ many.active_permission=Array.from({length:9},(_,index)=>({...many.active_permission[0],id:index+2}))
+ assert.equal(assessTronAccountPermissions(many).available,false)
+ const duplicate=account()
+ duplicate.active_permission.push({...duplicate.active_permission[0]})
+ assert.equal(assessTronAccountPermissions(duplicate).available,false)
+})
