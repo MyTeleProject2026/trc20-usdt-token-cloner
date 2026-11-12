@@ -71,7 +71,7 @@ function hasExpiredPreparation(request) {
 
 function statusLabel(status) {
   return ({
-    requested: 'Awaiting sponsor',
+    requested: 'Pending sponsor funding and signature',
     prepared: 'Sponsor approval required',
     broadcasting: 'Broadcasting',
     submitted: 'On-chain confirmation pending',
@@ -1148,8 +1148,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       <small>Status: {statusLabel(item.status)}</small>
                       <small>Sponsor: {item.sponsorAddress ? shorten(item.sponsorAddress) : 'Not assigned'}</small>
                       {item.status === 'requested' && <small>{item.sponsorAddress
-                        ? 'Automatically matched using current sponsor funding and fee checks. Waiting for the sponsor to prepare and sign this payout.'
-                        : 'No eligible funded sponsor is matched yet. The request remains queued; your wallet is not charged.'}</small>}
+                        ? 'A sponsor has been matched, but must recheck live Mainnet USDT and network resources, then explicitly sign this exact payout. No funds have moved.'
+                        : 'Pending sponsor funding: no eligible sponsor is currently matched. The request remains queued; no blockchain transaction or exchange deposit exists yet, and your wallet is not charged.'}</small>}
                       {item.status === 'requested' && item.sponsorAddress && item.expiresAt && <small>Temporary sponsor reservation expires {new Date(item.expiresAt).toLocaleString()}. If it expires, the request returns to the available sponsor queue.</small>}
 
                       {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
