@@ -136,3 +136,20 @@ test('owner verification route rejects malformed identifiers before node calls',
     assert.equal(calls, 0)
   })
 })
+
+test('owner verification rejects a contract whose deployed runtime hash does not match the audited pin', async (t) => {
+  const client = createEvidenceClient()
+  client.getContractRuntimeCode = async () => ({ runtimeCode: '6002' })
+  await withServer(t, makeRouter({ publicClient: client }), async (baseUrl) => {
+    const response = await fetch(baseUrl + '/verify/0x' + requestId + '/' + txid, {
+      headers: {
+        Authorization: 'Bearer ' + 'A'.repeat(43),
+        Origin: 'https://tron-transfer.example',
+      },
+    })
+    const payload = await response.json()
+    assert.equal(response.status, 409)
+    assert.equal(payload.error, 'escrow-runtime-code-hash-mismatch')
+    assert.equal(payload.creditableAmountSun, '0')
+  })
+})
