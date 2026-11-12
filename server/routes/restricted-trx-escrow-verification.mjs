@@ -113,7 +113,7 @@ export function createRestrictedTrxEscrowVerificationRouter({
         })
       }
 
-      const [positionCall, liabilitiesCall, providerCall] = await Promise.all([
+      const [positionCall, liabilitiesCall, providerCall, beneficiaryCall] = await Promise.all([
         client.triggerSolidifiedConstantContract({
           contractAddress,
           functionSelector: 'getPosition(bytes32)',
@@ -132,6 +132,12 @@ export function createRestrictedTrxEscrowVerificationRouter({
           parameter: '',
           ownerAddress,
         }),
+        client.triggerSolidifiedConstantContract({
+          contractAddress,
+          functionSelector: 'restrictedBeneficiary()',
+          parameter: '',
+          ownerAddress,
+        }),
       ])
 
       const positionHex = positionCall.resultHex
@@ -146,6 +152,15 @@ export function createRestrictedTrxEscrowVerificationRouter({
         claimed: decodeWord(positionHex.slice(192, 256)) !== 0n,
       }
       const providerAddress = decodeAddressWord(tronWeb, providerHex)
+      const restrictedBeneficiary = decodeAddressWord(tronWeb, beneficiaryCall.resultHex)
+      if (restrictedBeneficiary !== beneficiary) {
+        return res.status(409).json({
+          success: false,
+          verified: false,
+          error: 'configured-beneficiary-does-not-match-immutable-contract-beneficiary',
+          creditableAmountSun: '0',
+        })
+      }
       const totalLockedLiabilitiesSun = decodeWord(liabilitiesCall.resultHex).toString()
 
       const result = verifyRestrictedTrxEscrowEvidence({
