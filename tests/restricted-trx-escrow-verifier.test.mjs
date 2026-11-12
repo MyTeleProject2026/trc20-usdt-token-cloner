@@ -117,3 +117,21 @@ test('fails closed when funding event is absent or request IDs do not match',()=
 test('fails closed when the solidified transaction body does not match the requested txid',()=>{
  assert.equal(verifyRestrictedTrxEscrowEvidence({...evidence,expectedTxId:'f'.repeat(64)}).reason,'requested-transaction-id-mismatch')
 })
+
+
+test('fails closed when escrow transaction lock duration does not match the stored unlock time',()=>{
+ const badReceipt={...evidence,receipt:{...evidence.receipt,blockTimeStamp:Number((unlockAt-3599n)*1000n)}}
+ assert.equal(verifyRestrictedTrxEscrowEvidence(badReceipt).reason,'unlock-time-does-not-match-transaction-lock')
+})
+
+test('fails closed when calldata contains unexpected trailing arguments',()=>{
+ const call=evidence.transaction.raw_data.contract[0].parameter.value
+ const bad={...evidence,transaction:{...evidence.transaction,raw_data:{contract:[{
+  ...evidence.transaction.raw_data.contract[0],parameter:{value:{...call,data:call.data+'00'}},
+ }]}}}
+ assert.equal(verifyRestrictedTrxEscrowEvidence(bad).reason,'not-a-fund-position-call')
+})
+
+test('fails closed when the configured escrow address hex does not match the Base58 contract',()=>{
+ assert.equal(verifyRestrictedTrxEscrowEvidence({...evidence,expectedContractHex:'41'+'d'.repeat(40)}).reason,'configured-contract-address-mismatch')
+})
