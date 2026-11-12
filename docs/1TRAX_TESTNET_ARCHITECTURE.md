@@ -29,7 +29,11 @@ A TRC-20 contract exposes token metadata and balances on-chain. That does not fo
 
 Even if a wallet displays 1TRAX, it will be a separate token asset, not native TRX. Wallet UI may still show a Send action even though the contract rejects transfer transactions. Do not describe a displayed 1TRAX quantity as spendable TRX or a guaranteed USD value.
 
-## Read-only testnet reserve reconciliation\n\nThe owner-only endpoint GET /api/ripple-custody/1trax/accounting reads native TRX balance and 1TRAX totalSupply as separate fields. Configure ONE_TRAX_NETWORK=nile or shasta, ONE_TRAX_RESERVE_ADDRESS, and ONE_TRAX_CONTRACT_ADDRESS on the backend. The endpoint is read-only and rejects Mainnet. It reports a node snapshot, not a promise of solidification or proof that the reserve is legally available for redemption. Reconcile against solidified chain data and the actual reserve wallet controls before relying on the ratio.\n\n## Testnet deployment
+## Read-only testnet reserve reconciliation
+
+The owner-only endpoint GET /api/ripple-custody/1trax/accounting reads native TRX balance and 1TRAX totalSupply as separate fields. Configure ONE_TRAX_NETWORK=nile or shasta, ONE_TRAX_RESERVE_ADDRESS, and ONE_TRAX_CONTRACT_ADDRESS on the backend. The endpoint is read-only and rejects Mainnet. It reports a node snapshot, not a promise of solidification or proof that the reserve is legally available for redemption. Reconcile against solidified chain data and the actual reserve wallet controls before relying on the ratio.
+
+## Testnet deployment
 
 Compile both contracts with npm run build. To deploy 1TRAX, use a dedicated testnet key and explicitly set:
 - TRON_NETWORK=nile (or shasta)
