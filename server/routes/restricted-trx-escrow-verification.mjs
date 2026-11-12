@@ -97,6 +97,25 @@ export function createRestrictedTrxEscrowVerificationRouter({
     }
 
     try {
+      const expectedRuntimeCodeHash = String(env.RESTRICTED_TRX_ESCROW_RUNTIME_CODE_SHA256 || '').trim().toLowerCase()
+      if (!/^[0-9a-f]{64}$/.test(expectedRuntimeCodeHash)) {
+        return res.status(503).json({
+          success: false,
+          verified: false,
+          error: 'audited-escrow-runtime-code-hash-not-configured',
+          creditableAmountSun: '0',
+        })
+      }
+      const runtime = await client.getContractRuntimeCode(contractAddress)
+      const actualRuntimeCodeHash = createHash('sha256').update(runtime.runtimeCode, 'hex').digest('hex')
+      if (actualRuntimeCodeHash !== expectedRuntimeCodeHash) {
+        return res.status(409).json({
+          success: false,
+          verified: false,
+          error: 'escrow-runtime-code-hash-mismatch',
+          creditableAmountSun: '0',
+        })
+      }
       const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
       const contractHex = tronWeb.address.toHex(contractAddress)
       const [transactionEvidence, account] = await Promise.all([
