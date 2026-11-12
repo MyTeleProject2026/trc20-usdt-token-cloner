@@ -1,29 +1,26 @@
 import { TronWeb } from 'tronweb'
 import { isValidTronAddress } from './tron-address.mjs'
 
-const TESTNETS = Object.freeze({
-  nile: 'https://nile.trongrid.io',
-  shasta: 'https://api.shasta.trongrid.io',
-})
+const MAINNET = 'https://api.trongrid.io'
 
 export async function readOneTraxAccounting({
   env = process.env,
   tronWebFactory = (fullHost) => new TronWeb({ fullHost }),
 } = {}) {
-  const network = String(env.ONE_TRAX_NETWORK || '').trim().toLowerCase()
+  const network = 'mainnet'
   const reserveAddress = String(env.ONE_TRAX_RESERVE_ADDRESS || '').trim()
   const contractAddress = String(env.ONE_TRAX_CONTRACT_ADDRESS || '').trim()
   const missing = []
-  if (!TESTNETS[network]) missing.push('ONE_TRAX_NETWORK (nile or shasta)')
+  
   if (!reserveAddress) missing.push('ONE_TRAX_RESERVE_ADDRESS')
   if (!contractAddress) missing.push('ONE_TRAX_CONTRACT_ADDRESS')
-  if (missing.length) return { success: true, configured: false, network: network || null, missing }
+  if (missing.length) return { success: true, configured: false, network, missing }
 
   if (!isValidTronAddress(reserveAddress) || !isValidTronAddress(contractAddress)) {
-    return { success: false, error: 'invalid-testnet-address' }
+    return { success: false, error: 'invalid-mainnet-address' }
   }
 
-  const tronWeb = tronWebFactory(TESTNETS[network])
+  const tronWeb = tronWebFactory(MAINNET)
   const token = await tronWeb.contract().at(contractAddress)
   const [reserveSunValue, supplyValue, decimalsValue] = await Promise.all([
     tronWeb.trx.raw.getBalance(reserveAddress),
@@ -54,7 +51,7 @@ export async function readOneTraxAccounting({
     },
     liability: {
       contractAddress,
-      asset: '1TRAX',
+      asset: 'TRX (TRӾ token; not native TRX)',
       totalSupplyUnits: outstanding1TraxUnits.toString(),
       decimals,
     },
@@ -64,7 +61,7 @@ export async function readOneTraxAccounting({
       shortfallSun: shortfallSun.toString(),
       backingRatioBasisPoints: backingRatioBps,
       target: '1 TRX reserve SUN per 1 1TRAX base unit',
-      note: 'Read-only node snapshot; independently verify solidification and reserve ownership before relying on it. No reserve transfer or redemption is performed.',
+      note: 'Read-only TRON Mainnet node snapshot; this custom TRC-20 is not native TRX. Independently verify contract bytecode, ownership, and reserve custody. No reserve transfer or redemption is performed.',
     },
   }
 }
