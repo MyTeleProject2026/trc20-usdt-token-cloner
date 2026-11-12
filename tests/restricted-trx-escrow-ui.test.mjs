@@ -13,6 +13,8 @@ test('restricted escrow viewer uses the owner session storage key used by this f
 
 test('Bitpie beneficiary balance and on-chain permission status are displayed separately from contract escrow', () => {
   assert.match(component, /Native TRX balance at beneficiary address/)
+  assert.match(component, /The previously supplied address did not pass the Base58Check validation/)
+  assert.match(component, /Not configured — confirm address in Bitpie first/)
   assert.match(component, /whether one key can spend it depends on the on-chain permission thresholds below/)
   assert.match(component, /On-chain multisignature restriction detected/)
   assert.match(component, /A single signer may be able to move funds/)
