@@ -25,9 +25,9 @@ test('combined authorization requires provider fees and verified delegated resou
 })
 test('combined authorization rejects unverified or misdirected resource delegation', () => {
   const unverified = facility(); const unverifiedChain = { ...chainEvidence, solidified: false }
-  assert.throws(() => assertRestrictedTrxCreditAuthorization(unverified, { destination: 'escrow', amountSun: '25000000', feeBudgetSun: '1000000', escrowAddress, now: Date.parse('2026-11-13T00:00:00.000Z') }), { code: 'provider-delegated-resources-not-verified-for-escrow' })
+  assert.throws(() => assertRestrictedTrxCreditAuthorization(unverified, { destination: 'escrow', amountSun: '25000000', feeBudgetSun: '1000000', escrowAddress, delegatedResourceVerification: unverifiedChain, now: Date.parse('2026-11-13T00:00:00.000Z') }), { code: 'provider-delegated-resources-not-verified-for-escrow' })
   const wrongReceiver = facility(); wrongReceiver.delegatedResources.receiverAddress = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
-  assert.throws(() => assertRestrictedTrxCreditAuthorization(wrongReceiver, { destination: 'escrow', amountSun: '25000000', feeBudgetSun: '1000000', escrowAddress, now: Date.parse('2026-11-13T00:00:00.000Z') }), { code: 'provider-delegated-resources-not-verified-for-escrow' })
+  assert.throws(() => assertRestrictedTrxCreditAuthorization(wrongReceiver, { destination: 'escrow', amountSun: '25000000', feeBudgetSun: '1000000', escrowAddress, delegatedResourceVerification: chainEvidence, now: Date.parse('2026-11-13T00:00:00.000Z') }), { code: 'provider-delegated-resources-not-verified-for-escrow' })
 })
 test('readiness keeps live execution disabled for combined funding model', () => {
   const readiness = getRestrictedTrxProviderReadiness({})
