@@ -69,6 +69,90 @@ export function createPublicTronReadRouter({
   router.get('/account/:address', handle((req) => client.getSolidifiedAccount(req.params.address)))
   router.get('/resources/:address', handle((req) => client.getAccountResources(req.params.address)))
   router.get('/transaction/:txid', handle((req) => client.getSolidifiedTransaction(req.params.txid)))
+  router.get('/escrow/:contractAddress/beneficiary/:beneficiaryAddress/count', handle(async (req) => {
+    const { contractAddress, beneficiaryAddress } = req.params
+    if (!TronWeb.isAddress(contractAddress) || !TronWeb.isAddress(beneficiaryAddress)) {
+      const error = new Error('Invalid TRON contract or beneficiary address')
+      error.status = 400
+      throw error
+    }
+    const ownerAddress = String(env.TREASURY_OWNER_ADDRESS || env.OWNER_WALLET_ADDRESS || '').trim()
+    if (!TronWeb.isAddress(ownerAddress)) {
+      const error = new Error('Owner wallet address is not configured')
+      error.status = 503
+      throw error
+    }
+    const beneficiaryHex = TronWeb.address.toHex(beneficiaryAddress).replace(/^41/i, '').toLowerCase()
+    const parameter = beneficiaryHex.padStart(64, '0')
+    const result = await client.triggerSolidifiedConstantContract({
+      contractAddress,
+      functionSelector: 'getBeneficiaryPositionCount(address)',
+      parameter,
+      ownerAddress,
+    })
+    if (!/^[0-9a-f]{64}$/i.test(result.resultHex)) throw new Error('Invalid escrow position count response')
+    const count = BigInt('0x' + result.resultHex)
+    if (count > 1000n) throw new Error('Escrow position count exceeds the safe UI read limit')
+    return { beneficiary: beneficiaryAddress, count: count.toString(), source: result.source }
+  }))
+  router.get('/escrow/:contractAddress/beneficiary/:beneficiaryAddress/request/:index', handle(async (req) => {
+    const { contractAddress, beneficiaryAddress, index: indexText } = req.params
+    if (!TronWeb.isAddress(contractAddress) || !TronWeb.isAddress(beneficiaryAddress)
+      || !/^(0|[1-9][0-9]*)$/.test(indexText)) {
+      const error = new Error('Invalid escrow request lookup parameters')
+      error.status = 400
+      throw error
+    }
+    const index = BigInt(indexText)
+    if (index > 999n) {
+      const error = new Error('Escrow position index exceeds the safe UI read limit')
+      error.status = 400
+      throw error
+    }
+    const ownerAddress = String(env.TREASURY_OWNER_ADDRESS || env.OWNER_WALLET_ADDRESS || '').trim()
+    if (!TronWeb.isAddress(ownerAddress)) {
+      const error = new Error('Owner wallet address is not configured')
+      error.status = 503
+      throw error
+    }
+    const beneficiaryHex = TronWeb.address.toHex(beneficiaryAddress).replace(/^41/i, '').toLowerCase()
+    const parameter = beneficiaryHex.padStart(64, '0') + index.toString(16).padStart(64, '0')
+    const result = await client.triggerSolidifiedConstantContract({
+      contractAddress,
+      functionSelector: 'getBeneficiaryPositionRequestId(address,uint256)',
+      parameter,
+      ownerAddress,
+    })
+    if (!/^[0-9a-f]{64}$/i.test(result.resultHex)) throw new Error('Invalid escrow request ID response')
+    return { beneficiary: beneficiaryAddress, index: index.toString(), requestId: '0x' + result.resultHex, source: result.source }
+  }))
+  router.get('/escrow/:contractAddress/position/:requestId', handle(async (req) => {
+    const { contractAddress, requestId } = req.params
+    if (!TronWeb.isAddress(contractAddress) || !/^0x[0-9a-f]{64}$/i.test(requestId)) {
+      const error = new Error('Invalid escrow position lookup parameters')
+      error.status = 400
+      throw error
+    }
+    const ownerAddress = String(env.TREASURY_OWNER_ADDRESS || env.OWNER_WALLET_ADDRESS || '').trim()
+    if (!TronWeb.isAddress(ownerAddress)) {
+      const error = new Error('Owner wallet address is not configured')
+      error.status = 503
+      throw error
+    }
+    const result = await client.triggerSolidifiedConstantContract({
+      contractAddress,
+      functionSelector: 'getPosition(bytes32)',
+      parameter: requestId.slice(2),
+      ownerAddress,
+    })
+    if (!/^[0-9a-f]{256}$/i.test(result.resultHex)) throw new Error('Invalid escrow position response')
+    const hex = result.resultHex
+    const beneficiary = TronWeb.address.fromHex('41' + hex.slice(24, 64))
+    const amountSun = BigInt('0x' + hex.slice(64, 128)).toString()
+    const unlockAt = BigInt('0x' + hex.slice(128, 192)).toString()
+    const claimed = BigInt('0x' + hex.slice(192, 256)) !== 0n
+    return { requestId, beneficiary, amountSun, unlockAt, claimed, source: result.source }
+  }))
   return router
 }
 
