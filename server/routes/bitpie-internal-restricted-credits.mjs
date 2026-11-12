@@ -88,7 +88,7 @@ async function ensureSchema(db) {
         BEFORE UPDATE OR DELETE ON ${SCHEMA}.bitpie_internal_restricted_credits
         FOR EACH ROW EXECUTE FUNCTION ${SCHEMA}.reject_bitpie_internal_credit_mutation();
       END IF;
-    END
+    END;
     $;
   `)
 }
