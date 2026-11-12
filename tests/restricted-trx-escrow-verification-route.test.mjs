@@ -55,6 +55,7 @@ function createEvidenceClient() {
       }
       if (functionSelector === 'totalLockedSun()') return { resultHex: word(amountSun) }
       if (functionSelector === 'provider()') return { resultHex: beneficiaryWord }
+      if (functionSelector === 'restrictedBeneficiary()') return { resultHex: beneficiaryWord }
       throw new Error('unexpected constant function')
     },
   }
