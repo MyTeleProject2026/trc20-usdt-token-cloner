@@ -48,6 +48,9 @@ export default function App() {
   const [creditAccount,setCreditAccount]=useState(null)
   const [creditBusy,setCreditBusy]=useState(false)
   const [creditError,setCreditError]=useState('')
+  const [oneTraxAccounting,setOneTraxAccounting]=useState(null)
+  const [oneTraxBusy,setOneTraxBusy]=useState(false)
+  const [oneTraxError,setOneTraxError]=useState('')
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
@@ -147,6 +150,14 @@ export default function App() {
     setNotice('Restricted TRX-denominated internal credit recorded. No blockchain transfer or Bitpie deposit was made.')
     setCreditAmountTrx('');await loadRestrictedCredits();return result
   }
+  async function loadOneTraxAccounting() {
+    setOneTraxBusy(true); setOneTraxError('')
+    try {
+      const result=await api('/api/ripple-custody/1trax/accounting',{headers:{Authorization:'Bearer '+ownerSession.sessionToken}})
+      if(result.success!==true) throw new Error(result.error||'1TRAX accounting unavailable.')
+      setOneTraxAccounting(result); return result
+    } catch(e) {setOneTraxError(e.message);throw e} finally {setOneTraxBusy(false)}
+  }
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
     setMonitorBusy(true); setMonitorError('')
@@ -203,6 +214,7 @@ export default function App() {
     {id:'withdrawals',label:'Withdrawals',icon:ArrowUpRight},
     {id:'provider',label:'Funding provider',icon:ShieldCheck},
     {id:'credits',label:'Restricted credits',icon:LockKeyhole},
+    {id:'1trax',label:'1TRAX testnet',icon:Coins},
     {id:'sponsors',label:'Sponsor approvals',icon:ShieldCheck},
     {id:'transactions',label:'Transactions',icon:History},
     {id:'settings',label:'Settings',icon:Settings},
@@ -243,7 +255,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'External payout funding',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
+      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'External payout funding',1trax:'1TRAX testnet accounting',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
       <div className="content">
         <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
@@ -325,6 +337,21 @@ export default function App() {
           {creditError&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{creditError}</span></div>}
           {creditAccount&&<div className="recipient-balance-grid"><article className="metric-card"><span>Restricted balance</span><strong>{formatUnits(creditAccount.balanceSun,6)} <small>TRX-credit</small></strong></article><article className="metric-card"><span>Ledger entries</span><strong>{creditAccount.entryCount}</strong></article><article className="metric-card"><span>Account status</span><strong>{creditAccount.status}</strong></article><article className="metric-card"><span>On-chain withdrawal</span><strong>Not supported</strong></article></div>}
           <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Accounting boundary</b><p>These credits exist only in Tron Transfer's internal ledger. They are not actual TRX custody, a blockchain transaction, a Bitpie deposit, or a balance Bitpie can display. Actual TRX must be deposited and confirmed on TRON separately.</p></div></div>
+        </section>}
+        {tab==='1trax'&&<section className="panel provider-panel">
+          <div className="section-heading"><div><span className="eyebrow">OWNER-ONLY · TESTNET READ-ONLY</span><h2>1TRAX reserve reconciliation</h2><p>Compares the dedicated native TRX reserve address with the separate 1TRAX contract total supply. This is a testnet node snapshot, not proof of redemption liquidity or a guaranteed token price.</p></div><div className="panel-icon"><Coins/></div></div>
+          <div className="button-row"><button className="secondary-button" disabled={oneTraxBusy} onClick={()=>perform(loadOneTraxAccounting)}><RefreshCw size={15}/>{oneTraxBusy?'Reading testnet…':'Refresh testnet accounting'}</button></div>
+          {oneTraxError&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{oneTraxError}</span></div>}
+          {oneTraxAccounting?.configured===false&&<div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Testnet accounting not configured</b><p>Backend settings required: {(oneTraxAccounting.missing||[]).join(', ')}. Configure only Nile or Shasta values after the contract and dedicated test reserve address exist.</p></div></div>}
+          {oneTraxAccounting?.configured===true&&<div className="recipient-balance-grid">
+            <article className="metric-card"><span>Network</span><strong>{oneTraxAccounting.network}</strong></article>
+            <article className="metric-card"><span>Native TRX reserve</span><strong>{formatUnits(oneTraxAccounting.reserve.balanceSun,6)} <small>TRX</small></strong></article>
+            <article className="metric-card"><span>1TRAX outstanding</span><strong>{formatUnits(oneTraxAccounting.liability.totalSupplyUnits,6)} <small>1TRAX</small></strong></article>
+            <article className="metric-card"><span>Reserve shortfall</span><strong>{formatUnits(oneTraxAccounting.reconciliation.shortfallSun,6)} <small>TRX-equivalent units</small></strong></article>
+            <article className="metric-card"><span>Reserve surplus</span><strong>{formatUnits(oneTraxAccounting.reconciliation.surplusSun,6)} <small>TRX</small></strong></article>
+            <article className="metric-card"><span>Backing ratio</span><strong>{oneTraxAccounting.reconciliation.backingRatioBasisPoints===null?'—':(Number(oneTraxAccounting.reconciliation.backingRatioBasisPoints)/100).toFixed(2)+'%'}</strong></article>
+          </div>}
+          <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Strict separation</b><p>Reserve TRX is a real native-asset balance at the configured testnet address. 1TRAX supply is a separate token liability. They are never added together. A matching ratio is not a guaranteed market price, USD value, or proof that Bitpie displays the token.</p></div></div>
         </section>}
         {tab==='provider'&&<section className="panel provider-panel">
           <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>Provider-managed payout credit is not configured. The active route is a separately owned, self-custody sponsor wallet that must be reviewed, funded and explicitly sign each transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
