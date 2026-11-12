@@ -75,3 +75,10 @@ test('fails closed when an active permission ID is outside the active permission
  bad.active_permission[0].id=46
  assert.equal(assessTronAccountPermissions(bad).available,false)
 })
+
+test('flags single-key TRX-to-TRC10 purchases and exchange/market operations',()=>{
+ for (const contractType of [9,41,42,43,44,52,53]) {
+  const result=assessTronAccountPermissions(account(2,1,[contractType]))
+  assert.equal(result.singleSignerCanMoveNativeTrx,true, 'contract type '+contractType+' should be considered value-moving')
+ }
+})
