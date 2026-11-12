@@ -54,7 +54,7 @@ export function createRippleCustodyRouter({
     return res.json({
       success: true, provider: 'Ripple Custody', configured: config.configured,
       missing: config.missing, authMode: config.authMode, network: config.network,
-      readOperationsEnabled: config.configured, mutationOperationsEnabled: false, realValueExecutionEnabled: false,
+      readOperationsEnabled: config.configured && config.sdkAvailable, sdkAvailable: config.sdkAvailable, mutationOperationsEnabled: false, realValueExecutionEnabled: false,
       sdk: 'official-typescript-sdk',
       bitpie: bitpie.capabilities,
       disclosures: [
