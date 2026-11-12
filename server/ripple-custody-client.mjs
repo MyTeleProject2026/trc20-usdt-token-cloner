@@ -74,6 +74,13 @@ export function createRippleCustodyClient({ env = process.env, fetchImpl = globa
     getAccountSponsor: (account, domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/account/' + encode(account) + '/sponsor'),
     listValidSponsors: (account, domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/sponsors/account/' + encode(account) + '/valid-sponsors'),
     getOmnibusInternalTransfers: (omnibus = config.omnibusId, domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/omnibus/' + encode(omnibus) + '/internal-transfers'),
+    listTransactions: (domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/transactions'),
+    getTransaction: (transaction, domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/transactions/' + encode(transaction)),
+    listTransfers: (domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/transactions/transfers'),
+    getTransfer: (transfer, domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/transactions/transfers/' + encode(transfer)),
+    listTransactionOrders: (domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/transactions/orders'),
+    getTransactionOrder: (order, domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/transactions/orders/' + encode(order)),
+    listEvents: (domain = config.domainId) => request('GET', '/v1/domains/' + encode(domain) + '/events'),
   })
   const disabled = async () => { throw new RippleCustodyWriteDisabledError() }
   const writes = Object.freeze({
