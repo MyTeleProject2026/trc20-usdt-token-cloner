@@ -169,8 +169,10 @@ export default function RestrictedTRXEscrow() {
       <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Provider funding readiness</b><p>{providerReadiness?.message || 'Provider readiness has not been retrieved.'}</p><p>{providerReadiness ? 'Verified liquidity: ' + (providerReadiness.liquidityVerified ? 'yes' : 'no') + ' · Automated funding: ' + (providerReadiness.canBroadcastTransaction ? 'enabled' : 'disabled') : 'Status unavailable.'}</p>{providerReadiness?.blockers?.length > 0 && <small>Blockers: {providerReadiness.blockers.join(', ')}</small>}</div></div>
       <div className="settings-group">
         <span className="eyebrow">BENEFICIARY BITPIE ADDRESS</span>
-        <div className="address-box"><span>Allowlisted beneficiary</span><b>{BITPIE_ADDRESS}</b></div>
-        <a href={'https://tronscan.org/#/address/'+BITPIE_ADDRESS} target="_blank" rel="noreferrer">View Bitpie address on TRONSCAN <ExternalLink size={13}/></a>
+        <div className="address-box"><span>Configured beneficiary address</span><b>{BITPIE_ADDRESS || 'Not configured — confirm address in Bitpie first'}</b></div>
+        {BITPIE_ADDRESS && TronWeb.isAddress(BITPIE_ADDRESS)
+          ? <a href={'https://tronscan.org/#/address/'+BITPIE_ADDRESS} target="_blank" rel="noreferrer">View beneficiary address on TRONSCAN <ExternalLink size={13}/></a>
+          : <p className="fine-print">The previously supplied address did not pass the Base58Check validation used by TronWeb. Copy the address again from Bitpie → TRX → Receive, or use the new Bitpie multisignature address if Bitpie creates one. Do not send funds until verified.</p>}
       </div>
       <div className="settings-group">
         <span className="eyebrow">BITPIE ADDRESS · PUBLIC SOLIDIFIED TRON BALANCE</span>
