@@ -124,7 +124,7 @@ The operator selected the combined arrangement:
 The repository now contains `server/ripple-wallet-api-client.mjs`. It implements the Ripple Custody (Wallet) documented OAuth 2.0 client-credentials token exchange against `/v2/credentials/oauth/token`, with:
 
 - exact allowlisting of Ripple sandbox and production API origins;
-- server-only `RIPPLE_WALLET_CLIENT_ID` and `RIPPLE_WALLET_CLIENT_SECRET`;
+- server-only `RIPPLE_WALLET_CLIENT_ID` and `RIPPLE_WALLET_CLIENT_SECRET` (the API base defaults to the Ripple sandbox; production requires the exact allowlisted production origin in `RIPPLE_WALLET_API_BASE_URL`);
 - in-memory bearer-token caching and expiry handling;
 - HTTPS-only requests to versioned `/v2/` paths;
 - bounded request timeout and sanitized network/HTTP errors;
