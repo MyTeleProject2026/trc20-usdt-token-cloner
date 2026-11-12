@@ -6,7 +6,7 @@ import express from 'express'
 import { TronWeb } from 'tronweb'
 import { createRestrictedTrxEscrowVerificationRouter } from '../server/routes/restricted-trx-escrow-verification.mjs'
 
-const beneficiary = 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
+const beneficiary = TronWeb.address.fromHex('41' + '1'.repeat(40))
 const owner = beneficiary
 const ownerHex = TronWeb.address.toHex(owner)
 const contractHex = '41' + 'c'.repeat(40)
@@ -36,6 +36,7 @@ function createEvidenceClient() {
   const receipt = {
     id: txid,
     blockNumber: 100,
+    blockTimeStamp: Number((unlockAt - 3600n) * 1000n),
     receipt: { result: 'SUCCESS' },
     log: [{
       address: contractHex,
