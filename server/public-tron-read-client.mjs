@@ -1,3 +1,5 @@
+import { TronWeb } from 'tronweb'
+
 /**
  * Read-only public TRON chain adapter.
  *
@@ -20,7 +22,7 @@ function resolveOrigin(value = DEFAULT_ORIGIN) {
 }
 
 function assertAddress(address) {
-  if (typeof address !== 'string' || !ADDRESS_RE.test(address)) {
+  if (typeof address !== 'string' || !ADDRESS_RE.test(address) || !TronWeb.isAddress(address)) {
     const error = new Error('A valid TRON Base58Check address is required')
     error.status = 400
     throw error
