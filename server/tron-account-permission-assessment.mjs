@@ -7,7 +7,7 @@
  */
 import { TronWeb } from 'tronweb'
 
-const HIGH_RISK_CONTRACT_TYPES = Object.freeze([1, 2, 30, 31, 46])
+const VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES = Object.freeze([1, 2, 11, 12, 13, 14, 30, 31, 46, 54, 55, 56, 57, 58, 59])
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i
 
 function safeInteger(value) {
@@ -30,6 +30,7 @@ function validPermission(permission, kind) {
     }
   })
   if (normalizedKeys.some((key) => !key.normalizedAddress || key.weight === null || key.weight < 1)) return null
+  if (new Set(normalizedKeys.map((key) => key.normalizedAddress)).size !== normalizedKeys.length) return null
   let operations = null
   if (kind === 'active') {
     const raw = String(permission.operations || '').replace(/^0x/i, '').toLowerCase()
@@ -40,11 +41,7 @@ function validPermission(permission, kind) {
 }
 
 function anySingleKeyMeetsThreshold(keys, threshold) {
-  const combinedWeights = new Map()
-  for (const key of keys) {
-    combinedWeights.set(key.normalizedAddress, (combinedWeights.get(key.normalizedAddress) || 0) + key.weight)
-  }
-  return [...combinedWeights.values()].some((weight) => weight >= threshold)
+  return keys.some((key) => key.weight >= threshold)
 }
 
 function operationAllowed(bitmap, contractType) {
@@ -79,7 +76,7 @@ export function assessTronAccountPermissions(account) {
       activePermissionDataValid = false
       break
     }
-    const enabledRiskyTypes = HIGH_RISK_CONTRACT_TYPES.filter((type) => operationAllowed(permission.operations, type))
+    const enabledRiskyTypes = VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES.filter((type) => operationAllowed(permission.operations, type))
     const singleKeyCanAuthorize = enabledRiskyTypes.length > 0
       && anySingleKeyMeetsThreshold(permission.keys, permission.threshold)
     if (singleKeyCanAuthorize) activeSingleKeyCanMoveFunds = true
@@ -113,10 +110,10 @@ export function assessTronAccountPermissions(account) {
     ownerSignerCount: owner.keys.length,
     ownerSingleSignerCanAuthorize: ownerSingleKeyCanAuthorize,
     activePermissions,
-    riskyContractTypesChecked: HIGH_RISK_CONTRACT_TYPES,
+    riskyContractTypesChecked: VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES,
     singleSignerCanMoveNativeTrx,
     restrictedAgainstSingleKey: !singleSignerCanMoveNativeTrx,
-    reason: singleSignerCanMoveNativeTrx ? 'at-least-one-permission-allows-a-single-key' : 'all-value-moving-and-permission-update-permissions-require-multiple-keys',
+    reason: singleSignerCanMoveNativeTrx ? 'at-least-one-permission-allows-a-single-key' : 'all-value-moving-and-permission-control-operations-require-multiple-keys',
     note: 'This evaluates on-chain permission thresholds, not who controls each private key. It does not prove Bitpie UI support or provider custody.',
   })
 }
