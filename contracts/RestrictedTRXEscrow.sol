@@ -16,6 +16,7 @@ contract RestrictedTRXEscrow {
 
     address public immutable provider;
     address public immutable operator;
+    address public immutable restrictedBeneficiary;
     uint64 public immutable minLockSeconds;
     uint64 public immutable maxLockSeconds;
     uint128 public immutable maxPositionSun;
@@ -52,16 +53,19 @@ contract RestrictedTRXEscrow {
     constructor(
         address provider_,
         address operator_,
+        address restrictedBeneficiary_,
         uint64 minLockSeconds_,
         uint64 maxLockSeconds_,
         uint128 maxPositionSun_,
         uint128 maxDailyPrincipalSun_
     ) {
         if (provider_ == address(0) || operator_ == address(0)) revert Unauthorized();
+        if (restrictedBeneficiary_ == address(0)) revert InvalidBeneficiary();
         if (minLockSeconds_ == 0 || maxLockSeconds_ < minLockSeconds_) revert InvalidLockDuration();
         if (maxPositionSun_ == 0 || maxDailyPrincipalSun_ < maxPositionSun_) revert PositionLimitExceeded();
         provider = provider_;
         operator = operator_;
+        restrictedBeneficiary = restrictedBeneficiary_;
         minLockSeconds = minLockSeconds_;
         maxLockSeconds = maxLockSeconds_;
         maxPositionSun = maxPositionSun_;
@@ -76,7 +80,7 @@ contract RestrictedTRXEscrow {
         if (msg.sender != provider) revert Unauthorized();
         if (depositsPaused) revert DepositsArePaused();
         if (requestId == bytes32(0) || positions[requestId].beneficiary != address(0)) revert InvalidRequest();
-        if (beneficiary == address(0) || beneficiary == address(this)) revert InvalidBeneficiary();
+        if (beneficiary == address(0) || beneficiary == address(this) || beneficiary != restrictedBeneficiary) revert InvalidBeneficiary();
         if (msg.value == 0 || msg.value > type(uint128).max) revert InvalidAmount();
         if (msg.value > maxPositionSun) revert PositionLimitExceeded();
         uint64 today = uint64(block.timestamp / 1 days);
