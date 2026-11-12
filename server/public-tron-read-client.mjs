@@ -89,16 +89,17 @@ export function createPublicTronReadClient(options = {}) {
       assertAddress(address)
       const account = await postNode('/walletsolidity/getaccount', { address, visible: true }, common)
       const balanceSun = assertSafeSunBalance(account?.balance)
+      const permissionAssessment = assessTronAccountPermissions(account)
       return Object.freeze({
         address,
         balanceSun,
         balanceTrx: formatSunAsTrx(balanceSun),
         accountExists: Boolean(account?.address),
-        permissionAssessment: assessTronAccountPermissions(account),
+        permissionAssessment,
         source: 'tron-solidified-node',
         balanceKind: 'native-trx-account-balance',
-        singleSignerCanMoveNativeTrx: assessTronAccountPermissions(account).available
-          ? assessTronAccountPermissions(account).singleSignerCanMoveNativeTrx
+        singleSignerCanMoveNativeTrx: permissionAssessment.available
+          ? permissionAssessment.singleSignerCanMoveNativeTrx
           : null,
         restrictedEscrowBalance: null,
         note: 'This is the actual native TRX balance of the address from solidified TRON state. Whether one key can move it depends on the account permission thresholds. It is not a smart-contract escrow position.',
