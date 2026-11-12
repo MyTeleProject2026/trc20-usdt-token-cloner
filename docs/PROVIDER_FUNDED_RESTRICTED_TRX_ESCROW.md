@@ -210,3 +210,26 @@ A Bitpie adapter must remain unconfigured and disabled until Bitpie itself publi
 The restricted-credit panel is mounted inside the existing owner-only **Restricted TRX escrow** workspace. It defaults to the previously confirmed Bitpie TRON address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`; deployments may override this with the frontend build variable `VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS`. This only selects the address associated with internal records. It does not establish ownership of that address or connect to Bitpie.
 
 Before deploying, configure the existing owner-authentication and PostgreSQL environment in the backend. The ledger creates its own schema/table/index/immutable trigger on first authorized access. Run the repository test suite and frontend production build against a non-production database first. Do not create production credits until the owner has reviewed the recipient address and understands that the entry is only an internal record.
+
+
+## Restricted TRC20 alternative — implemented contract source (not deployed)
+
+A separate TRC20-compatible contract is now included at `contracts/RestrictedTRC20.sol` and added to `scripts/compile-contract.mjs`. It is deliberately named **Tron Transfer Restricted Credit (TTRC)**, not TRX:
+- fixed 6 decimal places and a constructor-defined hard supply cap;
+- owner-issued token units;
+- transfers and delegated transfers require both sender and receiver to be allowlisted;
+- owner can pause transfers and change the allowlist;
+- owner cannot seize or arbitrarily burn a holder's balance;
+- standard TRC20-compatible `Transfer`, `Approval`, `balanceOf`, `allowance`, `approve`, `transfer`, and `transferFrom` methods.
+
+**Status:** source and build-artifact generation are committed; contract is not yet compiler-verified in CI, independently audited, deployed to TRON, or imported into Bitpie. A deployed token is not native TRX and must never be represented as TRX. Bitpie may not automatically discover arbitrary TRC20 contracts; recipient visibility requires Bitpie to support custom-token import for that contract/network and the user to add it if the app requires that step. Do not assume this support.
+
+## Native TRX transfers and actual Bitpie balance
+
+A successful TRX transfer to the supplied Bitpie address will increase the address's on-chain TRX balance and should be reflected by a wallet that tracks that address. The recipient controls those native TRX and the sender cannot impose a restriction on their ability to transfer or withdraw. The sender also needs sufficient real TRX for the principal and transaction/network costs. A transfer cannot be made active by code alone without an authorized funded signer.
+
+The existing treasury route's `REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true` hard gate remains in place. Do not remove it merely to show an "active" status. The app must continue to show native TRX payout as disabled until a real owner/provider signer is explicitly authorized, funding and fee balance are verified, destination is confirmed, and testnet + security checks pass.
+
+## Deployment and configuration truth
+
+No backend secret or private key has been added, guessed, generated as if valid, or embedded in source. The restricted token contract can be compiled into a browser artifact; deployment still requires an explicit wallet signature and real TRON network fees. The native transfer also requires an explicit authorized signer and real TRX. The recipient address default is prefilled in the escrow viewer but is not proof of address ownership. These requirements cannot safely be bypassed or completed by fabricating environment variables.
