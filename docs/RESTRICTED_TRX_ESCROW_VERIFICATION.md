@@ -61,7 +61,7 @@ The escrow constructor now requires `maxPositionSun` and `maxDailyPrincipalSun` 
 
 ## Fixed beneficiary binding
 
-The escrow contract now pins `restrictedBeneficiary` as a constructor-supplied immutable address. `fundPosition` rejects every beneficiary other than this exact address. For this deployment plan, set it to the confirmed Bitpie address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`. The owner verifier independently reads the immutable `restrictedBeneficiary()` getter and rejects evidence if the configured beneficiary does not match. The constructor therefore requires the provider address, operator address, restricted beneficiary address, minimum and maximum lock duration, maximum position principal (SUN), and maximum UTC daily principal (SUN).
+The escrow contract now pins `restrictedBeneficiary` as a constructor-supplied immutable address. `fundPosition` rejects every beneficiary other than this exact address. For the initial deployment plan, the default is the supplied Bitpie address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`. If Bitpie creates a new multisig address, use that new address instead and deploy a new escrow contract with it; the beneficiary is immutable and cannot be changed after deployment. The owner verifier independently reads the immutable `restrictedBeneficiary()` getter and rejects evidence if the configured beneficiary does not match. The constructor therefore requires the provider address, operator address, restricted beneficiary address, minimum and maximum lock duration, maximum position principal (SUN), and maximum UTC daily principal (SUN).
 
 ### Deployment constructor parameters
 
