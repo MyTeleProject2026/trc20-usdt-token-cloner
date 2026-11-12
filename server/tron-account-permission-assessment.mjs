@@ -61,7 +61,7 @@ export function assessTronAccountPermissions(account) {
       available: false,
       verifiedAgainstSolidifiedState: true,
       restrictedAgainstSingleKey: false,
-      singleSignerCanMoveNativeTrx: null,
+      singleSignerCanMoveFunds: null,
       reason: 'permission-data-missing-or-invalid',
       note: 'The solidified account response did not contain a complete owner and active permission set.',
     })
@@ -98,13 +98,13 @@ export function assessTronAccountPermissions(account) {
       available: false,
       verifiedAgainstSolidifiedState: true,
       restrictedAgainstSingleKey: false,
-      singleSignerCanMoveNativeTrx: null,
+      singleSignerCanMoveFunds: null,
       reason: 'active-permission-data-invalid',
       note: 'At least one active permission could not be decoded; no restriction conclusion is safe.',
     })
   }
 
-  const singleSignerCanMoveNativeTrx = ownerSingleKeyCanAuthorize || activeSingleKeyCanMoveFunds
+  const singleSignerCanMoveFunds = ownerSingleKeyCanAuthorize || activeSingleKeyCanMoveFunds
   return Object.freeze({
     available: true,
     verifiedAgainstSolidifiedState: true,
@@ -114,9 +114,9 @@ export function assessTronAccountPermissions(account) {
     ownerSingleSignerCanAuthorize: ownerSingleKeyCanAuthorize,
     activePermissions,
     riskyContractTypesChecked: VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES,
-    singleSignerCanMoveNativeTrx,
-    restrictedAgainstSingleKey: !singleSignerCanMoveNativeTrx,
-    reason: singleSignerCanMoveNativeTrx ? 'at-least-one-permission-allows-a-single-key' : 'all-value-moving-and-permission-control-operations-require-multiple-keys',
+    singleSignerCanMoveFunds,
+    restrictedAgainstSingleKey: !singleSignerCanMoveFunds,
+    reason: singleSignerCanMoveFunds ? 'at-least-one-permission-allows-a-single-key' : 'all-value-moving-and-permission-control-operations-require-multiple-keys',
     note: 'This evaluates on-chain permission thresholds, not who controls each private key. It does not prove Bitpie UI support or provider custody.',
   })
 }
