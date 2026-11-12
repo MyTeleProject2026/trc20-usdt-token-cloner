@@ -1,0 +1,118 @@
+import { access } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import path from 'node:path'
+
+const SDK_PACKAGE = '@ripple/ripple-custody-client-lib-typescript'
+
+export class RippleCustodyApiError extends Error {
+  constructor(status, code = 'ripple-custody-sdk-error') {
+    super(code)
+    this.name = 'RippleCustodyApiError'
+    this.status = status
+    this.code = code
+  }
+}
+export class RippleCustodyWriteDisabledError extends Error {
+  constructor() {
+    super('ripple-custody-value-mutations-disabled')
+    this.name = 'RippleCustodyWriteDisabledError'
+    this.code = 'ripple-custody-value-mutations-disabled'
+  }
+}
+
+export function rippleCustodyConfiguration(env = process.env) {
+  const missing = []
+  const configFile = String(env.RC_CONFIG_FILE || path.resolve('config/ripple-custody.toml')).trim()
+  const clientId = String(env.RC_CLIENT_ID || '').trim()
+  const clientSecret = String(env.RC_CLIENT_SECRET || '').trim()
+  if (!clientId) missing.push('RC_CLIENT_ID')
+  if (!clientSecret) missing.push('RC_CLIENT_SECRET')
+  if (!configFile) missing.push('RC_CONFIG_FILE')
+  return {
+    configured: missing.length === 0,
+    missing,
+    configFile,
+    authMode: 'client_credentials',
+    network: String(env.RIPPLE_CUSTODY_NETWORK || 'unverified').trim(),
+  }
+}
+
+async function loadSdk(sdkModule) {
+  if (sdkModule) return sdkModule
+  try { return await import(SDK_PACKAGE) }
+  catch { throw new RippleCustodyApiError(503, 'ripple-custody-sdk-package-unavailable') }
+}
+
+export async function createRippleCustodyClient({
+  env = process.env,
+  sdkModule,
+} = {}) {
+  const config = rippleCustodyConfiguration(env)
+  if (!config.configured) throw new RippleCustodyApiError(503, 'ripple-custody-service-auth-not-configured')
+  try { await access(config.configFile, constants.R_OK) }
+  catch { throw new RippleCustodyApiError(503, 'ripple-custody-config-file-unavailable') }
+
+  const sdk = await loadSdk(sdkModule)
+  if (typeof sdk.loadConfiguration !== 'function' || typeof sdk.CustodyClient !== 'function') {
+    throw new RippleCustodyApiError(503, 'ripple-custody-sdk-interface-unavailable')
+  }
+
+  let custody
+  try {
+    const sdkConfig = sdk.loadConfiguration(config.configFile)
+    custody = new sdk.CustodyClient(sdkConfig)
+  } catch {
+    throw new RippleCustodyApiError(503, 'ripple-custody-sdk-configuration-invalid')
+  }
+
+  const unsupported = async () => {
+    throw new RippleCustodyApiError(501, 'ripple-custody-operation-not-exposed-by-approved-sdk-adapter')
+  }
+  const getDomains = async () => {
+    try {
+      const page = await custody.governance.domains.list({ limit: 100, autoPaginate: true })
+      return Array.isArray(page) ? page : (page?.items || [])
+    } catch {
+      throw new RippleCustodyApiError(503, 'ripple-custody-domain-read-failed')
+    }
+  }
+  const read = Object.freeze({
+    getDomains,
+    getDomain: async (id) => (await getDomains()).find((item) => item?.data?.id === id) || null,
+    getVaults: unsupported,
+    getOmnibus: unsupported,
+    listTenants: unsupported,
+    getTenant: unsupported,
+    getDepositWallet: unsupported,
+    getBalances: unsupported,
+    getConfirmedBalance: unsupported,
+    listIntents: unsupported,
+    getIntent: unsupported,
+    listSponsors: unsupported,
+    getAccountSponsor: unsupported,
+    listValidSponsors: unsupported,
+    getOmnibusInternalTransfers: unsupported,
+    listTransactions: unsupported,
+    getTransaction: unsupported,
+    listTransfers: unsupported,
+    getTransfer: unsupported,
+    listTransactionOrders: unsupported,
+    getTransactionOrder: unsupported,
+    listEvents: unsupported,
+  })
+  const disabled = async () => { throw new RippleCustodyWriteDisabledError() }
+  const writes = Object.freeze({
+    createOmnibus: disabled, createTenant: disabled, createDepositWallet: disabled,
+    createInternalTransfer: disabled, createWithdrawal: disabled, proposeIntent: disabled,
+    approveIntent: disabled, rejectIntent: disabled, createAccountSponsor: disabled,
+    updateAccountSponsor: disabled, deleteAccountSponsor: disabled,
+    addSponsoredAccounts: disabled, removeSponsoredAccount: disabled,
+  })
+
+  return Object.freeze({
+    config: { configured: true, authMode: config.authMode, network: config.network },
+    read,
+    writes,
+    close: async () => { if (typeof custody.close === 'function') await custody.close() },
+  })
+}
