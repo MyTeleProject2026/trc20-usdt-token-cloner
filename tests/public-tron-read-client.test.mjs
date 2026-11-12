@@ -16,9 +16,9 @@ function fakeFetchFor(payloads) {
   return { fetchImpl, calls }
 }
 
-test('public TRON adapter reads solidified native TRX balance in SUN', async () => {
+test('public TRON adapter reads solidified native TRX balance and account permission state in SUN', async () => {
   const { fetchImpl, calls } = fakeFetchFor({
-    '/walletsolidity/getaccount': { address: ADDRESS, balance: 6200000000 },
+    '/walletsolidity/getaccount': { address: ADDRESS, balance: 6200000000, owner_permission: { threshold: 1, keys: [{ address: ADDRESS, weight: 1 }] }, active_permission: [{ id: 2, threshold: 1, keys: [{ address: ADDRESS, weight: 1 }], operations: '02' + '00'.repeat(31) }] },
   })
   const client = createPublicTronReadClient({ fetchImpl })
   const account = await client.getSolidifiedAccount(ADDRESS)
@@ -26,6 +26,8 @@ test('public TRON adapter reads solidified native TRX balance in SUN', async () 
   assert.equal(account.balanceTrx, '6200')
   assert.equal(account.spendableBalanceOnly, true)
   assert.equal(account.restrictedEscrowBalance, null)
+  assert.equal(account.permissionAssessment.available, true)
+  assert.equal(account.permissionAssessment.singleSignerCanMoveNativeTrx, true)
   assert.equal(calls.length, 1)
   assert.match(calls[0].url, /walletsolidity\/getaccount$/)
 })
