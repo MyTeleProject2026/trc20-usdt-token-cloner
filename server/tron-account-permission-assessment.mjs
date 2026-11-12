@@ -7,7 +7,7 @@
  */
 import { TronWeb } from 'tronweb'
 
-const VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES = Object.freeze([1, 2, 9, 11, 12, 13, 20, 30, 31, 41, 42, 43, 44, 46, 52, 53, 54, 55, 56, 57, 58, 59])
+const ONLY_NON_VALUE_MOVING_CONTRACT_TYPES = new Set([4, 8])
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i
 
 function safeInteger(value) {
@@ -79,7 +79,12 @@ export function assessTronAccountPermissions(account) {
       activePermissionDataValid = false
       break
     }
-    const enabledRiskyTypes = VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES.filter((type) => operationAllowed(permission.operations, type))
+    // Fail closed for every enabled operation except the two explicitly
+    // non-value-moving operations currently recognized here. This includes
+    // unknown/future contract IDs, which must not silently pass as safe.
+    const enabledRiskyTypes = Array.from({ length: 256 }, (_, type) => type)
+      .filter((type) => operationAllowed(permission.operations, type)
+        && !ONLY_NON_VALUE_MOVING_CONTRACT_TYPES.has(type))
     const singleKeyCanAuthorize = enabledRiskyTypes.length > 0
       && anySingleKeyMeetsThreshold(permission.keys, permission.threshold)
     if (singleKeyCanAuthorize) activeSingleKeyCanMoveFunds = true
@@ -113,10 +118,11 @@ export function assessTronAccountPermissions(account) {
     ownerSignerCount: owner.keys.length,
     ownerSingleSignerCanAuthorize: ownerSingleKeyCanAuthorize,
     activePermissions,
-    riskyContractTypesChecked: VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES,
+    enabledValueOrUnknownOperations: activePermissions.flatMap((permission) => permission.enabledValueMovingOrPermissionTypes),
+    nonValueMovingOperationsTreatedAsSafe: [...ONLY_NON_VALUE_MOVING_CONTRACT_TYPES],
     singleSignerCanMoveFunds,
     restrictedAgainstSingleKey: !singleSignerCanMoveFunds,
     reason: singleSignerCanMoveFunds ? 'at-least-one-permission-allows-a-single-key' : 'all-value-moving-and-permission-control-operations-require-multiple-keys',
-    note: 'This evaluates on-chain permission thresholds, not who controls each private key. It does not prove Bitpie UI support or provider custody.',
+    note: 'Every enabled contract type is treated as value/control-capable except VoteWitnessContract (4) and WitnessUpdateContract (8). Unknown/future operation IDs are flagged. This evaluates permission thresholds, not human key control or Bitpie UI support.',
   })
 }
