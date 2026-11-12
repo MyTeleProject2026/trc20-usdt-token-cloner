@@ -70,3 +70,6 @@ See [Bitpie multisig restricted TRX route](./BITPIE_MULTISIG_RESTRICTED_TRX_ROUT
 
 
 The permission assessment validates every key as a TRON address, rejects duplicate key addresses (which TRON disallows), and interprets the 32-byte operations bitmap in little-endian bit order. It is read-only and does not infer who controls each key. Multiple keys may still be controlled by the same person; a “no single key” result is not proof of independent human control.
+
+
+The account permission assessment validates every signer address, rejects duplicate addresses, enforces that total signer weight can reach the threshold, checks active permission IDs 2–9, and evaluates value-moving or control operations including TRX transfers, TRC-10 transfers and purchases, staking/unfreezing, reward withdrawals, resource delegation, smart-contract calls, on-chain exchange/market operations, and permission updates. A positive restricted result means no single configured key can meet the threshold for the checked operations; it does not prove the keys are controlled by different humans.
