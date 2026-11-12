@@ -154,3 +154,28 @@ Bitpie's official support article describes its multisignature feature and lists
 This may be a better fit than contract escrow if the current Bitpie app confirms native TRX receive/display for the multisig wallet. A provider can send actual TRX to the resulting multisig address. The real TRX balance appears at that address, while account permission thresholds prevent one key from spending alone. The multisig address may differ from the user's existing ordinary Bitpie address.
 
 Tron Transfer now reads and audits owner/active permission thresholds in the solidified account response. It does not change permissions, create a multisig, or sign. The generated multisig account must be configured by trusted Bitpie participants and verified on-chain. Real TRX principal and network fees remain required; public APIs do not supply them.
+
+
+## Verified Ripple capability boundary (research update, 2026-11-13)
+
+Ripple's current public documentation confirms TRON Mainnet native TRX support in Ripple Custody (Wallet), including native asset transfers, fee estimation, and TRX sweeping. This establishes technical chain/asset compatibility only. Ripple describes the product as institutional custody infrastructure with customer-controlled organization keys/governance; the public documentation does not promise an unsecured TRX principal grant, a credit line, or fee sponsorship for this private project. No provider account, organization invitation, credit agreement, or API credential is connected in this repository.
+
+Official references:
+- Supported chains/assets: https://docs.ripple.com/products/wallet/vaults-and-wallets/supported-blockchains-and-tokens
+- Native TRX sweep availability and requirement to contact a Ripple representative: https://docs.ripple.com/products/wallet/changelogs/eth-trx-xrp-native-sweeping
+- Ripple Custody Wallet is institutional wallet infrastructure with organization-controlled keys and governance: https://docs.ripple.com/products/wallet
+- Ripple Custody balance states (available, frozen, pending) describe funds already held in the customer's wallet; they are not an external credit facility: https://docs.ripple.com/products/wallet/vaults-and-wallets/wallets/understanding-balances
+
+Ripple also documents that native TRX deposits created as internal transfers from smart contracts are not detected in the normal transaction history and may require a balance refresh. The escrow integration must not assume a contract call credits a Ripple wallet's displayed balance; use direct native TRX transfers to a Ripple deposit address if Ripple is the source wallet, and independently verify the chain transaction.
+
+## Bitpie native TRX multisignature compatibility caveat
+
+Bitpie's official article introduction lists TRX among currencies for which multisignature can be enabled, and describes a 100 TRX TRON network creation fee. However, its detailed Supported Currencies list in the enablement steps lists BTC, ETH, BNB and selected USDT token standards but omits native TRX; its worked example is USDT-TRC20. Consequently the article is internally inconsistent. The application must not mark a Bitpie address as a confirmed native-TRX multisig destination until the current Bitpie app visibly offers native TRX for multisig, shows the resulting address, and demonstrates a small native TRX receive and balance display. Do not pay the 100 TRX creation fee or send principal until that is confirmed with Bitpie.
+
+Official article: https://bitpie.zendesk.com/hc/en-001/articles/10142742328591-Bitpie-Multisignature-Usage-Tutorial
+
+## Native TRX provider readiness policy
+
+The server/native-trx-escrow-provider-readiness.mjs module is a separate fail-closed policy for TRX, not a reuse of the older USDT-TRC20 payout readiness policy. It requires authenticated provider API evidence, explicit provider authorization, TRON Mainnet native TRX support, verified provider-owned liquidity or an executed approved credit facility, separate fee coverage, support for the payable escrow contract call, destination/purpose authorization, limits/compliance approval, and live payout approval. A public API balance or a UI/environment flag cannot satisfy these checks. Its regression tests are in tests/native-trx-escrow-provider-readiness.test.mjs.
+
+This policy is a readiness gate, not a Ripple adapter or a live connection. It intentionally remains blocked until real provider credentials, account evidence, and written funding terms exist. It does not create funds or bypass onboarding.
