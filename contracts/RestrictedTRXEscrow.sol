@@ -18,6 +18,10 @@ contract RestrictedTRXEscrow {
     address public immutable operator;
     uint64 public immutable minLockSeconds;
     uint64 public immutable maxLockSeconds;
+    uint128 public immutable maxPositionSun;
+    uint128 public immutable maxDailyPrincipalSun;
+    uint64 public fundingDay;
+    uint128 public dailyPrincipalSun;
     bool public depositsPaused;
     uint256 public totalLockedSun;
     mapping(bytes32 => Position) public positions;
@@ -37,6 +41,8 @@ contract RestrictedTRXEscrow {
     error InvalidBeneficiary();
     error InvalidAmount();
     error InvalidLockDuration();
+    error PositionLimitExceeded();
+    error DailyLimitExceeded();
     error DepositsArePaused();
     error AlreadyClaimed();
     error NotBeneficiary();
@@ -47,14 +53,19 @@ contract RestrictedTRXEscrow {
         address provider_,
         address operator_,
         uint64 minLockSeconds_,
-        uint64 maxLockSeconds_
+        uint64 maxLockSeconds_,
+        uint128 maxPositionSun_,
+        uint128 maxDailyPrincipalSun_
     ) {
         if (provider_ == address(0) || operator_ == address(0)) revert Unauthorized();
         if (minLockSeconds_ == 0 || maxLockSeconds_ < minLockSeconds_) revert InvalidLockDuration();
+        if (maxPositionSun_ == 0 || maxDailyPrincipalSun_ < maxPositionSun_) revert PositionLimitExceeded();
         provider = provider_;
         operator = operator_;
         minLockSeconds = minLockSeconds_;
         maxLockSeconds = maxLockSeconds_;
+        maxPositionSun = maxPositionSun_;
+        maxDailyPrincipalSun = maxDailyPrincipalSun_;
     }
 
     function fundPosition(
@@ -67,6 +78,14 @@ contract RestrictedTRXEscrow {
         if (requestId == bytes32(0) || positions[requestId].beneficiary != address(0)) revert InvalidRequest();
         if (beneficiary == address(0) || beneficiary == address(this)) revert InvalidBeneficiary();
         if (msg.value == 0 || msg.value > type(uint128).max) revert InvalidAmount();
+        if (msg.value > maxPositionSun) revert PositionLimitExceeded();
+        uint64 today = uint64(block.timestamp / 1 days);
+        if (today != fundingDay) {
+            fundingDay = today;
+            dailyPrincipalSun = 0;
+        }
+        if (uint256(dailyPrincipalSun) + msg.value > maxDailyPrincipalSun) revert DailyLimitExceeded();
+        dailyPrincipalSun += uint128(msg.value);
         if (lockSeconds < minLockSeconds || lockSeconds > maxLockSeconds) revert InvalidLockDuration();
 
         uint64 unlockAt = uint64(block.timestamp) + lockSeconds;
