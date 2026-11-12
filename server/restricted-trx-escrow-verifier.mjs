@@ -25,6 +25,12 @@ function normalizeTronHexAddress(value) {
   return hex.startsWith('41') ? hex.slice(2) : hex
 }
 
+function decodeAddressWord(value) {
+  const word = cleanHex(value)
+  if (!/^[0-9a-f]{64}$/i.test(word) || !/^0{24}/i.test(word)) return null
+  return word.slice(24)
+}
+
 function addressHex(value) {
   try {
     if (BASE58.test(String(value || ''))) return normalizeTronHexAddress(TronWeb.address.toHex(value))
@@ -92,7 +98,7 @@ export function verifyRestrictedTrxEscrowEvidence({
     return fail('not-a-fund-position-call')
   }
   const callRequestId = calldata.slice(8, 72)
-  const callBeneficiary = normalizeTronHexAddress(calldata.slice(72, 136))
+  const callBeneficiary = decodeAddressWord(calldata.slice(72, 136))
   if (callRequestId !== requestId) return fail('request-id-calldata-mismatch')
   if (callBeneficiary !== beneficiaryHex) return fail('beneficiary-calldata-mismatch')
 
@@ -106,7 +112,7 @@ export function verifyRestrictedTrxEscrowEvidence({
   if (!event) return fail('position-funded-event-not-found')
 
   const eventTopics = event.topics.map(cleanHex)
-  if (eventTopics.length !== 3 || normalizeTronHexAddress(eventTopics[2]) !== beneficiaryHex) {
+  if (eventTopics.length !== 3 || decodeAddressWord(eventTopics[2]) !== beneficiaryHex) {
     return fail('event-beneficiary-mismatch')
   }
   const eventData = cleanHex(event.data)
