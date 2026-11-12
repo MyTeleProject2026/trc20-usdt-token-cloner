@@ -115,8 +115,8 @@ export function createRippleWalletApiClient({
     const token = await getAccessToken()
     const requestHeaders = {
       accept: 'application/json',
-      authorization: 'Bearer ' + token,
       ...headers,
+      authorization: 'Bearer ' + token,
     }
     const options = { method, headers: requestHeaders }
     if (body !== undefined) {
