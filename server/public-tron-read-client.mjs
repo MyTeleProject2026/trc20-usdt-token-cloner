@@ -106,7 +106,7 @@ export function createPublicTronReadClient(options = {}) {
         freeBandwidthRemaining: Math.max(0, Number(data?.freeNetLimit || 0) - Number(data?.freeNetUsed || 0)),
         stakedBandwidthRemaining: Math.max(0, Number(data?.NetLimit || 0) - Number(data?.NetUsed || 0)),
         energyRemaining: Math.max(0, Number(data?.EnergyLimit || 0) - Number(data?.EnergyUsed || 0)),
-        source: 'tron-solidified-node',
+        source: 'tron-full-node-current-resource-state',
       })
     },
     async getContractRuntimeCode(address) {
