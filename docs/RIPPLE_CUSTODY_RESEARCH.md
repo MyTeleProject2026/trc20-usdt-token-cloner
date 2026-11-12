@@ -104,3 +104,7 @@ All are required before any production funding:
 - testnet end-to-end tests, security review, emergency pause, operator limits, and explicit production approval.
 
 Until then: no live payouts, no contract funding, no claimed credit, and no simulated balance.
+
+## Escrow contract risk controls
+
+The escrow contract source now includes immutable `maxPositionSun` and `maxDailyPrincipalSun` constructor limits. They are applied on-chain to each provider-funded position using SUN units and UTC-day accounting. These limits cannot be increased by editing a dashboard setting; changing them requires a new reviewed deployment. The contract also indexes request IDs by beneficiary for read-only discovery. The configured provider remains the only account permitted to fund positions, and only the beneficiary can claim after the lock expires.
