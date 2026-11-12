@@ -18,10 +18,11 @@ export function createPublicTronReadRouter({
   env = process.env,
   getSession = getWalletAuthSession,
   now = () => Date.now(),
+  publicClient = null,
   ...clientOptions
 } = {}) {
   const router = express.Router()
-  const client = createPublicTronReadClient({
+  const client = publicClient || createPublicTronReadClient({
     origin: env.TRONGRID_API_ORIGIN || 'https://api.trongrid.io',
     apiKey: env.TRONGRID_API_KEY || '',
     ...clientOptions,
