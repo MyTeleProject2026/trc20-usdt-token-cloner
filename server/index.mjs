@@ -70,7 +70,8 @@ app.get('/api/restricted-trx/provider-readiness', (_req, res) => {
   return res.status(503).json({
     success: false,
     readiness,
-    note: 'No provider liquidity is available until an approved provider adapter verifies principal and fee funding.',
+    comparison: getRestrictedTrxProviderComparison(),
+    note: 'No provider credit, principal, or fee budget is available until an approved provider adapter verifies the executed credit facility and destination permissions.',
   })
 })
 
