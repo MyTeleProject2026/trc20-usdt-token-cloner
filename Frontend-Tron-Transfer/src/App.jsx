@@ -138,7 +138,7 @@ export default function App() {
   async function allocateRestrictedCredits() {
     const customerId=creditCustomerId.trim(),amount=creditAmountTrx.trim(),reason=creditReason.trim()
     if(!/^[A-Za-z0-9._:-]{1,128}$/.test(customerId)) throw new Error('Enter a valid customer ID or TRON address.')
-    if(!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(amount)||!/[1-9]/.test(amount)) throw new Error('Enter a positive TRX amount with up to 6 decimal places.')
+    if(!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount)||!/[1-9]/.test(amount)) throw new Error('Enter a positive TRX amount with up to 6 decimal places.')
     const parts=amount.split('.'),whole=parts[0],fraction=parts[1]||''
     const amountSun=(BigInt(whole)*1000000n+BigInt(fraction.padEnd(6,'0'))).toString()
     if(reason.length<4||reason.length>500) throw new Error('Enter an audit reason (4–500 characters).')
