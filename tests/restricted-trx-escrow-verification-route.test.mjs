@@ -38,7 +38,7 @@ function createEvidenceClient() {
     receipt: { result: 'SUCCESS' },
     log: [{
       address: contractHex,
-      topics: ['0x' + eventTopic, '0x' + requestId, '0x' + beneficiaryWord],
+      topics: [eventTopic, '0x' + requestId, '0x' + beneficiaryWord],
       data: word(amountSun) + word(unlockAt),
     }],
   }
