@@ -2,8 +2,10 @@ import { access, readFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { constants } from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 
 const SDK_PACKAGE = '@ripple/ripple-custody-client-lib-typescript'
+const require = createRequire(import.meta.url)
 
 export class RippleCustodyApiError extends Error {
   constructor(status, code = 'ripple-custody-sdk-error') {
