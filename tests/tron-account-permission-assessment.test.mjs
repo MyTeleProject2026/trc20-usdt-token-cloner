@@ -10,10 +10,10 @@ const bytes=(types)=>{
 }
 const key=(id,weight=1)=>({address:TronWeb.address.fromHex('41'+String(id).padStart(40,'0')),weight})
 const account=(ownerThreshold=2,activeThreshold=2,activeTypes=[1,30,31,46])=>({
-  owner_permission:{threshold:ownerThreshold,keys:[key('TRecipientKey'),key('TProviderKey')]},
+  owner_permission:{threshold:ownerThreshold,keys:[key('1'.repeat(40)),key('2'.repeat(40))]},
   active_permission:[{
     id:2,permission_name:'restricted-transfer',threshold:activeThreshold,
-    keys:[key('TRecipientKey'),key('TProviderKey')],operations:bytes(activeTypes),
+    keys:[key('1'.repeat(40)),key('2'.repeat(40))],operations:bytes(activeTypes),
   }],
 })
 
