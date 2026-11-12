@@ -39,10 +39,28 @@ async function api(path, token, options = {}) {
   })
   const body = await response.json().catch(() => null)
   if (!response.ok && response.status !== 202) {
+    if (body?.error === 'unexpected-fields') {
+      const method = String(options.method || 'GET').toUpperCase()
+      throw new Error(
+        'API version mismatch at ' + method + ' ' + path +
+        ': the deployed backend rejected fields sent by this frontend. Update the API service to the same PR #153 revision. ' +
+        'Do not remove sponsor consent, wallet identity, recipient, amount, or transaction-authorization fields to bypass this check.',
+      )
+    }
     throw new Error(body?.message || body?.error || 'Sponsor-direct API request failed.')
   }
   if (!body || typeof body !== 'object') throw new Error('Sponsor-direct API returned an unreadable response.')
-  if (body.success === false && response.status !== 202) throw new Error(body.message || body.error || 'Sponsor-direct API rejected the request.')
+  if (body.success === false && response.status !== 202) {
+    if (body.error === 'unexpected-fields') {
+      const method = String(options.method || 'GET').toUpperCase()
+      throw new Error(
+        'API version mismatch at ' + method + ' ' + path +
+        ': the deployed backend rejected fields sent by this frontend. Update the API service to the same PR #153 revision. ' +
+        'Do not remove sponsor consent, wallet identity, recipient, amount, or transaction-authorization fields to bypass this check.',
+      )
+    }
+    throw new Error(body.message || body.error || 'Sponsor-direct API rejected the request.')
+  }
   return body
 }
 
@@ -827,8 +845,8 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       {mode !== 'sponsor' && mode !== 'history' && (
         <div className="sponsor-funding-destination">
           <span className="eyebrow">01 / REQUEST A WITHDRAWAL</span>
-          <h3>Send to an external TRON wallet or exchange deposit address</h3>
-          <p>The address receives official Tether USDT TRC20 directly from the sponsor's wallet. Check the exchange's TRON/TRC20 network, minimum deposit and memo/tag instructions before submitting.</p>
+          <h3>Request a payout to an external TRON wallet or exchange deposit address</h3>
+          <p>You do not need to register or connect a sponsor to submit this request. It will remain in the sponsor queue until an approved sponsor accepts it, passes live Mainnet USDT and network-resource checks, and signs the exact transfer. The recipient receives official Tether USDT TRC20 directly from the sponsor's wallet only after that authorization and broadcast.</p>
           <div className="withdrawal-form-grid">
             <div className="form-stack">
               {savedRecipients.length > 0 && (
@@ -863,7 +881,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                 <p className="fine-print">This transfer sends the USDT TRC20 token only. It does not attach an exchange memo/tag. A valid address alone does not guarantee that the exchange will credit its internal account.</p>
               </div>
               <button className="primary-button" disabled={!identityMatchesWallet || busy || !recipientNetworkConfirmed || !recipientDepositRequirementsConfirmed} onClick={() => void submitRequest()}>
-                <ArrowUpRight size={16} /> Submit sponsored withdrawal request
+                <ArrowUpRight size={16} /> Submit request (no sponsor registration required)
               </button>
             </div>
             <aside className="withdrawal-eligibility">
