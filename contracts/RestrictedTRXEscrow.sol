@@ -21,6 +21,7 @@ contract RestrictedTRXEscrow {
     bool public depositsPaused;
     uint256 public totalLockedSun;
     mapping(bytes32 => Position) public positions;
+    mapping(address => bytes32[]) private beneficiaryRequestIds;
 
     event PositionFunded(
         bytes32 indexed requestId,
@@ -76,6 +77,7 @@ contract RestrictedTRXEscrow {
             claimed: false
         });
         totalLockedSun += msg.value;
+        beneficiaryRequestIds[beneficiary].push(requestId);
         emit PositionFunded(requestId, beneficiary, msg.value, unlockAt);
     }
 
@@ -92,6 +94,16 @@ contract RestrictedTRXEscrow {
         (bool sent,) = payable(position.beneficiary).call{value: amount}("");
         if (!sent) revert TransferFailed();
         emit PositionClaimed(requestId, position.beneficiary, amount);
+    }
+
+    /// @notice Number of escrow positions registered for a beneficiary.
+    function getBeneficiaryPositionCount(address beneficiary) external view returns (uint256) {
+        return beneficiaryRequestIds[beneficiary].length;
+    }
+
+    /// @notice Request IDs are discoverable by the named beneficiary address.
+    function getBeneficiaryPositionRequestId(address beneficiary, uint256 index) external view returns (bytes32) {
+        return beneficiaryRequestIds[beneficiary][index];
     }
 
     /// @notice Operator may pause new deposits only; existing beneficiaries
