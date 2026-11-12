@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
 import { verifyRestrictedTrxEscrowEvidence } from '../server/restricted-trx-escrow-verifier.mjs'
 
-const beneficiary='TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
+const beneficiary=TronWeb.address.fromHex('41' + '1'.repeat(40))
 const provider=beneficiary
 const beneficiaryHex=TronWeb.address.toHex(beneficiary).replace(/^41/i,'').toLowerCase()
 const escrowHex='41'+'c'.repeat(40)
