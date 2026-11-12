@@ -45,19 +45,23 @@ test('fails closed when permission data is missing or malformed',()=>{
   assert.equal(assessTronAccountPermissions(bad).available,false)
 })
 
-test('combines duplicate permission entries for the same on-chain key when assessing solo authority',()=>{
+test('fails closed when duplicate addresses appear in a permission key list',()=>{
  const same=key('1'.repeat(40),1)
  const duplicateAccount={
   owner_permission:{threshold:2,keys:[same,{...same}]},
   active_permission:[{id:2,threshold:2,keys:[key('2'.repeat(40),1),key('3'.repeat(40),1)],operations:bytes([1,31,46])}],
  }
- const result=assessTronAccountPermissions(duplicateAccount)
- assert.equal(result.singleSignerCanMoveNativeTrx,true)
- assert.equal(result.restrictedAgainstSingleKey,false)
+ assert.equal(assessTronAccountPermissions(duplicateAccount).available,false)
 })
 
 test('fails closed when any permission key is not a valid TRON address',()=>{
  const bad=account()
  bad.owner_permission.keys[0].address='not-an-address'
  assert.equal(assessTronAccountPermissions(bad).available,false)
+})
+
+test('flags single-key unfreeze and resource-control permissions as value relevant',()=>{
+ const result=assessTronAccountPermissions(account(2,1,[12,13,55,56,57,58,59]))
+ assert.equal(result.singleSignerCanMoveNativeTrx,true)
+ assert.ok(result.activePermissions[0].enabledValueMovingOrPermissionTypes.includes(56))
 })
