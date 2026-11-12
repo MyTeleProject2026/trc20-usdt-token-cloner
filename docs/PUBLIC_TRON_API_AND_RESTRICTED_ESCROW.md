@@ -36,3 +36,7 @@ Public node APIs are infrastructure, not a funding source. Any transaction that 
 - Reads use `/walletsolidity/` for solidified state.
 - No private key, seed phrase, signing, broadcast, or withdrawal API is included.
 - Provider principal-credit readiness and live payouts remain hard-disabled.
+
+## Frontend display
+
+`Frontend-Tron-Transfer/src/RestrictedTRXEscrow.jsx` now requests the configured Bitpie address through the owner-authenticated `/api/public-tron/account/:address` route and displays its solidified ordinary TRX balance separately from the contract-held escrow position. The UI explicitly labels the ordinary address balance as spendable and not restricted. The escrow viewer continues to read the contract's `getPosition(bytes32)` state and displays only a positive beneficiary-matched position.
