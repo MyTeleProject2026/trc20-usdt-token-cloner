@@ -123,19 +123,18 @@ References:
 
 ## Provider comparison and credit adapter implementation
 
-The backend exposes a read-only comparison for the requested credit arrangement and both destination workflows:
+The current selected provider for due diligence is Ripple. Fireblocks and Volet are excluded from this implementation.
 
-| Provider | Native TRX custody / payout | TRON payable escrow call | Provider credit |
-|---|---|---|---|
-| Cobo | Documented TRON send/receive custody and API withdrawal workflow | Not verified | Not documented |
-| Ripple Custody | Documented native TRX support | Not verified | Not documented |
-| Volet | Documented TRX custodial payouts to external wallets | Not documented | Not documented |
+| Provider | Native TRX | Payable escrow call | Principal credit | Native-TRX escrow fee credit |
+|---|---|---|---|---|
+| Ripple Custody | Documented | Not verified for this exact TriggerSmartContract + call_value workflow | Not publicly documented | Not established |
 
-These are candidates for commercial diligence, not approved credit providers. Volet's published payout guide requires a verified account and sufficient account balance. Cobo and Ripple custody support does not itself provide a credit line. Official documentation:
-- Cobo: https://docs.cobo.com/cobo-mpc-waas/cobo-mpc-co-managed-custody/quick-start-guide/mpc-wallet-management-on-cobo-custody-web
-- Ripple native TRX: https://docs.ripple.com/products/wallet/vaults-and-wallets/supported-blockchains-and-tokens
-- Volet custodial payouts: https://volet.com/docs/guides/mass-payouts/payout-methods/custodial-payouts/
+Ripple's public Gas Station documentation describes a funded native-token sponsor account and fee funding for non-native-asset transactions on selected chains including Tron. It does not establish unsecured TRX principal credit or fee coverage for this native-TRX escrow deposit. Ripple Wallet's separate just-in-time fee funding is documented for sweep workflows and must not be generalized to arbitrary contract calls.
 
-The backend now includes a normalized credit-authorization validator. It requires an authenticated provider response containing an approved credit facility, signed agreement reference, provider authorization ID, integer-SUN principal and fee limits, unexpired authorization, and explicit permission for the selected destination (escrow or ordinary wallet payout). A prefunded custody balance does not satisfy the credit check. The adapter contract separately requires escrow and ordinary-wallet payout methods.
+Myanmar customer eligibility is not publicly confirmed. Obtain written confirmation from Ripple for the contracting customer's actual jurisdiction and use case. A public API reference, custody account, or Gas Station configuration is not an executed credit facility.
 
-**Execution remains disabled.** The repository does not yet contain a provider-specific API client, provider-issued credit agreement, approved provider account, verified credit facility response, or proof that any candidate can submit the exact TRON TVM payable escrow call. The comparison/readiness endpoints are operational; they are not a live provider connection and cannot move funds. Implementing a concrete Cobo/Ripple/Volet client requires that provider's exact account API specification, account-specific authorization, and credit facility terms. Never place credentials in frontend code or commit them.
+See [RIPPLE_CUSTODY_RESEARCH.md](./RIPPLE_CUSTODY_RESEARCH.md) for published evidence, the exact commercial questions, and release gates.
+
+The backend's Ripple credit authorization validator requires an authenticated server-to-server facility response, TRX on TRON Mainnet, approved credit, an agreement reference, a provider authorization ID, an unexpired credit limit, escrow destination permission, TriggerSmartContract permission, and credit-funded fee coverage. This is an evidence-shape/scope validator, not a provider API client and not proof that Ripple has approved the customer.
+
+**Execution remains disabled.** The repository does not contain a Ripple-specific authenticated API client, provider-issued credit agreement, approved provider account, verified credit-facility response, or proof that Ripple can submit the exact TRON TVM payable escrow call. Comparison/readiness endpoints are informational and cannot move funds. Do not enable production execution from environment flags, credentials, a displayed balance, or a manual agreement checkbox.
