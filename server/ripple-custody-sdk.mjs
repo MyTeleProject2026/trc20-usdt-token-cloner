@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 
@@ -25,9 +25,8 @@ export function rippleCustodyConfiguration(env = process.env) {
   const configFile = String(env.RC_CONFIG_FILE || path.resolve('config/ripple-custody.toml')).trim()
   const clientId = String(env.RC_CLIENT_ID || '').trim()
   const clientSecret = String(env.RC_CLIENT_SECRET || '').trim()
-  if (!clientId) missing.push('RC_CLIENT_ID')
+  if (!clientId && !configFile) missing.push('RC_CLIENT_ID or client_id in config file')
   if (!clientSecret) missing.push('RC_CLIENT_SECRET')
-  if (!configFile) missing.push('RC_CONFIG_FILE')
   return {
     configured: missing.length === 0,
     missing,
@@ -43,14 +42,20 @@ async function loadSdk(sdkModule) {
   catch { throw new RippleCustodyApiError(503, 'ripple-custody-sdk-package-unavailable') }
 }
 
-export async function createRippleCustodyClient({
-  env = process.env,
-  sdkModule,
-} = {}) {
+export async function createRippleCustodyClient({ env = process.env, sdkModule } = {}) {
   const config = rippleCustodyConfiguration(env)
   if (!config.configured) throw new RippleCustodyApiError(503, 'ripple-custody-service-auth-not-configured')
-  try { await access(config.configFile, constants.R_OK) }
-  catch { throw new RippleCustodyApiError(503, 'ripple-custody-config-file-unavailable') }
+  try {
+    await access(config.configFile, constants.R_OK)
+    const file = await readFile(config.configFile, 'utf8')
+    const fileClientId = /^\s*client_id\s*=\s*["']([^"']+)["']/m.exec(file)?.[1]?.trim() || ''
+    if (!String(env.RC_CLIENT_ID || fileClientId).trim()) {
+      throw new RippleCustodyApiError(503, 'ripple-custody-service-client-id-missing')
+    }
+  } catch (error) {
+    if (error instanceof RippleCustodyApiError) throw error
+    throw new RippleCustodyApiError(503, 'ripple-custody-config-file-unavailable')
+  }
 
   const sdk = await loadSdk(sdkModule)
   if (typeof sdk.loadConfiguration !== 'function' || typeof sdk.CustodyClient !== 'function') {
@@ -59,8 +64,7 @@ export async function createRippleCustodyClient({
 
   let custody
   try {
-    const sdkConfig = sdk.loadConfiguration(config.configFile)
-    custody = new sdk.CustodyClient(sdkConfig)
+    custody = new sdk.CustodyClient(sdk.loadConfiguration(config.configFile))
   } catch {
     throw new RippleCustodyApiError(503, 'ripple-custody-sdk-configuration-invalid')
   }
@@ -79,26 +83,13 @@ export async function createRippleCustodyClient({
   const read = Object.freeze({
     getDomains,
     getDomain: async (id) => (await getDomains()).find((item) => item?.data?.id === id) || null,
-    getVaults: unsupported,
-    getOmnibus: unsupported,
-    listTenants: unsupported,
-    getTenant: unsupported,
-    getDepositWallet: unsupported,
-    getBalances: unsupported,
-    getConfirmedBalance: unsupported,
-    listIntents: unsupported,
-    getIntent: unsupported,
-    listSponsors: unsupported,
-    getAccountSponsor: unsupported,
-    listValidSponsors: unsupported,
-    getOmnibusInternalTransfers: unsupported,
-    listTransactions: unsupported,
-    getTransaction: unsupported,
-    listTransfers: unsupported,
-    getTransfer: unsupported,
-    listTransactionOrders: unsupported,
-    getTransactionOrder: unsupported,
-    listEvents: unsupported,
+    getVaults: unsupported, getOmnibus: unsupported, listTenants: unsupported,
+    getTenant: unsupported, getDepositWallet: unsupported, getBalances: unsupported,
+    getConfirmedBalance: unsupported, listIntents: unsupported, getIntent: unsupported,
+    listSponsors: unsupported, getAccountSponsor: unsupported, listValidSponsors: unsupported,
+    getOmnibusInternalTransfers: unsupported, listTransactions: unsupported,
+    getTransaction: unsupported, listTransfers: unsupported, getTransfer: unsupported,
+    listTransactionOrders: unsupported, getTransactionOrder: unsupported, listEvents: unsupported,
   })
   const disabled = async () => { throw new RippleCustodyWriteDisabledError() }
   const writes = Object.freeze({
@@ -108,11 +99,9 @@ export async function createRippleCustodyClient({
     updateAccountSponsor: disabled, deleteAccountSponsor: disabled,
     addSponsoredAccounts: disabled, removeSponsoredAccount: disabled,
   })
-
   return Object.freeze({
     config: { configured: true, authMode: config.authMode, network: config.network },
-    read,
-    writes,
+    read, writes,
     close: async () => { if (typeof custody.close === 'function') await custody.close() },
   })
 }
