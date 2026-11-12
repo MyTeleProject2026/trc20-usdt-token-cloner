@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 interface IOneTraxReserveVault {
     function reserveBalance() external view returns (uint256);
+    function authorizedToken() external view returns (address);
     function releaseForRedemption(address payable recipient, uint256 amount, bytes32 redemptionReference) external returns (bool);
 }
 
@@ -22,6 +23,7 @@ contract Restricted1TRAX {
     bool private _redemptionEntered;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed tokenOwner, address indexed spender, uint256 value);
     event OwnerRedemption(address indexed holder, address indexed recipient, uint256 amount, bytes32 indexed redemptionReference);
     event MintingStatusChanged(bool enabled);
     event PauseStatusChanged(bool paused);
@@ -50,6 +52,7 @@ contract Restricted1TRAX {
     function setReserveVault(address vault) external onlyOwner {
         require(reserveVault == address(0), "reserve-vault-already-set");
         require(vault != address(0) && vault.code.length > 0, "invalid-reserve-vault");
+        require(IOneTraxReserveVault(vault).authorizedToken() == address(this), "reserve-vault-token-not-authorized");
         IOneTraxReserveVault(vault).reserveBalance();
         reserveVault = vault;
         emit ReserveVaultConfigured(vault);
