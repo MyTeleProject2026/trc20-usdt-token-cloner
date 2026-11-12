@@ -42,7 +42,7 @@ const positiveIntegerString = (value) => typeof value === 'string' && /^[1-9][0-
 
 export function getRestrictedTrxProviderComparison() {
   return {
-    fundingArrangement: 'principal-credit',
+    fundingArrangement: 'provider-credit-plus-delegated-resources',
     selectedProvider: 'ripple',
     destinationWorkflow: 'escrow',
     excludedProviders: ['fireblocks', 'volet'],
@@ -62,7 +62,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
   const providerAgreementConfigured = env.RESTRICTED_TRX_PROVIDER_AGREEMENT_CONFIRMED === 'true'
   // Permanently false in this research/implementation stage. Do not derive this
   // from environment variables, credentials, provider selection, or UI state.
-  const adapterImplemented = false
+  const adapterImplemented = false // OAuth transport exists; the provider-specific credit/funding adapter is not verified or enabled.
   const blockers = []
   if (!provider) blockers.push('ripple-not-selected')
   if (!providerAccountConfigured) blockers.push('provider-account-not-configured')
@@ -84,7 +84,11 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
   return Object.freeze({
     provider: provider || null,
     providerSelection: provider ? 'selected-for-diligence-only' : 'ripple-required',
-    fundingArrangement: 'principal-credit',
+    fundingArrangement: 'provider-credit-plus-delegated-resources',
+    feeCoverageArrangement: 'provider-paid-plus-delegated-resources',
+    walletApiTransportImplemented: true,
+    providerCreditFacilityApiVerified: false,
+    delegatedResourceAdapterImplemented: false,
     destinationWorkflow: 'escrow',
     network: 'TRON_MAINNET',
     asset: 'TRX',
@@ -110,7 +114,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
     canBroadcastWalletPayout: false,
     liveExecutionHardDisabled: true,
     blockers,
-    message: 'Ripple is selected for technical diligence only. No principal credit or escrow-call fee credit is verified; all live escrow submissions remain hard-disabled.',
+    message: 'Ripple OAuth transport is implemented, but no principal-credit facility, provider-paid escrow fee authorization, delegated-resource API, or payable escrow submission capability is verified. All live escrow submissions remain hard-disabled.',
   })
 }
 
