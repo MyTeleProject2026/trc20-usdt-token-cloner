@@ -27,6 +27,23 @@ function assertAddress(address) {
   }
 }
 
+function assertSafeSunBalance(value) {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error('TRON node balance exceeded JavaScript safe integer precision')
+    return String(value)
+  }
+  if (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value)) return value
+  if (value == null) return '0'
+  throw new Error('TRON node returned an invalid native balance')
+}
+
+function formatSunAsTrx(value) {
+  const sun = BigInt(value)
+  const whole = sun / 1_000_000n
+  const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return whole.toString() + (fraction ? '.' + fraction : '')
+}
+
 function assertTxid(txid) {
   if (typeof txid !== 'string' || !TXID_RE.test(txid)) {
     const error = new Error('A 64-character transaction ID is required')
@@ -68,10 +85,11 @@ export function createPublicTronReadClient(options = {}) {
     async getSolidifiedAccount(address) {
       assertAddress(address)
       const account = await postNode('/walletsolidity/getaccount', { address, visible: true }, common)
+      const balanceSun = assertSafeSunBalance(account?.balance)
       return Object.freeze({
         address,
-        balanceSun: String(account?.balance ?? 0),
-        balanceTrx: Number(account?.balance ?? 0) / 1_000_000,
+        balanceSun,
+        balanceTrx: formatSunAsTrx(balanceSun),
         accountExists: Boolean(account?.address),
         source: 'tron-solidified-node',
         spendableBalanceOnly: true,
