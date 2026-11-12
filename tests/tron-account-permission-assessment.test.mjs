@@ -82,3 +82,15 @@ test('flags single-key TRX-to-TRC10 purchases and exchange/market operations',()
   assert.equal(result.singleSignerCanMoveFunds,true, 'contract type '+contractType+' should be considered value-moving')
  }
 })
+
+test('flags unknown or future enabled operation IDs rather than assuming they are harmless',()=>{
+ const result=assessTronAccountPermissions(account(2,1,[200]))
+ assert.equal(result.singleSignerCanMoveFunds,true)
+ assert.ok(result.activePermissions[0].enabledValueMovingOrPermissionTypes.includes(200))
+})
+test('only the explicitly non-value-moving vote and witness-profile operations are treated as harmless',()=>{
+ for (const id of [4,8]) {
+  const result=assessTronAccountPermissions(account(2,1,[id]))
+  assert.equal(result.singleSignerCanMoveFunds,false)
+ }
+})
