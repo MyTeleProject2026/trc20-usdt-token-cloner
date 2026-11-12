@@ -50,6 +50,8 @@ All routes below require the existing owner session (Bearer session token and al
 - GET /api/ripple-custody/domains/:domainId/omnibus/:omnibusId/tenants
 - GET /api/ripple-custody/domains/:domainId/omnibus/:omnibusId/tenants/:tenantId/deposit-wallet
 - GET /api/ripple-custody/domains/:domainId/intents
+- GET /api/ripple-custody/domains/:domainId/transactions and transaction details
+- GET /api/ripple-custody/domains/:domainId/events
 - GET /api/ripple-custody/domains/:domainId/sponsors
 - GET /api/ripple-custody/credits/:customerId
 - POST /api/ripple-custody/credits/allocate
