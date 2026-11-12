@@ -703,6 +703,14 @@ async function autoAssignSponsorToRequest({
     return { request, routing: 'awaiting-eligible-sponsor' }
   }
 
+  // Creating an owner withdrawal request never depends on sponsor registration.
+  // If no approved sponsor exists, keep the request queued without contacting
+  // Tatum or pretending that funding is available. A later approved sponsor can
+  // accept it through the normal prepare-and-sign flow.
+  if (!candidates.length) {
+    return { request, routing: 'awaiting-eligible-sponsor' }
+  }
+
   const tronWeb = tronWebForMainnet()
   const feeLimitSun = clean(env.SPONSOR_DIRECT_TRON_USDT_FEE_LIMIT_SUN || DEFAULT_FEE_LIMIT_SUN, 32)
   if (!/^[1-9][0-9]{0,9}$/.test(feeLimitSun) || BigInt(feeLimitSun) > 1000000000n) {
