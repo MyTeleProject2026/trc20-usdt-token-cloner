@@ -96,3 +96,13 @@ A multisig account can make actual TRX visible in Bitpie while preventing one ke
 
 
 The permission audit also checks TRX-to-TRC-10 purchase operations, on-chain exchange/market trades, staking/unfreezing, reward claims, resource delegation, smart-contract calls, and permission updates. It rejects malformed addresses, duplicate key entries, invalid active permission IDs, and unreachable permission thresholds. This is a conservative on-chain permission analysis; a single person who controls two distinct keys can still meet a 2-of-3 threshold.
+
+
+### Permission audit safety rule
+
+The read-only account permission audit scans every bit in all 256 positions of each active permission operations bitmap. It treats only VoteWitness (contract type 4) and WitnessUpdate (contract type 8) as explicitly non-value-moving for this specific transfer-restriction check. All other enabled operations are flagged, including unknown/future IDs, so protocol additions do not silently pass as safe. This is intentionally conservative and can produce false-positive restriction warnings; it never changes account permissions.
+
+
+### Beneficiary address verification
+
+The previously supplied address is not hard-coded as a fallback in the UI or server. TronWeb Base58Check validation rejected it in the repository's automated tests. Set the actual address copied from Bitpie's Receive screen (or the newly created Bitpie multisig address) explicitly in both frontend and server configuration. The application refuses to query or verify a beneficiary until the configured address passes validation.
