@@ -153,3 +153,26 @@ test('owner verification rejects a contract whose deployed runtime hash does not
     assert.equal(payload.creditableAmountSun, '0')
   })
 })
+
+test('owner verification rejects a contract pinned to a different beneficiary address', async (t) => {
+  const client = createEvidenceClient()
+  const original = client.triggerSolidifiedConstantContract
+  client.triggerSolidifiedConstantContract = async (args) => {
+    if (args.functionSelector === 'restrictedBeneficiary()') {
+      return { resultHex: '0'.repeat(24) + 'd'.repeat(40) }
+    }
+    return original(args)
+  }
+  await withServer(t, makeRouter({ publicClient: client }), async (baseUrl) => {
+    const response = await fetch(baseUrl + '/verify/0x' + requestId + '/' + txid, {
+      headers: {
+        Authorization: 'Bearer ' + 'A'.repeat(43),
+        Origin: 'https://tron-transfer.example',
+      },
+    })
+    const payload = await response.json()
+    assert.equal(response.status, 409)
+    assert.equal(payload.error, 'configured-beneficiary-does-not-match-immutable-contract-beneficiary')
+    assert.equal(payload.creditableAmountSun, '0')
+  })
+})
