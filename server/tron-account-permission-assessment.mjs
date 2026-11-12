@@ -19,7 +19,7 @@ function validPermission(permission, kind) {
   if (!permission || typeof permission !== 'object') return null
   const threshold = safeInteger(permission.threshold)
   const keys = Array.isArray(permission.keys) ? permission.keys : []
-  if (threshold === null || threshold < 1 || keys.length === 0) return null
+  if (threshold === null || threshold < 1 || keys.length === 0 || keys.length > 5) return null
   const normalizedKeys = keys.map((key) => {
     const address = String(key?.address || '')
     if (!TronWeb.isAddress(address)) return { address: '', normalizedAddress: '', weight: null }
@@ -56,7 +56,7 @@ function operationAllowed(bitmap, contractType) {
 export function assessTronAccountPermissions(account) {
   const owner = validPermission(account?.owner_permission, 'owner')
   const activeInput = Array.isArray(account?.active_permission) ? account.active_permission : null
-  if (!owner || !activeInput || activeInput.length === 0) {
+  if (!owner || !activeInput || activeInput.length === 0 || activeInput.length > 8) {
     return Object.freeze({
       available: false,
       verifiedAgainstSolidifiedState: true,
@@ -72,16 +72,18 @@ export function assessTronAccountPermissions(account) {
   let activeSingleKeyCanMoveFunds = false
   let activePermissionDataValid = true
 
+  const activeIds = new Set()
   for (const [index, input] of activeInput.entries()) {
     const permissionId = safeInteger(input?.id)
     const permission = validPermission(input, 'active')
-    if (permissionId === null || permissionId < 2 || permissionId > 9 || !permission) {
+    if (permissionId === null || permissionId < 2 || permissionId > 9 || activeIds.has(permissionId) || !permission) {
       activePermissionDataValid = false
       break
     }
     // Fail closed for every enabled operation except the two explicitly
     // non-value-moving operations currently recognized here. This includes
     // unknown/future contract IDs, which must not silently pass as safe.
+    activeIds.add(permissionId)
     const enabledRiskyTypes = Array.from({ length: 256 }, (_, type) => type)
       .filter((type) => operationAllowed(permission.operations, type)
         && !ONLY_NON_VALUE_MOVING_CONTRACT_TYPES.has(type))
