@@ -11,9 +11,11 @@ test('restricted escrow viewer uses the owner session storage key used by this f
   assert.doesNotMatch(component, /tron-token-studio:owner-session:v1/)
 })
 
-test('Bitpie normal balance is labelled spendable and separate from contract escrow', () => {
+test('Bitpie beneficiary balance and on-chain permission status are displayed separately from contract escrow', () => {
   assert.match(component, /Ordinary on-chain wallet balance \(not restricted\)/)
-  assert.match(component, /is spendable by the wallet owner; it is not an escrow credit/)
+  assert.match(component, /whether one key can spend it depends on the on-chain permission thresholds below/)
+  assert.match(component, /On-chain multisignature restriction detected/)
+  assert.match(component, /A single signer may be able to move funds/)
   assert.match(component, /This is not a Bitpie wallet deposit or spendable Bitpie balance/)
 })
 
