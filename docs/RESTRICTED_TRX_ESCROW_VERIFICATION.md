@@ -62,3 +62,15 @@ The escrow constructor now requires `maxPositionSun` and `maxDailyPrincipalSun` 
 ## Fixed beneficiary binding
 
 The escrow contract now pins `restrictedBeneficiary` as a constructor-supplied immutable address. `fundPosition` rejects every beneficiary other than this exact address. For this deployment plan, set it to the confirmed Bitpie address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`. The owner verifier independently reads the immutable `restrictedBeneficiary()` getter and rejects evidence if the configured beneficiary does not match. The constructor therefore requires the provider address, operator address, restricted beneficiary address, minimum and maximum lock duration, maximum position principal (SUN), and maximum UTC daily principal (SUN).
+
+### Deployment constructor parameters
+
+The updated contract constructor takes:
+1. `provider_` — the exact TRON address authorized to fund positions (must match provider signing source).
+2. `operator_` — owner/operator allowed to pause new deposits only.
+3. `restrictedBeneficiary_` — fixed Bitpie address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`.
+4. `minLockSeconds_` and `maxLockSeconds_` — allowed lock range.
+5. `maxPositionSun_` — immutable maximum amount per position.
+6. `maxDailyPrincipalSun_` — immutable gross principal cap per UTC day.
+
+TRON uses 1 TRX = 1,000,000 SUN. Therefore 6,200 TRX = 6,200,000,000 SUN. If a single 6,200 TRX position is desired, `maxPositionSun_` must be at least `6200000000`, and the daily limit must be at least as large. Actual production caps should be selected with the provider and independent reviewer; they cannot be raised after deployment.
