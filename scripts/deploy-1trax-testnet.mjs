@@ -3,16 +3,19 @@ import solc from 'solc'
 import fs from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 
-const network = process.env.TRON_NETWORK
-const hosts = { nile: 'https://nile.trongrid.io', shasta: 'https://api.shasta.trongrid.io' }
-if (!Object.hasOwn(hosts, network)) throw new Error('TRON_NETWORK must be nile or shasta; Mainnet deployment is unsupported.')
-if (process.env.DEPLOY_1TRAX_TESTNET !== 'YES') throw new Error('Set DEPLOY_1TRAX_TESTNET=YES to authorize testnet deployment.')
+const network = 'mainnet'
+const host = 'https://api.trongrid.io'
+if (process.env.DEPLOY_1TRAX_MAINNET !== 'I_UNDERSTAND_MAINNET_DEPLOYMENT_IS_IRREVERSIBLE') {
+  throw new Error('Explicit mainnet deployment acknowledgement is required.')
+}
 const privateKey = process.env.TRON_PRIVATE_KEY || ''
-if (!/^[0-9a-fA-F]{64}$/.test(privateKey)) throw new Error('TRON_PRIVATE_KEY must be a dedicated testnet private key.')
-const host = hosts[network]
+if (!/^[0-9a-fA-F]{64}$/.test(privateKey)) throw new Error('TRON_PRIVATE_KEY must be a dedicated Mainnet deployer key.')
 const tronWeb = new TronWeb({ fullHost: host, privateKey })
 const deployer = tronWeb.defaultAddress?.base58
-if (!deployer) throw new Error('Could not derive testnet deployer address.')
+if (!deployer) throw new Error('Could not derive Mainnet deployer address.')
+if (process.env.TRON_MAINNET_DEPLOYER_ADDRESS && process.env.TRON_MAINNET_DEPLOYER_ADDRESS !== deployer) {
+  throw new Error('Derived deployer does not match TRON_MAINNET_DEPLOYER_ADDRESS.')
+}
 
 const sources = {
   'OneTraxReserveVault.sol': await fs.readFile(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8'),
@@ -93,5 +96,5 @@ console.log(JSON.stringify({
   reserveVault: { address: vaultDeployment.address, deploymentTx: vaultDeployment.txID, authorizationTx: authorizeTx },
   token: { address: tokenDeployment.address, deploymentTx: tokenDeployment.txID, vaultLinkTx: linkVaultTx },
   initialTotalSupply: '0', mintingEnabled: false, paused: true,
-  warning: 'No reserve TRX was transferred. Fund the dedicated vault with testnet TRX before enabling minting. Never use Mainnet with this script.',
+  warning: 'This deploys irreversible Mainnet contracts. No reserve TRX was transferred. Minting remains disabled. Independent audit, owner approval, and reserve funding are required before enabling issuance.',
 }, null, 2))
