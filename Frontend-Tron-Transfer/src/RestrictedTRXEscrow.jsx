@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 
-const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT').trim()
+const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || '').trim()
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const ESCROW_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_ESCROW_ADDRESS || '').trim()
 const ABI = [{
@@ -57,6 +57,7 @@ export default function RestrictedTRXEscrow() {
     let active = true
     async function loadBitpieAccount() {
       try {
+        if (!BITPIE_ADDRESS || !TronWeb.isAddress(BITPIE_ADDRESS)) throw new Error('Configure a verified TRON Mainnet Bitpie or Bitpie multisignature address before reading balances.')
         const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
         if (!token) throw new Error('Sign in as the platform owner to query solidified public-chain data.')
         const response = await fetch(API_BASE + '/api/public-tron/account/' + encodeURIComponent(BITPIE_ADDRESS), {
