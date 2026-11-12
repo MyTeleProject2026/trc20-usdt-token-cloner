@@ -5,7 +5,7 @@ import express from 'express'
 import { TronWeb } from 'tronweb'
 import { createPublicTronReadRouter } from '../server/routes/public-tron-read.mjs'
 
-const owner = 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
+const owner = TronWeb.address.fromHex('41' + '1'.repeat(40))
 const target = owner
 const token = 'A'.repeat(43)
 const origin = 'https://tron-transfer.example'
@@ -31,7 +31,7 @@ test('public TRON proxy requires a matching Mainnet owner session before reading
     },
   })
   await withServer(t, router, async (baseUrl) => {
-    const denied = await fetch(baseUrl + '/account/' + target)
+    const denied = await fetch(baseUrl + '/api/public-tron/account/' + target)
     assert.equal(denied.status, 401)
     assert.equal(calls, 0)
     const allowed = await fetch(baseUrl + '/account/' + target, {
@@ -105,7 +105,7 @@ test('owner can discover escrow positions indexed for the Bitpie address using s
   })
   await withServer(t, router, async (baseUrl) => {
     const headers = { Authorization: 'Bearer ' + token, Origin: origin }
-    const countResponse = await fetch(baseUrl + '/escrow/' + target + '/beneficiary/' + target + '/count', { headers })
+    const countResponse = await fetch(baseUrl + '/api/public-tron/escrow/' + target + '/beneficiary/' + target + '/count', { headers })
     const countPayload = await countResponse.json()
     assert.equal(countResponse.status, 200)
     assert.equal(countPayload.data.count, '1')
