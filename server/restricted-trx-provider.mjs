@@ -1,82 +1,121 @@
 /**
  * Provider comparison, normalized adapter contract, and credit authorization
  * gates for restricted native-TRX funding.
- * No provider is a source of credit unless its authenticated response proves an approved facility.
+ *
+ * Ripple is selected for diligence only. No public Ripple principal-credit
+ * facility or general-purpose fee sponsorship for native-TRX escrow calls has
+ * been verified. No provider-specific submission adapter is installed.
  */
 const REQUIRED_CAPABILITIES = Object.freeze([
-  'native-trx-mainnet', 'payable-contract-call', 'provider-principal-funding',
-  'network-fee-funding', 'idempotent-transaction-submission', 'transaction-status-query',
+  'native-trx-mainnet',
+  'trongrid-trigger-smart-contract-with-call-value',
+  'provider-approved-trx-principal-credit',
+  'credit-funded-network-fees-for-escrow-call',
+  'idempotent-transaction-submission',
+  'transaction-status-query',
+  'solidified-chain-and-contract-state-verification',
 ])
 const PROVIDER_COMPARISON = Object.freeze([
-  Object.freeze({ id: 'cobo', name: 'Cobo MPC Co-Managed Custody', nativeTrx: 'documented',
-    ordinaryWalletPayout: 'documented', payableEscrowCall: 'not-verified', providerCredit: 'not-documented',
-    notes: 'TRON send/receive custody and API withdrawal workflows are documented. This does not prove credit or TRON TVM payable contract calls with attached TRX.',
-    docs: 'https://docs.cobo.com/cobo-mpc-waas/cobo-mpc-co-managed-custody/quick-start-guide/mpc-wallet-management-on-cobo-custody-web' }),
-  Object.freeze({ id: 'ripple', name: 'Ripple Custody', nativeTrx: 'documented',
-    ordinaryWalletPayout: 'documented', payableEscrowCall: 'not-verified', providerCredit: 'not-documented',
-    notes: 'TRON native TRX support is documented. Public asset support does not establish a credit line or escrow contract-call workflow.',
-    docs: 'https://docs.ripple.com/products/wallet/vaults-and-wallets/supported-blockchains-and-tokens' }),
-  Object.freeze({ id: 'volet', name: 'Volet Merchant API', nativeTrx: 'documented',
-    ordinaryWalletPayout: 'documented', payableEscrowCall: 'not-documented', providerCredit: 'not-documented',
-    notes: 'TRX custodial payouts to external wallets are documented, but the account must be verified and sufficiently funded. This is not evidence of provider credit or escrow contract-call support.',
-    docs: 'https://volet.com/docs/guides/mass-payouts/payout-methods/custodial-payouts/' }),
+  Object.freeze({
+    id: 'ripple',
+    name: 'Ripple Custody',
+    nativeTrx: 'documented',
+    ordinaryWalletPayout: 'documented',
+    payableEscrowCall: 'not-verified',
+    providerCredit: 'not-documented',
+    principalCreditTerms: 'not-published',
+    gasStationScope: 'non-native-asset-transactions-only',
+    nativeTrxEscrowFeeCoverage: 'not-established',
+    myanmarEligibility: 'not-publicly-confirmed',
+    notes: 'Ripple documents native TRX support. Its Gas Station is funded by native tokens held in a sponsor account and is documented for non-native-asset transactions; this does not establish native-TRX principal credit or fee coverage for a payable escrow call. No public credit limit, tenor, pricing, collateral, or Myanmar eligibility terms were found.',
+    docs: 'https://docs.ripple.com/products/wallet/vaults-and-wallets/supported-blockchains-and-tokens',
+    gasStationDocs: 'https://docs.ripple.com/pt-br/products/custody/accounts-and-assets/gas-station/overview',
+    gasStationApiDocs: 'https://docs.ripple.com/products/custody/accounts-and-assets/gas-station/manage-gas-station-api',
+  }),
 ])
 const ADAPTER_METHODS = Object.freeze([
   'getCapabilities', 'getCreditFacility', 'getLiquidity', 'reservePrincipalAndFees',
-  'submitPayableEscrowFunding', 'submitWalletPayout', 'getTransactionStatus', 'releaseReservation',
+  'submitPayableEscrowFunding', 'getTransactionStatus', 'releaseReservation',
 ])
 const present = (value) => typeof value === 'string' && value.trim().length > 0
 const positiveIntegerString = (value) => typeof value === 'string' && /^[1-9][0-9]*$/.test(value)
 
 export function getRestrictedTrxProviderComparison() {
   return {
-    fundingArrangement: 'credit',
-    destinationWorkflows: ['escrow', 'ordinary-wallet-payout'],
+    fundingArrangement: 'principal-credit',
+    selectedProvider: 'ripple',
+    destinationWorkflow: 'escrow',
+    excludedProviders: ['fireblocks', 'volet'],
     providers: PROVIDER_COMPARISON,
-    conclusion: 'No listed provider has publicly documented the required provider-funded TRX credit facility. Custody/payout support is not credit approval.',
+    conclusion: 'Ripple is a technical custody candidate only. No public Ripple TRX principal-credit terms, native-TRX escrow-call fee-credit terms, or Myanmar eligibility confirmation were found. Do not infer credit from custody, API, or Gas Station documentation.',
   }
 }
 
 export function getRestrictedTrxProviderReadiness(env = process.env) {
   const configuredProvider = present(env.RESTRICTED_TRX_PROVIDER) ? env.RESTRICTED_TRX_PROVIDER.trim().toLowerCase() : ''
-  const provider = configuredProvider && configuredProvider !== 'compare' ? configuredProvider : ''
+  const provider = configuredProvider === 'ripple' ? 'ripple' : ''
   const contract = present(env.RESTRICTED_TRX_ESCROW_CONTRACT) ? env.RESTRICTED_TRX_ESCROW_CONTRACT.trim() : ''
   const apiKeyConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_KEY)
   const apiSecretConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_SECRET)
   const providerAccountConfigured = present(env.RESTRICTED_TRX_PROVIDER_ACCOUNT_ID)
   const providerAgreementConfigured = env.RESTRICTED_TRX_PROVIDER_AGREEMENT_CONFIRMED === 'true'
-  // False until an institution-specific API implementation and provider-side credit evidence are reviewed.
+  // Permanently false in this research/implementation stage. Do not derive this
+  // from environment variables, credentials, provider selection, or UI state.
   const adapterImplemented = false
   const blockers = []
-  if (!provider) blockers.push('provider-not-selected')
-  if (provider && !PROVIDER_COMPARISON.some((candidate) => candidate.id === provider)) blockers.push('provider-not-supported-by-adapter-registry')
+  if (!provider) blockers.push('ripple-not-selected')
   if (!providerAccountConfigured) blockers.push('provider-account-not-configured')
   if (!providerAgreementConfigured) blockers.push('provider-funding-agreement-not-confirmed')
   if (!apiKeyConfigured || !apiSecretConfigured) blockers.push('provider-credentials-not-configured')
   if (!contract) blockers.push('escrow-contract-not-deployed')
-  if (!adapterImplemented) blockers.push('provider-api-adapter-not-implemented')
-  blockers.push('provider-credit-facility-not-verified', 'provider-liquidity-not-independently-verified',
-    'payable-tron-contract-call-not-verified', 'wallet-payout-provider-authorization-not-verified')
+  if (!adapterImplemented) blockers.push('ripple-provider-api-adapter-not-implemented')
+  blockers.push(
+    'published-ripple-principal-credit-terms-not-found',
+    'ripple-credit-facility-not-approved-or-authenticated',
+    'ripple-native-trx-escrow-call-support-not-verified',
+    'ripple-native-trx-escrow-fee-credit-not-verified',
+    'myanmar-customer-eligibility-not-confirmed',
+    'escrow-contract-audit-and-mainnet-deployment-not-verified',
+    'independent-solidified-chain-verifier-not-integrated',
+    'live-escrow-submission-hard-disabled',
+  )
   return Object.freeze({
     provider: provider || null,
-    providerSelection: configuredProvider === 'compare' ? 'comparison-only' : 'individual-provider-required',
-    fundingArrangement: 'credit',
-    destinationWorkflows: Object.freeze(['escrow', 'ordinary-wallet-payout']),
-    network: 'TRON_MAINNET', asset: 'TRX',
-    contractConfigured: Boolean(contract), providerAccountConfigured, providerAgreementConfigured,
-    credentialsConfigured: apiKeyConfigured && apiSecretConfigured, adapterImplemented,
+    providerSelection: provider ? 'selected-for-diligence-only' : 'ripple-required',
+    fundingArrangement: 'principal-credit',
+    destinationWorkflow: 'escrow',
+    network: 'TRON_MAINNET',
+    asset: 'TRX',
+    unit: 'SUN',
+    contractConfigured: Boolean(contract),
+    providerAccountConfigured,
+    providerAgreementConfigured,
+    credentialsConfigured: apiKeyConfigured && apiSecretConfigured,
+    adapterImplemented,
     capabilitiesRequired: REQUIRED_CAPABILITIES,
-    principalAvailableSun: null, feeBudgetSun: null, creditLimitSun: null, availableCreditSun: null,
-    liquidityVerified: false, creditFacilityVerified: false,
-    canCreateEscrowPosition: false, canBroadcastEscrowFunding: false, canBroadcastWalletPayout: false,
+    principalAvailableSun: null,
+    feeBudgetSun: null,
+    creditLimitSun: null,
+    availableCreditSun: null,
+    liquidityVerified: false,
+    creditFacilityVerified: false,
+    payableEscrowCallVerified: false,
+    nativeTrxEscrowFeeCreditVerified: false,
+    chainVerificationIntegrated: false,
+    canCreateEscrowPosition: false,
+    canBroadcastEscrowFunding: false,
+    canBroadcastWalletPayout: false,
+    liveExecutionHardDisabled: true,
     blockers,
-    message: 'Credit funding is not enabled. No provider credit, TRX principal, or fee budget is assumed.',
+    message: 'Ripple is selected for technical diligence only. No principal credit or escrow-call fee credit is verified; all live escrow submissions remain hard-disabled.',
   })
 }
 
 /**
- * Validate an authenticated provider API response obtained server-to-server.
+ * Validate an authenticated Ripple API response obtained server-to-server.
  * Never accept this object from a browser, request body, or UI configuration.
+ * This validates the shape/scope of evidence; it does not itself authenticate
+ * the API response or approve production execution.
  */
 export function assertRestrictedTrxCreditAuthorization(facility, {
   destination, amountSun, feeBudgetSun, now = Date.now(),
@@ -86,13 +125,22 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
     error.code = code
     throw error
   }
-  if (!facility || facility.status !== 'approved' || facility.facilityType !== 'credit') fail('provider-credit-not-approved')
+  if (!facility || facility.providerId !== 'ripple' || facility.authenticated !== true
+    || facility.status !== 'approved' || facility.facilityType !== 'credit') {
+    fail('provider-credit-not-approved-or-authenticated')
+  }
+  if (facility.asset !== 'TRX' || facility.network !== 'TRON_MAINNET') fail('provider-credit-asset-or-network-mismatch')
   if (!present(facility.agreementReference) || !present(facility.providerAuthorizationId)) fail('provider-credit-evidence-missing')
   if (!positiveIntegerString(facility.creditLimitSun) || !positiveIntegerString(facility.availableCreditSun)
     || !positiveIntegerString(facility.feeBudgetSun)) fail('provider-credit-amounts-invalid')
+  if (!Array.isArray(facility.permittedTransactionTypes)
+    || !facility.permittedTransactionTypes.includes('TriggerSmartContract')) {
+    fail('provider-tron-payable-contract-call-not-authorized')
+  }
+  if (facility.feeFundingMode !== 'credit') fail('provider-escrow-fees-not-credit-funded')
   if (!Number.isFinite(Date.parse(facility.expiresAt)) || Date.parse(facility.expiresAt) <= now) fail('provider-credit-authorization-expired')
-  if (!['escrow', 'ordinary-wallet-payout'].includes(destination)
-    || !Array.isArray(facility.allowedDestinations) || !facility.allowedDestinations.includes(destination)) {
+  if (destination !== 'escrow' || !Array.isArray(facility.allowedDestinations)
+    || !facility.allowedDestinations.includes('escrow')) {
     fail('provider-credit-destination-not-authorized')
   }
   if (!positiveIntegerString(amountSun) || !positiveIntegerString(feeBudgetSun)) fail('provider-credit-request-amount-invalid')
@@ -101,8 +149,13 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
   }
   if (BigInt(feeBudgetSun) > BigInt(facility.feeBudgetSun)) fail('provider-credit-fee-budget-insufficient')
   return Object.freeze({
+    providerId: 'ripple',
     providerAuthorizationId: facility.providerAuthorizationId,
-    agreementReference: facility.agreementReference, destination, amountSun, feeBudgetSun, expiresAt: facility.expiresAt,
+    agreementReference: facility.agreementReference,
+    destination: 'escrow',
+    amountSun,
+    feeBudgetSun,
+    expiresAt: facility.expiresAt,
   })
 }
 
