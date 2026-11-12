@@ -61,3 +61,9 @@ This route is read-only and owner-authenticated. It does not sign, broadcast, fu
 ## Account resources endpoint note
 
 Native TRX balance and transaction finality are read from the Solidity API (`/walletsolidity/*`). Account resource estimates (Bandwidth and Energy remaining) use the FullNode endpoint `/wallet/getaccountresource`, because the resource API is a current resource view rather than a solidified balance snapshot. The UI and API label these resource values as current FullNode state, not solidified state. They are informational and do not constitute a fee sponsorship or provider credit.
+
+## TRON account permission assessment
+
+The account read also includes a read-only assessment of owner and active permissions from the solidified account response. It checks whether any single configured key can authorize direct TRX transfers, TRC-10 transfers, contract creation/calls, or permission updates. A positive restriction result means no single listed key individually meets the threshold for those checked operations; it does not identify the human controlling each key or prove the Bitpie app's multisig UI supports that flow.
+
+See [Bitpie multisig restricted TRX route](./BITPIE_MULTISIG_RESTRICTED_TRX_ROUTE.md) for the official Bitpie article, documentation inconsistency, creation fee, and production verification steps.
