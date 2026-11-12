@@ -108,3 +108,47 @@ Until then: no live payouts, no contract funding, no claimed credit, and no simu
 ## Escrow contract risk controls
 
 The escrow contract source now includes immutable `maxPositionSun` and `maxDailyPrincipalSun` constructor limits. They are applied on-chain to each provider-funded position using SUN units and UTC-day accounting. These limits cannot be increased by editing a dashboard setting; changing them requires a new reviewed deployment. The contract also indexes request IDs by beneficiary for read-only discovery. The configured provider remains the only account permitted to fund positions, and only the beneficiary can claim after the lock expires.
+
+
+## Selected combined funding model and implemented API transport (2026-11-13)
+
+The operator selected the combined arrangement:
+
+- **Principal:** provider-approved TRX credit facility, distinct from provider-owned prefunded liquidity.
+- **Fees:** provider-paid network fee budget **plus** delegated TRON Energy/Bandwidth where the provider and network support it.
+- **Accounting:** principal credit, provider-paid fee budget, and delegated resource quota are separate ledgers/reservations. Delegated Energy/Bandwidth is not TRX principal and does not transfer the staked TRX underlying those resources.
+- **Execution:** all funding and payout execution remains disabled until the provider confirms each permission and the chain verifier proves the resulting state.
+
+### Implemented server-side authentication transport
+
+The repository now contains `server/ripple-wallet-api-client.mjs`. It implements the Ripple Custody (Wallet) documented OAuth 2.0 client-credentials token exchange against `/v2/credentials/oauth/token`, with:
+
+- exact allowlisting of Ripple sandbox and production API origins;
+- server-only `RIPPLE_WALLET_CLIENT_ID` and `RIPPLE_WALLET_CLIENT_SECRET`;
+- in-memory bearer-token caching and expiry handling;
+- HTTPS-only requests to versioned `/v2/` paths;
+- bounded request timeout and sanitized network/HTTP errors;
+- no automatic replay after a 401 response.
+
+Regression tests are in `tests/ripple-wallet-api-client.test.mjs`.
+
+This is the authenticated transport layer only. It is **not** a Ripple credit-facility endpoint, does not claim that Ripple's public API exposes a TRX credit drawdown, and does not submit transactions. No undocumented Ripple endpoint, request schema, credit facility, fee sponsorship, or transaction type has been invented.
+
+### Remaining provider adapter contract
+
+The next provider-specific adapter layer must be implemented only against Ripple's account-specific API documentation and written commercial authorization. It must return authenticated, provider-sourced evidence for:
+
+1. TRX credit facility identity, agreement reference, limit, currently available principal, expiry, and exact permitted escrow destination;
+2. provider-paid fee budget, transaction-type permission, fee cap, and settlement attribution;
+3. delegated resource source account, recipient/escrow address, resource type (Energy/Bandwidth), exact quota, expiry, and on-chain delegation evidence;
+4. idempotent reservation identifiers and transaction lookup for ambiguous timeouts;
+5. exact TRON Mainnet `TriggerSmartContract` support with attached native-TRX `call_value`.
+
+The existing credit validator currently requires credit-funded fees for the escrow call. The combined provider-paid-plus-delegated-resources policy must not be treated as approved until the validator and independent verifier explicitly validate both fee components and their settlement. An environment variable or owner-entered value cannot satisfy these requirements.
+
+### Exact Ripple documentation used for the transport
+
+- [Ripple Wallet API getting started](https://docs.ripple.com/products/wallet/get-started/use-the-api)
+- [Ripple Wallet API credentials](https://docs.ripple.com/products/wallet/organization-and-access/api-credentials/manage-api-credentials)
+- [Ripple Wallet API credential best practices](https://docs.ripple.com/products/wallet/organization-and-access/api-credentials/best-practices)
+
