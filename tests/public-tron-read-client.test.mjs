@@ -73,3 +73,32 @@ test('public API adapter exposes no transaction submission or signing methods', 
   assert.equal(client.signTransaction, undefined)
   assert.equal(client.createTransaction, undefined)
 })
+
+test('public TRON adapter runs read-only contract calls against solidified state', async () => {
+  const { fetchImpl, calls } = fakeFetchFor({
+    '/walletsolidity/triggerconstantcontract': {
+      result: { result: true },
+      constant_result: ['0'.repeat(63) + '1'],
+    },
+  })
+  const client = createPublicTronReadClient({ fetchImpl })
+  const result = await client.triggerSolidifiedConstantContract({
+    contractAddress: ADDRESS,
+    functionSelector: 'totalLockedSun()',
+    parameter: '',
+    ownerAddress: ADDRESS,
+  })
+  assert.equal(result.resultHex, '0'.repeat(63) + '1')
+  assert.match(calls[0].url, /walletsolidity\/triggerconstantcontract$/)
+  assert.equal(JSON.parse(calls[0].init.body).function_selector, 'totalLockedSun()')
+})
+
+test('solidified contract reader rejects malformed selectors and ABI parameters', async () => {
+  const client = createPublicTronReadClient({ fetchImpl: async () => { throw new Error('should not fetch') } })
+  await assert.rejects(client.triggerSolidifiedConstantContract({
+    contractAddress: ADDRESS, functionSelector: 'fundPosition;drop()', parameter: '', ownerAddress: ADDRESS,
+  }), (error) => error.status === 400)
+  await assert.rejects(client.triggerSolidifiedConstantContract({
+    contractAddress: ADDRESS, functionSelector: 'getPosition(bytes32)', parameter: 'xyz', ownerAddress: ADDRESS,
+  }), (error) => error.status === 400)
+})
