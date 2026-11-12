@@ -99,7 +99,6 @@ export function createRestrictedTrxEscrowVerificationRouter({
     try {
       const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' })
       const contractHex = tronWeb.address.toHex(contractAddress)
-      const ownerHex = tronWeb.address.toHex(ownerAddress)
       const [transactionEvidence, account] = await Promise.all([
         client.getSolidifiedTransaction(txid),
         client.getSolidifiedAccount(contractAddress),
@@ -154,6 +153,7 @@ export function createRestrictedTrxEscrowVerificationRouter({
         expectedBeneficiary: beneficiary,
         expectedContract: contractAddress,
         expectedContractHex: contractHex,
+        expectedTxId: txid,
         expectedProvider: providerAddress,
         transaction: transactionEvidence.transaction,
         receipt: transactionEvidence.receipt,
