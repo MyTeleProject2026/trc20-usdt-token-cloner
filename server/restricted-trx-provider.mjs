@@ -53,7 +53,7 @@ export function getRestrictedTrxProviderComparison() {
 
 export function getRestrictedTrxProviderReadiness(env = process.env) {
   const configuredProvider = present(env.RESTRICTED_TRX_PROVIDER) ? env.RESTRICTED_TRX_PROVIDER.trim().toLowerCase() : ''
-  const provider = configuredProvider === 'ripple' ? 'ripple' : ''
+  const provider = configuredProvider ? (configuredProvider === 'ripple' ? 'ripple' : '') : 'ripple'
   const contract = present(env.RESTRICTED_TRX_ESCROW_CONTRACT) ? env.RESTRICTED_TRX_ESCROW_CONTRACT.trim() : ''
   const apiKeyConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_KEY)
   const apiSecretConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_SECRET)
