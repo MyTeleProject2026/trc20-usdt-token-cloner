@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { TronWeb } from 'tronweb'
 import { assessTronAccountPermissions } from '../server/tron-account-permission-assessment.mjs'
 
 const bytes=(types)=>{
@@ -7,7 +8,7 @@ const bytes=(types)=>{
   for(const type of types) result[Math.floor(type/8)] |= 1 << (type%8)
   return Array.from(result).map((value)=>value.toString(16).padStart(2,'0')).join('')
 }
-const key=(address,weight=1)=>({address,weight})
+const key=(id,weight=1)=>({address:TronWeb.address.fromHex('41'+String(id).padStart(40,'0')),weight})
 const account=(ownerThreshold=2,activeThreshold=2,activeTypes=[1,30,31,46])=>({
   owner_permission:{threshold:ownerThreshold,keys:[key('TRecipientKey'),key('TProviderKey')]},
   active_permission:[{
@@ -42,4 +43,21 @@ test('fails closed when permission data is missing or malformed',()=>{
   const bad=account()
   bad.active_permission[0].operations='02'
   assert.equal(assessTronAccountPermissions(bad).available,false)
+})
+
+test('combines duplicate permission entries for the same on-chain key when assessing solo authority',()=>{
+ const same=key('1'.repeat(40),1)
+ const duplicateAccount={
+  owner_permission:{threshold:2,keys:[same,{...same}]},
+  active_permission:[{id:2,threshold:2,keys:[key('2'.repeat(40),1),key('3'.repeat(40),1)],operations:bytes([1,31,46])}],
+ }
+ const result=assessTronAccountPermissions(duplicateAccount)
+ assert.equal(result.singleSignerCanMoveNativeTrx,true)
+ assert.equal(result.restrictedAgainstSingleKey,false)
+})
+
+test('fails closed when any permission key is not a valid TRON address',()=>{
+ const bad=account()
+ bad.owner_permission.keys[0].address='not-an-address'
+ assert.equal(assessTronAccountPermissions(bad).available,false)
 })
