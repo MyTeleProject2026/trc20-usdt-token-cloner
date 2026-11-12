@@ -58,6 +58,7 @@ test('Ripple Wallet client rejects unknown API origins and unsafe paths', async 
     fetchImpl: async () => response(200, { accessToken: 'sandbox-access-token-123456789', expiresIn: 3600 }),
   })
   await assert.rejects(client.request('/v2/../admin'), { code: 'ripple-api-path-invalid' })
+  await assert.rejects(client.request('/v2/%2e%2e/admin'), { code: 'ripple-api-path-invalid' })
 })
 
 test('Ripple Wallet client does not accept malformed or expired token responses', async () => {
