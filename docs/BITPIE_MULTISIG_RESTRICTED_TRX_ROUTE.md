@@ -61,7 +61,7 @@ A public TRON API can read balances and permissions; it cannot provide principal
 
 ## Existing address versus multisig address
 
-The user's existing address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT` must not be called restricted unless its actual solidified account permissions prove that no single key can authorize the relevant transfer and permission-update operations.
+The user's initially supplied address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT` must not be called restricted unless its actual solidified account permissions prove that no single key can authorize relevant value-moving and permission-control operations. If Bitpie's multisig flow creates a new address, use that new multisig address as the beneficiary instead; do not keep using the original address merely because it was supplied earlier.
 
 Bitpie's in-app multisig creation process may create a new multisig address. If it does, set:
 - frontend build variable `VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS` to the actual generated multisig address;
