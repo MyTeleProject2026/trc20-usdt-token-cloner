@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { createHash } from 'node:crypto'
 import express from 'express'
 import { TronWeb } from 'tronweb'
 import { createRestrictedTrxEscrowVerificationRouter } from '../server/routes/restricted-trx-escrow-verification.mjs'
@@ -43,6 +44,7 @@ function createEvidenceClient() {
     }],
   }
   return {
+    async getContractRuntimeCode() { return { runtimeCode: '60016000' } },
     async getSolidifiedTransaction() {
       return { found: true, solidifiedReceiptFound: true, transaction, receipt }
     },
@@ -77,6 +79,7 @@ function makeRouter({ sessionAddress = owner, publicClient = createEvidenceClien
       TREASURY_OWNER_ADDRESS: owner,
       RESTRICTED_TRX_ESCROW_CONTRACT: contract,
       RESTRICTED_TRX_BENEFICIARY_ADDRESS: beneficiary,
+      RESTRICTED_TRX_ESCROW_RUNTIME_CODE_SHA256: createHash('sha256').update('60016000', 'hex').digest('hex'),
     },
     getSession: async ({ origin }) => ({
       success: true,
