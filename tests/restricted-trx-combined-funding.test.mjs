@@ -24,7 +24,7 @@ test('combined authorization requires provider fees and verified delegated resou
   assert.equal(result.delegatedResourceEvidence.bandwidthLimit, '5000')
 })
 test('combined authorization rejects unverified or misdirected resource delegation', () => {
-  const unverified = facility(); const unverifiedChain = { ...chainEvidence, solidified: false }
+  const unverifiedChain = { ...chainEvidence, solidified: false }
   assert.throws(() => assertRestrictedTrxCreditAuthorization(unverified, { destination: 'escrow', amountSun: '25000000', feeBudgetSun: '1000000', escrowAddress, delegatedResourceVerification: unverifiedChain, now: Date.parse('2026-11-13T00:00:00.000Z') }), { code: 'provider-delegated-resources-not-verified-for-escrow' })
   const wrongReceiver = facility(); wrongReceiver.delegatedResources.receiverAddress = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb'
   assert.throws(() => assertRestrictedTrxCreditAuthorization(wrongReceiver, { destination: 'escrow', amountSun: '25000000', feeBudgetSun: '1000000', escrowAddress, delegatedResourceVerification: chainEvidence, now: Date.parse('2026-11-13T00:00:00.000Z') }), { code: 'provider-delegated-resources-not-verified-for-escrow' })
