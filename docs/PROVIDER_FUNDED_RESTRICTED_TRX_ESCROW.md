@@ -121,3 +121,23 @@ References:
 - https://fireblocks.readme.io/reference/create-transactions
 - https://developers.tron.network/docs/smart-contract-interaction
 - https://developers.tron.network/docs/api-signature-and-broadcast-flow
+
+
+## Provider comparison and credit adapter implementation
+
+The backend exposes a read-only comparison for the requested credit arrangement and both destination workflows:
+
+| Provider | Native TRX custody / payout | TRON payable escrow call | Provider credit |
+|---|---|---|---|
+| Cobo | Documented TRON send/receive custody and API withdrawal workflow | Not verified | Not documented |
+| Ripple Custody | Documented native TRX support | Not verified | Not documented |
+| Volet | Documented TRX custodial payouts to external wallets | Not documented | Not documented |
+
+These are candidates for commercial diligence, not approved credit providers. Volet's published payout guide requires a verified account and sufficient account balance. Cobo and Ripple custody support does not itself provide a credit line. Official documentation:
+- Cobo: https://docs.cobo.com/cobo-mpc-waas/cobo-mpc-co-managed-custody/quick-start-guide/mpc-wallet-management-on-cobo-custody-web
+- Ripple native TRX: https://docs.ripple.com/products/wallet/vaults-and-wallets/supported-blockchains-and-tokens
+- Volet custodial payouts: https://volet.com/docs/guides/mass-payouts/payout-methods/custodial-payouts/
+
+The backend now includes a normalized credit-authorization validator. It requires an authenticated provider response containing an approved credit facility, signed agreement reference, provider authorization ID, integer-SUN principal and fee limits, unexpired authorization, and explicit permission for the selected destination (escrow or ordinary wallet payout). A prefunded custody balance does not satisfy the credit check. The adapter contract separately requires escrow and ordinary-wallet payout methods.
+
+**Execution remains disabled.** The repository does not yet contain a provider-specific API client, provider-issued credit agreement, approved provider account, verified credit facility response, or proof that any candidate can submit the exact TRON TVM payable escrow call. The comparison/readiness endpoints are operational; they are not a live provider connection and cannot move funds. Implementing a concrete Cobo/Ripple/Volet client requires that provider's exact account API specification, account-specific authorization, and credit facility terms. Never place credentials in frontend code or commit them.
