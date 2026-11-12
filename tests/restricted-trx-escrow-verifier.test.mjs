@@ -39,7 +39,7 @@ const evidence={
   receipt:{result:'SUCCESS'},
   log:[{
    address:escrowHex,
-   topics:['0x'+eventTopic,'0x'+requestId,'0x'+addressWord],
+   topics:[eventTopic,'0x'+requestId,'0x'+addressWord],
    data:word(amountSun)+word(unlockAt),
   }],
  },
