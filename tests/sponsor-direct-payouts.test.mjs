@@ -234,10 +234,11 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     [createHash('sha256').update(outsiderToken).digest('hex'), recipientAddress],
   ])
   let sponsorApplicationId = null
+  const noSponsorIdempotencyKey = randomUUID()
   const firstIdempotencyKey = randomUUID()
   const secondIdempotencyKey = randomUUID()
   const thirdIdempotencyKey = randomUUID()
-  const idempotencyKeys = [firstIdempotencyKey, secondIdempotencyKey, thirdIdempotencyKey]
+  const idempotencyKeys = [noSponsorIdempotencyKey, firstIdempotencyKey, secondIdempotencyKey, thirdIdempotencyKey]
   let approvedAddresses = [requesterAddress]
   let broadcastAttempts = 0
   let server
@@ -330,6 +331,21 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2', [requesterAddress, sponsorAddress])
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
+
+    // The owner must be able to create a real withdrawal request before any
+    // sponsor has registered. It remains unassigned and cannot be broadcast.
+    const noSponsorRequest = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '5',
+      idempotencyKey: noSponsorIdempotencyKey,
+    })
+    assert.equal(noSponsorRequest.response.status, 201)
+    assert.equal(noSponsorRequest.payload.sponsorRouting, 'awaiting-eligible-sponsor')
+    assert.equal(noSponsorRequest.payload.request.sponsorAddress, null)
+    assert.equal(noSponsorRequest.payload.payoutAuthorized, false)
+    assert.equal(noSponsorRequest.payload.transactionBroadcast, false)
+    assert.equal(broadcastAttempts, 0)
+
     const missingConsent = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
     assert.equal(missingConsent.response.status, 400)
     assert.equal(missingConsent.payload.error, 'sponsor-participation-consent-required')
@@ -368,6 +384,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
     assert.equal(ownerReview.payload.complianceVerified, false)
+
+    // A newly approved sponsor can see the previously queued, unassigned
+    // request. Sponsor registration was not a prerequisite for owner intake.
+    const queueWithEarlierRequest = await call('/queue', sponsorToken)
+    assert.equal(queueWithEarlierRequest.response.status, 200)
+    assert.equal(queueWithEarlierRequest.payload.requests.some((item) =>
+      item.id === noSponsorRequest.payload.request.id && item.status === 'requested'
+        && item.sponsorAddress === null), true)
+
     const outsiderRequest = await call('/requests', outsiderToken, {
       recipientAddress,
       amount: '25',
