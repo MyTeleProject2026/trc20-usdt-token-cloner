@@ -77,20 +77,14 @@ async function ensureSchema(db) {
       RETURN NULL;
     END;'
   `)
-  await db.query(`
-    DO $
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'bitpie_internal_restricted_credits_immutable'
-      ) THEN
-        CREATE TRIGGER bitpie_internal_restricted_credits_immutable
-        BEFORE UPDATE OR DELETE ON ${SCHEMA}.bitpie_internal_restricted_credits
-        FOR EACH ROW EXECUTE FUNCTION ${SCHEMA}.reject_bitpie_internal_credit_mutation();
-      END IF;
-    END;
-    $;
-  `)
+  try {
+    await db.query('CREATE TRIGGER bitpie_internal_restricted_credits_immutable BEFORE UPDATE OR DELETE ON ' +
+      SCHEMA + '.bitpie_internal_restricted_credits FOR EACH ROW EXECUTE FUNCTION ' +
+      SCHEMA + '.reject_bitpie_internal_credit_mutation()')
+  } catch (error) {
+    // Concurrent first requests can race on trigger creation; ignore only the duplicate-trigger SQLSTATE.
+    if (error?.code !== '42710') throw error
+  }
 }
 
 async function authorizeOwner(req, env, getSession, now, isValidAddress) {
