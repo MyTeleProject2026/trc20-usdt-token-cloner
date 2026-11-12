@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createRippleCustodyClient, rippleCustodyConfiguration, RippleCustodyApiError, RippleCustodyWriteDisabledError } from '../server/ripple-custody-sdk.mjs'
 
 const env = {
-  RC_CONFIG_FILE: '/tmp/ripple-custody-test.toml',
+  RC_CONFIG_FILE: 'config/ripple-custody.example.toml',
   RC_CLIENT_ID: 'service-client',
   RC_CLIENT_SECRET: 'test-secret',
   RIPPLE_CUSTODY_NETWORK: 'sandbox-unverified',
@@ -37,7 +37,7 @@ test('official SDK is used for domain reads and client is closed', async () => {
 
 test('missing SDK configuration and unavailable SDK fail closed', async () => {
   await assert.rejects(createRippleCustodyClient({ env: { ...env, RC_CLIENT_SECRET: '' }, sdkModule: {} }), (error) => error instanceof RippleCustodyApiError && error.code === 'ripple-custody-service-auth-not-configured')
-  await assert.rejects(createRippleCustodyClient({ env, sdkModule: {} }), (error) => error instanceof RippleCustodyApiError && error.code === 'ripple-custody-config-file-unavailable')
+  await assert.rejects(createRippleCustodyClient({ env: { ...env, RC_CONFIG_FILE: 'config/not-found.toml' }, sdkModule: {} }), (error) => error instanceof RippleCustodyApiError && error.code === 'ripple-custody-config-file-unavailable')
 })
 
 test('all value-moving operations remain disabled', async () => {
