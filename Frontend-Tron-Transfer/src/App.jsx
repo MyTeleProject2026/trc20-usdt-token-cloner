@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import ProviderPayoutReadiness from './ProviderPayoutReadiness.jsx'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
+import BitpieTrxRequest from './BitpieTrxRequest.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
@@ -173,6 +174,7 @@ export default function App() {
     {id:'assets',label:'Assets',icon:Coins},
     {id:'recipients',label:'Recipients',icon:ArrowDownLeft},
     {id:'withdrawals',label:'Withdrawals',icon:ArrowUpRight},
+    {id:'trx-request',label:'TRX withdrawal',icon:Wallet},
     {id:'provider',label:'Funding provider',icon:ShieldCheck},
     {id:'sponsors',label:'Sponsor approvals',icon:ShieldCheck},
     {id:'transactions',label:'Transactions',icon:History},
@@ -214,7 +216,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'External payout funding',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
+      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal','trx-request':'Provider-funded TRX request',provider:'External payout funding',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
       <div className="content">
         <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal requires a provider that has expressly authorized this owner account and verified provider-owned liquidity or an approved credit facility. Tatum provides TRON Mainnet infrastructure and independent chain verification.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
