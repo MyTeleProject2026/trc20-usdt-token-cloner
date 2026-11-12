@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { TronWeb } from 'tronweb'
+import BitpieInternalRestrictedCredits from './BitpieInternalRestrictedCredits.jsx'
 
 const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || '').trim()
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
@@ -181,6 +182,8 @@ export default function RestrictedTRXEscrow() {
   }
 
   return (
+    <>
+    <BitpieInternalRestrictedCredits />
     <section className="panel provider-panel">
       <div className="section-heading">
         <div><span className="eyebrow">TRON MAINNET · ON-CHAIN ESCROW VIEWER</span><h2>Restricted TRX custody</h2><p>Read-only verification of a real contract-held position linked to your Bitpie address. This is not a Bitpie wallet deposit or spendable Bitpie balance.</p></div>
@@ -283,5 +286,6 @@ export default function RestrictedTRXEscrow() {
       </div>}
       <p className="fine-print">A position appears here only after a provider has funded the deployed escrow contract and the beneficiary position has been recorded on-chain. No local balance is fabricated.</p>
     </section>
+    </>
   )
 }
