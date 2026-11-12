@@ -26,7 +26,7 @@ export async function readOneTraxAccounting({
   const tronWeb = tronWebFactory(TESTNETS[network])
   const token = await tronWeb.contract().at(contractAddress)
   const [reserveSunValue, supplyValue, decimalsValue] = await Promise.all([
-    tronWeb.trx.getBalance(reserveAddress),
+    tronWeb.trx.raw.getBalance(reserveAddress),
     token.totalSupply().call(),
     token.decimals().call(),
   ])
