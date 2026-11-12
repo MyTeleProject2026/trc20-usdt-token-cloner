@@ -98,3 +98,14 @@ Do not enable a payout switch to make readiness diagnostics run. The probe is re
 - [ ] Obtain an independent security review before production use.
 
 The repository code alone cannot create provider access, configure the provider's vault or policy, upload credentials to Render, fund the treasury, or prove a successful Mainnet transfer. This integration must remain disabled until those independent setup tasks are complete.
+
+## Independent managed-treasury dashboard mode
+
+The owner console now mounts the Fireblocks-managed router at `/api/treasury` and exposes an owner-only, read-only readiness panel under **Funding status**. The panel calls `GET /api/treasury/withdrawals/readiness` with the existing owner session and displays provider configuration, database-ledger readiness, provider-available USDT, on-chain official-USDT balance, on-chain TRX balance, vault/asset identity checks, and payout blockers. It never displays provider secrets.
+
+This mode removes the need for an individual sponsor to connect and sign each payout: the configured Fireblocks vault is the custody source and Fireblocks signs under its own transaction policy. It does **not** remove the platform owner's transaction-specific authorization, provider-side policy approvals, genuine funding requirements, fee reserves, configured limits, persistent idempotency, or solidified-chain verification.
+
+**Execution remains hard-disabled in this supervised build.** The readiness panel is diagnostic only and must show `executionEnabled: false`. The backend POST endpoint returns HTTP 503 before owner-session lookup or provider calls. Do not remove this immutable gate, change production configuration, or treat a passing preflight as permission to spend. Enabling a live payout requires a separately approved release process, a real eligible Fireblocks workspace and vault, provider-side transaction policy, verified official TRON USDT/TRX funding, operational recovery procedures, independent security review, and a controlled funded Mainnet test.
+
+A confirmed on-chain transfer is not proof that an exchange credited its customer account. Exchange-side credit must be verified from the recipient exchange's own authorized deposit records.
+
