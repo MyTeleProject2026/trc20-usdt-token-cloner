@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const component = await readFile(new URL('../Frontend-Tron-Transfer/src/RestrictedTRXEscrow.jsx', import.meta.url), 'utf8')
-const authGate = await readFile(new URL('../src/AuthGate.tsx', import.meta.url), 'utf8')
+const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
 
-test('restricted escrow viewer uses the same owner session storage key as the login flow', () => {
-  assert.match(authGate, /SESSION_KEY\s*=\s*'tron-token-studio:owner-session:v1'/)
-  assert.match(component, /sessionStorage\.getItem\('tron-token-studio:owner-session:v1'\)/)
-  assert.doesNotMatch(component, /tron-transfer:owner-session:v1/)
+test('restricted escrow viewer uses the owner session storage key used by this frontend', () => {
+  assert.match(app, /OWNER_SESSION_KEY\s*=\s*'tron-transfer:owner-session:v1'/)
+  assert.match(component, /sessionStorage\.getItem\('tron-transfer:owner-session:v1'\)/)
+  assert.doesNotMatch(component, /tron-token-studio:owner-session:v1/)
 })
 
 test('Bitpie normal balance is labelled spendable and separate from contract escrow', () => {
