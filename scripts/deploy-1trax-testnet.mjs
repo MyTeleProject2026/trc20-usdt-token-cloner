@@ -68,8 +68,8 @@ async function deployContract(artifact, name) {
 }
 async function sendAndConfirm(method, label) {
   const result = await method.send({ feeLimit: 100_000_000, callValue: 0, shouldPollResponse: true, keepTxID: true })
-  if (!Array.isArray(result) || result[1] !== true) throw new Error(label + ' did not return a successful confirmed result.')
-  if (result[0]) await waitForSolidified(result[0])
+  if (!Array.isArray(result) || !result[0] || result[1] === false || result[1]?.result === false) throw new Error(label + ' did not return a successful transaction result.')
+  await waitForSolidified(result[0])
   return result[0]
 }
 
