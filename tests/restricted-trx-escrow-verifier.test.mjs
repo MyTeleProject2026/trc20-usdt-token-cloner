@@ -4,12 +4,14 @@ import { verifyRestrictedTrxEscrowEvidence } from '../server/restricted-trx-escr
 
 const beneficiary='TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
 const contract='TXYZabcdefghijkmnopqrstuvwxyz1234567'
+const contractHex='41'+'c'.repeat(40)
 const txid='a'.repeat(64)
 const evidence={
  expectedRequestId:'0x'+'b'.repeat(64),
  expectedBeneficiary:beneficiary,
  expectedContract:contract,
- transaction:{txID:txid,raw_data:{contract:[{type:'TriggerSmartContract',parameter:{value:{contract_address:contract,call_value:2000000}}}]}},
+ expectedContractHex:contractHex,
+ transaction:{txID:txid,raw_data:{contract:[{type:'TriggerSmartContract',parameter:{value:{contract_address:contractHex,call_value:2000000}}}]}},
  receipt:{id:txid,blockNumber:100,receipt:{result:'SUCCESS'}},
  position:{beneficiary,amountSun:'2000000',unlockAt:1900000000,claimed:false},
  contractBalanceSun:'5000000',
@@ -21,7 +23,7 @@ test('verifies successful solidified escrow evidence with sufficient collateral'
  assert.equal(result.verified,true)
  assert.equal(result.creditableAmountSun,'2000000')
 })
-test('fails closed when collateral is below total locked liabilities',()=>{
+test('fails closed when transaction targets a different contract',()=>{\n assert.equal(verifyRestrictedTrxEscrowEvidence({...evidence,transaction:{...evidence.transaction,raw_data:{contract:[{type:'TriggerSmartContract',parameter:{value:{contract_address:'41'+'d'.repeat(40),call_value:2000000}}}]}}}).reason,'escrow-contract-mismatch')\n})\ntest('fails closed when collateral is below total locked liabilities',()=>{
  const result=verifyRestrictedTrxEscrowEvidence({...evidence,contractBalanceSun:'3000000'})
  assert.equal(result.verified,false)
  assert.equal(result.reason,'under-collateralized-escrow')
