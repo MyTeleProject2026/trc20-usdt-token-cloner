@@ -8,6 +8,7 @@ import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
 import { getUnconfiguredNativeTrxEscrowReadiness } from '../native-trx-escrow-provider-readiness.mjs'
+import { createRippleCustodyClient, getRippleCustodyConfigurationStatus } from '../ripple-custody-client.mjs'
 import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
 
 const { Pool } = pg
@@ -528,20 +529,58 @@ transaction_hash CHAR(64),
     const auth = await requireOwnerSession(req, env)
     if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
     const readiness = getUnconfiguredNativeTrxEscrowReadiness()
+    const rippleConfig = getRippleCustodyConfigurationStatus(env)
+    let ripple = {
+      ...rippleConfig,
+      apiAuthenticated: false,
+      walletBalance: null,
+      feeEstimate: null,
+      diagnosticError: null,
+      providerOwnedAllocationVerified: false,
+      creditFacilityVerified: false,
+      liveTransferEnabled: false,
+    }
+    if (rippleConfig.configured) {
+      try {
+        const client = createRippleCustodyClient({ env })
+        const [walletBalance, feeEstimate] = await Promise.all([
+          client.getWalletBalances(),
+          client.estimateNativeTrxTransferFee(),
+        ])
+        ripple = {
+          ...ripple,
+          apiAuthenticated: true,
+          walletBalance,
+          feeEstimate,
+          // A funded custody-wallet balance is real available custody balance,
+          // not evidence of a loan, third-party allocation, or fee credit.
+          providerOwnedAllocationVerified: false,
+          creditFacilityVerified: false,
+          liveTransferEnabled: false,
+        }
+      } catch (error) {
+        ripple.diagnosticError = error instanceof Error ? error.message : 'ripple-diagnostic-failed'
+      }
+    }
     return res.json({
       success: true,
       ownerAddress: auth.address,
       readiness,
+      ripple,
       funding: {
-        ownerWalletPrincipalRequired: false,
-        providerOwnedLiquidityVerified: false,
+        sourceWalletBalanceVerified: ripple.apiAuthenticated && ripple.walletBalance?.found === true,
+        walletAvailableSun: ripple.walletBalance?.availableSun ?? null,
+        estimatedNetworkFeeSun: ripple.feeEstimate?.averageSun ?? null,
+        providerOwnedAllocationVerified: false,
         providerApprovedCreditVerified: false,
-        providerApiConnected: false,
+        providerApiConnected: ripple.apiAuthenticated,
+        feeCoverageVerified: false,
       },
       limitations: [
-        'This is a read-only TRX-specific readiness diagnostic; no provider API is called.',
-        'Ripple documents TRON Mainnet native TRX support, but does not publicly promise principal credit or fee sponsorship.',
-        'A provider agreement, authenticated account, provider-owned principal or approved credit facility, fee coverage, and payable escrow-call authorization are required.',
+        'Ripple credentials, when configured, are used only to read the TRX wallet balance and estimate the native TRX transfer fee.',
+        'A Ripple custody wallet balance is actual custody balance, not proof of provider-owned allocation or an unsecured credit facility.',
+        'Ripple requires a funded wallet, an active outbound LIMIT policy, an allowed destination, and outgoing transactions enabled before a native TRX transfer can be submitted.',
+        'No public Ripple TRX principal-credit facility or credit-funded fee facility has been verified for this project.',
         'No transaction is signed or broadcast and live payouts remain disabled.',
       ],
     })
