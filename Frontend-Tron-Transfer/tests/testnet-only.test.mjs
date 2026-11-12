@@ -102,3 +102,12 @@ test('production metadata and frontend test command remain configured', () => {
   assert.equal(pkg.scripts.build, 'vite build')
   assert.equal(pkg.scripts.test, 'node --test tests/*.test.mjs')
 })
+
+
+test('owner-facing pending request labels never imply an on-chain or exchange deposit before sponsor authorization', async () => {
+  const source = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
+  assert.match(source, /requested: 'Pending sponsor funding and signature'/)
+  assert.match(source, /no blockchain transaction or exchange deposit exists yet/i)
+  assert.match(source, /must recheck live Mainnet USDT and network resources, then explicitly sign this exact payout/i)
+  assert.match(source, /On-chain confirmation is not exchange credit/i)
+})
