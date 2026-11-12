@@ -29,6 +29,7 @@ function formatSun(value) {
 
 export default function RestrictedTRXEscrow() {
   const [requestId, setRequestId] = useState('')
+  const [transactionId, setTransactionId] = useState('')
   const [position, setPosition] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -75,20 +76,37 @@ export default function RestrictedTRXEscrow() {
     setError('')
     setPosition(null)
     try {
-      if (!/^0x[0-9a-f]{64}$/i.test(requestId.trim())) throw new Error('Enter the 32-byte escrow request ID (0x followed by 64 hexadecimal characters).')
-      if (!ESCROW_ADDRESS || !TronWeb.isAddress(ESCROW_ADDRESS)) throw new Error('No valid deployed escrow contract is configured. Mainnet verification is unavailable until the audited contract is deployed and its address is configured.')
-      const client = new TronWeb({ fullHost: 'https://api.trongrid.io' })
-      const contract = await client.contract(ABI, ESCROW_ADDRESS)
-      const result = await contract.getPosition(requestId.trim()).call()
-      const beneficiary = result.beneficiary || result[0]
-      const amountSun = result.amountSun ?? result[1]
-      const unlockAt = Number(result.unlockAt ?? result[2])
-      const claimed = Boolean(result.claimed ?? result[3])
-      if (beneficiary !== BITPIE_ADDRESS) throw new Error('This escrow request is not assigned to the configured Bitpie destination. No balance is displayed.')
-      if (BigInt(String(amountSun)) <= 0n) throw new Error('The escrow contract returned no funded amount for this request.')
-      setPosition({ beneficiary, amountSun: String(amountSun), unlockAt, claimed })
+      const normalizedRequestId = requestId.trim()
+      const normalizedTxid = transactionId.trim()
+      if (!/^0x[0-9a-f]{64}$/i.test(normalizedRequestId)) {
+        throw new Error('Enter the 32-byte escrow request ID (0x followed by 64 hexadecimal characters).')
+      }
+      if (!/^[0-9a-f]{64}$/i.test(normalizedTxid)) {
+        throw new Error('Enter the 64-character TRON funding transaction ID.')
+      }
+      if (!ESCROW_ADDRESS || !TronWeb.isAddress(ESCROW_ADDRESS)) {
+        throw new Error('No audited Mainnet escrow contract is configured. Verification is unavailable until deployment.')
+      }
+      const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
+      if (!token) throw new Error('Sign in with the configured owner wallet before verifying escrow.')
+      const response = await fetch(
+        API_BASE + '/api/restricted-trx/escrow/verify/' +
+          encodeURIComponent(normalizedRequestId) + '/' + encodeURIComponent(normalizedTxid),
+        {
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        },
+      )
+      const payload = await response.json()
+      if (response.status === 202) throw new Error('The funding transaction is not yet solidified. Check again later; no restricted balance is credited yet.')
+      if (!response.ok || payload.verified !== true || payload.result?.verified !== true) {
+        throw new Error(payload.result?.reason || payload.error || 'Escrow verification failed. No restricted balance is recognized.')
+      }
+      setPosition(payload.result)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not verify the escrow position on TRON Mainnet.')
+      setError(cause instanceof Error ? cause.message : 'Could not independently verify this escrow position.')
     } finally {
       setBusy(false)
     }
@@ -118,7 +136,8 @@ export default function RestrictedTRXEscrow() {
       </div>
       <div className="form-stack">
         <label>Escrow request ID (bytes32)<input value={requestId} onChange={(event) => setRequestId(event.target.value)} placeholder="0x… 64 hexadecimal characters" autoComplete="off" spellCheck="false"/></label>
-        <button className="primary-button" disabled={busy || !requestId.trim()} onClick={() => void verifyPosition()}><RefreshCw size={15}/>{busy ? 'Verifying on TRON…' : 'Verify escrow position'}</button>
+        <label>Funding transaction ID<input value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="64 hexadecimal characters" autoComplete="off" spellCheck="false"/></label>
+        <button className="primary-button" disabled={busy || !requestId.trim() || !transactionId.trim()} onClick={() => void verifyPosition()}><RefreshCw size={15}/>{busy ? 'Verifying on TRON…' : 'Verify escrow position'}</button>
       </div>
       {error && <div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{error}</span></div>}
       {position && <div className="recipient-results">
@@ -128,7 +147,9 @@ export default function RestrictedTRXEscrow() {
           <article className="metric-card"><span>Unlock time</span><strong>{new Date(position.unlockAt * 1000).toLocaleString()}</strong></article>
           <article className="metric-card"><span>Beneficiary match</span><strong>{position.beneficiary === BITPIE_ADDRESS ? 'Verified' : 'Mismatch'}</strong></article>
         </div>
-        <div className="notice notice-success"><ShieldCheck size={16}/><span>Position details were read directly from the configured TRON Mainnet escrow contract. Confirm the contract and funding transaction independently on TRONSCAN.</span></div>
+        <div className="notice notice-success"><ShieldCheck size={16}/><span>Position, funding event, provider sender, principal amount, and aggregate collateral were verified from solidified TRON state. This is contract-held TRX, not a Bitpie app deposit.</span></div>
+        {position.explorerTransactionUrl && <a href={position.explorerTransactionUrl} target="_blank" rel="noreferrer">Open verified funding transaction on TRONSCAN <ExternalLink size={13}/></a>}
+        {position.explorerContractUrl && <a href={position.explorerContractUrl} target="_blank" rel="noreferrer">Open escrow contract on TRONSCAN <ExternalLink size={13}/></a>}
       </div>}
       <p className="fine-print">A position appears here only after a provider has funded the deployed escrow contract and the beneficiary position has been recorded on-chain. No local balance is fabricated.</p>
     </section>
