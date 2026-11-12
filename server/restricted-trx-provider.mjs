@@ -127,7 +127,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
  * the API response or approve production execution.
  */
 export function assertRestrictedTrxCreditAuthorization(facility, {
-  destination, amountSun, feeBudgetSun, escrowAddress, now = Date.now(),
+  destination, amountSun, feeBudgetSun, escrowAddress, delegatedResourceVerification, now = Date.now(),
 } = {}) {
   const fail = (code) => {
     const error = new Error('Provider credit authorization is insufficient')
@@ -162,13 +162,20 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
   let delegatedResourceEvidence = null
   if (combinedFeeMode) {
     const resources = facility.delegatedResources
+    const chainEvidence = delegatedResourceVerification
     const validAddress = typeof escrowAddress === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(escrowAddress)
     const hasEnergy = positiveIntegerString(resources?.energyLimit)
     const hasBandwidth = positiveIntegerString(resources?.bandwidthLimit)
-    const resourceTxIds = resources?.resourceTransactionIds
-    if (!validAddress || !resources || resources.verifiedOnChain !== true
-      || resources.status !== 'active' || resources.network !== 'TRON_MAINNET'
-      || resources.receiverAddress !== escrowAddress || (!hasEnergy && !hasBandwidth)
+    const resourceTxIds = chainEvidence?.resourceTransactionIds
+    const verifiedEnergy = positiveIntegerString(chainEvidence?.energyLimit)
+    const verifiedBandwidth = positiveIntegerString(chainEvidence?.bandwidthLimit)
+    if (!validAddress || !resources || !chainEvidence || chainEvidence.verified !== true
+      || chainEvidence.solidified !== true || resources.status !== 'active'
+      || resources.network !== 'TRON_MAINNET' || chainEvidence.network !== 'TRON_MAINNET'
+      || resources.receiverAddress !== escrowAddress || chainEvidence.receiverAddress !== escrowAddress
+      || (!hasEnergy && !hasBandwidth)
+      || (hasEnergy && (!verifiedEnergy || BigInt(chainEvidence.energyLimit) < BigInt(resources.energyLimit)))
+      || (hasBandwidth && (!verifiedBandwidth || BigInt(chainEvidence.bandwidthLimit) < BigInt(resources.bandwidthLimit)))
       || !Array.isArray(resourceTxIds) || resourceTxIds.length === 0
       || resourceTxIds.some((id) => typeof id !== 'string' || !/^[0-9a-f]{64}$/i.test(id))
       || !Number.isFinite(Date.parse(resources.expiresAt)) || Date.parse(resources.expiresAt) <= now) {
@@ -176,8 +183,8 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
     }
     delegatedResourceEvidence = Object.freeze({
       receiverAddress: resources.receiverAddress,
-      energyLimit: hasEnergy ? resources.energyLimit : '0',
-      bandwidthLimit: hasBandwidth ? resources.bandwidthLimit : '0',
+      energyLimit: hasEnergy ? chainEvidence.energyLimit : '0',
+      bandwidthLimit: hasBandwidth ? chainEvidence.bandwidthLimit : '0',
       resourceTransactionIds: Object.freeze([...resourceTxIds]),
       expiresAt: resources.expiresAt,
     })
