@@ -42,6 +42,12 @@ export default function App() {
   const [monitorData,setMonitorData]=useState(null)
   const [monitorError,setMonitorError]=useState('')
   const [monitorBusy,setMonitorBusy]=useState(false)
+  const [creditCustomerId,setCreditCustomerId]=useState('')
+  const [creditAmountTrx,setCreditAmountTrx]=useState('')
+  const [creditReason,setCreditReason]=useState('')
+  const [creditAccount,setCreditAccount]=useState(null)
+  const [creditBusy,setCreditBusy]=useState(false)
+  const [creditError,setCreditError]=useState('')
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
@@ -174,6 +180,7 @@ export default function App() {
     {id:'recipients',label:'Recipients',icon:ArrowDownLeft},
     {id:'withdrawals',label:'Withdrawals',icon:ArrowUpRight},
     {id:'provider',label:'Funding provider',icon:ShieldCheck},
+    {id:'credits',label:'Restricted credits',icon:LockKeyhole},
     {id:'sponsors',label:'Sponsor approvals',icon:ShieldCheck},
     {id:'transactions',label:'Transactions',icon:History},
     {id:'settings',label:'Settings',icon:Settings},
@@ -284,6 +291,19 @@ export default function App() {
           <SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="sponsor" />
         </section>}
 
+        {tab==='credits'&&<section className="panel provider-panel">
+          <div className="section-heading"><div><span className="eyebrow">OWNER-ONLY · APPEND-ONLY LEDGER</span><h2>Restricted TRX-denominated credits</h2><p>Allocate and inspect internal credits for a customer ID or TRON address. These entries are not native TRX, are not withdrawable on-chain, and do not change any Bitpie wallet balance.</p></div><div className="panel-icon"><LockKeyhole/></div></div>
+          <div className="transfer-form">
+            <label className="wide-field">Customer ID / recipient TRON address<input value={creditCustomerId} onChange={e=>setCreditCustomerId(e.target.value)} placeholder="Customer ID or T…" autoComplete="off" spellCheck="false"/></label>
+            <div className="button-row wide-field"><button className="secondary-button" disabled={creditBusy||!creditCustomerId.trim()} onClick={()=>perform(loadRestrictedCredits)}><RefreshCw size={15}/>{creditBusy?'Loading…':'View restricted balance'}</button></div>
+            <label>Credit amount (TRX denomination)<input value={creditAmountTrx} onChange={e=>setCreditAmountTrx(e.target.value)} placeholder="e.g. 25.000000" inputMode="decimal"/></label>
+            <label className="wide-field">Audit reason<input value={creditReason} onChange={e=>setCreditReason(e.target.value)} placeholder="Reason for this internal credit allocation"/></label>
+            <button className="primary-button" disabled={busy||creditBusy||!creditCustomerId.trim()||!creditAmountTrx.trim()||creditReason.trim().length<4} onClick={()=>perform(allocateRestrictedCredits)}><LockKeyhole size={16}/> Allocate restricted internal credit</button>
+          </div>
+          {creditError&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{creditError}</span></div>}
+          {creditAccount&&<div className="recipient-balance-grid"><article className="metric-card"><span>Restricted balance</span><strong>{formatUnits(creditAccount.balanceSun,6)} <small>TRX-credit</small></strong></article><article className="metric-card"><span>Ledger entries</span><strong>{creditAccount.entryCount}</strong></article><article className="metric-card"><span>Account status</span><strong>{creditAccount.status}</strong></article><article className="metric-card"><span>On-chain withdrawal</span><strong>Not supported</strong></article></div>}
+          <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Accounting boundary</b><p>These credits exist only in Tron Transfer's internal ledger. They are not actual TRX custody, a blockchain transaction, a Bitpie deposit, or a balance Bitpie can display. Actual TRX must be deposited and confirmed on TRON separately.</p></div></div>
+        </section>}
         {tab==='provider'&&<section className="panel provider-panel">
           <div className="section-heading"><div><span className="eyebrow">PRIVATE PLATFORM OWNER · PAYOUT PROVIDER</span><h2>Provider funding authorization</h2><p>Provider-managed payout credit is not configured. The active route is a separately owned, self-custody sponsor wallet that must be reviewed, funded and explicitly sign each transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
           <ProviderPayoutReadiness ownerSession={ownerSession} mode="withdraw" />
