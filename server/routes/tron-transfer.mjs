@@ -7,6 +7,7 @@ import { tatumProviderFetch } from '../tatum-provider-fetch.mjs'
 import { readTronGridIncomingHistory } from '../trongrid-history.mjs'
 import { payoutStatusFromProvider } from '../fincra-payout-status.mjs'
 import { getUnconfiguredProviderPayoutReadiness } from '../provider-payout-readiness.mjs'
+import { getUnconfiguredNativeTrxEscrowReadiness } from '../native-trx-escrow-provider-readiness.mjs'
 import { readFincraAccountDiagnostics } from '../fincra-payout-provider.mjs'
 
 const { Pool } = pg
@@ -518,6 +519,30 @@ transaction_hash CHAR(64),
         'This endpoint does not call Fincra or another payout provider.',
         'A genuine payout requires provider authorization and verified provider-owned USDT liquidity or an approved credit facility.',
         'Tatum supplies TRON infrastructure and verification, not payout principal.',
+      ],
+    })
+  })
+
+  router.get('/native-trx-escrow-provider-readiness', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private')
+    const auth = await requireOwnerSession(req, env)
+    if (!auth.ok) return res.status(auth.status).json({ success: false, error: auth.error })
+    const readiness = getUnconfiguredNativeTrxEscrowReadiness()
+    return res.json({
+      success: true,
+      ownerAddress: auth.address,
+      readiness,
+      funding: {
+        ownerWalletPrincipalRequired: false,
+        providerOwnedLiquidityVerified: false,
+        providerApprovedCreditVerified: false,
+        providerApiConnected: false,
+      },
+      limitations: [
+        'This is a read-only TRX-specific readiness diagnostic; no provider API is called.',
+        'Ripple documents TRON Mainnet native TRX support, but does not publicly promise principal credit or fee sponsorship.',
+        'A provider agreement, authenticated account, provider-owned principal or approved credit facility, fee coverage, and payable escrow-call authorization are required.',
+        'No transaction is signed or broadcast and live payouts remain disabled.',
       ],
     })
   })
