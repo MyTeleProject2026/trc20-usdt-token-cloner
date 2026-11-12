@@ -12,7 +12,7 @@ const env = {
 test('service authentication requires client ID and client secret', () => {
   assert.equal(rippleCustodyConfiguration(env).configured, true)
   assert.equal(rippleCustodyConfiguration({ ...env, RC_CLIENT_SECRET: '' }).configured, false)
-  assert.deepEqual(rippleCustodyConfiguration({ ...env, RC_CLIENT_ID: '' }).missing, ['RC_CLIENT_ID'])
+  assert.ok(rippleCustodyConfiguration({ ...env, RC_CLIENT_ID: '', RC_CONFIG_FILE: 'config/not-found.toml' }).missing.includes('RC_CLIENT_ID or client_id in config file'))
 })
 
 test('official SDK is used for domain reads and client is closed', async () => {
