@@ -98,8 +98,8 @@ export function createPublicTronReadClient(options = {}) {
         permissionAssessment,
         source: 'tron-solidified-node',
         balanceKind: 'native-trx-account-balance',
-        singleSignerCanMoveNativeTrx: permissionAssessment.available
-          ? permissionAssessment.singleSignerCanMoveNativeTrx
+        singleSignerCanMoveFunds: permissionAssessment.available
+          ? permissionAssessment.singleSignerCanMoveFunds
           : null,
         restrictedEscrowBalance: null,
         note: 'This is the actual native TRX balance of the address from solidified TRON state. Whether one key can move it depends on the account permission thresholds. It is not a smart-contract escrow position.',
