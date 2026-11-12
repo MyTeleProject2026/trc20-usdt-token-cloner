@@ -9,6 +9,7 @@ test('Ripple readiness fails closed with principal credit and escrow selected', 
   const result = getRestrictedTrxProviderReadiness({})
   assert.equal(result.provider, 'ripple')
   assert.equal(result.providerSelection, 'selected-for-diligence-only')
+  assert.equal(result.runtimeCodeHashConfigured, false)
   assert.equal(result.network, 'TRON_MAINNET')
   assert.equal(result.asset, 'TRX')
   assert.equal(result.fundingArrangement, 'principal-credit')
@@ -34,10 +35,12 @@ test('configuration flags and provider credentials alone never enable funding', 
     RESTRICTED_TRX_PROVIDER_ACCOUNT_ID: 'account-123',
     RESTRICTED_TRX_PROVIDER_AGREEMENT_CONFIRMED: 'true',
     RESTRICTED_TRX_ESCROW_CONTRACT: 'TExampleContractAddress',
+    RESTRICTED_TRX_ESCROW_RUNTIME_CODE_SHA256: 'a'.repeat(64),
   })
   assert.equal(result.credentialsConfigured, true)
   assert.equal(result.providerAgreementConfigured, true)
   assert.equal(result.adapterImplemented, false)
+  assert.equal(result.runtimeCodeHashConfigured, true)
   assert.equal(result.liquidityVerified, false)
   assert.equal(result.canBroadcastEscrowFunding, false)
   assert.equal(result.liveExecutionHardDisabled, true)
