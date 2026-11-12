@@ -53,13 +53,16 @@ export function createRippleCustodyRouter({
     const config = rippleCustodyConfiguration(env)
     return res.json({
       success: true, provider: 'Ripple Custody', configured: config.configured,
-      missing: config.missing, network: config.network,
+      missing: config.missing, authMode: config.authMode, network: config.network,
       readOperationsEnabled: config.configured, mutationOperationsEnabled: false, realValueExecutionEnabled: false,
+      sdk: 'official-typescript-sdk',
       bitpie: bitpie.capabilities,
       disclosures: [
         'Ripple Custody virtual-account balances are custody-provider accounting records, not Bitpie wallet balances.',
         'Tron Transfer restricted credits are separate internal ledger entries and are not actual TRX.',
         'Provider API connectivity is not proof of blockchain finality or recipient exchange credit.',
+        'The configured PEM key is not used for client-credentials authentication; service tokens identify a service caller.',
+        'Only the SDK-backed domain-list read is currently implemented; other provider reads remain unavailable until mapped to documented SDK methods.',
       ],
     })
   })
@@ -83,12 +86,16 @@ export function createRippleCustodyRouter({
   })
 
   async function providerRead(res, operation) {
+    let client
     try {
-      const client = clientFactory()
-      return res.json({ success: true, provider: 'Ripple Custody', data: await operation(client) })
+      client = await clientFactory()
+      const data = await operation(client)
+      return res.json({ success: true, provider: 'Ripple Custody', data })
     } catch (error) {
       const status = error instanceof RippleCustodyApiError ? error.status : 503
       return res.status(status).json({ success: false, error: error instanceof RippleCustodyApiError ? error.code : 'ripple-custody-read-failed' })
+    } finally {
+      try { await client?.close?.() } catch { /* never expose SDK shutdown details */ }
     }
   }
 
@@ -115,9 +122,6 @@ export function createRippleCustodyRouter({
   router.get('/domains/:domainId/transactions/:transactionId', (req, res) => providerRead(res, (client) => client.read.getTransaction(req.params.transactionId, req.params.domainId)))
   router.get('/domains/:domainId/events', (req, res) => providerRead(res, (client) => client.read.listEvents(req.params.domainId)))
 
-
-  // Mutation endpoints are present as explicit fail-closed responses so clients
-  // cannot mistake an unimplemented provider write for a successful operation.
   const mutationDisabled = (_req, res) => res.status(503).json({
     success: false, error: 'ripple-custody-mutations-disabled',
     mutationEnabled: false, realValueExecutionEnabled: false,
