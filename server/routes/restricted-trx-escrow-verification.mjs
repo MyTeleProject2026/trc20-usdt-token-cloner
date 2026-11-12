@@ -5,7 +5,6 @@ import { getWalletAuthSession } from '../database.mjs'
 import { createPublicTronReadClient } from '../public-tron-read-client.mjs'
 import { verifyRestrictedTrxEscrowEvidence } from '../restricted-trx-escrow-verifier.mjs'
 
-const DEFAULT_BITPIE_BENEFICIARY = 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
 const REQUEST_ID_RE = /^0x[0-9a-f]{64}$/i
 const TXID_RE = /^[0-9a-f]{64}$/i
 
@@ -86,7 +85,7 @@ export function createRestrictedTrxEscrowVerificationRouter({
     }
 
     const contractAddress = String(env.RESTRICTED_TRX_ESCROW_CONTRACT || '').trim()
-    const beneficiary = String(env.RESTRICTED_TRX_BENEFICIARY_ADDRESS || DEFAULT_BITPIE_BENEFICIARY).trim()
+    const beneficiary = String(env.RESTRICTED_TRX_BENEFICIARY_ADDRESS || '').trim()
     if (!TronWeb.isAddress(contractAddress) || !TronWeb.isAddress(beneficiary)) {
       return res.status(503).json({
         success: false,
