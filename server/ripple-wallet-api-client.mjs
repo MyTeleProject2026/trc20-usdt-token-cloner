@@ -32,14 +32,15 @@ function parseBaseUrl(value) {
 }
 
 function safePath(path) {
+  let decodedPath = ''
+  try { decodedPath = decodeURIComponent(String(path).split('?')[0]) } catch { throw configError('ripple-api-path-invalid') }
   if (typeof path !== 'string' || !path.startsWith('/v2/')
-    || path.startsWith('//') || path.includes('\\')
-    || path.split('/').some((part) => part === '.' || part === '..')) {
+    || path.startsWith('//') || path.includes('\\') || decodedPath.includes('\\')
+    || decodedPath.split('/').some((part) => part === '.' || part === '..')) {
     throw configError('ripple-api-path-invalid')
   }
   return path
 }
-
 function parseJsonResponse(response, body) {
   if (!response.ok) {
     const error = new Error('Ripple Wallet API request failed')
