@@ -113,3 +113,7 @@ test('fails closed when funding event is absent or request IDs do not match',()=
  assert.equal(verifyRestrictedTrxEscrowEvidence({...evidence,receipt:{...evidence.receipt,log:[]}}).reason,'position-funded-event-not-found')
  assert.equal(verifyRestrictedTrxEscrowEvidence({...evidence,expectedRequestId:'0x'+'e'.repeat(64)}).reason,'request-id-calldata-mismatch')
 })
+
+test('fails closed when the solidified transaction body does not match the requested txid',()=>{
+ assert.equal(verifyRestrictedTrxEscrowEvidence({...evidence,expectedTxId:'f'.repeat(64)}).reason,'requested-transaction-id-mismatch')
+})
