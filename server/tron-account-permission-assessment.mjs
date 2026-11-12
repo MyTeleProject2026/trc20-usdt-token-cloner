@@ -7,7 +7,7 @@
  */
 import { TronWeb } from 'tronweb'
 
-const VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES = Object.freeze([1, 2, 11, 12, 13, 14, 30, 31, 46, 54, 55, 56, 57, 58, 59])
+const VALUE_OR_PERMISSION_CONTROL_CONTRACT_TYPES = Object.freeze([1, 2, 9, 11, 12, 13, 20, 30, 31, 41, 42, 43, 44, 46, 52, 53, 54, 55, 56, 57, 58, 59])
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i
 
 function safeInteger(value) {
