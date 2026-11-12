@@ -173,8 +173,8 @@ export default function RestrictedTRXEscrow() {
       </div>
       <div className="settings-group">
         <span className="eyebrow">BITPIE ADDRESS · PUBLIC SOLIDIFIED TRON BALANCE</span>
-        <div className="address-box"><span>Ordinary on-chain wallet balance (not restricted)</span><b>{bitpieAccount ? formatSun(bitpieAccount.balanceSun) + ' TRX' : 'Not verified'}</b></div>
-        <p className="fine-print">{bitpieAccount ? 'Verified from solidified TRON state. The amount shown here is the actual native balance of this address; restrictions depend on the on-chain permission threshold below.' : accountError || 'Loading public chain balance…'}</p>
+        <div className="address-box"><span>Native TRX balance at beneficiary address</span><b>{bitpieAccount ? formatSun(bitpieAccount.balanceSun) + ' TRX' : 'Not verified'}</b></div>
+        <p className="fine-print">{bitpieAccount ? 'Verified from solidified TRON state. The amount shown here is the actual native balance at this address; whether one key can spend it depends on the on-chain permission thresholds below. This is not a smart-contract escrow credit.' : accountError || 'Loading public chain balance…'}</p>
         {bitpieAccount?.permissionAssessment?.available ? (
           <div className={bitpieAccount.permissionAssessment.restrictedAgainstSingleKey ? 'notice notice-success' : 'notice notice-warning'}>
             <ShieldCheck size={16}/>
