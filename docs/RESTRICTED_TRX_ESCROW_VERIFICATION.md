@@ -44,3 +44,13 @@ A contract-held TRX position requires real TRX principal deposited into the cont
 - The existing live payout hard gate remains in place.
 
 Do not mark a position funded until the API returns `verified: true` after solidified chain reads; do not treat a provider balance field or a normal Bitpie address balance as escrow credit.
+
+## Beneficiary position discovery
+
+The escrow contract now indexes request IDs by beneficiary:
+- `getBeneficiaryPositionCount(address)`
+- `getBeneficiaryPositionRequestId(address,uint256)`
+
+The owner-authenticated public TRON read proxy exposes read-only calls for the beneficiary count, indexed request IDs, and individual position getters. The owner UI can discover positions registered to the configured Bitpie address and select a request ID. A discovered getter row is labelled **not transaction-verified** until the owner also supplies the funding transaction ID and the full route verifies transaction body, solidified receipt, calldata, sender, event, position, and aggregate collateral.
+
+This indexing is part of the escrow contract bytecode. If an older contract is ever deployed before this change, it will not expose these discovery functions; deploy and verify the updated audited contract before configuring its Mainnet address.
