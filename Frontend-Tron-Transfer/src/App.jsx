@@ -51,6 +51,10 @@ export default function App() {
   const [oneTraxAccounting,setOneTraxAccounting]=useState(null)
   const [oneTraxBusy,setOneTraxBusy]=useState(false)
   const [oneTraxError,setOneTraxError]=useState('')
+  const [oneTraxRecipient,setOneTraxRecipient]=useState('TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk')
+  const [oneTraxAmount,setOneTraxAmount]=useState('100')
+  const [oneTraxMintBusy,setOneTraxMintBusy]=useState(false)
+  const [oneTraxMintResult,setOneTraxMintResult]=useState(null)
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
@@ -157,6 +161,38 @@ export default function App() {
       if(result.success!==true) throw new Error(result.error||'1TRAX accounting unavailable.')
       setOneTraxAccounting(result); return result
     } catch(e) {setOneTraxError(e.message);throw e} finally {setOneTraxBusy(false)}
+  }
+  async function prepareAndMintOneTrax() {
+    if (!unlocked?.tronWeb || !unlocked?.address) throw new Error('Connect the configured owner wallet in TronLink on TRON Mainnet first.')
+    if (!isValidAddress(oneTraxRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
+    if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(oneTraxAmount) || !/[1-9]/.test(oneTraxAmount)) throw new Error('Enter a positive amount with up to 6 decimal places.')
+    const parts=oneTraxAmount.split('.'), amountUnits=(BigInt(parts[0])*1000000n+BigInt((parts[1]||'').padEnd(6,'0'))).toString()
+    if (!oneTraxAccounting?.configured || !oneTraxAccounting?.liability?.contractAddress || !oneTraxAccounting?.reserve?.address) { await loadOneTraxAccounting(); throw new Error('Mainnet accounting was refreshed. Review it, then request minting again.') }
+    const tokenAddress=oneTraxAccounting.liability.contractAddress, vaultAddress=oneTraxAccounting.reserve.address, tronWeb=unlocked.tronWeb
+    if (!String(tronWeb.fullNode?.host||'').includes('api.trongrid.io')) throw new Error('Wallet network is not confirmed as TRON Mainnet.')
+    const abi=[
+      {constant:true,inputs:[],name:'owner',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'paused',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'mintingEnabled',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'reserveVault',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
+      {constant:true,inputs:[],name:'totalSupply',outputs:[{name:'',type:'uint256'}],stateMutability:'view',type:'function'},
+      {constant:false,inputs:[{name:'recipient',type:'address'},{name:'amount',type:'uint256'}],name:'mint',outputs:[],stateMutability:'nonpayable',type:'function'}
+    ]
+    setOneTraxMintBusy(true); setOneTraxMintResult(null); setOneTraxError('')
+    try {
+      const token=await tronWeb.contract(abi).at(tokenAddress)
+      const [contractOwner,paused,mintingEnabled,linkedVault,supply]=await Promise.all([token.owner().call(),token.paused().call(),token.mintingEnabled().call(),token.reserveVault().call(),token.totalSupply().call()])
+      if (tronWeb.address.toHex(contractOwner)!==tronWeb.address.toHex(unlocked.address)) throw new Error('Connected TronLink account is not the token contract owner.')
+      if (paused!==false || mintingEnabled!==true) throw new Error('Minting is not enabled and unpaused on-chain. Do not bypass this safety lock.')
+      if (tronWeb.address.toHex(linkedVault)!==tronWeb.address.toHex(vaultAddress)) throw new Error('Token contract vault does not match the configured reserve vault.')
+      const reserveSun=BigInt(String(await tronWeb.trx.getBalance(vaultAddress))), outstanding=BigInt(String(supply))
+      if (reserveSun < outstanding+BigInt(amountUnits)) throw new Error('Insufficient native TRX reserve for this issuance.')
+      const txid=await token.mint(oneTraxRecipient.trim(),tronWeb.toBigNumber(amountUnits)).send({feeLimit:100000000,callValue:0,shouldPollResponse:true,keepTxID:true})
+      setOneTraxMintResult({txid,recipient:oneTraxRecipient.trim(),amount:oneTraxAmount,status:'Submitted; independent solidified confirmation is still required.'})
+      setNotice('Mint transaction submitted. Verify its solidified result on TRONSCAN before treating the credit as delivered.')
+      await loadOneTraxAccounting()
+    } catch(e) { setOneTraxError(e instanceof Error?e.message:'Mainnet mint request failed.'); throw e }
+    finally { setOneTraxMintBusy(false) }
   }
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
@@ -351,6 +387,19 @@ export default function App() {
             <article className="metric-card"><span>Reserve surplus</span><strong>{formatUnits(oneTraxAccounting.reconciliation.surplusSun,6)} <small>TRX</small></strong></article>
             <article className="metric-card"><span>Backing ratio</span><strong>{oneTraxAccounting.reconciliation.backingRatioBasisPoints===null?'—':(Number(oneTraxAccounting.reconciliation.backingRatioBasisPoints)/100).toFixed(2)+'%'}</strong></article>
           </div>}
+          <div className="settings-group">
+            <span className="eyebrow">OWNER-ONLY MAINNET ISSUANCE</span>
+            <h3>Mint restricted TRӾ</h3>
+            <p>Minting requires the deployed token owner in TronLink, an unpaused contract, enabled minting, and sufficient native TRX reserve. The button requests a wallet signature and submits a real Mainnet transaction.</p>
+            <label>Recipient TRON address<input value={oneTraxRecipient} onChange={e=>setOneTraxRecipient(e.target.value)} autoComplete="off" spellCheck="false"/></label>
+            <label>Amount (TRӾ)<input value={oneTraxAmount} onChange={e=>setOneTraxAmount(e.target.value)} inputMode="decimal"/></label>
+            <div className="button-row">
+              {!unlocked&&<button className="secondary-button" onClick={()=>perform(connectTronLink)}><Wallet size={15}/> Connect owner TronLink</button>}
+              <button className="primary-button" disabled={oneTraxMintBusy||!unlocked||!oneTraxAccounting?.configured||!isValidAddress(oneTraxRecipient)||!oneTraxAmount.trim()} onClick={()=>perform(prepareAndMintOneTrax)}><LockKeyhole size={15}/>{oneTraxMintBusy?"Preparing Mainnet mint…":"Review and request wallet signature"}</button>
+            </div>
+            {oneTraxMintResult&&<div className="notice notice-warning"><CheckCircle2 size={17}/><div><b>Transaction submitted — confirmation pending</b><p>{oneTraxMintResult.amount} TRӾ to {oneTraxMintResult.recipient}</p><a href={"https://tronscan.org/#/transaction/"+oneTraxMintResult.txid} target="_blank" rel="noreferrer">View transaction on TRONSCAN <ExternalLink size={12}/></a><p className="fine-print">{oneTraxMintResult.status}</p></div></div>}
+            {oneTraxMintBusy&&<p className="fine-print">Review the exact recipient and amount in TronLink before signing.</p>}
+          </div>
           <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Strict separation</b><p>Reserve TRX is a real native-asset balance at the configured Mainnet vault. TRӾ supply is a separate custom-token liability, not native TRX. They are never added together. A matching ratio is not a guaranteed market price, USD value, or proof that Bitpie displays the token.</p></div></div>
         </section>}
         {tab==='provider'&&<section className="panel provider-panel">
