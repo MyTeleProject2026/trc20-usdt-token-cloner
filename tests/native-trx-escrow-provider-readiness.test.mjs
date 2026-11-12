@@ -52,3 +52,12 @@ test('malformed amounts and missing payable-call or fee approval fail closed', (
   assert.ok(result.blockers.includes('feeCoverageVerified-not-verified'))
   assert.ok(result.blockers.includes('payableEscrowCallSupported-not-verified'))
 })
+
+test('owner readiness endpoint remains diagnostic-only and never calls a provider', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const route = await readFile(new URL('../server/routes/tron-transfer.mjs', import.meta.url), 'utf8')
+  assert.match(route, /router\.get\('\/native-trx-escrow-provider-readiness'/)
+  assert.match(route, /getUnconfiguredNativeTrxEscrowReadiness\(\)/)
+  assert.match(route, /providerApiConnected: false/)
+  assert.match(route, /no provider API is called/)
+})
