@@ -58,3 +58,7 @@ This indexing is part of the escrow contract bytecode. If an older contract is e
 ## Immutable on-chain funding limits and beneficiary index
 
 The escrow constructor now requires `maxPositionSun` and `maxDailyPrincipalSun` (both in SUN). `fundPosition` rejects a position above the per-position maximum and rejects cumulative provider principal for the current UTC day above the daily maximum. Both limits are immutable for the deployed contract and cannot be raised through the owner dashboard. Changing them requires a new reviewed contract deployment. The contract also indexes request IDs per beneficiary with `getBeneficiaryPositionCount(address)` and `getBeneficiaryPositionRequestId(address,uint256)`, enabling the owner panel to discover positions from solidified contract state before entering the transaction ID for full proof verification.
+
+## Fixed beneficiary binding
+
+The escrow contract now pins `restrictedBeneficiary` as a constructor-supplied immutable address. `fundPosition` rejects every beneficiary other than this exact address. For this deployment plan, set it to the confirmed Bitpie address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`. The owner verifier independently reads the immutable `restrictedBeneficiary()` getter and rejects evidence if the configured beneficiary does not match. The constructor therefore requires the provider address, operator address, restricted beneficiary address, minimum and maximum lock duration, maximum position principal (SUN), and maximum UTC daily principal (SUN).
