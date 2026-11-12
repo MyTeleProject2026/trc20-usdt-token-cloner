@@ -36,6 +36,9 @@ export default function RestrictedTRXEscrow() {
   const [providerReadiness, setProviderReadiness] = useState(null)
   const [bitpieAccount, setBitpieAccount] = useState(null)
   const [accountError, setAccountError] = useState('')
+  const [discoveredPositions, setDiscoveredPositions] = useState([])
+  const [discoverBusy, setDiscoverBusy] = useState(false)
+  const [discoveryError, setDiscoveryError] = useState('')
 
   useEffect(() => {
     let active = true
@@ -70,6 +73,50 @@ export default function RestrictedTRXEscrow() {
     void loadBitpieAccount()
     return () => { active = false }
   }, [])
+
+  async function discoverPositions() {
+    setDiscoverBusy(true)
+    setDiscoveryError('')
+    setDiscoveredPositions([])
+    try {
+      if (!ESCROW_ADDRESS || !TronWeb.isAddress(ESCROW_ADDRESS)) throw new Error('No audited Mainnet escrow contract is configured.')
+      const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
+      if (!token) throw new Error('Sign in with the configured owner wallet before discovering escrow positions.')
+      const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
+      const base = API_BASE + '/api/public-tron/escrow/' + encodeURIComponent(ESCROW_ADDRESS) +
+        '/beneficiary/' + encodeURIComponent(BITPIE_ADDRESS)
+      const countResponse = await fetch(base + '/count', { headers, credentials: 'omit', cache: 'no-store', redirect: 'error' })
+      const countPayload = await countResponse.json()
+      if (!countResponse.ok || countPayload.success !== true) throw new Error(countPayload.error || 'Could not read the beneficiary position count.')
+      const count = Number(countPayload.data.count)
+      if (!Number.isSafeInteger(count) || count < 0 || count > 1000) throw new Error('The contract returned an invalid or excessive position count.')
+      const positions = []
+      for (let index = 0; index < count; index += 1) {
+        const idResponse = await fetch(base + '/request/' + index, { headers, credentials: 'omit', cache: 'no-store', redirect: 'error' })
+        const idPayload = await idResponse.json()
+        if (!idResponse.ok || idPayload.success !== true) throw new Error('Could not read escrow request ID at index ' + index + '.')
+        const requestId = idPayload.data.requestId
+        const positionResponse = await fetch(API_BASE + '/api/public-tron/escrow/' + encodeURIComponent(ESCROW_ADDRESS) +
+          '/position/' + encodeURIComponent(requestId), { headers, credentials: 'omit', cache: 'no-store', redirect: 'error' })
+        const positionPayload = await positionResponse.json()
+        if (!positionResponse.ok || positionPayload.success !== true) throw new Error('Could not read escrow position ' + requestId + '.')
+        const candidate = positionPayload.data
+        if (candidate.beneficiary !== BITPIE_ADDRESS || BigInt(String(candidate.amountSun)) <= 0n) continue
+        positions.push({
+          requestId,
+          amountSun: String(candidate.amountSun),
+          unlockAt: Number(candidate.unlockAt),
+          claimed: Boolean(candidate.claimed),
+        })
+      }
+      setDiscoveredPositions(positions)
+      if (positions.length === 0) setDiscoveryError('No escrow positions are registered to this Bitpie address.')
+    } catch (cause) {
+      setDiscoveryError(cause instanceof Error ? cause.message : 'Could not discover escrow positions.')
+    } finally {
+      setDiscoverBusy(false)
+    }
+  }
 
   async function verifyPosition() {
     setBusy(true)
@@ -133,6 +180,26 @@ export default function RestrictedTRXEscrow() {
         <span className="eyebrow">ESCROW CONTRACT</span>
         <div className="address-box"><span>Configured Mainnet contract</span><b>{ESCROW_ADDRESS || 'Not deployed / not configured'}</b></div>
         {ESCROW_ADDRESS && <a href={'https://tronscan.org/#/address/'+ESCROW_ADDRESS} target="_blank" rel="noreferrer">View escrow contract on TRONSCAN <ExternalLink size={13}/></a>}
+      </div>
+      <div className="settings-group">
+        <div className="section-heading">
+          <div><span className="eyebrow">BENEFICIARY INDEX</span><h3>Discover Bitpie-linked escrow positions</h3><p>Reads registered beneficiary positions from solidified contract state. These entries are not fully verified until the funding transaction ID passes receipt, event, sender, amount and collateral checks.</p></div>
+        </div>
+        <button className="primary-button" disabled={discoverBusy || !ESCROW_ADDRESS} onClick={() => void discoverPositions()}>
+          <RefreshCw size={15}/>{discoverBusy ? 'Reading solidified contract state…' : 'Discover escrow positions'}
+        </button>
+        {discoveryError && <div className="notice notice-warning" role="status"><AlertTriangle size={16}/><span>{discoveryError}</span></div>}
+        {discoveredPositions.length > 0 && <div className="recipient-results">
+          {discoveredPositions.map((item) => (
+            <article className="metric-card" key={item.requestId}>
+              <span>Discovered position · transaction proof still required</span>
+              <strong>{formatSun(item.amountSun)} <small>TRX</small></strong>
+              <p className="fine-print">Request ID: {item.requestId}</p>
+              <p className="fine-print">Status: {item.claimed ? 'Claimed' : Date.now() / 1000 >= item.unlockAt ? 'Unlock time reached' : 'Time-locked'}</p>
+              <button className="secondary-button" disabled={item.claimed} onClick={() => setRequestId(item.requestId)}>Use this request ID</button>
+            </article>
+          ))}
+        </div>}
       </div>
       <div className="form-stack">
         <label>Escrow request ID (bytes32)<input value={requestId} onChange={(event) => setRequestId(event.target.value)} placeholder="0x… 64 hexadecimal characters" autoComplete="off" spellCheck="false"/></label>
