@@ -31,3 +31,14 @@ test('escrow viewer only marks a position verified after owner-authenticated ser
   assert.match(component, /payload\.result\?\.verified !== true/)
   assert.match(component, /No restricted balance is recognized/)
 })
+
+
+test('native TRX readiness panel uses the owner-authenticated TRX-specific endpoint', () => {
+  assert.match(component, /\/api\/tron-transfer\/native-trx-escrow-provider-readiness/)
+  assert.match(component, /Authorization:\s*'Bearer '\s*\+\s*token/)
+  assert.match(component, /providerApiConnected/)
+  assert.match(component, /availablePrincipalSun/)
+  assert.match(component, /Outstanding requirements:/)
+  assert.match(component, /Live funding:/)
+  assert.doesNotMatch(component, /\/api\/restricted-trx\/provider-readiness/)
+})
