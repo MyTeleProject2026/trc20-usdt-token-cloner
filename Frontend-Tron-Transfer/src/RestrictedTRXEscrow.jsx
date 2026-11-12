@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 
-const BITPIE_ADDRESS = 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
+const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT').trim()
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const ESCROW_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_ESCROW_ADDRESS || '').trim()
 const ABI = [{
@@ -174,7 +174,21 @@ export default function RestrictedTRXEscrow() {
       <div className="settings-group">
         <span className="eyebrow">BITPIE ADDRESS · PUBLIC SOLIDIFIED TRON BALANCE</span>
         <div className="address-box"><span>Ordinary on-chain wallet balance (not restricted)</span><b>{bitpieAccount ? formatSun(bitpieAccount.balanceSun) + ' TRX' : 'Not verified'}</b></div>
-        <p className="fine-print">{bitpieAccount ? 'Verified from solidified TRON state. This is the normal address balance and is spendable by the wallet owner; it is not an escrow credit.' : accountError || 'Loading public chain balance…'}</p>
+        <p className="fine-print">{bitpieAccount ? 'Verified from solidified TRON state. The amount shown here is the actual native balance of this address; restrictions depend on the on-chain permission threshold below.' : accountError || 'Loading public chain balance…'}</p>
+        {bitpieAccount?.permissionAssessment?.available ? (
+          <div className={bitpieAccount.permissionAssessment.restrictedAgainstSingleKey ? 'notice notice-success' : 'notice notice-warning'}>
+            <ShieldCheck size={16}/>
+            <div>
+              <b>{bitpieAccount.permissionAssessment.restrictedAgainstSingleKey ? 'On-chain multisignature restriction detected' : 'A single signer may be able to move funds'}</b>
+              <p>{bitpieAccount.permissionAssessment.restrictedAgainstSingleKey
+                ? 'The solidified account permissions require multiple keys for the checked transfer, contract-call, and permission-update operations. This is an on-chain restriction, not a Bitpie credit annotation.'
+                : 'At least one permission can authorize a value-moving or permission-update operation with one configured key. This address is not restricted against single-key spending.'}</p>
+              <small>Owner threshold: {bitpieAccount.permissionAssessment.ownerThreshold}; checked active permissions: {bitpieAccount.permissionAssessment.activePermissions.length}.</small>
+            </div>
+          </div>
+        ) : (
+          <div className="notice notice-warning"><AlertTriangle size={16}/><span>On-chain multisignature permissions could not be verified. Do not treat this address as restricted.</span></div>
+        )}
       </div>
       <div className="settings-group">
         <span className="eyebrow">ESCROW CONTRACT</span>
