@@ -21,21 +21,21 @@ test('recognizes a 2-of-2 account permission set that prevents any one key movin
   const result=assessTronAccountPermissions(account())
   assert.equal(result.available,true)
   assert.equal(result.multiSignatureConfigured,true)
-  assert.equal(result.singleSignerCanMoveNativeTrx,false)
+  assert.equal(result.singleSignerCanMoveFunds,false)
   assert.equal(result.restrictedAgainstSingleKey,true)
 })
 test('detects a single-key owner permission even if active permission is 2-of-2',()=>{
   const result=assessTronAccountPermissions(account(1,2))
-  assert.equal(result.singleSignerCanMoveNativeTrx,true)
+  assert.equal(result.singleSignerCanMoveFunds,true)
   assert.equal(result.restrictedAgainstSingleKey,false)
 })
 test('detects a single-key active permission that enables direct transfers',()=>{
   const result=assessTronAccountPermissions(account(2,1))
-  assert.equal(result.singleSignerCanMoveNativeTrx,true)
+  assert.equal(result.singleSignerCanMoveFunds,true)
 })
 test('ignores active permissions that cannot move value or change permissions',()=>{
   const result=assessTronAccountPermissions(account(2,1,[4,54,55]))
-  assert.equal(result.singleSignerCanMoveNativeTrx,false)
+  assert.equal(result.singleSignerCanMoveFunds,false)
   assert.equal(result.restrictedAgainstSingleKey,true)
 })
 test('fails closed when permission data is missing or malformed',()=>{
@@ -62,7 +62,7 @@ test('fails closed when any permission key is not a valid TRON address',()=>{
 
 test('flags single-key unfreeze and resource-control permissions as value relevant',()=>{
  const result=assessTronAccountPermissions(account(2,1,[12,13,55,56,57,58,59]))
- assert.equal(result.singleSignerCanMoveNativeTrx,true)
+ assert.equal(result.singleSignerCanMoveFunds,true)
  assert.ok(result.activePermissions[0].enabledValueMovingOrPermissionTypes.includes(56))
 })
 
@@ -79,6 +79,6 @@ test('fails closed when an active permission ID is outside the active permission
 test('flags single-key TRX-to-TRC10 purchases and exchange/market operations',()=>{
  for (const contractType of [9,41,42,43,44,52,53]) {
   const result=assessTronAccountPermissions(account(2,1,[contractType]))
-  assert.equal(result.singleSignerCanMoveNativeTrx,true, 'contract type '+contractType+' should be considered value-moving')
+  assert.equal(result.singleSignerCanMoveFunds,true, 'contract type '+contractType+' should be considered value-moving')
  }
 })
