@@ -125,6 +125,28 @@ export default function App() {
     setTab('overview')
     setNotice('TronLink disconnected from this application. Your wallet remains in TronLink.')
   }
+  async function loadRestrictedCredits() {
+    const customerId=creditCustomerId.trim()
+    if(!/^[A-Za-z0-9._:-]{1,128}$/.test(customerId)) throw new Error('Enter a valid customer ID or TRON address.')
+    setCreditBusy(true);setCreditError('')
+    try {
+      const result=await api('/api/ripple-custody/credits/'+encodeURIComponent(customerId),{headers:{Authorization:'Bearer '+ownerSession.sessionToken}})
+      if(result.success!==true) throw new Error(result.error||'Restricted credit ledger unavailable.')
+      setCreditAccount(result.account);return result.account
+    } catch(e) {setCreditError(e.message);throw e} finally {setCreditBusy(false)}
+  }
+  async function allocateRestrictedCredits() {
+    const customerId=creditCustomerId.trim(),amount=creditAmountTrx.trim(),reason=creditReason.trim()
+    if(!/^[A-Za-z0-9._:-]{1,128}$/.test(customerId)) throw new Error('Enter a valid customer ID or TRON address.')
+    if(!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(amount)||!/[1-9]/.test(amount)) throw new Error('Enter a positive TRX amount with up to 6 decimal places.')
+    const parts=amount.split('.'),whole=parts[0],fraction=parts[1]||''
+    const amountSun=(BigInt(whole)*1000000n+BigInt(fraction.padEnd(6,'0'))).toString()
+    if(reason.length<4||reason.length>500) throw new Error('Enter an audit reason (4–500 characters).')
+    const result=await api('/api/ripple-custody/credits/allocate',{method:'POST',headers:{Authorization:'Bearer '+ownerSession.sessionToken},body:JSON.stringify({customerId,amountSun,idempotencyKey:'admin-'+crypto.randomUUID(),reason})})
+    if(result.success!==true) throw new Error(result.error||'Credit allocation failed.')
+    setNotice('Restricted TRX-denominated internal credit recorded. No blockchain transfer or Bitpie deposit was made.')
+    setCreditAmountTrx('');await loadRestrictedCredits();return result
+  }
   async function inspectAddress(address=monitorAddress) {
     if(!isValidAddress(address)) throw new Error('Enter a valid TRON Mainnet address.')
     setMonitorBusy(true); setMonitorError('')
