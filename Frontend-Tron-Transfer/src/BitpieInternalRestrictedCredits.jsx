@@ -66,13 +66,19 @@ export default function BitpieInternalRestrictedCredits() {
     event.preventDefault()
     setBusy(true); setError(''); setNotice('')
     try {
-      if (!pendingIdempotencyKey.current) pendingIdempotencyKey.current = crypto.randomUUID()
+      const amountSun = toSun(amount)
+      const normalizedReason = reason.trim()
+      if (!pendingIdempotencyKey.current
+        || pendingIdempotencyKey.current.amountSun !== amountSun
+        || pendingIdempotencyKey.current.reason !== normalizedReason) {
+        pendingIdempotencyKey.current = { key: crypto.randomUUID(), amountSun, reason: normalizedReason }
+      }
       const payload = await request('POST', {
         beneficiaryAddress: BITPIE_ADDRESS,
-        amountSun: toSun(amount),
-        idempotencyKey: pendingIdempotencyKey.current,
+        amountSun,
+        idempotencyKey: pendingIdempotencyKey.current.key,
         creditType: 'display_only_non_asset',
-        reason: reason.trim(),
+        reason: normalizedReason,
       })
       pendingIdempotencyKey.current = null
       setNotice(payload.duplicate ? 'This idempotent internal credit entry already exists.' : 'Internal restricted-credit entry recorded.')
