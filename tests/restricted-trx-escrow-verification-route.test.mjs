@@ -93,7 +93,7 @@ function makeRouter({ sessionAddress = owner, publicClient = createEvidenceClien
 
 test('owner verification route confirms on-chain escrow evidence using solidified reads', async (t) => {
   await withServer(t, makeRouter(), async (baseUrl) => {
-    const response = await fetch(baseUrl + '/verify/0x' + requestId + '/' + txid, {
+    const response = await fetch(baseUrl + '/api/restricted-trx/escrow/verify/0x' + requestId + '/' + txid, {
       headers: {
         Authorization: 'Bearer ' + 'A'.repeat(43),
         Origin: 'https://tron-transfer.example',
@@ -109,7 +109,7 @@ test('owner verification route confirms on-chain escrow evidence using solidifie
 
 test('owner verification route denies sessions for a different wallet', async (t) => {
   await withServer(t, makeRouter({ sessionAddress: contract }), async (baseUrl) => {
-    const response = await fetch(baseUrl + '/verify/0x' + requestId + '/' + txid, {
+    const response = await fetch(baseUrl + '/api/restricted-trx/escrow/verify/0x' + requestId + '/' + txid, {
       headers: {
         Authorization: 'Bearer ' + 'A'.repeat(43),
         Origin: 'https://tron-transfer.example',
@@ -127,7 +127,7 @@ test('owner verification route rejects malformed identifiers before node calls',
     async triggerSolidifiedConstantContract() { calls++; throw new Error('should not query') },
   }
   await withServer(t, makeRouter({ publicClient: client }), async (baseUrl) => {
-    const response = await fetch(baseUrl + '/verify/not-a-request/' + txid, {
+    const response = await fetch(baseUrl + '/api/restricted-trx/escrow/verify/not-a-request/' + txid, {
       headers: {
         Authorization: 'Bearer ' + 'A'.repeat(43),
         Origin: 'https://tron-transfer.example',
@@ -142,7 +142,7 @@ test('owner verification rejects a contract whose deployed runtime hash does not
   const client = createEvidenceClient()
   client.getContractRuntimeCode = async () => ({ runtimeCode: '6002' })
   await withServer(t, makeRouter({ publicClient: client }), async (baseUrl) => {
-    const response = await fetch(baseUrl + '/verify/0x' + requestId + '/' + txid, {
+    const response = await fetch(baseUrl + '/api/restricted-trx/escrow/verify/0x' + requestId + '/' + txid, {
       headers: {
         Authorization: 'Bearer ' + 'A'.repeat(43),
         Origin: 'https://tron-transfer.example',
@@ -165,7 +165,7 @@ test('owner verification rejects a contract pinned to a different beneficiary ad
     return original(args)
   }
   await withServer(t, makeRouter({ publicClient: client }), async (baseUrl) => {
-    const response = await fetch(baseUrl + '/verify/0x' + requestId + '/' + txid, {
+    const response = await fetch(baseUrl + '/api/restricted-trx/escrow/verify/0x' + requestId + '/' + txid, {
       headers: {
         Authorization: 'Bearer ' + 'A'.repeat(43),
         Origin: 'https://tron-transfer.example',
