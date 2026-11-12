@@ -4,7 +4,6 @@ import { getWalletAuthSession } from '../database.mjs'
 import { createRippleCustodyClient, rippleCustodyConfiguration, RippleCustodyApiError } from '../ripple-custody-client.mjs'
 import { createBitpieAdapter } from '../bitpie-adapter.mjs'
 import { allocateRestrictedTrxCredit, getRestrictedTrxCreditAccount } from '../ripple-custody-ledger.mjs'
-import { isValidTronAddress } from '../tron-address.mjs'
 
 function digest(value) { return createHash('sha256').update(value).digest('hex') }
 function bearer(req) {
@@ -48,24 +47,7 @@ export function createRippleCustodyRouter({
     req.ownerAddress = session.address
     return next()
   }
-  // Customer self-service is deliberately mounted before the owner-only guard.
-  // It requires a separate signed TRON wallet session and reads only that wallet's own address-keyed ledger account.
-  router.get('/credits/me', async (req, res) => {
-    noStore(res)
-    const token = bearer(req)
-    const origin = req.get('origin')
-    if (!token || !origin) return res.status(401).json({ success: false, error: 'customer-wallet-session-required' })
-    let lookup
-    try { lookup = await getSession({ tokenHash: digest(token), origin, nowMs: Date.now() }) } catch { lookup = null }
-    if (lookup?.success !== true) return res.status(503).json({ success: false, error: 'customer-session-storage-unavailable' })
-    const session = lookup.session
-    if (!session || session.network !== 'mainnet' || session.origin !== origin || !isValidTronAddress(session.address)) {
-      return res.status(401).json({ success: false, error: 'customer-wallet-session-invalid-or-expired' })
-    }
-    try { return res.json(await creditReader(session.address)) }
-    catch { return res.status(503).json({ success: false, error: 'credit-ledger-unavailable' }) }
-  })
-
+  // All restricted-credit and custody routes are private owner operations.
   router.use(ownerOnly)
 
   router.get('/status', (_req, res) => {
