@@ -27,7 +27,7 @@ export function rippleCustodyConfiguration(env = process.env) {
   const clientId = String(env.RC_CLIENT_ID || '').trim()
   const clientSecret = String(env.RC_CLIENT_SECRET || '').trim()
   let fileClientId = ''
-  try { fileClientId = /^\\s*client_id\\s*=\\s*[\"']([^\"']+)[\"']/m.exec(readFileSync(configFile, 'utf8'))?.[1]?.trim() || '' } catch { /* reported below as missing config */ }
+  try { fileClientId = /^\s*client_id\s*=\s*[\"']([^\"']+)[\"']/m.exec(readFileSync(configFile, 'utf8'))?.[1]?.trim() || '' } catch { /* reported below as missing config */ }
   if (!clientId && !fileClientId) missing.push('RC_CLIENT_ID or client_id in config file')
   if (!clientSecret) missing.push('RC_CLIENT_SECRET')
   try { readFileSync(configFile, 'utf8') } catch { missing.push('RC_CONFIG_FILE (readable TOML required)') }
