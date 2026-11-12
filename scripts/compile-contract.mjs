@@ -2,7 +2,11 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import solc from 'solc'
 const root = process.cwd()
-const files = [['IndependentTRC20.sol', 'IndependentTRC20'], ['Restricted1TRAX.sol', 'Restricted1TRAX']]
+const files = [
+  ['IndependentTRC20.sol', 'IndependentTRC20'],
+  ['Restricted1TRAX.sol', 'Restricted1TRAX'],
+  ['OneTraxReserveVault.sol', 'OneTraxReserveVault'],
+]
 const sources = {}
 for (const [file] of files) sources[file] = { content: await fs.readFile(path.join(root, 'contracts', file), 'utf8') }
 const input = { language: 'Solidity', sources, settings: { optimizer: { enabled: true, runs: 200 }, outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } } } }
@@ -17,4 +21,4 @@ for (const [file, contractName] of files) {
   const artifact = { contractName, abi: contract.abi, bytecode: contract.evm.bytecode.object }
   await fs.writeFile(path.join(outDir, contractName + '.ts'), 'export const tokenArtifact = ' + JSON.stringify(artifact) + ' as const\n')
 }
-console.log('Compiled IndependentTRC20 and Restricted1TRAX contracts.')
+console.log('Compiled IndependentTRC20, Restricted1TRAX and OneTraxReserveVault contracts.')
