@@ -50,3 +50,24 @@ test('Ripple withdrawal and intent-approval routes are hard-disabled before prov
   })
   assert.equal(providerCalls, 0)
 })
+
+test('customer wallet session can read only its own restricted credit account', async () => {
+  const origin='https://customer.example'
+  const customerAddress='TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
+  const readIds=[]
+  const app=express();app.use(express.json())
+  app.use('/api/ripple-custody',createRippleCustodyRouter({
+    env:{OWNER_WALLET_ADDRESS:customerAddress},
+    getSession:async ({tokenHash,suppliedOrigin,origin:requestOrigin})=>({success:true,session:{network:'mainnet',origin:requestOrigin,address:customerAddress}}),
+    creditReader:async (customerId)=>{readIds.push(customerId);return {success:true,account:{customerId,balanceSun:'25000000',asset:'TRX-denominated-internal-credit',network:'internal-ledger',withdrawableOnChain:false}}},
+  }))
+  await withServer(app,async(base)=>{
+    const response=await fetch(base+'/api/ripple-custody/credits/me',{headers:{authorization:'Bearer '+'c'.repeat(43),origin}})
+    assert.equal(response.status,200)
+    const body=await response.json()
+    assert.equal(body.account.customerId,customerAddress)
+    assert.equal(body.account.balanceSun,'25000000')
+    assert.equal(body.account.withdrawableOnChain,false)
+  })
+  assert.deepEqual(readIds,[customerAddress])
+})
