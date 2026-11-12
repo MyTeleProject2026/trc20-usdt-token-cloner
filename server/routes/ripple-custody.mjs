@@ -108,6 +108,26 @@ export function createRippleCustodyRouter({
   router.get('/domains/:domainId/sponsors/account/:accountId/valid-sponsors', (req, res) => providerRead(res, (client) => client.read.listValidSponsors(req.params.accountId, req.params.domainId)))
   router.get('/domains/:domainId/omnibus/:omnibusId/internal-transfers', (req, res) => providerRead(res, (client) => client.read.getOmnibusInternalTransfers(req.params.omnibusId, req.params.domainId)))
 
+
+  // Mutation endpoints are present as explicit fail-closed responses so clients
+  // cannot mistake an unimplemented provider write for a successful operation.
+  const mutationDisabled = (_req, res) => res.status(503).json({
+    success: false, error: 'ripple-custody-mutations-disabled',
+    mutationEnabled: false, realValueExecutionEnabled: false,
+  })
+  router.post('/domains/:domainId/omnibus', mutationDisabled)
+  router.post('/domains/:domainId/omnibus/:omnibusId/tenants', mutationDisabled)
+  router.post('/domains/:domainId/omnibus/:omnibusId/tenants/:tenantId/deposit-wallet', mutationDisabled)
+  router.post('/domains/:domainId/omnibus/:omnibusId/tenants/:tenantId/internal-transfers', mutationDisabled)
+  router.post('/domains/:domainId/omnibus/:omnibusId/tenants/:tenantId/withdrawals', mutationDisabled)
+  router.post('/intents', mutationDisabled)
+  router.post('/intents/approve', mutationDisabled)
+  router.post('/intents/reject', mutationDisabled)
+  router.post('/domains/:domainId/account/:accountId/sponsor', mutationDisabled)
+  router.put('/domains/:domainId/account/:accountId/sponsor', mutationDisabled)
+  router.delete('/domains/:domainId/account/:accountId/sponsor', mutationDisabled)
+  router.post('/domains/:domainId/account/:entityId/sponsored-accounts', mutationDisabled)
+
   return router
 }
 export default createRippleCustodyRouter()
