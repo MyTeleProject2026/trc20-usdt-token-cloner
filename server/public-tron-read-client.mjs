@@ -1,4 +1,5 @@
 import { TronWeb } from 'tronweb'
+import { assessTronAccountPermissions } from './tron-account-permission-assessment.mjs'
 
 /**
  * Read-only public TRON chain adapter.
@@ -93,6 +94,7 @@ export function createPublicTronReadClient(options = {}) {
         balanceSun,
         balanceTrx: formatSunAsTrx(balanceSun),
         accountExists: Boolean(account?.address),
+        permissionAssessment: assessTronAccountPermissions(account),
         source: 'tron-solidified-node',
         spendableBalanceOnly: true,
         restrictedEscrowBalance: null,
