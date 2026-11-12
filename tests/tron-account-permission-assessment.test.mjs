@@ -65,3 +65,13 @@ test('flags single-key unfreeze and resource-control permissions as value releva
  assert.equal(result.singleSignerCanMoveNativeTrx,true)
  assert.ok(result.activePermissions[0].enabledValueMovingOrPermissionTypes.includes(56))
 })
+
+test('fails closed when permission threshold exceeds total configured signer weight',()=>{
+ const bad=account(3,2)
+ assert.equal(assessTronAccountPermissions(bad).available,false)
+})
+test('fails closed when an active permission ID is outside the active permission range',()=>{
+ const bad=account()
+ bad.active_permission[0].id=46
+ assert.equal(assessTronAccountPermissions(bad).available,false)
+})
