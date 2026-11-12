@@ -53,6 +53,9 @@ export default function App() {
   const [ownerPassword,setOwnerPassword]=useState('')
   const [ownerSession,setOwnerSession]=useState(null)
   const [ownerSessionResolved,setOwnerSessionResolved]=useState(false)
+  const [managedTreasuryReadiness,setManagedTreasuryReadiness]=useState(null)
+  const [managedTreasuryReadinessError,setManagedTreasuryReadinessError]=useState('')
+  const [managedTreasuryReadinessBusy,setManagedTreasuryReadinessBusy]=useState(false)
 
   useEffect(() => {
     const syncPortalRoute = () => setIsSponsorPortal(window.location.hash === '#/sponsor')
@@ -110,6 +113,11 @@ export default function App() {
     void inspectAddress(MAINNET_MONITORED_ADDRESS).catch(e=>setMonitorError(e.message))
   },[ownerSession?.sessionToken])
 
+  useEffect(()=>{
+    if (tab !== 'provider' || !ownerSession?.sessionToken) return
+    void refreshManagedTreasuryReadiness()
+  },[tab,ownerSession?.sessionToken])
+
   async function perform(fn) {
     setBusy(true); setError('')
     try { return await fn() } catch(e) { setError(e instanceof Error?e.message:'Operation failed.'); return null } finally { setBusy(false) }
@@ -161,6 +169,24 @@ export default function App() {
       })
       setMonitorAddress(address); setMonitorData(result); return result
     } catch(e) {setMonitorError(e.message);throw e} finally {setMonitorBusy(false)}
+  }
+  async function refreshManagedTreasuryReadiness() {
+    if (!ownerSession?.sessionToken) return null
+    setManagedTreasuryReadinessBusy(true)
+    setManagedTreasuryReadinessError('')
+    try {
+      const result = await api('/api/treasury/withdrawals/readiness', {
+        headers: { Authorization: 'Bearer ' + ownerSession.sessionToken },
+      })
+      setManagedTreasuryReadiness(result)
+      return result
+    } catch (e) {
+      setManagedTreasuryReadiness(null)
+      setManagedTreasuryReadinessError(e instanceof Error ? e.message : 'Managed treasury readiness could not be loaded.')
+      return null
+    } finally {
+      setManagedTreasuryReadinessBusy(false)
+    }
   }
   async function restoreOwner(token) {
     try {
@@ -351,13 +377,31 @@ export default function App() {
         </section>}
 
         {tab==='provider'&&<section className="panel provider-panel funding-status-page">
-          <div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER · CURRENT FUNDING MODEL</span><h2>Funding status & payout requirements</h2><p>Your personal wallet is used for owner identity only. The active payout route is individual, per-transfer sponsorship from a separate wallet that explicitly agrees to fund and sign the transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
-          <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>No automatic or free liquidity is created by this platform</b><p>A withdrawal can be requested with a zero-balance owner wallet, but it can only execute after an approved sponsor wallet has enough real Mainnet USDT and TRON network resources and signs the exact transaction.</p></div></div>
+          <div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER · INDEPENDENT MANAGED TREASURY</span><h2>Managed treasury & payout readiness</h2><p>Your owner wallet is used for identity and transaction-specific authorization. An approved Fireblocks vault can custody and sign payouts under its own transaction policy, without an individual sponsor signing each transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div>
+          <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Managed custody is not free USDT liquidity</b><p>The Fireblocks vault must be opened, authorized and genuinely funded with official TRON USDT and sufficient TRX. Provider policy approvals may still apply. This build exposes read-only readiness; real-value submission remains deliberately disabled.</p></div></div>
           <div className="funding-status-grid">
-            <article className="funding-status-item"><span className="eyebrow">OWNER USDT DEPOSIT</span><strong className="status-text good">Not required</strong><p>Your wallet proves owner identity; it is not the payout sender.</p></article>
-            <article className="funding-status-item"><span className="eyebrow">SPONSOR AUTHORIZATION</span><strong>Required per transfer</strong><p>Only an owner-approved sponsor wallet can fund a requested payment.</p></article>
-            <article className="funding-status-item"><span className="eyebrow">USDT PRINCIPAL</span><strong>Sponsor-funded</strong><p>The sponsor must already hold the exact official TRC20 USDT amount.</p></article>
-            <article className="funding-status-item"><span className="eyebrow">TRON NETWORK RESOURCES</span><strong>Sponsor-funded</strong><p>The sponsor covers Energy, Bandwidth or the required TRX reserve.</p></article>
+            <article className="funding-status-item"><span className="eyebrow">OWNER USDT DEPOSIT</span><strong className="status-text good">Not required</strong><p>The owner wallet proves identity and authorizes exact requests; it is not the treasury funding source.</p></article>
+            <article className="funding-status-item"><span className="eyebrow">PAYOUT SIGNER</span><strong>Managed Fireblocks vault</strong><p>The provider's custody system signs under its configured transaction policy; individual sponsor signatures are not part of this mode.</p></article>
+            <article className="funding-status-item"><span className="eyebrow">USDT PRINCIPAL</span><strong>Genuinely funded treasury</strong><p>The configured vault must hold official TRON USDT before any payout can be considered.</p></article>
+            <article className="funding-status-item"><span className="eyebrow">TRON NETWORK RESOURCES</span><strong>Treasury-funded TRX</strong><p>Provider-available and on-chain TRX must cover the fee cap and all unresolved payout reservations.</p></article>
+          </div>
+          <div className="funding-flow-panel managed-treasury-readiness" aria-live="polite">
+            <div className="section-heading compact"><div><span className="eyebrow">READ-ONLY PROVIDER PREFLIGHT</span><h3>Fireblocks treasury connection</h3><p>Refresh checks provider configuration, vault asset identity, actual Mainnet balances, fee reserves and database readiness. It never creates, signs or broadcasts a transaction.</p></div><button type="button" className="secondary-button" disabled={managedTreasuryReadinessBusy} onClick={()=>void refreshManagedTreasuryReadiness()}><RefreshCw size={15}/>{managedTreasuryReadinessBusy?'Checking…':'Refresh readiness'}</button></div>
+            {managedTreasuryReadinessError&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{managedTreasuryReadinessError}</span></div>}
+            {!managedTreasuryReadiness&&!managedTreasuryReadinessError&&<p className="fine-print">{managedTreasuryReadinessBusy?'Checking the configured provider and public TRON Mainnet balances…':'No readiness snapshot loaded yet.'}</p>}
+            {managedTreasuryReadiness&&<>
+              <div className="funding-status-grid">
+                <article className="funding-status-item"><span className="eyebrow">PROVIDER CONFIGURATION</span><strong>{managedTreasuryReadiness.configuration?.configurationComplete?'Complete':'Incomplete'}</strong><p>{managedTreasuryReadiness.configuration?.providerConfigured?'Fireblocks credentials detected':'Fireblocks credentials not configured'}</p></article>
+                <article className="funding-status-item"><span className="eyebrow">DATABASE LEDGER</span><strong>{managedTreasuryReadiness.databaseReady?'Ready':'Not ready'}</strong><p>Persistent idempotency and pending-fee reservations</p></article>
+                <article className="funding-status-item"><span className="eyebrow">PROVIDER USDT AVAILABLE</span><strong>{managedTreasuryReadiness.providerAvailableUsdtBaseUnits!=null?formatUnits(managedTreasuryReadiness.providerAvailableUsdtBaseUnits):'Unavailable'}</strong><p>Provider-reported available balance, not a credit line</p></article>
+                <article className="funding-status-item"><span className="eyebrow">ON-CHAIN USDT BALANCE</span><strong>{managedTreasuryReadiness.treasuryUsdtBalanceBaseUnits!=null?formatUnits(managedTreasuryReadiness.treasuryUsdtBalanceBaseUnits):'Unavailable'}</strong><p>Official USDT balance at the configured treasury address</p></article>
+                <article className="funding-status-item"><span className="eyebrow">ON-CHAIN TRX BALANCE</span><strong>{managedTreasuryReadiness.treasuryTrxBalanceSun!=null?formatUnits(managedTreasuryReadiness.treasuryTrxBalanceSun,6):'Unavailable'} TRX</strong><p>Network fee reserve observed on TRON Mainnet</p></article>
+                <article className="funding-status-item"><span className="eyebrow">ASSET / VAULT IDENTITY</span><strong>{managedTreasuryReadiness.providerAssetIdentityVerified&&managedTreasuryReadiness.providerVaultAddressVerified&&managedTreasuryReadiness.providerVaultAccountVerified?'Verified':'Not verified'}</strong><p>Official TRON USDT asset, vault account and source address mapping</p></article>
+              </div>
+              <div className="notice notice-warning"><AlertTriangle size={16}/><div><b>Real-value payout execution is disabled in this build</b><p>{managedTreasuryReadiness.executionBlocker||'Preflight is diagnostic only. A successful balance check does not authorize spending.'}</p></div></div>
+              <p className="fine-print">Preflight: {managedTreasuryReadiness.preflightChecksPassed?'all configured checks passed':'one or more checks are blocked'} · Payout execution: {managedTreasuryReadiness.executionEnabled?'enabled':'disabled'} · Treasury: {managedTreasuryReadiness.treasuryAddress||'not configured'}</p>
+              {Array.isArray(managedTreasuryReadiness.payoutBlockers)&&managedTreasuryReadiness.payoutBlockers.length>0&&<ul className="funding-flow-list">{managedTreasuryReadiness.payoutBlockers.map(code=><li key={code}><b>{code}</b></li>)}</ul>}
+            </>}
           </div>
           <div className="funding-pathway-heading">
             <span className="eyebrow">TWO INDEPENDENT FUNDING PATHS</span>
