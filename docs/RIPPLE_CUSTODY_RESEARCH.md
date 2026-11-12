@@ -144,7 +144,7 @@ The next provider-specific adapter layer must be implemented only against Ripple
 4. idempotent reservation identifiers and transaction lookup for ambiguous timeouts;
 5. exact TRON Mainnet `TriggerSmartContract` support with attached native-TRX `call_value`.
 
-The existing credit validator currently requires credit-funded fees for the escrow call. The combined provider-paid-plus-delegated-resources policy must not be treated as approved until the validator and independent verifier explicitly validate both fee components and their settlement. An environment variable or owner-entered value cannot satisfy these requirements.
+The credit authorization validator now supports the selected combined fee mode only when the provider fee budget is authorized and the delegated Energy/Bandwidth evidence is active, unexpired, independently chain-verified, and addressed to the exact escrow contract. This evidence-shape check does not replace the independent verifier or provider settlement reconciliation. An environment variable or owner-entered value cannot satisfy these requirements.
 
 ### Exact Ripple documentation used for the transport
 
