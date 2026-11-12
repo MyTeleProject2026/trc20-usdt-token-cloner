@@ -187,7 +187,7 @@ export default function App() {
       if (tronWeb.address.toHex(linkedVault)!==tronWeb.address.toHex(vaultAddress)) throw new Error('Token contract vault does not match the configured reserve vault.')
       const reserveSun=BigInt(String(await tronWeb.trx.getBalance(vaultAddress))), outstanding=BigInt(String(supply))
       if (reserveSun < outstanding+BigInt(amountUnits)) throw new Error('Insufficient native TRX reserve for this issuance.')
-      const txid=await token.mint(oneTraxRecipient.trim(),tronWeb.toBigNumber(amountUnits)).send({feeLimit:100000000,callValue:0,shouldPollResponse:true,keepTxID:true})
+      const txid=await token.mint(oneTraxRecipient.trim(),amountUnits).send({feeLimit:100000000,callValue:0,shouldPollResponse:true,keepTxID:true})
       setOneTraxMintResult({txid,recipient:oneTraxRecipient.trim(),amount:oneTraxAmount,status:'Submitted; independent solidified confirmation is still required.'})
       setNotice('Mint transaction submitted. Verify its solidified result on TRONSCAN before treating the credit as delivered.')
       await loadOneTraxAccounting()
