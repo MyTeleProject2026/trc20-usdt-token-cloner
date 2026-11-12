@@ -32,7 +32,7 @@ test('public TRON adapter reads solidified native TRX balance in SUN', async () 
 
 test('public TRON adapter queries solidified resource usage', async () => {
   const { fetchImpl } = fakeFetchFor({
-    '/walletsolidity/getaccountresource': {
+    '/wallet/getaccountresource': {
       freeNetLimit: 600, freeNetUsed: 100, NetLimit: 900, NetUsed: 250,
       EnergyLimit: 5000, EnergyUsed: 1250,
     },
