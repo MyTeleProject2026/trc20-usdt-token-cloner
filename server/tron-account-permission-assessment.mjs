@@ -31,6 +31,8 @@ function validPermission(permission, kind) {
   })
   if (normalizedKeys.some((key) => !key.normalizedAddress || key.weight === null || key.weight < 1)) return null
   if (new Set(normalizedKeys.map((key) => key.normalizedAddress)).size !== normalizedKeys.length) return null
+  const totalWeight = normalizedKeys.reduce((sum, key) => sum + key.weight, 0)
+  if (!Number.isSafeInteger(totalWeight) || totalWeight < threshold) return null
   let operations = null
   if (kind === 'active') {
     const raw = String(permission.operations || '').replace(/^0x/i, '').toLowerCase()
@@ -71,8 +73,9 @@ export function assessTronAccountPermissions(account) {
   let activePermissionDataValid = true
 
   for (const [index, input] of activeInput.entries()) {
+    const permissionId = safeInteger(input?.id)
     const permission = validPermission(input, 'active')
-    if (!permission) {
+    if (permissionId === null || permissionId < 2 || permissionId > 9 || !permission) {
       activePermissionDataValid = false
       break
     }
@@ -81,7 +84,7 @@ export function assessTronAccountPermissions(account) {
       && anySingleKeyMeetsThreshold(permission.keys, permission.threshold)
     if (singleKeyCanAuthorize) activeSingleKeyCanMoveFunds = true
     activePermissions.push({
-      id: safeInteger(input.id) ?? (index + 2),
+      id: permissionId,
       name: String(input.permission_name || 'active-' + index),
       threshold: permission.threshold,
       signerCount: permission.keys.length,
