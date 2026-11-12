@@ -179,3 +179,27 @@ Official article: https://bitpie.zendesk.com/hc/en-001/articles/10142742328591-B
 The server/native-trx-escrow-provider-readiness.mjs module is a separate fail-closed policy for TRX, not a reuse of the older USDT-TRC20 payout readiness policy. It requires authenticated provider API evidence, explicit provider authorization, TRON Mainnet native TRX support, verified provider-owned liquidity or an executed approved credit facility, separate fee coverage, support for the payable escrow contract call, destination/purpose authorization, limits/compliance approval, and live payout approval. A public API balance or a UI/environment flag cannot satisfy these checks. Its regression tests are in tests/native-trx-escrow-provider-readiness.test.mjs.
 
 This policy is a readiness gate, not a Ripple adapter or a live connection. It intentionally remains blocked until real provider credentials, account evidence, and written funding terms exist. It does not create funds or bypass onboarding.
+
+
+## Bitpie internal-credit integration decision (2026-11-13)
+
+The requested Bitpie-native internal credit is **not available through a documented public Bitpie API** in the official documentation reviewed for this implementation. Bitpie describes its wallet as a self-custody HD wallet: sending and receiving modify the relevant blockchain ledger using the user's private-key signatures, and wallet transaction history is copied from blockchain records. Its FAQ explicitly distinguishes this model from traditional custodial trading platforms and states that Bitpie does not hold user assets as a centralized account balance. Do not infer an undocumented endpoint, reverse-engineer private app APIs, or submit fabricated credit/deposit records.
+
+Official sources:
+- https://bitpie.com/en/term/ (sections 2.1–2.4 and 8)
+- https://docs.bitpie.com/en/latest/FAQ/index.html
+- https://docs.bitpie.com/en/latest/
+
+### Implemented internal ledger (separate from Bitpie and TRON)
+
+Tron Transfer now has a separate owner-authenticated, PostgreSQL-backed internal restricted-credit ledger:
+- `GET /api/owner/bitpie-internal-credits?address=<TRON address>`
+- `POST /api/owner/bitpie-internal-credits`
+
+Each record is typed `display_only_non_asset` and `restricted_internal_only`, uses integer SUN strings, is idempotent, and is append-only. The owner UI labels the records as Tron Transfer bookkeeping only. The ledger is not sent to Bitpie, does not change the Bitpie app balance, does not change TRON chain state, and has no withdrawal, transfer, redemption, or payout capability. It must never be described as a Bitpie deposit or actual TRX.
+
+The existing on-chain escrow viewer remains a separate section and continues to show only independently verified contract positions and public-chain balances. Neither source is merged into the other.
+
+### Future Bitpie adapter gate
+
+A Bitpie adapter must remain unconfigured and disabled until Bitpie itself publishes or provides an authorized integration contract that specifies the official endpoint, authentication/signature scheme, account/wallet identity model, permission to create restricted credits, balance-display semantics, and reversal/audit rules. No API key, arbitrary URL, third-party proxy, private app endpoint, or environment toggle can substitute for that authorization. Until then, `bitpieApiConnected` is false and the internal ledger is not a Bitpie integration.
