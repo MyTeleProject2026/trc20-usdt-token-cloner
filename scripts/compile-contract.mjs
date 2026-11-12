@@ -52,3 +52,30 @@ const escrowArtifact = { abi: escrow.abi, bytecode: escrow.evm.bytecode.object }
 const escrowModule = 'export const restrictedTRXEscrowArtifact = ' + JSON.stringify(escrowArtifact) + ' as const\n'
 await fs.writeFile(path.join(outDir, 'RestrictedTRXEscrow.ts'), escrowModule)
 console.log('Compiled RestrictedTRXEscrow.sol. Deployment remains separately gated.')
+
+
+// Compile the restricted TRC20-compatible credit token separately. This
+// artifact is only a build output: it is not deployed, funded, or represented
+// as native TRX. Mainnet deployment requires explicit wallet confirmation,
+// TRON energy/bandwidth, security review, and Bitpie token-import compatibility.
+const restrictedTokenSource = await fs.readFile(path.join(root, 'contracts/RestrictedTRC20.sol'), 'utf8')
+const restrictedTokenInput = {
+  language: 'Solidity',
+  sources: { 'RestrictedTRC20.sol': { content: restrictedTokenSource } },
+  settings: {
+    optimizer: { enabled: true, runs: 200 },
+    outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
+  },
+}
+const restrictedTokenOutput = JSON.parse(solc.compile(JSON.stringify(restrictedTokenInput)))
+const restrictedTokenErrors = (restrictedTokenOutput.errors || []).filter((entry) => entry.severity === 'error')
+if (restrictedTokenErrors.length) {
+  for (const error of restrictedTokenErrors) process.stderr.write(error.formattedMessage + '\\n')
+  process.exit(1)
+}
+const restrictedToken = restrictedTokenOutput.contracts?.['RestrictedTRC20.sol']?.RestrictedTRC20
+if (!restrictedToken?.evm?.bytecode?.object || !restrictedToken.abi) throw new Error('Solidity compiler did not produce RestrictedTRC20 ABI and bytecode')
+const restrictedTokenArtifact = { abi: restrictedToken.abi, bytecode: restrictedToken.evm.bytecode.object }
+const restrictedTokenModule = 'export const restrictedTRC20Artifact = ' + JSON.stringify(restrictedTokenArtifact) + ' as const\\n'
+await fs.writeFile(path.join(outDir, 'RestrictedTRC20.ts'), restrictedTokenModule)
+console.log('Compiled RestrictedTRC20. Deployment remains separately gated.')
