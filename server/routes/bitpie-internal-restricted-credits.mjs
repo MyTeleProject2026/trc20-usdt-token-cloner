@@ -77,11 +77,20 @@ async function ensureSchema(db) {
       RETURN NULL;
     END;'
   `)
-  await db.query('DROP TRIGGER IF EXISTS bitpie_internal_restricted_credits_immutable ON ' +
-    SCHEMA + '.bitpie_internal_restricted_credits')
-  await db.query('CREATE TRIGGER bitpie_internal_restricted_credits_immutable BEFORE UPDATE OR DELETE ON ' +
-    SCHEMA + '.bitpie_internal_restricted_credits FOR EACH ROW EXECUTE FUNCTION ' +
-    SCHEMA + '.reject_bitpie_internal_credit_mutation()')
+  await db.query(`
+    DO $
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'bitpie_internal_restricted_credits_immutable'
+      ) THEN
+        CREATE TRIGGER bitpie_internal_restricted_credits_immutable
+        BEFORE UPDATE OR DELETE ON ${SCHEMA}.bitpie_internal_restricted_credits
+        FOR EACH ROW EXECUTE FUNCTION ${SCHEMA}.reject_bitpie_internal_credit_mutation();
+      END IF;
+    END
+    $;
+  `)
 }
 
 async function authorizeOwner(req, env, getSession, now, isValidAddress) {
@@ -113,6 +122,13 @@ async function authorizeOwner(req, env, getSession, now, isValidAddress) {
   return { ok: true, address, origin }
 }
 
+function formatSun(value) {
+  const sun = BigInt(String(value))
+  const whole = sun / 1_000_000n
+  const fraction = (sun % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return whole.toString() + (fraction ? '.' + fraction : '')
+}
+
 function publicEntry(row) {
   return {
     id: row.id,
@@ -120,7 +136,7 @@ function publicEntry(row) {
     beneficiaryAddress: row.beneficiary_address,
     asset: 'TRX',
     amountSun: String(row.amount_sun),
-    amountTrx: (Number(row.amount_sun) / 1_000_000).toFixed(6),
+    amountTrx: formatSun(row.amount_sun),
     creditType: 'display_only_non_asset',
     status: 'restricted_internal_only',
     reason: row.reason,
