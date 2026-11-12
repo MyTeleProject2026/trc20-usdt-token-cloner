@@ -420,7 +420,7 @@ export default function App() {
             <article className="funding-pathway-card">
               <span className="eyebrow">PATH 2 · PER-TRANSFER PAYOUT FUNDING</span>
               <h3>Sponsor-funded fallback (optional)</h3><span className="eyebrow">SPONSOR-FUNDED PAYOUTS · VOLUNTARY INDIVIDUAL SPONSORS</span>
-              <p>A separate wallet owner applies, is reviewed by the platform owner, checks live Mainnet USDT and fee resources, and signs each exact recipient-and-amount transaction in their own TronLink wallet.</p>
+              <p>Voluntary individual sponsors remain an optional fallback: a separate wallet owner applies, is reviewed by the platform owner, checks live Mainnet USDT and fee resources, and signs each exact recipient-and-amount transaction in their own TronLink wallet.</p>
               <button type="button" className="secondary-button" onClick={()=>setTab('sponsors')}><ShieldCheck size={15}/> Review sponsor wallets</button>
               <small>Approval is not proof of current funds. A payout remains blocked until the sponsor has sufficient real USDT and network resources and the signed transfer passes Mainnet verification.</small>
             </article>
