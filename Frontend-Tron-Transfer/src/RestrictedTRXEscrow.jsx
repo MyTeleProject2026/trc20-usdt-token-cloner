@@ -33,6 +33,8 @@ export default function RestrictedTRXEscrow() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [providerReadiness, setProviderReadiness] = useState(null)
+  const [bitpieAccount, setBitpieAccount] = useState(null)
+  const [accountError, setAccountError] = useState('')
 
   useEffect(() => {
     let active = true
@@ -44,6 +46,27 @@ export default function RestrictedTRXEscrow() {
       })
       .then((readiness) => { if (active) setProviderReadiness(readiness) })
       .catch(() => { if (active) setProviderReadiness(null) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    async function loadBitpieAccount() {
+      try {
+        const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
+        if (!token) throw new Error('Sign in as the platform owner to query solidified public-chain data.')
+        const response = await fetch(API_BASE + '/api/public-tron/account/' + encodeURIComponent(BITPIE_ADDRESS), {
+          headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
+          credentials: 'omit', cache: 'no-store', redirect: 'error',
+        })
+        const payload = await response.json()
+        if (!response.ok || payload.success !== true) throw new Error(payload.error || 'Public TRON account lookup failed.')
+        if (active) setBitpieAccount(payload.data)
+      } catch (cause) {
+        if (active) setAccountError(cause instanceof Error ? cause.message : 'Public TRON account lookup failed.')
+      }
+    }
+    void loadBitpieAccount()
     return () => { active = false }
   }, [])
 
@@ -82,6 +105,11 @@ export default function RestrictedTRXEscrow() {
         <span className="eyebrow">BENEFICIARY BITPIE ADDRESS</span>
         <div className="address-box"><span>Allowlisted beneficiary</span><b>{BITPIE_ADDRESS}</b></div>
         <a href={'https://tronscan.org/#/address/'+BITPIE_ADDRESS} target="_blank" rel="noreferrer">View Bitpie address on TRONSCAN <ExternalLink size={13}/></a>
+      </div>
+      <div className="settings-group">
+        <span className="eyebrow">BITPIE ADDRESS · PUBLIC SOLIDIFIED TRON BALANCE</span>
+        <div className="address-box"><span>Ordinary on-chain wallet balance (not restricted)</span><b>{bitpieAccount ? formatSun(bitpieAccount.balanceSun) + ' TRX' : 'Not verified'}</b></div>
+        <p className="fine-print">{bitpieAccount ? 'Verified from solidified TRON state. This is the normal address balance and is spendable by the wallet owner; it is not an escrow credit.' : accountError || 'Loading public chain balance…'}</p>
       </div>
       <div className="settings-group">
         <span className="eyebrow">ESCROW CONTRACT</span>
