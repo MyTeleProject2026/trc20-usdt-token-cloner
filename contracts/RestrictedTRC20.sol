@@ -7,8 +7,8 @@ pragma solidity ^0.8.24;
 /// allowlisted. The owner cannot seize or arbitrarily burn holder balances.
 /// This contract is unaudited and must be reviewed before Mainnet deployment.
 contract RestrictedTRC20 {
-    string public name = "Tron Transfer Restricted Credit";
-    string public symbol = "TTRC";
+    string public name = "Tron Transfer Restricted Token";
+    string public symbol = "TTRX";
     uint8 public constant decimals = 6;
 
     uint256 public totalSupply;
