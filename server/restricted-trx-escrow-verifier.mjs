@@ -103,7 +103,7 @@ export function verifyRestrictedTrxEscrowEvidence({
   }
   const callRequestId = calldata.slice(8, 72)
   const callBeneficiary = decodeAddressWord(calldata.slice(72, 136))
-  const callLockSeconds = asUint('0x' + calldata.slice(136, 200))
+  const callLockSeconds = BigInt('0x' + calldata.slice(136, 200))
   if (callLockSeconds === null || callLockSeconds <= 0n) return fail('invalid-lock-duration-calldata')
   if (callRequestId !== requestId) return fail('request-id-calldata-mismatch')
   if (callBeneficiary !== beneficiaryHex) return fail('beneficiary-calldata-mismatch')
