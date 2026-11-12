@@ -35,7 +35,7 @@ const evidence={
   }]},
  },
  receipt:{
-  id:txid, blockNumber:100,
+  id:txid, blockNumber:100, blockTimeStamp:Number((unlockAt-3600n)*1000n),
   receipt:{result:'SUCCESS'},
   log:[{
    address:escrowHex,
