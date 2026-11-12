@@ -101,7 +101,7 @@ export function createPublicTronReadClient(options = {}) {
     },
     async getAccountResources(address) {
       assertAddress(address)
-      const data = await postNode('/walletsolidity/getaccountresource', { address, visible: true }, common)
+      const data = await postNode('/wallet/getaccountresource', { address, visible: true }, common)
       return Object.freeze({
         freeBandwidthRemaining: Math.max(0, Number(data?.freeNetLimit || 0) - Number(data?.freeNetUsed || 0)),
         stakedBandwidthRemaining: Math.max(0, Number(data?.NetLimit || 0) - Number(data?.NetUsed || 0)),
