@@ -1,61 +1,60 @@
-# Ripple Custody integration — safe implementation baseline
+# Ripple Custody (Vault) SDK service authentication
 
-## Source and scope
+## Status
 
-This integration is based on the supplied Ripple Custody (Vault) OpenAPI 3.0.1 document. It declares Bearer authentication, /v1 API paths, Omnibus and tenant operations, deposit-wallet operations, withdrawal initiation, intent proposal/approval/rejection, and Gas Station sponsor configuration and read operations. It does not declare a server URL. Configure the actual provider HTTPS origin and issued bearer token through backend secrets.
+This branch now uses Ripple's official TypeScript SDK for the implemented provider read. It no longer accepts or forwards a manually supplied Ripple Bearer token. The SDK owns OAuth token acquisition, in-memory caching, renewal, TLS behavior, and response verification.
 
-The supplied OpenAPI document has no Bitpie API paths. The Bitpie adapter therefore validates TRON address syntax only and reports balance reads, deposits, notifications, and balance writes as unsupported. Do not create an artificial Bitpie balance or describe Tron Transfer internal credits as a Bitpie deposit.
+The implemented SDK call is client.governance.domains.list({ limit: 100, autoPaginate: true }). Other pre-existing provider read routes return a sanitized 501 until mapped to documented SDK methods. No raw REST or homemade token fallback is used.
 
-## Implemented in this baseline
+## Authentication mode selected
 
-- Backend-only Ripple Bearer token configuration.
-- HTTPS-origin validation and sanitized provider errors.
-- Read-only access to domains, vaults, Omnibus, tenants, tenant deposit-wallet status, account balances, confirmed balances, intents, and Gas Station sponsor information.
-- Separate append-only PostgreSQL restricted-credit ledger. Amounts are integer SUN strings, and ledger records are explicitly labelled TRX-denominated-internal-credit / internal-ledger.
-- Owner-session protection for administrative reads and credit allocation.
-- Idempotent restricted-credit allocation with account-row locking and immutable entries.
-- Bitpie address-format validation without asserting account ownership or native wallet balance.
+This project is configured for the documented OAuth 2.0 client_credentials grant:
 
-## Deliberately disabled
+- RC_CLIENT_ID: Ripple-issued service client ID.
+- RC_CLIENT_SECRET: Ripple-issued service client secret. Backend secret only; never store it in TOML, source control, browser variables, or logs.
+- RC_CONFIG_FILE: optional path to the SDK TOML file. Defaults to config/ripple-custody.toml.
 
-All Ripple mutations are blocked before an HTTP request, including Omnibus/tenant creation, deposit-wallet creation, internal transfers, withdrawal initiation, intent proposal/approval/rejection, and Gas Station sponsor configuration changes. This build does not create an unsigned withdrawal intent or approve, sign, or broadcast a withdrawal. The existing treasury route's hard-coded real-value execution lock remains intact.
+The SDK chooses client credentials only when both client ID and client secret are present. The status endpoint reports the selected mode and missing settings without exposing values.
 
-The uploaded OpenAPI specification is an API contract, not evidence of an activated Ripple tenant, supported TRON Mainnet ledger, provider policy, signing authority, Gas Station funding, or test account. Before enabling any mutation, obtain the provider's actual environment details, verify the network and TRX ticker/ledger IDs, implement request-body schemas exactly as specified, test against a provider-approved non-production environment, and complete independent security review. Never enable Mainnet execution by setting an environment variable alone.
+## PEM file selection
 
-## Environment
+The sample TOML contains private_key_file to keep the API user's PEM file outside source control and ready for SDK signer configuration. Important: the PEM file does not authenticate a client-credentials service token. The service token identifies a service caller. The PEM key is an API-user signing key and is only relevant to signed-challenge authentication or user-signed intent operations. Do not assume the service identity can approve or sign user intents. No intent operation is enabled in this integration.
 
-- RIPPLE_CUSTODY_API_BASE: provider-issued HTTPS API origin (the OpenAPI file has no server URL).
-- RIPPLE_CUSTODY_BEARER_TOKEN: provider-issued Bearer token; backend secret only.
-- RIPPLE_CUSTODY_DOMAIN_ID: configured provider domain ID.
-- RIPPLE_CUSTODY_OMNIBUS_ID: configured Omnibus ID.
-- RIPPLE_CUSTODY_TRX_TICKER_ID: verified native TRX ticker UUID.
-- RIPPLE_CUSTODY_TRON_LEDGER_ID: verified TRON ledger ID.
-- RIPPLE_CUSTODY_NETWORK: operator-supplied label for display; not independently verified by this adapter.
+Generate the API-user key locally using Ripple's official SDK helper when the SDK package has been provided by Ripple, register only its public key with the Ripple administrator, and protect the PEM file with owner-only permissions (0600). Never send the PEM private key to ChatGPT, GitHub, or Ripple support.
 
-Never place these values in VITE variables, client bundles, source control, or logs.
+## Install the official SDK
+
+Ripple currently distributes the TypeScript SDK as a versioned package file, not as a normal public npm install. Obtain the exact .tgz package from Ripple Support and install it into this project, for example:
+
+    npm install ./ripple-ripple-custody-client-lib-typescript-<version>.tgz
+
+Use the exact tested version supplied by Ripple. The documented TypeScript SDK requires Node.js 22.19 or later. This repository does not vendor a fabricated SDK package. Until the official package is installed and deployment settings are provisioned, the integration reports the SDK/configuration unavailable and fails closed.
+
+## Configuration
+
+Copy config/ripple-custody.example.toml to config/ripple-custody.toml on the server and replace all placeholders with Ripple-issued values: Vault API HTTPS origin, OIDC issuer URL, client ID, private key file path, domain ID if required, and notary API public key (base64 DER). Response verification remains enabled.
+
+Set RC_CLIENT_SECRET in the server's secret manager/environment. The app needs only RC_CONFIG_FILE if you choose a non-default TOML location; the default path avoids even that variable. The secret itself cannot safely be eliminated or invented. Ripple must provision it.
+
+The supplied OpenAPI file has no server URL and does not provide an actual deployment endpoint, OIDC issuer, service client, secret, notary public key, domain, or ledger IDs. Do not substitute the separate Ripple Wallet API sandbox URL for a Vault deployment.
+
+## Safety and accounting boundaries
+
+- Restricted TRX-denominated credits remain in the separate append-only internal ledger and are not Ripple custody assets, native TRX, or Bitpie wallet balance.
+- All provider mutations, withdrawals, internal transfers, intent proposals/approvals/rejections, and Gas Station writes remain disabled.
+- Mainnet real-value execution remains disabled. No environment variable alone can enable it.
+- Bitpie API balance/deposit writes remain unsupported; address validation is not a wallet credit.
+- The current SDK adapter exposes only the domain-list operation. Other provider read endpoints return 501 until implemented against exact SDK methods and verified against the SDK version Ripple supplies.
+
+## Operational checks
+
+1. Install the Ripple-provided SDK .tgz and use Node.js 22.19+.
+2. Copy and fill the TOML file with values from the Vault administrator.
+3. Add the service client secret to the backend secret manager as RC_CLIENT_SECRET.
+4. Ensure the PEM path is readable only by the application service account (0600).
+5. Confirm response verification succeeds and the service caller can list its authorized domains in a provider-approved non-production environment.
+6. Keep all write and Mainnet paths disabled pending provider policy confirmation, exact SDK method coverage, test-environment verification, and independent security review.
 
 ## Accounting boundary
 
-Ripple Omnibus virtual-account balances are provider accounting records. Tron Transfer restricted credits are a separate application ledger. Actual TRX is held by the configured custody provider or observed on-chain. Do not sum these values into one balance. A Ripple virtual account is not the same thing as a Tron Transfer restricted-credit account, and neither is a Bitpie app balance.
-
-The Ripple position-report schema describes three account types: omnibus, deposit wallet, and virtual account. Its control totals must not be summed across account types because the omnibus pool backs the virtual rows; doing so double-counts by construction.
-
-## Routes
-
-All routes below require the existing owner session (Bearer session token and allowed Origin):
-
-- GET /api/ripple-custody/status
-- GET /api/ripple-custody/domains
-- GET /api/ripple-custody/domains/:domainId/omnibus
-- GET /api/ripple-custody/domains/:domainId/omnibus/:omnibusId/tenants
-- GET /api/ripple-custody/domains/:domainId/omnibus/:omnibusId/tenants/:tenantId/deposit-wallet
-- GET /api/ripple-custody/domains/:domainId/intents
-- GET /api/ripple-custody/domains/:domainId/transactions and transaction details
-- GET /api/ripple-custody/domains/:domainId/events
-- GET /api/ripple-custody/domains/:domainId/sponsors
-- GET /api/ripple-custody/credits/:customerId
-- POST /api/ripple-custody/credits/allocate
-- GET /api/ripple-custody/bitpie/capabilities
-- POST /api/ripple-custody/bitpie/validate-address
-
-Credit allocation body: { "customerId": "...", "amountSun": "100000000", "idempotencyKey": "...", "reason": "..." }. One TRX equals 1,000,000 SUN. Allocation is internal bookkeeping only and cannot be used as an on-chain withdrawal source.
+Ripple Omnibus virtual-account balances are provider accounting records. Tron Transfer restricted credits are separate application-ledger entries. Actual TRX is held by the configured custody provider or observed on-chain. Do not add these values together or describe internal credits as a Bitpie deposit.
