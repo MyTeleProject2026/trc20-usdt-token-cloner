@@ -109,6 +109,22 @@ export function createPublicTronReadClient(options = {}) {
         source: 'tron-solidified-node',
       })
     },
+    async getContractRuntimeCode(address) {
+      assertAddress(address)
+      const info = await postNode('/wallet/getcontractinfo', { value: address, visible: true }, common)
+      const runtimeCode = String(info?.runtimecode || '').replace(/^0x/i, '').toLowerCase()
+      if (!runtimeCode || !/^(?:[0-9a-f]{2})+$/i.test(runtimeCode)) {
+        const error = new Error('TRON node did not return contract runtime bytecode')
+        error.status = 404
+        throw error
+      }
+      return Object.freeze({
+        address,
+        runtimeCode,
+        providerCodeHash: String(info?.smart_contract?.code_hash || '').replace(/^0x/i, '').toLowerCase() || null,
+        source: 'tron-fullnode-contract-info',
+      })
+    },
     async triggerSolidifiedConstantContract({ contractAddress, functionSelector, parameter = '', ownerAddress }) {
       assertAddress(contractAddress)
       assertAddress(ownerAddress)
