@@ -55,6 +55,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
   const configuredProvider = present(env.RESTRICTED_TRX_PROVIDER) ? env.RESTRICTED_TRX_PROVIDER.trim().toLowerCase() : ''
   const provider = configuredProvider ? (configuredProvider === 'ripple' ? 'ripple' : '') : 'ripple'
   const contract = present(env.RESTRICTED_TRX_ESCROW_CONTRACT) ? env.RESTRICTED_TRX_ESCROW_CONTRACT.trim() : ''
+  const runtimeCodeHashConfigured = /^[0-9a-f]{64}$/i.test(String(env.RESTRICTED_TRX_ESCROW_RUNTIME_CODE_SHA256 || '').trim())
   const apiKeyConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_KEY)
   const apiSecretConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_SECRET)
   const providerAccountConfigured = present(env.RESTRICTED_TRX_PROVIDER_ACCOUNT_ID)
@@ -68,6 +69,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
   if (!providerAgreementConfigured) blockers.push('provider-funding-agreement-not-confirmed')
   if (!apiKeyConfigured || !apiSecretConfigured) blockers.push('provider-credentials-not-configured')
   if (!contract) blockers.push('escrow-contract-not-deployed')
+  if (!runtimeCodeHashConfigured) blockers.push('audited-escrow-runtime-code-hash-not-configured')
   if (!adapterImplemented) blockers.push('ripple-provider-api-adapter-not-implemented')
   blockers.push(
     'published-ripple-principal-credit-terms-not-found',
@@ -88,6 +90,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
     asset: 'TRX',
     unit: 'SUN',
     contractConfigured: Boolean(contract),
+    runtimeCodeHashConfigured,
     providerAccountConfigured,
     providerAgreementConfigured,
     credentialsConfigured: apiKeyConfigured && apiSecretConfigured,
