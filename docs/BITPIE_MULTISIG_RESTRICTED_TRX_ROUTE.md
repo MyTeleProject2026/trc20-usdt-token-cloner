@@ -93,3 +93,6 @@ No current public Ripple document establishes the principal-credit facility requ
 8. Only then consider a larger provider-funded deposit. Do not promise that a 6,200 TRX balance is credited until the chain transaction is solidified and Bitpie itself displays the correct multisig address balance.
 
 A multisig account can make actual TRX visible in Bitpie while preventing one key from spending it, **if the Bitpie app supports the native TRX flow and the permissions are configured and verified correctly**. It cannot create an unfunded or fictitious balance.
+
+
+The permission audit also checks TRX-to-TRC-10 purchase operations, on-chain exchange/market trades, staking/unfreezing, reward claims, resource delegation, smart-contract calls, and permission updates. It rejects malformed addresses, duplicate key entries, invalid active permission IDs, and unreachable permission thresholds. This is a conservative on-chain permission analysis; a single person who controls two distinct keys can still meet a 2-of-3 threshold.
