@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, RefreshCw, ShieldCheck } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 
 const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || '').trim()
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\\/+$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 
 function toSun(value) {
   const raw = String(value || '').trim()
-  if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(raw)) throw new Error('Enter a positive TRX amount with up to 6 decimal places.')
+  if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(raw)) throw new Error('Enter a positive TRX amount with up to 6 decimal places.')
   const [whole, fraction = ''] = raw.split('.')
   const amount = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
   if (amount <= 0n) throw new Error('Amount must be greater than zero.')
@@ -31,8 +31,9 @@ export default function BitpieInternalRestrictedCredits() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const pendingIdempotencyKey = useRef(null)
 
-  const request = useCallback(async (method = 'GET') => {
+  const request = useCallback(async (method = 'GET', body = null) => {
     const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
     if (!token) throw new Error('Sign in as the platform owner to access internal credits.')
     if (!BITPIE_ADDRESS || !TronWeb.isAddress(BITPIE_ADDRESS)) throw new Error('Configure and verify the Bitpie TRON address first.')
@@ -41,18 +42,12 @@ export default function BitpieInternalRestrictedCredits() {
       method,
       headers: { Accept: 'application/json', Authorization: 'Bearer ' + token, ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
       credentials: 'omit', cache: 'no-store', redirect: 'error',
-      ...(method === 'POST' ? { body: JSON.stringify({
-        beneficiaryAddress: BITPIE_ADDRESS,
-        amountSun: toSun(amount),
-        idempotencyKey: crypto.randomUUID(),
-        creditType: 'display_only_non_asset',
-        reason: reason.trim(),
-      }) } : {}),
+      ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
     })
     const payload = await response.json()
     if (!response.ok || payload.success !== true) throw new Error(payload.error || 'Internal credit ledger request failed.')
     return payload
-  }, [amount, reason])
+  }, [])
 
   const refresh = useCallback(async () => {
     setBusy(true); setError('')
@@ -71,10 +66,20 @@ export default function BitpieInternalRestrictedCredits() {
     event.preventDefault()
     setBusy(true); setError(''); setNotice('')
     try {
-      const payload = await request('POST')
+      if (!pendingIdempotencyKey.current) pendingIdempotencyKey.current = crypto.randomUUID()
+      const payload = await request('POST', {
+        beneficiaryAddress: BITPIE_ADDRESS,
+        amountSun: toSun(amount),
+        idempotencyKey: pendingIdempotencyKey.current,
+        creditType: 'display_only_non_asset',
+        reason: reason.trim(),
+      })
+      pendingIdempotencyKey.current = null
       setNotice(payload.duplicate ? 'This idempotent internal credit entry already exists.' : 'Internal restricted-credit entry recorded.')
       setAmount(''); setReason('')
-      await refresh()
+      const updated = await request('GET')
+      setCredits(updated.credits || [])
+      setTotalSun(String(updated.totalAmountSun || '0'))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not record internal credit.')
     } finally { setBusy(false) }
@@ -99,7 +104,7 @@ export default function BitpieInternalRestrictedCredits() {
       </form>
       {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/><span>{error}</span></div>}
       {notice&&<div className="notice notice-success" role="status"><ShieldCheck size={16}/><span>{notice}</span></div>}
-      <div className="section-heading"><div><span className="eyebrow">APPEND-ONLY LEDGER</span><h3>Internal credit entries</h3></div><button className="secondary-button" disabled={busy} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</button></div>
+      <div className="section-heading"><div><span className="eyebrow">APPEND-ONLY LEDGER</span><h3>Internal credit entries</h3></div><button className="secondary-button" type="button" disabled={busy} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</button></div>
       {!credits.length ? <div className="empty-state">No internal credit entries have been recorded.</div> : credits.map(item=><article className="history-item" key={item.id}><div className="history-icon incoming"><ShieldCheck size={16}/></div><div className="history-main"><b>{formatSun(item.amountSun)} TRX units · internal only</b><small>{item.reason} · {item.createdAt?new Date(item.createdAt).toLocaleString():'date unavailable'}</small><span className="status-text">Restricted internal bookkeeping · no withdrawal</span></div></article>)}
       <p className="fine-print">Entries are append-only and owner-authenticated. They are not proof of provider funding, a debt owed by Bitpie, a token issuance, or redeemable TRX. No Bitpie endpoint is called.</p>
     </section>
