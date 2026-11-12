@@ -24,3 +24,15 @@ test('internal credit is explicitly non-asset and has no Bitpie or blockchain ef
   assert.doesNotMatch(source, /client\.(?:send|transfer|withdraw|broadcast)[A-Z_a-z]*\(/)
   assert.doesNotMatch(source, /bitpie\.com\/(?:api|v[0-9])/i)
 })
+
+test('server mounts the owner-only ledger and UI labels it as non-asset bookkeeping', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8')
+  const ui = await readFile(new URL('../Frontend-Tron-Transfer/src/BitpieInternalRestrictedCredits.jsx', import.meta.url), 'utf8')
+  assert.match(server, /bitpieInternalRestrictedCreditsRoutes/)
+  assert.match(server, /app\.use\('\/api\/owner\/bitpie-internal-credits'/)
+  assert.match(ui, /INTERNAL LEDGER ONLY/)
+  assert.match(ui, /Not a Bitpie wallet credit/)
+  assert.match(ui, /not backed by blockchain TRX/)
+  assert.match(ui, /No Bitpie endpoint is called/)
+})
