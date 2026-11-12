@@ -6,8 +6,9 @@ import {
 } from '../server/restricted-trx-provider.mjs'
 
 test('Ripple readiness fails closed with principal credit and escrow selected', () => {
-  const result = getRestrictedTrxProviderReadiness({ RESTRICTED_TRX_PROVIDER: 'ripple' })
+  const result = getRestrictedTrxProviderReadiness({})
   assert.equal(result.provider, 'ripple')
+  assert.equal(result.providerSelection, 'selected-for-diligence-only')
   assert.equal(result.network, 'TRON_MAINNET')
   assert.equal(result.asset, 'TRX')
   assert.equal(result.fundingArrangement, 'principal-credit')
