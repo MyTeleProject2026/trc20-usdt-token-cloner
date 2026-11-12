@@ -3,7 +3,7 @@ name: CI
 on:
   # One authoritative PR test/build workflow. Separate audit checks remain enabled.
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
   pull_request:
     branches: [main, "fix/**", "test/**", "feat/**"]
   workflow_dispatch:
