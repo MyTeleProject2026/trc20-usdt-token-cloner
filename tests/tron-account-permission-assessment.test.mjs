@@ -94,3 +94,10 @@ test('only the explicitly non-value-moving vote and witness-profile operations a
   assert.equal(result.singleSignerCanMoveFunds,false)
  }
 })
+
+test('flags account-creation and TRC10 unfreeze permissions as value-capable',()=>{
+ for (const id of [0,6,9,14]) {
+  const result=assessTronAccountPermissions(account(2,1,[id]))
+  assert.equal(result.singleSignerCanMoveFunds,true)
+ }
+})
