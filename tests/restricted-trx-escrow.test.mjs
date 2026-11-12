@@ -18,6 +18,8 @@ test('RestrictedTRXEscrow compiles and exposes provider funding plus beneficiary
   assert.ok(names.includes('fundPosition'))
   assert.ok(names.includes('claim'))
   assert.ok(names.includes('getPosition'))
+  assert.ok(names.includes('getBeneficiaryPositionCount'))
+  assert.ok(names.includes('getBeneficiaryPositionRequestId'))
   assert.ok(names.includes('totalLockedSun'))
   assert.ok(names.includes('setDepositsPaused'))
   assert.equal(names.includes('adminWithdraw'), false)
