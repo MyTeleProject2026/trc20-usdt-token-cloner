@@ -57,8 +57,8 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
   const provider = configuredProvider ? (configuredProvider === 'ripple' ? 'ripple' : '') : 'ripple'
   const contract = present(env.RESTRICTED_TRX_ESCROW_CONTRACT) ? env.RESTRICTED_TRX_ESCROW_CONTRACT.trim() : ''
   const runtimeCodeHashConfigured = /^[0-9a-f]{64}$/i.test(String(env.RESTRICTED_TRX_ESCROW_RUNTIME_CODE_SHA256 || '').trim())
-  const apiKeyConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_KEY)
-  const apiSecretConfigured = present(env.RESTRICTED_TRX_PROVIDER_API_SECRET)
+  const apiKeyConfigured = present(env.RIPPLE_WALLET_CLIENT_ID)
+  const apiSecretConfigured = present(env.RIPPLE_WALLET_CLIENT_SECRET)
   const providerAccountConfigured = present(env.RESTRICTED_TRX_PROVIDER_ACCOUNT_ID)
   const providerAgreementConfigured = env.RESTRICTED_TRX_PROVIDER_AGREEMENT_CONFIRMED === 'true'
   // Permanently false in this research/implementation stage. Do not derive this
@@ -68,7 +68,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
   if (!provider) blockers.push('ripple-not-selected')
   if (!providerAccountConfigured) blockers.push('provider-account-not-configured')
   if (!providerAgreementConfigured) blockers.push('provider-funding-agreement-not-confirmed')
-  if (!apiKeyConfigured || !apiSecretConfigured) blockers.push('provider-credentials-not-configured')
+  if (!apiKeyConfigured || !apiSecretConfigured) blockers.push('ripple-wallet-oauth-client-credentials-not-configured')
   if (!contract) blockers.push('escrow-contract-not-deployed')
   if (!runtimeCodeHashConfigured) blockers.push('audited-escrow-runtime-code-hash-not-configured')
   if (!adapterImplemented) blockers.push('ripple-provider-api-adapter-not-implemented')
@@ -100,6 +100,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
     providerAccountConfigured,
     providerAgreementConfigured,
     credentialsConfigured: apiKeyConfigured && apiSecretConfigured,
+    authentication: 'ripple-wallet-oauth2-client-credentials',
     adapterImplemented,
     capabilitiesRequired: REQUIRED_CAPABILITIES,
     principalAvailableSun: null,
