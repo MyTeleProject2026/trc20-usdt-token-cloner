@@ -43,12 +43,12 @@ const escrowInput = {
 const escrowOutput = JSON.parse(solc.compile(JSON.stringify(escrowInput)))
 const escrowErrors = (escrowOutput.errors || []).filter((entry) => entry.severity === 'error')
 if (escrowErrors.length) {
-  for (const error of escrowErrors) process.stderr.write(error.formattedMessage + '\\n')
+  for (const error of escrowErrors) process.stderr.write(error.formattedMessage + '\n')
   process.exit(1)
 }
 const escrow = escrowOutput.contracts?.['RestrictedTRXEscrow.sol']?.RestrictedTRXEscrow
 if (!escrow?.evm?.bytecode?.object || !escrow.abi) throw new Error('Solidity compiler did not produce RestrictedTRXEscrow ABI and bytecode')
 const escrowArtifact = { abi: escrow.abi, bytecode: escrow.evm.bytecode.object }
-const escrowModule = 'export const restrictedTRXEscrowArtifact = ' + JSON.stringify(escrowArtifact) + ' as const\\n'
+const escrowModule = 'export const restrictedTRXEscrowArtifact = ' + JSON.stringify(escrowArtifact) + ' as const\n'
 await fs.writeFile(path.join(outDir, 'RestrictedTRXEscrow.ts'), escrowModule)
 console.log('Compiled RestrictedTRXEscrow.sol. Deployment remains separately gated.')
