@@ -25,6 +25,7 @@ import { createCorsPolicy } from './cors-policy.mjs'
 import { isReadOnlyServiceReady } from './readiness-policy.mjs'
 import { initializeDatabase, getDatabaseStatus } from './database.mjs'
 import { tatumFetch, MissingApiKeyError } from './tatum-client.mjs'
+import { getRestrictedTrxProviderReadiness } from './restricted-trx-provider.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
@@ -54,6 +55,18 @@ app.use(corsPolicy)
 app.use(credentialGuard)
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'tron-token-studio-api' }))
 app.get('/', (_req, res) => res.json({ service: 'TRON Token Studio API', health: '/health' }))
+app.get('/api/restricted-trx/provider-readiness', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, private')
+  const readiness = getRestrictedTrxProviderReadiness()
+  // This endpoint exposes configuration status only; never expose provider
+  // credentials, raw provider payloads, or imply funds are available.
+  return res.status(503).json({
+    success: false,
+    readiness,
+    note: 'No provider liquidity is available until an approved provider adapter verifies principal and fee funding.',
+  })
+})
+
 app.get('/api/storage/status', async (_req, res) => {
   const database = await getDatabaseStatus()
   res.status(database.configured && !database.ready ? 503 : 200).json({ success: true, storage: database })
