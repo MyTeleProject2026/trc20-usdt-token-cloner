@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { TronWeb } from 'tronweb'
 import { createPublicTronReadClient } from '../server/public-tron-read-client.mjs'
 
-const ADDRESS = 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
+const ADDRESS = TronWeb.address.fromHex('41' + '1'.repeat(40))
 const TXID = 'a'.repeat(64)
 
 function fakeFetchFor(payloads) {
