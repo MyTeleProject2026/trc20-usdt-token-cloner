@@ -169,7 +169,8 @@ export default function App() {
     const parts=oneTraxAmount.split('.'), amountUnits=(BigInt(parts[0])*1000000n+BigInt((parts[1]||'').padEnd(6,'0'))).toString()
     if (!oneTraxAccounting?.configured || !oneTraxAccounting?.liability?.contractAddress || !oneTraxAccounting?.reserve?.address) { await loadOneTraxAccounting(); throw new Error('Mainnet accounting was refreshed. Review it, then request minting again.') }
     const tokenAddress=oneTraxAccounting.liability.contractAddress, vaultAddress=oneTraxAccounting.reserve.address, tronWeb=unlocked.tronWeb
-    if (!String(tronWeb.fullNode?.host||'').includes('api.trongrid.io')) throw new Error('Wallet network is not confirmed as TRON Mainnet.')
+    let walletNodeHost=''; try { walletNodeHost=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
+    if (walletNodeHost!=='api.trongrid.io') throw new Error('Wallet network is not confirmed as TRON Mainnet.')
     const abi=[
       {constant:true,inputs:[],name:'owner',outputs:[{name:'',type:'address'}],stateMutability:'view',type:'function'},
       {constant:true,inputs:[],name:'paused',outputs:[{name:'',type:'bool'}],stateMutability:'view',type:'function'},
