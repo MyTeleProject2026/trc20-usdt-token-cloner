@@ -56,3 +56,8 @@ TRON documents that `/walletsolidity/gettransactionbyid` proves inclusion in sol
 - https://developers.tron.network/docs/api
 
 This route is read-only and owner-authenticated. It does not sign, broadcast, fund, or release any transaction. A successful result proves only a contract-held restricted position; it does not create a Bitpie wallet deposit or alter Bitpie's ordinary balance.
+
+
+## Account resources endpoint note
+
+Native TRX balance and transaction finality are read from the Solidity API (`/walletsolidity/*`). Account resource estimates (Bandwidth and Energy remaining) use the FullNode endpoint `/wallet/getaccountresource`, because the resource API is a current resource view rather than a solidified balance snapshot. The UI and API label these resource values as current FullNode state, not solidified state. They are informational and do not constitute a fee sponsorship or provider credit.
