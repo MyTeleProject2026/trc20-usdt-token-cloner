@@ -34,7 +34,7 @@ test('public TRON proxy requires a matching Mainnet owner session before reading
     const denied = await fetch(baseUrl + '/api/public-tron/account/' + target)
     assert.equal(denied.status, 401)
     assert.equal(calls, 0)
-    const allowed = await fetch(baseUrl + '/account/' + target, {
+    const allowed = await fetch(baseUrl + '/api/public-tron/account/' + target, {
       headers: { Authorization: 'Bearer ' + token, Origin: origin },
     })
     const payload = await allowed.json()
@@ -56,7 +56,7 @@ test('public TRON proxy rejects another wallet session', async (t) => {
     publicClient: { async getSolidifiedAccount() { calls++; return { balanceSun: '0' } } },
   })
   await withServer(t, router, async (baseUrl) => {
-    const response = await fetch(baseUrl + '/account/' + target, {
+    const response = await fetch(baseUrl + '/api/public-tron/account/' + target, {
       headers: { Authorization: 'Bearer ' + token, Origin: origin },
     })
     assert.equal(response.status, 403)
@@ -73,7 +73,7 @@ test('public TRON proxy rejects non-Mainnet sessions', async (t) => {
     publicClient: { async getSolidifiedAccount() { throw new Error('must not read') } },
   })
   await withServer(t, router, async (baseUrl) => {
-    const response = await fetch(baseUrl + '/account/' + target, {
+    const response = await fetch(baseUrl + '/api/public-tron/account/' + target, {
       headers: { Authorization: 'Bearer ' + token, Origin: origin },
     })
     assert.equal(response.status, 401)
@@ -109,11 +109,11 @@ test('owner can discover escrow positions indexed for the Bitpie address using s
     const countPayload = await countResponse.json()
     assert.equal(countResponse.status, 200)
     assert.equal(countPayload.data.count, '1')
-    const idResponse = await fetch(baseUrl + '/escrow/' + target + '/beneficiary/' + target + '/request/0', { headers })
+    const idResponse = await fetch(baseUrl + '/api/public-tron/escrow/' + target + '/beneficiary/' + target + '/request/0', { headers })
     const idPayload = await idResponse.json()
     assert.equal(idResponse.status, 200)
     assert.equal(idPayload.data.requestId, requestId)
-    const positionResponse = await fetch(baseUrl + '/escrow/' + target + '/position/' + requestId, { headers })
+    const positionResponse = await fetch(baseUrl + '/api/public-tron/escrow/' + target + '/position/' + requestId, { headers })
     const positionPayload = await positionResponse.json()
     assert.equal(positionResponse.status, 200)
     assert.equal(positionPayload.data.beneficiary, target)
