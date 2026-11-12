@@ -10,7 +10,8 @@ const REQUIRED_CAPABILITIES = Object.freeze([
   'native-trx-mainnet',
   'trongrid-trigger-smart-contract-with-call-value',
   'provider-approved-trx-principal-credit',
-  'credit-funded-network-fees-for-escrow-call',
+  'provider-paid-network-fees-for-escrow-call',
+  'delegated-energy-bandwidth-for-escrow-call',
   'idempotent-transaction-submission',
   'transaction-status-query',
   'solidified-chain-and-contract-state-verification',
@@ -75,7 +76,8 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
     'published-ripple-principal-credit-terms-not-found',
     'ripple-credit-facility-not-approved-or-authenticated',
     'ripple-native-trx-escrow-call-support-not-verified',
-    'ripple-native-trx-escrow-fee-credit-not-verified',
+    'provider-paid-network-fee-coverage-not-verified',
+    'delegated-energy-bandwidth-not-verified',
     'myanmar-customer-eligibility-not-confirmed',
     'escrow-contract-audit-and-mainnet-deployment-not-verified',
     'independent-solidified-chain-verifier-not-integrated',
@@ -125,7 +127,7 @@ export function getRestrictedTrxProviderReadiness(env = process.env) {
  * the API response or approve production execution.
  */
 export function assertRestrictedTrxCreditAuthorization(facility, {
-  destination, amountSun, feeBudgetSun, now = Date.now(),
+  destination, amountSun, feeBudgetSun, escrowAddress, now = Date.now(),
 } = {}) {
   const fail = (code) => {
     const error = new Error('Provider credit authorization is insufficient')
@@ -144,7 +146,8 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
     || !facility.permittedTransactionTypes.includes('TriggerSmartContract')) {
     fail('provider-tron-payable-contract-call-not-authorized')
   }
-  if (facility.feeFundingMode !== 'credit') fail('provider-escrow-fees-not-credit-funded')
+  const combinedFeeMode = facility.feeFundingMode === 'provider-paid-plus-delegated-resources'
+  if (facility.feeFundingMode !== 'credit' && !combinedFeeMode) fail('provider-escrow-fee-funding-mode-not-authorized')
   if (!Number.isFinite(Date.parse(facility.expiresAt)) || Date.parse(facility.expiresAt) <= now) fail('provider-credit-authorization-expired')
   if (destination !== 'escrow' || !Array.isArray(facility.allowedDestinations)
     || !facility.allowedDestinations.includes('escrow')) {
@@ -155,6 +158,30 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
     fail('provider-credit-principal-insufficient')
   }
   if (BigInt(feeBudgetSun) > BigInt(facility.feeBudgetSun)) fail('provider-credit-fee-budget-insufficient')
+
+  let delegatedResourceEvidence = null
+  if (combinedFeeMode) {
+    const resources = facility.delegatedResources
+    const validAddress = typeof escrowAddress === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(escrowAddress)
+    const hasEnergy = positiveIntegerString(resources?.energyLimit)
+    const hasBandwidth = positiveIntegerString(resources?.bandwidthLimit)
+    const resourceTxIds = resources?.resourceTransactionIds
+    if (!validAddress || !resources || resources.verifiedOnChain !== true
+      || resources.status !== 'active' || resources.network !== 'TRON_MAINNET'
+      || resources.receiverAddress !== escrowAddress || (!hasEnergy && !hasBandwidth)
+      || !Array.isArray(resourceTxIds) || resourceTxIds.length === 0
+      || resourceTxIds.some((id) => typeof id !== 'string' || !/^[0-9a-f]{64}$/i.test(id))
+      || !Number.isFinite(Date.parse(resources.expiresAt)) || Date.parse(resources.expiresAt) <= now) {
+      fail('provider-delegated-resources-not-verified-for-escrow')
+    }
+    delegatedResourceEvidence = Object.freeze({
+      receiverAddress: resources.receiverAddress,
+      energyLimit: hasEnergy ? resources.energyLimit : '0',
+      bandwidthLimit: hasBandwidth ? resources.bandwidthLimit : '0',
+      resourceTransactionIds: Object.freeze([...resourceTxIds]),
+      expiresAt: resources.expiresAt,
+    })
+  }
   return Object.freeze({
     providerId: 'ripple',
     providerAuthorizationId: facility.providerAuthorizationId,
@@ -162,6 +189,8 @@ export function assertRestrictedTrxCreditAuthorization(facility, {
     destination: 'escrow',
     amountSun,
     feeBudgetSun,
+    feeFundingMode: facility.feeFundingMode,
+    delegatedResourceEvidence,
     expiresAt: facility.expiresAt,
   })
 }
