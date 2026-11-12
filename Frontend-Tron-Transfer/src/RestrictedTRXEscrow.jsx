@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { TronWeb } from 'tronweb'
 
 const BITPIE_ADDRESS = 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT'
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const ESCROW_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_ESCROW_ADDRESS || '').trim()
 const ABI = [{
   inputs: [{ name: 'requestId', type: 'bytes32' }],
@@ -31,6 +32,20 @@ export default function RestrictedTRXEscrow() {
   const [position, setPosition] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [providerReadiness, setProviderReadiness] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    fetch(API_BASE + '/api/restricted-trx/provider-readiness', { cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json()
+        if (!response.ok && !payload.readiness) throw new Error('Provider readiness endpoint is unavailable.')
+        return payload.readiness
+      })
+      .then((readiness) => { if (active) setProviderReadiness(readiness) })
+      .catch(() => { if (active) setProviderReadiness(null) })
+    return () => { active = false }
+  }, [])
 
   async function verifyPosition() {
     setBusy(true)
@@ -62,6 +77,7 @@ export default function RestrictedTRXEscrow() {
         <div><span className="eyebrow">TRON MAINNET · ON-CHAIN ESCROW VIEWER</span><h2>Restricted TRX custody</h2><p>Read-only verification of a real contract-held position linked to your Bitpie address. This is not a Bitpie wallet deposit or spendable Bitpie balance.</p></div>
       </div>
       <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Important wallet distinction</b><p>TRX held by the escrow contract is not held inside Bitpie. Bitpie will not show it as ordinary wallet balance. This viewer reads the actual contract position from TRON Mainnet.</p></div></div>
+      <div className="notice notice-warning"><AlertTriangle size={17}/><div><b>Provider funding readiness</b><p>{providerReadiness?.message || 'Provider readiness has not been retrieved.'}</p><p>{providerReadiness ? 'Verified liquidity: ' + (providerReadiness.liquidityVerified ? 'yes' : 'no') + ' · Automated funding: ' + (providerReadiness.canBroadcastTransaction ? 'enabled' : 'disabled') : 'Status unavailable.'}</p>{providerReadiness?.blockers?.length > 0 && <small>Blockers: {providerReadiness.blockers.join(', ')}</small>}</div></div>
       <div className="settings-group">
         <span className="eyebrow">BENEFICIARY BITPIE ADDRESS</span>
         <div className="address-box"><span>Allowlisted beneficiary</span><b>{BITPIE_ADDRESS}</b></div>
