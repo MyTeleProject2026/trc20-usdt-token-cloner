@@ -4,6 +4,7 @@ import { getWalletAuthSession } from '../database.mjs'
 import { createRippleCustodyClient, rippleCustodyConfiguration, RippleCustodyApiError } from '../ripple-custody-client.mjs'
 import { createBitpieAdapter } from '../bitpie-adapter.mjs'
 import { allocateRestrictedTrxCredit, getRestrictedTrxCreditAccount } from '../ripple-custody-ledger.mjs'
+import { readOneTraxAccounting } from '../one-trax-accounting.mjs'
 
 function digest(value) { return createHash('sha256').update(value).digest('hex') }
 function bearer(req) {
@@ -67,7 +68,7 @@ export function createRippleCustodyRouter({
       ],
     })
   })
-  router.get('/bitpie/capabilities', (_req, res) => res.json({ success: true, ...bitpie.capabilities }))
+  router.get('/1trax/accounting', async (_req, res) => {\n    try { return res.json(await readOneTraxAccounting({ env })) }\n    catch { return res.status(503).json({ success: false, error: '1trax-accounting-read-failed' }) }\n  })\n  router.get('/bitpie/capabilities', (_req, res) => res.json({ success: true, ...bitpie.capabilities }))
   router.post('/bitpie/validate-address', (req, res) => res.json({ success: true, ...bitpie.validateTronAddress(req.body?.address) }))
 
   router.get('/credits/:customerId', async (req, res) => {
