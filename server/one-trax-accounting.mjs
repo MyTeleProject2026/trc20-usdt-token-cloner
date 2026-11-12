@@ -1,4 +1,5 @@
 import { TronWeb } from 'tronweb'
+import { isValidTronAddress } from './tron-address.mjs'
 
 const TESTNETS = Object.freeze({
   nile: 'https://nile.trongrid.io',
@@ -18,7 +19,7 @@ export async function readOneTraxAccounting({
   if (!contractAddress) missing.push('ONE_TRAX_CONTRACT_ADDRESS')
   if (missing.length) return { success: true, configured: false, network: network || null, missing }
 
-  if (!TronWeb.isAddress(reserveAddress) || !TronWeb.isAddress(contractAddress)) {
+  if (!isValidTronAddress(reserveAddress) || !isValidTronAddress(contractAddress)) {
     return { success: false, error: 'invalid-testnet-address' }
   }
 
