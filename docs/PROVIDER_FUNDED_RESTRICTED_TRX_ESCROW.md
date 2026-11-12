@@ -112,13 +112,11 @@ Until every gate passes, real-value execution remains disabled. The app may show
 
 Do not assume that an institution's support for TRX transfers means it can fund a TRON TVM smart-contract call. The escrow's `fundPosition` method requires a signed TRON `TriggerSmartContract` transaction with native TRX attached as `call_value`. A plain TRX `TransferContract` to the escrow address is rejected by the contract's `receive()` handler and does not create a position.
 
-Fireblocks' published generic `CONTRACT_CALL` API documentation describes EVM contract calls; that documentation alone does not establish support for TRON TVM calls with attached TRX. Treat Fireblocks as a candidate for a conventional TRX transfer/custody workflow only until Fireblocks confirms in writing that its supported TRON asset and signing workflow can create and sign this exact `TriggerSmartContract` call. Do not map an EVM `CONTRACT_CALL` operation onto TRON by assumption.
+Do not substitute an EVM-only contract-call API for a TRON TVM transaction. The selected provider must demonstrate a TRON-native `TriggerSmartContract` workflow with the exact attached TRX `call_value`. Fireblocks is excluded from this project integration.
 
 TRON's official developer documentation distinguishes read-only calls from state-changing calls, and documents that writes require a signature and consume Energy. The provider adapter must therefore demonstrate a TRON-native unsigned transaction construction / signing / broadcast or a documented provider-supported equivalent.
 
 References:
-- https://fireblocks.readme.io/docs/interact-with-smart-contracts
-- https://fireblocks.readme.io/reference/create-transactions
 - https://developers.tron.network/docs/smart-contract-interaction
 - https://developers.tron.network/docs/api-signature-and-broadcast-flow
 
