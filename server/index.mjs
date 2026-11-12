@@ -150,6 +150,9 @@ app.use('/api/tron', createSponsorIntegrationReadinessRouter())
 app.use('/api', treasuryPayoutReadinessRoutes)
 app.use('/api/treasury/owner', ownerTreasuryRoutes)
 app.use('/api/treasury/owner', createOwnerTreasuryFundingLedgerRouter())
+// Independent Fireblocks-managed treasury: owner-authenticated readiness and
+// withdrawal APIs. Real-value submission remains hard-disabled in this build.
+app.use('/api/treasury', createTreasuryWithdrawalsRouter())
 // Handle signed Fincra payout notifications before the disabled legacy route.
 app.use('/api/tron-transfer', createFincraWebhookRouter())
 app.use('/api/tron-transfer', tronTransferRoutes)
