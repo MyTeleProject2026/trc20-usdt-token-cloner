@@ -146,3 +146,11 @@ The escrow constructor now requires `maxPositionSun` and `maxDailyPrincipalSun` 
 ## Fixed beneficiary binding
 
 The escrow contract now pins `restrictedBeneficiary` as a constructor-supplied immutable address. `fundPosition` rejects every beneficiary other than this exact address. For this deployment plan, set it to the confirmed Bitpie address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`. The owner verifier independently reads the immutable `restrictedBeneficiary()` getter and rejects evidence if the configured beneficiary does not match. The constructor therefore requires the provider address, operator address, restricted beneficiary address, minimum and maximum lock duration, maximum position principal (SUN), and maximum UTC daily principal (SUN).
+
+## Alternative Bitpie-visible restricted balance path
+
+Bitpie's official support article describes its multisignature feature and lists TRX among supported assets, although its detailed payment-currency list is inconsistent. It describes a new multisig address, an on-chain 100 TRX creation fee, and warns against 2-of-2/3-of-3 due to key-loss lockout. See [BITPIE_MULTISIG_RESTRICTED_TRX_ROUTE.md](./BITPIE_MULTISIG_RESTRICTED_TRX_ROUTE.md).
+
+This may be a better fit than contract escrow if the current Bitpie app confirms native TRX receive/display for the multisig wallet. A provider can send actual TRX to the resulting multisig address. The real TRX balance appears at that address, while account permission thresholds prevent one key from spending alone. The multisig address may differ from the user's existing ordinary Bitpie address.
+
+Tron Transfer now reads and audits owner/active permission thresholds in the solidified account response. It does not change permissions, create a multisig, or sign. The generated multisig account must be configured by trusted Bitpie participants and verified on-chain. Real TRX principal and network fees remain required; public APIs do not supply them.
