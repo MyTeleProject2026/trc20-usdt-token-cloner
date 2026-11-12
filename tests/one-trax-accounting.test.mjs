@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readOneTraxAccounting } from '../server/one-trax-accounting.mjs'
 
-const validAddress = 'T' + 'A'.repeat(33)
+const validAddress = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 
 test('1TRAX accounting keeps native TRX reserve and token liability in separate fields', async () => {
   let host = ''
