@@ -57,7 +57,7 @@ export default function RestrictedTRXEscrow() {
     let active = true
     async function loadBitpieAccount() {
       try {
-        const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
+        const token = sessionStorage.getItem('tron-token-studio:owner-session:v1') || ''
         if (!token) throw new Error('Sign in as the platform owner to query solidified public-chain data.')
         const response = await fetch(API_BASE + '/api/public-tron/account/' + encodeURIComponent(BITPIE_ADDRESS), {
           headers: { Accept: 'application/json', Authorization: 'Bearer ' + token },
@@ -80,7 +80,7 @@ export default function RestrictedTRXEscrow() {
     setDiscoveredPositions([])
     try {
       if (!ESCROW_ADDRESS || !TronWeb.isAddress(ESCROW_ADDRESS)) throw new Error('No audited Mainnet escrow contract is configured.')
-      const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
+      const token = sessionStorage.getItem('tron-token-studio:owner-session:v1') || ''
       if (!token) throw new Error('Sign in with the configured owner wallet before discovering escrow positions.')
       const headers = { Accept: 'application/json', Authorization: 'Bearer ' + token }
       const base = API_BASE + '/api/public-tron/escrow/' + encodeURIComponent(ESCROW_ADDRESS) +
@@ -134,7 +134,7 @@ export default function RestrictedTRXEscrow() {
       if (!ESCROW_ADDRESS || !TronWeb.isAddress(ESCROW_ADDRESS)) {
         throw new Error('No audited Mainnet escrow contract is configured. Verification is unavailable until deployment.')
       }
-      const token = sessionStorage.getItem('tron-transfer:owner-session:v1') || ''
+      const token = sessionStorage.getItem('tron-token-studio:owner-session:v1') || ''
       if (!token) throw new Error('Sign in with the configured owner wallet before verifying escrow.')
       const response = await fetch(
         API_BASE + '/api/restricted-trx/escrow/verify/' +
