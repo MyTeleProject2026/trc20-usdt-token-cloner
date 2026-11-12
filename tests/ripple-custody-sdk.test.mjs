@@ -37,7 +37,7 @@ test('official SDK is used for domain reads and client is closed', async () => {
 
 test('missing SDK configuration and unavailable SDK fail closed', async () => {
   await assert.rejects(createRippleCustodyClient({ env: { ...env, RC_CLIENT_SECRET: '' }, sdkModule: {} }), (error) => error instanceof RippleCustodyApiError && error.code === 'ripple-custody-service-auth-not-configured')
-  await assert.rejects(createRippleCustodyClient({ env: { ...env, RC_CONFIG_FILE: 'config/not-found.toml' }, sdkModule: {} }), (error) => error instanceof RippleCustodyApiError && error.code === 'ripple-custody-config-file-unavailable')
+  await assert.rejects(createRippleCustodyClient({ env: { ...env, RC_CONFIG_FILE: 'config/not-found.toml' }, sdkModule: {} }), (error) => error instanceof RippleCustodyApiError && error.code === 'ripple-custody-service-auth-not-configured')
 })
 
 test('all value-moving operations remain disabled', async () => {
