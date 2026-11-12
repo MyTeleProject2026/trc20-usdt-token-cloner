@@ -203,3 +203,10 @@ The existing on-chain escrow viewer remains a separate section and continues to 
 ### Future Bitpie adapter gate
 
 A Bitpie adapter must remain unconfigured and disabled until Bitpie itself publishes or provides an authorized integration contract that specifies the official endpoint, authentication/signature scheme, account/wallet identity model, permission to create restricted credits, balance-display semantics, and reversal/audit rules. No API key, arbitrary URL, third-party proxy, private app endpoint, or environment toggle can substitute for that authorization. Until then, `bitpieApiConnected` is false and the internal ledger is not a Bitpie integration.
+
+
+### Owner UI configuration
+
+The restricted-credit panel is mounted inside the existing owner-only **Restricted TRX escrow** workspace. It defaults to the previously confirmed Bitpie TRON address `TLBWTZHjjRMwbFgKgqmLwjp4ZKjxt5a2GT`; deployments may override this with the frontend build variable `VITE_RESTRICTED_TRX_BENEFICIARY_ADDRESS`. This only selects the address associated with internal records. It does not establish ownership of that address or connect to Bitpie.
+
+Before deploying, configure the existing owner-authentication and PostgreSQL environment in the backend. The ledger creates its own schema/table/index/immutable trigger on first authorized access. Run the repository test suite and frontend production build against a non-production database first. Do not create production credits until the owner has reviewed the recipient address and understands that the entry is only an internal record.
