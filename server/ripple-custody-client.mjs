@@ -54,7 +54,7 @@ export function createRippleCustodyClient({ env = process.env, fetchImpl = globa
       if (!response.ok) throw new RippleCustodyApiError(response.status, 'ripple-custody-provider-rejected-request')
       return payload
     } catch (error) {
-      if (error instanceof RippleCustodyApiError || error instanceof TypeError) throw error
+      if (error instanceof RippleCustodyApiError) throw error
       throw new RippleCustodyApiError(503, error?.name === 'AbortError' ? 'ripple-custody-timeout' : 'ripple-custody-unreachable')
     } finally { clearTimeout(timer) }
   }
