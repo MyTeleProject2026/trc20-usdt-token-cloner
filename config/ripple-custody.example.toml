@@ -1,0 +1,10 @@
+# Copy to config/ripple-custody.toml and replace every placeholder with values issued by Ripple.
+# Never put RC_CLIENT_SECRET in this file. Supply it as a backend-only secret.
+api_base_url = "https://replace-with-ripple-vault-api-host"
+oidc_issuer_url = "https://replace-with-ripple-oidc-host/realms/Metaco"
+client_id = "replace-with-ripple-service-client-id"
+private_key_file = "/secure/path/ripple-api-user-private-key.pem"
+rc_domain_id = "replace-with-ripple-domain-id"
+notary_api_public_key = "replace-with-base64-der-notary-public-key"
+verify_responses = true
+rc_validate_addresses = true
