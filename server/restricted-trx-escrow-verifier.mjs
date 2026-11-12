@@ -60,6 +60,8 @@ export function verifyRestrictedTrxEscrowEvidence({
   expectedRequestId,
   expectedBeneficiary,
   expectedContract,
+  expectedContractHex,
+  expectedTxId,
   expectedProvider,
   transaction,
   receipt,
@@ -96,11 +98,13 @@ export function verifyRestrictedTrxEscrowEvidence({
   if (callValue === null || callValue <= 0n) return fail('missing-native-trx-call-value')
 
   const calldata = cleanHex(value.data)
-  if (calldata.length < 8 + 64 * 3 || !calldata.startsWith(FUND_SELECTOR.slice(2))) {
+  if (calldata.length !== 8 + 64 * 3 || !calldata.startsWith(FUND_SELECTOR.slice(2))) {
     return fail('not-a-fund-position-call')
   }
   const callRequestId = calldata.slice(8, 72)
   const callBeneficiary = decodeAddressWord(calldata.slice(72, 136))
+  const callLockSeconds = asUint('0x' + calldata.slice(136, 200))
+  if (callLockSeconds === null || callLockSeconds <= 0n) return fail('invalid-lock-duration-calldata')
   if (callRequestId !== requestId) return fail('request-id-calldata-mismatch')
   if (callBeneficiary !== beneficiaryHex) return fail('beneficiary-calldata-mismatch')
 
@@ -132,6 +136,10 @@ export function verifyRestrictedTrxEscrowEvidence({
   }
   if (callValue !== positionAmount || eventAmount !== positionAmount) return fail('principal-amount-mismatch')
   if (eventUnlockAt !== positionUnlockAt) return fail('unlock-time-mismatch')
+  const blockTimeMs = asUint(receipt.blockTimeStamp)
+  if (blockTimeMs === null || blockTimeMs <= 0n) return fail('missing-solidified-block-timestamp')
+  const expectedUnlockAt = blockTimeMs / 1000n + callLockSeconds
+  if (expectedUnlockAt !== positionUnlockAt) return fail('unlock-time-does-not-match-transaction-lock')
 
   const contractBalance = asUint(contractBalanceSun)
   const liabilities = asUint(totalLockedLiabilitiesSun)
