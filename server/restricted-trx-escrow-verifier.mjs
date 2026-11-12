@@ -14,6 +14,7 @@ export function verifyRestrictedTrxEscrowEvidence({
   expectedRequestId,
   expectedBeneficiary,
   expectedContract,
+  expectedContractHex,
   transaction,
   receipt,
   position,
@@ -21,7 +22,7 @@ export function verifyRestrictedTrxEscrowEvidence({
   totalLockedLiabilitiesSun,
 }) {
   if (typeof expectedRequestId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(expectedRequestId)) return fail('invalid-request-id')
-  if (!BASE58.test(expectedBeneficiary || '') || !BASE58.test(expectedContract || '')) return fail('invalid-address')
+  if (!BASE58.test(expectedBeneficiary || '') || !BASE58.test(expectedContract || '') || !/^41[0-9a-f]{40}$/i.test(expectedContractHex || '')) return fail('invalid-address')
   if (!transaction || !receipt || !position) return fail('missing-solidified-evidence')
   const txid = transaction.txID || transaction.txid
   if (typeof txid !== 'string' || !HEX.test(txid)) return fail('missing-transaction-id')
@@ -33,6 +34,7 @@ export function verifyRestrictedTrxEscrowEvidence({
   if (!nativeCall) return fail('not-a-native-trx-contract-call')
   const value = nativeCall.parameter?.value || nativeCall.parameter?.Value || {}
   const destination = value.contract_address
+  if (typeof destination !== 'string' || destination.toLowerCase() !== expectedContractHex.toLowerCase()) return fail('escrow-contract-mismatch')
   const amount = BigInt(String(value.call_value ?? 0))
   if (!destination || !Number.isSafeInteger(Number(amount)) || amount <= 0n) return fail('missing-native-trx-call-value')
   const positionBeneficiary = position.beneficiary
