@@ -40,3 +40,19 @@ Public node APIs are infrastructure, not a funding source. Any transaction that 
 ## Frontend display
 
 `Frontend-Tron-Transfer/src/RestrictedTRXEscrow.jsx` now requests the configured Bitpie address through the owner-authenticated `/api/public-tron/account/:address` route and displays its solidified ordinary TRX balance separately from the contract-held escrow position. The UI explicitly labels the ordinary address balance as spendable and not restricted. The escrow viewer continues to read the contract's `getPosition(bytes32)` state and displays only a positive beneficiary-matched position.
+
+## Strict owner-only escrow verification endpoint
+
+A separate backend endpoint now performs the full escrow proof:
+- `GET /api/restricted-trx/escrow/verify/:requestId/:txid`
+- Requires a valid Mainnet owner wallet session whose address matches `TREASURY_OWNER_ADDRESS`.
+- Requires `RESTRICTED_TRX_ESCROW_CONTRACT` and `RESTRICTED_TRX_BENEFICIARY_ADDRESS` configuration.
+- Reads the solidified transaction body and receipt, then reads `getPosition(bytes32)`, `totalLockedSun()`, and `provider()` through `/walletsolidity/triggerconstantcontract`.
+- Validates exact function selector, transaction caller, contract destination, request ID, beneficiary, attached TRX value, funding event, lock timestamp, unclaimed state, and contract collateral.
+
+TRON documents that `/walletsolidity/gettransactionbyid` proves inclusion in solidified state but does not provide the full execution receipt; the solidified `gettransactioninfobyid` result must be checked and `receipt.result` must be `SUCCESS`. Constant calls may use `/walletsolidity/triggerconstantcontract` to read contract state at the latest solidified state:
+- https://developers.tron.network/docs/confirmation-semantics
+- https://developers.tron.network/reference/triggerconstantcontract-1
+- https://developers.tron.network/docs/api
+
+This route is read-only and owner-authenticated. It does not sign, broadcast, fund, or release any transaction. A successful result proves only a contract-held restricted position; it does not create a Bitpie wallet deposit or alter Bitpie's ordinary balance.
