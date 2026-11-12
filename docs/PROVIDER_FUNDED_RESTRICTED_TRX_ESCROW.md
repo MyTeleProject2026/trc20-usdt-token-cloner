@@ -22,7 +22,7 @@ The current managed-provider treasury route in `server/routes/treasury-withdrawa
 const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true
 ```
 
-Keep this gate in place. The existing Fireblocks treasury documentation and readiness checks are not proof that a provider has agreed to custody restricted TRX, sponsor contract-call fees, or provide credit. No environment variable or UI toggle may override this code-level release gate.
+Keep this gate in place. Legacy treasury-provider code and readiness checks are not proof that Ripple has agreed to custody restricted TRX, sponsor contract-call fees, or provide credit. No environment variable or UI toggle may override this code-level release gate.
 
 The existing treasury route is a payout workflow, not an escrow ledger. Build the escrow feature as a separate subsystem; do not reinterpret a normal payout row as an escrow balance.
 
