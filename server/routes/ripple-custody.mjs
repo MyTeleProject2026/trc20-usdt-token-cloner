@@ -68,7 +68,11 @@ export function createRippleCustodyRouter({
       ],
     })
   })
-  router.get('/1trax/accounting', async (_req, res) => {\n    try { return res.json(await readOneTraxAccounting({ env })) }\n    catch { return res.status(503).json({ success: false, error: '1trax-accounting-read-failed' }) }\n  })\n  router.get('/bitpie/capabilities', (_req, res) => res.json({ success: true, ...bitpie.capabilities }))
+  router.get('/1trax/accounting', async (_req, res) => {
+    try { return res.json(await readOneTraxAccounting({ env })) }
+    catch { return res.status(503).json({ success: false, error: '1trax-accounting-read-failed' }) }
+  })
+  router.get('/bitpie/capabilities', (_req, res) => res.json({ success: true, ...bitpie.capabilities }))
   router.post('/bitpie/validate-address', (req, res) => res.json({ success: true, ...bitpie.validateTronAddress(req.body?.address) }))
 
   router.get('/credits/:customerId', async (req, res) => {
