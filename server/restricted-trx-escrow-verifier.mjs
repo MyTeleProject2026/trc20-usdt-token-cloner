@@ -75,10 +75,12 @@ export function verifyRestrictedTrxEscrowEvidence({
 
   if (!HEX.test(requestId)) return fail('invalid-request-id')
   if (!beneficiaryHex || !contractHex || !configuredProviderHex) return fail('invalid-or-unchecksummed-address')
+  if (expectedContractHex && normalizeTronHexAddress(expectedContractHex) !== contractHex) return fail('configured-contract-address-mismatch')
   if (!transaction || !receipt || !position) return fail('missing-solidified-evidence')
 
   const txid = cleanHex(transaction.txID || transaction.txid)
   if (!HEX.test(txid)) return fail('missing-transaction-id')
+  if (expectedTxId && cleanHex(expectedTxId) !== txid) return fail('requested-transaction-id-mismatch')
   if (cleanHex(receipt.id) && cleanHex(receipt.id) !== txid) return fail('receipt-transaction-mismatch')
   if (!Number.isSafeInteger(Number(receipt.blockNumber)) || Number(receipt.blockNumber) <= 0) return fail('transaction-not-solidified')
   if (receipt.receipt?.result !== 'SUCCESS') return fail('contract-execution-failed')
