@@ -59,7 +59,7 @@ export function createRestrictedTrxEscrowVerificationRouter({
 
     const token = bearerToken(req)
     const origin = req.get('origin') || ''
-    const ownerAddress = String(env.TREASURY_OWNER_ADDRESS || '').trim()
+    const ownerAddress = String(env.TREASURY_OWNER_ADDRESS || env.OWNER_WALLET_ADDRESS || '').trim()
     if (!token || !origin || !ownerAddress || !TronWeb.isAddress(ownerAddress)) {
       return res.status(401).json({ success: false, error: 'owner-session-required', verified: false })
     }
