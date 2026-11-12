@@ -20,11 +20,16 @@ function validPermission(permission, kind) {
   const threshold = safeInteger(permission.threshold)
   const keys = Array.isArray(permission.keys) ? permission.keys : []
   if (threshold === null || threshold < 1 || keys.length === 0) return null
-  const normalizedKeys = keys.map((key) => ({
-    address: String(key?.address || ''),
-    weight: safeInteger(key?.weight),
-  }))
-  if (normalizedKeys.some((key) => !key.address || key.weight === null || key.weight < 1)) return null
+  const normalizedKeys = keys.map((key) => {
+    const address = String(key?.address || '')
+    if (!TronWeb.isAddress(address)) return { address: '', normalizedAddress: '', weight: null }
+    return {
+      address,
+      normalizedAddress: TronWeb.address.toHex(address).toLowerCase(),
+      weight: safeInteger(key?.weight),
+    }
+  })
+  if (normalizedKeys.some((key) => !key.normalizedAddress || key.weight === null || key.weight < 1)) return null
   let operations = null
   if (kind === 'active') {
     const raw = String(permission.operations || '').replace(/^0x/i, '').toLowerCase()
@@ -32,6 +37,14 @@ function validPermission(permission, kind) {
     operations = raw
   }
   return { threshold, keys: normalizedKeys, operations }
+}
+
+function anySingleKeyMeetsThreshold(keys, threshold) {
+  const combinedWeights = new Map()
+  for (const key of keys) {
+    combinedWeights.set(key.normalizedAddress, (combinedWeights.get(key.normalizedAddress) || 0) + key.weight)
+  }
+  return [...combinedWeights.values()].some((weight) => weight >= threshold)
 }
 
 function operationAllowed(bitmap, contractType) {
@@ -55,7 +68,7 @@ export function assessTronAccountPermissions(account) {
     })
   }
 
-  const ownerSingleKeyCanAuthorize = owner.keys.some((key) => key.weight >= owner.threshold)
+  const ownerSingleKeyCanAuthorize = anySingleKeyMeetsThreshold(owner.keys, owner.threshold)
   const activePermissions = []
   let activeSingleKeyCanMoveFunds = false
   let activePermissionDataValid = true
@@ -68,7 +81,7 @@ export function assessTronAccountPermissions(account) {
     }
     const enabledRiskyTypes = HIGH_RISK_CONTRACT_TYPES.filter((type) => operationAllowed(permission.operations, type))
     const singleKeyCanAuthorize = enabledRiskyTypes.length > 0
-      && permission.keys.some((key) => key.weight >= permission.threshold)
+      && anySingleKeyMeetsThreshold(permission.keys, permission.threshold)
     if (singleKeyCanAuthorize) activeSingleKeyCanMoveFunds = true
     activePermissions.push({
       id: safeInteger(input.id) ?? (index + 2),
