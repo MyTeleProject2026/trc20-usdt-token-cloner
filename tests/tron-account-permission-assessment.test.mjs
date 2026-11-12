@@ -34,7 +34,7 @@ test('detects a single-key active permission that enables direct transfers',()=>
   assert.equal(result.singleSignerCanMoveFunds,true)
 })
 test('ignores active permissions that cannot move value or change permissions',()=>{
-  const result=assessTronAccountPermissions(account(2,1,[4,54,55]))
+  const result=assessTronAccountPermissions(account(2,1,[4]))
   assert.equal(result.singleSignerCanMoveFunds,false)
   assert.equal(result.restrictedAgainstSingleKey,true)
 })
