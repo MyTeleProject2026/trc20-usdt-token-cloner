@@ -78,3 +78,8 @@ TRON uses 1 TRX = 1,000,000 SUN. Therefore 6,200 TRX = 6,200,000,000 SUN. If a s
 ## Audited runtime bytecode pin
 
 Before any escrow position can be marked verified, the route reads the contract's runtime bytecode through TRON `/wallet/getcontractinfo`, computes SHA-256 over the raw runtime bytecode bytes, and compares it to the server-only `RESTRICTED_TRX_ESCROW_RUNTIME_CODE_SHA256` pin. If the pin is missing, malformed, or mismatched, the route returns no creditable amount. Set this pin only after independent review of the deployed contract source, constructor parameters, deployed address, and runtime code. The runtime bytecode is deployment-specific because immutable constructor values are embedded in the deployed runtime.
+
+
+### Beneficiary address verification
+
+The previously supplied address is not hard-coded as a fallback in the UI or server. TronWeb Base58Check validation rejected it in the repository's automated tests. Set the actual address copied from Bitpie's Receive screen (or the newly created Bitpie multisig address) explicitly in both frontend and server configuration. The application refuses to query or verify a beneficiary until the configured address passes validation.
