@@ -298,3 +298,23 @@ test('TRON permission preflight requires ENOUGH_PERMISSION before broadcast', as
   )
   await assert.rejects(() => assertTransactionPermission({}, transaction), /preflight is unavailable/)
 })
+
+test('TRON permission errors explain multisignature threshold and weight', async () => {
+  await assert.rejects(
+    () => assertTransactionPermission({
+      trx: { getSignWeight: async () => ({
+        result: { code: 'NOT_ENOUGH_PERMISSION', message: 'insufficient weight' },
+        current_weight: 1,
+        permission: { id: 2, threshold: 2 },
+        approved_list: ['T' + '1'.repeat(33)],
+      }) },
+    }, { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }),
+    error => {
+      assert.match(error.message, /NOT_ENOUGH_PERMISSION/)
+      assert.match(error.message, /collected weight 1/)
+      assert.match(error.message, /required threshold 2/)
+      assert.match(error.message, /multisignature flow/)
+      return true
+    },
+  )
+})
