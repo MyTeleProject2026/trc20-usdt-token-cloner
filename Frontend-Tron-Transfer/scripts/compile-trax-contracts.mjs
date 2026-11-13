@@ -37,10 +37,11 @@ const token = await readArtifact('Restricted1TRAX')
 const vault = await readArtifact('OneTraxReserveVault')
 const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
-await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.json'), JSON.stringify({
+const artifact = {
   compiler: 'TRON solc 0.8.25',
   optimizer: { enabled: true, runs: 200 },
   token,
   vault,
-}))
+}
+await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\\n')
 console.log('TRӾ and native TRX reserve vault compiled with TRON solc 0.8.25.')
