@@ -56,5 +56,5 @@ test('refuses insecure personal-sign fallback if TIP-712 is unavailable', async 
     tronWeb, from: OWNER, forwarder: FORWARDER, to: TARGET,
     data: '0x12345678', nonce: 0, deadline: 1100, nowSeconds: 1000,
   })
-  await assert.rejects(() => signTronMetaTypedData({ tronWeb: wallet, expectedOwner: OWNER, typedData }), /no fallback/)
+  await assert.rejects(() => signTronMetaTypedData({ tronWeb: wallet, expectedOwner: OWNER, typedData }), /no fallback/i)
 })
