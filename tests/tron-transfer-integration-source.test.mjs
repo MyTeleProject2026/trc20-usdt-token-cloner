@@ -137,7 +137,8 @@ test('recipient inspection and TRON RPC require the configured owner session', (
 test('the frontend shows an owner sign-in gate before rendering the dashboard', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
   assert.match(app, /ownerSessionResolved/)
-  assert.match(app, /if \(!ownerSession\) return/)
+  assert.match(app, /if \(!ownerSession && !publicTraxMode\) return/)
+  assert.match(app, /Open TRӾ deployment without owner login/)
   assert.match(app, /Platform owner sign-in/)
   assert.match(app, /ownerSession\.sessionToken/)
   assert.match(app, /Authorization: 'Bearer ' \+ ownerSession\.sessionToken/)
