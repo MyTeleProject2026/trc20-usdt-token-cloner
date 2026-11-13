@@ -287,7 +287,7 @@ export default function App() {
           {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
           {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
           <TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)} />
-          <p className="fine-print trax-only-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · TRӾ SMART CONTRACT</p>
+          <p className="fine-print trax-only-footer">TRON TRANSFER · TRӾ SMART-CONTRACT WORKSPACE · TRON MAINNET</p>
         </div>
       </main>
     </div>
