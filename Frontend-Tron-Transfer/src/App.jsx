@@ -3,7 +3,7 @@ import ProviderPayoutReadiness from './ProviderPayoutReadiness.jsx'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, RefreshCw, Settings, ShieldCheck, Wallet, X, MoreHorizontal } from 'lucide-react'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'https://trc20-usdt-token-cloner-api.onrender.com').replace(/\/+$/, '')
 const MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
@@ -37,6 +37,7 @@ async function api(path, options = {}) {
 
 export default function App() {
   const [tab,setTab]=useState('overview')
+  const [mobileMoreOpen,setMobileMoreOpen]=useState(false)
   const [unlocked,setUnlocked]=useState(null)
   const [monitorAddress,setMonitorAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [monitorData,setMonitorData]=useState(null)
@@ -343,7 +344,7 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>MAINNET USDT PAYOUTS</small></span></a>
+      <a className="brand" href="#"><span className="brand-mark">T</span><span>TRON <b>TRANSFER</b><small>TRON MAINNET · ASSETS & PAYOUTS</small></span></a>
       <div className="network-card"><span className="eyebrow">PRODUCTION NETWORK</span><div className="network-chip"><i/> TRON Mainnet</div><span className="network-dot"><i/> OFFICIAL TETHER USDT TRC20</span></div>
       <nav>{nav.map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>setTab(item.id)}><item.icon size={17}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="security-note"><ShieldCheck size={17}/><span>TronLink signing<br/><b>No imported private keys</b></span></div>{unlocked?<button className="outline-button" onClick={lockWallet}><LockKeyhole size={16}/> Disconnect wallet</button>:<span className="muted small">Wallet not connected</span>}</div>
@@ -481,5 +482,18 @@ export default function App() {
       </div>
       <footer className="app-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · OFFICIAL USDT TRC20</footer>
     </main>
+    <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+      <button className={tab==='overview'?'active':''} onClick={()=>{setTab('overview');setMobileMoreOpen(false)}}><Wallet size={18}/><span>Home</span></button>
+      <button className={tab==='assets'?'active':''} onClick={()=>{setTab('assets');setMobileMoreOpen(false)}}><Coins size={18}/><span>Assets</span></button>
+      <button className={tab==='recipients'?'active':''} onClick={()=>{setTab('recipients');setMobileMoreOpen(false)}}><ArrowDownLeft size={18}/><span>Recipients</span></button>
+      <button className={tab==='withdrawals'?'active':''} onClick={()=>{setTab('withdrawals');setMobileMoreOpen(false)}}><ArrowUpRight size={18}/><span>Withdraw</span></button>
+      <button className={mobileMoreOpen?'active':''} aria-expanded={mobileMoreOpen} onClick={()=>setMobileMoreOpen(v=>!v)}><MoreHorizontal size={18}/><span>More</span></button>
+    </nav>
+    {mobileMoreOpen&&<div className="mobile-more-backdrop" onClick={()=>setMobileMoreOpen(false)}>
+      <section className="mobile-more-sheet" aria-label="More workspace pages" onClick={e=>e.stopPropagation()}>
+        <div className="mobile-more-heading"><b>More workspace pages</b><button onClick={()=>setMobileMoreOpen(false)} aria-label="Close more menu"><X size={18}/></button></div>
+        {nav.filter(item=>!['overview','assets','recipients','withdrawals'].includes(item.id)).map(item=><button key={item.id} className={tab===item.id?'active':''} onClick={()=>{setTab(item.id);setMobileMoreOpen(false)}}><item.icon size={17}/><span>{item.label}</span></button>)}
+      </section>
+    </div>}
   </div>
 }
