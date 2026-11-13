@@ -31,6 +31,7 @@ test('TRӾ metadata and default issuance protections remain exact', () => {
   assert.ok(tokenSource.includes('paused = true;'))
   assert.ok(tokenSource.includes('external onlyOwner'))
   assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
+  assert.ok(tokenSource.includes('require(!_unlocked[recipient]'))
 })
 
 test('locked accounts cannot transfer, approve, or use delegated allowances', () => {
