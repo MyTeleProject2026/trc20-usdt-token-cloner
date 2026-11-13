@@ -28,6 +28,7 @@ contract NativeTRXPayoutTreasury is MetaTxContext {
         emit PayoutRouterConfigured(router);
     }
 
+    function isTrustedForwarder(address forwarder) external view returns (bool) { return forwarder == trustedForwarder; }
     function availableBalance() external view returns (uint256) { return address(this).balance; }
 
     function pay(address payable recipient, uint256 amount, bytes32 reference) external {
