@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, "fix/**", "test/**", "feat/**"]
+    branches: [main, "fix/**", "test/**", "feat/**", "ui/**"]
   workflow_dispatch:
 
 # Supersede older runs for the same PR instead of exhausting hosted-runner capacity.
