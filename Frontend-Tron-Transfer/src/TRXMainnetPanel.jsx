@@ -170,7 +170,6 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
   })
 
   const deployToken = () => run('Preparing unsigned TRӾ token deployment · broadcast disabled', async () => {
-    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet.')
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
