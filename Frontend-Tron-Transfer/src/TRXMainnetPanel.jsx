@@ -71,7 +71,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (expectedOwner && !addressesEqual(tronWeb,connectedAddress,expectedOwner)) throw new Error('Connect the configured platform-owner TronLink address before administering TRӾ.')
     if (!addressesEqual(tronWeb, owner, connectedAddress)) throw new Error('The connected TronLink wallet is not the on-chain TRӾ owner.')
     return owner
-  }, [connectedAddress])
+  }, [connectedAddress,expectedOwner])
 
   const getContracts = useCallback(async () => {
     const tronWeb = assertMainnetWallet(wallet)
@@ -118,6 +118,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
+    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
@@ -212,6 +213,15 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     await assertOwner(token,tronWeb)
     if(!tronWeb.isAddress(holder)||!tronWeb.isAddress(redeemRecipient)) throw new Error('Enter valid holder and native-TRX recipient addresses.')
     const units=parseTokenUnits(redeemAmount)
+    const [holderBalance,reserveSun,linkedVault,authorizedToken] = await Promise.all([
+      token.balanceOf(holder).call(),
+      tronWeb.trx.getBalance(vaultAddress),
+      token.reserveVault().call(),
+      (await tronWeb.contract(TRAX_VAULT_ARTIFACT.abi).at(vaultAddress)).authorizedToken().call(),
+    ])
+    if(BigInt(String(holderBalance))<BigInt(units)) throw new Error('Holder does not have enough TRӾ for this redemption.')
+    if(BigInt(String(reserveSun))<BigInt(units)) throw new Error('Native TRX vault reserve is insufficient for this redemption.')
+    if(!addressesEqual(tronWeb,linkedVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token and reserve-vault links are not verified.')
     const reference=makeReference()
     const result=await sendAndVerifyContractCall(tronWeb,token.redeemForOwner(holder,redeemRecipient,units,reference),feeCapSun)
     setLastTx(result.txID); setNotice('Owner redemption confirmed. The holder balance was burned and native TRX was released atomically.')
