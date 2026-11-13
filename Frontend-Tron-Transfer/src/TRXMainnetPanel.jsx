@@ -301,11 +301,13 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     await refresh()
   })
 
-  const readRecipient = () => run('Reading recipient balance', async () => {
+  const readRecipient = () => run('Reading recipient balance and lock state', async () => {
     const {tronWeb,token} = await getContracts()
-    if(!tronWeb.isAddress(recipient)) throw new Error('Enter a valid TRON Mainnet recipient address.')
-    const [balance,locked]=await Promise.all([token.balanceOf(recipient).call(),token.isLocked(recipient).call()])
-    setSnapshot(prev=>({...prev,recipient,recipientBalance:String(balance),recipientLocked:Boolean(locked)}))
+    const target = holder.trim()
+    if(!tronWeb.isAddress(target)) throw new Error('Enter a valid TRON Mainnet recipient / holder address.')
+    const [balance,locked]=await Promise.all([token.balanceOf(target).call(),token.isLocked(target).call()])
+    setSnapshot(prev=>({...prev,recipient:target,recipientBalance:String(balance),recipientLocked:Boolean(locked)}))
+    setNotice('On-chain balance and lock state loaded for '+target+'.')
     return {balance,locked}
   })
 
