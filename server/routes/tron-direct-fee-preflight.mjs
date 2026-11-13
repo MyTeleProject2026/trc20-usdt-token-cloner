@@ -11,7 +11,6 @@ const UINT_RE = /^(0|[1-9][0-9]{0,77})$/
 const UINT_POSITIVE_RE = /^[1-9][0-9]{0,77}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
 const PAYOUT_SELECTOR = 'payoutBoth(address,uint256,uint256,bytes32)'
-const MAX_REQUEST_TTL_MS = 10 * 60 * 1000
 const DEFAULT_MAX_FEE_LIMIT_SUN = '300000000'
 const FEE_BUFFER_BPS = 12500n
 
@@ -98,6 +97,9 @@ function protobufVarintLength(value) {
 }
 
 export function estimateDirectSignedTransactionBytes(rawDataHex) {
+  if (typeof rawDataHex !== 'string' || !/^(?:[0-9a-f]{2})+$/i.test(rawDataHex)) {
+    throw new Error('Invalid TRON raw_data_hex for signed-byte estimation.')
+  }
   const rawDataBytes = rawDataHex.length / 2
   // Outer Transaction.raw_data field plus one 65-byte ECDSA signature field.
   return rawDataBytes + 1 + protobufVarintLength(rawDataBytes) + 1 + protobufVarintLength(65) + 65
