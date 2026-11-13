@@ -245,6 +245,17 @@ export async function assertTransactionPermission(tronWeb, signedTransaction, ex
     && (permissionId === undefined || permissionId === requestedPermissionId)
 
   const rawCode = result?.result?.code
+  const numericWeightMeetsThreshold = Number.isSafeInteger(Number(weight))
+    && Number(weight) >= 0
+    && Number.isSafeInteger(Number(threshold))
+    && Number(threshold) > 0
+    && Number(weight) >= Number(threshold)
+  if (rawCode == null && numericWeightMeetsThreshold && !signerApproved) {
+    throw new Error('TRON node reported enough signing weight but its approved_list does not include the connected wallet signer. Nothing was broadcast.')
+  }
+  if (rawCode == null && numericWeightMeetsThreshold && !signerKey) {
+    throw new Error('TRON node reported enough signing weight but the connected wallet is not a key in the selected permission. Nothing was broadcast.')
+  }
   // java-tron defines ENOUGH_PERMISSION as enum value 0. Proto3 omits
   // default-valued enum fields from JSON, so a successful response commonly
   // arrives as result: {} rather than result: { code: "ENOUGH_PERMISSION" }.
