@@ -137,6 +137,17 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
+    if (tokenAddress && (addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress) || addressesEqual(wallet.tronWeb,tokenAddress,expectedOwner))) {
+      throw new Error('The TRӾ token field contains your owner wallet address, not a smart-contract address. Clear that field so the TRӾ token contract can be deployed.')
+    }
+    if (vaultAddress && (addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress) || addressesEqual(wallet.tronWeb,vaultAddress,expectedOwner))) {
+      throw new Error('The reserve-vault field contains your owner wallet address, not a smart-contract address. Clear that field so the reserve vault can be deployed.')
+    }
+    for (const [label,address] of [['TRӾ token',tokenAddress],['reserve vault',vaultAddress]]) {
+      if (!address) continue
+      const deployedContract = await wallet.tronWeb.trx.getContract(address)
+      if (!deployedContract?.bytecode) throw new Error('The saved '+label+' address has no verified deployed contract bytecode. Clear it and deploy the contract; do not use a wallet address here.')
+    }
     const deployed = []
     if (!vaultAddress) {
       const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
