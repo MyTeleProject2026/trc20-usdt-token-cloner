@@ -1,64 +1,86 @@
-const DEFAULT_DISCOVERY_TIMEOUT_MS = 1200
-const DEFAULT_PROVIDER_READY_TIMEOUT_MS = 5000
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 1500
+const DEFAULT_PROVIDER_READY_TIMEOUT_MS = 7000
 const DEFAULT_POLL_INTERVAL_MS = 100
 
-function isTronLinkAnnouncement(info, provider) {
+function hasTronSigner(provider) {
+  const tronWeb = provider?.tronWeb || provider?.tronLink?.tronWeb || provider?.wallet?.tronWeb
+  return Boolean(tronWeb?.trx && typeof tronWeb.trx.sign === 'function'
+    && typeof tronWeb.isAddress === 'function')
+}
+
+function isTronAnnouncement(info, provider) {
   const name = typeof info?.name === 'string' ? info.name.toLowerCase() : ''
   const rdns = typeof info?.rdns === 'string' ? info.rdns.toLowerCase() : ''
-  return name === 'tronlink' || rdns.includes('tronlink') || provider?.isTronLink === true
+  return name.includes('tron') || rdns.includes('tron') || hasTronSigner(provider)
 }
 
-export function isTronLinkProvider(provider) {
-  return Boolean(provider && typeof provider.request === 'function'
-    && (provider.isTronLink === true || provider.tronWeb !== undefined))
+export function isTronWalletProvider(provider) {
+  return Boolean(provider && typeof provider.request === 'function' && hasTronSigner(provider))
 }
 
-function getGlobalProvider(windowObject) {
-  const candidates = [windowObject?.tron, windowObject?.tronLink]
-  return candidates.find(isTronLinkProvider) || null
+// Backwards-compatible export for existing callers.
+export const isTronLinkProvider = isTronWalletProvider
+
+function getInjectedProviders(windowObject) {
+  const candidates = [
+    windowObject?.tron,
+    windowObject?.tronLink,
+    windowObject?.okxwallet?.tronLink,
+    windowObject?.okxwallet,
+    windowObject?.bitkeep?.tronLink,
+    windowObject?.bitkeep,
+    windowObject?.tokenpocket?.tronLink,
+    windowObject?.tokenpocket,
+    windowObject?.trustwallet?.tronLink,
+    windowObject?.trustwallet,
+  ]
+  const unique = [...new Set(candidates.filter(isTronWalletProvider))]
+  if (unique.length === 0 && windowObject?.tronWeb?.trx
+    && typeof windowObject.tronWeb.trx.sign === 'function') {
+    const requestProvider = [windowObject?.tron, windowObject?.tronLink,
+      windowObject?.okxwallet, windowObject?.bitkeep, windowObject?.tokenpocket]
+      .find(candidate => candidate && typeof candidate.request === 'function')
+    if (requestProvider) unique.push(Object.assign(Object.create(requestProvider), { tronWeb: windowObject.tronWeb }))
+  }
+  return unique
 }
 
-/**
- * Discover TronLink using TIP-6963 first, with the injected globals retained
- * as a compatibility fallback for older DApp browser versions.
- */
+/** Discover injected TRON wallets via TIP-6963 and common DApp-browser globals. */
 export async function discoverTronLinkProvider(
   windowObject = globalThis.window,
   { timeoutMs = DEFAULT_DISCOVERY_TIMEOUT_MS } = {},
 ) {
   if (!windowObject) return null
-  const existing = getGlobalProvider(windowObject)
-  if (existing) return existing
+  const existing = getInjectedProviders(windowObject)
+  if (existing.length) return existing[0]
   if (typeof windowObject.addEventListener !== 'function'
     || typeof windowObject.removeEventListener !== 'function'
     || typeof windowObject.dispatchEvent !== 'function') return null
 
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     let settled = false
-    const finish = (provider) => {
+    const announced = []
+    const finish = provider => {
       if (settled) return
       settled = true
       windowObject.removeEventListener('TIP6963:announceProvider', onAnnouncement)
       clearTimeout(timer)
-      resolve(isTronLinkProvider(provider) ? provider : getGlobalProvider(windowObject))
+      resolve(provider || getInjectedProviders(windowObject)[0] || null)
     }
-    const onAnnouncement = (event) => {
+    const onAnnouncement = event => {
       const detail = event?.detail || {}
-      if (isTronLinkAnnouncement(detail.info, detail.provider)) finish(detail.provider)
+      if (isTronAnnouncement(detail.info, detail.provider) && isTronWalletProvider(detail.provider)) {
+        announced.push(detail.provider)
+        finish(announced[0])
+      }
     }
     windowObject.addEventListener('TIP6963:announceProvider', onAnnouncement)
-    const timer = setTimeout(() => finish(getGlobalProvider(windowObject)), timeoutMs)
-
+    const timer = setTimeout(() => finish(announced[0] || null), timeoutMs)
     try {
       const EventConstructor = windowObject.Event || globalThis.Event
-      if (typeof EventConstructor !== 'function') {
-        finish(getGlobalProvider(windowObject))
-        return
-      }
+      if (typeof EventConstructor !== 'function') return finish(null)
       windowObject.dispatchEvent(new EventConstructor('TIP6963:requestProvider'))
-    } catch {
-      finish(getGlobalProvider(windowObject))
-    }
+    } catch { finish(null) }
   })
 }
 
@@ -71,71 +93,54 @@ function unsupportedMethod(error) {
 
 function authorizationError(error) {
   const code = Number(error?.code)
-  if (code === 4001) return new Error('TronLink connection was rejected. Approve the connection request in the TronLink window and try again.')
-  if (code === -32000) return new Error('TronLink is locked or rate-limited this connection request. Unlock the wallet, wait at least 20 seconds, then retry once.')
-  if (code === 4000) return new Error('A TronLink connection request is already pending. Finish or close that request before retrying.')
-  return error instanceof Error ? error : new Error(String(error || 'TronLink authorization failed.'))
+  if (code === 4001) return new Error('Wallet connection was rejected. Approve the connection request in your TRON wallet and try again.')
+  if (code === -32000) return new Error('The TRON wallet is locked or rate-limited. Unlock it, wait briefly, then retry once.')
+  if (code === 4000) return new Error('A wallet connection request is already pending. Finish or close it before retrying.')
+  return error instanceof Error ? error : new Error(String(error || 'TRON wallet authorization failed.'))
 }
 
-/**
- * Ask the wallet to authorize this origin once, then wait for its TronWeb
- * signer/account binding to become available. This function never signs or
- * broadcasts a blockchain transaction.
- */
+async function requestAccounts(provider) {
+  let lastUnsupported
+  for (const method of ['tron_requestAccounts', 'eth_requestAccounts']) {
+    try {
+      const result = await provider.request({ method })
+      if (result && typeof result === 'object' && !Array.isArray(result) && result.code) {
+        const code = Number(result.code)
+        if (code === 4001 || code === 4000) throw authorizationError({ code })
+      }
+      const values = Array.isArray(result) ? result
+        : typeof result === 'string' && result ? [result]
+          : Array.isArray(result?.accounts) ? result.accounts : []
+      const accounts = values.filter(value => typeof value === 'string' && value)
+      if (accounts.length || hasTronSigner(provider)) return accounts
+      throw new Error('The wallet did not return a TRON account address.')
+    } catch (error) {
+      if (!unsupportedMethod(error)) throw authorizationError(error)
+      lastUnsupported = error
+    }
+  }
+  throw authorizationError(lastUnsupported || new Error('No supported TRON account authorization method was found.'))
+}
+
+/** Authorize the selected account and wait for a usable signer; never signs or broadcasts. */
 export async function requestTronLinkConnection(
   provider,
   windowObject = globalThis.window,
-  {
-    readyTimeoutMs = DEFAULT_PROVIDER_READY_TIMEOUT_MS,
-    pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-  } = {},
+  { readyTimeoutMs = DEFAULT_PROVIDER_READY_TIMEOUT_MS, pollIntervalMs = DEFAULT_POLL_INTERVAL_MS } = {},
 ) {
-  if (!isTronLinkProvider(provider)) throw new Error('A valid TronLink provider was not found.')
-
-  let accountResult
-  try {
-    accountResult = await provider.request({ method: 'eth_requestAccounts' })
-  } catch (error) {
-    if (!unsupportedMethod(error)) throw authorizationError(error)
-    try {
-      accountResult = await provider.request({ method: 'tron_requestAccounts' })
-    } catch (legacyError) {
-      throw authorizationError(legacyError)
-    }
-  }
-
-  if (accountResult && typeof accountResult === 'object' && !Array.isArray(accountResult)) {
-    const code = Number(accountResult.code)
-    if (code === 4001) throw authorizationError({ code })
-    if (code === 4000) throw authorizationError({ code })
-  }
-
-  const accounts = Array.isArray(accountResult)
-    ? accountResult.filter((value) => typeof value === 'string')
-    : typeof accountResult === 'string' && accountResult
-      ? [accountResult]
-      : []
+  if (!isTronWalletProvider(provider)) throw new Error('A compatible injected TRON wallet provider was not found.')
+  const accounts = await requestAccounts(provider)
   const deadline = Date.now() + readyTimeoutMs
-
   while (Date.now() <= deadline) {
-    const candidate = provider.tronWeb && provider.tronWeb !== false
-      ? provider.tronWeb
-      : windowObject?.tronWeb
-    const address = String(candidate?.defaultAddress?.base58
-      || accounts[0]
-      || '')
-    const signerReady = candidate && candidate.ready !== false
-      && candidate.trx && typeof candidate.trx.sign === 'function'
-    if (signerReady && address) return { address, tronWeb: candidate, provider, accounts }
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+    const candidate = provider.tronWeb || provider.tronLink?.tronWeb
+      || provider.wallet?.tronWeb || windowObject?.tronWeb
+    const address = String(candidate?.defaultAddress?.base58 || accounts[0] || '')
+    const ready = candidate && candidate.ready !== false && candidate.trx
+      && typeof candidate.trx.sign === 'function' && typeof candidate.isAddress === 'function'
+    if (ready && address && candidate.isAddress(address)) {
+      return { address, tronWeb: candidate, provider, accounts }
+    }
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
   }
-
-  const latest = provider.tronWeb && provider.tronWeb !== false
-    ? provider.tronWeb
-    : windowObject?.tronWeb
-  const account = String(latest?.defaultAddress?.base58 || accounts[0] || '')
-  if (!account) {
-    throw new Error('TronLink authorization did not expose a selected account. Unlock TronLink, select the owner account, and retry from its DApp browser.')
-  }
-  throw new Error('TronLink exposed the account but its transaction signer is not ready yet. Keep TronLink unlocked, wait a few seconds, then reconnect.')
+  throw new Error('The TRON wallet authorized access but did not expose a ready account signer. Reopen its DApp browser, unlock it, select an account, and reconnect.')
 }
