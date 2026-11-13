@@ -159,6 +159,37 @@ export function toWalletSignableTransaction(transaction) {
   return signable
 }
 
+export function verifyTransactionSigner(tronWeb, transaction, expectedAddress) {
+  const contract = transaction?.raw_data?.contract?.[0]
+  const ownerHex = contract?.parameter?.value?.owner_address
+  const signatures = transaction?.signature
+  if (typeof ownerHex !== 'string' || !/^(?:41)?[0-9a-f]{40,42}$/i.test(ownerHex)) {
+    throw new Error('Deployment transaction is missing a valid owner_address; refusing broadcast.')
+  }
+  if (!Array.isArray(signatures) || signatures.length !== 1
+    || typeof signatures[0] !== 'string' || !/^[0-9a-f]{130}$/i.test(signatures[0])) {
+    throw new Error('Deployment requires exactly one valid 65-byte TronLink signature; refusing broadcast.')
+  }
+  const crypto = tronWeb?.utils?.crypto
+  if (typeof crypto?.ecRecover !== 'function') {
+    throw new Error('This TronWeb client cannot independently recover TRON transaction signers; refusing broadcast.')
+  }
+  let transactionOwner
+  let recoveredSigner
+  try {
+    transactionOwner = ownerHex.length === 42 ? tronWeb.address.fromHex(ownerHex) : tronWeb.address.fromHex('41' + ownerHex)
+    recoveredSigner = crypto.ecRecover(transaction.txID, signatures[0])
+  } catch {
+    throw new Error('Unable to recover the signer from the TRON transaction signature; refusing broadcast.')
+  }
+  if (!tronWeb.isAddress(transactionOwner) || !tronWeb.isAddress(recoveredSigner)
+    || !addressesEqual(tronWeb, transactionOwner, expectedAddress)
+    || !addressesEqual(tronWeb, recoveredSigner, transactionOwner)) {
+    throw new Error('TRON signature signer does not match both the deployment owner_address and connected wallet. Nothing was broadcast.')
+  }
+  return { ownerAddress: transactionOwner, recoveredAddress: recoveredSigner }
+}
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
   createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
   waitForReceipt = waitForSolidifiedReceipt,
@@ -247,6 +278,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       : 'signed txID does not match SHA-256(raw_data_hex)'
     throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
+  // Independently recover the signer from txID + 65-byte signature. A well-formed
+  // signature is not proof that the connected wallet signed this transaction.
+  verifyTransactionSigner(tronWeb, signed, wallet.address)
   // TronWeb 6.5.1 requires broadcasting the exact object returned by trx.sign().
   // Do not rebuild it: wallet/provider-specific transaction fields and signature
   // encoding must remain intact. The node performs cryptographic validation.
