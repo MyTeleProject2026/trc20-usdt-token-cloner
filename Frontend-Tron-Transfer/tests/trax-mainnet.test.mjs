@@ -110,7 +110,7 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
     visible: false,
     txID: 'b'.repeat(64),
     contract_address: '41' + '1'.repeat(40),
-    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
+    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: '41' + '1'.repeat(40) } } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
   const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, raw_data_hex: 'deadbeef', signature: ['a'.repeat(130)] }
@@ -128,12 +128,13 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
     address: { fromHex: () => 'T' + '1'.repeat(33) },
+    utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
     trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.notEqual(payload, signed); assert.equal(payload.txID, unsigned.txID); assert.equal(payload.raw_data_hex, unsigned.raw_data_hex); assert.deepEqual(payload.raw_data, unsigned.raw_data); assert.deepEqual(payload.signature, signed.signature); return { result: true } } },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
   const result = await deployContractFromTronLink(
-    { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
+    { tronWeb: walletTronWeb, address: 'T' + '1'.repeat(33) },
     { abi: [], bytecode: '6000' },
     'TestVault',
     300000000,
