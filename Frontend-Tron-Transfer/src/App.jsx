@@ -165,7 +165,7 @@ export default function App() {
   async function prepareAndMintOneTrax() {
     if (!unlocked?.tronWeb || !unlocked?.address) throw new Error('Connect the configured owner wallet in TronLink on TRON Mainnet first.')
     if (!isValidAddress(oneTraxRecipient.trim())) throw new Error('Enter a valid TRON Mainnet recipient address.')
-    if (!/^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$/.test(oneTraxAmount) || !/[1-9]/.test(oneTraxAmount)) throw new Error('Enter a positive amount with up to 6 decimal places.')
+    if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(oneTraxAmount) || !/[1-9]/.test(oneTraxAmount)) throw new Error('Enter a positive amount with up to 6 decimal places.')
     const parts=oneTraxAmount.split('.'), amountUnits=(BigInt(parts[0])*1000000n+BigInt((parts[1]||'').padEnd(6,'0'))).toString()
     if (!oneTraxAccounting?.configured || !oneTraxAccounting?.liability?.contractAddress || !oneTraxAccounting?.reserve?.address) { await loadOneTraxAccounting(); throw new Error('Mainnet accounting was refreshed. Review it, then request minting again.') }
     const tokenAddress=oneTraxAccounting.liability.contractAddress, vaultAddress=oneTraxAccounting.reserve.address, tronWeb=unlocked.tronWeb
