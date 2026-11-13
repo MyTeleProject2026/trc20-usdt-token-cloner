@@ -51,6 +51,17 @@ The deploying sponsor is the transaction sender but is NOT the contract owner.
 The supplied `initialOwner` remains the owner. Never omit or substitute that
 constructor argument.
 
+## GasFree compatibility
+
+GasFree must not be treated as a generic smart-contract gas sponsor. Its
+supported flow is provider-specific and primarily for eligible TRC-20 token
+transfers; it does not mint custom TRӾ, deploy contracts, or provide the native
+TRX principal sent to recipients. The dual-asset router therefore requires a
+separate compatible relayer sponsor for contract execution and an actually
+funded native-TRX payout treasury. Do not label this combined payout as
+GasFree-supported unless the provider explicitly confirms support for the
+exact custom token, contract call, network, and fee model.
+
 ## Funding model and solvency
 
 Two different TRX pools are required:
