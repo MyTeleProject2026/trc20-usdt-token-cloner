@@ -30,7 +30,7 @@ function shorten(value) {
   return value && value.length > 18 ? value.slice(0, 10) + '…' + value.slice(-7) : value || '—'
 }
 
-export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
+export default function TRXMainnetPanel({ wallet, onConnect }) {
   const initial = useMemo(() => {
     const saved = loadSavedContracts()
     // Never reuse the prefilled recipient wallet or numeric form values as contract addresses.
@@ -70,17 +70,19 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
 
   const connectedAddress = wallet?.address || ''
   const walletReady = Boolean(wallet?.tronWeb && connectedAddress)
-  const configuredOwnerMatches = Boolean(walletReady && expectedOwner && addressesEqual(wallet.tronWeb,connectedAddress,expectedOwner))
+  // Any valid Mainnet TronLink account may connect. On-chain owner() checks below
+  // decide which wallet may administer already-deployed contracts.
+  const configuredOwnerMatches = walletReady
   const feeCapSun = useMemo(() => {
     try { return toSun(feeCap) } catch { return 0 }
   }, [feeCap])
 
   const assertOwner = useCallback(async (token, tronWeb) => {
     const owner = await token.owner().call()
-    if (expectedOwner && !addressesEqual(tronWeb,connectedAddress,expectedOwner)) throw new Error('Connect the configured platform-owner TronLink address before administering TRӾ.')
+    // The contract's owner() value is authoritative; platform login identity is not.
     if (!addressesEqual(tronWeb, owner, connectedAddress)) throw new Error('The connected TronLink wallet is not the on-chain TRӾ owner.')
     return owner
-  }, [connectedAddress,expectedOwner])
+  }, [connectedAddress])
 
   const getContracts = useCallback(async () => {
     const tronWeb = assertMainnetWallet(wallet)
@@ -99,8 +101,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       token.balanceOf(connectedAddress).call(), tronWeb.trx.getBalance(connectedAddress),
     ])
     const metadataValid = name === 'TRӾ' && symbol === 'TRX' && Number(decimals) === 6
-    const ownerMatches = addressesEqual(tronWeb, owner, expectedOwner)
-    const vaultOwnerMatches = addressesEqual(tronWeb, vaultOwner, expectedOwner)
+    const ownerMatches = addressesEqual(tronWeb, owner, connectedAddress)
+    const vaultOwnerMatches = addressesEqual(tronWeb, vaultOwner, connectedAddress)
     const linksValid = addressesEqual(tronWeb, tokenVault, vaultAddress) && addressesEqual(tronWeb, authorizedToken, tokenAddress) && ownerMatches && vaultOwnerMatches
     const backed = BigInt(String(reserveSun)) >= BigInt(String(totalSupply))
     const next = {
@@ -114,16 +116,16 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     }
     setSnapshot(next)
     if (!metadataValid) throw new Error('The deployed contract metadata does not match TRӾ / TRX / 6 decimals.')
-    if (!ownerMatches || !vaultOwnerMatches) throw new Error('The TRӾ token owner and reserve-vault owner must both match the configured platform owner.')
+    if (!ownerMatches || !vaultOwnerMatches) throw new Error('The connected wallet must be the on-chain owner of both the TRӾ token and reserve vault.')
     if (!linksValid) throw new Error('The token and reserve vault are not linked to each other correctly.')
     setNotice('Mainnet contracts read successfully. Metadata and reciprocal reserve authorization are verified at the latest node state.')
     return next
   }), [run,getContracts,connectedAddress,vaultAddress])
 
-  // Re-check saved contracts automatically when the configured owner reconnects.
+  // Re-check saved contracts automatically when the connected wallet reconnects.
   // This is read-only: it never deploys, links, funds, mints, or signs transactions.
   useEffect(() => {
-    if (!walletReady || !configuredOwnerMatches || !tokenAddress || !vaultAddress) return
+    if (!walletReady || !tokenAddress || !vaultAddress) return
     if (!wallet.tronWeb.isAddress(tokenAddress) || !wallet.tronWeb.isAddress(vaultAddress)) {
       setSnapshot(null)
       setError('Saved contract address is invalid. Clear the address fields and recover the verified Mainnet contract addresses.')
@@ -133,14 +135,14 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   }, [walletReady, configuredOwnerMatches, tokenAddress, vaultAddress, wallet, refresh])
 
   const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
-    if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
-    if (tokenAddress && (addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress) || addressesEqual(wallet.tronWeb,tokenAddress,expectedOwner))) {
+    if (tokenAddress && (addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress) || addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress))) {
       throw new Error('The TRӾ token field contains your owner wallet address, not a smart-contract address. Clear that field so the TRӾ token contract can be deployed.')
     }
-    if (vaultAddress && (addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress) || addressesEqual(wallet.tronWeb,vaultAddress,expectedOwner))) {
+    if (vaultAddress && (addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress) || addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress))) {
       throw new Error('The reserve-vault field contains your owner wallet address, not a smart-contract address. Clear that field so the reserve vault can be deployed.')
     }
     for (const [label,address] of [['TRӾ token',tokenAddress],['reserve vault',vaultAddress]]) {
@@ -163,23 +165,23 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
-    if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
   const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
-    if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
   })
 
   const authorizeVault = () => run('Authorizing TRӾ in reserve vault · approve in TronLink', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const {tronWeb,token,vault} = await getContracts()
     await assertOwner(token,tronWeb)
     if (!addressesEqual(tronWeb,await vault.owner().call(),connectedAddress)) throw new Error('Connected TronLink wallet is not the reserve-vault owner.')
@@ -189,7 +191,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const linkToken = () => run('Linking reserve vault in TRӾ token · approve in TronLink', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const {tronWeb,token,vault} = await getContracts()
     await assertOwner(token,tronWeb)
     if (!addressesEqual(tronWeb,await vault.authorizedToken().call(),tokenAddress)) throw new Error('Authorize this TRӾ token in the vault first.')
@@ -198,7 +200,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const fundVault = () => run('Funding native TRX reserve · approve in TronLink', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const {tronWeb,vault} = await getContracts()
     await assertOwner(await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress),tronWeb)
     const [vaultOwner,authorizedToken, linkedVault] = await Promise.all([vault.owner().call(),vault.authorizedToken().call(),(await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)).reserveVault().call()])
@@ -209,7 +211,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const activate = () => run('Enabling TRӾ issuance · two owner approvals', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const {tronWeb,token,vault} = await getContracts()
     await assertOwner(token,tronWeb)
     const [name,symbol,decimals,tokenVault,authorizedToken,supply,reserve,paused,enabled,vaultOwner] = await Promise.all([
@@ -233,7 +235,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const issue = () => run('Issuing restricted TRӾ · approve in TronLink', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const {tronWeb,token,vault} = await getContracts()
     await assertOwner(token,tronWeb)
     if(!tronWeb.isAddress(recipient)) throw new Error('Enter a valid TRON Mainnet recipient address.')
@@ -245,7 +247,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     ])
     if(paused||!enabled) throw new Error('Minting is paused or disabled. Complete the owner activation step first.')
     if(recipientLocked!==true) throw new Error('Recipient must be locked before minting. Use Lock recipient, then refresh and retry.')
-    if(!addressesEqual(tronWeb,vaultOwner,expectedOwner)) throw new Error('Reserve vault owner does not match the configured platform owner.')
+    if(!addressesEqual(tronWeb,vaultOwner,connectedAddress)) throw new Error('Connected wallet is not the on-chain reserve-vault owner.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token/vault authorization is not valid.')
     if(BigInt(String(reserve))<BigInt(String(supply))+BigInt(units)) throw new Error('Insufficient uncommitted native TRX reserve for this mint.')
     const result = await sendAndVerifyContractCall(tronWeb,token.mint(recipient,units),feeCapSun)
@@ -254,7 +256,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const setLock = (locked) => run((locked?'Locking':'Unlocking')+' recipient · approve in TronLink', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const tronWeb = assertMainnetWallet(wallet)
     if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRӾ token contract address.')
     const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
@@ -267,7 +269,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const redeem = () => run('Redeeming TRӾ and releasing native TRX · approve in TronLink', async () => {
-    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const {tronWeb,token} = await getContracts()
     await assertOwner(token,tronWeb)
     if(!tronWeb.isAddress(holder)||!tronWeb.isAddress(redeemRecipient)) throw new Error('Enter valid holder and native-TRX recipient addresses.')
@@ -318,9 +320,9 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   const copy = async value => { try { await navigator.clipboard.writeText(value); setNotice('Copied to clipboard.') } catch { setError('Clipboard access was unavailable.') } }
 
   return <section className="trax-workspace">
-    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ONLY · MAINNET</span><h2>TRӾ smart-contract manager</h2><p>Deploy, link, fund and administer the restricted TRӾ token using your connected TronLink owner wallet. Every state change requires a separate wallet signature.</p></div><div className="panel-icon"><Coins/></div></div>
+    <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · TRӾ SMART CONTRACTS · MAINNET</span><h2>TRӾ smart-contract manager</h2><p>Connect any TronLink Mainnet wallet. The wallet that signs a deployment becomes the owner of the new token and reserve vault. Existing contracts remain controlled only by their on-chain owner.</p></div><div className="panel-icon"><Coins/></div></div>
     <div className="trax-notice"><AlertTriangle size={18}/><div><b>TRӾ is a custom TRC-20 asset, not native TRX.</b><p>It is displayed as a separate token. Native TRX reserve, TRӾ supply and internal platform records are separate balances. No market price or Bitpie automatic listing is implied.</p></div></div>
-    {!walletReady ? <div className="trax-connect"><p>Connect the configured platform-owner TronLink wallet on TRON Mainnet to continue.</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect owner TronLink</button></div> : <div className="trax-wallet-row"><span>Connected wallet</span><b>{shorten(connectedAddress)}</b><span className={configuredOwnerMatches ? "trax-network" : "trax-network trax-network-warn"}><CheckCircle2 size={14}/> {configuredOwnerMatches ? "Configured owner verified" : "Not the configured platform owner"}</span></div>}
+    {!walletReady ? <div className="trax-connect"><p>Connect any TronLink wallet on TRON Mainnet. You do not need the private platform-owner login for this deployment workspace.</p><button type="button" className="primary-button" onClick={onConnect}><Wallet size={16}/> Connect TronLink wallet</button></div> : <div className="trax-wallet-row"><span>Connected wallet · deployment owner</span><b>{shorten(connectedAddress)}</b><span className="trax-network"><CheckCircle2 size={14}/> Mainnet wallet connected</span></div>}
     {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
     {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={16}/>{notice}</div>}
     {step&&<div className="trax-progress"><RefreshCw size={15}/>{step}</div>}
@@ -331,7 +333,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts automatically'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
       <p className="trax-help">The combined action deploys the vault first and the token second. TronLink asks you to review and sign each deployment separately. Confirmed contract addresses are saved automatically; no transaction is sent without your wallet approval.</p>
       <div className="button-row"><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
-      <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The deploying wallet becomes the vault owner and initial token owner; do not deploy from an unintended account.</p>
+      <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The connected signing wallet becomes the vault owner and initial token owner. Confirm the selected TronLink account before deployment.</p>
     </div>
 
     <div className="trax-actions">
@@ -342,7 +344,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
         <article><span>Reserve coverage</span><b>{snapshot.backed?'Backed':'SHORTFALL'}</b></article>
         <article><span>Minting</span><b>{snapshot.mintingEnabled?'Enabled':'Disabled'}</b></article>
         <article><span>Contract pause</span><b>{snapshot.paused?'Paused':'Unpaused'}</b></article>
-        <article><span>Owner TRX for fees</span><b>{formatTokenUnits(snapshot.ownerTrxSun)} TRX</b></article>
+        <article><span>Connected wallet TRX for fees</span><b>{formatTokenUnits(snapshot.ownerTrxSun)} TRX</b></article>
         <article><span>Token owner</span><b>{addressesEqual(wallet.tronWeb,snapshot.owner,connectedAddress)?'Connected owner':'Different owner'}</b></article>
         <article><span>Vault owner</span><b>{addressesEqual(wallet.tronWeb,snapshot.vaultOwner,connectedAddress)?'Connected owner':'Different owner'}</b></article>
       </div>}
@@ -356,7 +358,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     <div className="trax-actions">
       <h3>Deploy and configure in sequence</h3>
       <ol className="trax-steps">
-        <li>Deploy the vault and TRӾ contract from this owner wallet.</li>
+        <li>Deploy the vault and TRӾ contract from the connected wallet; that wallet becomes both contracts’ owner.</li>
         <li>Authorize the token in the vault and link the vault in the token contract.</li>
         <li>Fund the vault with native TRX and refresh the actual on-chain reserve.</li>
         <li>Review the on-chain owner, metadata, vault link and backing; then activate minting.</li>
@@ -367,7 +369,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     <div className="trax-actions">
       <h3>Fund the native TRX reserve</h3>
       <label>TRX amount<input value={fundAmount} onChange={e=>setFundAmount(e.target.value)} inputMode="decimal"/></label>
-      <button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||!snapshot?.linksValid} onClick={fundVault}><Wallet size={15}/> Fund reserve from connected owner wallet</button>
+      <button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||!snapshot?.linksValid} onClick={fundVault}><Wallet size={15}/> Fund reserve from connected wallet</button>
       <p className="fine-print">This sends actual native TRX from the connected owner wallet to the vault. It is not a token mint. Verify the destination address in TronLink before signing.</p>
     </div>
 
