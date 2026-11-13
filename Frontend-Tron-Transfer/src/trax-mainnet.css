@@ -28,3 +28,10 @@
 .trax-footer-links a{display:inline-flex;align-items:center;gap:5px;color:var(--mint);font-size:11px;text-decoration:none}
 @media(max-width:700px){.trax-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.trax-addresses,.trax-actions{padding:14px}.trax-connect{align-items:flex-start;flex-direction:column}}
 @media(max-width:420px){.trax-stats{grid-template-columns:1fr}}
+
+.trax-resource-subtitle{margin:5px 0 0;color:var(--muted);font-size:11px;line-height:1.5}
+.trax-resource-offer{display:grid;gap:7px;padding:13px;border:1px solid var(--line);border-radius:10px;background:rgba(4,18,11,.4)}
+.trax-resource-offer b{color:var(--ink);font-size:12px}
+.trax-resource-offer p{margin:0;color:var(--muted);font-size:11px;line-height:1.65}
+.trax-resource-offer a{display:inline-flex;align-items:center;gap:5px;color:var(--mint);font-size:11px;text-decoration:none}
+.trax-resource-panel .trax-actions-heading{align-items:center;flex-wrap:wrap}
