@@ -8,8 +8,8 @@
   },
   "scripts": {
     "dev": "node scripts/compile-trax-contracts.mjs && vite --host 0.0.0.0",
-    "build": "node scripts/compile-trax-contracts.mjs && node --test tests/trax-mainnet.test.mjs && vite build",
-    "test": "node scripts/compile-trax-contracts.mjs && node --test tests/trax-mainnet.test.mjs"
+    "build": "node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs && vite build",
+    "test": "node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "4.7.0",
