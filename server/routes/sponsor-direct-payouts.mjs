@@ -173,6 +173,20 @@ function canonicalAddress(value, tronWeb) {
   }
 }
 
+export function classifySponsorBroadcastResponse(response) {
+  // A negative or malformed provider response is not proof that the fixed
+  // transaction never reached a node. Keep it reconcilable by txID instead
+  // of terminally rejecting a payment that may already have propagated.
+  return response?.result === true ? 'submitted' : 'outcome-unknown'
+}
+
+export function sponsorApprovalContainsAddress(response, address) {
+  const result = response?.result
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return false
+  if (result.result === false || result.code) return false
+  return Array.isArray(response.approved_list) && response.approved_list.includes(address)
+}
+
 export function matchesSponsorDirectUnsignedTransaction(transaction, intent) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) return false
   const { sponsorAddress, recipientAddress, amountBaseUnits, tronWeb = tronWebForMainnet() } = intent || {}
@@ -1379,9 +1393,27 @@ export function createSponsorDirectPayoutsRouter({
       const result = await db.query(
         'INSERT INTO ' + SCHEMA + '.sponsor_direct_payouts ' +
         '(id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,\'requested\') RETURNING *',
+        'VALUES ($1,$2,$3,$4,$5,$6,\'requested\') ' +
+        'ON CONFLICT (idempotency_key) DO NOTHING RETURNING *',
         [randomUUID(), idempotencyKey, auth.address, recipientAddress, MAINNET_USDT_CONTRACT, amountBaseUnits],
       )
+      // The preflight SELECT above handles ordinary retries. This conflict path
+      // closes the race where two identical requests arrive before either INSERT
+      // commits: only the winner creates/routes a payout; the loser returns the
+      // durable winner after validating that the key was not reused for another intent.
+      if (!result.rows[0]) {
+        const raced = await db.query(
+          'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE idempotency_key=$1 LIMIT 1',
+          [idempotencyKey],
+        )
+        const row = raced.rows[0]
+        if (!row) throw new Error('Idempotency conflict row is not yet readable.')
+        if (row.requester_address !== auth.address || row.recipient_address !== recipientAddress
+          || String(row.amount_base_units) !== amountBaseUnits) {
+          return res.status(409).json({ success: false, error: 'idempotency-key-reused-for-different-request' })
+        }
+        return res.json({ success: true, duplicate: true, request: publicRequest(row), payoutAuthorized: false })
+      }
       const routed = await autoAssignSponsorToRequest({
         db,
         env,
@@ -1841,8 +1873,7 @@ export function createSponsorDirectPayoutsRouter({
         raw_data: signedTransaction.raw_data,
         visible: true,
       })
-      const approvedAddresses = Array.isArray(approved?.approved_list) ? approved.approved_list : []
-      if (approved?.result?.result !== true || approved?.result?.code || !approvedAddresses.includes(auth.address)) {
+      if (!sponsorApprovalContainsAddress(approved, auth.address)) {
         await client.query('ROLLBACK')
         return res.status(401).json({ success: false, error: 'sponsor-signature-not-approved-by-tron-network' })
       }
@@ -1875,12 +1906,17 @@ export function createSponsorDirectPayoutsRouter({
         note: 'Tatum did not return a conclusive broadcast response. The fixed transaction ID will be checked on Mainnet. Do not sign or submit a replacement payment.',
       })
     }
-    if (broadcast?.result !== true) {
+    if (classifySponsorBroadcastResponse(broadcast) === 'outcome-unknown') {
       await db.query(
-        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'broadcast-rejected\', failure_code=$2, updated_at=now() WHERE id=$1 AND status=\'broadcasting\'',
-        [id, clean(broadcast?.code || broadcast?.message, 128) || 'tatum-broadcast-rejected'],
+        'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'outcome-unknown\', failure_code=$2, updated_at=now() WHERE id=$1 AND status=\'broadcasting\'',
+        [id, clean(broadcast?.code || broadcast?.message, 128) || 'tatum-broadcast-response-inconclusive'],
       )
-      return res.status(409).json({ success: false, error: 'tatum-broadcast-rejected' })
+      return res.status(202).json({
+        success: true,
+        status: 'outcome-unknown',
+        transactionHash: row.transaction_hash,
+        note: 'Tatum did not confirm acceptance. The fixed transaction ID will be checked on Mainnet before this payout can be treated as failed. Do not sign or submit a replacement payment.',
+      })
     }
     await db.query(
       'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=\'submitted\', failure_code=NULL, updated_at=now() WHERE id=$1 AND status IN (\'broadcasting\',\'outcome-unknown\')',
@@ -1930,11 +1966,25 @@ export function createSponsorDirectPayoutsRouter({
           failureCode = verification.status
         }
         if (nextStatus !== row.status || failureCode !== row.failure_code) {
+          // A status refresh may have started from a stale read while the
+          // background worker (or another refresh) already finalized this payout.
+          // Restrict writes to unresolved states so a delayed result can never
+          // downgrade confirmed/failed/manual-review terminal evidence.
           const updated = await db.query(
-            'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=$2, failure_code=$3, updated_at=now() WHERE id=$1 RETURNING *',
-            [id, nextStatus, failureCode],
+            'UPDATE ' + SCHEMA + '.sponsor_direct_payouts SET status=$2, failure_code=$3, updated_at=now() ' +
+            "WHERE id=$1 AND status = ANY($4::text[]) RETURNING *",
+            [id, nextStatus, failureCode, ['submitted', 'outcome-unknown', 'broadcasting']],
           )
-          row = updated.rows[0] || row
+          if (updated.rows[0]) {
+            row = updated.rows[0]
+          } else {
+            // Another process won the race; return its current durable state.
+            const latest = await db.query(
+              'SELECT * FROM ' + SCHEMA + '.sponsor_direct_payouts WHERE id=$1 LIMIT 1',
+              [id],
+            )
+            row = latest.rows[0] || row
+          }
         }
       }
       return res.json({
