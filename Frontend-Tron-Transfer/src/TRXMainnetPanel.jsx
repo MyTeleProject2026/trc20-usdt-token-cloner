@@ -133,6 +133,19 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     refresh()
   }, [walletReady, tokenAddress, vaultAddress, wallet, refresh])
 
+  const prepareUnsignedDeployment = async (artifact, contractName) => {
+    try {
+      return { deployed: await deployContractFromTronLink(wallet,artifact,contractName,feeCapSun) }
+    } catch (error) {
+      // The existing safety hold is an expected diagnostic result, not a failed
+      // wallet action: it proves the unsigned payload was built and validated.
+      if (error instanceof Error && error.message.startsWith('Deployment safety hold:')) {
+        return { prepared: true }
+      }
+      throw error
+    }
+  }
+
   const deployMissingContracts = () => run('Preparing unsigned TRӾ deployment payloads · broadcast disabled', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
@@ -163,13 +176,20 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       }
     }
     const deployed = []
+    const prepared = []
     if (!vaultAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
-      setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
+      const result = await prepareUnsignedDeployment(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
+      if (result.prepared) prepared.push('reserve vault')
+      else { setVaultAddress(result.deployed.address); setLastTx(result.deployed.txID); deployed.push('reserve vault') }
     }
     if (!tokenAddress) {
-      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
-      setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
+      const result = await prepareUnsignedDeployment(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
+      if (result.prepared) prepared.push('TRӾ token')
+      else { setTokenAddress(result.deployed.address); setLastTx(result.deployed.txID); deployed.push('TRӾ token') }
+    }
+    if (prepared.length) {
+      setNotice('Unsigned Mainnet deployment payloads were built and validated for '+prepared.join(' and ')+'. No signing or broadcast occurred. These diagnostic payloads are not saved or reusable; prepare fresh payloads after separate deployment approval.')
+      return
     }
     setNotice(deployed.length
       ? 'Deployment complete and solidified: '+deployed.join(' and ')+'. Both contract addresses have been saved automatically. Continue with the two reciprocal authorization steps.'
@@ -184,8 +204,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         throw new Error('The existing TRӾ token belongs to a different wallet. Reconnect that token owner before preparing its reserve vault.')
       }
     }
-    const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
-    setVaultAddress(result.address); setLastTx(result.txID)
+    const result = await prepareUnsignedDeployment(TRAX_VAULT_ARTIFACT,'OneTraxReserveVault')
+    if (result.prepared) {
+      setNotice('Unsigned reserve-vault deployment payload built and validated. No signing or broadcast occurred. Prepare a fresh payload after separate deployment approval.')
+      return
+    }
+    setVaultAddress(result.deployed.address); setLastTx(result.deployed.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
@@ -197,8 +221,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
         throw new Error('The existing reserve vault belongs to a different wallet. Reconnect that vault owner before preparing its TRӾ token.')
       }
     }
-    const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
-    setTokenAddress(result.address); setLastTx(result.txID)
+    const result = await prepareUnsignedDeployment(TRAX_TOKEN_ARTIFACT,'Restricted1TRAX')
+    if (result.prepared) {
+      setNotice('Unsigned TRӾ token deployment payload built and validated. No signing or broadcast occurred. Prepare a fresh payload after separate deployment approval.')
+      return
+    }
+    setTokenAddress(result.deployed.address); setLastTx(result.deployed.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
   })
 
