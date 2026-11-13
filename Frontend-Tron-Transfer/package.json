@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/compile-trax-contracts.mjs && vite --host 0.0.0.0",
-    "build": "node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs && vite build",
+    "build": "node scripts/compile-trax-contracts.mjs && vite build",
     "test": "node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs"
   },
   "dependencies": {
