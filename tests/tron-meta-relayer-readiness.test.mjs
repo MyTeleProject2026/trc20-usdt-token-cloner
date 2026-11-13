@@ -11,6 +11,8 @@ test('meta-relayer is blocked when no sponsor wallet exists', () => {
   assert.equal(result.submissionEnabled, false)
   assert.equal(result.transactionBroadcastingAvailable, false)
   assert.ok(result.blockers.includes('sponsor-wallet-required'))
+  assert.ok(result.blockers.includes('native-trx-payout-treasury-not-configured'))
+  assert.ok(result.blockers.includes('combined-payout-router-not-configured'))
   assert.ok(result.blockers.includes('live-relay-execution-is-not-implemented'))
 })
 
@@ -20,11 +22,15 @@ test('environment flags and addresses cannot enable broadcasting without verifie
     TRON_META_RELAYER_FORWARDER_ADDRESS: validAddress,
     TRON_META_RELAYER_TOKEN_ADDRESS: validAddress,
     TRON_META_RELAYER_VAULT_ADDRESS: validAddress,
+    TRON_META_RELAYER_NATIVE_TREASURY_ADDRESS: validAddress,
+    TRON_META_RELAYER_PAYOUT_ROUTER_ADDRESS: validAddress,
     TRON_META_RELAYER_ENABLED: 'true',
     TRON_META_RELAYER_PRIVATE_KEY: 'must-never-be-read',
   })
   assert.equal(result.checks.sponsorWalletAddressConfigured, true)
   assert.equal(result.checks.trustedForwarderAddressConfigured, true)
+  assert.equal(result.checks.nativeTrxTreasuryAddressConfigured, true)
+  assert.equal(result.checks.combinedPayoutRouterAddressConfigured, true)
   assert.equal(result.checks.explicitFeatureOptIn, true)
   assert.equal(result.checks.onChainForwarderCodeVerified, false)
   assert.equal(result.checks.recipientMetaTxSupportVerified, false)
