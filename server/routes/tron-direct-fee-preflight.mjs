@@ -12,6 +12,7 @@ const UINT_POSITIVE_RE = /^[1-9][0-9]{0,77}$/
 const TXID_RE = /^[0-9a-f]{64}$/i
 const PAYOUT_SELECTOR = 'payoutBoth(address,uint256,uint256,bytes32)'
 const DEFAULT_MAX_FEE_LIMIT_SUN = '300000000'
+const MAX_UNSIGNED_TRANSACTION_LIFETIME_MS = 10 * 60 * 1000
 const FEE_BUFFER_BPS = 12500n
 
 function clean(value, max = 512) {
@@ -112,18 +113,24 @@ function trxDecimal(sun) {
   return fraction ? whole.toString() + '.' + fraction : whole.toString()
 }
 
-export function directPayoutTransactionMatches(transaction, { ownerHex, routerHex, parameter }) {
+export function directPayoutTransactionMatches(transaction, { ownerHex, routerHex, parameter, feeLimitSun }) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) return false
   if (typeof transaction.txID !== 'string' || !TXID_RE.test(transaction.txID)
     || typeof transaction.raw_data_hex !== 'string' || !/^(?:[0-9a-f]{2})+$/i.test(transaction.raw_data_hex)) return false
+  const calculatedTxId = createHash('sha256').update(Buffer.from(transaction.raw_data_hex, 'hex')).digest('hex')
+  if (calculatedTxId.toLowerCase() !== transaction.txID.toLowerCase()) return false
   if (!transaction.raw_data || !Array.isArray(transaction.raw_data.contract)
     || transaction.raw_data.contract.length !== 1
     || transaction.raw_data.contract[0]?.type !== 'TriggerSmartContract') return false
+  const expiration = Number(transaction.raw_data.expiration)
+  const now = Date.now()
+  if (!Number.isSafeInteger(expiration) || expiration <= now || expiration > now + MAX_UNSIGNED_TRANSACTION_LIFETIME_MS + 30000) return false
   const value = transaction.raw_data.contract[0]?.parameter?.value
   return String(value?.owner_address || '').replace(/^0x/i, '').toLowerCase() === ownerHex.toLowerCase()
     && String(value?.contract_address || '').replace(/^0x/i, '').toLowerCase() === routerHex.toLowerCase()
     && Number(value?.call_value || 0) === 0
     && String(value?.data || '').replace(/^0x/i, '').toLowerCase() === (parameter.selector + parameter.arguments).toLowerCase()
+    && String(transaction.raw_data.fee_limit ?? '') === String(feeLimitSun)
     && (!Array.isArray(transaction.signature) || transaction.signature.length === 0)
 }
 
@@ -169,7 +176,7 @@ export function createTronDirectFeePreflightRouter({
       return res.status(400).json({ success: false, status: 'native-trx-amount-too-large', message: 'Native TRX amount must fit the safe SUN amount range.' })
     }
 
-      const routerAddress = clean(env.TRON_DIRECT_PAYOUT_ROUTER_ADDRESS, 64)
+    const routerAddress = clean(env.TRON_DIRECT_PAYOUT_ROUTER_ADDRESS, 64)
     if (!ADDRESS_RE.test(routerAddress) || !isValidTronAddress(routerAddress)) {
       return res.status(503).json({
         success: false,
