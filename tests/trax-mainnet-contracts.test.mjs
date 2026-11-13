@@ -17,7 +17,7 @@ test('TRӾ source pins the exact TRON Solidity compiler release and metadata', (
 
 test('TRӾ source exposes owner-controlled minting, lock management and redemption', () => {
   for (const method of ['totalSupply','balanceOf','allowance','isLocked','setRecipientLocked','mint','redeemForOwner','setPaused','setMintingEnabled']) {
-    assert.match(tokenSource, new RegExp('function\s+' + method + '\s*\\('))
+    assert.match(tokenSource, new RegExp('function\\s+' + method + '\\s*\\('))
   }
   assert.ok(tokenSource.includes('mintingEnabled = false;'))
   assert.ok(tokenSource.includes('paused = true;'))
