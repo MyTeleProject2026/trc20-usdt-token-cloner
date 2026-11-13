@@ -13,7 +13,7 @@
     "treasury:reconcile": "node scripts/reconcile-treasury-withdrawals.mjs",
     "check:env": "node scripts/check-production-env.mjs",
     "testnet:preflight": "node scripts/run-testnet-preflight.mjs",
-    "deploy:trx-mainnet": "node scripts/deploy-1trax-testnet.mjs"
+    "deploy:trx-mainnet": "node scripts/deploy-1trax-mainnet.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.1",
