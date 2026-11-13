@@ -1,4 +1,7 @@
 import http from 'node:http'
+import { createHash } from 'node:crypto'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 export const MAINNET_RPC = 'https://api.trongrid.io'
 export const ALLOWED_ORIGINS = new Set([
@@ -19,8 +22,28 @@ const number = value => {
 }
 const available = (limit, used) => Math.max(0, number(limit) - number(used))
 
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
 export function isMainnetAddress(value) {
-  return typeof value === 'string' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value)
+  if (typeof value !== 'string' || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value)) return false
+  let decoded = 0n
+  for (const char of value) {
+    const digit = BASE58.indexOf(char)
+    if (digit < 0) return false
+    decoded = decoded * 58n + BigInt(digit)
+  }
+  let hex = decoded.toString(16)
+  if (hex.length % 2) hex = '0' + hex
+  let payload
+  try { payload = Buffer.from(hex, 'hex') } catch { return false }
+  let leadingZeroes = 0
+  while (leadingZeroes < value.length && value[leadingZeroes] === '1') leadingZeroes++
+  if (leadingZeroes) payload = Buffer.concat([Buffer.alloc(leadingZeroes), payload])
+  if (payload.length !== 25 || payload[0] !== 0x41) return false
+  const body = payload.subarray(0, 21)
+  const checksum = payload.subarray(21)
+  const expected = createHash('sha256').update(createHash('sha256').update(body).digest()).digest().subarray(0, 4)
+  return checksum.equals(expected)
 }
 
 export function summarizeResources(resource = {}, account = {}, chainParams = []) {
@@ -59,6 +82,18 @@ export function summarizeResources(resource = {}, account = {}, chainParams = []
       newAccountFeeSun: byKey.getCreateNewAccountFeeInSystemContract ?? null,
     },
     freeEnergyAvailable: false,
+    publicFreeOffers: [{
+      id: 'tronrental-manual-faucet',
+      provider: 'TronRental',
+      url: 'https://tronrental.com/en/free-tron-energy',
+      energyAdvertised: 131000,
+      bandwidthAdvertised: 350,
+      durationAdvertised: 'about 1 hour',
+      access: 'Requires a provider account and a one-time access code from provider support.',
+      automation: 'manual-claim-only',
+      suitableForContractDeployment: false,
+      note: 'The published allocation is described for a USDT transfer. It is not confirmed to cover smart-contract deployment.',
+    }],
     exactDeploymentEnergyEstimate: null,
     estimateNote: 'TRON has no protocol-level free Energy quota. Exact deployment Energy must be estimated for the compiled bytecode and current chain state; the feeLimit is only a maximum cap.',
     checkedAt: new Date().toISOString(),
@@ -161,7 +196,7 @@ export function createServer() {
   })
 }
 
-if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.PORT || 10000)
   createServer().listen(port, '0.0.0.0', () => {
     process.stdout.write('TRON resource API listening on ' + port + '\n')
