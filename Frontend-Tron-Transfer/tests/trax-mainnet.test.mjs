@@ -127,7 +127,7 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
   const builderClient = {
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => 'T' + '1'.repeat(33) },
+    address: { fromHex: () => 'T' + '1'.repeat(33), toHex: (value) => String(value).toLowerCase() },
     utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
     trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.notEqual(payload, signed); assert.equal(payload.txID, unsigned.txID); assert.equal(payload.raw_data_hex, unsigned.raw_data_hex); assert.deepEqual(payload.raw_data, unsigned.raw_data); assert.deepEqual(payload.signature, signed.signature); return { result: true } } },
