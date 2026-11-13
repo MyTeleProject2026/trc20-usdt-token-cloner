@@ -35,6 +35,8 @@ contract TronTransferPayoutRouter is MetaTxContext {
         nativeTreasury = treasury_;
     }
 
+    function isTrustedForwarder(address forwarder) external view returns (bool) { return forwarder == trustedForwarder; }
+
     function payoutBoth(address recipient, uint256 nativeTrxAmount, uint256 traxAmount, bytes32 reference)
         external onlyOwner nonReentrant
     {
