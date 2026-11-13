@@ -255,7 +255,9 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
 
   const setLock = (locked) => run((locked?'Locking':'Unlocking')+' recipient · approve in TronLink', async () => {
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
-    const {tronWeb,token} = await getContracts()
+    const tronWeb = assertMainnetWallet(wallet)
+    if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRӾ token contract address.')
+    const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
     await assertOwner(token,tronWeb)
     const target = holder.trim()
     if(!tronWeb.isAddress(target)) throw new Error('Enter a valid recipient address.')
@@ -302,7 +304,9 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
   })
 
   const readRecipient = () => run('Reading recipient balance and lock state', async () => {
-    const {tronWeb,token} = await getContracts()
+    const tronWeb = assertMainnetWallet(wallet)
+    if (!tronWeb.isAddress(tokenAddress)) throw new Error('Enter a valid deployed TRӾ token contract address.')
+    const token = await tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
     const target = holder.trim()
     if(!tronWeb.isAddress(target)) throw new Error('Enter a valid TRON Mainnet recipient / holder address.')
     const [balance,locked]=await Promise.all([token.balanceOf(target).call(),token.isLocked(target).call()])
