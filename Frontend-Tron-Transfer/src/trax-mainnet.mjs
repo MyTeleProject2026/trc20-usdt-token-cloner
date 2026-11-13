@@ -128,13 +128,28 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
+  // TronLink's transaction-signing API accepts the protocol transaction
+  // fields only. createSmartContract also returns a convenience
+  // contract_address field; do not forward that builder metadata to the wallet.
+  const walletTransaction = {
+    visible: Boolean(unsigned.visible),
+    txID: String(unsigned.txID),
+    raw_data: unsigned.raw_data,
+    raw_data_hex: String(unsigned.raw_data_hex),
+  }
+  if (!walletTransaction.raw_data_hex || !walletTransaction.raw_data
+    || !Array.isArray(walletTransaction.raw_data.contract)
+    || walletTransaction.raw_data.contract.length !== 1
+    || walletTransaction.raw_data.contract[0]?.type !== 'CreateSmartContract') {
+    throw new Error('TRON node returned an invalid CreateSmartContract signing payload. No wallet prompt or broadcast was attempted.')
+  }
   let signed
   try {
-    signed = await tronWeb.trx.sign(unsigned)
+    signed = await tronWeb.trx.sign(walletTransaction)
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'TronLink signing failed'))
   }
-  if (!signed?.signature?.length || signed.txID !== unsigned.txID) {
+  if (!signed?.signature?.length || signed.txID !== walletTransaction.txID || signed.raw_data_hex !== walletTransaction.raw_data_hex) {
     throw new Error('TronLink did not return a valid signature for the exact deployment transaction. Nothing was broadcast.')
   }
   let broadcast
