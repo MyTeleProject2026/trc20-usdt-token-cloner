@@ -97,7 +97,7 @@ function protobufVarintLength(value) {
   return length
 }
 
-function estimateSignedTransactionBytes(rawDataHex) {
+export function estimateDirectSignedTransactionBytes(rawDataHex) {
   const rawDataBytes = rawDataHex.length / 2
   // Outer Transaction.raw_data field plus one 65-byte ECDSA signature field.
   return rawDataBytes + 1 + protobufVarintLength(rawDataBytes) + 1 + protobufVarintLength(65) + 65
@@ -110,7 +110,7 @@ function trxDecimal(sun) {
   return fraction ? whole.toString() + '.' + fraction : whole.toString()
 }
 
-function transactionMatches(transaction, { ownerHex, routerHex, parameter }) {
+export function directPayoutTransactionMatches(transaction, { ownerHex, routerHex, parameter }) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) return false
   if (typeof transaction.txID !== 'string' || !TXID_RE.test(transaction.txID)
     || typeof transaction.raw_data_hex !== 'string' || !/^(?:[0-9a-f]{2})+$/i.test(transaction.raw_data_hex)) return false
@@ -121,7 +121,7 @@ function transactionMatches(transaction, { ownerHex, routerHex, parameter }) {
   return String(value?.owner_address || '').replace(/^0x/i, '').toLowerCase() === ownerHex.toLowerCase()
     && String(value?.contract_address || '').replace(/^0x/i, '').toLowerCase() === routerHex.toLowerCase()
     && Number(value?.call_value || 0) === 0
-    && String(value?.data || '').replace(/^0x/i, '').toLowerCase() === ('a' + '0'.repeat(0) + parameter.selector + parameter.arguments).toLowerCase()
+    && String(value?.data || '').replace(/^0x/i, '').toLowerCase() === (parameter.selector + parameter.arguments).toLowerCase()
     && (!Array.isArray(transaction.signature) || transaction.signature.length === 0)
 }
 
@@ -190,7 +190,7 @@ export function createTronDirectFeePreflightRouter({
       const configured = clean(env.TRON_DIRECT_MAX_FEE_LIMIT_SUN, 40) || DEFAULT_MAX_FEE_LIMIT_SUN
       return /^(0|[1-9][0-9]{0,15})$/.test(configured) ? BigInt(configured) : 0n
     })()
-    if (maxFeeLimit <= 0n) return res.status(503).json({ success: false, status: 'invalid-fee-limit-configuration' })
+    if (maxFeeLimit <= 0n || maxFeeLimit > BigInt(Number.MAX_SAFE_INTEGER)) return res.status(503).json({ success: false, status: 'invalid-fee-limit-configuration' })
 
     try {
       const tronWeb = tronWebFactory()
@@ -281,7 +281,7 @@ export function createTronDirectFeePreflightRouter({
         ...rpcBase,
         fee_limit: Number(feeLimitSun),
       })
-      if (!transactionMatches(draft?.transaction, { ownerHex, routerHex, parameter: encoded })) {
+      if (!directPayoutTransactionMatches(draft?.transaction, { ownerHex, routerHex, parameter: encoded })) {
         return res.status(502).json({
           success: false,
           status: 'unsigned-transaction-validation-failed',
@@ -291,7 +291,7 @@ export function createTronDirectFeePreflightRouter({
         })
       }
 
-      const signedBytes = estimateSignedTransactionBytes(draft.transaction.raw_data_hex)
+      const signedBytes = estimateDirectSignedTransactionBytes(draft.transaction.raw_data_hex)
       const bandwidthShortfall = BigInt(signedBytes) > availableBandwidth ? BigInt(signedBytes) - availableBandwidth : 0n
       const estimatedBandwidthFeeSun = bandwidthShortfall * bandwidthPrice
       const estimatedTotalFeeSun = estimatedEnergyFeeSun + estimatedBandwidthFeeSun
