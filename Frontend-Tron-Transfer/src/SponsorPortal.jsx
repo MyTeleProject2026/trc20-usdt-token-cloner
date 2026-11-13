@@ -80,6 +80,43 @@ export default function SponsorPortal() {
           </div>
         </header>
         <div className="content">
+          <section className="panel sponsor-public-brief" aria-labelledby="sponsor-brief-title">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">VOLUNTARY SPONSORSHIP · NO DEPOSIT TO THE PROJECT</span>
+                <h2 id="sponsor-brief-title">Support capped TRON Mainnet USDT payouts without handing over custody</h2>
+                <p>Tron Transfer is seeking independent individuals willing to sponsor selected, reviewed USDT TRC20 withdrawals from their own TRON Mainnet wallet. The sponsor remains in control of the funds and signs every exact payout in TronLink.</p>
+              </div>
+              <div className="panel-icon"><LockKeyhole /></div>
+            </div>
+            <div className="owner-session-card sponsor-target-card">
+              <strong>Initial sponsorship target</strong>
+              <p><strong>$5,000–$10,000 equivalent in official TRON Mainnet USDT</strong></p>
+              <small>This is a target for sponsor-controlled available capacity, not a request to deposit or transfer funds to the project operator. A sponsor may start with a smaller cap, fund only one payout, or decline any request.</small>
+            </div>
+            <div className="sponsor-brief-grid">
+              <div>
+                <h3>How sponsor control works</h3>
+                <ol>
+                  <li>Connect only the wallet you own and intend to use for sponsorship.</li>
+                  <li>Complete a one-time wallet-address ownership challenge and the platform's manual review.</li>
+                  <li>Check live official USDT and TRON network resources; set limits that you are comfortable with.</li>
+                  <li>Review the exact recipient and amount, then sign that specific transaction in your own TronLink wallet.</li>
+                  <li>The backend validates the signed transaction, broadcasts it, and checks the solidified Mainnet receipt and official USDT Transfer event.</li>
+                </ol>
+              </div>
+              <div>
+                <h3>What this does not ask you to do</h3>
+                <ul>
+                  <li>Do not send funds to the developer or a platform-controlled wallet.</li>
+                  <li>Do not share seed phrases, private keys, passwords, OTPs or remote access.</li>
+                  <li>Do not rely on screenshots, a displayed balance or a sponsor profile as proof of funding.</li>
+                  <li>Do not expect guaranteed returns, reimbursement, interest or a guaranteed number of payouts.</li>
+                </ul>
+              </div>
+            </div>
+            <p className="fine-print">Project status: this sponsor-recruitment work is in draft pull request #153 and is not merged or verified as deployed to production. No individual sponsor is currently confirmed approved and funded, no provider has authorized a payout account or credit facility, and no funded Mainnet pilot is claimed. Review the <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/blob/ui/modern-crypto-dashboard-theme/docs/SPONSOR_BRIEF.md" target="_blank" rel="noreferrer">public sponsor brief</a>, <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/blob/ui/modern-crypto-dashboard-theme/docs/EXTERNAL_SPONSOR_OPERATING_CONTRACT.md" target="_blank" rel="noreferrer">sponsor operating rules</a>, <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/pull/153" target="_blank" rel="noreferrer">implementation PR #153</a>, and <a href="https://github.com/MyTeleProject2026/trc20-usdt-token-cloner/issues/new?template=individual-sponsor-inquiry.yml" target="_blank" rel="noreferrer">public sponsor inquiry form</a> before participating.</p>
+          </section>
           <section className="panel provider-panel">
             <div className="section-heading">
               <div>

@@ -39,10 +39,28 @@ async function api(path, token, options = {}) {
   })
   const body = await response.json().catch(() => null)
   if (!response.ok && response.status !== 202) {
+    if (body?.error === 'unexpected-fields') {
+      const method = String(options.method || 'GET').toUpperCase()
+      throw new Error(
+        'API version mismatch at ' + method + ' ' + path +
+        ': the deployed backend rejected fields sent by this frontend. Update the API service to the same PR #153 revision. ' +
+        'Do not remove sponsor consent, wallet identity, recipient, amount, or transaction-authorization fields to bypass this check.',
+      )
+    }
     throw new Error(body?.message || body?.error || 'Sponsor-direct API request failed.')
   }
   if (!body || typeof body !== 'object') throw new Error('Sponsor-direct API returned an unreadable response.')
-  if (body.success === false && response.status !== 202) throw new Error(body.message || body.error || 'Sponsor-direct API rejected the request.')
+  if (body.success === false && response.status !== 202) {
+    if (body.error === 'unexpected-fields') {
+      const method = String(options.method || 'GET').toUpperCase()
+      throw new Error(
+        'API version mismatch at ' + method + ' ' + path +
+        ': the deployed backend rejected fields sent by this frontend. Update the API service to the same PR #153 revision. ' +
+        'Do not remove sponsor consent, wallet identity, recipient, amount, or transaction-authorization fields to bypass this check.',
+      )
+    }
+    throw new Error(body.message || body.error || 'Sponsor-direct API rejected the request.')
+  }
   return body
 }
 
@@ -53,7 +71,7 @@ function hasExpiredPreparation(request) {
 
 function statusLabel(status) {
   return ({
-    requested: 'Awaiting sponsor',
+    requested: 'Pending sponsor funding and signature',
     prepared: 'Sponsor approval required',
     broadcasting: 'Broadcasting',
     submitted: 'On-chain confirmation pending',
@@ -80,8 +98,10 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [application, setApplication] = useState(null)
   const [snapshot, setSnapshot] = useState(null)
   const [myRequests, setMyRequests] = useState([])
+  const [requestEvidence, setRequestEvidence] = useState({})
   const [queue, setQueue] = useState([])
   const [applications, setApplications] = useState([])
+  const [approvedSponsors, setApprovedSponsors] = useState([])
   const [ownerOverview, setOwnerOverview] = useState(null)
   const [ownerFundingLedger, setOwnerFundingLedger] = useState(null)
   const [fundingLedgerError, setFundingLedgerError] = useState('')
@@ -90,12 +110,23 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [fundingDepositAmount, setFundingDepositAmount] = useState('')
   const [fundingLedgerBusy, setFundingLedgerBusy] = useState(false)
   const [recipient, setRecipient] = useState('')
+  const [recipientLabel, setRecipientLabel] = useState('')
+  const [savedRecipients, setSavedRecipients] = useState([])
   const [amount, setAmount] = useState('')
+  const [recipientNetworkConfirmed, setRecipientNetworkConfirmed] = useState(false)
+  const [recipientDepositRequirementsConfirmed, setRecipientDepositRequirementsConfirmed] = useState(false)
   const [displayName, setDisplayName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
+  const [sponsorConsent, setSponsorConsent] = useState(false)
   const [reviewReference, setReviewReference] = useState('')
   const [dailyLimit, setDailyLimit] = useState('')
   const [perPayoutLimit, setPerPayoutLimit] = useState('')
+  const [inviteMessage, setInviteMessage] = useState('')
+  const [partnerName, setPartnerName] = useState('')
+  const [partnerType, setPartnerType] = useState('payout-provider')
+  const [partnerContact, setPartnerContact] = useState('')
+  const [partnerNotes, setPartnerNotes] = useState('')
+  const [partnerLeads, setPartnerLeads] = useState([])
   const [prepared, setPrepared] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -103,6 +134,51 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefreshAt, setLastRefreshAt] = useState(null)
   const refreshInFlightRef = useRef(null)
+  const requestIdempotencyRef = useRef({ intent: '', key: '' })
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('tron-transfer:recipient-book:v1')
+      const parsed = raw ? JSON.parse(raw) : []
+      setSavedRecipients(Array.isArray(parsed) ? parsed.filter((item) =>
+        item && typeof item.id === 'string' && typeof item.label === 'string'
+        && ADDRESS_RE.test(item.address || '')) : [])
+    } catch {
+      setSavedRecipients([])
+    }
+  }, [])
+
+  function saveRecipient() {
+    const address = recipient.trim()
+    const label = recipientLabel.trim()
+    if (!isValidAddress(address, wallet?.tronWeb)) {
+      setError('Connect TronLink and enter a valid TRON Mainnet recipient address before saving.')
+      return
+    }
+    if (label.length < 2 || label.length > 48) {
+      setError('Enter a recipient label between 2 and 48 characters.')
+      return
+    }
+    const next = [{ id: address, address, label }, ...savedRecipients.filter((item) => item.address !== address)].slice(0, 30)
+    try {
+      localStorage.setItem('tron-transfer:recipient-book:v1', JSON.stringify(next))
+      setSavedRecipients(next)
+      setNotice('Recipient saved on this device. It is not an exchange-verified address.')
+      setError('')
+    } catch {
+      setError('Could not save the recipient on this device. Check browser storage settings.')
+    }
+  }
+
+  function removeRecipient(address) {
+    const next = savedRecipients.filter((item) => item.address !== address)
+    try {
+      localStorage.setItem('tron-transfer:recipient-book:v1', JSON.stringify(next))
+      setSavedRecipients(next)
+    } catch {
+      setError('Could not update the recipient book on this device.')
+    }
+  }
 
   const walletAddress = wallet?.address || ''
   const identityToken = identitySession?.sessionToken || ''
@@ -211,15 +287,18 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             setPrepared(null)
           }
           if (isOwnerAdmin) {
-            const [adminResult, overviewResult] = await Promise.all([
+            const [adminResult, approvedResult, overviewResult] = await Promise.all([
               api('/api/tron/sponsor-direct/applications', identityToken),
+              api('/api/tron/sponsor-direct/approved-sponsors', identityToken),
               api('/api/tron/sponsor-direct/owner-overview', identityToken),
             ])
             setApplications(Array.isArray(adminResult.applications) ? adminResult.applications : [])
+            setApprovedSponsors(Array.isArray(approvedResult.sponsors) ? approvedResult.sponsors : [])
             setOwnerOverview(overviewResult)
             await refreshOwnerFundingLedger()
           } else {
             setApplications([])
+            setApprovedSponsors([])
             setOwnerOverview(null)
             setOwnerFundingLedger(null)
             setFundingLedgerError('')
@@ -232,6 +311,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
           setQueue([])
           setPrepared(null)
           setApplications([])
+          setApprovedSponsors([])
           setOwnerOverview(null)
           setOwnerFundingLedger(null)
           setLastRefreshAt(null)
@@ -338,26 +418,151 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     try {
       if (!identityMatchesWallet) throw new Error('Verify your connected wallet identity first.')
       if (ownerSession?.address && walletAddress !== ownerSession.address) throw new Error('Connect the configured platform-owner wallet before submitting a withdrawal request.')
+      if (!recipientNetworkConfirmed) throw new Error('Confirm that the receiving address accepts official USDT on TRON Mainnet (TRC20).')
+      if (!recipientDepositRequirementsConfirmed) throw new Error('Confirm the exchange minimum deposit and that no memo or tag is required for this TRC20 address.')
       if (!isValidAddress(recipient.trim(), wallet?.tronWeb)) throw new Error('Enter a valid TRON Mainnet recipient address.')
       if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(amount.trim()) || /^0(?:\.0{1,6})?$/.test(amount.trim())) {
         throw new Error('Enter a positive USDT amount with no more than six decimal places.')
+      }
+      const requestIntent = JSON.stringify({ recipientAddress: recipient.trim(), amount: amount.trim() })
+      if (requestIdempotencyRef.current.intent !== requestIntent || !requestIdempotencyRef.current.key) {
+        requestIdempotencyRef.current = { intent: requestIntent, key: crypto.randomUUID() }
       }
       const result = await api('/api/tron/sponsor-direct/requests', identityToken, {
         method: 'POST',
         body: JSON.stringify({
           recipientAddress: recipient.trim(),
           amount: amount.trim(),
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: requestIdempotencyRef.current.key,
         }),
       })
+      requestIdempotencyRef.current = { intent: '', key: '' }
       setRecipient('')
       setAmount('')
+      setRecipientNetworkConfirmed(false)
+      setRecipientDepositRequirementsConfirmed(false)
       setNotice(result.note || 'Withdrawal request submitted. A sponsor must authorize and fund it.')
       await refresh()
     } catch (cause) {
       setError(cause?.message || 'Could not submit the withdrawal request.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function copySponsorOutreachMessage() {
+    const inviteUrl = window.location.origin + window.location.pathname + '#/sponsor'
+    const message = [
+      'Hello,',
+      '',
+      'I am looking for a voluntary, independent TRON Mainnet USDT sponsor to review a proposed owner-operated payout workflow.',
+      'There is no guaranteed return, reimbursement, grant award, or payment. You remain in full control of your own TronLink wallet and may decline any request.',
+      'If you choose to participate, the platform will check your actual USDT and network resources, show the exact recipient and amount, and require you to review and sign each payout yourself in TronLink. Connecting a wallet or signing an identity message does not transfer funds.',
+      'Please do not share a seed phrase, private key, password, OTP, or remote access. We will not ask for them.',
+      '',
+      'Sponsor information and application portal:',
+      inviteUrl,
+      '',
+      'Please review the terms and independently verify the project before deciding. Participation is entirely optional.',
+    ].join('\\n')
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.')
+      await navigator.clipboard.writeText(message)
+      setInviteMessage('Transparent sponsor outreach message copied. Send it only to people who may genuinely wish to participate.')
+    } catch (cause) {
+      setInviteMessage(cause?.message || 'Could not copy the outreach message.')
+    }
+  }
+  async function copySponsorInvitation() {
+    const inviteUrl = window.location.origin + window.location.pathname + '#/sponsor'
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable in this browser.')
+      await navigator.clipboard.writeText(inviteUrl)
+      setInviteMessage('Sponsor invitation link copied. Share it only with independently verified contacts.')
+    } catch (cause) {
+      setInviteMessage(cause?.message || 'Could not copy the link. Open the portal below and copy its address manually.')
+    }
+  }
+  useEffect(() => {
+    let active = true
+    if (!isOwnerAdmin || !identityToken) {
+      setPartnerLeads([])
+      return () => { active = false }
+    }
+    api('/api/tron/sponsor-direct/partner-prospects', identityToken)
+      .then((result) => {
+        if (active) setPartnerLeads(Array.isArray(result.prospects) ? result.prospects : [])
+      })
+      .catch((cause) => {
+        if (active) setError(cause?.message || 'Could not load saved partner prospects.')
+      })
+    return () => { active = false }
+  }, [isOwnerAdmin, identityToken])
+
+  async function addPartnerProspect() {
+    const name = partnerName.trim()
+    if (name.length < 2 || name.length > 100) {
+      setError('Enter a partner or sponsor name between 2 and 100 characters.')
+      return
+    }
+    if (partnerContact.trim().length > 160 || partnerNotes.trim().length > 1000) {
+      setError('Contact and notes are too long.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({ name, type: partnerType, contact: partnerContact.trim(), notes: partnerNotes.trim() }),
+      })
+      if (!result.success || !result.prospect) throw new Error('The server did not confirm saving this prospect.')
+      setPartnerLeads((current) => [result.prospect, ...current].slice(0, 100))
+      setPartnerName('')
+      setPartnerContact('')
+      setPartnerNotes('')
+      setNotice('Prospect saved to the authenticated owner database. It is not partner approval or payout eligibility.')
+    } catch (cause) {
+      setError(cause?.message || 'Could not save partner prospect.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updatePartnerProspect(id, status) {
+    const allowed = ['identified', 'contacted', 'due-diligence', 'agreement-pending', 'sandbox-pending', 'declined']
+    if (!allowed.includes(status)) return
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects/' + encodeURIComponent(id) + '/status', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      })
+      if (!result.success) throw new Error('The server did not confirm the status update.')
+      setPartnerLeads((current) => current.map((item) => item.id === id ? { ...item, status: result.status } : item))
+      setError('')
+    } catch (cause) {
+      setError(cause?.message || 'Could not update partner prospect.')
+      void refreshPartnerProspects()
+    }
+  }
+
+  async function refreshPartnerProspects() {
+    if (!isOwnerAdmin || !identityToken) return
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects', identityToken)
+      setPartnerLeads(Array.isArray(result.prospects) ? result.prospects : [])
+    } catch (cause) {
+      setError(cause?.message || 'Could not refresh partner prospects.')
+    }
+  }
+
+  async function removePartnerProspect(id) {
+    try {
+      const result = await api('/api/tron/sponsor-direct/partner-prospects/' + encodeURIComponent(id), identityToken, { method: 'DELETE' })
+      if (!result.success || result.deleted !== true) throw new Error('The server did not confirm deleting this prospect.')
+      setPartnerLeads((current) => current.filter((item) => item.id !== id))
+    } catch (cause) {
+      setError(cause?.message || 'Could not remove partner prospect.')
     }
   }
 
@@ -369,7 +574,7 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       if (!identityMatchesWallet) throw new Error('Verify the sponsor wallet identity first.')
       const result = await api('/api/tron/sponsor-direct/application', identityToken, {
         method: 'POST',
-        body: JSON.stringify({ displayName: displayName.trim(), contactEmail: contactEmail.trim() }),
+        body: JSON.stringify({ displayName: displayName.trim(), contactEmail: contactEmail.trim(), participationConsent: sponsorConsent }),
       })
       setApplication(result.application || null)
       setNotice(result.note || 'Sponsor application submitted for platform review.')
@@ -454,11 +659,35 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
     try {
       const result = await api('/api/tron/sponsor-direct/requests/' + encodeURIComponent(id), identityToken)
       const request = result.request
+      setRequestEvidence((items) => ({ ...items, [id]: { confirmation: result.confirmation || null, exchangeCreditStatus: result.exchangeCreditStatus || 'not-verified-by-tron-chain', note: result.note || '' } }))
       setMyRequests((items) => items.map((item) => item.id === id ? request : item))
       setQueue((items) => items.map((item) => item.id === id ? { ...item, ...request } : item))
       setNotice(result.note || 'Payout status refreshed.')
     } catch (cause) {
       setError(cause?.message || 'Could not refresh the payout status.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancelRequest(id) {
+    if (!window.confirm('Cancel this unsigned payout request? The sponsor reservation will be released.')) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      if (!identityMatchesWallet || walletAddress !== ownerSession?.address) {
+        throw new Error('Reconnect the configured platform-owner wallet to cancel this request.')
+      }
+      const result = await api('/api/tron/sponsor-direct/requests/' + encodeURIComponent(id) + '/cancel', identityToken, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      setNotice(result.note || 'Unsigned withdrawal request cancelled; no funds moved.')
+      await refresh()
+    } catch (cause) {
+      setError(cause?.message || 'Could not safely cancel this request.')
+      await refresh().catch(() => {})
     } finally {
       setBusy(false)
     }
@@ -616,18 +845,43 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       {mode !== 'sponsor' && mode !== 'history' && (
         <div className="sponsor-funding-destination">
           <span className="eyebrow">01 / REQUEST A WITHDRAWAL</span>
-          <h3>Send to an external TRON wallet or exchange deposit address</h3>
-          <p>The address receives official Tether USDT TRC20 directly from the sponsor's wallet. Check the exchange's TRON/TRC20 network, minimum deposit and memo/tag instructions before submitting.</p>
+          <h3>Request a payout to an external TRON wallet or exchange deposit address</h3>
+          <p>You do not need to register or connect a sponsor to submit this request. It will remain in the sponsor queue until an approved sponsor accepts it, passes live Mainnet USDT and network-resource checks, and signs the exact transfer. The recipient receives official Tether USDT TRC20 directly from the sponsor's wallet only after that authorization and broadcast.</p>
           <div className="withdrawal-form-grid">
             <div className="form-stack">
+              {savedRecipients.length > 0 && (
+                <label>Saved recipient
+                  <select value={savedRecipients.some((item) => item.address === recipient) ? recipient : ''} onChange={(event) => { const selected = savedRecipients.find((item) => item.address === event.target.value); setRecipient(selected?.address || ''); setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false) }}>
+                    <option value="">Choose a saved TRON address</option>
+                    {savedRecipients.map((item) => <option key={item.id} value={item.address}>{item.label} · {shorten(item.address)}</option>)}
+                  </select>
+                </label>
+              )}
               <label>External recipient TRON Mainnet address
-                <input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
+                <input value={recipient} onChange={(event) => { setRecipient(event.target.value); setRecipientNetworkConfirmed(false); setRecipientDepositRequirementsConfirmed(false) }} placeholder="Recipient address (T…)" autoComplete="off" spellCheck="false" />
               </label>
+              <div className="button-row">
+                <label>Save recipient label
+                  <input value={recipientLabel} onChange={(event) => setRecipientLabel(event.target.value)} placeholder="e.g. My exchange deposit" maxLength={48} />
+                </label>
+                <button className="secondary-button" type="button" disabled={!recipient.trim() || recipientLabel.trim().length < 2} onClick={saveRecipient}>Save address</button>
+              </div>
+              {savedRecipients.length > 0 && <div className="transaction-list" aria-label="Saved recipients">
+                {savedRecipients.map((item) => <div className="transaction-row" key={item.id}>
+                  <div className="transaction-main"><strong>{item.label}</strong><span>{item.address}</span><small>Stored locally in this browser only · not verified by the receiving exchange</small></div>
+                  <button className="outline-button" type="button" onClick={() => removeRecipient(item.address)}>Remove</button>
+                </div>)}
+              </div>}
               <label>USDT withdrawal amount
                 <input value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g. 10.00" inputMode="decimal" />
               </label>
-              <button className="primary-button" disabled={!identityMatchesWallet || busy} onClick={() => void submitRequest()}>
-                <ArrowUpRight size={16} /> Submit sponsored withdrawal request
+              <div className="recipient-deposit-checklist">
+                <label className="recipient-confirmation"><input type="checkbox" checked={recipientNetworkConfirmed} onChange={(event) => setRecipientNetworkConfirmed(event.target.checked)} /><span>I verified that this exact address accepts official USDT on TRON Mainnet (TRC20).</span></label>
+                <label className="recipient-confirmation"><input type="checkbox" checked={recipientDepositRequirementsConfirmed} onChange={(event) => setRecipientDepositRequirementsConfirmed(event.target.checked)} /><span>I checked the exchange's minimum deposit and confirmed no memo/tag is required for this address.</span></label>
+                <p className="fine-print">This transfer sends the USDT TRC20 token only. It does not attach an exchange memo/tag. A valid address alone does not guarantee that the exchange will credit its internal account.</p>
+              </div>
+              <button className="primary-button" disabled={!identityMatchesWallet || busy || !recipientNetworkConfirmed || !recipientDepositRequirementsConfirmed} onClick={() => void submitRequest()}>
+                <ArrowUpRight size={16} /> Submit request (no sponsor registration required)
               </button>
             </div>
             <aside className="withdrawal-eligibility">
@@ -673,7 +927,11 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
               <label>Contact email (optional)
                 <input value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} type="email" placeholder="you@example.com" autoComplete="email" />
               </label>
-              <button className="primary-button" disabled={busy || displayName.trim().length < 2} onClick={() => void applyAsSponsor()}>
+              <label className="sponsor-consent-row">
+                <input type="checkbox" checked={sponsorConsent} onChange={(event) => setSponsorConsent(event.target.checked)} />
+                <span>I voluntarily offer this self-custody wallet for sponsor participation. I understand my wallet supplies any USDT and network resources, I review and sign every exact payout in TronLink, no private key or recovery phrase is shared, and applying does not guarantee a payout or require me to accept any request.</span>
+              </label>
+              <button className="primary-button" disabled={busy || displayName.trim().length < 2 || !sponsorConsent} onClick={() => void applyAsSponsor()}>
                 <Building2 size={16} /> Apply as an individual wallet sponsor
               </button>
             </div>
@@ -774,6 +1032,63 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
       {mode === 'sponsor' && isOwnerAdmin && (
         <div className="sponsor-funding-destination">
           <div className="section-heading compact">
+            <div><span className="eyebrow">SPONSOR RECRUITMENT</span><h3>Invite an independent sponsor</h3></div>
+            <span className="status-pill">No automatic funding</span>
+          </div>
+          <p>Share this separate application portal with a willing self-custody wallet owner or a legitimate payout-partner contact. Applicants connect their own TronLink wallet, prove wallet control with a message signature, and choose whether to apply. This link does not grant owner access or authorize a transfer.</p>
+          <div className="button-row">
+            <a className="outline-button" href={window.location.origin + window.location.pathname + '#/sponsor'} target="_blank" rel="noreferrer">Open sponsor application portal <ExternalLink size={13} /></a>
+            <button className="secondary-button" type="button" onClick={() => void copySponsorInvitation()}><Send size={15} /> Copy invitation link</button>
+          </div>
+          {inviteMessage && <p className="fine-print" role="status">{inviteMessage}</p>}
+          <p className="fine-print">Wallet-message authentication proves control of an address only. It does not establish identity, source of funds, solvency, legal authority or willingness to fund. Never request a seed phrase, private key, password or OTP.</p>
+        </div>
+      )}
+      {mode === 'sponsor' && isOwnerAdmin && (
+        <div className="sponsor-funding-destination">
+          <div className="section-heading compact">
+            <div><span className="eyebrow">EXTERNAL PARTNER MANAGEMENT</span><h3>Partner and sponsor prospect tracker</h3></div>
+            <span className="status-pill">Owner database</span>
+          </div>
+          <p>Track prospective payout providers, treasury partners, grant programs and individual sponsors. Entries are saved in the owner-authenticated application database. They are not verified, contracted, funded, connected to an API or eligible to send payouts.</p>
+          <div className="button-row">
+            <button className="secondary-button" type="button" onClick={() => void copySponsorInvitation()}><Send size={15} /> Copy sponsor portal link</button>
+            <button className="outline-button" type="button" onClick={() => void copySponsorOutreachMessage()}><ClipboardCheck size={15} /> Copy transparent outreach message</button>
+          </div>
+          {inviteMessage && <p className="fine-print" role="status">{inviteMessage}</p>}
+          <div className="form-stack">
+            <label>Organization or sponsor name<input value={partnerName} onChange={(event) => setPartnerName(event.target.value)} maxLength={100} placeholder="Name of provider, program or willing sponsor" /></label>
+            <label>Prospect type<select value={partnerType} onChange={(event) => setPartnerType(event.target.value)}><option value="payout-provider">Payout provider</option><option value="treasury-partner">Treasury / liquidity partner</option><option value="grant-program">Development grant program</option><option value="individual-sponsor">Individual self-custody sponsor</option></select></label>
+            <label>Public contact or application URL<input value={partnerContact} onChange={(event) => setPartnerContact(event.target.value)} maxLength={160} placeholder="Official website or public contact (no credentials)" /></label>
+            <label>Due-diligence notes<textarea value={partnerNotes} onChange={(event) => setPartnerNotes(event.target.value)} maxLength={1000} rows={3} placeholder="Eligibility, permitted use, network support, funding terms, response date…" /></label>
+            <div className="button-row"><button className="primary-button" type="button" disabled={!partnerName.trim()} onClick={addPartnerProspect}><Building2 size={15} /> Add prospect</button></div>
+          </div>
+          <div className="section-heading compact"><div><span className="eyebrow">OUTREACH PIPELINE</span><h3>{partnerLeads.length} saved prospects</h3></div></div>
+          {!partnerLeads.length ? <div className="empty-state"><Building2 size={22} /><b>No partner prospects tracked yet</b><p>Add a public provider or sponsor contact to organize your outreach.</p></div> : <div className="transaction-list">
+            {partnerLeads.map((item) => (
+              <article className="transaction-row" key={item.id}>
+                <div className="transaction-main">
+                  <strong>{item.name}</strong>
+                  <small>{({ 'payout-provider': 'Payout provider', 'treasury-partner': 'Treasury / liquidity partner', 'grant-program': 'Development grant program', 'individual-sponsor': 'Individual sponsor' })[item.type]}</small>
+                  {item.contact && <a href={/^https:\/\//i.test(item.contact) ? item.contact : undefined} target="_blank" rel="noreferrer">{item.contact}</a>}
+                  {item.notes && <small>{item.notes}</small>}
+                  <small>Added {new Date(item.createdAt).toLocaleDateString()}</small>
+                  <small>Prospect status only — no funding or authorization is implied.</small>
+                </div>
+                <div className="transaction-actions">
+                  <label>Outreach status<select value={item.status} onChange={(event) => updatePartnerProspect(item.id, event.target.value)}><option value="identified">Identified</option><option value="contacted">Contacted</option><option value="due-diligence">Due diligence</option><option value="agreement-pending">Agreement pending</option><option value="sandbox-pending">Sandbox pending</option><option value="declined">Declined / closed</option></select></label>
+                  <button className="outline-button" type="button" onClick={() => removePartnerProspect(item.id)}>Remove prospect</button>
+                </div>
+              </article>
+            ))}
+          </div>}
+          <p className="fine-print">Never store API keys, passwords, wallet secrets, private keys, seed phrases, identity documents or payment credentials here. A partner becomes eligible for a separate reviewed integration only after verified legal authority, written agreement, documented API specification, sandbox testing, confirmed funding and independent Mainnet reconciliation.</p>
+        </div>
+      )}
+
+      {mode === 'sponsor' && isOwnerAdmin && (
+        <div className="sponsor-funding-destination">
+          <div className="section-heading compact">
             <div><span className="eyebrow">04 / PLATFORM OWNER REVIEW</span><h3>Pending sponsor wallet applications</h3></div>
             <button className="secondary-button" disabled={refreshing || busy} onClick={() => void refresh()}><RefreshCw size={15} /> Refresh</button>
           </div>
@@ -797,6 +1112,22 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
             </article>
           ))}
           <p className="fine-print">Platform approval confirms only that the owner has allowed this wallet to participate under the displayed spending limits. It does not verify company registration, beneficial ownership, regulatory status or sponsor solvency.</p>
+          <div className="section-heading compact">
+            <div><span className="eyebrow">APPROVED SPONSOR WALLETS</span><h3>Approved participants</h3></div>
+            <span>{approvedSponsors.length} approved</span>
+          </div>
+          {!approvedSponsors.length ? <div className="empty-state"><Wallet size={22} /><b>No approved sponsor wallets registered</b><p>At present there is no approved sponsor available through this platform.</p></div> : approvedSponsors.map((item) => (
+            <article className="transaction-row" key={item.id}>
+              <div className="transaction-main">
+                <strong>{item.displayName}</strong>
+                <span>{item.sponsorAddress}</span>
+                <small>{item.contactEmail || 'No contact email supplied'}</small>
+                <small>Approved payout cap: {formatUnits(item.perPayoutLimitBaseUnits)} USDT · daily cap: {formatUnits(item.dailyLimitBaseUnits)} USDT</small>
+                <small>Live USDT and TRON resources: Not checked by this owner list. Sponsor must connect this wallet and refresh its own live readiness; every payout is checked again before signing and broadcast.</small>
+              </div>
+            </article>
+          ))}
+          <p className="fine-print">The approved list identifies wallet participants only. It does not indicate which wallet currently has sufficient USDT, TRX, Energy or Bandwidth. No sponsor is eligible to sign until live funding and resource checks pass.</p>
         </div>
       )}
 
@@ -817,15 +1148,19 @@ export default function SponsorDirectPayouts({ wallet, ownerSession, mode = 'wit
                       <small>Status: {statusLabel(item.status)}</small>
                       <small>Sponsor: {item.sponsorAddress ? shorten(item.sponsorAddress) : 'Not assigned'}</small>
                       {item.status === 'requested' && <small>{item.sponsorAddress
-                        ? 'Automatically matched using current sponsor funding and fee checks. Waiting for the sponsor to prepare and sign this payout.'
-                        : 'No eligible funded sponsor is matched yet. The request remains queued; your wallet is not charged.'}</small>}
+                        ? 'A sponsor has been matched, but must recheck live Mainnet USDT and network resources, then explicitly sign this exact payout. No funds have moved.'
+                        : 'Pending sponsor funding: no eligible sponsor is currently matched. The request remains queued; no blockchain transaction or exchange deposit exists yet, and your wallet is not charged.'}</small>}
                       {item.status === 'requested' && item.sponsorAddress && item.expiresAt && <small>Temporary sponsor reservation expires {new Date(item.expiresAt).toLocaleString()}. If it expires, the request returns to the available sponsor queue.</small>}
 
                       {item.transactionHash && <a href={'https://tronscan.org/#/transaction/' + item.transactionHash} target="_blank" rel="noreferrer">View on TRONSCAN <ExternalLink size={12} /></a>}
-                      {item.status === 'confirmed' && <small>On-chain transfer confirmed; exchange account credit is not independently verified.</small>}
+                      {requestEvidence[item.id]?.confirmation?.verified === true && <small role="status">Blockchain evidence: verified solidified Mainnet receipt and exact official-USDT Transfer event.</small>}
+                      {item.status === 'confirmed' && <small>Exchange deposit credit: {requestEvidence[item.id]?.exchangeCreditStatus === 'not-verified-by-tron-chain' ? 'Not verified by the TRON blockchain. Check the receiving exchange account or its deposit support.' : 'Awaiting independent exchange-side confirmation.'}</small>}
                     </div>
                     <div className="transaction-actions">
                       <button className="secondary-button" disabled={busy} onClick={() => void refreshRequest(item.id)}><RefreshCw size={15} /> Refresh status</button>
+                      {['requested', 'prepared'].includes(item.status) && (
+                        <button className="outline-button" disabled={busy || !identityMatchesWallet || walletAddress !== ownerSession?.address} onClick={() => void cancelRequest(item.id)}>Cancel unsigned request</button>
+                      )}
                     </div>
                   </article>
                 ))}
