@@ -1,6 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { TronWeb } from 'tronweb'
 import { parseTokenUnits, formatTokenUnits, addressesEqual, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+
+
+test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
+  assert.equal(typeof TronWeb, 'function')
+  const client = new TronWeb({ fullHost: 'https://api.trongrid.io' })
+  assert.equal(typeof client.transactionBuilder.createSmartContract, 'function')
+  assert.equal(typeof client.trx.sendRawTransaction, 'function')
+})
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
