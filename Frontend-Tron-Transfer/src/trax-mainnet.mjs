@@ -171,6 +171,12 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || walletTransaction.raw_data.contract[0]?.type !== 'CreateSmartContract') {
     throw new Error('TRON node returned an invalid CreateSmartContract signing payload. No wallet prompt or broadcast was attempted.')
   }
+  // Safety gate: this deployment path is intentionally non-broadcasting while
+  // the TronLink CreateSmartContract compatibility issue is under investigation.
+  // The unsigned transaction is validated above, but must not be signed or sent.
+  // Remove this gate only after a separately reviewed, explicit deployment approval
+  // and an end-to-end test on a non-production network.
+  throw new Error('Deployment safety hold: unsigned TRON contract transaction was prepared and validated, but signing and Mainnet broadcast are disabled. No transaction was sent. Continue with offline payload diagnostics and testnet verification.')
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
