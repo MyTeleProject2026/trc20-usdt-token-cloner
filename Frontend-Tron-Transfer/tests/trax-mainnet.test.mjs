@@ -41,15 +41,66 @@ test('TRӾ deployment options reject missing ABI, malformed bytecode and invalid
   assert.throws(() => buildDeploymentOptions({ abi: [], bytecode: '6000' }, 'Broken', 0), /fee cap/)
 })
 
-test('TronLink deployment payload strips builder metadata and preserves protocol fields', () => {
+test('TronLink deployment payload preserves the exact createSmartContract transaction including contract_address', () => {
   const raw_data = { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 }
   const tx = { visible: false, txID: 'a'.repeat(64), raw_data, raw_data_hex: '0a01', contract_address: 'T' + '1'.repeat(33) }
   const payload = toWalletSignableTransaction(tx)
-  assert.deepEqual(payload, { visible: false, txID: tx.txID, raw_data, raw_data_hex: '0a01' })
-  assert.equal('contract_address' in payload, false)
+  assert.strictEqual(payload, tx)
+  assert.deepEqual(payload, tx)
+  assert.equal(payload.contract_address, tx.contract_address)
 })
 
 test('TronLink deployment payload rejects non-deployment or incomplete transactions', () => {
   assert.throws(() => toWalletSignableTransaction({ txID: 'a'.repeat(64), raw_data_hex: '01', raw_data: { contract: [{ type: 'TransferContract' }] } }), /CreateSmartContract/)
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
+})
+
+test('TRӾ deployment signs the original builder object and broadcasts the returned signed object', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  const unsigned = {
+    visible: false,
+    txID: 'b'.repeat(64),
+    contract_address: '41' + '1'.repeat(40),
+    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
+    raw_data_hex: '0a01',
+  }
+  const signed = { ...unsigned, signature: ['c'.repeat(130)] }
+  let signedInput
+  let broadcastInput
+  globalThis.window = { setTimeout: (fn) => setTimeout(fn, 0) }
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    json: async () => String(url).includes('gettransactionbyid')
+      ? { txID: unsigned.txID, raw_data: unsigned.raw_data }
+      : { id: unsigned.txID, receipt: { result: 'SUCCESS' } },
+  })
+  const tronWeb = {
+    fullNode: { host: 'https://api.trongrid.io' },
+    isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
+    address: { fromHex: () => 'T' + '1'.repeat(33) },
+    transactionBuilder: { createSmartContract: async () => unsigned },
+    trx: {
+      sign: async (tx) => { signedInput = tx; return signed },
+      sendRawTransaction: async (tx) => { broadcastInput = tx; return { result: true } },
+      getContract: async () => ({ bytecode: '6000' }),
+    },
+  }
+  try {
+    const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
+    const result = await deployContractFromTronLink(
+      { tronWeb, address: 'T' + '2'.repeat(33) },
+      { abi: [], bytecode: '6000' },
+      'TestVault',
+      300000000,
+    )
+    assert.strictEqual(signedInput, unsigned)
+    assert.strictEqual(broadcastInput, signed)
+    assert.equal(result.txID, unsigned.txID)
+    assert.equal(result.address, 'T' + '1'.repeat(33))
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalWindow === undefined) delete globalThis.window
+    else globalThis.window = originalWindow
+  }
 })
