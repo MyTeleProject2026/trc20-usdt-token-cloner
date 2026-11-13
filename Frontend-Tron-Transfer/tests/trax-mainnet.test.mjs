@@ -82,7 +82,7 @@ test('TronLink deployment payload contains only the documented protocol transact
   assert.equal(Object.hasOwn(payload, 'contract_address'), false)
 })
 
-test('TronLink signature validation tolerates raw_data key-order changes but requires exact bytes', () => {
+test('TronLink signature metadata can differ while the app retains canonical unsigned transaction bytes', () => {
   const unsigned = {
     txID: 'c'.repeat(64),
     raw_data_hex: '0a01',
@@ -113,7 +113,7 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
-  const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, signature: ['a'.repeat(130)] }
+  const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, raw_data_hex: 'deadbeef', signature: ['a'.repeat(130)] }
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
@@ -129,7 +129,7 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
     transactionBuilder: { createSmartContract: async () => unsigned },
     address: { fromHex: () => 'T' + '1'.repeat(33) },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); return { result: true } } },
+    trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.notEqual(payload, signed); assert.equal(payload.txID, unsigned.txID); assert.equal(payload.raw_data_hex, unsigned.raw_data_hex); assert.deepEqual(payload.raw_data, unsigned.raw_data); assert.deepEqual(payload.signature, signed.signature); return { result: true } } },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
   const result = await deployContractFromTronLink(
