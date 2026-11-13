@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes } from '../src/trax-mainnet.mjs'
 
 
 
@@ -108,12 +108,12 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
 test('any valid TronLink Mainnet wallet broadcasts the exact signed object returned by trx.sign', async () => {
   const unsigned = {
     visible: false,
-    txID: 'b'.repeat(64),
+    txID: '426e75c2b5c719ae46005abc57144fde1b70294c0d2adf82a36a4de6e0578830',
     contract_address: '41' + '1'.repeat(40),
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: '41' + '1'.repeat(40) } } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
-  const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, raw_data_hex: 'deadbeef', signature: ['a'.repeat(130)] }
+  const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, raw_data_hex: '0a01', signature: ['a'.repeat(130)] }
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
