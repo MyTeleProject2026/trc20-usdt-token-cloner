@@ -125,7 +125,7 @@ export default function App() {
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
     if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink. If deployment is later enabled, this connected wallet will become the owner of contracts it deploys.')
+    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink. Mainnet deployment is enabled; this connected wallet becomes the owner of contracts it deploys after separately approving each deployment in TronLink.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
