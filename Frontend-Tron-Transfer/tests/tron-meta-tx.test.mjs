@@ -5,7 +5,7 @@ import { createTronMetaTypedData, signTronMetaTypedData, TRON_MAINNET_CHAIN_ID }
 const OWNER = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'
 const FORWARDER = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
 const TARGET = 'TKmwZgALZPatKVJpcAx93XVNu6DiaauPFk'
-const tronWeb = { isAddress: (value) => [OWNER, FORWARDER, TARGET].includes(value) }
+const tronWeb = { fullNode: { host: 'https://api.trongrid.io' }, isAddress: (value) => [OWNER, FORWARDER, TARGET].includes(value) }
 
 test('builds exact Mainnet ForwardRequest typed data matching the Solidity schema', () => {
   const result = createTronMetaTypedData({
@@ -26,6 +26,7 @@ test('builds exact Mainnet ForwardRequest typed data matching the Solidity schem
 test('rejects wrong network, bad addresses, malformed calldata, and excessive expiry', () => {
   const base = { tronWeb, from: OWNER, forwarder: FORWARDER, to: TARGET, data: '0x12345678', nonce: 0, deadline: 1100, nowSeconds: 1000 }
   assert.throws(() => createTronMetaTypedData({ ...base, chainId: 2494104990 }), /TRON Mainnet/)
+  assert.throws(() => createTronMetaTypedData({ ...base, tronWeb: { ...tronWeb, fullNode: { host: 'https://api.nileex.io' } } }), /TRON Mainnet endpoint/)
   assert.throws(() => createTronMetaTypedData({ ...base, from: 'T123' }), /owner address/)
   assert.throws(() => createTronMetaTypedData({ ...base, data: '0xxyz' }), /Calldata/)
   assert.throws(() => createTronMetaTypedData({ ...base, deadline: 3000 }), /15 minutes/)
@@ -35,6 +36,7 @@ test('rejects wrong network, bad addresses, malformed calldata, and excessive ex
 test('uses only TronLink TIP-712 signing and checks the active owner account', async () => {
   let called = false
   const wallet = {
+    fullNode: { host: 'https://api.trongrid.io' },
     defaultAddress: { base58: OWNER },
     trx: { _signTypedData: async (_domain, _types, _message) => { called = true; return 'a'.repeat(130) } },
   }
@@ -49,7 +51,7 @@ test('uses only TronLink TIP-712 signing and checks the active owner account', a
 })
 
 test('refuses insecure personal-sign fallback if TIP-712 is unavailable', async () => {
-  const wallet = { defaultAddress: { base58: OWNER }, trx: {} }
+  const wallet = { fullNode: { host: 'https://api.trongrid.io' }, defaultAddress: { base58: OWNER }, trx: {} }
   const { typedData } = createTronMetaTypedData({
     tronWeb, from: OWNER, forwarder: FORWARDER, to: TARGET,
     data: '0x12345678', nonce: 0, deadline: 1100, nowSeconds: 1000,
