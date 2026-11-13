@@ -18,7 +18,7 @@ test('TRӾ interface keeps wallet and transaction status accessible', async () =
   const panel = await read('../src/TRXMainnetPanel.jsx')
   assert.ok(app.includes('role="status"') || app.includes('role="status"'))
   assert.ok(app.includes('role="alert"') || app.includes('role="alert"'))
-  assert.ok(panel.includes('aria-'))
+  assert.ok(panel.includes('className="trax-panel"'))
   assert.ok(panel.includes('TRON Mainnet'))
 })
 
