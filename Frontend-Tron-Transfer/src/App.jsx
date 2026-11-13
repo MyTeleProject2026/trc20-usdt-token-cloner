@@ -125,7 +125,7 @@ export default function App() {
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
     if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; this wallet proves owner identity only. A separate owner-approved sponsor wallet must hold the real USDT and network resources and sign each exact payout.')
+    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink. If deployment is later enabled, this connected wallet will become the owner of contracts it deploys.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
@@ -134,7 +134,7 @@ export default function App() {
       setUnlocked(null)
       setTab('overview')
       setMoreOpen(false)
-      setNotice('The TronLink account or network changed. Reconnect and verify the configured owner wallet before continuing.')
+      setNotice('The TronLink account or network changed. Reconnect the wallet you intend to use; only the on-chain contract owner can administer existing contracts.')
     }
     const events=['accountsChanged','chainChanged','disconnect']
     for(const event of events) provider.on(event,invalidateWallet)
