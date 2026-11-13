@@ -82,7 +82,7 @@ test('TronLink deployment payload contains only the documented protocol transact
   assert.equal(Object.hasOwn(payload, 'contract_address'), false)
 })
 
-test('TronLink signature metadata can differ while the app retains canonical unsigned transaction bytes', () => {
+test('TronLink signed transaction retains its transaction identity', () => {
   const unsigned = {
     txID: 'c'.repeat(64),
     raw_data_hex: '0a01',
@@ -105,7 +105,7 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('any valid TronLink Mainnet wallet can sign and deploy after explicit wallet approval', async () => {
+test('any valid TronLink Mainnet wallet broadcasts the exact signed object returned by trx.sign', async () => {
   const unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
@@ -130,7 +130,7 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
     address: { fromHex: () => 'T' + '1'.repeat(33), toHex: (value) => String(value).toLowerCase() },
     utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.notEqual(payload, signed); assert.equal(payload.txID, unsigned.txID); assert.equal(payload.raw_data_hex, unsigned.raw_data_hex); assert.deepEqual(payload.raw_data, unsigned.raw_data); assert.deepEqual(payload.signature, signed.signature); return { result: true } } },
+    trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); assert.deepEqual(payload, signed); return { result: true } } },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
   const result = await deployContractFromTronLink(
