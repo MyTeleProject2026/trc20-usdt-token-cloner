@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import SponsorDirectPayouts from './SponsorDirectPayouts.jsx'
+import TRXMainnetPanel from './TRXMainnetPanel.jsx'
 import { TronWeb } from 'tronweb'
 import { discoverTronLinkProvider, requestTronLinkConnection } from './tronlink-provider.mjs'
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Coins, ExternalLink, History, LockKeyhole, LogOut, MoreHorizontal, RefreshCw, Settings, ShieldCheck, Wallet, X } from 'lucide-react'
@@ -447,12 +448,7 @@ export default function App() {
           </div>
         </section>}
 
-        {tab==='1trax'&&<section className="panel provider-panel">
-          <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ONLY · MAINNET</span><h2>TRӾ Mainnet setup</h2><p>Navigation is available, but token issuance and all Mainnet operations remain disabled until the contract, custody, reserve and security reviews are completed.</p></div><div className="panel-icon"><Coins/></div></div>
-          <div className="notice notice-warning"><AlertTriangle size={18}/><div><b>Preparation only · no Mainnet actions enabled</b><p>This page does not mint tokens, transfer TRX, create spendable credits, or broadcast transactions. No TRX reserve is represented as available or funded here.</p></div></div>
-          <div className="settings-group"><span className="eyebrow">TOKEN IDENTITY REQUEST</span><div className="address-box"><span>Requested token name</span><b>TRӾ</b></div><div className="address-box"><span>Requested symbol</span><b>TRX</b></div><p className="fine-print">This is a requested display identity only. It is not proof of a deployed contract, official TRX status, price parity, or Bitpie wallet support.</p></div>
-          <div className="settings-group"><span className="eyebrow">REQUIRED BEFORE ISSUANCE</span><p>Contract source and permissions review, independent security audit, verified reserve custody and reconciliation, fee funding, deployment authorization, and wallet display compatibility verification.</p></div>
-        </section>}
+        {tab==='1trax'&&<TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)}/>}
 
         {tab==='settings'&&<section className="panel settings-page">
           <div className="section-heading"><div><span className="eyebrow">PRODUCTION CONFIGURATION</span><h2>Tron Transfer settings</h2><p>Mainnet-only configuration and operator access. Provider secrets remain on the backend and are never stored in this browser.</p></div><div className="panel-icon"><Settings/></div></div>
