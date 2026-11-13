@@ -41,6 +41,7 @@ export default function App() {
   const moreMenuRef=useRef(null)
   const wasMoreOpen=useRef(false)
   const [unlocked,setUnlocked]=useState(null)
+  const [publicTraxMode,setPublicTraxMode]=useState(false)
   const [monitorAddress,setMonitorAddress]=useState(MAINNET_MONITORED_ADDRESS)
   const [monitorData,setMonitorData]=useState(null)
   const [monitorError,setMonitorError]=useState('')
@@ -125,7 +126,7 @@ export default function App() {
     try { node=new URL(String(tronWeb.fullNode?.host||'')).hostname.toLowerCase() } catch {}
     if(node!=='api.trongrid.io') throw new Error('Network mismatch. Tron Transfer requires TRON Mainnet. Switch TronLink to Mainnet, then reconnect.')
     setUnlocked({address,tronWeb,provider})
-    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink; this wallet proves owner identity only. A separate owner-approved sponsor wallet must hold the real USDT and network resources and sign each exact payout.')
+    setNotice('TronLink connected to TRON Mainnet. Your private key stays in TronLink. This wallet is the signer and will own any TRӾ contracts it deploys.')
   }
   useEffect(()=>{
     const provider=unlocked?.provider
@@ -134,7 +135,7 @@ export default function App() {
       setUnlocked(null)
       setTab('overview')
       setMoreOpen(false)
-      setNotice('The TronLink account or network changed. Reconnect and verify the configured owner wallet before continuing.')
+      setNotice('The TronLink account or network changed. Reconnect the wallet you intend to use for TRӾ deployment and administration.')
     }
     const events=['accountsChanged','chainChanged','disconnect']
     for(const event of events) provider.on(event,invalidateWallet)
@@ -248,7 +249,7 @@ export default function App() {
     </div>
   )
 
-  if (!ownerSession) return (
+  if (!ownerSession && !publicTraxMode) return (
     <div className="app-shell auth-shell">
       <main className="main-content">
         <div className="content">
@@ -260,7 +261,8 @@ export default function App() {
               <label>Owner password<input value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} type="password" autoComplete="current-password"/></label>
               <button className="primary-button" disabled={busy||!ownerAddress.trim()||!ownerPassword} onClick={()=>perform(signInOwner)}><LockKeyhole size={16}/>{busy?'Signing in…':'Sign in to private workspace'}</button>
             </div>
-            <p className="fine-print">Never share your password, wallet private key or recovery phrase. This password authenticates the platform owner; it does not fund withdrawals.</p>
+            <p className="fine-print">Never share your password, wallet private key or recovery phrase. This password authenticates the private platform workspace; it is not needed to open the separate TRӾ deployment workspace.</p>
+            <div className="button-row"><button type="button" className="outline-button" onClick={()=>{setPublicTraxMode(true);setError('');setNotice('Public TRӾ deployment workspace opened. Connect any TronLink wallet on TRON Mainnet; the signing wallet will own contracts it deploys.')}}><Coins size={16}/> Open TRӾ deployment without owner login</button></div>
           </section>
         </div>
       </main>
@@ -271,13 +273,12 @@ export default function App() {
     <div className="app-shell trax-only-shell">
       <header className="topbar">
         <div>
-          <span className="eyebrow">TRON TRANSFER · PRIVATE OWNER WORKSPACE · TRON MAINNET</span>
+          <span className="eyebrow">TRON TRANSFER · {ownerSession ? 'PRIVATE OWNER WORKSPACE' : 'PUBLIC TRӾ DEPLOYMENT'} · TRON MAINNET</span>
           <h1>TRӾ smart-contract manager</h1>
         </div>
         <div className="topbar-actions">
           <span className="network-chip"><i/> TRON Mainnet</span>
-          <span className="muted small">Owner {shorten(ownerSession.address)}</span>
-          <button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>
+          {ownerSession ? <><span className="muted small">Platform owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button></> : <button className="outline-button" onClick={()=>{setPublicTraxMode(false);setUnlocked(null);setNotice('Returned to platform sign-in.')}}><LogOut size={15}/> Exit TRӾ workspace</button>}
           {unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}
         </div>
       </header>
@@ -285,7 +286,7 @@ export default function App() {
         <div className="content">
           {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
           {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
-          <TRXMainnetPanel wallet={unlocked} expectedOwner={ownerSession.address} onConnect={()=>perform(connectTronLink)} />
+          <TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)} />
           <p className="fine-print trax-only-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · TRӾ SMART CONTRACT</p>
         </div>
       </main>
