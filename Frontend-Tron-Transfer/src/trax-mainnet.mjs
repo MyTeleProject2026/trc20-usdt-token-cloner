@@ -114,6 +114,24 @@ function explainTronLinkError(error, stage) {
   return stage + ': ' + raw
 }
 
+export function toWalletSignableTransaction(transaction) {
+  if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
+    throw new Error('TRON node returned a malformed deployment transaction.')
+  }
+  const rawData = transaction.raw_data
+  if (!rawData || typeof rawData !== 'object' || !Array.isArray(rawData.contract)
+    || rawData.contract.length !== 1 || rawData.contract[0]?.type !== 'CreateSmartContract') {
+    throw new Error('TRON node returned an invalid CreateSmartContract signing payload.')
+  }
+  const txID = String(transaction.txID || '')
+  const rawDataHex = String(transaction.raw_data_hex || '')
+  if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
+    throw new Error('TRON node returned incomplete transaction signing fields.')
+  }
+  // Do not pass builder-only metadata such as contract_address to TronLink.
+  return { visible: Boolean(transaction.visible), txID, raw_data: rawData, raw_data_hex: rawDataHex }
+}
+
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
   const tronWeb = assertMainnetWallet(wallet)
   const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
@@ -131,12 +149,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // TronLink's transaction-signing API accepts the protocol transaction
   // fields only. createSmartContract also returns a convenience
   // contract_address field; do not forward that builder metadata to the wallet.
-  const walletTransaction = {
-    visible: Boolean(unsigned.visible),
-    txID: String(unsigned.txID),
-    raw_data: unsigned.raw_data,
-    raw_data_hex: String(unsigned.raw_data_hex),
-  }
+  const walletTransaction = toWalletSignableTransaction(unsigned)
   if (!walletTransaction.raw_data_hex || !walletTransaction.raw_data
     || !Array.isArray(walletTransaction.raw_data.contract)
     || walletTransaction.raw_data.contract.length !== 1
