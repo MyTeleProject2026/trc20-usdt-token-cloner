@@ -65,20 +65,26 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLink provider', async () => {
+test('TRӾ deployment builds, signs and broadcasts through the same injected TronLink TronWeb instance', async () => {
   const originalFetch = globalThis.fetch
   const originalWindow = globalThis.window
   const unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
     contract_address: '41' + '1'.repeat(40),
-    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
+    raw_data: {
+      contract: [{
+        type: 'CreateSmartContract',
+        parameter: { value: { owner_address: '41' + '2'.repeat(40), new_contract: { bytecode: '6000', abi: [] } } },
+      }],
+      timestamp: 1,
+    },
     raw_data_hex: '0a01',
   }
   const signed = { ...unsigned, signature: ['c'.repeat(130)] }
   let signedInput
   let broadcastInput
-  let clientCreated = false
+  let clientArgument
   globalThis.window = { setTimeout: (fn) => setTimeout(fn, 0) }
   globalThis.fetch = async (url) => ({
     ok: true,
@@ -86,18 +92,23 @@ test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLin
       ? { txID: unsigned.txID, raw_data: unsigned.raw_data }
       : { id: unsigned.txID, receipt: { result: 'SUCCESS' } },
   })
+  const walletAddress = 'T' + '2'.repeat(33)
   const walletTronWeb = {
-    version: 'wallet-bundled-version',
-    fullNode: { host: 'https://api.trongrid.io' },
-    isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sign: async (tx) => { signedInput = tx; return signed } },
-  }
-  const builderClient = {
     version: '6.5.1',
-    transactionBuilder: { createSmartContract: async () => unsigned },
-    address: { fromHex: () => 'T' + '1'.repeat(33) },
+    fullNode: { host: 'https://api.trongrid.io' },
+    defaultAddress: { base58: walletAddress },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
+    address: {
+      fromHex: (value) => value === unsigned.contract_address ? 'T' + '1'.repeat(33) : walletAddress,
+      toHex: (value) => value === walletAddress ? '41' + '2'.repeat(40) : String(value).toLowerCase(),
+    },
+    transactionBuilder: { createSmartContract: async (options, owner) => {
+      assert.equal(owner, walletAddress)
+      assert.equal(options.name, 'TestVault')
+      return unsigned
+    } },
     trx: {
+      sign: async (tx) => { signedInput = tx; return signed },
       sendRawTransaction: async (tx) => { broadcastInput = tx; return { result: true } },
       getContract: async () => ({ bytecode: '6000' }),
     },
@@ -105,15 +116,20 @@ test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLin
   try {
     const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
     const result = await deployContractFromTronLink(
-      { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
+      { tronWeb: walletTronWeb, address: walletAddress },
       { abi: [], bytecode: '6000' },
       'TestVault',
       300000000,
-      { createClient: () => { clientCreated = true; return builderClient } },
+      { createClient: (injected) => { clientArgument = injected; return injected } },
     )
-    assert.equal(clientCreated, true)
+    assert.strictEqual(clientArgument, walletTronWeb)
     assert.notStrictEqual(signedInput, unsigned)
-    assert.deepEqual(signedInput, { visible: false, txID: unsigned.txID, raw_data: unsigned.raw_data, raw_data_hex: unsigned.raw_data_hex })
+    assert.deepEqual(signedInput, {
+      visible: false,
+      txID: unsigned.txID,
+      raw_data: unsigned.raw_data,
+      raw_data_hex: unsigned.raw_data_hex,
+    })
     assert.equal(Object.hasOwn(signedInput, 'contract_address'), false)
     assert.strictEqual(broadcastInput, signed)
     assert.equal(result.txID, unsigned.txID)
