@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -19,7 +19,7 @@ test('TRӾ amount parser rejects invalid precision and non-positive values', () 
 test('TRӾ address comparison normalizes TRON address forms', () => {
   const tronWeb = { address: { toHex: (value) => value.toLowerCase() } }
   assert.equal(
-    (await import('../src/trax-mainnet.mjs')).addressesEqual(tronWeb, 'TABC', 'tabc'),
+    addressesEqual(tronWeb, 'TABC', 'tabc'),
     true,
   )
 })
