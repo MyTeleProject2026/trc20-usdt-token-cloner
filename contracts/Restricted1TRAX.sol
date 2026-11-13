@@ -21,7 +21,9 @@ contract Restricted1TRAX {
 
     uint256 private _totalSupply;
     mapping(address => uint256) private _balances;
-    mapping(address => mapping(address => uint256)) private _allowances;
+    struct AllowanceData { uint256 amount; uint256 ownerLockNonce; uint256 spenderLockNonce; }
+    mapping(address => mapping(address => AllowanceData)) private _allowances;
+    mapping(address => uint256) private _lockNonce;
     mapping(address => bool) private _unlocked;
 
     bool public mintingEnabled;
@@ -57,7 +59,11 @@ contract Restricted1TRAX {
 
     function totalSupply() external view returns (uint256) { return _totalSupply; }
     function balanceOf(address account) external view returns (uint256) { return _balances[account]; }
-    function allowance(address tokenOwner, address spender) external view returns (uint256) { return _allowances[tokenOwner][spender]; }
+    function allowance(address tokenOwner, address spender) external view returns (uint256) {
+        AllowanceData storage data = _allowances[tokenOwner][spender];
+        if (!_unlocked[tokenOwner] || !_unlocked[spender] || data.ownerLockNonce != _lockNonce[tokenOwner] || data.spenderLockNonce != _lockNonce[spender]) return 0;
+        return data.amount;
+    }
     function isLocked(address account) public view returns (bool) { return !_unlocked[account]; }
 
     function transferOwnership(address nextOwner) external onlyOwner {
@@ -76,6 +82,8 @@ contract Restricted1TRAX {
 
     function setRecipientLocked(address account, bool locked) external onlyOwner {
         require(account != address(0), "zero-account");
+        bool wasLocked = !_unlocked[account];
+        if (wasLocked != locked) _lockNonce[account] += 1;
         _unlocked[account] = !locked;
         emit RecipientLockChanged(account, locked);
     }
@@ -147,7 +155,7 @@ contract Restricted1TRAX {
         require(!paused, "paused");
         require(_unlocked[msg.sender], "owner-locked");
         require(spender != address(0) && _unlocked[spender], "spender-locked");
-        _allowances[msg.sender][spender] = amount;
+        _allowances[msg.sender][spender] = AllowanceData(amount, _lockNonce[msg.sender], _lockNonce[spender]);
         emit Approval(msg.sender, spender, amount);
         return true;
     }
@@ -155,15 +163,15 @@ contract Restricted1TRAX {
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         require(!paused, "paused");
         require(from != address(0) && to != address(0), "zero-address");
-        require(_unlocked[from] && _unlocked[to], "account-locked");
+        require(_unlocked[msg.sender] && _unlocked[from] && _unlocked[to], "account-locked");
         require(amount > 0 && _balances[from] >= amount, "invalid-transfer-amount");
-        uint256 permitted = _allowances[from][msg.sender];
+        uint256 permitted = allowance(from, msg.sender);
         require(permitted >= amount, "insufficient-allowance");
-        _allowances[from][msg.sender] = permitted - amount;
+        _allowances[from][msg.sender].amount = permitted - amount;
         _balances[from] -= amount;
         _balances[to] += amount;
         emit Transfer(from, to, amount);
-        emit Approval(from, msg.sender, _allowances[from][msg.sender]);
+        emit Approval(from, msg.sender, permitted - amount);
         return true;
     }
 }
