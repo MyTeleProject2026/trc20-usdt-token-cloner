@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(here, '..')
-const repositoryRoot = path.resolve(frontendRoot, '../..')
+const repositoryRoot = path.resolve(frontendRoot, '..')
 const tronboxBin = path.join(frontendRoot, 'node_modules', '.bin', 'tronbox')
 const configPath = path.join(repositoryRoot, 'tronbox-config.cjs')
 
