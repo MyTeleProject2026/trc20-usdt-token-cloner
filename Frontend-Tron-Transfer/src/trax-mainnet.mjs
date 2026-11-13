@@ -107,6 +107,25 @@ export function buildDeploymentOptions(artifact, contractName, feeLimitSun) {
   }
 }
 
+export function decodeTronBroadcastFailure(tronWeb, broadcast, txID) {
+  let detail = broadcast?.message || broadcast?.code || 'unknown node rejection'
+  try {
+    if (typeof detail === 'string' && /^(?:[0-9a-f]{2})+$/i.test(detail)) detail = tronWeb.toUtf8(detail)
+  } catch {}
+  const normalized = String(detail).toLowerCase()
+  const tx = ' Transaction: ' + String(txID || 'unknown') + '.'
+  if (/bandwith_error|bandwidth_error|account resource insufficient|resource insufficient|bandwidth.*(insufficient|not enough)|(insufficient|not enough).*bandwidth/.test(normalized)) {
+    return 'TRON Mainnet rejected deployment before contract execution because the account cannot cover the transaction Bandwidth requirement (or its TRX fallback). Available Energy does not pay Bandwidth. Obtain enough delegated/staked Bandwidth or TRX for the Bandwidth shortfall, then retry with a fresh transaction.' + tx
+  }
+  if (/out_of_energy|energy.*(insufficient|not enough)|(insufficient|not enough).*energy/.test(normalized)) {
+    return 'TRON Mainnet rejected deployment because the available Energy/fee budget is insufficient. Estimate deployment Energy, then obtain additional delegated/staked Energy or enough TRX to cover the Energy shortfall and set an adequate fee limit.' + tx
+  }
+  if (/balance is not sufficient|insufficient balance|not enough trx/.test(normalized)) {
+    return 'TRON Mainnet rejected deployment because the account has insufficient TRX to cover required network fees or account costs. Add TRX or obtain the missing resources by delegation.' + tx
+  }
+  return 'TRON Mainnet rejected deployment broadcast: ' + String(detail) + '.' + tx
+}
+
 function explainTronLinkError(error, stage) {
   const raw = typeof error === 'string' ? error : (error?.message || error?.toString?.() || 'Unknown wallet error')
   if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted.'
@@ -426,9 +445,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
   }
   if (broadcast?.result !== true) {
-    let detail = broadcast?.message || broadcast?.code || 'unknown node rejection'
-    try { if (typeof detail === 'string' && /^[0-9a-f]+$/i.test(detail)) detail = tronWeb.toUtf8(detail) } catch {}
-    throw new Error('TRON Mainnet rejected deployment broadcast: ' + detail + '. Transaction: ' + unsigned.txID)
+    throw new Error(decodeTronBroadcastFailure(tronWeb, broadcast, unsigned.txID))
   }
   const receipt = await waitForReceipt(tronWeb, unsigned.txID)
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
