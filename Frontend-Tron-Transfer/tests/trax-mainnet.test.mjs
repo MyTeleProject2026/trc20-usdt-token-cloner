@@ -65,9 +65,7 @@ test('TronLink deployment payload rejects non-deployment or incomplete transacti
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
 })
 
-test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLink provider', async () => {
-  const originalFetch = globalThis.fetch
-  const originalWindow = globalThis.window
+test('TRӾ deployment safety hold validates payload but never signs or broadcasts', async () => {
   const unsigned = {
     visible: false,
     txID: 'b'.repeat(64),
@@ -75,52 +73,32 @@ test('TRӾ deployment builds with pinned TronWeb and signs with injected TronLin
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
-  const signed = { ...unsigned, signature: ['c'.repeat(130)] }
-  let signedInput
-  let broadcastInput
-  let clientCreated = false
-  globalThis.window = { setTimeout: (fn) => setTimeout(fn, 0) }
-  globalThis.fetch = async (url) => ({
-    ok: true,
-    json: async () => String(url).includes('gettransactionbyid')
-      ? { txID: unsigned.txID, raw_data: unsigned.raw_data }
-      : { id: unsigned.txID, receipt: { result: 'SUCCESS' } },
-  })
+  let signCalls = 0
+  let broadcastCalls = 0
   const walletTronWeb = {
     version: 'wallet-bundled-version',
     fullNode: { host: 'https://api.trongrid.io' },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { sign: async (tx) => { signedInput = tx; return signed } },
+    trx: { sign: async () => { signCalls++; throw new Error('sign must not be called') } },
   }
   const builderClient = {
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
     address: { fromHex: () => 'T' + '1'.repeat(33) },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: {
-      sendRawTransaction: async (tx) => { broadcastInput = tx; return { result: true } },
-      getContract: async () => ({ bytecode: '6000' }),
-    },
+    trx: { sendRawTransaction: async () => { broadcastCalls++; return { result: true } } },
   }
-  try {
-    const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
-    const result = await deployContractFromTronLink(
+  const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
+  await assert.rejects(
+    deployContractFromTronLink(
       { tronWeb: walletTronWeb, address: 'T' + '2'.repeat(33) },
       { abi: [], bytecode: '6000' },
       'TestVault',
       300000000,
-      { createClient: () => { clientCreated = true; return builderClient } },
-    )
-    assert.equal(clientCreated, true)
-    assert.notStrictEqual(signedInput, unsigned)
-    assert.deepEqual(signedInput, { visible: false, txID: unsigned.txID, raw_data: unsigned.raw_data, raw_data_hex: unsigned.raw_data_hex })
-    assert.equal(Object.hasOwn(signedInput, 'contract_address'), false)
-    assert.strictEqual(broadcastInput, signed)
-    assert.equal(result.txID, unsigned.txID)
-    assert.equal(result.address, 'T' + '1'.repeat(33))
-  } finally {
-    globalThis.fetch = originalFetch
-    if (originalWindow === undefined) delete globalThis.window
-    else globalThis.window = originalWindow
-  }
+      { createClient: () => builderClient },
+    ),
+    /Deployment safety hold.*No transaction was sent/,
+  )
+  assert.equal(signCalls, 0)
+  assert.equal(broadcastCalls, 0)
 })
