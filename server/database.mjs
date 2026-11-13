@@ -3396,3 +3396,9 @@ export async function getLatestFireblocksInventorySnapshot() {
   }
 }
 
+
+
+// Internal service access for isolated application ledgers; callers must still initialize the database.
+export function getDatabasePool() {
+  return getPool()
+}

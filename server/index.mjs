@@ -24,6 +24,7 @@ import { securityHeaders } from './security-headers.mjs'
 import { createCorsPolicy } from './cors-policy.mjs'
 import { isReadOnlyServiceReady } from './readiness-policy.mjs'
 import { initializeDatabase, getDatabaseStatus } from './database.mjs'
+import { createRippleCustodyRouter } from './routes/ripple-custody.mjs'
 import { tatumFetch, MissingApiKeyError } from './tatum-client.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -132,6 +133,7 @@ app.get('/api/readiness', async (_req, res) => {
     ],
   })
 })
+app.use('/api/ripple-custody', createRippleCustodyRouter())
 app.use('/api', tatumRoutes)
 app.use('/api/tron', trc20VerificationRoutes)
 app.use('/api/tron', nativeTronRoutes)
