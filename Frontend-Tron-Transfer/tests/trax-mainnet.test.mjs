@@ -19,6 +19,8 @@ test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
   const client = new TronWeb({ fullHost: 'https://api.trongrid.io' })
   assert.equal(typeof client.transactionBuilder.createSmartContract, 'function')
   assert.equal(typeof client.trx.sendRawTransaction, 'function')
+  assert.equal(typeof client.utils?.transaction?.txCheck, 'function')
+  assert.equal(typeof client.utils?.crypto?.ecRecover, 'function')
 })
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
