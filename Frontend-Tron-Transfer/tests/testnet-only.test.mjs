@@ -2,113 +2,55 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
-const providerPage = await readFile(new URL('../src/ProviderPayoutReadiness.jsx', import.meta.url), 'utf8')
-const sponsorPage = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
-const sponsorPortal = await readFile(new URL('../src/SponsorPortal.jsx', import.meta.url), 'utf8')
-const main = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8')
-const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
-const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const read = path => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('production frontend is TRON Mainnet-only and pins official Tether USDT', () => {
-  assert.ok(app.includes("MAINNET_MONITORED_ADDRESS = 'TNj5wv4bC5bYTrYWBLPmcxUPRRdx9GRVwp'"))
-  assert.ok(app.includes("network:'mainnet'"))
-  assert.ok(app.includes("tokenContract:MAINNET_USDT"))
-  assert.ok(!/Nile Testnet|Shasta Testnet|tron-nile|tron-shasta|testnet-wallet/i.test(app + providerPage))
-  assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
+test('TRӾ workspace renders the dedicated Mainnet contract manager', async () => {
+  const app = await read('../src/App.jsx')
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.match(app, /TRXMainnetPanel/)
+  assert.match(panel, /TRӾ smart-contract manager/)
+  assert.match(panel, /Deploy both contracts automatically/)
+  assert.match(panel, /Authorize token in vault/)
+  assert.match(panel, /Fund the native TRX reserve/)
+  assert.match(panel, /Issue restricted TRӾ/)
+  assert.match(panel, /Owner-controlled redemption/)
 })
 
-test('only official Mainnet Tether USDT is exposed as the payout asset', () => {
-  assert.ok(app.includes("MAINNET_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'"))
-  assert.ok(providerPage.includes('USDT TRC20'))
-  assert.ok(!/custom token contract|addToken|tokenInput/i.test(app + providerPage))
+test('TRӾ frontend uses the Mainnet-only deployment client and explicit transaction gates', async () => {
+  const client = await read('../src/trax-mainnet.mjs')
+  assert.match(client, /TRON_MAINNET_HOST = 'https:\\/\\/api\\.trongrid\\.io'/)
+  assert.match(client, /MAINNET_DEPLOYMENT_SIGNING_ENABLED = true/)
+  assert.match(client, /MAINNET_DEPLOYMENT_BROADCAST_ENABLED = true/)
+  assert.match(client, /assertTransactionIntegrity\\(tronWeb, unsigned/)
+  assert.match(client, /verifyTransactionSigner\\(tronWeb, signedTransaction, wallet\\.address\\)/)
+  assert.match(client, /assertTransactionPermission\\(tronWeb, signedTransaction\\)/)
+  assert.match(client, /sendRawTransaction\\(signedTransaction\\)/)
+  assert.ok(client.indexOf('assertTransactionPermission(tronWeb, signedTransaction)')
+    < client.indexOf('sendRawTransaction(signedTransaction)'))
 })
 
-test('the entire dashboard is gated by the configured platform-owner session', () => {
-  assert.ok(app.includes('ownerSessionResolved'))
-  assert.ok(app.includes('if (!ownerSession) return'))
-  assert.ok(app.includes('Platform owner sign-in'))
-  assert.ok(app.includes('/api/auth/owner/login'))
-  assert.ok(app.includes('/api/auth/owner/session'))
-  assert.ok(app.includes("Authorization: 'Bearer ' + ownerSession.sessionToken"))
+test('wallet discovery accepts supported injected TRON providers without importing private keys', async () => {
+  const provider = await read('../src/tronlink-provider.mjs')
+  assert.match(provider, /TIP6963:announceProvider/)
+  assert.match(provider, /windowObject\\?\\.tron/)
+  assert.match(provider, /windowObject\\?\\.okxwallet/)
+  assert.match(provider, /windowObject\\?\\.bitkeep/)
+  assert.match(provider, /windowObject\\?\\.tokenpocket/)
+  assert.match(provider, /windowObject\\?\\.trustwallet/)
+  assert.match(provider, /tron_requestAccounts/)
+  assert.doesNotMatch(provider, /privateKey\\s*[:=]/i)
 })
 
-test('private owner dashboard uses per-transfer approved sponsor wallets for Mainnet withdrawals', () => {
-  assert.ok(app.includes("id:'provider',label:'Funding status'"))
-  assert.ok(app.includes("id:'sponsors',label:'Sponsor approvals'"))
-  assert.ok(app.includes("tab==='provider'"))
-  assert.ok(app.includes("tab==='sponsors'"))
-  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="withdraw" />'))
-  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="history" />'))
-  assert.ok(app.includes('<SponsorDirectPayouts wallet={unlocked} ownerSession={ownerSession} mode="sponsor" />'))
-  assert.ok(!/FincraWithdrawals|SponsorOrganizationOnboarding/.test(app))
-  assert.ok(sponsorPage.includes('wallet.tronWeb.trx.sign(item.unsignedTransaction)'))
-  assert.ok(sponsorPage.includes('/api/tron/sponsor-direct/requests'))
+test('owner administration is determined by the deployed contracts, not a fixed address', async () => {
+  const panel = await read('../src/TRXMainnetPanel.jsx')
+  assert.match(panel, /token\\.owner\\(\\)\\.call\\(\\)/)
+  assert.match(panel, /vault\\.owner\\(\\)\\.call\\(\\)/)
+  assert.match(panel, /connectedAddress/)
 })
 
-test('provider payout readiness never claims execution without verified provider liquidity or credit', () => {
-  assert.ok(providerPage.includes('/api/tron-transfer/provider-readiness'))
-  assert.ok(providerPage.includes('No approved payout funding source'))
-  assert.ok(providerPage.includes('provider-owned USDT liquidity'))
-  assert.ok(providerPage.includes('approved credit facility'))
-  assert.ok(providerPage.includes('Real payout execution'))
-  assert.ok(providerPage.includes('Disabled'))
-  assert.ok(!/submitRequest|sendRawTransaction|\/fincra-payout|\/broadcast/.test(providerPage))
-})
-
-test('the owner is not required to deposit or fund payouts from the identity wallet', () => {
-  assert.ok(providerPage.includes('Your deposit required'))
-  assert.ok(providerPage.includes('ownerDepositRequired'))
-  assert.ok(providerPage.includes('ownerWalletPrincipalRequired'))
-  assert.ok(providerPage.includes('not treated as the source of payout funds'))
-})
-
-test('navigation keeps private owner pages and explicit sponsor approvals separate', () => {
-  for (const page of ['overview', 'assets', 'recipients', 'withdrawals', 'provider', 'sponsors', 'transactions', 'settings']) {
-    assert.ok(app.includes("id:'" + page + "'"), 'missing navigation item: ' + page)
-    assert.ok(app.includes("tab==='" + page + "'"), 'missing dedicated page section: ' + page)
-  }
-})
-
-test('the sponsor portal is a separate wallet-authenticated route, not the owner console', () => {
-  assert.ok(main.includes("window.location.hash === '#/sponsor'"))
-  assert.ok(main.includes('<SponsorPortal />'))
-  assert.ok(sponsorPortal.includes('<SponsorDirectPayouts wallet={wallet} ownerSession={null} mode="sponsor" />'))
-  assert.ok(sponsorPortal.includes('TRON Mainnet'))
-  assert.ok(!sponsorPortal.includes('ownerSession.sessionToken'))
-  assert.ok(sponsorPage.includes('walletAddress === ownerSession.address'))
-  assert.ok(sponsorPage.includes("api('/api/tron/sponsor-direct/applications', identityToken)"))
-})
-
-test('wallet connection remains user-approved and never imports a private key', () => {
-  assert.ok(app.includes('discoverTronLinkProvider(window)'))
-  assert.ok(app.includes('requestTronLinkConnection(provider,window)'))
-  assert.ok(app.includes('TronLink connected to TRON Mainnet'))
-  assert.ok(app.includes('No imported private keys') || app.includes('private key'))
-  assert.ok(!/sendRawTransaction|privateKey\s*[:=]/i.test(app + providerPage + sponsorPage + sponsorPortal))
-})
-
-test('owner can close the private session and leave the application locked', () => {
-  assert.ok(app.includes('function signOutOwner()'))
-  assert.ok(app.includes("api('/api/auth/owner/logout'"))
-  assert.ok(app.includes('window.setTimeout(expireSession, remaining)'))
-  assert.ok(app.includes('setOwnerSession(null)'))
-  assert.ok(app.includes('onClick={signOutOwner}'))
-})
-
-test('production metadata and frontend test command remain configured', () => {
-  assert.ok(html.includes('Mainnet-only Tether USDT TRC20 withdrawal platform'))
-  assert.ok(html.includes('Tron Transfer · Direct Mainnet USDT'))
-  assert.equal(pkg.scripts.build, 'node scripts/compile-trax-contracts.mjs && vite build')
-  assert.equal(pkg.dependencies.tronbox, '4.10.0')
-  assert.equal(pkg.scripts.test, 'node scripts/compile-trax-contracts.mjs && node --test tests/*.test.mjs')
-})
-
-
-test('owner-facing pending request labels never imply an on-chain or exchange deposit before sponsor authorization', async () => {
-  const source = await readFile(new URL('../src/SponsorDirectPayouts.jsx', import.meta.url), 'utf8')
-  assert.match(source, /requested: 'Pending sponsor funding and signature'/)
-  assert.match(source, /no blockchain transaction or exchange deposit exists yet/i)
-  assert.match(source, /must recheck live Mainnet USDT and network resources, then explicitly sign this exact payout/i)
-  assert.match(source, /On-chain confirmation is not exchange credit/i)
+test('frontend production build includes the complete regression suite', async () => {
+  const pkg = JSON.parse(await read('../package.json'))
+  assert.match(pkg.scripts.build, /node --test tests\\/\\*\\.test\\.mjs/)
+  assert.match(pkg.scripts.build, /vite build/)
+  assert.equal(pkg.dependencies.tronweb, '6.5.1')
 })
