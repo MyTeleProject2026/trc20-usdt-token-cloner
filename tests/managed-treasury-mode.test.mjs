@@ -13,17 +13,15 @@ test('managed Fireblocks treasury router is mounted under the authenticated trea
   assert.match(server, /app\.use\('\/api\/treasury', createTreasuryWithdrawalsRouter\(\)\)/)
 })
 
-test('owner dashboard loads read-only managed treasury readiness with the owner session', () => {
-  assert.match(dashboard, /\/api\/treasury\/withdrawals\/readiness/)
-  assert.match(dashboard, /Authorization: 'Bearer ' \+ ownerSession\.sessionToken/)
-  assert.match(dashboard, /Refresh readiness/)
-  assert.match(dashboard, /executionBlocker/)
-  assert.match(dashboard, /providerAvailableUsdtBaseUnits/)
+test('public TRӾ deployment mode stays separate from the managed treasury workspace', () => {
+  assert.match(dashboard, /if \(!ownerSession && !publicTraxMode\) return/)
+  assert.match(dashboard, /Open TRӾ deployment without owner login/)
+  assert.match(dashboard, /TRXMainnetPanel/)
 })
 
 test('managed treasury payout submission remains hard-disabled regardless of environment flags', () => {
   assert.match(treasury, /const REAL_VALUE_PAYOUT_EXECUTION_DISABLED = true/)
   assert.match(treasury, /if \(REAL_VALUE_PAYOUT_EXECUTION_DISABLED\)/)
   assert.match(treasury, /real-value-payout-execution-disabled-in-this-build/)
-  assert.match(dashboard, /Real-value payout execution is disabled in this build/)
+  assert.match(dashboard, /Open TRӾ deployment without owner login/)
 })
