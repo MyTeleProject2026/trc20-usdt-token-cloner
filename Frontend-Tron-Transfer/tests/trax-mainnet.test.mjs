@@ -113,7 +113,7 @@ test('any valid TronLink Mainnet wallet can sign and deploy after explicit walle
     raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 },
     raw_data_hex: '0a01',
   }
-  const signed = { ...unsigned, signature: ['wallet-signature'] }
+  const signed = { ...unsigned, raw_data: { timestamp: 1, contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }] }, signature: ['a'.repeat(130)] }
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
