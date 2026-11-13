@@ -128,8 +128,12 @@ export function toWalletSignableTransaction(transaction) {
   if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
     throw new Error('TRON node returned incomplete transaction signing fields.')
   }
-  // Do not pass builder-only metadata such as contract_address to TronLink.
-  return { visible: Boolean(transaction.visible), txID, raw_data: rawData, raw_data_hex: rawDataHex }
+  // Keep the exact object returned by createSmartContract intact. TronLink
+  // validates CreateSmartContract transactions and may require the predicted
+  // contract_address field in addition to the protobuf transaction fields.
+  // Rebuilding a reduced object here can make an otherwise valid deployment
+  // fail in the wallet with "Invalid transaction provided".
+  return transaction
 }
 
 export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
@@ -146,9 +150,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   }
   const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
   if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
-  // TronLink's transaction-signing API accepts the protocol transaction
-  // fields only. createSmartContract also returns a convenience
-  // contract_address field; do not forward that builder metadata to the wallet.
+  // Validate, then pass the original builder result unchanged to TronLink.
+  // TronWeb 6.5.1 returns the signed transaction as a new object; always use
+  // that returned object for broadcast (never assume sign() mutates unsigned).
   const walletTransaction = toWalletSignableTransaction(unsigned)
   if (!walletTransaction.raw_data_hex || !walletTransaction.raw_data
     || !Array.isArray(walletTransaction.raw_data.contract)
@@ -162,7 +166,10 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   } catch (error) {
     throw new Error(explainTronLinkError(error, 'TronLink signing failed'))
   }
-  if (!signed?.signature?.length || signed.txID !== walletTransaction.txID || signed.raw_data_hex !== walletTransaction.raw_data_hex) {
+  if (!signed || !Array.isArray(signed.signature) || signed.signature.length === 0
+    || signed.txID !== walletTransaction.txID
+    || signed.raw_data_hex !== walletTransaction.raw_data_hex
+    || JSON.stringify(signed.raw_data) !== JSON.stringify(walletTransaction.raw_data)) {
     throw new Error('TronLink did not return a valid signature for the exact deployment transaction. Nothing was broadcast.')
   }
   let broadcast
