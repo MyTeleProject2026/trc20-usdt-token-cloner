@@ -1,0 +1,37 @@
+name: TRON sponsored dual-asset preflight
+
+on:
+  push:
+    branches:
+      - feature/tron-meta-relayer-preflight
+  pull_request:
+    branches:
+      - ui/modern-crypto-dashboard-theme
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-contracts-and-readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/tron-meta-relayer-readiness.test.mjs tests/tron-sponsored-payouts-compile.test.mjs tests/tron-direct-fee-preflight.test.mjs
+      - run: node scripts/compile-tron-sponsored-payouts.mjs
+
+  tronlink-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - run: npm install --prefix Frontend-Tron-Transfer --no-audit --no-fund
+      - run: npm run test --prefix Frontend-Tron-Transfer
+      - run: npm run build --prefix Frontend-Tron-Transfer
