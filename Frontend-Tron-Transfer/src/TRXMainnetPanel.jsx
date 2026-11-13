@@ -120,6 +120,25 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     return next
   }), [run,getContracts,connectedAddress,vaultAddress])
 
+  const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
+    if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
+    if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
+    if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
+    if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
+    const deployed = []
+    if (!vaultAddress) {
+      const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
+      setVaultAddress(result.address); setLastTx(result.txID); deployed.push('reserve vault')
+    }
+    if (!tokenAddress) {
+      const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
+      setTokenAddress(result.address); setLastTx(result.txID); deployed.push('TRӾ token')
+    }
+    setNotice(deployed.length
+      ? 'Deployment complete and solidified: '+deployed.join(' and ')+'. Both contract addresses have been saved automatically. Continue with the two reciprocal authorization steps.'
+      : 'Both contract addresses are already present. Continue with reciprocal authorization.')
+  })
+
   const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
@@ -280,7 +299,8 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       <label>TRӾ token contract address<input value={tokenAddress} onChange={e=>setTokenAddress(e.target.value.trim())} placeholder="Deploy token or paste verified Mainnet contract"/></label>
       <label>Native TRX reserve vault address<input value={vaultAddress} onChange={e=>setVaultAddress(e.target.value.trim())} placeholder="Automatically filled after vault deployment"/></label>
       <div className="button-row"><button type="button" className="outline-button" disabled={busy||(!tokenAddress&&!vaultAddress)} onClick={()=>{setTokenAddress('');setVaultAddress('');setSnapshot(null);setLastTx('');setError('');setNotice('Contract address fields cleared. Deploy or enter verified Mainnet contract addresses.') ;try{saveContractAddresses({tokenAddress:'',vaultAddress:''})}catch{}}}>Clear contract addresses</button></div>
-      <div className="button-row"><button type="button" className="secondary-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy reserve vault</button><button type="button" className="secondary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy TRӾ token</button></div>
+      <div className="button-row"><button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress&&vaultAddress)} onClick={deployMissingContracts}><Rocket size={15}/> {tokenAddress||vaultAddress?'Deploy missing contract':'Deploy both contracts automatically'}</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(vaultAddress)} onClick={deployVault}><Rocket size={15}/> Deploy vault only</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||Boolean(tokenAddress)||!vaultAddress} onClick={deployToken}><Rocket size={15}/> Deploy token only</button></div>
+      <p className="trax-help">The combined action deploys the vault first and the token second. TronLink asks you to review and sign each deployment separately. Confirmed contract addresses are saved automatically; no transaction is sent without your wallet approval.</p>
       <div className="button-row"><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={authorizeVault}>1. Authorize token in vault</button><button type="button" className="outline-button" disabled={!configuredOwnerMatches||busy||!tokenAddress||!vaultAddress} onClick={linkToken}>2. Link vault in token</button></div>
       <p className="fine-print">Deployments and link operations are irreversible Mainnet transactions. Read every TronLink prompt. The deploying wallet becomes the vault owner and initial token owner; do not deploy from an unintended account.</p>
     </div>
