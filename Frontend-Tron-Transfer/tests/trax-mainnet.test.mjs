@@ -113,7 +113,7 @@ test('TRON deployment signature must recover the connected contract owner', () =
     utils: { crypto: { ecRecover: (txID, signature) => {
       assert.equal(txID, 'a'.repeat(64))
       assert.equal(signature, 'b'.repeat(130))
-      return expected
+      return '41' + '1'.repeat(40)
     } } },
   }
   const transaction = {
@@ -173,7 +173,7 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
     version: '6.5.1',
     transactionBuilder: { createSmartContract: async () => unsigned },
     address: { fromHex: () => 'T' + '1'.repeat(33), toHex: (value) => String(value).toLowerCase() },
-    utils: { crypto: { ecRecover: () => 'T' + '1'.repeat(33) } },
+    utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
     trx: { sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); assert.deepEqual(payload, signed); return { result: true } } },
   }
