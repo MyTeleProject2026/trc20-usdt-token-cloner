@@ -46,12 +46,12 @@ test('direct payout unsigned transaction must match owner, router, exact calldat
   const wrongCall = structuredClone(transaction)
   wrongCall.raw_data.contract[0].parameter.value.data = selector + 'f'.repeat(128)
   assert.equal(directPayoutTransactionMatches(wrongCall, {
-    ownerHex, routerHex, parameter: { selector, arguments: args },
+    ownerHex, routerHex, parameter: { selector, arguments: args }, feeLimitSun: '1000000',
   }), false)
 
   const alreadySigned = { ...structuredClone(transaction), signature: ['b'.repeat(130)] }
   assert.equal(directPayoutTransactionMatches(alreadySigned, {
-    ownerHex, routerHex, parameter: { selector, arguments: args },
+    ownerHex, routerHex, parameter: { selector, arguments: args }, feeLimitSun: '1000000',
   }), false)
 })
 
