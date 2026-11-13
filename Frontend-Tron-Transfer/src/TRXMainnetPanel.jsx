@@ -133,14 +133,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
     refresh()
   }, [walletReady, tokenAddress, vaultAddress, wallet, refresh])
 
-  const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
+  const deployMissingContracts = () => run('Preparing unsigned TRӾ deployment payloads · broadcast disabled', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     if (tokenAddress && !wallet.tronWeb.isAddress(tokenAddress)) throw new Error('The saved TRӾ token address is invalid. Clear it and retry.')
     if (vaultAddress && !wallet.tronWeb.isAddress(vaultAddress)) throw new Error('The saved reserve-vault address is invalid. Clear it and retry.')
-    if (tokenAddress && (addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress) || addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress))) {
-      throw new Error('The TRӾ token field contains your owner wallet address, not a smart-contract address. Clear that field so the TRӾ token contract can be deployed.')
+    if (tokenAddress && addressesEqual(wallet.tronWeb,tokenAddress,connectedAddress)) {
+      throw new Error('The TRӾ token field contains your connected wallet address, not a smart-contract address. Clear that field so the TRӾ token contract can be deployed.')
     }
-    if (vaultAddress && (addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress) || addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress))) {
+    if (vaultAddress && addressesEqual(wallet.tronWeb,vaultAddress,connectedAddress)) {
       throw new Error('The reserve-vault field contains your owner wallet address, not a smart-contract address. Clear that field so the reserve vault can be deployed.')
     }
     for (const [label,address] of [['TRӾ token',tokenAddress],['reserve vault',vaultAddress]]) {
@@ -162,14 +162,14 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       : 'Both contract addresses are already present. Continue with reciprocal authorization.')
   })
 
-  const deployVault = () => run('Deploying reserve vault · approve in TronLink', async () => {
+  const deployVault = () => run('Preparing unsigned reserve-vault deployment · broadcast disabled', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
   })
 
-  const deployToken = () => run('Deploying TRӾ token · approve in TronLink', async () => {
+  const deployToken = () => run('Preparing unsigned TRӾ token deployment · broadcast disabled', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet.')
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
