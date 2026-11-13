@@ -22,6 +22,7 @@ test('TRӾ source exposes owner-controlled minting, lock management and redempti
   assert.ok(tokenSource.includes('mintingEnabled = false;'))
   assert.ok(tokenSource.includes('paused = true;'))
   assert.ok(tokenSource.includes('external onlyOwner'))
+  assert.ok(tokenSource.includes('constructor() {\n        owner = msg.sender;'))
   assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
 })
 
@@ -37,5 +38,6 @@ test('native TRX reserve vault permits releases only through the authorized toke
   assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
   assert.ok(vaultSource.includes('address(this).balance >= amount'))
-  assert.ok(!/function\\s+(withdraw|sweep|rescue)\\s*\\(/i.test(vaultSource))
+  assert.ok(vaultSource.includes('constructor() { owner = msg.sender; }'))
+  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
 })

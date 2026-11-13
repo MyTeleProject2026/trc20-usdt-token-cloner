@@ -135,7 +135,7 @@ export async function requestTronLinkConnection(
     : windowObject?.tronWeb
   const account = String(latest?.defaultAddress?.base58 || accounts[0] || '')
   if (!account) {
-    throw new Error('TronLink authorization did not expose a selected account. Unlock TronLink, select the owner account, and retry from its DApp browser.')
+    throw new Error('TronLink authorization did not expose a selected account. Unlock TronLink, select the account you want to use, and retry from its DApp browser.')
   }
   throw new Error('TronLink exposed the account but its transaction signer is not ready yet. Keep TronLink unlocked, wait a few seconds, then reconnect.')
 }

@@ -1,8 +1,49 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
 
+
+
+test('any valid TronLink Mainnet account can be used without a platform-owner allowlist', () => {
+  const address = 'T' + '2'.repeat(33)
+  const tronWeb = {
+    fullNode: { host: 'https://api.trongrid.io' },
+    isAddress: (value) => value === address,
+  }
+  assert.equal(assertMainnetWallet({ address, tronWeb }), tronWeb)
+  assert.throws(
+    () => assertMainnetWallet({ address, tronWeb: { ...tronWeb, fullNode: { host: 'https://api.shasta.trongrid.io' } } }),
+    /Wrong network/,
+  )
+})
+
+test('public TRӾ workspace bypasses private platform login but keeps on-chain owner enforcement', async () => {
+  const app = await fs.readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  const panel = await fs.readFile(new URL('../src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  const token = await fs.readFile(new URL('../../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
+  const vault = await fs.readFile(new URL('../../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
+  assert.ok(app.includes('!ownerSession && !publicTraxMode'))
+  assert.ok(app.includes('Open TRӾ deployment without owner login'))
+  assert.ok(panel.includes('token.owner().call()'))
+  assert.ok(panel.includes('vault.owner().call()'))
+  assert.ok(panel.includes('addressesEqual(tronWeb, owner, connectedAddress)'))
+  assert.ok(panel.includes('addressesEqual(tronWeb, vaultOwner, connectedAddress)'))
+  assert.ok(panel.includes('existingToken.owner().call()'))
+  assert.ok(panel.includes('existingVault.owner().call()'))
+  assert.ok(panel.includes('prepareUnsignedDeployment'))
+  assert.ok(panel.includes('No signing or broadcast occurred'))
+  assert.ok(panel.includes('These diagnostic payloads are not saved or reusable'))
+  assert.ok(panel.includes('Minting activation is disabled in this build'))
+  assert.ok(panel.includes('TRӾ minting is disabled in this build'))
+  assert.ok(!panel.includes('token.setMintingEnabled(true)'))
+  assert.ok(!panel.includes('token.mint(recipient,units)'))
+  assert.ok(token.includes('constructor() {\n        owner = msg.sender;'))
+  assert.ok(vault.includes('constructor() { owner = msg.sender; }'))
+  assert.ok(token.includes('modifier onlyOwner() { require(msg.sender == owner, "owner-only"); _; }'))
+  assert.ok(vault.includes('modifier onlyOwner() { require(msg.sender == owner, "owner-only"); _; }'))
+})
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
   assert.equal(typeof TronWeb, 'function')

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, "fix/**", "test/**", "feat/**"]
+    branches: [main, "fix/**", "test/**", "feat/**", "ui/**"]
   workflow_dispatch:
 
 # Supersede older runs for the same PR instead of exhausting hosted-runner capacity.
@@ -69,3 +69,9 @@ jobs:
         run: npm test
       - name: Build frontend and compile contract
         run: npm run build
+      - name: Install TRӾ Mainnet frontend dependencies
+        working-directory: Frontend-Tron-Transfer
+        run: npm install --package-lock=false --no-audit --no-fund
+      - name: Test TRӾ wallet access and deployment safety; build frontend
+        working-directory: Frontend-Tron-Transfer
+        run: npm test && npm run build

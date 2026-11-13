@@ -7,7 +7,7 @@ export const TRAX_TOKEN_ARTIFACT = artifacts.token
 export const TRAX_VAULT_ARTIFACT = artifacts.vault
 
 export function assertMainnetWallet(wallet) {
-  if (!wallet?.tronWeb || !wallet?.address) throw new Error('Connect the owner wallet with TronLink first.')
+  if (!wallet?.tronWeb || !wallet?.address) throw new Error('Connect a TronLink wallet first.')
   let host = ''
   try { host = new URL(String(wallet.tronWeb.fullNode?.host || '')).hostname.toLowerCase() } catch {}
   if (host !== 'api.trongrid.io') throw new Error('Wrong network. Switch TronLink to TRON Mainnet and reconnect.')
