@@ -41,14 +41,14 @@ test('TRӾ deployment options reject missing ABI, malformed bytecode and invalid
   assert.throws(() => buildDeploymentOptions({ abi: [], bytecode: '6000' }, 'Broken', 0), /fee cap/)
 })
 
-test('TronLink deployment payload preserves the exact createSmartContract transaction including contract_address', () => {
+test('TronLink deployment payload contains only the documented protocol transaction fields', () => {
   const raw_data = { contract: [{ type: 'CreateSmartContract', parameter: { value: {} } }], timestamp: 1 }
   const tx = { visible: false, txID: 'a'.repeat(64), raw_data, raw_data_hex: '0a01', contract_address: 'T' + '1'.repeat(33) }
   const payload = toWalletSignableTransaction(tx)
   assert.notStrictEqual(payload, tx)
-  assert.deepEqual(payload, tx)
+  assert.deepEqual(payload, { visible: false, txID: tx.txID, raw_data: tx.raw_data, raw_data_hex: tx.raw_data_hex })
   assert.notStrictEqual(payload.raw_data, tx.raw_data)
-  assert.equal(payload.contract_address, tx.contract_address)
+  assert.equal(Object.hasOwn(payload, 'contract_address'), false)
 })
 
 test('TronLink deployment payload rejects non-deployment or incomplete transactions', () => {
@@ -96,7 +96,8 @@ test('TRӾ deployment signs the original builder object and broadcasts the retur
       300000000,
     )
     assert.notStrictEqual(signedInput, unsigned)
-    assert.deepEqual(signedInput, unsigned)
+    assert.deepEqual(signedInput, { visible: false, txID: unsigned.txID, raw_data: unsigned.raw_data, raw_data_hex: unsigned.raw_data_hex })
+    assert.equal(Object.hasOwn(signedInput, 'contract_address'), false)
     assert.strictEqual(broadcastInput, signed)
     assert.equal(result.txID, unsigned.txID)
     assert.equal(result.address, 'T' + '1'.repeat(33))
