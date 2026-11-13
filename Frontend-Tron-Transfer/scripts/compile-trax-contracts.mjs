@@ -1,40 +1,42 @@
 import fs from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import solc from 'solc'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const root = path.resolve(here, '../..')
-const contracts = {
-  'Restricted1TRAX.sol': await fs.readFile(path.join(root, 'contracts/Restricted1TRAX.sol'), 'utf8'),
-  'OneTraxReserveVault.sol': await fs.readFile(path.join(root, 'contracts/OneTraxReserveVault.sol'), 'utf8'),
-}
-const input = {
-  language: 'Solidity',
-  sources: Object.fromEntries(Object.entries(contracts).map(([name, content]) => [name, { content }])),
-  settings: {
-    evmVersion: 'paris',
-    optimizer: { enabled: true, runs: 200 },
-    outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
-  },
-}
-const output = JSON.parse(solc.compile(JSON.stringify(input)))
-const errors = (output.errors || []).filter((entry) => entry.severity === 'error')
-if (errors.length) throw new Error(errors.map((entry) => entry.formattedMessage).join('\n'))
+const frontendRoot = path.resolve(here, '..')
+const repositoryRoot = path.resolve(frontendRoot, '../..')
+const tronboxBin = path.join(frontendRoot, 'node_modules', '.bin', 'tronbox')
+const configPath = path.join(repositoryRoot, 'tronbox-config.cjs')
 
-const token = output.contracts?.['Restricted1TRAX.sol']?.Restricted1TRAX
-const vault = output.contracts?.['OneTraxReserveVault.sol']?.OneTraxReserveVault
-if (!token?.abi || !token.evm?.bytecode?.object || !vault?.abi || !vault.evm?.bytecode?.object) {
-  throw new Error('TRӾ artifacts are incomplete; refusing to build the Mainnet interface.')
+await fs.access(tronboxBin)
+await fs.access(configPath)
+
+// Use TronBox's bundled TRON Solidity compiler (tron-solc), not upstream solc.
+execFileSync(tronboxBin, ['compile', '--all', '--config', configPath], {
+  cwd: repositoryRoot,
+  stdio: 'inherit',
+})
+
+async function readArtifact(name, contractName) {
+  const artifactPath = path.join(repositoryRoot, 'build', 'contracts', name + '.json')
+  const artifact = JSON.parse(await fs.readFile(artifactPath, 'utf8'))
+  if (artifact.contractName !== contractName || !Array.isArray(artifact.abi) || typeof artifact.bytecode !== 'string') {
+    throw new Error('TronBox artifact is incomplete for ' + contractName)
+  }
+  const bytecode = artifact.bytecode.replace(/^0x/, '')
+  if (!bytecode || !/^[0-9a-f]+$/i.test(bytecode)) throw new Error('Invalid TRON bytecode for ' + contractName)
+  return { contractName, abi: artifact.abi, bytecode }
 }
-const artifact = {
-  compiler: solc.version(),
-  evmVersion: 'paris',
-  optimizer: { enabled: true, runs: 200 },
-  token: { contractName: 'Restricted1TRAX', abi: token.abi, bytecode: token.evm.bytecode.object },
-  vault: { contractName: 'OneTraxReserveVault', abi: vault.abi, bytecode: vault.evm.bytecode.object },
-}
-const outputDir = path.join(here, '../src/generated')
+
+const token = await readArtifact('Restricted1TRAX', 'Restricted1TRAX')
+const vault = await readArtifact('OneTraxReserveVault', 'OneTraxReserveVault')
+const outputDir = path.join(frontendRoot, 'src', 'generated')
 await fs.mkdir(outputDir, { recursive: true })
-await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.json'), JSON.stringify(artifact))
-console.log('Compiled TRӾ token and native TRX reserve vault artifacts for TRON TVM (Paris EVM target).')
+await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.json'), JSON.stringify({
+  compiler: 'TRON solc 0.8.25',
+  optimizer: { enabled: true, runs: 200 },
+  token,
+  vault,
+}))
+console.log('TRӾ and reserve vault compiled with TRON solc 0.8.25.')
