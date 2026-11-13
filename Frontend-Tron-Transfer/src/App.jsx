@@ -448,7 +448,7 @@ export default function App() {
           </div>
         </section>}
 
-        {tab==='1trax'&&<TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)}/>}
+        {tab==='1trax'&&<TRXMainnetPanel wallet={unlocked} expectedOwner={ownerSession.address} onConnect={()=>perform(connectTronLink)}/>}
 
         {tab==='settings'&&<section className="panel settings-page">
           <div className="section-heading"><div><span className="eyebrow">PRODUCTION CONFIGURATION</span><h2>Tron Transfer settings</h2><p>Mainnet-only configuration and operator access. Provider secrets remain on the backend and are never stored in this browser.</p></div><div className="panel-icon"><Settings/></div></div>
