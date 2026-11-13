@@ -240,44 +240,16 @@ export default function App() {
     settings: 'Network, owner and platform configuration',
   }
 
-  if (!ownerSessionResolved) return (
-    <div className="app-shell auth-shell">
-      <main className="main-content">
-        <div className="content"><section className="panel"><div className="section-heading"><div><span className="eyebrow">PRIVATE OWNER WORKSPACE</span><h2>Checking owner session</h2><p>Verifying the configured platform-owner session before opening Tron Transfer.</p></div><div className="panel-icon"><ShieldCheck/></div></div></section></div>
-      </main>
-    </div>
-  )
-
-  if (!ownerSession) return (
-    <div className="app-shell auth-shell">
-      <main className="main-content">
-        <div className="content">
-          <section className="panel provider-panel">
-            <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · PRIVATE ACCESS</span><h2>Platform owner sign-in</h2><p>This workspace is reserved for the configured owner account. Sponsors use a separate TronLink wallet portal and cannot enter the owner console.</p></div><div className="panel-icon"><LockKeyhole/></div></div>
-            {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span></div>}
-            <div className="form-stack">
-              <label>Configured owner TRON Mainnet address<input value={ownerAddress} onChange={e=>setOwnerAddress(e.target.value)} placeholder="T..." autoComplete="username"/></label>
-              <label>Owner password<input value={ownerPassword} onChange={e=>setOwnerPassword(e.target.value)} type="password" autoComplete="current-password"/></label>
-              <button className="primary-button" disabled={busy||!ownerAddress.trim()||!ownerPassword} onClick={()=>perform(signInOwner)}><LockKeyhole size={16}/>{busy?'Signing in…':'Sign in to private workspace'}</button>
-            </div>
-            <p className="fine-print">Never share your password, wallet private key or recovery phrase. This password authenticates the platform owner; it does not fund withdrawals.</p>
-          </section>
-        </div>
-      </main>
-    </div>
-  )
-
   return (
     <div className="app-shell trax-only-shell">
       <header className="topbar">
         <div>
-          <span className="eyebrow">TRON TRANSFER · PRIVATE OWNER WORKSPACE · TRON MAINNET</span>
+          <span className="eyebrow">TRON TRANSFER · TRON MAINNET</span>
           <h1>TRӾ smart-contract manager</h1>
         </div>
         <div className="topbar-actions">
           <span className="network-chip"><i/> TRON Mainnet</span>
-          <span className="muted small">Owner {shorten(ownerSession.address)}</span>
-          <button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>
+          <span className="muted small">Connect a wallet to deploy or administer your contracts</span>
           {unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}
         </div>
       </header>
@@ -285,8 +257,8 @@ export default function App() {
         <div className="content">
           {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
           {error&&<div className="notice notice-error" role="alert"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}
-          <TRXMainnetPanel wallet={unlocked} expectedOwner={ownerSession.address} onConnect={()=>perform(connectTronLink)} />
-          <p className="fine-print trax-only-footer">TRON TRANSFER · PRIVATE OWNER-ONLY WORKSPACE · TRON MAINNET · TRӾ SMART CONTRACT</p>
+          <TRXMainnetPanel wallet={unlocked} onConnect={()=>perform(connectTronLink)} />
+          <p className="fine-print trax-only-footer">TRON TRANSFER · WALLET-CONTROLLED WORKSPACE · TRON MAINNET · TRӾ SMART CONTRACT</p>
         </div>
       </main>
     </div>
