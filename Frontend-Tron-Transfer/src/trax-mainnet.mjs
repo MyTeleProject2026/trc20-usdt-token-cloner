@@ -115,6 +115,20 @@ function explainTronLinkError(error, stage) {
   return stage + ': ' + raw
 }
 
+export function recoverTransactionSigner(tronWeb, txID, signature) {
+  if (!/^[0-9a-f]{64}$/i.test(String(txID || '')) || !/^[0-9a-f]{130}$/i.test(String(signature || ''))) {
+    throw new Error('Cannot recover signer: malformed transaction ID or 65-byte signature.')
+  }
+  const recover = tronWeb?.utils?.crypto?.ecRecover
+  if (typeof recover !== 'function') throw new Error('TRON cryptographic signature recovery is unavailable; refusing to broadcast.')
+  const recoveredHex = recover(txID, signature)
+  const recoveredAddress = String(recoveredHex || '').startsWith('T')
+    ? String(recoveredHex)
+    : tronWeb.address.fromHex(String(recoveredHex || ''))
+  if (!tronWeb.isAddress(recoveredAddress)) throw new Error('Recovered TRON signer address is invalid; refusing to broadcast.')
+  return recoveredAddress
+}
+
 export function toWalletSignableTransaction(transaction) {
   if (!transaction || typeof transaction !== 'object' || Array.isArray(transaction)) {
     throw new Error('TRON node returned a malformed deployment transaction.')
@@ -213,6 +227,17 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
       : 'transaction ID changed'
     throw new Error('TronLink signing result failed validation (' + reason + '). Nothing was broadcast.')
+  }
+  const ownerHex = walletTransaction.raw_data.contract[0]?.parameter?.value?.owner_address
+  if (typeof ownerHex !== 'string' || !/^41[0-9a-f]{40}$/i.test(ownerHex)) {
+    throw new Error('Deployment transaction has no valid owner_address; refusing to broadcast.')
+  }
+  const expectedSigner = tronWeb.address.fromHex(ownerHex)
+  const recoveredSigners = signatures.map(signature => recoverTransactionSigner(tronWeb, walletTransaction.txID, signature))
+  if (recoveredSigners.length !== 1 || !addressesEqual(tronWeb, recoveredSigners[0], expectedSigner)
+    || !addressesEqual(tronWeb, expectedSigner, wallet.address)) {
+    throw new Error('TronLink signature does not recover to the deployment owner wallet. Expected ' + expectedSigner
+      + '; recovered ' + recoveredSigners.join(', ') + '. Nothing was broadcast.')
   }
   const signedCanonicalTransaction = {
     ...walletTransaction,
