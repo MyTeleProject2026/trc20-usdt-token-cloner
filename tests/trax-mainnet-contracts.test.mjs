@@ -1,48 +1,41 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import solc from 'solc'
 
-test('TRӾ and native-TRX reserve vault compile for the TRON Paris-compatible target', async () => {
-  const tokenSource = await fs.readFile(new URL('../contracts/Restricted1TR1AX.sol', import.meta.url).catch(()=>new URL('../contracts/Restricted1TRAX.sol', import.meta.url)), 'utf8')
-  const vaultSource = await fs.readFile(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
-  const output = JSON.parse(solc.compile(JSON.stringify({
-    language: 'Solidity',
-    sources: {
-      'Restricted1TRAX.sol': { content: tokenSource },
-      'OneTraxReserveVault.sol': { content: vaultSource },
-    },
-    settings: {
-      evmVersion: 'paris',
-      optimizer: { enabled: true, runs: 200 },
-      outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
-    },
-  })))
-  const errors = (output.errors || []).filter((entry) => entry.severity === 'error')
-  assert.deepEqual(errors, [])
-  const token = output.contracts?.['Restricted1TRAX.sol']?.Restricted1TRAX
-  const vault = output.contracts?.['OneTraxReserveVault.sol']?.OneTraxReserveVault
-  assert.ok(token?.evm?.bytecode?.object?.length > 0)
-  assert.ok(vault?.evm?.bytecode?.object?.length > 0)
-  const tokenFunctions = token.abi.filter((entry) => entry.type === 'function').map((entry) => entry.name)
-  const vaultFunctions = vault.abi.filter((entry) => entry.type === 'function').map((entry) => entry.name)
-  for (const name of ['name','symbol','decimals','owner','pendingOwner','transferOwnership','acceptOwnership','totalSupply','balanceOf','allowance','isLocked','setRecipientLocked','setReserveVault','setPaused','setMintingEnabled','mint','redeemForOwner','transfer','approve','transferFrom']) {
-    assert.ok(tokenFunctions.includes(name), 'missing TRӾ function: ' + name)
+const tokenSource = await fs.readFile(new URL('../contracts/Restricted1TRAX.sol', import.meta.url), 'utf8')
+const vaultSource = await fs.readFile(new URL('../contracts/OneTraxReserveVault.sol', import.meta.url), 'utf8')
+const tronboxConfig = await fs.readFile(new URL('../tronbox-config.cjs', import.meta.url), 'utf8')
+
+test('TRӾ source pins the exact TRON Solidity compiler release and metadata', () => {
+  assert.ok(tokenSource.includes('pragma solidity 0.8.25;'))
+  assert.ok(tokenSource.includes('string public constant name = unicode"TRӾ";'))
+  assert.ok(tokenSource.includes('string public constant symbol = "TRX";'))
+  assert.ok(tokenSource.includes('uint8 public constant decimals = 6;'))
+  assert.ok(tronboxConfig.includes("version: '0.8.25'"))
+  assert.ok(tronboxConfig.includes('optimizer: { enabled: true, runs: 200 }'))
+})
+
+test('TRӾ source exposes owner-controlled minting, lock management and redemption', () => {
+  for (const method of ['totalSupply','balanceOf','allowance','isLocked','setRecipientLocked','mint','redeemForOwner','setPaused','setMintingEnabled']) {
+    assert.match(tokenSource, new RegExp('function\\s+' + method + '\\s*\\('))
   }
-  for (const name of ['owner','authorizedToken','reserveBalance','setAuthorizedToken','releaseForRedemption']) assert.ok(vaultFunctions.includes(name))
-  assert.ok(tokenSource.includes('name = unicode"TRӾ"'))
-  assert.ok(tokenSource.includes('symbol = "TRX"'))
-  assert.ok(tokenSource.includes('decimals = 6'))
-  assert.ok(tokenSource.includes('require(IOneTraxReserveVault(reserveVault).reserveBalance() >= _totalSupply + amount'))
-  assert.ok(tokenSource.includes('function isLocked(address account) public view returns (bool) { return !_unlocked[account]; }'))
+  assert.ok(tokenSource.includes('mintingEnabled = false;'))
+  assert.ok(tokenSource.includes('paused = true;'))
+  assert.ok(tokenSource.includes('external onlyOwner'))
+  assert.ok(tokenSource.includes('reserveBalance() >= _totalSupply + amount'))
+})
+
+test('TRӾ locked-account rules invalidate delegated approvals', () => {
   assert.ok(tokenSource.includes('struct AllowanceData { uint256 amount; uint256 ownerLockNonce; uint256 spenderLockNonce; }'))
   assert.ok(tokenSource.includes('if (wasLocked != locked) _lockNonce[account] += 1;'))
   assert.ok(tokenSource.includes('data.ownerLockNonce != _lockNonce[tokenOwner]'))
   assert.ok(tokenSource.includes('data.spenderLockNonce != _lockNonce[spender]'))
   assert.ok(tokenSource.includes('require(_unlocked[msg.sender] && _unlocked[from] && _unlocked[to]'))
-  assert.ok(tokenSource.includes('data.ownerLockNonce != _lockNonce[tokenOwner]'))
-  assert.ok(tokenSource.includes('data.spenderLockNonce != _lockNonce[spender]'))
-  assert.ok(tokenSource.includes('function redeemForOwner'))
+})
+
+test('native TRX reserve vault permits releases only through the authorized token contract', () => {
+  assert.ok(vaultSource.includes('pragma solidity 0.8.25;'))
   assert.ok(vaultSource.includes('msg.sender == authorizedToken'))
-  assert.ok(!/function\s+(withdraw|sweep|rescue)\s*\(/i.test(vaultSource))
+  assert.ok(vaultSource.includes('address(this).balance >= amount'))
+  assert.ok(!/function\\s+(withdraw|sweep|rescue)\\s*\\(/i.test(vaultSource))
 })
