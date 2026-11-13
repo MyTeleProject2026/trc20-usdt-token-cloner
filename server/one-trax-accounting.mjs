@@ -22,15 +22,29 @@ export async function readOneTraxAccounting({
 
   const tronWeb = tronWebFactory(MAINNET)
   const token = await tronWeb.contract().at(contractAddress)
-  const [reserveSunValue, supplyValue, decimalsValue] = await Promise.all([
+  const [reserveSunValue, supplyValue, decimalsValue, nameValue, symbolValue, vaultAddressValue] = await Promise.all([
     tronWeb.trx.raw.getBalance(reserveAddress),
     token.totalSupply().call(),
     token.decimals().call(),
+    token.name().call(),
+    token.symbol().call(),
+    token.reserveVault().call(),
   ])
+  const reserveVaultAddress = String(vaultAddressValue || '')
+  if (nameValue !== 'TRӾ' || symbolValue !== 'TRX' || Number(decimalsValue) !== 6 ||
+      !isValidTronAddress(reserveVaultAddress) || reserveVaultAddress !== reserveAddress) {
+    return { success: false, error: 'mainnet-token-metadata-or-vault-mismatch' }
+  }
+  const vault = await tronWeb.contract().at(reserveVaultAddress)
+  const authorizedToken = await vault.authorizedToken().call()
+  if (String(authorizedToken) !== contractAddress &&
+      tronWeb.address.toHex(String(authorizedToken)) !== tronWeb.address.toHex(contractAddress)) {
+    return { success: false, error: 'mainnet-vault-token-authorization-mismatch' }
+  }
   const reserveSun = BigInt(String(reserveSunValue))
   const outstanding1TraxUnits = BigInt(String(supplyValue))
   const decimals = Number(decimalsValue)
-  if (reserveSun < 0n || outstanding1TraxUnits < 0n || decimals !== 6) {
+  if (reserveSun < 0n || outstanding1TraxUnits < 0n) {
     return { success: false, error: 'unexpected-onchain-accounting-value' }
   }
   const surplusSun = reserveSun > outstanding1TraxUnits ? reserveSun - outstanding1TraxUnits : 0n
@@ -45,12 +59,15 @@ export async function readOneTraxAccounting({
     network,
     reserve: {
       address: reserveAddress,
+      authorizedToken: String(authorizedToken),
       asset: 'native-TRX',
       balanceSun: reserveSun.toString(),
       decimals: 6,
     },
     liability: {
       contractAddress,
+      name: nameValue,
+      symbol: symbolValue,
       asset: 'TRX (TRӾ token; not native TRX)',
       totalSupplyUnits: outstanding1TraxUnits.toString(),
       decimals,
