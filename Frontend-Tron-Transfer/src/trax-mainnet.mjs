@@ -401,7 +401,7 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   verifyTransactionSigner(tronWeb, signedTransaction, wallet.address)
   // Ask the node to independently evaluate the recovered signer against the
   // account's active permission and threshold before any broadcast.
-  await assertTransactionPermission(tronWeb, signedTransaction)
+  await assertTransactionPermission(tronWeb, signedTransaction, wallet.address)
   if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
     throw new Error('Mainnet deployment broadcasting is disabled. Signature was validated, but the transaction was not broadcast.')
   }
