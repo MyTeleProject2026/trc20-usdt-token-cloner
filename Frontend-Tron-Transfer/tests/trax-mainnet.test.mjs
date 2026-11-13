@@ -163,7 +163,7 @@ test('TRON signer recovery verifies a real locally generated secp256k1 transacti
   assert.throws(() => verifyTransactionSigner(signerClient, signed, 'T' + '1'.repeat(33)), /does not match/)
 })
 
-test('any valid TronLink Mainnet wallet broadcasts the exact signed object returned by trx.sign', async () => {
+test('Mainnet deployment safety hold prevents broadcast after valid signing and permission checks', async () => {
   const unsigned = {
     visible: false,
     txID: '426e75c2b5c719ae46005abc57144fde1b70294c0d2adf82a36a4de6e0578830',
@@ -175,7 +175,6 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
-  let verifiedAddress = ''
   const walletTronWeb = {
     version: 'wallet-bundled-version',
     fullNode: { host: 'https://api.trongrid.io' },
@@ -188,26 +187,29 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
     address: { fromHex: () => 'T' + '1'.repeat(33), toHex: (value) => String(value).toLowerCase() },
     utils: { crypto: { ecRecover: () => '41' + '1'.repeat(40) }, transaction: { txCheck: () => true } },
     isAddress: (value) => typeof value === 'string' && value.startsWith('T'),
-    trx: { getSignWeight: async (payload) => { assert.equal(payload, signed); return { result: { code: 'ENOUGH_PERMISSION' } } }, sendRawTransaction: async (payload) => { broadcastCalls++; assert.equal(payload, signed); assert.deepEqual(payload, signed); return { result: true } } },
+    trx: {
+      getSignWeight: async (payload) => { assert.equal(payload, signed); return { result: { code: 'ENOUGH_PERMISSION' } } },
+      sendRawTransaction: async () => { broadcastCalls++; return { result: true } },
+    },
   }
   const { deployContractFromTronLink } = await import('../src/trax-mainnet.mjs')
-  const result = await deployContractFromTronLink(
-    { tronWeb: walletTronWeb, address: 'T' + '1'.repeat(33) },
-    { abi: [], bytecode: '6000' },
-    'TestVault',
-    300000000,
-    {
-      createClient: () => builderClient,
-      waitForReceipt: async (_client, txID) => { receiptCalls++; assert.equal(txID, unsigned.txID); return { id: txID, receipt: { result: 'SUCCESS' } } },
-      verifyDeployedContract: async (_client, address) => { verifiedAddress = address; return { bytecode: '6000' } },
-    },
+  await assert.rejects(
+    () => deployContractFromTronLink(
+      { tronWeb: walletTronWeb, address: 'T' + '1'.repeat(33) },
+      { abi: [], bytecode: '6000' },
+      'TestVault',
+      300000000,
+      {
+        createClient: () => builderClient,
+        waitForReceipt: async () => { receiptCalls++; return { receipt: { result: 'SUCCESS' } } },
+        verifyDeployedContract: async () => ({ bytecode: '6000' }),
+      },
+    ),
+    /broadcast is disabled by the release safety hold/,
   )
   assert.equal(signCalls, 1)
-  assert.equal(broadcastCalls, 1)
-  assert.equal(receiptCalls, 1)
-  assert.equal(verifiedAddress, result.address)
-  assert.equal(result.txID, unsigned.txID)
-  assert.equal(result.receipt.receipt.result, 'SUCCESS')
+  assert.equal(broadcastCalls, 0)
+  assert.equal(receiptCalls, 0)
 })
 
 test('TRON permission preflight requires ENOUGH_PERMISSION before broadcast', async () => {
