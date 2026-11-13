@@ -262,6 +262,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   if (computedUnsignedTxID.toLowerCase() !== String(unsigned.txID).toLowerCase()) {
     throw new Error('TRON node txID does not match SHA-256(raw_data_hex). Nothing was signed or broadcast.')
   }
+  if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
+    throw new Error('Mainnet deployment signing and broadcast are disabled by the release safety hold. No wallet signature was requested and nothing was broadcast.')
+  }
   // Validate the plain protocol transaction, then ask the injected wallet signer.
   // TronLink must preserve the exact signed raw_data_hex and txID.
   const walletTransaction = toWalletSignableTransaction(unsigned)
@@ -328,9 +331,6 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // Ask the node to independently evaluate the recovered signer against the
   // account's active permission and threshold before any broadcast.
   await assertTransactionPermission(tronWeb, signed)
-  if (!MAINNET_DEPLOYMENT_BROADCAST_ENABLED) {
-    throw new Error('Mainnet deployment broadcast is disabled by the release safety hold. The signed transaction was not broadcast.')
-  }
   // TronWeb 6.5.1 requires broadcasting the exact object returned by trx.sign().
   // Do not rebuild it: wallet/provider-specific transaction fields and signature
   // encoding must remain intact. The node performs cryptographic validation.
