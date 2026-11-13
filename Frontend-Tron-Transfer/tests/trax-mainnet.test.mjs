@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTokenUnits, formatTokenUnits, addressesEqual } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, buildDeploymentOptions } from '../src/trax-mainnet.mjs'
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
   assert.equal(parseTokenUnits('100'), '100000000')
@@ -22,4 +22,21 @@ test('TRӾ address comparison normalizes TRON address forms', () => {
     addressesEqual(tronWeb, 'TABC', 'tabc'),
     true,
   )
+})
+
+test('TRӾ deployment options pass ABI as structured array, not JSON text', () => {
+  const abi = [{ type: 'constructor', inputs: [] }]
+  const options = buildDeploymentOptions({ abi, bytecode: '0x60006000' }, 'Restricted1TRAX', 300000000)
+  assert.equal(options.abi, abi)
+  assert.deepEqual(options.abi, abi)
+  assert.equal(options.bytecode, '60006000')
+  assert.equal(options.feeLimit, 300000000)
+  assert.equal(options.callValue, 0)
+  assert.equal(options.name, 'Restricted1TRAX')
+})
+
+test('TRӾ deployment options reject missing ABI, malformed bytecode and invalid fee cap', () => {
+  assert.throws(() => buildDeploymentOptions({ abi: '{}', bytecode: '6000' }, 'Broken', 300000000), /ABI/)
+  assert.throws(() => buildDeploymentOptions({ abi: [], bytecode: '0xzz' }, 'Broken', 300000000), /bytecode/)
+  assert.throws(() => buildDeploymentOptions({ abi: [], bytecode: '6000' }, 'Broken', 0), /fee cap/)
 })
