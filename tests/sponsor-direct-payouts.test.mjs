@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { TronWeb } from 'tronweb'
 import {
   parseSponsorDirectUsdtAmount,
+  MINIMUM_WITHDRAWAL_BASE_UNITS,
   calculateSponsorDirectAvailableBaseUnits,
   parseSponsorDirectFeeParameters,
   calculateSponsorDirectFeeCoverage,
@@ -49,19 +50,20 @@ test('sponsor-direct USDT amount parser accepts exact six-decimal amounts', () =
 
 test('automatic sponsor routing requires available sponsor USDT, approved wallet limits, daily capacity and verified fee coverage', () => {
   const eligible = {
-    amountBaseUnits: '25000000',
-    balanceBaseUnits: '100000000',
-    reservedBaseUnits: '25000000',
-    perPayoutLimitBaseUnits: '50000000',
-    dailyLimitBaseUnits: '100000000',
-    dailyUsedBaseUnits: '25000000',
+    amountBaseUnits: '1000000000',
+    balanceBaseUnits: '2000000000',
+    reservedBaseUnits: '1000000000',
+    perPayoutLimitBaseUnits: '1500000000',
+    dailyLimitBaseUnits: '2000000000',
+    dailyUsedBaseUnits: '1000000000',
     feeCoverage: true,
   }
   assert.equal(isSponsorDirectAutoRouteEligible(eligible), true)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, balanceBaseUnits: '40000000' }), false)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, reservedBaseUnits: '80000000' }), false)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, perPayoutLimitBaseUnits: '20000000' }), false)
-  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '80000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: '999999999' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, balanceBaseUnits: '1000000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, reservedBaseUnits: '1500000000' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, perPayoutLimitBaseUnits: '999999999' }), false)
+  assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, dailyUsedBaseUnits: '1500000000' }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, feeCoverage: false }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: 'not-an-integer' }), false)
   assert.equal(isSponsorDirectAutoRouteEligible({ ...eligible, amountBaseUnits: '0' }), false)
@@ -167,7 +169,7 @@ test('Mainnet sponsor fee coverage fails closed when fee_limit does not cover En
 })
 
 function unsignedTransfer(overrides = {}) {
-  const amountBaseUnits = '25000000'
+  const amountBaseUnits = '1000000000'
   const parameter = buildOwnerUsdtTransferParameter(recipientAddress, amountBaseUnits, tronWeb)
   const rawDataHex = 'deadbeef'
   return {
@@ -194,7 +196,7 @@ function unsignedTransfer(overrides = {}) {
 
 test('unsigned sponsor transaction must bind the sponsor, official token, recipient and amount', () => {
   const tx = unsignedTransfer()
-  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '25000000', tronWeb }
+  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '1000000000', tronWeb }
   assert.equal(matchesSponsorDirectUnsignedTransaction(tx, intent), true)
   assert.equal(matchesSponsorDirectUnsignedTransaction(tx, { ...intent, sponsorAddress: requesterAddress }), false)
   assert.equal(matchesSponsorDirectUnsignedTransaction(tx, { ...intent, recipientAddress: requesterAddress }), false)
@@ -202,7 +204,7 @@ test('unsigned sponsor transaction must bind the sponsor, official token, recipi
 })
 
 test('unsigned sponsor transaction rejects malformed tx IDs, expired data and non-single-call payloads', () => {
-  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '25000000', tronWeb }
+  const intent = { sponsorAddress, recipientAddress, amountBaseUnits: '1000000000', tronWeb }
   const valid = unsignedTransfer()
   assert.equal(matchesSponsorDirectUnsignedTransaction({ ...valid, txID: 'z'.repeat(64) }, intent), false)
   assert.equal(matchesSponsorDirectUnsignedTransaction({
@@ -267,7 +269,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
         sponsorAddress: address,
         network: 'mainnet',
         tokenContract: MAINNET_USDT_CONTRACT,
-        usdtBalanceBaseUnits: '100000000',
+        usdtBalanceBaseUnits: '1000000000',
         trxBalanceSun: '0',
         energyAvailable: 100000,
         stakedBandwidthAvailable: 100000,
@@ -317,6 +319,11 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(initialized.response.status, 200)
     assert.equal(initialized.payload.application, null)
 
+    await db.query(
+      'DELETE FROM trc20_token_clone.sponsor_direct_payout_idempotency_registry ' +
+      'WHERE idempotency_key IN (SELECT idempotency_key FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2)',
+      [requesterAddress, sponsorAddress],
+    )
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE requester_address=$1 OR sponsor_address=$2', [requesterAddress, sponsorAddress])
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE sponsor_address=$1', [sponsorAddress])
     const registration = await call('/application', sponsorToken, { displayName: 'Individual sponsor' })
@@ -327,15 +334,15 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     const ownerReview = await call('/applications/' + registration.payload.application.id + '/review', ownerToken, {
       decision: 'approve',
       reviewReference: 'wallet-sponsor-review-001',
-      perPayoutLimit: '50',
-      dailyLimit: '100',
+      perPayoutLimit: '1000',
+      dailyLimit: '1000',
     })
     assert.equal(ownerReview.response.status, 200)
     assert.equal(ownerReview.payload.application.status, 'active')
     assert.equal(ownerReview.payload.complianceVerified, false)
     const outsiderRequest = await call('/requests', outsiderToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: randomUUID(),
     })
     assert.equal(outsiderRequest.response.status, 403)
@@ -343,7 +350,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const first = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: firstIdempotencyKey,
     })
     assert.equal(first.response.status, 201)
@@ -352,9 +359,18 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(first.payload.transactionBroadcast, false)
     assert.equal(first.payload.request.sponsorAddress, sponsorAddress)
 
+    const duplicateFirst = await call('/requests', requesterToken, {
+      recipientAddress,
+      amount: '1000',
+      idempotencyKey: firstIdempotencyKey,
+    })
+    assert.equal(duplicateFirst.response.status, 200)
+    assert.equal(duplicateFirst.payload.duplicate, true)
+    assert.equal(duplicateFirst.payload.request.archived, false)
+
     const second = await call('/requests', requesterToken, {
       recipientAddress,
-      amount: '25',
+      amount: '1000',
       idempotencyKey: secondIdempotencyKey,
     })
     assert.equal(second.response.status, 201)
@@ -363,15 +379,24 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
     const readiness = await call('/readiness', sponsorToken)
     assert.equal(readiness.response.status, 200)
-    assert.equal(readiness.payload.reservedUsdtBaseUnits, '25000000')
-    assert.equal(readiness.payload.availableUsdtBaseUnits, '75000000')
-    assert.equal(readiness.payload.dailyUsedBaseUnits, '25000000')
+    assert.equal(readiness.payload.reservedUsdtBaseUnits, '1000000000')
+    assert.equal(readiness.payload.availableUsdtBaseUnits, '0')
+    assert.equal(readiness.payload.dailyUsedBaseUnits, '1000000000')
 
     const prepared = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
     assert.equal(prepared.response.status, 201)
     assert.equal(prepared.payload.request.status, 'prepared')
     assert.equal(prepared.payload.feeCoverage.covered, true)
     assert.equal(prepared.payload.feeCoverage.totalTrxReserveSun, '0')
+
+    // The active table now has an unconditional minimum constraint.
+    // Legacy terminal records and unresolved-row blocking are covered by the isolated archive migration suite.
+    await assert.rejects(db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_payouts ' +
+      '(id,idempotency_key,requester_address,recipient_address,token_contract,amount_base_units,status) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,\'requested\')',
+      [randomUUID(), randomUUID(), ownerAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999'],
+    ))
 
     const reusedPreparation = await call('/requests/' + first.payload.request.id + '/prepare', sponsorToken, {})
     assert.equal(reusedPreparation.response.status, 200)
@@ -389,8 +414,65 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
     assert.equal(requesterHistory.response.status, 200)
     const requesterCopy = requesterHistory.payload.requests.find((item) => item.id === first.payload.request.id)
     assert.equal(requesterCopy.unsignedTransaction, undefined)
+
+    // Seed one already-terminal legacy payout in the immutable archive. The API
+    // must expose it as history only, including by its globally reserved key.
+    const archivedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const archivedKey = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    await db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_payouts_archive ' +
+      '(id,idempotency_key,requester_address,sponsor_address,recipient_address,token_contract,' +
+      'amount_base_units,status,created_at,updated_at,archived_at,archive_reason,archive_schema_version) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,\'failed\',now(),now(),now(),\'below-minimum-terminal-record\',1) ' +
+      'ON CONFLICT (id) DO NOTHING',
+      [archivedId, archivedKey, requesterAddress, sponsorAddress, recipientAddress, MAINNET_USDT_CONTRACT, '999999999'],
+    )
+    await db.query(
+      'INSERT INTO trc20_token_clone.sponsor_direct_payout_idempotency_registry ' +
+      '(idempotency_key,payout_id,requester_address,recipient_address,amount_base_units) ' +
+      'VALUES ($1,$2,$3,$4,$5) ON CONFLICT (idempotency_key) DO NOTHING',
+      [archivedKey, archivedId, requesterAddress, recipientAddress, '999999999'],
+    )
+
+    const archivedHistory = await call('/my-requests', requesterToken)
+    assert.equal(archivedHistory.response.status, 200)
+    const archivedCopy = archivedHistory.payload.requests.find((item) => item.id === archivedId)
+    assert.equal(archivedCopy.archived, true)
+    assert.equal(archivedCopy.readOnly, true)
+    assert.equal(archivedCopy.amountBaseUnits, '999999999')
+    assert.equal(archivedCopy.unsignedTransaction, undefined)
+
+    const archivedDetail = await call('/requests/' + archivedId, requesterToken)
+    assert.equal(archivedDetail.response.status, 200)
+    assert.equal(archivedDetail.payload.request.archived, true)
+    assert.equal(archivedDetail.payload.request.readOnly, true)
+    assert.equal(archivedDetail.payload.request.status, 'failed')
+
+    const archivedDuplicate = await call('/requests/idempotency/' + archivedKey, requesterToken)
+    assert.equal(archivedDuplicate.response.status, 200)
+    assert.equal(archivedDuplicate.payload.duplicate, true)
+    assert.equal(archivedDuplicate.payload.payoutAuthorized, false)
+    assert.equal(archivedDuplicate.payload.transactionBroadcast, false)
+    assert.equal(archivedDuplicate.payload.request.id, archivedId)
+    assert.equal(archivedDuplicate.payload.request.archived, true)
+
+    const archiveDiagnostics = await call('/archive-migration-status', ownerToken)
+    assert.equal(archiveDiagnostics.response.status, 200)
+    assert.equal(archiveDiagnostics.payload.readOnly, true)
+    assert.equal(archiveDiagnostics.payload.migration.status, 'ready')
+    assert.ok(archiveDiagnostics.payload.migration.counts.archived >= 1)
+    assert.equal(archiveDiagnostics.payload.migration.counts.unresolvedBelowMinimum, 0)
+    assert.equal(archiveDiagnostics.payload.migration.checks.activeMinimumValidated, true)
+    assert.equal(archiveDiagnostics.payload.migration.checks.registryConsistent, true)
+
+    const forbiddenDiagnostics = await call('/archive-migration-status', outsiderToken)
+    assert.equal(forbiddenDiagnostics.response.status, 403)
   } finally {
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_payouts WHERE idempotency_key = ANY($1::uuid[])', [idempotencyKeys]).catch(() => {})
+    await db.query(
+      'DELETE FROM trc20_token_clone.sponsor_direct_payout_idempotency_registry WHERE idempotency_key = ANY($1::uuid[])',
+      [idempotencyKeys],
+    ).catch(() => {})
     await db.query('DELETE FROM trc20_token_clone.sponsor_direct_applications WHERE id=$1', [sponsorApplicationId]).catch(() => {})
     if (server) await new Promise((resolve) => server.close(resolve))
     await db.end()
@@ -399,6 +481,7 @@ test('PostgreSQL auto-matches one pending sponsor request, reserves its USDT, an
 
 test('public sponsor-direct configuration allows a zero-balance requester but requires sponsor funding and signature', async (t) => {
   const app = express()
+  app.use(express.json())
   app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({ env: {} }))
   const server = createServer(app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -429,11 +512,13 @@ test('owner-only funding overview reports zero approved sponsors without implyin
         && sql.includes('sponsor_direct_applications')) {
         return { rows: [{ total: 0, approved: 0, pending_review: 0, declined: 0, suspended: 0 }] }
       }
-      if (sql.startsWith('SELECT COUNT(*)::int AS total')
+      if (sql.startsWith('SELECT COUNT(*)::int AS active_total')
         && sql.includes('sponsor_direct_payouts')) {
         return {
           rows: [{
-            total: 0,
+            total: 6,
+            active_total: 4,
+            archived_historical: 2,
             awaiting_sponsor: 0,
             matched_awaiting_signature: 0,
             prepared: 0,
@@ -472,6 +557,9 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(payload.network, 'mainnet')
   assert.equal(payload.sponsorProfiles.approved, 0)
   assert.equal(payload.sponsorProfiles.pendingReview, 0)
+  assert.equal(payload.withdrawals.total, 6)
+  assert.equal(payload.withdrawals.activeTotal, 4)
+  assert.equal(payload.withdrawals.archivedHistorical, 2)
   assert.equal(payload.funding.status, 'no-approved-sponsor-wallets')
   assert.equal(payload.funding.approvedSponsorProfilesExist, false)
   assert.equal(payload.funding.liveSponsorFundingVerified, false)
@@ -483,3 +571,55 @@ test('owner-only funding overview reports zero approved sponsors without implyin
   assert.equal(JSON.stringify(payload).includes(sponsorAddress), false)
 })
 
+
+
+test('sponsor-direct withdrawal minimum is exactly 1,000 USDT at six-decimal precision', () => {
+  assert.equal(MINIMUM_WITHDRAWAL_BASE_UNITS, '1000000000')
+  assert.equal(parseSponsorDirectUsdtAmount('1000'), MINIMUM_WITHDRAWAL_BASE_UNITS)
+  assert.equal(parseSponsorDirectUsdtAmount('1000.000001'), '1000000001')
+  assert.equal(parseSponsorDirectUsdtAmount('999.999999'), '999999999')
+})
+
+test('owner withdrawal request rejects amounts below 1,000 USDT before database access', async (t) => {
+  const ownerToken = 'o'.repeat(43)
+  const origin = 'https://tron-transfer.integration.test'
+  const app = express()
+  app.use(express.json())
+  app.use('/api/tron/sponsor-direct', createSponsorDirectPayoutsRouter({
+    env: { FRONTEND_ORIGIN: origin, OWNER_WALLET_ADDRESS: requesterAddress },
+    getSession: async ({ origin: requestOrigin }) => ({
+      success: true,
+      session: {
+        address: requesterAddress,
+        network: 'mainnet',
+        origin: requestOrigin,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      },
+    }),
+    getDatabase: () => {
+      throw new Error('Database must not be accessed for a below-minimum request')
+    },
+  }))
+  const server = createServer(app)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())))
+
+  const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/tron/sponsor-direct/requests', {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      Authorization: 'Bearer ' + ownerToken,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      recipientAddress,
+      amount: '999.999999',
+      idempotencyKey: randomUUID(),
+    }),
+  })
+  const payload = await response.json()
+  assert.equal(response.status, 400)
+  assert.equal(payload.error, 'minimum-withdrawal-1000-usdt')
+  assert.equal(payload.minimumWithdrawalUsdt, '1000')
+  assert.equal(payload.minimumWithdrawalBaseUnits, MINIMUM_WITHDRAWAL_BASE_UNITS)
+})
