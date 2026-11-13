@@ -181,7 +181,14 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
     raw_data_hex: '0a01',
   }
   // TronLink Android may return only txID + signature; omitted raw payload is restored from the immutable validated request.
-  const signed = { txID: unsigned.txID, signature: ['a'.repeat(130)] }
+  const signed = {
+    txID: unsigned.txID,
+    raw_data_hex: unsigned.raw_data_hex,
+    // Provider-normalized JSON representation is intentionally different.
+    // The original serialized bytes and transaction ID remain unchanged.
+    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: ownerHex } } }], timestamp: '1', fee_limit: '300000000' },
+    signature: ['a'.repeat(130)],
+  }
   let signCalls = 0
   let broadcastCalls = 0
   let receiptCalls = 0
