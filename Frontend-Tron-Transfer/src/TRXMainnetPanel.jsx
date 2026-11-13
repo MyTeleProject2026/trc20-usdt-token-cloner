@@ -148,6 +148,20 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
       const deployedContract = await wallet.tronWeb.trx.getContract(address)
       if (!deployedContract?.bytecode) throw new Error('The saved '+label+' address has no verified deployed contract bytecode. Clear it and deploy the contract; do not use a wallet address here.')
     }
+    // If only one contract already exists, only its actual owner may prepare
+    // the matching second deployment; this prevents split-owner token/vault pairs.
+    if (tokenAddress && !vaultAddress) {
+      const existingToken = await wallet.tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
+      if (!addressesEqual(wallet.tronWeb, await existingToken.owner().call(), connectedAddress)) {
+        throw new Error('The existing TRӾ token belongs to a different wallet. Reconnect that token owner before preparing its reserve vault.')
+      }
+    }
+    if (vaultAddress && !tokenAddress) {
+      const existingVault = await wallet.tronWeb.contract(TRAX_VAULT_ARTIFACT.abi).at(vaultAddress)
+      if (!addressesEqual(wallet.tronWeb, await existingVault.owner().call(), connectedAddress)) {
+        throw new Error('The existing reserve vault belongs to a different wallet. Reconnect that vault owner before preparing its TRӾ token.')
+      }
+    }
     const deployed = []
     if (!vaultAddress) {
       const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
@@ -164,6 +178,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployVault = () => run('Preparing unsigned reserve-vault deployment · broadcast disabled', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
+    if (tokenAddress) {
+      const existingToken = await wallet.tronWeb.contract(TRAX_TOKEN_ARTIFACT.abi).at(tokenAddress)
+      if (!addressesEqual(wallet.tronWeb, await existingToken.owner().call(), connectedAddress)) {
+        throw new Error('The existing TRӾ token belongs to a different wallet. Reconnect that token owner before preparing its reserve vault.')
+      }
+    }
     const result = await deployContractFromTronLink(wallet,TRAX_VAULT_ARTIFACT,'OneTraxReserveVault',feeCapSun)
     setVaultAddress(result.address); setLastTx(result.txID)
     setNotice('Reserve vault deployed and solidified. Continue by deploying the TRӾ token.')
@@ -171,6 +191,12 @@ export default function TRXMainnetPanel({ wallet, onConnect }) {
 
   const deployToken = () => run('Preparing unsigned TRӾ token deployment · broadcast disabled', async () => {
     if (!walletReady) throw new Error('Connect a TronLink wallet on TRON Mainnet first.')
+    if (vaultAddress) {
+      const existingVault = await wallet.tronWeb.contract(TRAX_VAULT_ARTIFACT.abi).at(vaultAddress)
+      if (!addressesEqual(wallet.tronWeb, await existingVault.owner().call(), connectedAddress)) {
+        throw new Error('The existing reserve vault belongs to a different wallet. Reconnect that vault owner before preparing its TRӾ token.')
+      }
+    }
     const result = await deployContractFromTronLink(wallet,TRAX_TOKEN_ARTIFACT,'Restricted1TRAX',feeCapSun)
     setTokenAddress(result.address); setLastTx(result.txID)
     setNotice('TRӾ token deployed and solidified. Next authorize the token in the vault.')
