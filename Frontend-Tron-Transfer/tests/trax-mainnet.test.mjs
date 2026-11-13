@@ -163,7 +163,7 @@ test('TRON signer recovery verifies a real locally generated secp256k1 transacti
   assert.throws(() => verifyTransactionSigner(signerClient, signed, 'T' + '1'.repeat(33)), /does not match/)
 })
 
-test('Mainnet deployment safety hold prevents broadcast after valid signing and permission checks', async () => {
+test('Mainnet deployment safety hold prevents wallet signing and broadcast', async () => {
   const unsigned = {
     visible: false,
     txID: '426e75c2b5c719ae46005abc57144fde1b70294c0d2adf82a36a4de6e0578830',
@@ -205,9 +205,9 @@ test('Mainnet deployment safety hold prevents broadcast after valid signing and 
         verifyDeployedContract: async () => ({ bytecode: '6000' }),
       },
     ),
-    /broadcast is disabled by the release safety hold/,
+    /signing and broadcast are disabled by the release safety hold/,
   )
-  assert.equal(signCalls, 1)
+  assert.equal(signCalls, 0)
   assert.equal(broadcastCalls, 0)
   assert.equal(receiptCalls, 0)
 })
