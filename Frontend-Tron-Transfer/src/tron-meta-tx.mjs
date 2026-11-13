@@ -13,6 +13,14 @@ const FORWARD_REQUEST_FIELDS = Object.freeze([
   { name: 'data', type: 'bytes' },
 ])
 
+function assertMainnetEndpoint(tronWeb) {
+  let hostname = ''
+  try { hostname = new URL(String(tronWeb?.fullNode?.host || '')).hostname.toLowerCase() } catch {}
+  if (hostname !== 'api.trongrid.io') {
+    throw new Error('TronLink must be connected to the configured TRON Mainnet endpoint before preparing or signing a sponsored request.')
+  }
+}
+
 function uintString(value, label) {
   let parsed
   try { parsed = BigInt(value) } catch { throw new Error(label + ' must be an integer.') }
@@ -37,6 +45,7 @@ export function createTronMetaTypedData({
   chainId = TRON_MAINNET_CHAIN_ID,
 }) {
   if (chainId !== TRON_MAINNET_CHAIN_ID) throw new Error('Meta-transactions are restricted to TRON Mainnet.')
+  assertMainnetEndpoint(tronWeb)
   for (const [label, address] of [['owner', from], ['trusted forwarder', forwarder], ['target', to]]) {
     if (!tronWeb?.isAddress?.(address)) throw new Error('Invalid TRON Mainnet ' + label + ' address.')
   }
@@ -80,6 +89,8 @@ export function createTronMetaTypedData({
  * Signing only: no transaction is submitted and no private key is accessed.
  */
 export async function signTronMetaTypedData({ tronWeb, expectedOwner, typedData }) {
+  assertMainnetEndpoint(tronWeb)
+  if (typedData?.domain?.chainId !== TRON_MAINNET_CHAIN_ID) throw new Error('Refusing to sign typed data for a non-Mainnet chain.')
   const active = tronWeb?.defaultAddress?.base58 || (tronWeb?.defaultAddress?.hex && tronWeb?.address?.fromHex ? tronWeb.address.fromHex(tronWeb.defaultAddress.hex) : '')
   if (!active || active !== expectedOwner) throw new Error('TronLink account changed; reconnect the configured owner wallet.')
   if (typeof tronWeb?.trx?._signTypedData !== 'function') {
