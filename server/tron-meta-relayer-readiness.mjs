@@ -21,12 +21,20 @@ export function getTronMetaRelayerReadiness(env = process.env) {
   const vaultAddress = typeof env.TRON_META_RELAYER_VAULT_ADDRESS === 'string'
     ? env.TRON_META_RELAYER_VAULT_ADDRESS.trim()
     : ''
+  const nativeTreasuryAddress = typeof env.TRON_META_RELAYER_NATIVE_TREASURY_ADDRESS === 'string'
+    ? env.TRON_META_RELAYER_NATIVE_TREASURY_ADDRESS.trim()
+    : ''
+  const payoutRouterAddress = typeof env.TRON_META_RELAYER_PAYOUT_ROUTER_ADDRESS === 'string'
+    ? env.TRON_META_RELAYER_PAYOUT_ROUTER_ADDRESS.trim()
+    : ''
 
   const checks = {
     sponsorWalletAddressConfigured: addressConfigured(sponsorAddress),
     trustedForwarderAddressConfigured: addressConfigured(forwarderAddress),
     metaAwareTokenAddressConfigured: addressConfigured(tokenAddress),
     metaAwareVaultAddressConfigured: addressConfigured(vaultAddress),
+    nativeTrxTreasuryAddressConfigured: addressConfigured(nativeTreasuryAddress),
+    combinedPayoutRouterAddressConfigured: addressConfigured(payoutRouterAddress),
     explicitFeatureOptIn: env.TRON_META_RELAYER_ENABLED === 'true',
     onChainForwarderCodeVerified: false,
     recipientMetaTxSupportVerified: false,
@@ -40,6 +48,8 @@ export function getTronMetaRelayerReadiness(env = process.env) {
   if (!checks.metaAwareTokenAddressConfigured || !checks.metaAwareVaultAddressConfigured) {
     blockers.push('meta-aware-recipient-contracts-not-deployed')
   }
+  if (!checks.nativeTrxTreasuryAddressConfigured) blockers.push('native-trx-payout-treasury-not-configured')
+  if (!checks.combinedPayoutRouterAddressConfigured) blockers.push('combined-payout-router-not-configured')
   if (!checks.explicitFeatureOptIn) blockers.push('explicit-feature-opt-in-missing')
   blockers.push('on-chain-forwarder-code-verification-required')
   blockers.push('recipient-meta-transaction-support-verification-required')
