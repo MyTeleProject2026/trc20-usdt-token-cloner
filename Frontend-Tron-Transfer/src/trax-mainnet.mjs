@@ -89,28 +89,70 @@ export async function waitForSolidifiedReceipt(tronWeb, txID, { timeoutMs = 1800
   throw new Error('Transaction has not been verified in the solidified Mainnet chain. Keep its ID and check again: ' + txID + (lastError ? ' (' + lastError.message + ')' : ''))
 }
 
-export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
-  const tronWeb = assertMainnetWallet(wallet)
+export function buildDeploymentOptions(artifact, contractName, feeLimitSun) {
   const feeLimit = Number(feeLimitSun)
-  if (!Number.isSafeInteger(feeLimit) || feeLimit <= 0) throw new Error('Invalid deployment fee cap.')
-  const unsigned = await tronWeb.transactionBuilder.createSmartContract({
-    abi: JSON.stringify(artifact.abi),
-    bytecode: artifact.bytecode,
+  if (!Number.isSafeInteger(feeLimit) || feeLimit <= 0) throw new Error('Invalid deployment fee cap. Enter a positive whole-number TRX fee cap.')
+  if (!artifact || !Array.isArray(artifact.abi)) throw new Error('Compiled contract ABI is missing or invalid. Rebuild the TRӾ contract artifacts before deployment.')
+  const bytecode = String(artifact.bytecode || '').replace(/^0x/, '')
+  if (!bytecode || !/^[0-9a-f]+$/i.test(bytecode)) throw new Error('Compiled contract bytecode is missing or invalid. Rebuild the TRӾ contract artifacts before deployment.')
+  return {
+    abi: artifact.abi,
+    bytecode,
     feeLimit,
     callValue: 0,
     userFeePercentage: 100,
     originEnergyLimit: 10000000,
-    name: contractName,
-  }, wallet.address)
-  if (!unsigned?.txID || !unsigned?.contract_address) throw new Error('TRON node did not construct a deployment transaction and contract address.')
-  const signed = await tronWeb.trx.sign(unsigned)
-  if (!signed?.signature?.length) throw new Error('TronLink did not return a signed deployment transaction.')
-  const broadcast = await tronWeb.trx.sendRawTransaction(signed)
-  if (broadcast?.result !== true) throw new Error('TRON Mainnet rejected the deployment broadcast: ' + (broadcast?.code || broadcast?.message || 'unknown error'))
+    name: String(contractName),
+  }
+}
+
+function explainTronLinkError(error, stage) {
+  const raw = typeof error === 'string' ? error : (error?.message || error?.toString?.() || 'Unknown wallet error')
+  if (/Confirmation declined by user|User rejected|code.?4001/i.test(raw)) return stage + ': transaction was declined in TronLink. No retry was attempted.'
+  if (/Invalid transaction provided/i.test(raw)) return stage + ': TronLink rejected the unsigned deployment transaction as invalid. Check the transaction payload and wallet/network connection. Details: ' + raw
+  if (/User has not unlocked wallet/i.test(raw)) return stage + ': unlock TronLink and reconnect before trying again.'
+  return stage + ': ' + raw
+}
+
+export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun) {
+  const tronWeb = assertMainnetWallet(wallet)
+  const options = buildDeploymentOptions(artifact, contractName, feeLimitSun)
+  let unsigned
+  try {
+    unsigned = await tronWeb.transactionBuilder.createSmartContract(options, wallet.address)
+  } catch (error) {
+    throw new Error(explainTronLinkError(error, 'Deployment transaction construction failed'))
+  }
+  if (!unsigned?.txID || !/^[0-9a-f]{64}$/i.test(unsigned.txID) || !unsigned?.contract_address || !unsigned?.raw_data?.contract?.length) {
+    throw new Error('TRON Mainnet returned an incomplete deployment transaction. No signature or broadcast was attempted.')
+  }
+  const predictedAddress = tronWeb.address.fromHex(unsigned.contract_address)
+  if (!tronWeb.isAddress(predictedAddress)) throw new Error('TRON node returned an invalid predicted contract address. No signature or broadcast was attempted.')
+  let signed
+  try {
+    signed = await tronWeb.trx.sign(unsigned)
+  } catch (error) {
+    throw new Error(explainTronLinkError(error, 'TronLink signing failed'))
+  }
+  if (!signed?.signature?.length || signed.txID !== unsigned.txID) {
+    throw new Error('TronLink did not return a valid signature for the exact deployment transaction. Nothing was broadcast.')
+  }
+  let broadcast
+  try {
+    broadcast = await tronWeb.trx.sendRawTransaction(signed)
+  } catch (error) {
+    throw new Error(explainTronLinkError(error, 'Deployment broadcast request failed') + ' Check TRONSCAN for transaction ' + unsigned.txID + ' before retrying.')
+  }
+  if (broadcast?.result !== true) {
+    let detail = broadcast?.message || broadcast?.code || 'unknown node rejection'
+    try { if (typeof detail === 'string' && /^[0-9a-f]+$/i.test(detail)) detail = tronWeb.toUtf8(detail) } catch {}
+    throw new Error('TRON Mainnet rejected deployment broadcast: ' + detail + '. Transaction: ' + unsigned.txID)
+  }
   const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
-  const contract = await tronWeb.trx.getContract(unsigned.contract_address)
-  if (!contract?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified.')
-  return { address: tronWeb.address.fromHex(unsigned.contract_address), txID: unsigned.txID, receipt }
+  if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
+  const deployed = await tronWeb.trx.getContract(predictedAddress)
+  if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
+  return { address: predictedAddress, txID: unsigned.txID, receipt }
 }
 
 export async function sendAndVerifyContractCall(tronWeb, method, feeLimitSun = 150000000) {
