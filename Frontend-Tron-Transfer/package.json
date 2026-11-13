@@ -7,8 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "dev": "node scripts/compile-trax-contracts.mjs && vite --host 0.0.0.0",
+    "build": "node scripts/compile-trax-contracts.mjs && vite build",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "tronweb": "6.5.1",
-    "vite": "6.4.5"
+    "vite": "6.4.5",
+    "solc": "0.8.37"
   }
 }
