@@ -30,7 +30,11 @@ export async function readOneTraxAccounting({
     token.symbol().call(),
     token.reserveVault().call(),
   ])
-  const reserveVaultAddress = String(vaultAddressValue || '')
+  const rawVaultAddress = String(vaultAddressValue || '')
+  let reserveVaultAddress = rawVaultAddress
+  if (rawVaultAddress && !rawVaultAddress.startsWith('T')) {
+    try { reserveVaultAddress = tronWeb.address.fromHex(rawVaultAddress.replace(/^0x/, '')) } catch { reserveVaultAddress = '' }
+  }
   if (nameValue !== 'TRӾ' || symbolValue !== 'TRX' || Number(decimalsValue) !== 6 ||
       !isValidTronAddress(reserveVaultAddress) || reserveVaultAddress !== reserveAddress) {
     return { success: false, error: 'mainnet-token-metadata-or-vault-mismatch' }
