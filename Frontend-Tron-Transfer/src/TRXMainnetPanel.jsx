@@ -120,6 +120,18 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     return next
   }), [run,getContracts,connectedAddress,vaultAddress])
 
+  // Re-check saved contracts automatically when the configured owner reconnects.
+  // This is read-only: it never deploys, links, funds, mints, or signs transactions.
+  useEffect(() => {
+    if (!walletReady || !configuredOwnerMatches || !tokenAddress || !vaultAddress) return
+    if (!wallet.tronWeb.isAddress(tokenAddress) || !wallet.tronWeb.isAddress(vaultAddress)) {
+      setSnapshot(null)
+      setError('Saved contract address is invalid. Clear the address fields and recover the verified Mainnet contract addresses.')
+      return
+    }
+    refresh()
+  }, [walletReady, configuredOwnerMatches, tokenAddress, vaultAddress, wallet, refresh])
+
   const deployMissingContracts = () => run('Deploying missing TRӾ contracts · approve each prompt in TronLink', async () => {
     if (!walletReady) throw new Error('Connect the owner TronLink wallet.')
     if (!configuredOwnerMatches) throw new Error('Connected TronLink wallet does not match the configured platform owner.')
