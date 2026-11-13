@@ -64,7 +64,7 @@ const legacyArtifacts = {
 }
 await fs.writeFile(
   path.join(outputDir, 'trax-contract-artifacts.js'),
-  'export default ' + JSON.stringify(legacyArtifacts) + ';\\n',
+  'export default ' + JSON.stringify(legacyArtifacts) + ';\n',
 )
 
 const sponsoredArtifacts = {
@@ -74,6 +74,6 @@ const sponsoredArtifacts = {
 }
 await fs.writeFile(
   path.join(outputDir, 'tron-sponsored-payout-artifacts.js'),
-  'export default ' + JSON.stringify(sponsoredArtifacts) + ';\\n',
+  'export default ' + JSON.stringify(sponsoredArtifacts) + ';\n',
 )
 console.log('TRӾ legacy and meta-aware token, forwarder, reserve vault, treasury, and atomic dual-asset payout contracts compiled with TRON solc 0.8.25.')
