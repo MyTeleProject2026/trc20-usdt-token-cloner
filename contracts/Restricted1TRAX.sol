@@ -112,6 +112,7 @@ contract Restricted1TRAX {
         require(mintingEnabled, "minting-disabled");
         require(reserveVault != address(0), "reserve-vault-not-configured");
         require(recipient != address(0), "zero-recipient");
+        require(!_unlocked[recipient], "recipient-must-be-locked");
         require(amount > 0, "zero-amount");
         require(_totalSupply <= type(uint256).max - amount, "supply-overflow");
         require(_balances[recipient] <= type(uint256).max - amount, "balance-overflow");
