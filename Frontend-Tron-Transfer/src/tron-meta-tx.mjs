@@ -80,7 +80,7 @@ export function createTronMetaTypedData({
  * Signing only: no transaction is submitted and no private key is accessed.
  */
 export async function signTronMetaTypedData({ tronWeb, expectedOwner, typedData }) {
-  const active = tronWeb?.defaultAddress?.base58 || tronWeb?.address?.toString?.()
+  const active = tronWeb?.defaultAddress?.base58 || (tronWeb?.defaultAddress?.hex && tronWeb?.address?.fromHex ? tronWeb.address.fromHex(tronWeb.defaultAddress.hex) : '')
   if (!active || active !== expectedOwner) throw new Error('TronLink account changed; reconnect the configured owner wallet.')
   if (typeof tronWeb?.trx?._signTypedData !== 'function') {
     throw new Error('This TronLink version does not expose TIP-712 signing. No fallback signature will be used.')
