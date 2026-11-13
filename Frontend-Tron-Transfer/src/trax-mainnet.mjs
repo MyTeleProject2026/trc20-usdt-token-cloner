@@ -128,18 +128,15 @@ export function toWalletSignableTransaction(transaction) {
   if (!/^[0-9a-f]{64}$/i.test(txID) || !/^[0-9a-f]+$/i.test(rawDataHex)) {
     throw new Error('TRON node returned incomplete transaction signing fields.')
   }
-  // Normalize the injected-provider result into plain JSON data before
-  // crossing the TronLink signing boundary. Some wallet builds attach
-  // non-plain/proxy metadata to builder results; trx.sign validates plain
-  // transaction data. JSON cloning preserves the protocol fields and the
-  // predicted contract_address while dropping non-serializable decorations.
-  let signable
-  try { signable = JSON.parse(JSON.stringify(transaction)) }
-  catch { throw new Error('TRON deployment transaction contains non-serializable data.') }
-  if (!signable || signable.txID !== txID || signable.raw_data_hex !== rawDataHex
-    || JSON.stringify(signable.raw_data) !== JSON.stringify(rawData)
-    || signable.contract_address !== transaction.contract_address) {
-    throw new Error('TRON deployment transaction changed during plain-data normalization.')
+  // TronLink's trx.sign accepts the protocol transaction shape only:
+  // visible (optional), txID, raw_data and raw_data_hex. createSmartContract
+  // also returns contract_address as UI metadata; passing that extra field
+  // through to the wallet can fail its strict transaction validator.
+  const signable = {
+    ...(typeof transaction.visible === 'boolean' ? { visible: transaction.visible } : {}),
+    txID,
+    raw_data: JSON.parse(JSON.stringify(rawData)),
+    raw_data_hex: rawDataHex,
   }
   return signable
 }
