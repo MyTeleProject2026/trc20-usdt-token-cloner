@@ -18,7 +18,7 @@ contract TronMetaTxForwarder {
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 private constant REQUEST_TYPEHASH =
-        keccak256("ForwardRequest(address from,address to,uint256 value,uint256 gasLimit,uint256 nonce,uint256 deadline,bytes32 dataHash)");
+        keccak256("ForwardRequest(address from,address to,uint256 value,uint256 gasLimit,uint256 nonce,uint256 deadline,bytes data)");
     uint256 private constant SECP256K1N_HALF =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
