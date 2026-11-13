@@ -134,13 +134,16 @@ test('recipient inspection and TRON RPC require the configured owner session', (
   assert.match(recipientHandler, /no-store, private/)
 })
 
-test('the frontend shows an owner sign-in gate before rendering the dashboard', async () => {
+test('TRӾ manager is wallet-accessible and contract administration remains on-chain-owner-only', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
-  assert.match(app, /ownerSessionResolved/)
-  assert.match(app, /if \(!ownerSession\) return/)
-  assert.match(app, /Platform owner sign-in/)
-  assert.match(app, /ownerSession\.sessionToken/)
-  assert.match(app, /Authorization: 'Bearer ' \+ ownerSession\.sessionToken/)
+  const panel = await readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
+  assert.doesNotMatch(app, /if \(!ownerSession\) return/)
+  assert.doesNotMatch(app, /if \(!ownerSessionResolved\) return/)
+  assert.match(panel, /Connect any TronLink wallet on TRON Mainnet/)
+  assert.match(panel, /token\.owner\(\)\.call\(\)/)
+  assert.match(panel, /addressesEqual\(tronWeb, owner, connectedAddress\)/)
+  assert.match(panel, /addressesEqual\(tronWeb, vaultOwner, connectedAddress\)/)
 })
 
 test('provider readiness is private, performs only read-only Fincra diagnostics, and remains fail-closed', () => {
@@ -179,20 +182,15 @@ test('runtime mounts the private owner-only Mainnet sponsor-direct payout flow a
   assert.ok(sponsorFrontend.includes('/broadcast'))
 })
 
-test('private owner console exposes sponsor withdrawals and keeps provider readiness separate', async () => {
+test('TRӾ Mainnet manager remains scoped to the requested smart-contract panel', async () => {
   const app = await readFile(new URL('../Frontend-Tron-Transfer/src/App.jsx', import.meta.url), 'utf8')
-  const portal = await readFile(new URL('../Frontend-Tron-Transfer/src/SponsorPortal.jsx', import.meta.url), 'utf8')
-  const providerPage = await readFile(new URL('../Frontend-Tron-Transfer/src/ProviderPayoutReadiness.jsx', import.meta.url), 'utf8')
-  assert.match(app, /SponsorDirectPayouts/)
-  assert.match(app, /id:'sponsors',label:'Sponsor approvals'/)
-  assert.match(app, /mode="withdraw"/)
-  assert.match(app, /mode="history"/)
-  assert.match(app, /mode="sponsor"/)
-  assert.doesNotMatch(app, /FincraWithdrawals|SponsorOrganizationOnboarding/)
-  assert.ok(portal.includes('ownerSession={null}'))
-  assert.match(providerPage, /provider-readiness/)
-  assert.match(providerPage, /No approved payout funding source/)
-  assert.match(providerPage, /provider-owned USDT liquidity/)
+  const panel = await readFile(new URL('../Frontend-Tron-Transfer/src/TRXMainnetPanel.jsx', import.meta.url), 'utf8')
+  assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
+  assert.match(app, /TRӾ smart-contract manager/)
+  assert.match(panel, /Deploy both contracts automatically/)
+  assert.match(panel, /On-chain verification/)
+  assert.match(panel, /mintingEnabled/)
+  assert.doesNotMatch(app, /SponsorDirectPayouts|ProviderPayoutReadiness/)
 })
 
 test('Fincra payout statuses remain conservative for historical reconciliation', () => {
