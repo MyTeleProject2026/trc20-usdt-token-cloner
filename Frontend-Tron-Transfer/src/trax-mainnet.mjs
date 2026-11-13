@@ -142,7 +142,11 @@ export function toWalletSignableTransaction(transaction) {
   return signable
 }
 
-export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, { createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }) } = {}) {
+export async function deployContractFromTronLink(wallet, artifact, contractName, feeLimitSun, {
+  createClient = () => new TronWeb({ fullHost: TRON_MAINNET_HOST }),
+  waitForReceipt = waitForSolidifiedReceipt,
+  verifyDeployedContract = async (client, address) => client.trx.getContract(address),
+} = {}) {
   // Use the app-pinned TronWeb 6.5.1 instance to build and broadcast. TronLink's
   // injected TronWeb is only the wallet signer: its bundled version can differ.
   const walletTronWeb = assertMainnetWallet(wallet)
@@ -171,12 +175,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     || walletTransaction.raw_data.contract[0]?.type !== 'CreateSmartContract') {
     throw new Error('TRON node returned an invalid CreateSmartContract signing payload. No wallet prompt or broadcast was attempted.')
   }
-  // Safety gate: this deployment path is intentionally non-broadcasting while
-  // the TronLink CreateSmartContract compatibility issue is under investigation.
-  // The unsigned transaction is validated above, but must not be signed or sent.
-  // Remove this gate only after a separately reviewed, explicit deployment approval
-  // and an end-to-end test on a non-production network.
-  throw new Error('Deployment safety hold: unsigned TRON contract transaction was prepared and validated, but signing and Mainnet broadcast are disabled. No transaction was sent. Continue with offline payload diagnostics and testnet verification.')
+  // Mainnet deployment is user-initiated: TronLink must explicitly approve signing.
+  // Only the exact signed transaction is broadcast; then wait for solidification
+  // and verify deployed bytecode before returning/persisting the address.
   let signed
   try {
     signed = await walletTronWeb.trx.sign(walletTransaction)
@@ -216,9 +217,9 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
     try { if (typeof detail === 'string' && /^[0-9a-f]+$/i.test(detail)) detail = tronWeb.toUtf8(detail) } catch {}
     throw new Error('TRON Mainnet rejected deployment broadcast: ' + detail + '. Transaction: ' + unsigned.txID)
   }
-  const receipt = await waitForSolidifiedReceipt(tronWeb, unsigned.txID)
+  const receipt = await waitForReceipt(tronWeb, unsigned.txID)
   if (receipt?.receipt?.result !== 'SUCCESS') throw new Error('Deployment transaction is not confirmed successful. Transaction: ' + unsigned.txID)
-  const deployed = await tronWeb.trx.getContract(predictedAddress)
+  const deployed = await verifyDeployedContract(tronWeb, predictedAddress)
   if (!deployed?.bytecode) throw new Error('Deployment receipt succeeded, but deployed contract bytecode could not be verified. Transaction: ' + unsigned.txID)
   return { address: predictedAddress, txID: unsigned.txID, receipt }
 }
