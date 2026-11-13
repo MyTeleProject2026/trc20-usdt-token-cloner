@@ -178,7 +178,12 @@ export function verifyTransactionSigner(tronWeb, transaction, expectedAddress) {
   let recoveredSigner
   try {
     transactionOwner = ownerHex.length === 42 ? tronWeb.address.fromHex(ownerHex) : tronWeb.address.fromHex('41' + ownerHex)
-    recoveredSigner = crypto.ecRecover(transaction.txID, signatures[0])
+    const recovered = crypto.ecRecover(transaction.txID, signatures[0])
+    // TronWeb's ecRecover returns the 21-byte TRON address in 41-prefixed hex,
+    // not Base58Check. Normalize it before comparing with the wallet account.
+    recoveredSigner = typeof recovered === 'string' && /^41[0-9a-f]{40}$/i.test(recovered)
+      ? tronWeb.address.fromHex(recovered)
+      : recovered
   } catch {
     throw new Error('Unable to recover the signer from the TRON transaction signature; refusing broadcast.')
   }
