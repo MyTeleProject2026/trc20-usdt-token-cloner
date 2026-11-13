@@ -43,5 +43,5 @@ const artifact = {
   token,
   vault,
 }
-await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\\n')
+await fs.writeFile(path.join(outputDir, 'trax-contract-artifacts.js'), 'export default ' + JSON.stringify(artifact) + ';\n')
 console.log('TRӾ and native TRX reserve vault compiled with TRON solc 0.8.25.')
