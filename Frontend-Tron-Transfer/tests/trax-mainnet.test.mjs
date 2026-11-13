@@ -128,6 +128,24 @@ test('TRON deployment signature must recover the connected contract owner', () =
   assert.throws(() => verifyTransactionSigner(tronWeb, { ...transaction, signature: [] }, expected), /exactly one/)
 })
 
+test('TRON signer recovery verifies a real locally generated secp256k1 transaction signature', async () => {
+  // Fixed throwaway key used only by this offline test; it has no funds and is
+  // never used by the application or any Mainnet transaction.
+  const privateKey = '0000000000000000000000000000000000000000000000000000000000000001'
+  const signerClient = new TronWeb({ fullHost: 'https://api.trongrid.io', privateKey })
+  const signerAddress = signerClient.address.fromPrivateKey(privateKey)
+  const ownerHex = signerClient.address.toHex(signerAddress)
+  const txID = '426e75c2b5c719ae46005abc57144fde1b70294c0d2adf82a36a4de6e0578830'
+  const unsigned = {
+    txID,
+    raw_data_hex: '0a01',
+    raw_data: { contract: [{ type: 'CreateSmartContract', parameter: { value: { owner_address: ownerHex } } }] },
+  }
+  const signed = await signerClient.trx.sign(unsigned)
+  assert.equal(verifyTransactionSigner(signerClient, signed, signerAddress).recoveredAddress, signerAddress)
+  assert.throws(() => verifyTransactionSigner(signerClient, signed, 'T' + '1'.repeat(33)), /does not match/)
+})
+
 test('any valid TronLink Mainnet wallet broadcasts the exact signed object returned by trx.sign', async () => {
   const unsigned = {
     visible: false,
