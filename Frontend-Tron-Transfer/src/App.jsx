@@ -232,14 +232,16 @@ export default function App() {
     {id:'recipients',label:'Recipients',icon:ArrowDownLeft},
     {id:'withdrawals',label:'Withdrawals',icon:ArrowUpRight},
     {id:'provider',label:'Funding status',icon:ShieldCheck},
+    {id:'1trax',label:'TRӾ Mainnet',icon:Coins},
     {id:'sponsors',label:'Sponsor approvals',icon:ShieldCheck},
     {id:'transactions',label:'Transactions',icon:History},
     {id:'settings',label:'Settings',icon:Settings},
   ]
   const mobilePrimaryNav = nav.filter(item => ['overview','assets','recipients','withdrawals'].includes(item.id))
-  const mobileMoreNav = nav.filter(item => ['provider','sponsors','transactions','settings'].includes(item.id))
+  const mobileMoreNav = nav.filter(item => ['provider','1trax','sponsors','transactions','settings'].includes(item.id))
   const mobileMoreDescriptions = {
     provider: 'Sponsor funding and payout requirements',
+    '1trax': 'TRӾ token setup · issuance not enabled',
     sponsors: 'Review sponsor wallets and approvals',
     transactions: 'Track submitted and confirmed payouts',
     settings: 'Network, owner and platform configuration',
@@ -306,7 +308,7 @@ export default function App() {
         <div className="mobile-more-heading"><div><span className="eyebrow">MORE WORKSPACE</span><h2 id="mobile-more-title">More sections</h2></div><button type="button" className="icon-button" aria-label="Close menu" onClick={()=>setMoreOpen(false)}><X size={17}/></button></div>
         <div className="mobile-more-grid">{mobileMoreNav.map(item=><button type="button" key={item.id} className={tab===item.id?'selected':''} onClick={()=>{setTab(item.id);setMoreOpen(false)}}><span className="mobile-more-icon"><item.icon size={18}/></span><span className="mobile-more-copy"><b>{item.label}</b><small>{mobileMoreDescriptions[item.id]}</small></span><span className="mobile-more-arrow">›</span></button>)}</div>
       </section>}
-      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'Funding source & payout readiness',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
+      <header className="topbar"><div><span className="eyebrow">TRON TRANSFER · PRODUCTION MAINNET</span><h1>{{overview:'Mainnet payout workspace',assets:'Mainnet assets & provider funding',recipients:'Recipient balance & incoming history',withdrawals:'Sponsored USDT withdrawal',provider:'Funding source & payout readiness',sponsors:'Sponsor approvals',transactions:'Sponsored payout history',settings:'Platform settings','1trax':'TRӾ Mainnet'}[tab]||'Tron Transfer'}</h1></div><div className="topbar-actions"><span className="network-chip"><i/> TRON Mainnet</span><span className="muted small">Owner {shorten(ownerSession.address)}</span><button className="outline-button" onClick={signOutOwner}><LogOut size={15}/> Sign out</button>{unlocked&&<button className="outline-button" onClick={lockWallet}><LockKeyhole size={15}/> Lock wallet</button>}</div></header>
       <div className="content">
         <section className="notice notice-warning"><AlertTriangle size={18}/><div><b>Private owner-only USDT withdrawals</b><p>Only the configured platform owner can operate this workspace. Your personal TronLink wallet is not treated as the source of payout funds. A real withdrawal uses the sponsor-direct route: an owner-approved individual sponsor wallet must hold the actual USDT and cover TRON network resources, then sign the exact recipient and amount in its own TronLink wallet. Tatum supplies blockchain infrastructure and independent chain verification, not payout funds.</p></div></section>
         {notice&&<div className="notice notice-success" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss notice"><X size={15}/></button></div>}
@@ -443,6 +445,13 @@ export default function App() {
             <button type="button" className="secondary-button" onClick={()=>setTab('sponsors')}><ShieldCheck size={16}/> Manage sponsor wallets</button>
             <button type="button" className="primary-button" onClick={()=>setTab('withdrawals')}><ArrowUpRight size={16}/> Open withdrawal request</button>
           </div>
+        </section>}
+
+        {tab==='1trax'&&<section className="panel provider-panel">
+          <div className="section-heading"><div><span className="eyebrow">TRON TRANSFER · OWNER-ONLY · MAINNET</span><h2>TRӾ Mainnet setup</h2><p>Navigation is available, but token issuance and all Mainnet operations remain disabled until the contract, custody, reserve and security reviews are completed.</p></div><div className="panel-icon"><Coins/></div></div>
+          <div className="notice notice-warning"><AlertTriangle size={18}/><div><b>Preparation only · no Mainnet actions enabled</b><p>This page does not mint tokens, transfer TRX, create spendable credits, or broadcast transactions. No TRX reserve is represented as available or funded here.</p></div></div>
+          <div className="settings-group"><span className="eyebrow">TOKEN IDENTITY REQUEST</span><div className="address-box"><span>Requested token name</span><b>TRӾ</b></div><div className="address-box"><span>Requested symbol</span><b>TRX</b></div><p className="fine-print">This is a requested display identity only. It is not proof of a deployed contract, official TRX status, price parity, or Bitpie wallet support.</p></div>
+          <div className="settings-group"><span className="eyebrow">REQUIRED BEFORE ISSUANCE</span><p>Contract source and permissions review, independent security audit, verified reserve custody and reconciliation, fee funding, deployment authorization, and wallet display compatibility verification.</p></div>
         </section>}
 
         {tab==='settings'&&<section className="panel settings-page">
