@@ -22,7 +22,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/tron-meta-relayer-readiness.test.mjs tests/tron-sponsored-payouts-compile.test.mjs
+      - run: node --test tests/tron-meta-relayer-readiness.test.mjs tests/tron-sponsored-payouts-compile.test.mjs tests/tron-direct-fee-preflight.test.mjs
       - run: node scripts/compile-tron-sponsored-payouts.mjs
 
   tronlink-frontend:
