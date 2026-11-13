@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED } from '../src/trax-mainnet.mjs'
+import { decodeTronBroadcastFailure, parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission, deployContractFromTronLink, MAINNET_DEPLOYMENT_SIGNING_ENABLED, MAINNET_DEPLOYMENT_BROADCAST_ENABLED } from '../src/trax-mainnet.mjs'
 
 
 
@@ -22,6 +22,23 @@ test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
   assert.equal(typeof client.trx.getSignWeight, 'function')
   assert.equal(typeof client.utils?.transaction?.txCheck, 'function')
   assert.equal(typeof client.utils?.crypto?.ecRecover, 'function')
+})
+
+test('TRON deployment broadcast diagnostics distinguish Bandwidth, Energy and TRX balance failures', () => {
+  const tronWeb = { toUtf8: value => value }
+  const txID = 'f'.repeat(64)
+  assert.match(
+    decodeTronBroadcastFailure(tronWeb, { result: false, message: 'Account resource insufficient error' }, txID),
+    /Bandwidth requirement/,
+  )
+  assert.match(
+    decodeTronBroadcastFailure(tronWeb, { result: false, code: 'OUT_OF_ENERGY' }, txID),
+    /Energy\/fee budget is insufficient/,
+  )
+  assert.match(
+    decodeTronBroadcastFailure(tronWeb, { result: false, message: 'balance is not sufficient' }, txID),
+    /insufficient TRX/,
+  )
 })
 
 test('TRӾ amount conversion preserves six decimal places exactly', () => {
