@@ -82,6 +82,24 @@ test('TronLink deployment payload contains only the documented protocol transact
   assert.equal(Object.hasOwn(payload, 'contract_address'), false)
 })
 
+test('TronLink signature validation tolerates raw_data key-order changes but requires exact bytes', () => {
+  const unsigned = {
+    txID: 'c'.repeat(64),
+    raw_data_hex: '0a01',
+    raw_data: { contract: [{ type: 'CreateSmartContract' }], timestamp: 1, fee_limit: 300000000 },
+  }
+  const signed = {
+    ...unsigned,
+    raw_data: { fee_limit: 300000000, timestamp: 1, contract: [{ type: 'CreateSmartContract' }] },
+    signature: ['a'.repeat(130)],
+  }
+  assert.equal(signed.txID, unsigned.txID)
+  assert.equal(signed.raw_data_hex, unsigned.raw_data_hex)
+  assert.notEqual(JSON.stringify(signed.raw_data), JSON.stringify(unsigned.raw_data))
+  assert.match(signed.signature[0], /^[0-9a-f]{130}$/i)
+  assert.notEqual({ ...signed, raw_data_hex: '0a02' }.raw_data_hex, unsigned.raw_data_hex)
+})
+
 test('TronLink deployment payload rejects non-deployment or incomplete transactions', () => {
   assert.throws(() => toWalletSignableTransaction({ txID: 'a'.repeat(64), raw_data_hex: '01', raw_data: { contract: [{ type: 'TransferContract' }] } }), /CreateSmartContract/)
   assert.throws(() => toWalletSignableTransaction({ txID: 'bad', raw_data_hex: '01', raw_data: { contract: [{ type: 'CreateSmartContract' }] } }), /incomplete/)
