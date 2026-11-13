@@ -224,7 +224,7 @@ test('Mainnet deployment flags are enabled and wallet-approved deployment comple
     300000000,
     {
       createClient: () => tronWeb,
-      waitForReceipt: async txID => {
+      waitForReceipt: async (_client, txID) => {
         receiptCalls++
         assert.equal(txID, unsigned.txID)
         return { receipt: { result: 'SUCCESS' } }
