@@ -1,8 +1,18 @@
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
 import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction } from '../src/trax-mainnet.mjs'
 
+
+
+test('TRӾ manager is reachable without the private platform-owner session', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  assert.match(app, /<TRXMainnetPanel wallet=\{unlocked\} onConnect=/)
+  assert.doesNotMatch(app, /if \(!ownerSession\) return/)
+  assert.doesNotMatch(app, /if \(!ownerSessionResolved\) return/)
+  assert.doesNotMatch(app, /expectedOwner=\{ownerSession\.address\}/)
+})
 
 test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
   assert.equal(typeof TronWeb, 'function')
