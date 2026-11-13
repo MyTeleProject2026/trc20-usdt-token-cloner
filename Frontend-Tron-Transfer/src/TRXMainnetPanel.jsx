@@ -184,11 +184,13 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
     await assertOwner(token,tronWeb)
     if(!tronWeb.isAddress(recipient)) throw new Error('Enter a valid TRON Mainnet recipient address.')
     const units = parseTokenUnits(amount)
-    const [paused,enabled,supply,reserve,tokenVault,authorizedToken] = await Promise.all([
+    const [paused,enabled,supply,reserve,tokenVault,authorizedToken,recipientLocked] = await Promise.all([
       token.paused().call(),token.mintingEnabled().call(),token.totalSupply().call(),
       tronWeb.trx.getBalance(vaultAddress),token.reserveVault().call(),vault.authorizedToken().call(),
+      token.isLocked(recipient).call(),
     ])
     if(paused||!enabled) throw new Error('Minting is paused or disabled. Complete the owner activation step first.')
+    if(recipientLocked!==true) throw new Error('Recipient must be locked before minting. Use Lock recipient, then refresh and retry.')
     if(!addressesEqual(tronWeb,tokenVault,vaultAddress)||!addressesEqual(tronWeb,authorizedToken,tokenAddress)) throw new Error('Token/vault authorization is not valid.')
     if(BigInt(String(reserve))<BigInt(String(supply))+BigInt(units)) throw new Error('Insufficient uncommitted native TRX reserve for this mint.')
     const result = await sendAndVerifyContractCall(tronWeb,token.mint(recipient,units),feeCapSun)
@@ -318,7 +320,7 @@ export default function TRXMainnetPanel({ wallet, expectedOwner, onConnect }) {
       <label>Amount (TRӾ)<input value={amount} onChange={e=>setAmount(e.target.value)} inputMode="decimal"/></label>
       <div className="trax-balance-note">Raw token units: {(()=>{try{return parseTokenUnits(amount)}catch{return '—'}})()}</div>
       <button type="button" className="primary-button" disabled={!configuredOwnerMatches||busy||!snapshot?.linksValid||!snapshot?.mintingEnabled||snapshot?.paused} onClick={issue}><LockKeyhole size={15}/> Review and mint TRӾ</button>
-      <p className="fine-print">Every newly minted recipient starts locked. The owner wallet must sign the mint, and the contract independently enforces reserve backing.</p>
+      <p className="fine-print">Every newly minted recipient must already be locked. The owner wallet must sign the mint, and the contract independently enforces the lock and reserve requirements.</p>
     </div>
 
     <div className="trax-actions">
