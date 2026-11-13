@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.25;
 
 /// @title Tron Transfer TRӾ native TRX reserve vault
 /// @notice Holds real native TRX independently from the custom TRӾ TRC-20 supply.
