@@ -2,7 +2,7 @@ import test from 'node:test'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { TronWeb } from 'tronweb'
-import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity } from '../src/trax-mainnet.mjs'
+import { parseTokenUnits, formatTokenUnits, addressesEqual, assertMainnetWallet, buildDeploymentOptions, toWalletSignableTransaction, sha256HexFromBytes, verifyTransactionSigner, assertTransactionIntegrity, assertTransactionPermission } from '../src/trax-mainnet.mjs'
 
 
 
@@ -19,6 +19,7 @@ test('TronWeb 6.5.1 exposes a constructible named TronWeb class', () => {
   const client = new TronWeb({ fullHost: 'https://api.trongrid.io' })
   assert.equal(typeof client.transactionBuilder.createSmartContract, 'function')
   assert.equal(typeof client.trx.sendRawTransaction, 'function')
+  assert.equal(typeof client.trx.getSignWeight, 'function')
   assert.equal(typeof client.utils?.transaction?.txCheck, 'function')
   assert.equal(typeof client.utils?.crypto?.ecRecover, 'function')
 })
@@ -207,4 +208,21 @@ test('any valid TronLink Mainnet wallet broadcasts the exact signed object retur
   assert.equal(verifiedAddress, result.address)
   assert.equal(result.txID, unsigned.txID)
   assert.equal(result.receipt.receipt.result, 'SUCCESS')
+})
+
+test('TRON permission preflight requires ENOUGH_PERMISSION before broadcast', async () => {
+  const transaction = { txID: 'a'.repeat(64), raw_data: {}, raw_data_hex: '01', signature: ['b'.repeat(130)] }
+  const accepted = await assertTransactionPermission({
+    trx: { getSignWeight: async () => ({ result: { code: 'ENOUGH_PERMISSION' } }) },
+  }, transaction)
+  assert.equal(accepted.result.code, 'ENOUGH_PERMISSION')
+  await assert.rejects(
+    () => assertTransactionPermission({ trx: { getSignWeight: async () => ({ result: { code: 'NOT_ENOUGH_PERMISSION' } }) } }, transaction),
+    /permission threshold/,
+  )
+  await assert.rejects(
+    () => assertTransactionPermission({ trx: { getSignWeight: async () => ({ result: { code: 'PERMISSION_ERROR', message: 'bad permission' } }) } }, transaction),
+    /PERMISSION_ERROR/,
+  )
+  await assert.rejects(() => assertTransactionPermission({}, transaction), /preflight is unavailable/)
 })
