@@ -8,7 +8,7 @@ abstract contract MetaTxContext {
     address public immutable trustedForwarder;
 
     constructor(address trustedForwarder_) {
-        require(trustedForwarder_ != address(0), "zero-forwarder");
+        require(trustedForwarder_ != address(0) && trustedForwarder_.code.length > 0, "invalid-trusted-forwarder");
         trustedForwarder = trustedForwarder_;
     }
 
