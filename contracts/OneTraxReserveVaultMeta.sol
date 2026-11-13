@@ -9,7 +9,7 @@ contract OneTraxReserveVaultMeta is MetaTxContext {
     address public authorizedToken;
 
     event ReserveFunded(address indexed funder, uint256 amount);
-    event ReserveReleased(address indexed recipient, uint256 amount, bytes32 indexed reference);
+    event ReserveReleased(address indexed recipient, uint256 amount, bytes32 indexed redemptionReference);
     event TokenContractAuthorized(address indexed tokenContract);
 
     modifier onlyOwner() { require(_msgSender() == owner, "owner-only"); _; }
@@ -29,13 +29,13 @@ contract OneTraxReserveVaultMeta is MetaTxContext {
         emit TokenContractAuthorized(tokenContract);
     }
 
-    function releaseForRedemption(address payable recipient, uint256 amount, bytes32 reference) external returns (bool) {
+    function releaseForRedemption(address payable recipient, uint256 amount, bytes32 redemptionReference) external returns (bool) {
         require(msg.sender == authorizedToken && authorizedToken != address(0), "token-only");
-        require(recipient != address(0) && amount > 0 && reference != bytes32(0), "invalid-redemption");
+        require(recipient != address(0) && amount > 0 && redemptionReference != bytes32(0), "invalid-redemption");
         require(address(this).balance >= amount, "insufficient-reserve");
         (bool sent,) = recipient.call{value: amount}("");
         require(sent, "native-trx-transfer-failed");
-        emit ReserveReleased(recipient, amount, reference);
+        emit ReserveReleased(recipient, amount, redemptionReference);
         return true;
     }
 
