@@ -115,6 +115,14 @@ function explainTronLinkError(error, stage) {
   return stage + ': ' + raw
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']'
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}'
+  }
+  return JSON.stringify(value)
+}
+
 export async function sha256HexFromBytes(hex) {
   const value = String(hex || '')
   if (!/^(?:[0-9a-f]{2})+$/i.test(value)) throw new Error('Malformed raw_data_hex; refusing to sign or broadcast.')
@@ -225,14 +233,17 @@ export async function deployContractFromTronLink(wallet, artifact, contractName,
   // the node-generated transaction. Never broadcast wallet-returned mutations.
   const signedRawDataHexMatches = typeof signed?.raw_data_hex === 'string'
     && signed.raw_data_hex.toLowerCase() === walletTransaction.raw_data_hex.toLowerCase()
+  const signedRawDataMatches = Boolean(signed?.raw_data)
+    && canonicalJson(signed.raw_data) === canonicalJson(walletTransaction.raw_data)
   const signedTxIDMatchesRawData = signedRawDataHexMatches
     && (await sha256HexFromBytes(signed.raw_data_hex)).toLowerCase() === String(signed.txID || '').toLowerCase()
   if (!signed || !hasValidSignature || signed.txID !== walletTransaction.txID
-    || !signedRawDataHexMatches || !signedTxIDMatchesRawData) {
+    || !signedRawDataHexMatches || !signedRawDataMatches || !signedTxIDMatchesRawData) {
     const reason = !signed ? 'missing signed transaction'
       : !hasValidSignature ? 'missing or malformed 65-byte signature'
       : signed.txID !== walletTransaction.txID ? 'transaction ID changed'
       : !signedRawDataHexMatches ? 'wallet changed or omitted raw_data_hex'
+      : !signedRawDataMatches ? 'wallet changed raw_data fields after signing'
       : 'signed txID does not match SHA-256(raw_data_hex)'
     throw new Error('TronLink signing result failed cryptographic payload consistency validation (' + reason + '). Nothing was broadcast.')
   }
